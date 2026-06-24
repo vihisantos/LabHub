@@ -1,0 +1,231 @@
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { usePCs } from '../hooks/usePCs'
+import { useMaintenance } from '../hooks/useMaintenance'
+import { PCCard } from '../components/PCCard'
+import { FilterBar } from '../components/FilterBar'
+import type { Status } from '../components/FilterBar'
+import { EmptyState } from '../components/EmptyState'
+import { LoadingSpinner } from '../components/LoadingSpinner'
+import { PullToRefresh } from '../components/PullToRefresh'
+
+export function PCList() {
+  const navigate = useNavigate()
+  const { pcs, loading, update, reload } = usePCs()
+  const { create: scheduleMaint } = useMaintenance()
+  const [search, setSearch] = useState('')
+  const [filters, setFilters] = useState<{ lab: string; status: Status }>({
+    lab: '',
+    status: 'all',
+  })
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const labs = useMemo(() => {
+    const unique = new Set(pcs.map((p) => p.labName))
+    return Array.from(unique).sort()
+  }, [pcs])
+
+  const filtered = useMemo(() => {
+    return pcs.filter((pc) => {
+      if (filters.lab && pc.labName !== filters.lab) return false
+      if (filters.status !== 'all' && pc.cleaningStatus !== filters.status && pc.restorationStatus !== filters.status) return false
+      if (search) {
+        const q = search.toLowerCase()
+        return (
+          pc.labName.toLowerCase().includes(q) ||
+          pc.pcNumber.toLowerCase().includes(q) ||
+          pc.roomLocation.toLowerCase().includes(q)
+        )
+      }
+      return true
+    })
+  }, [pcs, filters, search])
+
+  const selectedPCs = useMemo(() => {
+    return pcs.filter((p) => selected.has(p.id))
+  }, [pcs, selected])
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAll() {
+    if (selected.size === filtered.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(filtered.map((p) => p.id)))
+    }
+  }
+
+  function batchUpdate(key: 'cleaningStatus' | 'restorationStatus', value: 'pending' | 'in_progress' | 'done') {
+    selected.forEach((id) => update(id, { [key]: value }))
+    reload()
+    setSelected(new Set())
+    setSelectMode(false)
+  }
+
+  function batchScheduleMaintenance() {
+    const dateStr = prompt('Data para manutenção (AAAA-MM-DD):')
+    if (!dateStr) return
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return
+
+    const type = prompt('Tipo: cleaning, restoration ou both') || 'cleaning'
+    if (!['cleaning', 'restoration', 'both'].includes(type)) return
+
+    selectedPCs.forEach((pc) => {
+      scheduleMaint({
+        pcId: pc.id,
+        labName: pc.labName,
+        pcNumber: pc.pcNumber,
+        type: type as any,
+        scheduledDate: { seconds: Math.floor(date.getTime() / 1000), nanoseconds: 0 } as any,
+        notes: `Agendamento em lote (${selectedPCs.length} PCs)`,
+      })
+    })
+
+    setSelected(new Set())
+    setSelectMode(false)
+  }
+
+  function toggleSelectMode() {
+    setSelectMode(!selectMode)
+    setSelected(new Set())
+  }
+
+  if (loading) return <LoadingSpinner />
+
+  return (
+    <PullToRefresh onRefresh={reload}>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Computadores</h2>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/pcare/qr')}
+            className="rounded-lg border border-cyan-700 px-3 py-2 text-sm text-cyan-400 hover:bg-cyan-900/30"
+          >
+            QR
+          </button>
+          <button
+            type="button"
+            onClick={toggleSelectMode}
+            className={`rounded-lg border px-3 py-2 text-sm ${
+              selectMode
+                ? 'border-cyan-500 bg-cyan-900/30 text-cyan-300'
+                : 'border-slate-700 text-slate-300 hover:border-slate-500'
+            }`}
+          >
+            {selectMode ? 'Cancelar' : 'Selecionar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/pcare/pcs/new')}
+            className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          >
+            + Novo PC
+          </button>
+        </div>
+      </div>
+
+      <div className="relative mb-3">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">🔍</span>
+        <input
+          type="text"
+          placeholder="Buscar por laboratório, PC ou sala..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-lg border border-slate-800 bg-slate-900 py-2 pl-9 pr-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
+        />
+      </div>
+
+      {labs.length > 0 && (
+        <FilterBar labs={labs} onFilterChange={setFilters} />
+      )}
+
+      {selectMode && filtered.length > 0 && (
+        <button type="button" onClick={selectAll} className="mb-3 text-xs font-medium text-cyan-400 hover:text-cyan-300">
+          {selected.size === filtered.length ? 'Desmarcar todos' : `Selecionar todos (${filtered.length})`}
+        </button>
+      )}
+
+      {filtered.length === 0 ? (
+        <EmptyState
+          icon="🖥️"
+          title="Nenhum PC encontrado"
+          description="Crie o primeiro computador para começar o inventário."
+          action={{ label: 'Adicionar PC', onClick: () => navigate('/pcare/pcs/new') }}
+        />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-slate-500">
+            {filtered.length} de {pcs.length} PCs exibidos
+            {selected.size > 0 && ` · ${selected.size} selecionados`}
+          </p>
+          {filtered.map((pc) => (
+            <PCCard
+              key={pc.id}
+              pc={pc}
+              selectable={selectMode}
+              selected={selected.has(pc.id)}
+              onToggleSelect={toggleSelect}
+            />
+          ))}
+        </div>
+      )}
+
+      {selected.size > 0 && (
+        <div className="fixed bottom-20 left-0 right-0 z-40 mx-auto max-w-lg px-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-lg shadow-black/40 backdrop-blur-xl">
+            <p className="mb-2 text-center text-xs text-slate-400">{selected.size} PCs selecionados</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              <div className="flex gap-1">
+                <StatusQuickBtn label="Limpeza" value="pending" color="slate" onClick={() => batchUpdate('cleaningStatus', 'pending')} />
+                <StatusQuickBtn label="Limpeza" value="in_progress" color="amber" onClick={() => batchUpdate('cleaningStatus', 'in_progress')} />
+                <StatusQuickBtn label="Limpeza" value="done" color="emerald" onClick={() => batchUpdate('cleaningStatus', 'done')} />
+              </div>
+              <div className="flex gap-1">
+                <StatusQuickBtn label="Rest." value="pending" color="slate" onClick={() => batchUpdate('restorationStatus', 'pending')} />
+                <StatusQuickBtn label="Rest." value="in_progress" color="amber" onClick={() => batchUpdate('restorationStatus', 'in_progress')} />
+                <StatusQuickBtn label="Rest." value="done" color="emerald" onClick={() => batchUpdate('restorationStatus', 'done')} />
+              </div>
+              <button type="button" onClick={batchScheduleMaintenance} className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-slate-700">
+                📅 Agendar manutenção
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </PullToRefresh>
+  )
+}
+
+function StatusQuickBtn({
+  label,
+  value,
+  color,
+  onClick,
+}: {
+  label: string
+  value: string
+  color: 'slate' | 'amber' | 'emerald'
+  onClick: () => void
+}) {
+  const colors = {
+    slate: 'bg-slate-800 text-slate-300 hover:bg-slate-700 ring-1 ring-slate-700',
+    amber: 'bg-amber-900/40 text-amber-300 hover:bg-amber-900/60 ring-1 ring-amber-800/50',
+    emerald: 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60 ring-1 ring-emerald-800/50',
+  }
+
+  return (
+    <button type="button" onClick={onClick} className={`rounded-lg px-2 py-1.5 text-[10px] font-medium transition-colors ${colors[color]}`}>
+      {label}: {value === 'pending' ? 'Pend' : value === 'in_progress' ? 'Andam' : 'Conc'}
+    </button>
+  )
+}

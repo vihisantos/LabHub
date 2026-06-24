@@ -1,0 +1,10 @@
+export function LoadingSpinner() {
+  return (
+    <div className="flex items-center justify-center py-24">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-cyan-400" />
+        <p className="text-xs text-slate-600">Carregando...</p>
+      </div>
+    </div>
+  )
+}
