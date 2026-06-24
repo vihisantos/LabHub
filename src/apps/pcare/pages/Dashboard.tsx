@@ -52,6 +52,12 @@ export function Dashboard() {
   const { parts, loading: partsLoading } = useParts()
   const { upcoming, loading: maintLoading } = useMaintenance()
 
+  const recentLogs = useMemo(() => {
+    return actionLogService.getAll()
+      .sort((a, b) => b.timestamp.seconds - a.timestamp.seconds)
+      .slice(0, 5)
+  }, [])
+
   if (pcsLoading || partsLoading || maintLoading) return <LoadingSpinner />
 
   const totalPCs = pcs.length
@@ -65,12 +71,6 @@ export function Dashboard() {
   ).length
 
   const lowStockParts = parts.filter((p) => p.quantity <= p.minQuantity)
-
-  const recentLogs = useMemo(() => {
-    return actionLogService.getAll()
-      .sort((a, b) => b.timestamp.seconds - a.timestamp.seconds)
-      .slice(0, 5)
-  }, [])
 
   return (
     <div className="space-y-5">
