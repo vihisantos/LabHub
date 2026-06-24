@@ -1,7 +1,7 @@
 import { useOnlineSync } from '../hooks/useOnlineSync'
 
 export function OnlineBanner() {
-  const { online, syncing, lastSync } = useOnlineSync()
+  const { online, syncing } = useOnlineSync()
 
   if (online && !syncing) return null
 

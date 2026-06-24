@@ -1,13 +1,8 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useRef } from 'react'
 
-function getPageTitle(pathname: string): string {
-  return 'Estoque Geral'
-}
-
 export function GeneralStockLayout() {
   const location = useLocation()
-  const title = getPageTitle(location.pathname)
   const mainRef = useRef<HTMLDivElement>(null)
 
   function scrollToTop() {
@@ -33,7 +28,7 @@ export function GeneralStockLayout() {
             className="flex items-center gap-2 overflow-hidden text-left"
           >
             <div className="flex flex-col">
-              <h1 className="text-sm font-semibold text-white leading-tight">{title}</h1>
+              <h1 className="text-sm font-semibold text-white leading-tight">Estoque Geral</h1>
               <p className="text-[10px] text-slate-500 leading-tight">Lab Hub · ⌂ Início</p>
             </div>
           </button>

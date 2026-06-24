@@ -19,7 +19,7 @@ const emptyForm = (): GeneralItemFormData => ({
 })
 
 export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
-  const [form, setForm] = useState<GeneralItemFormData>(initial ?? emptyForm())
+  const [form, setForm] = useState<GeneralItemFormData>({ ...emptyForm(), ...initial })
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
