@@ -1,32 +1,34 @@
-# React + TypeScript + Vite
+# Lab Hub
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+> Personal PWA for PC cleaning/restoration inventory management across university labs.
 
-Currently, two official plugins are available:
+[![CI](https://github.com/vihisantos/LabHub/actions/workflows/ci.yml/badge.svg)](https://github.com/vihisantos/LabHub/actions/workflows/ci.yml)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**Project:** https://github.com/vihisantos/LabHub
 
-## React Compiler
+## Sub-apps
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **PCare** — PC inventory, parts vinculação, cleaning checklists, scheduled maintenance, QR/barcode scanning, activity timeline, reports (CSV/XLSX/PDF).
+- **Estoque Geral** — General stock control for non-PC materials and supplies.
 
-## Expanding the Oxlint configuration
+## Stack
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+React 19 · TypeScript · Vite · Tailwind CSS v4 · PWA (vite-plugin-pwa) · Firebase (Firestore + Storage + Auth) · localStorage (until Firebase configured)
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+## Getting Started
+
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Build for production:
+
+```bash
+npm run build
+npm run preview
+```
+
+## Status
+
+Pre-release — data layer on localStorage, Firebase integration pending.
