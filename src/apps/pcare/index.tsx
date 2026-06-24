@@ -5,7 +5,6 @@ import { PCList } from './pages/PCList'
 import { PCForm } from './pages/PCForm'
 import { PCDetail } from './pages/PCDetail'
 import { PartsList } from './pages/PartsList'
-import { Scanner } from './pages/Scanner'
 import { AssetScanner } from './pages/AssetScanner'
 import { QRGenerator } from './pages/QRGenerator'
 import { ChecklistTemplates } from './pages/ChecklistTemplates'
@@ -22,7 +21,6 @@ export function PCareApp() {
         <Route path="pcs/:id" element={<PCDetail />} />
         <Route path="pcs/:id/edit" element={<PCForm />} />
         <Route path="parts" element={<PartsList />} />
-        <Route path="scanner" element={<Scanner />} />
         <Route path="asset-scanner" element={<AssetScanner />} />
         <Route path="qr" element={<QRGenerator />} />
         <Route path="checklists" element={<ChecklistTemplates />} />

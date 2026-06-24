@@ -11,8 +11,7 @@ const mainNav = [
 const moreItems = [
   { to: '/pcare/reports', label: 'Relatórios', icon: '📄' },
   { to: '/pcare/checklists', label: 'Checklist', icon: '📋' },
-  { to: '/pcare/scanner', label: 'QR', icon: '📷' },
-  { to: '/pcare/asset-scanner', label: 'Patrimônio', icon: '🏷️' },
+  { to: '/pcare/asset-scanner', label: 'Scanner', icon: '📷' },
 ]
 
 export function BottomNav() {
