@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
@@ -9,6 +9,7 @@ import { EmptyState } from '../components/EmptyState'
 import { AddPartToPcModal } from '../components/AddPartToPcModal'
 import { PCChecklistModal } from '../components/PCChecklistModal'
 import { ActionTimeline } from '../components/ActionTimeline'
+import { partUsageService } from '../services/partUsageService'
 import type { PC, PCPart } from '../types'
 
 export function PCDetail() {
@@ -49,6 +50,8 @@ function PCDetailContent({
   const [showAddPart, setShowAddPart] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
 
+  const partUsages = useMemo(() => partUsageService.getByPC(pc.id), [pc.id])
+
   function toggleStatus(type: 'cleaning' | 'restoration') {
     const key = type === 'cleaning' ? 'cleaningStatus' : 'restorationStatus'
     const current = pc[key]
@@ -77,6 +80,7 @@ function PCDetailContent({
     reloadParts()
     setShowAddPart(false)
 
+    partUsageService.log(replacedPart.partId, pc.id, replacedPart.partName, replacedPart.quantity)
     addLog('part_added', `${replacedPart.quantity}x ${replacedPart.partName} adicionado(a)`)
   }
 
@@ -287,6 +291,22 @@ function PCDetailContent({
           <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Observações</h3>
             <p className="text-sm text-slate-300">{pc.observations}</p>
+          </section>
+        )}
+
+        {partUsages.length > 0 && (
+          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Peças Utilizadas</h3>
+            <div className="flex flex-col gap-2">
+              {partUsages.map((u) => (
+                <div key={u.id} className="flex items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2">
+                  <div>
+                    <p className="text-sm text-slate-200">{u.quantity}x {u.partName}</p>
+                    <p className="text-xs text-slate-500">{new Date(u.timestamp.seconds * 1000).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
         )}
 

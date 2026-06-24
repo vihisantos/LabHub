@@ -4,7 +4,7 @@ import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
 import { useMaintenance } from '../hooks/useMaintenance'
 import { actionLogService } from '../services/actionLogService'
-import { LoadingSpinner } from '../components/LoadingSpinner'
+import { SkeletonStatCard, SkeletonTimeline } from '../components/Skeletons'
 
 function formatDate(seconds: number) {
   return new Date(seconds * 1000).toLocaleDateString('pt-BR')
@@ -58,7 +58,19 @@ export function Dashboard() {
       .slice(0, 5)
   }, [])
 
-  if (pcsLoading || partsLoading || maintLoading) return <LoadingSpinner />
+  if (pcsLoading || partsLoading || maintLoading) {
+    return (
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 gap-3">
+          {[1, 2, 3, 4].map((i) => <SkeletonStatCard key={i} />)}
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <div className="mb-3 h-3 w-24 rounded bg-slate-800" />
+          <SkeletonTimeline />
+        </div>
+      </div>
+    )
+  }
 
   const totalPCs = pcs.length
   const cleaned = pcs.filter((p) => p.cleaningStatus === 'done').length

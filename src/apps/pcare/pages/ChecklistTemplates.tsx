@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useChecklistTemplates } from '../hooks/useChecklists'
 import { EmptyState } from '../components/EmptyState'
-import { LoadingSpinner } from '../components/LoadingSpinner'
+import { SkeletonCard } from '../components/Skeletons'
 import type { ChecklistItemDef, ChecklistTemplateForm } from '../types/checklist'
 
 const emptyForm = (): ChecklistTemplateForm => ({
@@ -80,7 +80,7 @@ export function ChecklistTemplates() {
     setShowForm(true)
   }
 
-  if (loading) return <LoadingSpinner />
+  if (loading) return <div className="space-y-2">{[1,2,3].map(i => <SkeletonCard key={i} />)}</div>
 
   return (
     <div>

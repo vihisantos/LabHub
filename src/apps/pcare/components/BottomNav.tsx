@@ -1,5 +1,14 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { partService } from '../services/partService'
+import { maintenanceService } from '../services/maintenanceService'
+
+function useBadges() {
+  const now = Math.floor(Date.now() / 1000)
+  const overdue = maintenanceService.getAll().filter((m) => m.scheduledDate.seconds < now).length
+  const lowStock = partService.getAll().filter((p) => p.quantity <= p.minQuantity).length
+  return { overdue, lowStock }
+}
 
 const mainNav = [
   { to: '/pcare', label: 'Dashboard', icon: '📊' },
@@ -12,11 +21,13 @@ const moreItems = [
   { to: '/pcare/reports', label: 'Relatórios', icon: '📄' },
   { to: '/pcare/checklists', label: 'Checklist', icon: '📋' },
   { to: '/pcare/asset-scanner', label: 'Scanner', icon: '📷' },
+  { to: '/pcare/settings', label: 'Config', icon: '⚙️' },
 ]
 
 export function BottomNav() {
   const location = useLocation()
   const [showMore, setShowMore] = useState(false)
+  const { overdue, lowStock } = useBadges()
 
   const isInMore = moreItems.some((i) => location.pathname.startsWith(i.to))
   const moreActive = moreItems.find((i) => location.pathname.startsWith(i.to))
@@ -53,30 +64,40 @@ export function BottomNav() {
       )}
 
       <nav className="flex items-stretch rounded-2xl border border-white/10 bg-slate-900/80 px-2 py-1 backdrop-blur-2xl shadow-lg shadow-black/50">
-        {mainNav.map(({ to, label, icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/pcare'}
-            className={({ isActive }) =>
-              `relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-                isActive ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-300'
-              }`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <span className="mb-0.5 text-lg leading-none">{icon}</span>
-                <span className="relative">
-                  {label}
-                  {isActive && (
-                    <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />
-                  )}
-                </span>
-              </>
-            )}
-          </NavLink>
-        ))}
+        {mainNav.map(({ to, label, icon }) => {
+          const badge = to === '/pcare/maintenance' ? overdue : to === '/pcare/parts' ? lowStock : 0
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/pcare'}
+              className={({ isActive }) =>
+                `relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
+                  isActive ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-300'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <span className="relative mb-0.5 text-lg leading-none">
+                    {icon}
+                    {badge > 0 && (
+                      <span className="absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-white leading-none shadow-sm shadow-red-500/50">
+                        {badge}
+                      </span>
+                    )}
+                  </span>
+                  <span className="relative">
+                    {label}
+                    {isActive && (
+                      <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />
+                    )}
+                  </span>
+                </>
+              )}
+            </NavLink>
+          )
+        })}
 
         <button
           type="button"

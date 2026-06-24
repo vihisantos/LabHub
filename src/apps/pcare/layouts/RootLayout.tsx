@@ -3,10 +3,11 @@ import { useRef } from 'react'
 import { BottomNav } from '../components/BottomNav'
 import { OnlineBanner } from '../components/OnlineBanner'
 import { useSwipeBack } from '../hooks/useSwipeBack'
+import { useTheme } from '../../../lib/ThemeContext'
 
 const mainRoutes = new Set([
   '/pcare', '/pcare/pcs', '/pcare/parts', '/pcare/maintenance',
-  '/pcare/reports', '/pcare/checklists', '/pcare/scanner', '/pcare/asset-scanner',
+  '/pcare/reports', '/pcare/checklists', '/pcare/scanner', '/pcare/asset-scanner', '/pcare/settings',
 ])
 
 function isDetailPage(pathname: string) {
@@ -28,12 +29,14 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/pcare/scanner')) return 'QR Code'
   if (pathname.startsWith('/pcare/asset-scanner')) return 'Patrimônio'
   if (pathname.startsWith('/pcare/qr')) return 'Gerar QR'
+  if (pathname.startsWith('/pcare/settings')) return 'Configurações'
   return 'PCare'
 }
 
 function getBackPath(pathname: string): string {
   if (pathname.startsWith('/pcare/pcs')) return '/pcare/pcs'
   if (pathname.startsWith('/pcare/qr')) return '/pcare/pcs'
+  if (pathname.startsWith('/pcare/settings')) return '/pcare'
   return '/pcare'
 }
 
@@ -45,6 +48,7 @@ export function RootLayout() {
   const mainRef = useRef<HTMLDivElement>(null)
 
   useSwipeBack()
+  const { theme, toggle } = useTheme()
 
   function scrollToTop() {
     if (mainRef.current && mainRef.current.scrollTop > 0) {
@@ -85,10 +89,19 @@ export function RootLayout() {
             <p className="text-[10px] text-slate-500 leading-tight">PCare {detail ? '' : '· ⌂ Início'}</p>
           </div>
         </button>
+
+        <button
+          type="button"
+          onClick={toggle}
+          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+          title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
       </header>
 
       <main ref={mainRef} className="flex-1 overflow-y-auto pb-24">
-        <div key={location.pathname} className="p-4">
+        <div key={location.pathname} className="animate-[fade-in-up_0.3s_ease-out] p-4">
           <Outlet />
         </div>
       </main>

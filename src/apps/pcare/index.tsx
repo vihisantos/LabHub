@@ -10,22 +10,29 @@ import { QRGenerator } from './pages/QRGenerator'
 import { ChecklistTemplates } from './pages/ChecklistTemplates'
 import { Reports } from './pages/Reports'
 import { Maintenance } from './pages/Maintenance'
+import { Settings } from './pages/Settings'
+import { ErrorBoundary } from '../../lib/ErrorBoundary'
+
+function EB({ children }: { children: React.ReactNode }) {
+  return <ErrorBoundary>{children}</ErrorBoundary>
+}
 
 export function PCareApp() {
   return (
     <Routes>
       <Route element={<RootLayout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="pcs" element={<PCList />} />
-        <Route path="pcs/new" element={<PCForm />} />
-        <Route path="pcs/:id" element={<PCDetail />} />
-        <Route path="pcs/:id/edit" element={<PCForm />} />
-        <Route path="parts" element={<PartsList />} />
-        <Route path="asset-scanner" element={<AssetScanner />} />
-        <Route path="qr" element={<QRGenerator />} />
-        <Route path="checklists" element={<ChecklistTemplates />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="maintenance" element={<Maintenance />} />
+        <Route index element={<EB><Dashboard /></EB>} />
+        <Route path="pcs" element={<EB><PCList /></EB>} />
+        <Route path="pcs/new" element={<EB><PCForm /></EB>} />
+        <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
+        <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
+        <Route path="parts" element={<EB><PartsList /></EB>} />
+        <Route path="asset-scanner" element={<EB><AssetScanner /></EB>} />
+        <Route path="qr" element={<EB><QRGenerator /></EB>} />
+        <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
+        <Route path="reports" element={<EB><Reports /></EB>} />
+        <Route path="maintenance" element={<EB><Maintenance /></EB>} />
+        <Route path="settings" element={<EB><Settings /></EB>} />
       </Route>
     </Routes>
   )

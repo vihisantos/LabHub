@@ -6,8 +6,8 @@ import { PCCard } from '../components/PCCard'
 import { FilterBar } from '../components/FilterBar'
 import type { Status } from '../components/FilterBar'
 import { EmptyState } from '../components/EmptyState'
-import { LoadingSpinner } from '../components/LoadingSpinner'
 import { PullToRefresh } from '../components/PullToRefresh'
+import { SkeletonCard } from '../components/Skeletons'
 
 export function PCList() {
   const navigate = useNavigate()
@@ -99,7 +99,7 @@ export function PCList() {
     setSelected(new Set())
   }
 
-  if (loading) return <LoadingSpinner />
+  if (loading) return <div className="space-y-2">{[1,2,3,4,5].map(i => <SkeletonCard key={i} />)}</div>
 
   return (
     <PullToRefresh onRefresh={reload}>

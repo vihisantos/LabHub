@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useMaintenance } from '../hooks/useMaintenance'
 import { usePCs } from '../hooks/usePCs'
 import { EmptyState } from '../components/EmptyState'
-import { LoadingSpinner } from '../components/LoadingSpinner'
 import { PullToRefresh } from '../components/PullToRefresh'
+import { SkeletonCard } from '../components/Skeletons'
 
 function formatDate(seconds: number) {
   return new Date(seconds * 1000).toLocaleDateString('pt-BR')
@@ -60,7 +60,7 @@ export function Maintenance() {
     resetForm()
   }
 
-  if (loading) return <LoadingSpinner />
+  if (loading) return <div className="space-y-2">{[1,2,3,4].map(i => <SkeletonCard key={i} />)}</div>
 
   const overdue = upcoming.filter((m) => isOverdue(m.scheduledDate.seconds))
   const future = upcoming.filter((m) => !isOverdue(m.scheduledDate.seconds))

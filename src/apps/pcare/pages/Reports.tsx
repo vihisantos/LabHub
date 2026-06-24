@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
 import { exportCSV, exportXLSX, exportPDF, pcToRows, partToRows } from '../utils/export'
-import { LoadingSpinner } from '../components/LoadingSpinner'
+import { SkeletonStatCard } from '../components/Skeletons'
 
 type DataType = 'pcs' | 'parts'
 type Format = 'csv' | 'xlsx' | 'pdf'
@@ -24,7 +24,7 @@ export function Reports() {
     return pcs.filter((p) => p.labName === labFilter)
   }, [pcs, labFilter])
 
-  if (pcsLoading || partsLoading) return <LoadingSpinner />
+  if (pcsLoading || partsLoading) return <div className="grid grid-cols-2 gap-3">{[1,2,3,4].map(i => <SkeletonStatCard key={i} />)}</div>
 
   function handleExport() {
     const filename = `PCare_${dataType}_${new Date().toISOString().split('T')[0]}`
