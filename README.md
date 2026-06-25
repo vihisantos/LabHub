@@ -3,8 +3,9 @@
 > Personal PWA for PC cleaning/restoration inventory management across university labs.
 
 [![CI](https://github.com/vihisantos/LabHub/actions/workflows/ci.yml/badge.svg)](https://github.com/vihisantos/LabHub/actions/workflows/ci.yml)
+[![Vercel](https://img.shields.io/badge/deploy-vercel-000?logo=vercel)](https://lab-hub-pi.vercel.app)
 
-**Project:** https://github.com/vihisantos/LabHub
+**Site:** https://lab-hub-pi.vercel.app · **Repo:** https://github.com/vihisantos/LabHub
 
 ## Sub-apps
 
