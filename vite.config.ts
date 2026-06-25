@@ -31,6 +31,12 @@ export default defineConfig({
           { src: '/favicon.svg', sizes: '192x192', type: 'image/svg+xml' },
           { src: '/favicon.svg', sizes: '512x512', type: 'image/svg+xml' },
         ],
+        shortcuts: [
+          { name: 'PCs', short_name: 'PCs', url: '/pcare/pcs' },
+          { name: 'Scanner', short_name: 'Scanner', url: '/pcare/asset-scanner' },
+          { name: 'Novo PC', short_name: 'Novo PC', url: '/pcare/pcs/new' },
+          { name: 'Estoque Geral', short_name: 'Estoque', url: '/general-stock' },
+        ],
       },
     }),
   ],

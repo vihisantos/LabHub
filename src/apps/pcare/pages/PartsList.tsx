@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { Fragment, useState, useMemo } from 'react'
 import { useParts } from '../hooks/useParts'
+import { usePCs } from '../hooks/usePCs'
 import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
+import { partUsageService } from '../services/partUsageService'
 import type { PartFormData } from '../types'
 
 const emptyPartForm: PartFormData = {
@@ -21,9 +23,11 @@ const categories = [
 
 export function PartsList() {
   const { parts, loading, create, update, remove, reload } = useParts()
+  const { pcs } = usePCs()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<PartFormData>(emptyPartForm)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [usagePartId, setUsagePartId] = useState<string | null>(null)
 
   function resetForm() {
     setForm(emptyPartForm)
@@ -179,66 +183,110 @@ export function PartsList() {
           {parts.map((part) => {
             const lowStock = part.quantity <= part.minQuantity
             return (
-              <div
-                key={part.id}
-                className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/50 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-medium text-slate-200">{part.name}</h3>
-                    {lowStock && (
-                      <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
-                        Estoque baixo
-                      </span>
-                    )}
+              <Fragment key={part.id}>
+                <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/50 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium text-slate-200">{part.name}</h3>
+                      {lowStock && (
+                        <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+                          Estoque baixo
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {part.category} {part.serialNumber && `· ${part.serialNumber}`}
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    {part.category} {part.serialNumber && `· ${part.serialNumber}`}
-                  </p>
-                </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => adjustQuantity(part.id, -1)}
+                        className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-800 text-sm text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200"
+                      >
+                        −
+                      </button>
+                      <span className="min-w-[2ch] text-center font-semibold text-white">
+                        {part.quantity}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => adjustQuantity(part.id, 1)}
+                        className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-800 text-sm text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200"
+                      >
+                        +
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => adjustQuantity(part.id, -1)}
-                      className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-800 text-sm text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200"
+                      onClick={() => startEdit(part)}
+                      className="text-xs font-medium text-cyan-400 hover:text-cyan-300"
                     >
-                      −
+                      Editar
                     </button>
-                    <span className="min-w-[2ch] text-center font-semibold text-white">
-                      {part.quantity}
-                    </span>
                     <button
                       type="button"
-                      onClick={() => adjustQuantity(part.id, 1)}
-                      className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-800 text-sm text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200"
+                      onClick={() => setUsagePartId(usagePartId === part.id ? null : part.id)}
+                      className="text-xs font-medium text-slate-400 hover:text-slate-300"
                     >
-                      +
+                      {usagePartId === part.id ? 'Ocultar' : 'Uso'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Remover ${part.name}?`)) remove(part.id)
+                      }}
+                      className="text-xs font-medium text-red-400 hover:text-red-300"
+                    >
+                      Excluir
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => startEdit(part)}
-                    className="text-xs font-medium text-cyan-400 hover:text-cyan-300"
-                  >
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(`Remover ${part.name}?`)) remove(part.id)
-                    }}
-                    className="text-xs font-medium text-red-400 hover:text-red-300"
-                  >
-                    Excluir
-                  </button>
                 </div>
-              </div>
+                {usagePartId === part.id && (
+                  <PartUsagePanel partId={part.id} pcs={pcs} />
+                )}
+              </Fragment>
             )
           })}
         </div>
       )}
     </PullToRefresh>
+  )
+}
+
+function PartUsagePanel({ partId, pcs }: { partId: string; pcs: { id: string; labName: string; pcNumber: string }[] }) {
+  const usage = useMemo(() => {
+    return partUsageService.getByPartId(partId)
+  }, [partId])
+
+  if (usage.length === 0) {
+    return (
+      <div className="mt-2 rounded-lg bg-slate-800/30 px-4 py-3">
+        <p className="text-xs text-slate-500">Nenhum PC utilizou esta peça ainda.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2 rounded-lg bg-slate-800/30 px-4 py-3">
+      <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-slate-500">Usada em:</p>
+      <div className="flex flex-col gap-1.5">
+        {usage.map((u) => {
+          const pc = pcs.find((p) => p.id === u.pcId)
+          return (
+            <div key={u.id} className="flex items-center justify-between text-xs">
+              <span className="text-slate-300">
+                {pc ? `${pc.labName} — ${pc.pcNumber}` : 'PC removido'}
+              </span>
+              <span className="text-slate-500">
+                {u.quantity}x · {new Date(u.timestamp.seconds * 1000).toLocaleDateString('pt-BR')}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

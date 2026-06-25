@@ -1,9 +1,24 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
-import type { PCFormData } from '../types'
+import type { PC, PCFormData } from '../types'
 
-const initialForm: PCFormData = {
+function cloneForm(clone: PC): PCFormData {
+  return {
+    labName: clone.labName,
+    pcNumber: '',
+    assetTag: '',
+    roomLocation: clone.roomLocation,
+    specs: { ...clone.specs },
+    cleaningStatus: 'pending',
+    restorationStatus: 'pending',
+    softwareInstalled: [...clone.softwareInstalled],
+    partsReplaced: [],
+    observations: clone.observations,
+  }
+}
+
+const emptyForm: PCFormData = {
   labName: '',
   pcNumber: '',
   assetTag: '',
@@ -19,10 +34,12 @@ const initialForm: PCFormData = {
 export function PCForm() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { pcs, create, update } = usePCs()
   const isEditing = !!id
 
-  const [form, setForm] = useState<PCFormData>(initialForm)
+  const clone = (location.state as { clone?: PC })?.clone
+  const [form, setForm] = useState<PCFormData>(clone ? cloneForm(clone) : emptyForm)
   const [softwareInput, setSoftwareInput] = useState('')
 
   useEffect(() => {

@@ -317,6 +317,7 @@ function PCDetailContent({
 
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={() => navigate(`/pcare/pcs/${pc.id}/edit`)} className="flex-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Editar</button>
+          <button type="button" onClick={() => navigate('/pcare/pcs/new', { state: { clone: pc } })} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800">Clonar</button>
           <button type="button" onClick={() => navigate('/pcare/qr')} className="rounded-lg border border-cyan-700 px-4 py-2 text-sm text-cyan-400 hover:bg-cyan-900/30">QR</button>
           <button type="button" onClick={handleDelete} className="rounded-lg border border-red-800 px-4 py-2 text-sm text-red-400 hover:bg-red-900/30">Excluir</button>
         </div>

@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom'
 import { appRegistry } from '../appRegistry'
+import { useTheme } from '../lib/ThemeContext'
 
 export function Launcher() {
   const navigate = useNavigate()
+  const { theme, toggle } = useTheme()
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-neutral-950 text-white">
@@ -36,6 +38,14 @@ export function Launcher() {
 
       {/* Header */}
       <header className="relative z-10 flex w-full flex-col items-center px-4 pb-6 pt-12">
+        <button
+          type="button"
+          onClick={toggle}
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-sm text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+          title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
         <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 ring-1 ring-cyan-500/30 backdrop-blur-sm">
           <span className="text-2xl">🧪</span>
         </div>

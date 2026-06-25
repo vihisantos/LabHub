@@ -84,6 +84,20 @@ export function Dashboard() {
 
   const lowStockParts = parts.filter((p) => p.quantity <= p.minQuantity)
 
+  const labs = useMemo(() => {
+    const map = new Map<string, number>()
+    pcs.forEach((p) => map.set(p.labName, (map.get(p.labName) || 0) + 1))
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1])
+  }, [pcs])
+
+  const statusSummary = useMemo(() => {
+    const todos = pcs.length
+    const feitos = pcs.filter((p) => p.cleaningStatus === 'done').length
+    const andamento = pcs.filter((p) => p.cleaningStatus === 'in_progress').length
+    const pendentes = pcs.filter((p) => p.cleaningStatus === 'pending').length
+    return { todos, feitos, andamento, pendentes }
+  }, [pcs])
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3">
@@ -141,6 +155,48 @@ export function Dashboard() {
           <ProgressBar value={restored} total={totalPCs} label="Restauração" color="from-emerald-500 to-green-500" />
         </div>
       </div>
+
+      {totalPCs > 0 && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Status de Limpeza</h3>
+          <div className="flex h-3 overflow-hidden rounded-full bg-slate-800">
+            {statusSummary.feitos > 0 && (
+              <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${(statusSummary.feitos / totalPCs) * 100}%` }} />
+            )}
+            {statusSummary.andamento > 0 && (
+              <div className="bg-amber-500 transition-all duration-500" style={{ width: `${(statusSummary.andamento / totalPCs) * 100}%` }} />
+            )}
+            {statusSummary.pendentes > 0 && (
+              <div className="bg-slate-600 transition-all duration-500" style={{ width: `${(statusSummary.pendentes / totalPCs) * 100}%` }} />
+            )}
+          </div>
+          <div className="mt-2 flex gap-4 text-[10px]">
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Prontos ({statusSummary.feitos})</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Andamento ({statusSummary.andamento})</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-600" /> Pendentes ({statusSummary.pendentes})</span>
+          </div>
+        </div>
+      )}
+
+      {labs.length > 1 && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">PCs por Laboratório</h3>
+          <div className="space-y-2">
+            {labs.map(([lab, count]) => (
+              <div key={lab} className="flex items-center gap-2">
+                <span className="w-24 truncate text-xs text-slate-400">{lab}</span>
+                <div className="flex-1 h-4 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500"
+                    style={{ width: `${(count / totalPCs) * 100}%` }}
+                  />
+                </div>
+                <span className="w-8 text-right text-xs text-slate-500">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {upcoming.length > 0 && (
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">

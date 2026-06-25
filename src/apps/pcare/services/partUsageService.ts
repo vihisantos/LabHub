@@ -9,6 +9,9 @@ export const partUsageService = {
   getByPC: (pcId: string) =>
     store.query((u) => u.pcId === pcId).sort((a, b) => b.timestamp.seconds - a.timestamp.seconds),
 
+  getByPartId: (partId: string) =>
+    store.query((u) => u.partId === partId).sort((a, b) => b.timestamp.seconds - a.timestamp.seconds),
+
   log: (partId: string, pcId: string, partName: string, quantity: number) =>
     store.create({
       partId,
