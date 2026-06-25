@@ -8,6 +8,7 @@ import { PartsList } from './pages/PartsList'
 import { AssetScanner } from './pages/AssetScanner'
 import { QRGenerator } from './pages/QRGenerator'
 import { ChecklistTemplates } from './pages/ChecklistTemplates'
+import { ChecklistExecute } from './pages/ChecklistExecute'
 import { Reports } from './pages/Reports'
 import { Maintenance } from './pages/Maintenance'
 import { Settings } from './pages/Settings'
@@ -30,6 +31,7 @@ export function PCareApp() {
         <Route path="asset-scanner" element={<EB><AssetScanner /></EB>} />
         <Route path="qr" element={<EB><QRGenerator /></EB>} />
         <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
+        <Route path="checklists/:templateId/execute" element={<EB><ChecklistExecute /></EB>} />
         <Route path="reports" element={<EB><Reports /></EB>} />
         <Route path="maintenance" element={<EB><Maintenance /></EB>} />
         <Route path="settings" element={<EB><Settings /></EB>} />

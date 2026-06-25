@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useChecklistTemplates } from '../hooks/useChecklists'
 import { EmptyState } from '../components/EmptyState'
 import { SkeletonCard } from '../components/Skeletons'
@@ -17,6 +18,7 @@ const categories = [
 ]
 
 export function ChecklistTemplates() {
+  const navigate = useNavigate()
   const { templates, loading, create, update, remove } = useChecklistTemplates()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<ChecklistTemplateForm>(emptyForm())
@@ -205,6 +207,7 @@ export function ChecklistTemplates() {
                   <p className="text-xs text-slate-500">{t.labName || 'Todos os laboratórios'} · {t.items.length} itens</p>
                 </div>
                 <div className="flex gap-2">
+                  <button type="button" onClick={() => navigate(`/pcare/checklists/${t.id}/execute`)} className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Executar</button>
                   <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-cyan-400 hover:text-cyan-300">Editar</button>
                   <button type="button" onClick={() => { if (window.confirm(`Remover "${t.name}"?`)) remove(t.id) }} className="text-xs font-medium text-red-400 hover:text-red-300">Excluir</button>
                 </div>
