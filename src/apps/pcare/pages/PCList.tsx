@@ -8,6 +8,8 @@ import type { Status } from '../components/FilterBar'
 import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
+import { Modal } from '../components/Modal'
+import { icons } from '../../../lib/icons'
 
 export function PCList() {
   const navigate = useNavigate()
@@ -20,6 +22,9 @@ export function PCList() {
   })
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [scheduleType, setScheduleType] = useState<'cleaning' | 'restoration' | 'both'>('cleaning')
 
   const labs = useMemo(() => {
     const unique = new Set(pcs.map((p) => p.labName))
@@ -70,21 +75,17 @@ export function PCList() {
     setSelectMode(false)
   }
 
-  function batchScheduleMaintenance() {
-    const dateStr = prompt('Data para manutenção (AAAA-MM-DD):')
-    if (!dateStr) return
-    const date = new Date(dateStr)
+  function handleScheduleMaintenance() {
+    if (!scheduleDate) return
+    const date = new Date(scheduleDate)
     if (isNaN(date.getTime())) return
-
-    const type = prompt('Tipo: cleaning, restoration ou both') || 'cleaning'
-    if (!['cleaning', 'restoration', 'both'].includes(type)) return
 
     selectedPCs.forEach((pc) => {
       scheduleMaint({
         pcId: pc.id,
         labName: pc.labName,
         pcNumber: pc.pcNumber,
-        type: type as any,
+        type: scheduleType,
         scheduledDate: { seconds: Math.floor(date.getTime() / 1000), nanoseconds: 0 } as any,
         notes: `Agendamento em lote (${selectedPCs.length} PCs)`,
       })
@@ -92,6 +93,9 @@ export function PCList() {
 
     setSelected(new Set())
     setSelectMode(false)
+    setShowScheduleModal(false)
+    setScheduleDate('')
+    setScheduleType('cleaning')
   }
 
   function toggleSelectMode() {
@@ -119,7 +123,7 @@ export function PCList() {
             className={`rounded-lg border px-3 py-2 text-sm ${
               selectMode
                 ? 'border-cyan-500 bg-cyan-900/30 text-cyan-300'
-                : 'border-slate-700 text-slate-300 hover:border-slate-500'
+                : 'border-line text-slate-300 hover:border-slate-500'
             }`}
           >
             {selectMode ? 'Cancelar' : 'Selecionar'}
@@ -127,7 +131,7 @@ export function PCList() {
           <button
             type="button"
             onClick={() => navigate('/pcare/pcs/new')}
-            className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+            className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
           >
             + Novo PC
           </button>
@@ -135,14 +139,24 @@ export function PCList() {
       </div>
 
       <div className="relative mb-3">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">🔍</span>
+        <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
         <input
           type="text"
           placeholder="Buscar por laboratório, PC ou sala..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-slate-800 bg-slate-900 py-2 pl-9 pr-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
+          className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
         />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-slate-300"
+            aria-label="Limpar busca"
+          >
+            <icons.ui.close size={14} />
+          </button>
+        )}
       </div>
 
       {labs.length > 0 && (
@@ -157,14 +171,14 @@ export function PCList() {
 
       {filtered.length === 0 ? (
         <EmptyState
-          icon="🖥️"
+          icon={icons.nav.pcs}
           title="Nenhum PC encontrado"
           description="Crie o primeiro computador para começar o inventário."
           action={{ label: 'Adicionar PC', onClick: () => navigate('/pcare/pcs/new') }}
         />
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-fg-muted">
             {filtered.length} de {pcs.length} PCs exibidos
             {selected.size > 0 && ` · ${selected.size} selecionados`}
           </p>
@@ -181,9 +195,9 @@ export function PCList() {
       )}
 
       {selected.size > 0 && (
-        <div className="fixed bottom-20 left-0 right-0 z-40 mx-auto max-w-lg px-4">
-          <div className="rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-lg shadow-black/40 backdrop-blur-xl">
-            <p className="mb-2 text-center text-xs text-slate-400">{selected.size} PCs selecionados</p>
+        <div className="fixed left-0 right-0 z-40 mx-auto max-w-lg px-4" style={{ bottom: 'calc(4rem + max(1rem, env(safe-area-inset-bottom)))' }}>
+          <div className="rounded-xl border border-line bg-card p-3 shadow-lg shadow-black/40 backdrop-blur-xl">
+            <p className="mb-2 text-center text-xs text-fg-dim">{selected.size} PCs selecionados</p>
             <div className="flex flex-wrap justify-center gap-2">
               <div className="flex gap-1">
                 <StatusQuickBtn label="Limpeza" value="pending" color="slate" onClick={() => batchUpdate('cleaningStatus', 'pending')} />
@@ -195,13 +209,48 @@ export function PCList() {
                 <StatusQuickBtn label="Rest." value="in_progress" color="amber" onClick={() => batchUpdate('restorationStatus', 'in_progress')} />
                 <StatusQuickBtn label="Rest." value="done" color="emerald" onClick={() => batchUpdate('restorationStatus', 'done')} />
               </div>
-              <button type="button" onClick={batchScheduleMaintenance} className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-slate-700">
-                📅 Agendar manutenção
+              <button type="button" onClick={() => setShowScheduleModal(true)} className="flex items-center gap-1 rounded-lg bg-input px-3 py-1.5 text-xs text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-slate-700">
+                <icons.ui.calendar size={12} />
+                Agendar
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <Modal open={showScheduleModal} onClose={() => setShowScheduleModal(false)} title="Agendar Manutenção">
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-fg-dim">Data</label>
+            <input
+              type="date"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+              className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none focus:border-cyan-500"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-fg-dim">Tipo</label>
+            <select
+              value={scheduleType}
+              onChange={(e) => setScheduleType(e.target.value as any)}
+              className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none focus:border-cyan-500"
+            >
+              <option value="cleaning">Limpeza</option>
+              <option value="restoration">Restauração</option>
+              <option value="both">Ambas</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={handleScheduleMaintenance}
+            disabled={!scheduleDate}
+            className="w-full rounded-lg bg-cyan-600 py-2 text-sm font-medium text-fg transition-colors hover:bg-cyan-700 disabled:opacity-50"
+          >
+            Agendar para {selected.size} PC{selected.size > 1 ? 's' : ''}
+          </button>
+        </div>
+      </Modal>
     </PullToRefresh>
   )
 }
@@ -218,7 +267,7 @@ function StatusQuickBtn({
   onClick: () => void
 }) {
   const colors = {
-    slate: 'bg-slate-800 text-slate-300 hover:bg-slate-700 ring-1 ring-slate-700',
+    slate: 'bg-input text-slate-300 hover:bg-slate-700 ring-1 ring-slate-700',
     amber: 'bg-amber-900/40 text-amber-300 hover:bg-amber-900/60 ring-1 ring-amber-800/50',
     emerald: 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60 ring-1 ring-emerald-800/50',
   }

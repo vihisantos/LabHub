@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import { usePCs } from '../hooks/usePCs'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { EmptyState } from '../components/EmptyState'
+import { icons } from '../../../lib/icons'
 
 interface QRItem {
   id: string
@@ -50,7 +51,7 @@ export function QRGenerator() {
   if (pcs.length === 0) {
     return (
       <EmptyState
-        icon="🔲"
+        icon={icons.ui.qrCode}
         title="Nenhum PC cadastrado"
         description="Adicione PCs primeiro para gerar QR Codes."
         action={{ label: 'Adicionar PC', onClick: () => navigate('/pcare/pcs/new') }}
@@ -65,22 +66,23 @@ export function QRGenerator() {
           <button
             type="button"
             onClick={() => navigate('/pcare/pcs')}
-            className="rounded-lg p-1 text-slate-400 hover:text-slate-200"
+            className="rounded-lg p-1 text-fg-dim hover:text-fg"
+            aria-label="Voltar"
           >
-            ←
+            <icons.ui.back size={20} />
           </button>
           <h2 className="text-xl font-semibold">QR Codes</h2>
         </div>
         <button
           type="button"
           onClick={handlePrint}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           Imprimir
         </button>
       </div>
 
-      <p className="mb-4 text-sm text-slate-400">
+      <p className="mb-4 text-sm text-fg-dim">
         {qrItems.length} QR Codes gerados. Use o scanner para identificar rapidamente cada PC.
       </p>
 
@@ -91,7 +93,7 @@ export function QRGenerator() {
         {qrItems.map((item) => (
           <div
             key={item.id}
-            className="flex flex-col items-center rounded-xl border border-slate-700 bg-white p-4"
+            className="flex flex-col items-center rounded-xl border border-line bg-white p-4"
           >
             <img
               src={item.dataUrl}

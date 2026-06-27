@@ -4,9 +4,10 @@ import { StockCard } from '../components/StockCard'
 import { StockForm } from '../components/StockForm'
 import { stockCategories } from '../types'
 import type { GeneralItem } from '../types'
-import { LoadingSpinner } from '../../pcare/components/LoadingSpinner'
 import { EmptyState } from '../../pcare/components/EmptyState'
 import { PullToRefresh } from '../../pcare/components/PullToRefresh'
+import { SkeletonCard } from '../../pcare/components/Skeletons'
+import { icons } from '../../../lib/icons'
 
 export function StockList() {
   const { items, loading, create, update, remove, reload } = useStock()
@@ -62,7 +63,7 @@ export function StockList() {
     setShowForm(true)
   }
 
-  if (loading) return <LoadingSpinner />
+  if (loading) return <div className="space-y-2">{[1,2,3,4,5].map(i => <SkeletonCard key={i} />)}</div>
 
   return (
     <PullToRefresh onRefresh={reload}>
@@ -72,7 +73,7 @@ export function StockList() {
           <button
             type="button"
             onClick={showForm ? () => setShowForm(false) : openForm}
-            className="rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md"
+            className="rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md"
           >
             {showForm ? 'Cancelar' : '+ Novo Item'}
           </button>
@@ -80,9 +81,9 @@ export function StockList() {
 
         {total > 0 && (
           <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2.5">
-              <p className="text-xs text-slate-500">Total</p>
-              <p className="text-lg font-bold text-white">{total}</p>
+            <div className="rounded-lg border border-line bg-card/50 px-3 py-2.5">
+              <p className="text-xs text-fg-muted">Total</p>
+              <p className="text-lg font-bold text-fg">{total}</p>
             </div>
             <div className="rounded-lg border border-amber-900/30 bg-amber-950/20 px-3 py-2.5">
               <p className="text-xs text-amber-400">Estoque baixo</p>
@@ -96,8 +97,8 @@ export function StockList() {
         )}
 
         {showForm && (
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <div className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
               {editing ? 'Editar Item' : 'Novo Item'}
             </h3>
             <StockForm
@@ -109,14 +110,23 @@ export function StockList() {
         )}
 
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">🔍</span>
+          <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
           <input
             type="text"
             placeholder="Buscar por nome, local ou observação..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-slate-800 bg-slate-900 py-2 pl-9 pr-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 transition-colors focus:border-emerald-500"
+            className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-slate-600 transition-colors focus:border-emerald-500"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-slate-300"
+            >
+              <icons.ui.close size={14} />
+            </button>
+          )}
         </div>
 
         <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -126,7 +136,7 @@ export function StockList() {
             className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               categoryFilter === ''
                 ? 'bg-emerald-900/40 text-emerald-300 ring-1 ring-emerald-700/50'
-                : 'bg-slate-800 text-slate-400 ring-1 ring-slate-700 hover:bg-slate-700'
+                : 'bg-input text-fg-dim ring-1 ring-slate-700 hover:bg-slate-700'
             }`}
           >
             Todos
@@ -139,7 +149,7 @@ export function StockList() {
               className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 categoryFilter === cat.value
                   ? 'bg-emerald-900/40 text-emerald-300 ring-1 ring-emerald-700/50'
-                  : 'bg-slate-800 text-slate-400 ring-1 ring-slate-700 hover:bg-slate-700'
+                  : 'bg-input text-fg-dim ring-1 ring-slate-700 hover:bg-slate-700'
               }`}
             >
               {cat.label}
@@ -148,20 +158,24 @@ export function StockList() {
         </div>
 
         {criticalCount > 0 && categoryFilter === '' && !search && (
-          <div className="rounded-lg border border-red-900/30 bg-red-950/20 px-4 py-3">
-            <p className="text-sm font-medium text-red-400">
-              ⚠️ {criticalCount} {criticalCount === 1 ? 'item esgotado' : 'itens esgotados'}
-            </p>
-            <p className="text-xs text-red-400/70 mt-0.5">Reposição necessária o quanto antes</p>
+          <div className="flex items-start gap-2 rounded-lg border border-red-900/30 bg-red-950/20 px-4 py-3">
+            <icons.ui.alertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
+            <div>
+              <p className="text-sm font-medium text-red-400">
+                {criticalCount} {criticalCount === 1 ? 'item esgotado' : 'itens esgotados'}
+              </p>
+              <p className="text-xs text-red-400/70 mt-0.5">Reposição necessária o quanto antes</p>
+            </div>
           </div>
         )}
 
         {filtered.length === 0 ? (
           <EmptyState
-            icon="📦"
+            icon={icons.ui.package}
             title={items.length === 0 ? 'Estoque vazio' : 'Nenhum item encontrado'}
             description={items.length === 0 ? 'Adicione itens para controlar o estoque do laboratório.' : 'Tente alterar os filtros ou a busca.'}
             action={items.length === 0 ? { label: 'Adicionar Item', onClick: openForm } : undefined}
+            accentColor="emerald"
           />
         ) : (
           <div className="space-y-2">

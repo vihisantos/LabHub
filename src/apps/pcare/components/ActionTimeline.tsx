@@ -1,12 +1,15 @@
 import type { ActionLog } from '../types/actionLog'
+import type { ComponentType } from 'react'
+import { icons } from '../../../lib/icons'
+import { CircleDot } from 'lucide-react'
 
-const iconMap: Record<string, string> = {
-  pc_created: '🆕',
-  status_changed: '🔄',
-  part_added: '🔧',
-  checklist_applied: '📋',
-  checklist_toggled: '✅',
-  software_added: '💿',
+const iconMap: Record<string, ComponentType<{ size?: number }>> = {
+  pc_created: icons.ui.plusCircle,
+  status_changed: icons.ui.refresh,
+  part_added: icons.nav.parts,
+  checklist_applied: icons.nav.checklists,
+  checklist_toggled: icons.ui.check,
+  software_added: icons.ui.hardDrive,
 }
 
 function formatTime(seconds: number) {
@@ -30,7 +33,7 @@ interface ActionTimelineProps {
 
 export function ActionTimeline({ logs }: ActionTimelineProps) {
   if (logs.length === 0) {
-    return <p className="text-sm text-slate-500">Nenhuma ação registrada.</p>
+    return <p className="text-sm text-fg-muted">Nenhuma ação registrada.</p>
   }
 
   return (
@@ -38,14 +41,18 @@ export function ActionTimeline({ logs }: ActionTimelineProps) {
       {logs.map((log, i) => (
         <div key={log.id} className="flex gap-3">
           <div className="flex flex-col items-center">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-800 text-sm ring-1 ring-slate-700">
-              {iconMap[log.type] || '📌'}
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-input ring-1 ring-slate-700">
+              {iconMap[log.type] ? (
+                (() => { const Icon = iconMap[log.type]; return <Icon size={14} /> })()
+              ) : (
+                <CircleDot size={14} />
+              )}
             </span>
-            {i < logs.length - 1 && <div className="mt-1 w-px flex-1 bg-slate-800" />}
+            {i < logs.length - 1 && <div className="mt-1 w-px flex-1 bg-input" />}
           </div>
           <div className="flex-1 pb-3">
-            <p className="text-sm text-slate-200">{log.description}</p>
-            <p className="text-xs text-slate-500">{formatTime(log.timestamp.seconds)}</p>
+            <p className="text-sm text-fg">{log.description}</p>
+            <p className="text-xs text-fg-muted">{formatTime(log.timestamp.seconds)}</p>
           </div>
         </div>
       ))}

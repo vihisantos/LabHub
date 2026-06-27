@@ -4,6 +4,7 @@ import { BarcodeFormat } from '@zxing/library'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import type { IScannerControls } from '@zxing/browser'
 import { usePCs } from '../hooks/usePCs'
+import { icons } from '../../../lib/icons'
 import type { PC } from '../types/pc'
 
 const ZOOM_MIN = 1
@@ -432,13 +433,13 @@ export function AssetScanner() {
     <div>
       <h2 className="mb-4 text-xl font-semibold">Leitor de Etiqueta</h2>
 
-      <div className="mx-auto max-w-sm overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50">
+      <div className="mx-auto max-w-sm overflow-hidden rounded-xl border border-line bg-card/50">
         {scanning ? (
           <div className="relative">
             {loading && (
               <div className="flex h-64 flex-col items-center justify-center gap-2">
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-                <p className="text-xs text-slate-500">Iniciando câmera...</p>
+                <p className="text-xs text-fg-muted">Iniciando câmera...</p>
               </div>
             )}
             <div className={`relative ${loading || cameraError ? 'hidden' : ''}`}>
@@ -447,7 +448,7 @@ export function AssetScanner() {
                 className="relative overflow-hidden"
               >
                 {modelLoading && (
-                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm">
+                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-card/80 backdrop-blur-sm">
                     <div className="flex flex-col items-center gap-2">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-green-400 border-t-transparent" />
                       <p className="text-xs text-slate-300">Carregando modelo de mão...</p>
@@ -481,7 +482,7 @@ export function AssetScanner() {
 
                 {scanningPinch && (
                   <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                    <div className="rounded-lg bg-slate-900/80 px-4 py-2 text-sm text-white backdrop-blur-sm">
+                    <div className="rounded-lg bg-card/80 px-4 py-2 text-sm text-fg backdrop-blur-sm">
                       {ocrAttempt ? 'Lendo número...' : 'Escaneando região...'}
                     </div>
                   </div>
@@ -493,9 +494,9 @@ export function AssetScanner() {
                     onClick={() => {
                       if (fingerRectRef.current) scanRegion(fingerRectRef.current)
                     }}
-                    className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full bg-green-500/90 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-green-500/30 backdrop-blur-sm transition-all hover:bg-green-400 active:scale-95"
+                    className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full bg-green-500/90 px-5 py-2 text-sm font-semibold text-fg shadow-lg shadow-green-500/30 backdrop-blur-sm transition-all hover:bg-green-400 active:scale-95"
                   >
-                    📸 Capturar
+                    <icons.nav.scanner size={16} className="inline" /> Capturar
                   </button>
                 )}
 
@@ -505,12 +506,12 @@ export function AssetScanner() {
                       handVisible ? 'bg-green-400 shadow-[0_0_8px_#22c55e]' : 'bg-slate-600'
                     }`}
                   />
-                  <span className="text-[10px] text-slate-500">{handVisible ? 'Mão detectada' : 'Sem mão'}</span>
+                  <span className="text-[10px] text-fg-muted">{handVisible ? 'Mão detectada' : 'Sem mão'}</span>
                   <button
                     type="button"
                     onClick={() => setDebug((d) => !d)}
                     className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                      debug ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-slate-400'
+                      debug ? 'bg-cyan-600 text-fg' : 'bg-slate-700 text-fg-dim'
                     }`}
                   >
                     debug
@@ -518,7 +519,7 @@ export function AssetScanner() {
                 </div>
 
                 {zoom !== 1 && (
-                  <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs text-white backdrop-blur-sm">
+                  <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-xs text-fg backdrop-blur-sm">
                     {zoom}x
                   </div>
                 )}
@@ -528,7 +529,7 @@ export function AssetScanner() {
                     type="button"
                     onClick={zoomIn}
                     disabled={zoom >= ZOOM_MAX}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-sm text-white backdrop-blur-sm transition-colors hover:bg-black/70 disabled:opacity-30"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-sm text-fg backdrop-blur-sm transition-colors hover:bg-black/70 disabled:opacity-30"
                   >
                     +
                   </button>
@@ -536,7 +537,7 @@ export function AssetScanner() {
                     type="button"
                     onClick={zoomOut}
                     disabled={zoom <= ZOOM_MIN}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-sm text-white backdrop-blur-sm transition-colors hover:bg-black/70 disabled:opacity-30"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-sm text-fg backdrop-blur-sm transition-colors hover:bg-black/70 disabled:opacity-30"
                   >
                     −
                   </button>
@@ -545,15 +546,15 @@ export function AssetScanner() {
             </div>
             {cameraError && (
               <div className="flex flex-col items-center px-4 py-16">
-                <span className="mb-2 text-4xl">📷</span>
+                <icons.nav.scanner size={40} />
                 <p className="mb-1 text-sm text-red-400">{cameraError}</p>
-                <p className="mb-4 text-xs text-slate-500">
+                <p className="mb-4 text-xs text-fg-muted">
                   Verifique as permissões da câmera nas configurações
                 </p>
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+                  className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
                 >
                   Tentar novamente
                 </button>
@@ -581,25 +582,25 @@ export function AssetScanner() {
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && handleConfirm()}
                 placeholder="Digite o número da etiqueta"
-                className="flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none transition-colors focus:border-cyan-500"
+                className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg placeholder-slate-600 outline-none transition-colors focus:border-cyan-500"
                 autoFocus
               />
               <button
                 type="button"
                 onClick={handleConfirm}
                 disabled={!suggestedText}
-                className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:opacity-40"
+                className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:opacity-40"
               >
                 Confirmar
               </button>
             </div>
 
             {foundPC && (
-              <div className="mb-4 w-full max-w-xs rounded-lg border border-slate-800 bg-slate-900/50 p-3">
-                <p className="mb-1 text-sm font-semibold text-slate-200">
+              <div className="mb-4 w-full max-w-xs rounded-lg border border-line bg-card/50 p-3">
+                <p className="mb-1 text-sm font-semibold text-fg">
                   {foundPC.labName} — PC {foundPC.pcNumber}
                 </p>
-                <div className="space-y-0.5 text-xs text-slate-400">
+                <div className="space-y-0.5 text-xs text-fg-dim">
                   <p>Patrimônio: <span className="text-slate-300">{foundPC.assetTag}</span></p>
                   <p>Local: <span className="text-slate-300">{foundPC.roomLocation}</span></p>
                   <p>Limpeza: <span className="text-slate-300">{foundPC.cleaningStatus}</span></p>
@@ -614,7 +615,7 @@ export function AssetScanner() {
             )}
 
             {!suggestedText && (
-              <p className="mb-4 text-sm text-slate-400">
+              <p className="mb-4 text-sm text-fg-dim">
                 Nenhum código identificado. Digite o número manualmente.
               </p>
             )}
@@ -622,7 +623,7 @@ export function AssetScanner() {
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+              className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
             >
               Escanear outra
             </button>
@@ -630,7 +631,7 @@ export function AssetScanner() {
         )}
       </div>
 
-      <p className="mt-4 text-center text-xs text-slate-500">
+      <p className="mt-4 text-center text-xs text-fg-muted">
         Aproxime o polegar e o indicador para enquadrar o código, depois toque em <strong>Capturar</strong>
       </p>
     </div>

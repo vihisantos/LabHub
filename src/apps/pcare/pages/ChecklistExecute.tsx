@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useChecklistTemplates } from '../hooks/useChecklists'
 import { usePCs } from '../hooks/usePCs'
+import { icons } from '../../../lib/icons'
 import type { PCChecklistItem } from '../types/checklist'
 
 export function ChecklistExecute() {
@@ -49,9 +50,9 @@ export function ChecklistExecute() {
   if (!template) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-6 py-20">
-        <span className="text-4xl">📋</span>
-        <p className="text-sm text-slate-400">Template não encontrado</p>
-        <button type="button" onClick={() => navigate('/pcare/checklists')} className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-white">Voltar</button>
+        <icons.nav.checklists size={40} />
+        <p className="text-sm text-fg-dim">Template não encontrado</p>
+        <button type="button" onClick={() => navigate('/pcare/checklists')} className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg">Voltar</button>
       </div>
     )
   }
@@ -62,23 +63,23 @@ export function ChecklistExecute() {
         <button
           type="button"
           onClick={() => navigate('/pcare/checklists')}
-          className="self-start text-sm text-slate-400 hover:text-slate-200"
+          className="self-start text-sm text-fg-dim hover:text-fg"
         >
           ← Voltar
         </button>
 
         <div className="text-center">
-          <span className="text-5xl">📋</span>
-          <h1 className="mt-3 text-xl font-bold text-white">{template.name}</h1>
-          <p className="mt-1 text-sm text-slate-500">{template.labName || 'Todos os laboratórios'} · {template.items.length} itens</p>
+          <icons.nav.checklists size={48} className="mx-auto" />
+          <h1 className="mt-3 text-xl font-bold text-fg">{template.name}</h1>
+          <p className="mt-1 text-sm text-fg-muted">{template.labName || 'Todos os laboratórios'} · {template.items.length} itens</p>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Itens do Checklist</h3>
+        <div className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Itens do Checklist</h3>
           <div className="flex flex-col gap-2">
             {template.items.map((item, i) => (
               <div key={item.id} className="flex items-center gap-2 text-sm text-slate-300">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px] text-slate-500">{i + 1}</span>
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-input text-[10px] text-fg-muted">{i + 1}</span>
                 <span>{item.label}</span>
                 {item.optional && <span className="text-[10px] text-slate-600">(opcional)</span>}
               </div>
@@ -86,15 +87,15 @@ export function ChecklistExecute() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Selecionar PC</h3>
+        <div className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Selecionar PC</h3>
           {pcSelect.length === 0 ? (
-            <p className="text-sm text-slate-500">Nenhum PC encontrado para este laboratório.</p>
+            <p className="text-sm text-fg-muted">Nenhum PC encontrado para este laboratório.</p>
           ) : (
             <select
               value={selectedPcId}
               onChange={(e) => setSelectedPcId(e.target.value)}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-cyan-500"
+              className="w-full rounded-lg border border-line bg-card px-3 py-2.5 text-sm text-fg outline-none focus:border-cyan-500"
             >
               <option value="">Selecione um PC</option>
               {pcSelect.map((pc) => (
@@ -108,7 +109,7 @@ export function ChecklistExecute() {
           type="button"
           onClick={startChecklist}
           disabled={!selectedPcId}
-          className="w-full rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 py-4 text-lg font-bold text-white shadow-lg shadow-cyan-500/25 transition-all hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 py-4 text-lg font-bold text-fg shadow-lg shadow-cyan-500/25 transition-all hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Iniciar Checklist
         </button>
@@ -126,18 +127,18 @@ export function ChecklistExecute() {
             setStarted(false)
             setItems([])
           }}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-slate-400 hover:bg-slate-800"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-fg-dim hover:bg-input"
         >
           ←
         </button>
         <div className="flex-1">
-          <h1 className="text-sm font-semibold text-white">{template.name}</h1>
-          <p className="text-[10px] text-slate-500">{doneCount}/{items.length} concluídos</p>
+          <h1 className="text-sm font-semibold text-fg">{template.name}</h1>
+          <p className="text-[10px] text-fg-muted">{doneCount}/{items.length} concluídos</p>
         </div>
-        <span className="text-2xl">{allDone ? '🎉' : '📋'}</span>
+        <span className="text-2xl">{allDone ? <icons.ui.partyPopper size={24} /> : <icons.nav.checklists size={24} />}</span>
       </div>
 
-      <div className="h-3 overflow-hidden rounded-full bg-slate-800">
+      <div className="h-3 overflow-hidden rounded-full bg-input">
         <div
           className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500"
           style={{ width: `${progress}%` }}
@@ -153,19 +154,19 @@ export function ChecklistExecute() {
             className={`flex items-center gap-4 rounded-xl border p-5 text-left transition-all duration-200 active:scale-[0.98] ${
               item.done
                 ? 'border-emerald-700/50 bg-emerald-900/20'
-                : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                : 'border-line bg-input/50 hover:border-slate-600'
             }`}
           >
             <span
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-lg transition-all ${
                 item.done
                   ? 'bg-emerald-500/20 text-emerald-400'
-                  : 'bg-slate-800 text-slate-500'
+                  : 'bg-input text-fg-muted'
               }`}
             >
-              {item.done ? '✓' : String(items.indexOf(item) + 1)}
+              {item.done ? <icons.ui.check size={20} /> : String(items.indexOf(item) + 1)}
             </span>
-            <span className={`text-base font-medium ${item.done ? 'text-emerald-300 line-through' : 'text-slate-200'}`}>
+            <span className={`text-base font-medium ${item.done ? 'text-emerald-300 line-through' : 'text-fg'}`}>
               {item.label}
             </span>
             {item.done && (
@@ -179,13 +180,13 @@ export function ChecklistExecute() {
         type="button"
         disabled={!allDone}
         onClick={() => navigate('/pcare/checklists')}
-        className={`w-full rounded-xl py-4 text-lg font-bold text-white shadow-lg transition-all ${
+        className={`w-full rounded-xl py-4 text-lg font-bold text-fg shadow-lg transition-all ${
           allDone
             ? 'bg-gradient-to-r from-emerald-600 to-green-600 shadow-emerald-500/25 hover:shadow-xl'
-            : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+            : 'bg-input text-fg-muted cursor-not-allowed'
         }`}
       >
-        {allDone ? '✓ Finalizar Checklist' : `${doneCount}/${items.length} — Complete todos os itens`}
+        {allDone ? <><icons.ui.check size={20} className="inline" /> Finalizar Checklist</> : `${doneCount}/${items.length} — Complete todos os itens`}
       </button>
     </div>
   )

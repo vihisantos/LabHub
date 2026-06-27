@@ -1,9 +1,9 @@
 type Status = 'pending' | 'in_progress' | 'done'
 
-const statusConfig: Record<Status, { label: string; class: string; glow: string }> = {
-  pending: { label: 'Pendente', class: 'bg-slate-700 text-slate-300', glow: 'shadow-[0_0_6px_#47556940]' },
-  in_progress: { label: 'Em andamento', class: 'bg-amber-900/60 text-amber-300', glow: 'shadow-[0_0_6px_#d9770640]' },
-  done: { label: 'Concluído', class: 'bg-emerald-900/60 text-emerald-300', glow: 'shadow-[0_0_6px_#05966940]' },
+const statusConfig: Record<Status, { label: string; dot: string; class: string }> = {
+  pending: { label: 'Pendente', dot: 'bg-slate-400', class: 'bg-slate-700 text-slate-300' },
+  in_progress: { label: 'Em andamento', dot: 'bg-amber-400', class: 'bg-amber-900/60 text-amber-300' },
+  done: { label: 'Concluído', dot: 'bg-emerald-400', class: 'bg-emerald-900/60 text-emerald-300' },
 }
 
 interface StatusBadgeProps {
@@ -13,7 +13,8 @@ interface StatusBadgeProps {
 export function StatusBadge({ status }: StatusBadgeProps) {
   const config = statusConfig[status]
   return (
-    <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.class} ${config.glow}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.class}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
       {config.label}
     </span>
   )

@@ -1,10 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, type ComponentType } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
 import { useMaintenance } from '../hooks/useMaintenance'
 import { actionLogService } from '../services/actionLogService'
 import { SkeletonStatCard, SkeletonTimeline } from '../components/Skeletons'
+import { icons } from '../../../lib/icons'
 
 function formatDate(seconds: number) {
   return new Date(seconds * 1000).toLocaleDateString('pt-BR')
@@ -28,22 +29,22 @@ function formatTime(seconds: number) {
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
-const iconMap: Record<string, string> = {
-  pc_created: '🆕',
-  status_changed: '🔄',
-  part_added: '🔧',
-  checklist_applied: '📋',
-  checklist_toggled: '✅',
-  software_added: '💿',
+const iconMap: Record<string, ComponentType<{ size?: number }>> = {
+  pc_created: icons.ui.plusCircle,
+  status_changed: icons.ui.refresh,
+  part_added: icons.nav.parts,
+  checklist_applied: icons.nav.checklists,
+  checklist_toggled: icons.ui.check,
+  software_added: icons.ui.hardDrive,
 }
 
-const quickActions = [
-  { to: '/pcare/pcs/new', label: 'Novo PC', icon: '🖥️', color: 'from-cyan-600 to-cyan-500' },
-  { to: '/pcare/scanner', label: 'QR Code', icon: '📷', color: 'from-violet-600 to-violet-500' },
-  { to: '/pcare/asset-scanner', label: 'Patrimônio', icon: '🏷️', color: 'from-emerald-600 to-emerald-500' },
-  { to: '/pcare/reports', label: 'Relatórios', icon: '📄', color: 'from-amber-600 to-amber-500' },
-  { to: '/pcare/checklists', label: 'Checklists', icon: '📋', color: 'from-rose-600 to-rose-500' },
-  { to: '/pcare/qr', label: 'Gerar QR', icon: '🔲', color: 'from-sky-600 to-sky-500' },
+const quickActions: { to: string; label: string; icon: ComponentType<{ size?: number }>; color: string }[] = [
+  { to: '/pcare/pcs/new', label: 'Novo PC', icon: icons.nav.pcs, color: 'from-cyan-600 to-cyan-500' },
+  { to: '/pcare/scanner', label: 'QR Code', icon: icons.ui.scan, color: 'from-violet-600 to-violet-500' },
+  { to: '/pcare/asset-scanner', label: 'Patrimônio', icon: icons.ui.tag, color: 'from-emerald-600 to-emerald-500' },
+  { to: '/pcare/reports', label: 'Relatórios', icon: icons.nav.reports, color: 'from-amber-600 to-amber-500' },
+  { to: '/pcare/checklists', label: 'Checklists', icon: icons.nav.checklists, color: 'from-rose-600 to-rose-500' },
+  { to: '/pcare/qr', label: 'Gerar QR', icon: icons.ui.qrCode, color: 'from-sky-600 to-sky-500' },
 ]
 
 export function Dashboard() {
@@ -64,8 +65,8 @@ export function Dashboard() {
         <div className="grid grid-cols-2 gap-3">
           {[1, 2, 3, 4].map((i) => <SkeletonStatCard key={i} />)}
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <div className="mb-3 h-3 w-24 rounded bg-slate-800" />
+        <div className="rounded-xl border border-line bg-card/50 p-4">
+          <div className="mb-3 h-3 w-24 rounded bg-input" />
           <SkeletonTimeline />
         </div>
       </div>
@@ -104,14 +105,14 @@ export function Dashboard() {
         <StatCard
           label="Total de PCs"
           value={totalPCs}
-          icon="🖥️"
+          icon={icons.nav.pcs}
           gradient="from-cyan-600 to-blue-600"
           onClick={() => navigate('/pcare/pcs')}
         />
         <StatCard
           label="Limpos"
           value={cleaned}
-          icon="✅"
+          icon={icons.ui.check}
           sub={`${totalPCs > 0 ? Math.round((cleaned / totalPCs) * 100) : 0}%`}
           gradient="from-emerald-600 to-green-600"
           onClick={() => navigate('/pcare/pcs')}
@@ -119,37 +120,37 @@ export function Dashboard() {
         <StatCard
           label="Em andamento"
           value={inProgress}
-          icon="🔄"
+          icon={icons.ui.refresh}
           gradient="from-amber-600 to-orange-600"
           onClick={() => navigate('/pcare/pcs')}
         />
         <StatCard
           label="Pendentes"
           value={pending}
-          icon="⏳"
+          icon={icons.ui.clock}
           gradient="from-slate-600 to-slate-500"
           onClick={() => navigate('/pcare/pcs')}
         />
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        {quickActions.map(({ to, label, icon, color }) => (
+        {quickActions.map(({ to, label, icon: Icon, color }) => (
           <button
             key={to}
             type="button"
             onClick={() => navigate(to)}
-            className="flex flex-col items-center gap-1 rounded-xl bg-slate-800/50 py-3 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md hover:shadow-black/20"
+            className="flex flex-col items-center gap-1 rounded-xl bg-input/50 py-3 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-input hover:shadow-md hover:shadow-black/20"
           >
             <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br ${color} shadow-sm`}>
-              <span className="text-sm">{icon}</span>
+              <Icon size={16} />
             </div>
-            <span className="text-[10px] font-medium text-slate-400 leading-tight">{label}</span>
+            <span className="text-[10px] font-medium text-fg-dim leading-tight">{label}</span>
           </button>
         ))}
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Progresso</h3>
+      <div className="rounded-xl border border-line bg-card/50 p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Progresso</h3>
         <ProgressBar value={cleaned} total={totalPCs} label="Limpeza" color="from-cyan-500 to-blue-500" />
         <div className="mt-3">
           <ProgressBar value={restored} total={totalPCs} label="Restauração" color="from-emerald-500 to-green-500" />
@@ -157,9 +158,9 @@ export function Dashboard() {
       </div>
 
       {totalPCs > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Status de Limpeza</h3>
-          <div className="flex h-3 overflow-hidden rounded-full bg-slate-800">
+        <div className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Status de Limpeza</h3>
+          <div className="flex h-3 overflow-hidden rounded-full bg-input">
             {statusSummary.feitos > 0 && (
               <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${(statusSummary.feitos / totalPCs) * 100}%` }} />
             )}
@@ -179,19 +180,19 @@ export function Dashboard() {
       )}
 
       {labs.length > 1 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">PCs por Laboratório</h3>
+        <div className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">PCs por Laboratório</h3>
           <div className="space-y-2">
             {labs.map(([lab, count]) => (
               <div key={lab} className="flex items-center gap-2">
-                <span className="w-24 truncate text-xs text-slate-400">{lab}</span>
-                <div className="flex-1 h-4 rounded-full bg-slate-800 overflow-hidden">
+                <span className="w-24 truncate text-xs text-fg-dim">{lab}</span>
+                <div className="flex-1 h-4 rounded-full bg-input overflow-hidden">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500"
                     style={{ width: `${(count / totalPCs) * 100}%` }}
                   />
                 </div>
-                <span className="w-8 text-right text-xs text-slate-500">{count}</span>
+                <span className="w-8 text-right text-xs text-fg-muted">{count}</span>
               </div>
             ))}
           </div>
@@ -199,9 +200,9 @@ export function Dashboard() {
       )}
 
       {upcoming.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <div className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Manutenções Agendadas</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Manutenções Agendadas</h3>
             <button type="button" onClick={() => navigate('/pcare/maintenance')} className="text-[10px] font-medium text-cyan-400 hover:text-cyan-300">
               Ver todas
             </button>
@@ -212,11 +213,11 @@ export function Dashboard() {
                 key={m.id}
                 type="button"
                 onClick={() => navigate(`/pcare/pcs/${m.pcId}`)}
-                className="flex items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2.5 text-left transition-all hover:bg-slate-800 hover:shadow-sm"
+                className="flex items-center justify-between rounded-lg bg-input/50 px-3 py-2.5 text-left transition-all hover:bg-input hover:shadow-sm"
               >
                 <div>
-                  <p className="text-sm font-medium text-slate-200">{m.labName} — {m.pcNumber}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-sm font-medium text-fg">{m.labName} — {m.pcNumber}</p>
+                  <p className="text-xs text-fg-muted">
                     {formatDate(m.scheduledDate.seconds)} · {m.type === 'cleaning' ? 'Limpeza' : m.type === 'restoration' ? 'Restauração' : 'Ambos'}
                   </p>
                 </div>
@@ -234,7 +235,7 @@ export function Dashboard() {
       {lowStockParts.length > 0 && (
         <div className="rounded-xl border border-red-900/30 bg-red-950/20 p-4">
           <div className="flex items-center gap-2">
-            <span className="text-lg">⚠️</span>
+            <icons.ui.alertTriangle size={20} />
             <div>
               <p className="text-sm font-medium text-red-400">Estoque baixo</p>
               <p className="text-xs text-red-400/70">{lowStockParts.length} {lowStockParts.length === 1 ? 'item precisa' : 'itens precisam'} de reposição</p>
@@ -251,9 +252,9 @@ export function Dashboard() {
       )}
 
       {recentLogs.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <div className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Atividade Recente</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Atividade Recente</h3>
             <button type="button" onClick={() => navigate('/pcare/pcs')} className="text-[10px] font-medium text-cyan-400 hover:text-cyan-300">
               Ver PCs
             </button>
@@ -266,12 +267,18 @@ export function Dashboard() {
                   key={log.id}
                   type="button"
                   onClick={() => navigate(`/pcare/pcs/${log.pcId}`)}
-                  className="flex items-start gap-3 rounded-lg bg-slate-800/50 px-3 py-2.5 text-left transition-all hover:bg-slate-800"
+                  className="flex items-start gap-3 rounded-lg bg-input/50 px-3 py-2.5 text-left transition-all hover:bg-input"
                 >
-                  <span className="mt-0.5">{iconMap[log.type] || '📌'}</span>
+                  <span className="mt-0.5">
+                    {iconMap[log.type] ? (
+                      (() => { const Icon = iconMap[log.type]; return <Icon size={16} /> })()
+                    ) : (
+                      <icons.ui.dot size={16} />
+                    )}
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-slate-200">{log.description}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="truncate text-sm text-fg">{log.description}</p>
+                    <p className="text-xs text-fg-muted">
                       {pc ? `${pc.labName} — ${pc.pcNumber}` : 'PC removido'}
                       {' · '}{formatTime(log.timestamp.seconds)}
                     </p>
@@ -284,13 +291,13 @@ export function Dashboard() {
       )}
 
       {pcs.length === 0 && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-700 py-12">
-          <span className="text-3xl">🖥️</span>
-          <p className="text-sm text-slate-500">Nenhum PC cadastrado ainda</p>
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-12">
+          <icons.nav.pcs size={32} />
+          <p className="text-sm text-fg-muted">Nenhum PC cadastrado ainda</p>
           <button
             type="button"
             onClick={() => navigate('/pcare/pcs/new')}
-            className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md hover:shadow-cyan-500/30"
+            className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md hover:shadow-cyan-500/30"
           >
             Adicionar primeiro PC
           </button>
@@ -303,14 +310,14 @@ export function Dashboard() {
 function StatCard({
   label,
   value,
-  icon,
+  icon: Icon,
   sub,
   gradient,
   onClick,
 }: {
   label: string
   value: number
-  icon: string
+  icon: ComponentType<{ size?: number }>
   sub?: string
   gradient: string
   onClick: () => void
@@ -319,17 +326,17 @@ function StatCard({
     <button
       type="button"
       onClick={onClick}
-      className="group relative overflow-hidden rounded-xl bg-slate-900 p-4 text-left ring-1 ring-slate-800 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20"
+      className="group relative overflow-hidden rounded-xl bg-card p-4 text-left ring-1 ring-slate-800 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20"
     >
       <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${gradient}`} />
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs text-slate-500">{label}</span>
+        <span className="text-xs text-fg-muted">{label}</span>
         <div className={`flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ${gradient} shadow-sm`}>
-          <span className="text-xs">{icon}</span>
+          <Icon size={14} />
         </div>
       </div>
-      <span className="text-2xl font-bold text-white">{value}</span>
-      {sub && <span className="ml-1.5 text-xs text-slate-500">{sub}</span>}
+      <span className="text-2xl font-bold text-fg">{value}</span>
+      {sub && <span className="ml-1.5 text-xs text-fg-muted">{sub}</span>}
     </button>
   )
 }
@@ -339,10 +346,10 @@ function ProgressBar({ value, total, label, color }: { value: number; total: num
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between text-xs">
-        <span className="text-slate-400">{label}</span>
-        <span className="text-slate-500">{value}/{total}</span>
+        <span className="text-fg-dim">{label}</span>
+        <span className="text-fg-muted">{value}/{total}</span>
       </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-slate-800">
+      <div className="h-2.5 overflow-hidden rounded-full bg-input">
         <div
           className={`h-full rounded-full bg-gradient-to-r ${color} transition-all duration-500`}
           style={{ width: `${pct}%` }}

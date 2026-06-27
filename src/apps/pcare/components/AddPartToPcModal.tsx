@@ -38,11 +38,11 @@ export function AddPartToPcModal({ open, onClose, parts, onConfirm }: AddPartToP
     <Modal open={open} onClose={onClose} title="Adicionar Peça">
       <div className="flex flex-col gap-4">
         <div>
-          <label className="mb-1 block text-xs text-slate-500">Peça</label>
+          <label className="mb-1 block text-xs text-fg-muted">Peça</label>
           <select
             value={selectedPartId}
             onChange={(e) => setSelectedPartId(e.target.value)}
-            className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
           >
             <option value="">Selecione uma peça</option>
             {availableParts.map((part) => (
@@ -52,33 +52,33 @@ export function AddPartToPcModal({ open, onClose, parts, onConfirm }: AddPartToP
             ))}
           </select>
           {availableParts.length === 0 && (
-            <p className="mt-1 text-xs text-slate-500">Nenhuma peça disponível no estoque.</p>
+            <p className="mt-1 text-xs text-fg-muted">Nenhuma peça disponível no estoque.</p>
           )}
         </div>
 
         <div>
-          <label className="mb-1 block text-xs text-slate-500">Quantidade</label>
+          <label className="mb-1 block text-xs text-fg-muted">Quantidade</label>
           <input
             type="number"
             value={quantity}
             onChange={(e) => setQuantity(Math.max(1, Math.min(Number(e.target.value), selectedPart?.quantity ?? 99)))}
             min={1}
             max={selectedPart?.quantity ?? 1}
-            className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
           />
           {selectedPart && (
-            <p className="mt-1 text-xs text-slate-500">Máx: {selectedPart.quantity}</p>
+            <p className="mt-1 text-xs text-fg-muted">Máx: {selectedPart.quantity}</p>
           )}
         </div>
 
         <div>
-          <label className="mb-1 block text-xs text-slate-500">Observação (opcional)</label>
+          <label className="mb-1 block text-xs text-fg-muted">Observação (opcional)</label>
           <input
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Ex: Fan com ruído"
-            className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
+            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
           />
         </div>
 
@@ -86,7 +86,7 @@ export function AddPartToPcModal({ open, onClose, parts, onConfirm }: AddPartToP
           type="button"
           onClick={handleConfirm}
           disabled={!selectedPartId}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:opacity-50"
+          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:opacity-50"
         >
           Adicionar ao PC
         </button>

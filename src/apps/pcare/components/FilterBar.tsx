@@ -22,7 +22,7 @@ export function FilterBar({ labs, onFilterChange }: FilterBarProps) {
       <select
         value={lab}
         onChange={(e) => handleChange(e.target.value, status)}
-        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+        className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
       >
         <option value="">Todos os laboratórios</option>
         {labs.map((l) => (
@@ -35,7 +35,7 @@ export function FilterBar({ labs, onFilterChange }: FilterBarProps) {
       <select
         value={status}
         onChange={(e) => handleChange(lab, e.target.value as Status)}
-        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+        className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
       >
         <option value="all">Todos os status</option>
         <option value="pending">Pendente</option>

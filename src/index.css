@@ -1,20 +1,69 @@
 @import "tailwindcss";
 
+@theme {
+  --color-surface: var(--bg-primary);
+  --color-card: var(--bg-card);
+  --color-input: var(--bg-input);
+  --color-fg: var(--text-primary);
+  --color-fg-dim: var(--text-secondary);
+  --color-fg-muted: var(--text-muted);
+  --color-line: var(--border);
+}
+
 @layer base {
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-input: #f1f5f9;
+    --border: #e2e8f0;
+    --border-focus: #06b6d4;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
+  }
+
+  .dark {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #171717;
+    --bg-card: rgba(15, 23, 42, 0.5);
+    --bg-input: #0f172a;
+    --border: #1e293b;
+    --border-focus: #06b6d4;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #475569;
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
+  }
+
   body {
-    @apply bg-neutral-950 text-slate-100 antialiased;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    @apply antialiased;
   }
 }
 
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes slide-up {
+  from { transform: translateY(10px); }
+  to { transform: translateY(0); }
+}
+
+/* View Transitions API */
+@keyframes vt-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes vt-fade-out {
+  to { opacity: 0; }
+}
+
+::view-transition-old(root) {
+  animation: vt-fade-out 0.2s ease-in;
+}
+
+::view-transition-new(root) {
+  animation: vt-fade-in 0.25s ease-out;
 }
 
 @keyframes glow-pulse {

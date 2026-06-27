@@ -56,7 +56,7 @@ export function PullToRefresh({ onRefresh, children }: PullToRefreshProps) {
           className="flex justify-center overflow-hidden transition-all duration-200"
           style={{ height: state === 'refreshing' ? 40 : dist * 0.5 }}
         >
-          <div className="flex items-center gap-2 text-xs text-slate-400">
+          <div className="flex items-center gap-2 text-xs text-fg-dim">
             <span
               className="inline-block text-sm transition-transform"
               style={{

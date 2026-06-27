@@ -10,6 +10,7 @@ import { AddPartToPcModal } from '../components/AddPartToPcModal'
 import { PCChecklistModal } from '../components/PCChecklistModal'
 import { ActionTimeline } from '../components/ActionTimeline'
 import { partUsageService } from '../services/partUsageService'
+import { icons } from '../../../lib/icons'
 import type { PC, PCPart } from '../types'
 
 export function PCDetail() {
@@ -21,7 +22,7 @@ export function PCDetail() {
   if (!pc) {
     return (
       <EmptyState
-        icon="🔍"
+        icon={icons.ui.search}
         title="PC não encontrado"
         action={{ label: 'Voltar', onClick: () => navigate('/pcare/pcs') }}
       />
@@ -153,9 +154,10 @@ function PCDetailContent({
         <button
           type="button"
           onClick={() => navigate('/pcare/pcs')}
-          className="rounded-lg p-1 text-slate-400 hover:text-slate-200"
+          className="rounded-lg p-1 text-fg-dim hover:text-fg"
+          aria-label="Voltar"
         >
-          ←
+          <icons.ui.back size={20} />
         </button>
         <h2 className="text-xl font-semibold">
           {pc.labName} — {pc.pcNumber}
@@ -163,75 +165,75 @@ function PCDetailContent({
       </div>
 
       <div className="flex flex-col gap-3">
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Localização</h3>
-          <p className="text-slate-200">{pc.roomLocation || 'Não informado'}</p>
+        <section className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Localização</h3>
+          <p className="text-fg">{pc.roomLocation || 'Não informado'}</p>
           {pc.assetTag && (
-            <p className="mt-1 text-xs text-slate-500">Patrimônio: {pc.assetTag}</p>
+            <p className="mt-1 text-xs text-fg-muted">Patrimônio: {pc.assetTag}</p>
           )}
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Especificações</h3>
+        <section className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Especificações</h3>
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <div><span className="text-slate-500">CPU:</span> <span className="text-slate-200">{pc.specs.cpu || '-'}</span></div>
-            <div><span className="text-slate-500">RAM:</span> <span className="text-slate-200">{pc.specs.ram || '-'}</span></div>
-            <div><span className="text-slate-500">Armazenamento:</span> <span className="text-slate-200">{pc.specs.storage || '-'}</span></div>
-            <div><span className="text-slate-500">Sistema:</span> <span className="text-slate-200">{pc.specs.os || '-'}</span></div>
+            <div><span className="text-fg-muted">CPU:</span> <span className="text-fg">{pc.specs.cpu || '-'}</span></div>
+            <div><span className="text-fg-muted">RAM:</span> <span className="text-fg">{pc.specs.ram || '-'}</span></div>
+            <div><span className="text-fg-muted">Armazenamento:</span> <span className="text-fg">{pc.specs.storage || '-'}</span></div>
+            <div><span className="text-fg-muted">Sistema:</span> <span className="text-fg">{pc.specs.os || '-'}</span></div>
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</h3>
+        <section className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Status</h3>
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-300">Limpeza</span>
               <div className="flex items-center gap-2">
                 <StatusBadge status={pc.cleaningStatus} />
-                <button type="button" onClick={() => toggleStatus('cleaning')} className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200">Avançar</button>
+                <button type="button" onClick={() => toggleStatus('cleaning')} className="rounded-md bg-input px-2 py-1 text-xs text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg">Avançar</button>
               </div>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-300">Restauração</span>
               <div className="flex items-center gap-2">
                 <StatusBadge status={pc.restorationStatus} />
-                <button type="button" onClick={() => toggleStatus('restoration')} className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200">Avançar</button>
+                <button type="button" onClick={() => toggleStatus('restoration')} className="rounded-md bg-input px-2 py-1 text-xs text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg">Avançar</button>
               </div>
             </div>
           </div>
         </section>
 
         {pc.softwareInstalled.length > 0 && (
-          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Software Instalado</h3>
+          <section className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Software Instalado</h3>
             <div className="flex flex-wrap gap-1.5">
               {pc.softwareInstalled.map((sw) => (
-                <span key={sw} className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 ring-1 ring-slate-700/50">{sw}</span>
+                <span key={sw} className="rounded-md bg-input px-2 py-1 text-xs text-slate-300 ring-1 ring-slate-700/50">{sw}</span>
               ))}
             </div>
           </section>
         )}
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <section className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Peças Trocadas</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Peças Trocadas</h3>
             <button
               type="button"
               onClick={() => setShowAddPart(true)}
-              className="rounded-md bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 hover:shadow-md"
+              className="rounded-md bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-cyan-500/20 hover:shadow-md"
             >
               + Adicionar
             </button>
           </div>
           {pc.partsReplaced.length === 0 ? (
-            <p className="text-sm text-slate-500">Nenhuma peça trocada ainda.</p>
+            <p className="text-sm text-fg-muted">Nenhuma peça trocada ainda.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {pc.partsReplaced.map((part) => (
-                <div key={part.partId + part.replacedAt.seconds} className="flex items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2">
+                <div key={part.partId + part.replacedAt.seconds} className="flex items-center justify-between rounded-lg bg-input/50 px-3 py-2">
                   <div>
-                    <p className="text-sm text-slate-200">{part.partName}</p>
-                    <p className="text-xs text-slate-500">{part.quantity}x · {part.category}</p>
+                    <p className="text-sm text-fg">{part.partName}</p>
+                    <p className="text-xs text-fg-muted">{part.quantity}x · {part.category}</p>
                   </div>
                 </div>
               ))}
@@ -239,27 +241,27 @@ function PCDetailContent({
           )}
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <section className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Checklists</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Checklists</h3>
             <button
               type="button"
               onClick={() => setShowChecklist(true)}
-              className="rounded-md bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 hover:shadow-md"
+              className="rounded-md bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-cyan-500/20 hover:shadow-md"
             >
               + Aplicar
             </button>
           </div>
           {pcChecklists.length === 0 ? (
-            <p className="text-sm text-slate-500">Nenhum checklist aplicado.</p>
+            <p className="text-sm text-fg-muted">Nenhum checklist aplicado.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {pcChecklists.map((cl) => (
-                <div key={cl.id} className="rounded-lg bg-slate-800/50 px-3 py-2">
+                <div key={cl.id} className="rounded-lg bg-input/50 px-3 py-2">
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-200">{cl.templateName}</span>
+                    <span className="text-xs font-medium text-fg">{cl.templateName}</span>
                     {cl.items.every((i) => i.done) && (
-                      <span className="text-xs text-emerald-400">✓</span>
+                      <icons.ui.check size={14} className="text-emerald-400" />
                     )}
                   </div>
                   <div className="flex flex-col gap-0.5">
@@ -269,13 +271,13 @@ function PCDetailContent({
                         type="button"
                         onClick={() => handleToggleItem(cl.id, item.itemId)}
                         className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs transition-colors ${
-                          item.done ? 'text-emerald-300' : 'text-slate-400 hover:bg-slate-700/50'
+                          item.done ? 'text-emerald-300' : 'text-fg-dim hover:bg-slate-700/50'
                         }`}
                       >
-                        <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[10px] ${
-                          item.done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-600'
+                        <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+                          item.done ? 'border-emerald-500 bg-emerald-500' : 'border-slate-600'
                         }`}>
-                          {item.done ? '✓' : ''}
+                          {item.done && <icons.ui.check size={10} className="text-fg" />}
                         </span>
                         {item.label}
                       </button>
@@ -288,21 +290,21 @@ function PCDetailContent({
         </section>
 
         {pc.observations && (
-          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Observações</h3>
+          <section className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Observações</h3>
             <p className="text-sm text-slate-300">{pc.observations}</p>
           </section>
         )}
 
         {partUsages.length > 0 && (
-          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Peças Utilizadas</h3>
+          <section className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Peças Utilizadas</h3>
             <div className="flex flex-col gap-2">
               {partUsages.map((u) => (
-                <div key={u.id} className="flex items-center justify-between rounded-lg bg-slate-800/50 px-3 py-2">
+                <div key={u.id} className="flex items-center justify-between rounded-lg bg-input/50 px-3 py-2">
                   <div>
-                    <p className="text-sm text-slate-200">{u.quantity}x {u.partName}</p>
-                    <p className="text-xs text-slate-500">{new Date(u.timestamp.seconds * 1000).toLocaleDateString('pt-BR')}</p>
+                    <p className="text-sm text-fg">{u.quantity}x {u.partName}</p>
+                    <p className="text-xs text-fg-muted">{new Date(u.timestamp.seconds * 1000).toLocaleDateString('pt-BR')}</p>
                   </div>
                 </div>
               ))}
@@ -310,14 +312,14 @@ function PCDetailContent({
           </section>
         )}
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Histórico</h3>
+        <section className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Histórico</h3>
           <ActionTimeline logs={logs} />
         </section>
 
         <div className="flex gap-3 pt-2">
-          <button type="button" onClick={() => navigate(`/pcare/pcs/${pc.id}/edit`)} className="flex-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Editar</button>
-          <button type="button" onClick={() => navigate('/pcare/pcs/new', { state: { clone: pc } })} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800">Clonar</button>
+          <button type="button" onClick={() => navigate(`/pcare/pcs/${pc.id}/edit`)} className="flex-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Editar</button>
+          <button type="button" onClick={() => navigate('/pcare/pcs/new', { state: { clone: pc } })} className="rounded-lg border border-line px-4 py-2 text-sm text-fg-dim hover:bg-input">Clonar</button>
           <button type="button" onClick={() => navigate('/pcare/qr')} className="rounded-lg border border-cyan-700 px-4 py-2 text-sm text-cyan-400 hover:bg-cyan-900/30">QR</button>
           <button type="button" onClick={handleDelete} className="rounded-lg border border-red-800 px-4 py-2 text-sm text-red-400 hover:bg-red-900/30">Excluir</button>
         </div>

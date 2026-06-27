@@ -1,9 +1,10 @@
-import { useNavigate } from 'react-router-dom'
 import { appRegistry } from '../appRegistry'
 import { useTheme } from '../lib/ThemeContext'
+import { useNavigateWithTransition } from '../lib/useNavigateWithTransition'
+import { icons } from '../lib/icons'
 
 export function Launcher() {
-  const navigate = useNavigate()
+  const navigate = useNavigateWithTransition()
   const { theme, toggle } = useTheme()
 
   return (
@@ -44,10 +45,10 @@ export function Launcher() {
           className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-sm text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
           title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
         >
-          {theme === 'dark' ? '☀️' : '🌙'}
+          {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
         </button>
         <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 ring-1 ring-cyan-500/30 backdrop-blur-sm">
-          <span className="text-2xl">🧪</span>
+          <icons.ui.flaskConical size={28} />
         </div>
         <h1 className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-3xl font-bold text-transparent">
           Lab Hub
@@ -73,7 +74,7 @@ export function Launcher() {
                   boxShadow: `0 0 0 0 ${app.color}20`,
                 }}
               >
-                {app.icon}
+                  <app.icon size={32} />
               </span>
               <div>
                 <h2 className="text-sm font-semibold text-white">{app.name}</h2>

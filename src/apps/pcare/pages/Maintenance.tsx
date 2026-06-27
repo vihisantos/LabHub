@@ -5,6 +5,7 @@ import { usePCs } from '../hooks/usePCs'
 import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
+import { icons } from '../../../lib/icons'
 
 function formatDate(seconds: number) {
   return new Date(seconds * 1000).toLocaleDateString('pt-BR')
@@ -72,22 +73,22 @@ export function Maintenance() {
         <button
           type="button"
           onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           {showForm ? 'Cancelar' : '+ Agendar'}
         </button>
       </div>
 
       {showForm && (
-        <form onSubmit={handleSubmit} className="mb-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Nova Manutenção</h3>
+        <form onSubmit={handleSubmit} className="mb-4 rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Nova Manutenção</h3>
           <div className="flex flex-col gap-3">
             <div>
-              <label className="mb-1 block text-xs text-slate-500">Computador</label>
+              <label className="mb-1 block text-xs text-fg-muted">Computador</label>
               <select
                 value={form.pcId}
                 onChange={(e) => handlePcChange(e.target.value)}
-                className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
                 required
               >
                 <option value="">Selecione um PC</option>
@@ -99,11 +100,11 @@ export function Maintenance() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-500">Tipo</label>
+              <label className="mb-1 block text-xs text-fg-muted">Tipo</label>
               <select
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value as any })}
-                className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
               >
                 <option value="cleaning">Limpeza</option>
                 <option value="restoration">Restauração</option>
@@ -111,26 +112,26 @@ export function Maintenance() {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-500">Data prevista</label>
+              <label className="mb-1 block text-xs text-fg-muted">Data prevista</label>
               <input
                 type="date"
                 value={form.scheduledDate}
                 onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })}
-                className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
                 required
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-500">Observações</label>
+              <label className="mb-1 block text-xs text-fg-muted">Observações</label>
               <input
                 type="text"
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Motivo, peças necessárias, etc."
-                className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
               />
             </div>
-            <button type="submit" className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">
+            <button type="submit" className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">
               Agendar
             </button>
           </div>
@@ -139,7 +140,7 @@ export function Maintenance() {
 
       {all.length === 0 && !showForm ? (
         <EmptyState
-          icon="📅"
+          icon={icons.ui.calendar}
           title="Nenhuma manutenção agendada"
           description="Programe a manutenção dos computadores."
           action={{ label: 'Agendar', onClick: () => setShowForm(true) }}
@@ -148,7 +149,7 @@ export function Maintenance() {
         <div className="flex flex-col gap-4">
           {overdue.length > 0 && (
             <section>
-              <h3 className="mb-2 text-sm font-medium text-red-400">🔴 Atrasadas ({overdue.length})</h3>
+              <h3 className="mb-2 text-sm font-medium text-red-400"><icons.ui.alertTriangle size={14} className="inline" /> Atrasadas ({overdue.length})</h3>
               <div className="flex flex-col gap-2">
                 {overdue.map((m) => (
                   <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pcare/pcs/${m.pcId}`)} />
@@ -159,7 +160,7 @@ export function Maintenance() {
 
           {future.length > 0 && (
             <section>
-              <h3 className="mb-2 text-sm font-medium text-slate-400">Próximas ({future.length})</h3>
+              <h3 className="mb-2 text-sm font-medium text-fg-dim">Próximas ({future.length})</h3>
               <div className="flex flex-col gap-2">
                 {future.map((m) => (
                   <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pcare/pcs/${m.pcId}`)} />
@@ -170,7 +171,7 @@ export function Maintenance() {
 
           {all.filter((m) => m.completed).length > 0 && (
             <section>
-              <h3 className="mb-2 text-sm font-medium text-slate-500">Concluídas</h3>
+              <h3 className="mb-2 text-sm font-medium text-fg-muted">Concluídas</h3>
               <div className="flex flex-col gap-2">
                 {all.filter((m) => m.completed).map((m) => (
                   <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pcare/pcs/${m.pcId}`)} />
@@ -203,14 +204,14 @@ function MaintenanceCard({
         ? 'border-emerald-800/50 bg-emerald-900/10'
         : overdue
           ? 'border-red-800/50 bg-red-950/20'
-          : 'border-slate-800 bg-slate-900/50'
+          : 'border-line bg-card/50'
     }`}>
       <div className="flex items-start justify-between">
         <button type="button" onClick={onNavigate} className="text-left">
-          <p className={`font-medium ${m.completed ? 'text-slate-500' : 'text-slate-200'}`}>
+          <p className={`font-medium ${m.completed ? 'text-fg-muted' : 'text-fg'}`}>
             {m.labName} — {m.pcNumber}
           </p>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-fg-muted">
             {m.type === 'cleaning' ? 'Limpeza' : m.type === 'restoration' ? 'Restauração' : 'Ambos'}
             {' · '}{formatDate(m.scheduledDate.seconds)}
             {overdue && <span className="ml-1 text-red-400">(atrasada)</span>}
@@ -223,7 +224,7 @@ function MaintenanceCard({
           <button type="button" onClick={() => { if (window.confirm('Remover?')) onRemove(m.id) }} className="text-xs text-red-400 hover:text-red-300">Excluir</button>
         </div>
       </div>
-      {m.notes && <p className="mt-1 text-xs text-slate-500">{m.notes}</p>}
+      {m.notes && <p className="mt-1 text-xs text-fg-muted">{m.notes}</p>}
     </div>
   )
 }

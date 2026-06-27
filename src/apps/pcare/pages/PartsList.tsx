@@ -5,6 +5,7 @@ import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
 import { partUsageService } from '../services/partUsageService'
+import { icons } from '../../../lib/icons'
 import type { PartFormData } from '../types'
 
 const emptyPartForm: PartFormData = {
@@ -74,7 +75,7 @@ export function PartsList() {
         <button
           type="button"
           onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           {showForm ? 'Cancelar' : '+ Nova Peça'}
         </button>
@@ -83,30 +84,30 @@ export function PartsList() {
       {showForm && (
         <form
           onSubmit={handleSubmit}
-          className="mb-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4"
+          className="mb-4 rounded-xl border border-line bg-card/50 p-4"
         >
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
             {editingId ? 'Editar Peça' : 'Nova Peça'}
           </h3>
           <div className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">Nome</label>
+                <label className="mb-1 block text-xs text-fg-muted">Nome</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Fan Cooler 120mm"
-                  className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
                   required
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">Categoria</label>
+                <label className="mb-1 block text-xs text-fg-muted">Categoria</label>
                 <select
                   value={form.category}
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
                   required
                 >
                   <option value="">Selecione</option>
@@ -120,50 +121,50 @@ export function PartsList() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">Quantidade</label>
+                <label className="mb-1 block text-xs text-fg-muted">Quantidade</label>
                 <input
                   type="number"
                   value={form.quantity}
                   onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
                   min={0}
-                  className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
                   required
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">Qtd. Mínima</label>
+                <label className="mb-1 block text-xs text-fg-muted">Qtd. Mínima</label>
                 <input
                   type="number"
                   value={form.minQuantity}
                   onChange={(e) => setForm({ ...form, minQuantity: Number(e.target.value) })}
                   min={0}
-                  className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
                 />
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-500">Nº de Série</label>
+              <label className="mb-1 block text-xs text-fg-muted">Nº de Série</label>
               <input
                 type="text"
                 value={form.serialNumber}
                 onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
                 placeholder="SN-12345"
-                className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-500">Observações</label>
+              <label className="mb-1 block text-xs text-fg-muted">Observações</label>
               <input
                 type="text"
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Local onde foi comprada, etc."
-                className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
               />
             </div>
             <button
               type="submit"
-              className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+              className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
             >
               {editingId ? 'Salvar' : 'Adicionar ao Estoque'}
             </button>
@@ -173,7 +174,7 @@ export function PartsList() {
 
       {parts.length === 0 && !showForm ? (
         <EmptyState
-          icon="🔧"
+          icon={icons.nav.parts}
           title="Estoque vazio"
           description="Adicione peças para controlar o inventário."
           action={{ label: 'Nova Peça', onClick: () => setShowForm(true) }}
@@ -184,17 +185,17 @@ export function PartsList() {
             const lowStock = part.quantity <= part.minQuantity
             return (
               <Fragment key={part.id}>
-                <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/50 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex items-center justify-between rounded-xl border border-line bg-card/50 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-slate-200">{part.name}</h3>
+                      <h3 className="font-medium text-fg">{part.name}</h3>
                       {lowStock && (
                         <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
                           Estoque baixo
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-fg-muted">
                       {part.category} {part.serialNumber && `· ${part.serialNumber}`}
                     </p>
                   </div>
@@ -204,17 +205,17 @@ export function PartsList() {
                       <button
                         type="button"
                         onClick={() => adjustQuantity(part.id, -1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-800 text-sm text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200"
+                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg"
                       >
                         −
                       </button>
-                      <span className="min-w-[2ch] text-center font-semibold text-white">
+                      <span className="min-w-[2ch] text-center font-semibold text-fg">
                         {part.quantity}
                       </span>
                       <button
                         type="button"
                         onClick={() => adjustQuantity(part.id, 1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-800 text-sm text-slate-400 ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-slate-200"
+                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg"
                       >
                         +
                       </button>
@@ -229,7 +230,7 @@ export function PartsList() {
                     <button
                       type="button"
                       onClick={() => setUsagePartId(usagePartId === part.id ? null : part.id)}
-                      className="text-xs font-medium text-slate-400 hover:text-slate-300"
+                      className="text-xs font-medium text-fg-dim hover:text-slate-300"
                     >
                       {usagePartId === part.id ? 'Ocultar' : 'Uso'}
                     </button>
@@ -263,15 +264,15 @@ function PartUsagePanel({ partId, pcs }: { partId: string; pcs: { id: string; la
 
   if (usage.length === 0) {
     return (
-      <div className="mt-2 rounded-lg bg-slate-800/30 px-4 py-3">
-        <p className="text-xs text-slate-500">Nenhum PC utilizou esta peça ainda.</p>
+      <div className="mt-2 rounded-lg bg-input/30 px-4 py-3">
+        <p className="text-xs text-fg-muted">Nenhum PC utilizou esta peça ainda.</p>
       </div>
     )
   }
 
   return (
-    <div className="mt-2 rounded-lg bg-slate-800/30 px-4 py-3">
-      <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-slate-500">Usada em:</p>
+    <div className="mt-2 rounded-lg bg-input/30 px-4 py-3">
+      <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-fg-muted">Usada em:</p>
       <div className="flex flex-col gap-1.5">
         {usage.map((u) => {
           const pc = pcs.find((p) => p.id === u.pcId)
@@ -280,7 +281,7 @@ function PartUsagePanel({ partId, pcs }: { partId: string; pcs: { id: string; la
               <span className="text-slate-300">
                 {pc ? `${pc.labName} — ${pc.pcNumber}` : 'PC removido'}
               </span>
-              <span className="text-slate-500">
+              <span className="text-fg-muted">
                 {u.quantity}x · {new Date(u.timestamp.seconds * 1000).toLocaleDateString('pt-BR')}
               </span>
             </div>

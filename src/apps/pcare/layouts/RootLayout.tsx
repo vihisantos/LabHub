@@ -1,9 +1,11 @@
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useRef } from 'react'
 import { BottomNav } from '../components/BottomNav'
 import { OnlineBanner } from '../components/OnlineBanner'
 import { useSwipeBack } from '../hooks/useSwipeBack'
 import { useTheme } from '../../../lib/ThemeContext'
+import { useNavigateWithTransition } from '../../../lib/useNavigateWithTransition'
+import { icons } from '../../../lib/icons'
 
 const mainRoutes = new Set([
   '/pcare', '/pcare/pcs', '/pcare/parts', '/pcare/maintenance',
@@ -42,7 +44,7 @@ function getBackPath(pathname: string): string {
 
 export function RootLayout() {
   const location = useLocation()
-  const navigate = useNavigate()
+  const navigate = useNavigateWithTransition()
   const title = getPageTitle(location.pathname)
   const detail = isDetailPage(location.pathname)
   const mainRef = useRef<HTMLDivElement>(null)
@@ -57,25 +59,27 @@ export function RootLayout() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-950">
+    <div className="flex h-screen flex-col bg-surface">
       <OnlineBanner />
 
-      <header className="flex items-center gap-2 border-b border-slate-800 bg-slate-900/80 px-3 py-2.5 backdrop-blur-xl">
+      <header className="flex items-center gap-2 border-b border-line bg-card/80 px-3 py-2.5 backdrop-blur-xl">
         {detail ? (
           <button
             type="button"
             onClick={() => navigate(getBackPath(location.pathname))}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+            aria-label="Voltar"
           >
-            ←
+            <icons.ui.back size={18} />
           </button>
         ) : (
           <Link
             to="/"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
-            title="Início"
+            viewTransition
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+            aria-label="Início"
           >
-            ⌂
+            <icons.ui.home size={18} />
           </Link>
         )}
 
@@ -85,23 +89,24 @@ export function RootLayout() {
           className="flex items-center gap-2 overflow-hidden text-left"
         >
           <div className="flex flex-col">
-            <h1 className="text-sm font-semibold text-white leading-tight">{title}</h1>
-            <p className="text-[10px] text-slate-500 leading-tight">PCare {detail ? '' : '· ⌂ Início'}</p>
+            <h1 className="text-sm font-semibold text-fg leading-tight">{title}</h1>
+            <p className="text-[10px] text-fg-muted leading-tight">PCare {detail ? '' : '· ⌂ Início'}</p>
           </div>
         </button>
 
         <button
           type="button"
           onClick={toggle}
-          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+          aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
           title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
         >
-          {theme === 'dark' ? '☀️' : '🌙'}
+          {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
         </button>
       </header>
 
-      <main ref={mainRef} className="flex-1 overflow-y-auto pb-24">
-        <div key={location.pathname} className="animate-[fade-in-up_0.3s_ease-out] p-4">
+      <main ref={mainRef} className="flex-1 overflow-y-auto pb-24" style={{ paddingBottom: 'max(6rem, calc(3.5rem + env(safe-area-inset-bottom)))' }}>
+        <div key={location.pathname} className="animate-[slide-up_0.25s_ease-out] p-4">
           <Outlet />
         </div>
       </main>

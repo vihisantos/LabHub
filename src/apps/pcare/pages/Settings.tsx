@@ -6,6 +6,7 @@ import { pcService } from '../services/pcService'
 import { partService } from '../services/partService'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
+import { icons } from '../../../lib/icons'
 
 function downloadJSON(data: unknown, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -161,53 +162,53 @@ export function Settings() {
     <div className="space-y-5">
       <h2 className="text-xl font-semibold">Configurações</h2>
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Aparência</h3>
+      <section className="rounded-xl border border-line bg-card/50 p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Aparência</h3>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-slate-200">Tema</p>
-            <p className="text-xs text-slate-500">{theme === 'dark' ? 'Escuro' : 'Claro'}</p>
+            <p className="text-sm text-fg">Tema</p>
+            <p className="text-xs text-fg-muted">{theme === 'dark' ? 'Escuro' : 'Claro'}</p>
           </div>
           <button
             type="button"
             onClick={toggle}
-            className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-800"
+            className="rounded-lg border border-line px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-input"
           >
-            {theme === 'dark' ? '☀️ Claro' : '🌙 Escuro'}
+            {theme === 'dark' ? <><icons.ui.sun size={16} className="inline" /> Claro</> : <><icons.ui.moon size={16} className="inline" /> Escuro</>}
           </button>
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Exportar Dados</h3>
+      <section className="rounded-xl border border-line bg-card/50 p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Exportar Dados</h3>
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-200">PCs</p>
+            <p className="text-sm text-fg">PCs</p>
             <div className="flex gap-2">
-              <button type="button" onClick={handleExportPcsCSV} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">CSV</button>
-              <button type="button" onClick={handleExportPcsXLSX} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">XLSX</button>
+              <button type="button" onClick={handleExportPcsCSV} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">CSV</button>
+              <button type="button" onClick={handleExportPcsXLSX} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">XLSX</button>
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-200">Peças</p>
+            <p className="text-sm text-fg">Peças</p>
             <div className="flex gap-2">
-              <button type="button" onClick={handleExportPartsCSV} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">CSV</button>
-              <button type="button" onClick={handleExportPartsXLSX} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">XLSX</button>
+              <button type="button" onClick={handleExportPartsCSV} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">CSV</button>
+              <button type="button" onClick={handleExportPartsXLSX} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">XLSX</button>
             </div>
           </div>
         </div>
         <button
           type="button"
           onClick={handleExportAll}
-          className="mt-3 w-full rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="mt-3 w-full rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           Exportar Tudo (JSON)
         </button>
       </section>
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Importar Dados</h3>
-        <p className="mb-2 text-xs text-slate-500">O nome do arquivo deve conter "PC" (para PCs) ou "peca" (para peças) para identificar automaticamente o tipo.</p>
+      <section className="rounded-xl border border-line bg-card/50 p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Importar Dados</h3>
+        <p className="mb-2 text-xs text-fg-muted">O nome do arquivo deve conter "PC" (para PCs) ou "peca" (para peças) para identificar automaticamente o tipo.</p>
         <input
           ref={fileRef}
           type="file"
@@ -218,12 +219,12 @@ export function Settings() {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="w-full rounded-lg border border-dashed border-slate-700 py-3 text-sm text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-300"
+          className="w-full rounded-lg border border-dashed border-line py-3 text-sm text-fg-dim transition-colors hover:border-slate-600 hover:text-slate-300"
         >
           Selecionar arquivo CSV
         </button>
         {importResult && (
-          <p className="mt-2 text-xs text-slate-400">{importResult}</p>
+          <p className="mt-2 text-xs text-fg-dim">{importResult}</p>
         )}
       </section>
 
@@ -238,10 +239,10 @@ export function Settings() {
         </button>
       </section>
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Sobre</h3>
+      <section className="rounded-xl border border-line bg-card/50 p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Sobre</h3>
         <p className="text-sm text-slate-300">Lab Hub v{import.meta.env.VITE_APP_VERSION || '0.1.0'}</p>
-        <p className="text-xs text-slate-500 mt-1">
+        <p className="text-xs text-fg-muted mt-1">
           PWA para gerenciamento de inventário de PCs em laboratórios universitários.
         </p>
         <button
