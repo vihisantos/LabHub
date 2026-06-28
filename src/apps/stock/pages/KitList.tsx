@@ -51,11 +51,11 @@ export function KitList() {
     <PullToRefresh onRefresh={reload}>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Kits</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Kits</h2>
           <button
             type="button"
             onClick={() => setShowForm(true)}
-            className="rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md"
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
           >
             + Novo Kit
           </button>
@@ -68,7 +68,7 @@ export function KitList() {
             placeholder="Buscar kit..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-emerald-500"
+            className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
 
@@ -92,39 +92,39 @@ export function KitList() {
       <Modal open={showForm} onClose={() => setShowForm(false)} title="Novo Kit">
         <div className="flex flex-col gap-3">
           <div>
-            <label className="mb-1 block text-xs text-fg-muted">Nome do Kit</label>
+            <label className="mb-1 block text-xs font-medium text-fg-muted">Nome do Kit</label>
             <input
               type="text"
               value={newKitName}
               onChange={(e) => setNewKitName(e.target.value)}
               placeholder="Ex: Notebook Dell Latitude"
-              className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-fg-muted">Sala</label>
+            <label className="mb-1 block text-xs font-medium text-fg-muted">Sala</label>
             <input
               type="text"
               value={newKitRoom}
               onChange={(e) => setNewKitRoom(e.target.value)}
               placeholder="Ex: Lab Info 1"
-              className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-fg-muted">Itens (um por linha)</label>
+            <label className="mb-1 block text-xs font-medium text-fg-muted">Itens (um por linha)</label>
             <textarea
               value={newKitItems}
               onChange={(e) => setNewKitItems(e.target.value)}
               placeholder={"Mouse\nFonte\nCarregador"}
               rows={4}
-              className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
             />
           </div>
           <button
             type="button"
             onClick={handleCreateKit}
-            className="w-full rounded-lg bg-cyan-600 py-2 text-sm font-medium text-fg transition-colors hover:bg-cyan-700"
+            className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
           >
             Criar Kit
           </button>

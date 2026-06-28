@@ -3,9 +3,9 @@ import type { Kit } from '../types'
 import { icons } from '../../../lib/icons'
 
 const statusConfig = {
-  ok: { label: 'Completo', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300', dot: 'bg-emerald-400' },
-  incompleto: { label: 'Incompleto', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300', dot: 'bg-amber-400' },
-  nao_conferido: { label: 'Não Conferido', cls: 'bg-input text-fg-dim', dot: 'bg-slate-400' },
+  ok: { label: 'Completo', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400', dot: 'bg-emerald-500' },
+  incompleto: { label: 'Incompleto', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400', dot: 'bg-amber-500' },
+  nao_conferido: { label: 'Não Conferido', cls: 'bg-input text-fg-muted', dot: 'bg-fg-muted' },
 }
 
 function formatDate(iso: string) {
@@ -21,7 +21,7 @@ export function KitCard({ kit }: { kit: Kit }) {
     <button
       type="button"
       onClick={() => navigate(`/stock/kits/${kit.id}`)}
-      className="group w-full rounded-xl bg-card p-4 text-left ring-1 ring-line transition-all duration-200 hover:-translate-y-0.5 hover:bg-input/80 hover:ring-line hover:shadow-lg hover:shadow-black/20"
+      className="group w-full rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)]"
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
@@ -31,7 +31,7 @@ export function KitCard({ kit }: { kit: Kit }) {
             {kit.lastChecked && ` · Última conferência: ${formatDate(kit.lastChecked)}`}
           </p>
         </div>
-        <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.cls}`}>
+        <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${config.cls}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
           {config.label}
         </span>
@@ -42,21 +42,21 @@ export function KitCard({ kit }: { kit: Kit }) {
         <span className="text-xs text-fg-dim">{presentCount}/{kit.items.length} itens presentes</span>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1">
+      <div className="mt-3 flex flex-wrap gap-1.5">
         {kit.items.slice(0, 4).map((item) => (
           <span
             key={item.name}
-            className={            `rounded-md px-1.5 py-0.5 text-[10px] ${
+            className={            `rounded-lg px-2 py-0.5 text-[10px] font-medium ${
               item.present
-                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                : 'bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-400'
             }`}
           >
             {item.name}
           </span>
         ))}
         {kit.items.length > 4 && (
-          <span className="rounded-md bg-input px-1.5 py-0.5 text-[10px] text-fg-dim">
+          <span className="rounded-lg bg-input px-2 py-0.5 text-[10px] font-medium text-fg-muted">
             +{kit.items.length - 4}
           </span>
         )}

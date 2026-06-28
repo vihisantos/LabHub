@@ -40,35 +40,36 @@ export function MovementTimeline({ movements }: MovementTimelineProps) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {movements.map((m) => {
         const typeInfo = movementTypes.find((t) => t.value === m.type)
         const Icon = typeIcons[m.type] || icons.ui.dot
         const color = typeColors[m.type] || 'text-fg-muted'
+        const borderColor = color.replace('text-', 'border-')
 
         return (
-          <div key={m.id} className="flex gap-3 rounded-lg bg-input/50 px-3 py-2.5">
+          <div key={m.id} className={`flex gap-3 rounded-xl bg-card px-4 py-3 shadow-[var(--shadow-card)] border-l-2 ${borderColor}`}>
             <span className={`mt-0.5 ${color}`}>
-              <Icon size={16} />
+              <Icon size={18} />
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-fg">{typeInfo?.label || m.type}</span>
                 {m.fromRoom && m.toRoom && m.type === 'mudanca_sala' && (
-                  <span className="text-[10px] text-fg-muted">{m.fromRoom} → {m.toRoom}</span>
+                  <span className="text-[11px] text-fg-muted">{m.fromRoom} → {m.toRoom}</span>
                 )}
               </div>
               {m.description && (
-                <p className="mt-0.5 text-xs text-fg-dim">{m.description}</p>
+                <p className="mt-1 text-xs text-fg-dim">{m.description}</p>
               )}
               {(m.replacedPart || m.newPart) && (
-                <p className="mt-0.5 text-[10px] text-fg-muted">
+                <p className="mt-1 text-[11px] text-fg-muted">
                   {m.replacedPart && `Trocou: ${m.replacedPart}`}
                   {m.replacedPart && m.newPart && ' por '}
                   {m.newPart && `Novo: ${m.newPart}`}
                 </p>
               )}
-              <p className="mt-0.5 text-[10px] text-fg-dim">
+              <p className="mt-1 text-[11px] text-fg-muted font-medium">
                 {formatDate(m.createdAt)}
                 {m.performedBy && ` · ${m.performedBy}`}
               </p>

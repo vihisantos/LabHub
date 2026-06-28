@@ -47,30 +47,30 @@ export function KitDetail() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-5 flex items-center gap-2">
         <button
           type="button"
           onClick={() => navigate('/stock/kits')}
-          className="rounded-lg p-1 text-fg-dim hover:text-fg"
+          className="rounded-xl p-1.5 text-fg-dim hover:text-fg hover:bg-input transition-colors"
           aria-label="Voltar"
         >
           <icons.ui.back size={20} />
         </button>
-        <h2 className="text-xl font-semibold">{kit.name}</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{kit.name}</h2>
       </div>
 
-      <div className="flex flex-col gap-3">
-        <section className="rounded-xl border border-line bg-card/50 p-4">
+      <div className="flex flex-col gap-4">
+        <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Informações</h3>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div><span className="text-fg-muted">Sala:</span> <span className="text-fg">{kit.room || '-'}</span></div>
-            <div><span className="text-fg-muted">Itens:</span> <span className="text-fg">{kit.items.length}</span></div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-fg-muted font-medium">Sala:</span> <span className="text-fg">{kit.room || '-'}</span></div>
+            <div><span className="text-fg-muted font-medium">Itens:</span> <span className="text-fg">{kit.items.length}</span></div>
             <div>
-              <span className="text-fg-muted">Última conferência:</span>{' '}
+              <span className="text-fg-muted font-medium">Última conferência:</span>{' '}
               <span className="text-fg">{kit.lastChecked ? formatDate(kit.lastChecked) : 'Nunca'}</span>
             </div>
             <div>
-              <span className="text-fg-muted">Status:</span>{' '}
+              <span className="text-fg-muted font-medium">Status:</span>{' '}
               <span className={`font-medium ${
                 kit.status === 'ok' ? 'text-emerald-600 dark:text-emerald-400' :
                 kit.status === 'incompleto' ? 'text-amber-600 dark:text-amber-400' : 'text-fg-muted'
@@ -82,40 +82,40 @@ export function KitDetail() {
         </section>
 
         {checking ? (
-          <section className="rounded-xl border border-line bg-card/50 p-4">
+          <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Conferência</h3>
             <KitChecklist kit={kit} onSave={handleSaveChecklist} />
           </section>
         ) : (
-          <section className="rounded-xl border border-line bg-card/50 p-4">
+          <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Itens do Kit</h3>
               <button
                 type="button"
                 onClick={() => setChecking(true)}
-                className="rounded-md bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-cyan-500/20 hover:shadow-md"
+                className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors btn-interactive"
               >
                 Conferir
               </button>
             </div>
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               {kit.items.map((item) => (
                 <div
                   key={item.name}
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
-                    item.present ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-input/50'
+                  className={`flex items-center gap-3 rounded-xl px-3.5 py-3 ${
+                    item.present ? 'bg-emerald-50 dark:bg-emerald-900/30 shadow-sm' : 'bg-input shadow-[var(--shadow-card)]'
                   }`}
                 >
-                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                    item.present ? 'border-emerald-500 bg-emerald-500' : 'border-line'
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg ${
+                    item.present ? 'bg-emerald-500' : 'border-2 border-line'
                   }`}>
-                    {item.present && <icons.ui.check size={10} className="text-fg" />}
+                    {item.present && <icons.ui.check size={12} className="text-white" />}
                   </span>
-                  <span className={`text-sm ${                    item.present ? 'text-emerald-700 dark:text-emerald-300' : 'text-fg'}`}>
+                  <span className={`text-sm ${                    item.present ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-fg'}`}>
                     {item.name}
                   </span>
                   {item.expected > 1 && (
-                    <span className="text-[10px] text-fg-muted">(×{item.expected})</span>
+                    <span className="text-[11px] text-fg-muted">(×{item.expected})</span>
                   )}
                 </div>
               ))}

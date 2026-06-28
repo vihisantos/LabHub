@@ -38,22 +38,22 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 block text-xs text-fg-muted">Nome</label>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Nome</label>
           <input
             type="text"
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
             placeholder="Ex: Notebook Dell"
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
             required
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-fg-muted">Seção</label>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Seção</label>
           <select
             value={form.section}
             onChange={(e) => set('section', e.target.value as StockSection)}
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           >
             {stockSections.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
@@ -64,14 +64,14 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 block text-xs text-fg-muted">Subcategoria</label>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Subcategoria</label>
           <input
             type="text"
             value={form.subcategory}
             onChange={(e) => set('subcategory', e.target.value)}
             placeholder={subcategories.length > 0 ? subcategories[0] : 'Ex: Notebook'}
             list={`subcats-${form.section}`}
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
           {subcategories.length > 0 && (
             <datalist id={`subcats-${form.section}`}>
@@ -80,11 +80,11 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           )}
         </div>
         <div>
-          <label className="mb-1 block text-xs text-fg-muted">Condição</label>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Condição</label>
           <select
             value={form.condition}
             onChange={(e) => set('condition', e.target.value)}
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           >
             {stockConditions.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -95,49 +95,49 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 block text-xs text-fg-muted">Nº Série / Patrimônio</label>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Nº Série / Patrimônio</label>
           <input
             type="text"
             value={form.serialNumber}
             onChange={(e) => set('serialNumber', e.target.value)}
             placeholder="TAG-001"
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-fg-muted">Sala</label>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Sala</label>
           <input
             type="text"
             value={form.room}
             onChange={(e) => set('room', e.target.value)}
             placeholder="Lab Info 1"
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
       </div>
 
       <div>
-        <label className="mb-1 block text-xs text-fg-muted">Observações</label>
+        <label className="mb-1 block text-xs font-medium text-fg-muted">Observações</label>
         <input
           type="text"
           value={form.notes}
           onChange={(e) => set('notes', e.target.value)}
           placeholder="Detalhes adicionais..."
-          className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-cyan-500"
+          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
         />
       </div>
 
       <div className="flex gap-2 pt-1">
         <button
           type="submit"
-          className="flex-1 rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 py-2 text-sm font-medium text-fg shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md"
+          className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
         >
           Salvar
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-lg border border-line px-4 py-2 text-sm text-fg-dim transition-colors hover:bg-input hover:text-fg"
+          className="rounded-xl bg-input px-4 py-2.5 text-sm font-medium text-fg-dim transition-colors hover:bg-input/80 btn-interactive"
         >
           Cancelar
         </button>

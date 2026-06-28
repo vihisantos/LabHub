@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { StockCard } from '../components/StockCard'
@@ -17,7 +18,16 @@ import { exportStockItemsCSV } from '../utils/export'
 export function StockSectionPage() {
   const { items, loading, create, update, reload } = useStock()
   const { create: createMovement } = useMovements()
-  const [activeSection, setActiveSection] = useState<Section>('maquinas')
+  const [searchParams] = useSearchParams()
+  const [activeSection, setActiveSection] = useState<Section | 'all' | 'repair'>('maquinas')
+
+  useEffect(() => {
+    const section = searchParams.get('section')
+    if (section && (stockSections.some((s) => s.value === section) || section === 'all' || section === 'repair')) {
+      setActiveSection(section as any)
+    }
+  }, [searchParams])
+
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<StockItem | null>(null)
@@ -27,7 +37,13 @@ export function StockSectionPage() {
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
-      if (item.section !== activeSection) return false
+      if (activeSection === 'all') {
+        if (item.status !== 'ativo') return false
+      } else if (activeSection === 'repair') {
+        if (item.status !== 'em_conserto') return false
+      } else {
+        if (item.section !== activeSection) return false
+      }
       if (search) {
         const q = search.toLowerCase()
         return (
@@ -41,7 +57,12 @@ export function StockSectionPage() {
     })
   }, [items, activeSection, search])
 
-  const sectionItems = useMemo(() => items.filter((i) => i.section === activeSection), [items, activeSection])
+  const sectionItems = useMemo(() => {
+    if (activeSection === 'all') return items.filter((i) => i.status === 'ativo')
+    if (activeSection === 'repair') return items.filter((i) => i.status === 'em_conserto')
+    return items.filter((i) => i.section === activeSection)
+  }, [items, activeSection])
+
   const stats = useMemo(() => ({
     total: sectionItems.length,
     ativos: sectionItems.filter((i) => i.status === 'ativo').length,
@@ -112,41 +133,47 @@ export function StockSectionPage() {
         <SectionTabs active={activeSection} onChange={setActiveSection} />
 
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">{stockSections.find((s) => s.value === activeSection)?.label}</h2>
+          <h2 className="text-2xl font-bold tracking-tight">
+            {activeSection === 'all'
+              ? 'Todos os Itens Ativos'
+              : activeSection === 'repair'
+                ? 'Itens em Conserto'
+                : stockSections.find((s) => s.value === activeSection)?.label}
+          </h2>
           <button
             type="button"
             onClick={() => { setEditing(null); setShowForm(true) }}
-            className="rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md"
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
           >
             + Novo Item
           </button>
         </div>
 
         {stats.total > 0 && (
-          <div className="grid grid-cols-4 gap-2">
-            <div className="rounded-lg border border-line bg-card/50 px-3 py-2.5">
-              <p className="text-xs text-fg-muted">Total</p>
-              <p className="text-lg font-bold text-fg">{stats.total}</p>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+              <p className="text-[11px] text-fg-muted font-medium">Total</p>
+              <p className="text-2xl font-bold tracking-tight text-fg">{stats.total}</p>
             </div>
-            <div className="rounded-lg border border-emerald-900/30 dark:border-emerald-900/30 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2.5">
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">Ativos</p>
-              <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{stats.ativos}</p>
+            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Ativos</p>
+              <p className="text-2xl font-bold tracking-tight text-emerald-700 dark:text-emerald-400">{stats.ativos}</p>
             </div>
-            <div className="rounded-lg border border-amber-900/30 dark:border-amber-900/30 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
-              <p className="text-xs text-amber-600 dark:text-amber-400">Conserto</p>
-              <p className="text-lg font-bold text-amber-700 dark:text-amber-300">{stats.conserto}</p>
+            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Conserto</p>
+              <p className="text-2xl font-bold tracking-tight text-amber-700 dark:text-amber-400">{stats.conserto}</p>
             </div>
-            <div className="rounded-lg border border-red-900/30 dark:border-red-900/30 bg-red-50 dark:bg-red-950/20 px-3 py-2.5">
-              <p className="text-xs text-red-600 dark:text-red-400">Descartados</p>
-              <p className="text-lg font-bold text-red-700 dark:text-red-300">{stats.descartados}</p>
+            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+              <p className="text-[11px] text-red-600 dark:text-red-400 font-medium">Descartados</p>
+              <p className="text-2xl font-bold tracking-tight text-red-700 dark:text-red-400">{stats.descartados}</p>
             </div>
           </div>
         )}
 
         {stats.conserto > 0 && (
-          <div className="flex items-center gap-2 rounded-lg border border-amber-900/30 dark:border-amber-900/30 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-            <icons.nav.parts size={14} />
-            <span>{stats.conserto} {stats.conserto === 1 ? 'item em conserto' : 'itens em conserto'} — <span className="text-amber-600 dark:text-amber-400">requer atenção</span></span>
+          <div className="flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+            <icons.nav.parts size={16} />
+            <span>{stats.conserto} {stats.conserto === 1 ? 'item em conserto' : 'itens em conserto'} — <span className="text-amber-600 dark:text-amber-400 font-medium">requer atenção</span></span>
           </div>
         )}
 
@@ -154,7 +181,7 @@ export function StockSectionPage() {
           <button
             type="button"
             onClick={() => exportStockItemsCSV(filtered)}
-            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-fg-dim transition-colors hover:bg-input hover:text-fg"
+            className="flex items-center gap-1.5 rounded-xl bg-input px-3 py-1.5 text-xs font-medium text-fg-dim transition-colors hover:bg-input/80"
           >
             <icons.ui.fileBarChart size={14} />
             Exportar CSV
@@ -162,12 +189,12 @@ export function StockSectionPage() {
         </div>
 
         {showForm && (
-          <div className="rounded-xl border border-line bg-card/50 p-4">
+          <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
               {editing ? 'Editar Item' : 'Novo Item'}
             </h3>
             <StockForm
-              initial={editing ? { ...editing } : { section: activeSection }}
+              initial={editing ? { ...editing } : { section: (activeSection === 'all' || activeSection === 'repair') ? 'maquinas' : activeSection }}
               onSave={handleSave}
               onCancel={() => { setEditing(null); setShowForm(false) }}
             />
@@ -181,7 +208,7 @@ export function StockSectionPage() {
             placeholder="Buscar por nome, série ou sala..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-emerald-500"
+            className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
 

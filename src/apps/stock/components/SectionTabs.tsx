@@ -2,22 +2,22 @@ import type { StockSection } from '../types'
 import { stockSections } from '../types'
 
 interface SectionTabsProps {
-  active: StockSection
+  active: StockSection | 'all' | 'repair'
   onChange: (section: StockSection) => void
 }
 
 export function SectionTabs({ active, onChange }: SectionTabsProps) {
   return (
-    <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+    <div className="flex rounded-xl bg-segmented p-0.5 select-none">
       {stockSections.map((s) => (
         <button
           key={s.value}
           type="button"
           onClick={() => onChange(s.value)}
-          className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+          className={`flex-1 shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-all duration-200 btn-interactive ${
             active === s.value
-              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-500 dark:ring-emerald-700/50'
-              : 'bg-input text-fg-dim ring-1 ring-line hover:bg-card'
+              ? 'bg-surface shadow-sm text-fg'
+              : 'text-fg-muted hover:text-fg-dim'
           }`}
         >
           {s.label}

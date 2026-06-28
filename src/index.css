@@ -8,33 +8,41 @@
   --color-fg-dim: var(--text-secondary);
   --color-fg-muted: var(--text-muted);
   --color-line: var(--border);
+  --color-segmented: var(--bg-segmented);
+  --color-card-hover: var(--bg-card-hover);
 }
 
 @layer base {
   :root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f8fafc;
+    --bg-primary: #fafafa;
+    --bg-secondary: #f5f5f7;
     --bg-card: #ffffff;
-    --bg-input: #f1f5f9;
-    --border: #e2e8f0;
-    --border-focus: #06b6d4;
+    --bg-input: #f5f5f7;
+    --border: rgba(0, 0, 0, 0.05);
+    --border-focus: #10b981;
     --text-primary: #0f172a;
     --text-secondary: #475569;
     --text-muted: #94a3b8;
-    --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-elevated: 0 4px 16px rgba(0,0,0,0.08);
+    --bg-card-hover: #f0f0f2;
+    --bg-segmented: #e8e8ed;
   }
 
   .dark {
-    --bg-primary: #0a0a0a;
-    --bg-secondary: #171717;
-    --bg-card: rgba(15, 23, 42, 0.5);
-    --bg-input: #0f172a;
-    --border: #1e293b;
-    --border-focus: #06b6d4;
+    --bg-primary: #000000;
+    --bg-secondary: #1c1c1e;
+    --bg-card: #1c1c1e;
+    --bg-input: #2c2c2e;
+    --border: rgba(255, 255, 255, 0.06);
+    --border-focus: #10b981;
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
     --text-muted: #475569;
-    --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-elevated: 0 4px 16px rgba(0,0,0,0.4);
+    --bg-card-hover: #2c2c2e;
+    --bg-segmented: #3a3a3c;
   }
 
   body {
@@ -42,11 +50,38 @@
     color: var(--text-primary);
     @apply antialiased;
   }
+
+  button, a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.btn-interactive {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s;
+}
+.btn-interactive:active {
+  transform: scale(0.97);
+  opacity: 0.9;
+}
+
+@keyframes apple-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition {
+  animation: apple-fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes slide-up {
-  from { transform: translateY(10px); }
-  to { transform: translateY(0); }
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 /* View Transitions API */
@@ -63,98 +98,7 @@
 }
 
 ::view-transition-new(root) {
-  animation: vt-fade-in 0.25s ease-out;
+  animation: vt-fade-in 0.3s ease-out;
 }
 
-@keyframes glow-pulse {
-  0%, 100% {
-    box-shadow: 0 0 12px rgba(6, 182, 212, 0.15);
-  }
-  50% {
-    box-shadow: 0 0 24px rgba(6, 182, 212, 0.3);
-  }
-}
 
-/* --- Wallpaper blobs --- */
-@keyframes blob-float {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  25% {
-    transform: translate(30px, -50px) scale(1.1);
-  }
-  50% {
-    transform: translate(-20px, -20px) scale(0.9);
-  }
-  75% {
-    transform: translate(-40px, 30px) scale(1.05);
-  }
-}
-
-@keyframes blob-float-2 {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  25% {
-    transform: translate(-40px, 30px) scale(1.15);
-  }
-  50% {
-    transform: translate(20px, 50px) scale(0.85);
-  }
-  75% {
-    transform: translate(30px, -30px) scale(1.1);
-  }
-}
-
-@keyframes blob-float-3 {
-  0%, 100% {
-    transform: translate(0, 0) scale(1) rotate(0deg);
-  }
-  33% {
-    transform: translate(20px, -30px) scale(1.2) rotate(5deg);
-  }
-  66% {
-    transform: translate(-30px, 20px) scale(0.8) rotate(-3deg);
-  }
-}
-
-@keyframes blob-float-4 {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(-50px, -20px) scale(1.3);
-  }
-  66% {
-    transform: translate(30px, 40px) scale(0.7);
-  }
-}
-
-@keyframes blob-float-5 {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(40px, -40px) scale(1.2);
-  }
-}
-
-@keyframes blob-float-6 {
-  0%, 100% {
-    transform: translate(0, 0) scale(1) rotate(0deg);
-  }
-  25% {
-    transform: translate(-30px, -40px) scale(1.1) rotate(-4deg);
-  }
-  75% {
-    transform: translate(40px, 30px) scale(0.9) rotate(4deg);
-  }
-}
-
-.wallpaper-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  will-change: transform;
-  pointer-events: none;
-}

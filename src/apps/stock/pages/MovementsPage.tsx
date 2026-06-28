@@ -36,11 +36,11 @@ export function MovementsPage() {
     <PullToRefresh onRefresh={reload}>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Movimentações</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Movimentações</h2>
           <button
             type="button"
             onClick={() => exportMovementsCSV(filtered)}
-            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-fg-dim transition-colors hover:bg-input hover:text-fg"
+            className="flex items-center gap-1.5 rounded-xl bg-input px-3 py-1.5 text-xs font-medium text-fg-dim transition-colors hover:bg-input/80"
           >
             <icons.ui.fileBarChart size={14} />
             Exportar CSV
@@ -54,18 +54,18 @@ export function MovementsPage() {
             placeholder="Buscar por item, descrição ou sala..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-emerald-500"
+            className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex rounded-xl bg-segmented p-0.5 select-none">
           <button
             type="button"
             onClick={() => setTypeFilter('')}
-            className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-all duration-200 btn-interactive ${
               typeFilter === ''
-                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-500 dark:ring-emerald-700/50'
-                : 'bg-input text-fg-dim ring-1 ring-line hover:bg-card'
+                ? 'bg-surface shadow-sm text-fg'
+                : 'text-fg-muted hover:text-fg-dim'
             }`}
           >
             Todas
@@ -75,10 +75,10 @@ export function MovementsPage() {
               key={mt.value}
               type="button"
               onClick={() => setTypeFilter(mt.value === typeFilter ? '' : mt.value)}
-              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-all duration-200 btn-interactive ${
                 typeFilter === mt.value
-                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-500 dark:ring-emerald-700/50'
-                  : 'bg-input text-fg-dim ring-1 ring-line hover:bg-card'
+                  ? 'bg-surface shadow-sm text-fg'
+                  : 'text-fg-muted hover:text-fg-dim'
               }`}
             >
               {mt.label}
@@ -88,7 +88,7 @@ export function MovementsPage() {
 
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <icons.ui.clock size={28} className="mb-3 text-fg-muted" />
+            <icons.ui.clock size={32} className="mb-3 text-fg-muted" />
             <h3 className="mb-1 text-lg font-medium text-fg-dim">Nenhuma movimentação</h3>
             <p className="text-sm text-fg-muted">Registre movimentações nos itens do estoque.</p>
           </div>

@@ -17,7 +17,7 @@ export function StockCard({ item, onMove, onRepair, onDiscard }: StockCardProps)
     <button
       type="button"
       onClick={() => navigate(`/stock/items/${item.id}`)}
-      className="group w-full rounded-xl bg-card p-4 text-left ring-1 ring-line transition-all duration-200 hover:-translate-y-0.5 hover:bg-input/80 hover:ring-line hover:shadow-lg hover:shadow-black/20"
+      className="group w-full rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)]"
     >
       <div className="mb-2 flex items-start justify-between">
         <div className="min-w-0 flex-1">
@@ -42,29 +42,29 @@ export function StockCard({ item, onMove, onRepair, onDiscard }: StockCardProps)
       )}
 
       {item.status !== 'descartado' && (
-        <div className="flex gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex gap-1 pt-2" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => onMove(item)}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-cyan-600 dark:text-cyan-400 transition-colors hover:bg-cyan-50 dark:hover:bg-cyan-900/30"
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-cyan-600 dark:text-cyan-400 transition-colors hover:bg-black/5 dark:hover:bg-white/5 btn-interactive"
           >
-            <icons.ui.refresh size={10} />
+            <icons.ui.refresh size={12} />
             Mover
           </button>
           <button
             type="button"
             onClick={() => onRepair(item)}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400 transition-colors hover:bg-amber-50 dark:hover:bg-amber-900/30"
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 transition-colors hover:bg-black/5 dark:hover:bg-white/5 btn-interactive"
           >
-            <icons.nav.parts size={10} />
+            <icons.nav.parts size={12} />
             Consertar
           </button>
           <button
             type="button"
             onClick={() => onDiscard(item)}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-red-50 dark:hover:bg-red-900/30"
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-black/5 dark:hover:bg-white/5 btn-interactive"
           >
-            <icons.ui.trash size={10} />
+            <icons.ui.trash size={12} />
             Descartar
           </button>
         </div>

@@ -31,39 +31,39 @@ export function StockDetail() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-5 flex items-center gap-2">
         <button
           type="button"
           onClick={() => navigate('/stock')}
-          className="rounded-lg p-1 text-fg-dim hover:text-fg"
+          className="rounded-xl p-1.5 text-fg-dim hover:text-fg hover:bg-input transition-colors"
           aria-label="Voltar"
         >
           <icons.ui.back size={20} />
         </button>
-        <h2 className="text-xl font-semibold">{item.name}</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{item.name}</h2>
         <StatusBadge status={item.status} />
       </div>
 
-      <div className="flex flex-col gap-3">
-        <section className="rounded-xl border border-line bg-card/50 p-4">
+      <div className="flex flex-col gap-4">
+        <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Informações</h3>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div><span className="text-fg-muted">Seção:</span> <span className="text-fg">{item.section}</span></div>
-            <div><span className="text-fg-muted">Subcategoria:</span> <span className="text-fg">{item.subcategory || '-'}</span></div>
-            <div><span className="text-fg-muted">Sala:</span> <span className="text-fg">{item.room || '-'}</span></div>
-            <div><span className="text-fg-muted">Nº Série:</span> <span className="text-fg">{item.serialNumber || '-'}</span></div>
-            <div><span className="text-fg-muted">Condição:</span> <span className="text-fg">{item.condition || '-'}</span></div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-fg-muted font-medium">Seção:</span> <span className="text-fg">{item.section}</span></div>
+            <div><span className="text-fg-muted font-medium">Subcategoria:</span> <span className="text-fg">{item.subcategory || '-'}</span></div>
+            <div><span className="text-fg-muted font-medium">Sala:</span> <span className="text-fg">{item.room || '-'}</span></div>
+            <div><span className="text-fg-muted font-medium">Nº Série:</span> <span className="text-fg">{item.serialNumber || '-'}</span></div>
+            <div><span className="text-fg-muted font-medium">Condição:</span> <span className="text-fg">{item.condition || '-'}</span></div>
           </div>
         </section>
 
         {item.notes && (
-          <section className="rounded-xl border border-line bg-card/50 p-4">
+          <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Observações</h3>
             <p className="text-sm text-fg-dim">{item.notes}</p>
           </section>
         )}
 
-        <section className="rounded-xl border border-line bg-card/50 p-4">
+        <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Histórico de Movimentações</h3>
           <MovementTimeline movements={itemMovements} />
         </section>
