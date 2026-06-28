@@ -23,7 +23,7 @@ export function AddPartToPcModal({ open, onClose, parts, onConfirm }: AddPartToP
       partName: selectedPart.name,
       category: selectedPart.category,
       quantity,
-      replacedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      replacedAt: new Date().toISOString(),
       notes: notes || undefined,
     }
     onConfirm(replacedPart)
@@ -78,7 +78,7 @@ export function AddPartToPcModal({ open, onClose, parts, onConfirm }: AddPartToP
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Ex: Fan com ruído"
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
+            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-cyan-500"
           />
         </div>
 

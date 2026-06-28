@@ -9,7 +9,7 @@ export function useChecklistTemplates() {
   const load = useCallback(() => {
     setLoading(true)
     const data = checklistTemplateService.getAll()
-    setTemplates(data.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds))
+    setTemplates(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
     setLoading(false)
   }, [])
 
@@ -43,7 +43,7 @@ export function usePCChecklists(pcId: string) {
   const load = useCallback(() => {
     setLoading(true)
     const data = pcChecklistService.getByPC(pcId)
-    setChecklists(data.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds))
+    setChecklists(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
     setLoading(false)
   }, [pcId])
 

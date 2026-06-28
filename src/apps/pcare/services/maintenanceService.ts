@@ -1,10 +1,10 @@
 import type { ScheduledMaintenance, MaintenanceFormData } from '../types/maintenance'
-import { createLocalService } from '../../../lib/storage'
+import { createSyncService } from '../../../lib/sync'
 
-const store = createLocalService<ScheduledMaintenance>('maintenance')
+const store = createSyncService<ScheduledMaintenance>('maintenance')
 
 function serialize(data: MaintenanceFormData) {
-  const now = { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any
+  const now = new Date().toISOString()
   return {
     ...data,
     completed: false,
@@ -24,7 +24,7 @@ export const maintenanceService = {
   getUpcoming: () =>
     store
       .query((m) => !m.completed)
-      .sort((a, b) => a.scheduledDate.seconds - b.scheduledDate.seconds),
+      .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime()),
 
   create: (data: MaintenanceFormData) => {
     const entry = serialize(data) as unknown as ScheduledMaintenance
@@ -34,7 +34,7 @@ export const maintenanceService = {
   update: (id: string, data: Partial<ScheduledMaintenance>) => {
     return store.update(id, {
       ...data,
-      updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      updatedAt: new Date().toISOString(),
     })
   },
 

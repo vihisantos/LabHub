@@ -1,19 +1,20 @@
 import type { PC, PCFormData } from '../types'
-import { createLocalService } from '../../../lib/storage'
+import { createSyncService } from '../../../lib/sync'
 
-const service = createLocalService<PC>('pcs')
+const service = createSyncService<PC>('pcs')
 
 function serializeTimestamps(data: PCFormData) {
+  const now = new Date().toISOString()
   return {
     ...data,
     partsReplaced: data.partsReplaced.map((p) => ({
       ...p,
-      replacedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      replacedAt: now,
     })),
     photos: [],
     lastIntervention: null,
-    createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
-    updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+    createdAt: now,
+    updatedAt: now,
   }
 }
 

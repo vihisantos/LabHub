@@ -7,6 +7,7 @@ import { partService } from '../services/partService'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
 import { icons } from '../../../lib/icons'
+import { ConfirmDialog } from '../components/Modal'
 
 function downloadJSON(data: unknown, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -45,6 +46,8 @@ export function Settings() {
   const { theme, toggle } = useTheme()
   const fileRef = useRef<HTMLInputElement>(null)
   const [importResult, setImportResult] = useState<string | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [confirmClearFinal, setConfirmClearFinal] = useState(false)
 
   function handleExportAll() {
     const all = {
@@ -149,8 +152,6 @@ export function Settings() {
   }
 
   function handleClearAll() {
-    if (!window.confirm('Tem certeza? Todos os dados serão perdidos permanentemente.')) return
-    if (!window.confirm('Esta ação não pode ser desfeita. Deseja continuar?')) return
     const keys = Object.keys(localStorage).filter((k) => k.startsWith('labhub_'))
     keys.forEach((k) => localStorage.removeItem(k))
     reloadPCs()
@@ -172,7 +173,7 @@ export function Settings() {
           <button
             type="button"
             onClick={toggle}
-            className="rounded-lg border border-line px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-input"
+            className="rounded-lg border border-line px-4 py-2 text-sm text-fg-dim transition-colors hover:bg-input"
           >
             {theme === 'dark' ? <><icons.ui.sun size={16} className="inline" /> Claro</> : <><icons.ui.moon size={16} className="inline" /> Escuro</>}
           </button>
@@ -185,15 +186,15 @@ export function Settings() {
           <div className="flex items-center justify-between">
             <p className="text-sm text-fg">PCs</p>
             <div className="flex gap-2">
-              <button type="button" onClick={handleExportPcsCSV} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">CSV</button>
-              <button type="button" onClick={handleExportPcsXLSX} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">XLSX</button>
+              <button type="button" onClick={handleExportPcsCSV} className="rounded-lg border border-line px-3 py-1.5 text-xs text-fg-dim hover:bg-input">CSV</button>
+              <button type="button" onClick={handleExportPcsXLSX} className="rounded-lg border border-line px-3 py-1.5 text-xs text-fg-dim hover:bg-input">XLSX</button>
             </div>
           </div>
           <div className="flex items-center justify-between">
             <p className="text-sm text-fg">Peças</p>
             <div className="flex gap-2">
-              <button type="button" onClick={handleExportPartsCSV} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">CSV</button>
-              <button type="button" onClick={handleExportPartsXLSX} className="rounded-lg border border-line px-3 py-1.5 text-xs text-slate-300 hover:bg-input">XLSX</button>
+              <button type="button" onClick={handleExportPartsCSV} className="rounded-lg border border-line px-3 py-1.5 text-xs text-fg-dim hover:bg-input">CSV</button>
+              <button type="button" onClick={handleExportPartsXLSX} className="rounded-lg border border-line px-3 py-1.5 text-xs text-fg-dim hover:bg-input">XLSX</button>
             </div>
           </div>
         </div>
@@ -219,7 +220,7 @@ export function Settings() {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="w-full rounded-lg border border-dashed border-line py-3 text-sm text-fg-dim transition-colors hover:border-slate-600 hover:text-slate-300"
+          className="w-full rounded-lg border border-dashed border-line py-3 text-sm text-fg-dim transition-colors hover:border-line hover:text-fg-dim"
         >
           Selecionar arquivo CSV
         </button>
@@ -229,26 +230,46 @@ export function Settings() {
       </section>
 
       <section className="rounded-xl border border-red-900/30 bg-red-950/20 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-red-400">Zona de Perigo</h3>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">Zona de Perigo</h3>
         <button
           type="button"
-          onClick={handleClearAll}
-          className="w-full rounded-lg border border-red-800 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-900/30"
+          onClick={() => setConfirmClear(true)}
+          className="w-full rounded-lg border border-red-600 dark:border-red-800 py-2 text-sm font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-red-50 dark:hover:bg-red-900/30"
         >
           Limpar Todos os Dados
         </button>
       </section>
 
+      <ConfirmDialog
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={() => { setConfirmClear(false); setConfirmClearFinal(true) }}
+        title="Limpar dados"
+        message="Tem certeza? Todos os dados serão perdidos permanentemente."
+        confirmLabel="Sim, quero limpar"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        open={confirmClearFinal}
+        onClose={() => setConfirmClearFinal(false)}
+        onConfirm={() => { setConfirmClearFinal(false); handleClearAll() }}
+        title="Confirmação final"
+        message="Esta ação não pode ser desfeita. Deseja continuar?"
+        confirmLabel="Sim, estou certo"
+        variant="danger"
+      />
+
       <section className="rounded-xl border border-line bg-card/50 p-4">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Sobre</h3>
-        <p className="text-sm text-slate-300">Lab Hub v{import.meta.env.VITE_APP_VERSION || '0.1.0'}</p>
+        <p className="text-sm text-fg-dim">Lab Hub v{import.meta.env.VITE_APP_VERSION || '0.1.0'}</p>
         <p className="text-xs text-fg-muted mt-1">
           PWA para gerenciamento de inventário de PCs em laboratórios universitários.
         </p>
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="mt-3 text-xs text-cyan-400 hover:text-cyan-300"
+          className="mt-3 text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300"
         >
           Voltar ao Início
         </button>

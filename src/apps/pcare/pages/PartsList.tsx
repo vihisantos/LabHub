@@ -6,6 +6,7 @@ import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
 import { partUsageService } from '../services/partUsageService'
 import { icons } from '../../../lib/icons'
+import { ConfirmDialog } from '../components/Modal'
 import type { PartFormData } from '../types'
 
 const emptyPartForm: PartFormData = {
@@ -29,6 +30,7 @@ export function PartsList() {
   const [form, setForm] = useState<PartFormData>(emptyPartForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [usagePartId, setUsagePartId] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
 
   function resetForm() {
     setForm(emptyPartForm)
@@ -190,7 +192,7 @@ export function PartsList() {
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium text-fg">{part.name}</h3>
                       {lowStock && (
-                        <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+                        <span className="rounded bg-red-100 dark:bg-red-900/40 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:text-red-400">
                           Estoque baixo
                         </span>
                       )}
@@ -205,7 +207,7 @@ export function PartsList() {
                       <button
                         type="button"
                         onClick={() => adjustQuantity(part.id, -1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg"
+                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg"
                       >
                         −
                       </button>
@@ -215,7 +217,7 @@ export function PartsList() {
                       <button
                         type="button"
                         onClick={() => adjustQuantity(part.id, 1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg"
+                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg"
                       >
                         +
                       </button>
@@ -223,23 +225,21 @@ export function PartsList() {
                     <button
                       type="button"
                       onClick={() => startEdit(part)}
-                      className="text-xs font-medium text-cyan-400 hover:text-cyan-300"
+                      className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300"
                     >
                       Editar
                     </button>
                     <button
                       type="button"
                       onClick={() => setUsagePartId(usagePartId === part.id ? null : part.id)}
-                      className="text-xs font-medium text-fg-dim hover:text-slate-300"
+                      className="text-xs font-medium text-fg-dim hover:text-fg"
                     >
                       {usagePartId === part.id ? 'Ocultar' : 'Uso'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm(`Remover ${part.name}?`)) remove(part.id)
-                      }}
-                      className="text-xs font-medium text-red-400 hover:text-red-300"
+                      onClick={() => setConfirmRemove(part.id)}
+                      className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                     >
                       Excluir
                     </button>
@@ -253,6 +253,15 @@ export function PartsList() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmRemove}
+        onClose={() => setConfirmRemove(null)}
+        onConfirm={() => { if (confirmRemove) remove(confirmRemove); setConfirmRemove(null) }}
+        title="Remover peça"
+        message={`Tem certeza que deseja remover "${parts.find((p) => p.id === confirmRemove)?.name}"?`}
+        confirmLabel="Remover"
+      />
     </PullToRefresh>
   )
 }
@@ -278,11 +287,11 @@ function PartUsagePanel({ partId, pcs }: { partId: string; pcs: { id: string; la
           const pc = pcs.find((p) => p.id === u.pcId)
           return (
             <div key={u.id} className="flex items-center justify-between text-xs">
-              <span className="text-slate-300">
+              <span className="text-fg-dim">
                 {pc ? `${pc.labName} — ${pc.pcNumber}` : 'PC removido'}
               </span>
               <span className="text-fg-muted">
-                {u.quantity}x · {new Date(u.timestamp.seconds * 1000).toLocaleDateString('pt-BR')}
+                {u.quantity}x · {new Date(u.timestamp).toLocaleDateString('pt-BR')}
               </span>
             </div>
           )

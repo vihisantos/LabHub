@@ -9,14 +9,14 @@ export function useMaintenance() {
   const load = useCallback(() => {
     setLoading(true)
     const data = maintenanceService.getAll()
-    setAll(data.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds))
+    setAll(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
     setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
 
   const upcoming = all.filter((m) => !m.completed)
-    .sort((a, b) => a.scheduledDate.seconds - b.scheduledDate.seconds)
+    .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
 
   const create = useCallback((data: MaintenanceFormData) => {
     const m = maintenanceService.create(data)
@@ -39,7 +39,7 @@ export function useMaintenance() {
   const complete = useCallback((id: string) => {
     return update(id, {
       completed: true,
-      completedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      completedAt: new Date().toISOString(),
     })
   }, [update])
 

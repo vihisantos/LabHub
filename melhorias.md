@@ -6,32 +6,35 @@
 
 ## 🔥 Críticas (Alto Impacto)
 
-### 1. Firebase Inativo
+~~### 1. Firebase Inativo → Supabase~~ ✅
 
-**Problema:** Firebase configurado em `src/lib/firebase.ts` e duplicado em `src/apps/pcare/services/firebase.ts`, mas sem arquivo `.env` com as credenciais. O `useOnlineSync.ts` é um stub vazio — qualquer refresh de página perde todos os dados (só localStorage).
+~~**Problema:** Firebase configurado em `src/lib/firebase.ts` e duplicado em `src/apps/pcare/services/firebase.ts`, mas sem arquivo `.env` com as credenciais. O `useOnlineSync.ts` é um stub vazio — qualquer refresh de página perde todos os dados (só localStorage).~~
 
-**O que fazer:**
-- Criar `.env` com as variáveis `VITE_FIREBASE_*`
-- Unificar as duas configurações Firebase (manter só uma)
-- Implementar sync real no `useOnlineSync.ts` (offline → localStorage, online → Firebase)
-- Estratégia: localStorage como source of truth, Firebase como backup/sync
+~~**O que foi feito:**~~
+~~- Firebase removido completamente; sync migrado para Supabase (PostgreSQL)~~
+~~- `src/lib/supabase.ts` criado com clients por schema (`pcare` + `stock`)~~
+~~- `src/lib/sync.ts` reescrito: `syncAll()` usa Supabase em vez de Firestore~~
+~~- Pull-only no primeiro sync (dados mock não sobem)~~
+~~- `useOnlineSync.ts` reescrito com sync real~~
+~~- Todos os timestamps migrados para ISO 8601 strings~~
+~~- Migration SQL executada no Supabase (schemas + tabelas)~~
 
-**Arquivos envolvidos:** `.env.example`, `src/lib/firebase.ts`, `src/apps/pcare/services/firebase.ts`, `src/apps/pcare/hooks/useOnlineSync.ts`
+~~**Arquivos envolvidos:** `src/lib/supabase.ts`, `src/lib/sync.ts`, `src/lib/firebase.ts` (removido), `.env`, `.env.example`~~
 
 ---
 
-### 2. CI sem Testes nem Lint
+~~### 2. CI sem Testes nem Lint~~ ✅
 
-**Problema:** `.github/workflows/ci.yml` executa apenas `npm run build`. Regressões passam despercebidas.
+~~**Problema:** `.github/workflows/ci.yml` executa apenas `npm run build`. Regressões passam despercebidas.~~
 
-**O que fazer:**
-```yaml
-# Adicionar ao ci.yml, após o build:
-- run: npm run test:run
-- run: npm run lint
-```
+~~**O que fazer:**~~
+~~```yaml~~
+~~# Adicionar ao ci.yml, após o build:~~
+~~- run: npm run test:run~~
+~~- run: npm run lint~~
+~~```~~
 
-**Arquivos envolvidos:** `.github/workflows/ci.yml`
+~~**Arquivos envolvidos:** `.github/workflows/ci.yml`~~
 
 ---
 
@@ -63,29 +66,29 @@
 
 ## 📋 Média Prioridade
 
-### 5. General Stock App Incompleto
+~~### 5. General Stock App (Reestruturação)~~ ✅
 
-**Problema:** O app `general-stock` tem apenas 1 página (StockList), sem navegação inferior, sem formulários completos, sem relatórios ou exportação.
+~~**Problema:** O app `general-stock` antigo tinha apenas 1 página, sem navegação inferior, sem relatórios ou exportação.~~
 
-**O que fazer:**
-- Adicionar BottomNav ou navegação por tabs
-- Criar páginas de relatórios, histórico, categorias
-- Adicionar exportação CSV (reaproveitar `utils/export.ts` do PCare)
-- Adicionar indicador de estoque baixo / alertas
+~~**O que foi feito:**~~
+~~- General-stock legado removido (não era usado)~~
+~~- StockApp (novo) refatorado com StockBottomNav~~
+~~- Exportação CSV de itens e movimentações~~
+~~- Alerta de itens em conserto~~
+~~- Theme toggle no header~~
 
-**Arquivos envolvidos:** `src/apps/general-stock/`
+~~**Arquivos envolvidos:** `src/apps/stock/`, `src/apps/general-stock/` (removido)~~
 
 ---
 
-### 6. Duplicação de Código Firebase
+~~### 6. Duplicação de Código Firebase~~ ✅
 
-**Problema:** `src/lib/firebase.ts` e `src/apps/pcare/services/firebase.ts` são idênticos.
+~~**Problema:** `src/lib/firebase.ts` e `src/apps/pcare/services/firebase.ts` são idênticos.~~
 
-**O que fazer:**
-- Remover `src/apps/pcare/services/firebase.ts`
-- Atualizar imports em `src/apps/pcare/services/` para usar `src/lib/firebase.ts`
+~~**O que fazer:**~~
+~~- Remover `src/apps/pcare/services/firebase.ts` (já era código morto, sem imports)~~
 
-**Arquivos envolvidos:** `src/apps/pcare/services/firebase.ts` (remover), `src/apps/pcare/services/*.ts` (atualizar imports)
+~~**Arquivos envolvidos:** `src/apps/pcare/services/firebase.ts` (removido)~~
 
 ---
 
@@ -102,15 +105,15 @@
 
 ---
 
-### 8. `prompt()` / `confirm()` Nativos
+~~### 8. `prompt()` / `confirm()` Nativos~~ ✅
 
-**Problema:** Alguns lugares ainda usam diálogos nativos do browser, que são feios e inconsistentes no mobile.
+~~**Problema:** Alguns lugares ainda usam diálogos nativos do browser, que são feios e inconsistentes no mobile.~~
 
-**O que fazer:**
-- Substituir por `ConfirmDialog` já existente em `src/apps/pcare/components/Modal.tsx`
-- Ou criar um `PromptDialog` para entradas de texto
+~~**O que foi feito:**~~
+~~- Substituídos todos os `window.confirm()` por `ConfirmDialog`~~
+~~- Arquivos modificados: `Maintenance.tsx`, `Settings.tsx`, `ChecklistTemplates.tsx`, `ChecklistExecute.tsx`, `PartsList.tsx`, `PCDetail.tsx`~~
 
-**Arquivos envolvidos:** Revisar `PCList.tsx`, `StockList.tsx`, `StockCard.tsx` e outros
+~~**Arquivos envolvidos:** `src/apps/pcare/pages/*.tsx`~~
 
 ---
 
@@ -159,25 +162,25 @@
 
 ---
 
-### 13. Versão e Changelog
+~~### 13. Versão e Changelog~~ ✅
 
-**Problema:** `package.json` version `"0.0.0"` sem histórico de releases.
+~~**Problema:** `package.json` version `"0.0.0"` sem histórico de releases.~~
 
-**O que fazer:**
-- Definir versão inicial (ex: `0.1.0`)
-- Criar `CHANGELOG.md` seguindo [Keep a Changelog](https://keepachangelog.com/)
-- Configurar `standard-version` ou `semantic-release` para automatizar
+~~**O que foi feito:**~~
+~~- Versão atualizada para `0.1.0`~~
+~~- `CHANGELOG.md` criado seguindo Keep a Changelog~~
+~~- `standard-version` instalado e scripts `release` adicionados no `package.json`~~
 
 ---
 
-### 14. Performance
+~~### 14. Performance~~ ✅
 
-**Problema:** Sem lazy loading de rotas, todos os bundles são carregados de uma vez.
+~~**Problema:** Sem lazy loading de rotas, todos os bundles são carregados de uma vez.~~
 
-**O que fazer:**
-- Usar `React.lazy()` + `Suspense` para cada rota principal
-- Code-split o General Stock app separado do PCare app
-- Analisar bundle com `vite-plugin-visualizer`
+~~**O que foi feito:**~~
+~~- `React.lazy()` + `Suspense` para Launcher, PCareApp e StockApp~~
+~~- Code-split: cada app em chunk separado (Launcher 4.6 kB, Stock 41 kB, PCare 954 kB)~~
+~~- `rollup-plugin-visualizer` instalado + script `analyze`~~
 
 ---
 
@@ -196,20 +199,20 @@
 
 | Prioridade | Item | Esforço | Impacto |
 |------------|------|---------|---------|
-| 🔥 | Firebase | Alto | Alto (sem isso, dados não persistem) |
-| 🔥 | CI tests/lint | Baixo | Alto (pega regressão cedo) |
+| ~~🔥~~ | ~~Firebase~~ | ✅ | |
+| ~~🔥~~ | ~~CI tests/lint~~ | ~~Baixo~~ | ✅ |
 | 🔥 | Light theme | Médio | Alto (experiência do usuário) |
 | ~~🔥~~ | ~~Ícones~~ | ~~Médio~~ | ✅ |
-| 📋 | General Stock | Alto | Médio (app secundário) |
-| 📋 | Firebase duplicado | Baixo | Baixo (manutenibilidade) |
+| ~~📋~~ | ~~General Stock~~ | ~~Alto~~ | ✅ |
+| ~~📋~~ | ~~Firebase duplicado~~ | ~~Baixo~~ | ✅ |
 | 📋 | Testes página | Médio | Alto (qualidade) |
-| 📋 | prompt()/confirm() | Baixo | Médio (UX mobile) |
+| ~~📋~~ | ~~prompt()/confirm()~~ | ~~Baixo~~ | ✅ |
 | ~~🎯~~ | ~~Animações~~ | ~~Médio~~ | ✅ |
 | 🎯 | Offline | Alto | Médio |
 | ~~🎯~~ | ~~a11y~~ | ~~Alto~~ | ✅ |
 | ~~🎯~~ | ~~Safe area~~ | ~~Baixo~~ | ✅ |
-| 🎯 | Versão | Baixo | Baixo |
-| 🎯 | Performance | Médio | Médio |
+| ~~🎯~~ | ~~Versão~~ | ~~Baixo~~ | ✅ |
+| ~~🎯~~ | ~~Performance~~ | ~~Médio~~ | ✅ |
 | 🎯 | Error tracking | Médio | Médio |
 
 ---

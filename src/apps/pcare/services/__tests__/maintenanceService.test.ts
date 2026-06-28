@@ -7,7 +7,7 @@ function validFormData(overrides?: Partial<MaintenanceFormData>): MaintenanceFor
     labName: 'Lab A',
     pcNumber: 'PC-001',
     type: 'cleaning',
-    scheduledDate: { seconds: 1800000000, nanoseconds: 0 } as any,
+    scheduledDate: new Date(1800000000 * 1000).toISOString(),
     notes: '',
     ...overrides,
   }
@@ -41,12 +41,12 @@ describe('maintenanceService', () => {
   })
 
   it('getUpcoming retorna manutenções não concluídas ordenadas por data', () => {
-    maintenanceService.create(validFormData({ scheduledDate: { seconds: 2000000000, nanoseconds: 0 } as any }))
-    maintenanceService.create(validFormData({ scheduledDate: { seconds: 1000000000, nanoseconds: 0 } as any }))
+    maintenanceService.create(validFormData({ scheduledDate: new Date(2000000000 * 1000).toISOString() }))
+    maintenanceService.create(validFormData({ scheduledDate: new Date(1000000000 * 1000).toISOString() }))
     const upcoming = maintenanceService.getUpcoming()
     expect(upcoming).toHaveLength(2)
-    expect(upcoming[0].scheduledDate.seconds).toBe(1000000000)
-    expect(upcoming[1].scheduledDate.seconds).toBe(2000000000)
+    expect(upcoming[0].scheduledDate).toBe(new Date(1000000000 * 1000).toISOString())
+    expect(upcoming[1].scheduledDate).toBe(new Date(2000000000 * 1000).toISOString())
   })
 
   it('getUpcoming exclui manutenções concluídas', () => {

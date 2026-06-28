@@ -47,11 +47,11 @@ export function PCChecklistModal({
                       type="button"
                       onClick={() => onToggleItem(cl.id, item.itemId)}
                       className={`flex items-center gap-2 rounded px-2 py-1 text-left text-xs transition-colors ${
-                        item.done ? 'bg-emerald-900/30 text-emerald-300' : 'text-fg-dim hover:bg-slate-700'
+                        item.done ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' : 'text-fg-dim hover:bg-card'
                       }`}
                     >
                       <span className={`flex h-4 w-4 items-center justify-center rounded border ${
-                        item.done ? 'border-emerald-500 bg-emerald-500' : 'border-slate-500'
+                        item.done ? 'border-emerald-600 bg-emerald-600 dark:border-emerald-500 dark:bg-emerald-500' : 'border-line'
                       }`}>
                         {item.done && <icons.ui.check size={12} className="text-fg" />}
                       </span>
@@ -60,7 +60,7 @@ export function PCChecklistModal({
                   ))}
                 </div>
                 {cl.items.every((i) => i.done) && (
-                  <p className="mt-2 text-xs text-emerald-400"><icons.ui.check size={12} className="inline" /> Todos concluídos</p>
+                  <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400"><icons.ui.check size={12} className="inline" /> Todos concluídos</p>
                 )}
               </div>
             ))}

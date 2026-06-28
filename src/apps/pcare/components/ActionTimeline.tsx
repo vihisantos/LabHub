@@ -12,8 +12,8 @@ const iconMap: Record<string, ComponentType<{ size?: number }>> = {
   software_added: icons.ui.hardDrive,
 }
 
-function formatTime(seconds: number) {
-  const date = new Date(seconds * 1000)
+function formatTime(iso: string) {
+  const date = new Date(iso)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
   const mins = Math.floor(diff / 60000)
@@ -41,7 +41,7 @@ export function ActionTimeline({ logs }: ActionTimelineProps) {
       {logs.map((log, i) => (
         <div key={log.id} className="flex gap-3">
           <div className="flex flex-col items-center">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-input ring-1 ring-slate-700">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-input ring-1 ring-line">
               {iconMap[log.type] ? (
                 (() => { const Icon = iconMap[log.type]; return <Icon size={14} /> })()
               ) : (
@@ -52,7 +52,7 @@ export function ActionTimeline({ logs }: ActionTimelineProps) {
           </div>
           <div className="flex-1 pb-3">
             <p className="text-sm text-fg">{log.description}</p>
-            <p className="text-xs text-fg-muted">{formatTime(log.timestamp.seconds)}</p>
+            <p className="text-xs text-fg-muted">{formatTime(log.timestamp)}</p>
           </div>
         </div>
       ))}

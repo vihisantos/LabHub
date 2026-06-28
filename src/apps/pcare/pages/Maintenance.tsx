@@ -6,13 +6,14 @@ import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
+import { ConfirmDialog } from '../components/Modal'
 
-function formatDate(seconds: number) {
-  return new Date(seconds * 1000).toLocaleDateString('pt-BR')
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('pt-BR')
 }
 
-function isOverdue(seconds: number) {
-  return seconds < Math.floor(Date.now() / 1000)
+function isOverdue(iso: string) {
+  return new Date(iso).getTime() < Date.now()
 }
 
 export function Maintenance() {
@@ -55,7 +56,7 @@ export function Maintenance() {
       labName: form.labName,
       pcNumber: form.pcNumber,
       type: form.type,
-      scheduledDate: { seconds: Math.floor(date.getTime() / 1000), nanoseconds: 0 } as any,
+      scheduledDate: date.toISOString(),
       notes: form.notes,
     })
     resetForm()
@@ -63,8 +64,8 @@ export function Maintenance() {
 
   if (loading) return <div className="space-y-2">{[1,2,3,4].map(i => <SkeletonCard key={i} />)}</div>
 
-  const overdue = upcoming.filter((m) => isOverdue(m.scheduledDate.seconds))
-  const future = upcoming.filter((m) => !isOverdue(m.scheduledDate.seconds))
+  const overdue = upcoming.filter((m) => isOverdue(m.scheduledDate))
+  const future = upcoming.filter((m) => !isOverdue(m.scheduledDate))
 
   return (
     <PullToRefresh onRefresh={reload}>
@@ -149,7 +150,7 @@ export function Maintenance() {
         <div className="flex flex-col gap-4">
           {overdue.length > 0 && (
             <section>
-              <h3 className="mb-2 text-sm font-medium text-red-400"><icons.ui.alertTriangle size={14} className="inline" /> Atrasadas ({overdue.length})</h3>
+              <h3 className="mb-2 text-sm font-medium text-red-600 dark:text-red-400"><icons.ui.alertTriangle size={14} className="inline" /> Atrasadas ({overdue.length})</h3>
               <div className="flex flex-col gap-2">
                 {overdue.map((m) => (
                   <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pcare/pcs/${m.pcId}`)} />
@@ -196,35 +197,46 @@ function MaintenanceCard({
   onRemove: (id: string) => void
   onNavigate: () => void
 }) {
-  const overdue = !m.completed && isOverdue(m.scheduledDate.seconds)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const overdue = !m.completed && isOverdue(m.scheduledDate)
 
   return (
-    <div className={`rounded-xl border p-4 transition-all hover:-translate-y-0.5 hover:shadow-md ${
-      m.completed
-        ? 'border-emerald-800/50 bg-emerald-900/10'
-        : overdue
-          ? 'border-red-800/50 bg-red-950/20'
-          : 'border-line bg-card/50'
-    }`}>
-      <div className="flex items-start justify-between">
-        <button type="button" onClick={onNavigate} className="text-left">
-          <p className={`font-medium ${m.completed ? 'text-fg-muted' : 'text-fg'}`}>
-            {m.labName} — {m.pcNumber}
-          </p>
-          <p className="text-xs text-fg-muted">
-            {m.type === 'cleaning' ? 'Limpeza' : m.type === 'restoration' ? 'Restauração' : 'Ambos'}
-            {' · '}{formatDate(m.scheduledDate.seconds)}
-            {overdue && <span className="ml-1 text-red-400">(atrasada)</span>}
-          </p>
-        </button>
-        <div className="flex gap-2">
-          {!m.completed && (
-            <button type="button" onClick={() => onComplete(m.id)} className="rounded bg-emerald-800 px-2 py-1 text-xs text-emerald-200 ring-1 ring-emerald-700/50 transition-colors hover:bg-emerald-700">Concluir</button>
-          )}
-          <button type="button" onClick={() => { if (window.confirm('Remover?')) onRemove(m.id) }} className="text-xs text-red-400 hover:text-red-300">Excluir</button>
+    <>
+      <div className={`rounded-xl border p-4 transition-all hover:-translate-y-0.5 hover:shadow-md ${
+        m.completed
+          ? 'border-emerald-500/50 dark:border-emerald-800/50 bg-emerald-50 dark:bg-emerald-900/10'
+          : overdue
+            ? 'border-red-500/50 dark:border-red-800/50 bg-red-50 dark:bg-red-950/20'
+            : 'border-line bg-card/50'
+      }`}>
+        <div className="flex items-start justify-between">
+          <button type="button" onClick={onNavigate} className="text-left">
+            <p className={`font-medium ${m.completed ? 'text-fg-muted' : 'text-fg'}`}>
+              {m.labName} — {m.pcNumber}
+            </p>
+            <p className="text-xs text-fg-muted">
+              {m.type === 'cleaning' ? 'Limpeza' : m.type === 'restoration' ? 'Restauração' : 'Ambos'}
+              {' · '}{formatDate(m.scheduledDate)}
+              {overdue && <span className="ml-1 text-red-600 dark:text-red-400">(atrasada)</span>}
+            </p>
+          </button>
+          <div className="flex gap-2">
+            {!m.completed && (
+              <button type="button" onClick={() => onComplete(m.id)} className="rounded bg-emerald-600 dark:bg-emerald-800 px-2 py-1 text-xs text-emerald-50 dark:text-emerald-200 ring-1 ring-emerald-500 dark:ring-emerald-700/50 transition-colors hover:bg-emerald-700">Concluir</button>
+            )}
+            <button type="button" onClick={() => setConfirmRemove(true)} className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
+          </div>
         </div>
+        {m.notes && <p className="mt-1 text-xs text-fg-muted">{m.notes}</p>}
       </div>
-      {m.notes && <p className="mt-1 text-xs text-fg-muted">{m.notes}</p>}
-    </div>
+      <ConfirmDialog
+        open={confirmRemove}
+        onClose={() => setConfirmRemove(false)}
+        onConfirm={() => onRemove(m.id)}
+        title="Remover manutenção"
+        message="Tem certeza que deseja remover esta manutenção?"
+        confirmLabel="Remover"
+      />
+    </>
   )
 }

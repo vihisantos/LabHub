@@ -1,10 +1,10 @@
 import type { Part, PartFormData } from '../types'
-import { createLocalService } from '../../../lib/storage'
+import { createSyncService } from '../../../lib/sync'
 
-const service = createLocalService<Part>('parts')
+const service = createSyncService<Part>('parts')
 
 function serialize(data: PartFormData) {
-  const now = { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any
+  const now = new Date().toISOString()
   return {
     ...data,
     createdAt: now,
@@ -25,7 +25,7 @@ export const partService = {
   update: (id: string, data: Partial<Part>) => {
     const updated = service.update(id, {
       ...data,
-      updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      updatedAt: new Date().toISOString(),
     })
     return updated
   },

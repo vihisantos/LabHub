@@ -14,7 +14,7 @@
 
 ## Stack
 
-React 19 · TypeScript · Vite · Tailwind CSS v4 · PWA (vite-plugin-pwa) · Firebase (Firestore + Storage + Auth) · localStorage (until Firebase configured)
+React 19 · TypeScript · Vite · Tailwind CSS v4 · PWA (vite-plugin-pwa) · Supabase (PostgreSQL) · localStorage (source of truth, sync on background)
 
 ## Getting Started
 
@@ -32,4 +32,4 @@ npm run preview
 
 ## Status
 
-Pre-release — data layer on localStorage, Firebase integration pending.
+Pre-release — data layer on localStorage, Supabase sync available when configured.

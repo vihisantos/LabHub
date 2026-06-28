@@ -21,11 +21,11 @@ export const appRegistry: AppModule[] = [
     color: '#06b6d4',
   },
   {
-    id: 'general-stock',
-    name: 'Estoque Geral',
-    description: 'Controle de materiais e suprimentos do laboratório',
+    id: 'stock',
+    name: 'Estoque',
+    description: 'Controle de estoque, movimentações e conferência de kits',
     icon: icons.ui.package,
-    route: '/general-stock',
+    route: '/stock',
     color: '#10b981',
   },
 ]

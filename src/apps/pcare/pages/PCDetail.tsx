@@ -11,6 +11,7 @@ import { PCChecklistModal } from '../components/PCChecklistModal'
 import { ActionTimeline } from '../components/ActionTimeline'
 import { partUsageService } from '../services/partUsageService'
 import { icons } from '../../../lib/icons'
+import { ConfirmDialog } from '../components/Modal'
 import type { PC, PCPart } from '../types'
 
 export function PCDetail() {
@@ -50,6 +51,7 @@ function PCDetailContent({
   const { logs, log: addLog } = useActionLog(pc.id)
   const [showAddPart, setShowAddPart] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const partUsages = useMemo(() => partUsageService.getByPC(pc.id), [pc.id])
 
@@ -122,7 +124,7 @@ function PCDetailContent({
             ...item,
             done: newDone,
             doneAt: newDone
-              ? ({ seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any)
+        ? new Date().toISOString()
               : null,
           }
         : item,
@@ -132,7 +134,7 @@ function PCDetailContent({
     updateChecklist(checklistId, {
       items: updatedItems,
       completedAt: allDone
-        ? ({ seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any)
+        ? new Date().toISOString()
         : null,
     })
 
@@ -142,10 +144,8 @@ function PCDetailContent({
   }
 
   function handleDelete() {
-    if (window.confirm(`Remover ${pc.labName} — ${pc.pcNumber}?`)) {
-      onRemove(pc.id)
-      navigate('/pcare/pcs')
-    }
+    onRemove(pc.id)
+    navigate('/pcare/pcs')
   }
 
   return (
@@ -187,17 +187,17 @@ function PCDetailContent({
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Status</h3>
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-300">Limpeza</span>
+              <span className="text-sm text-fg-dim">Limpeza</span>
               <div className="flex items-center gap-2">
                 <StatusBadge status={pc.cleaningStatus} />
-                <button type="button" onClick={() => toggleStatus('cleaning')} className="rounded-md bg-input px-2 py-1 text-xs text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg">Avançar</button>
+                <button type="button" onClick={() => toggleStatus('cleaning')} className="rounded-md bg-input px-2 py-1 text-xs text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg">Avançar</button>
               </div>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-300">Restauração</span>
+              <span className="text-sm text-fg-dim">Restauração</span>
               <div className="flex items-center gap-2">
                 <StatusBadge status={pc.restorationStatus} />
-                <button type="button" onClick={() => toggleStatus('restoration')} className="rounded-md bg-input px-2 py-1 text-xs text-fg-dim ring-1 ring-slate-700 transition-colors hover:bg-slate-700 hover:text-fg">Avançar</button>
+                <button type="button" onClick={() => toggleStatus('restoration')} className="rounded-md bg-input px-2 py-1 text-xs text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg">Avançar</button>
               </div>
             </div>
           </div>
@@ -208,7 +208,7 @@ function PCDetailContent({
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Software Instalado</h3>
             <div className="flex flex-wrap gap-1.5">
               {pc.softwareInstalled.map((sw) => (
-                <span key={sw} className="rounded-md bg-input px-2 py-1 text-xs text-slate-300 ring-1 ring-slate-700/50">{sw}</span>
+                <span key={sw} className="rounded-md bg-input px-2 py-1 text-xs text-fg-dim ring-1 ring-line/50">{sw}</span>
               ))}
             </div>
           </section>
@@ -230,7 +230,7 @@ function PCDetailContent({
           ) : (
             <div className="flex flex-col gap-2">
               {pc.partsReplaced.map((part) => (
-                <div key={part.partId + part.replacedAt.seconds} className="flex items-center justify-between rounded-lg bg-input/50 px-3 py-2">
+                <div key={part.partId + part.replacedAt} className="flex items-center justify-between rounded-lg bg-input/50 px-3 py-2">
                   <div>
                     <p className="text-sm text-fg">{part.partName}</p>
                     <p className="text-xs text-fg-muted">{part.quantity}x · {part.category}</p>
@@ -261,7 +261,7 @@ function PCDetailContent({
                   <div className="mb-1 flex items-center justify-between">
                     <span className="text-xs font-medium text-fg">{cl.templateName}</span>
                     {cl.items.every((i) => i.done) && (
-                      <icons.ui.check size={14} className="text-emerald-400" />
+                      <icons.ui.check size={14} className="text-emerald-600 dark:text-emerald-400" />
                     )}
                   </div>
                   <div className="flex flex-col gap-0.5">
@@ -271,11 +271,11 @@ function PCDetailContent({
                         type="button"
                         onClick={() => handleToggleItem(cl.id, item.itemId)}
                         className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs transition-colors ${
-                          item.done ? 'text-emerald-300' : 'text-fg-dim hover:bg-slate-700/50'
+                          item.done                         ? 'text-emerald-700 dark:text-emerald-300' : 'text-fg-dim hover:bg-card/50'
                         }`}
                       >
                         <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-                          item.done ? 'border-emerald-500 bg-emerald-500' : 'border-slate-600'
+                          item.done ? 'border-emerald-600 bg-emerald-600 dark:border-emerald-500 dark:bg-emerald-500' : 'border-line'
                         }`}>
                           {item.done && <icons.ui.check size={10} className="text-fg" />}
                         </span>
@@ -292,7 +292,7 @@ function PCDetailContent({
         {pc.observations && (
           <section className="rounded-xl border border-line bg-card/50 p-4">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Observações</h3>
-            <p className="text-sm text-slate-300">{pc.observations}</p>
+            <p className="text-sm text-fg-dim">{pc.observations}</p>
           </section>
         )}
 
@@ -304,7 +304,7 @@ function PCDetailContent({
                 <div key={u.id} className="flex items-center justify-between rounded-lg bg-input/50 px-3 py-2">
                   <div>
                     <p className="text-sm text-fg">{u.quantity}x {u.partName}</p>
-                    <p className="text-xs text-fg-muted">{new Date(u.timestamp.seconds * 1000).toLocaleDateString('pt-BR')}</p>
+                    <p className="text-xs text-fg-muted">{new Date(u.timestamp).toLocaleDateString('pt-BR')}</p>
                   </div>
                 </div>
               ))}
@@ -320,8 +320,8 @@ function PCDetailContent({
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={() => navigate(`/pcare/pcs/${pc.id}/edit`)} className="flex-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Editar</button>
           <button type="button" onClick={() => navigate('/pcare/pcs/new', { state: { clone: pc } })} className="rounded-lg border border-line px-4 py-2 text-sm text-fg-dim hover:bg-input">Clonar</button>
-          <button type="button" onClick={() => navigate('/pcare/qr')} className="rounded-lg border border-cyan-700 px-4 py-2 text-sm text-cyan-400 hover:bg-cyan-900/30">QR</button>
-          <button type="button" onClick={handleDelete} className="rounded-lg border border-red-800 px-4 py-2 text-sm text-red-400 hover:bg-red-900/30">Excluir</button>
+          <button type="button" onClick={() => navigate('/pcare/qr')} className="rounded-lg border border-cyan-600 dark:border-cyan-700 px-4 py-2 text-sm text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/30">QR</button>
+          <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg border border-red-600 dark:border-red-800 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30">Excluir</button>
         </div>
       </div>
 
@@ -338,6 +338,14 @@ function PCDetailContent({
         existingChecklists={pcChecklists}
         onApplyTemplate={handleApplyChecklist}
         onToggleItem={handleToggleItem}
+      />
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={() => { setConfirmDelete(false); handleDelete() }}
+        title="Remover PC"
+        message={`Tem certeza que deseja remover ${pc.labName} — ${pc.pcNumber}?`}
+        confirmLabel="Remover"
       />
     </div>
   )

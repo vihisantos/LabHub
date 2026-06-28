@@ -8,7 +8,7 @@ export function Launcher() {
   const { theme, toggle } = useTheme()
 
   return (
-    <div className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-neutral-950 text-white">
+    <div className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-surface text-fg">
       {/* Animated wallpaper blobs */}
       <div className="absolute inset-0">
         <div
@@ -42,7 +42,7 @@ export function Launcher() {
         <button
           type="button"
           onClick={toggle}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-sm text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-sm text-fg-muted transition-colors hover:bg-input hover:text-fg-dim"
           title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
         >
           {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
@@ -53,7 +53,7 @@ export function Launcher() {
         <h1 className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-3xl font-bold text-transparent">
           Lab Hub
         </h1>
-        <p className="mt-1 text-sm text-slate-500">Seus aplicativos</p>
+        <p className="mt-1 text-sm text-fg-muted">Seus aplicativos</p>
       </header>
 
       {/* Apps */}
@@ -65,7 +65,7 @@ export function Launcher() {
               type="button"
               onClick={() => navigate(app.route)}
               style={{ animationDelay: `${i * 100}ms` }}
-              className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-700/50 bg-slate-800/60 p-5 text-center backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-slate-600 hover:bg-slate-800/80 hover:shadow-xl hover:shadow-slate-900/50 animate-[fade-in-up_0.5s_ease-out_both]"
+              className="group flex flex-col items-center gap-3 rounded-2xl border border-line/50 bg-card/60 p-5 text-center backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-line hover:bg-card/80 hover:shadow-xl hover:shadow-black/10 animate-[fade-in-up_0.5s_ease-out_both]"
             >
               <span
                 className="flex h-16 w-16 items-center justify-center rounded-2xl text-3xl transition-shadow duration-300 group-hover:animate-[glow-pulse_2s_ease-in-out_infinite]"
@@ -77,21 +77,21 @@ export function Launcher() {
                   <app.icon size={32} />
               </span>
               <div>
-                <h2 className="text-sm font-semibold text-white">{app.name}</h2>
-                <p className="mt-0.5 text-xs text-slate-500 leading-relaxed">{app.description}</p>
+                <h2 className="text-sm font-semibold text-fg">{app.name}</h2>
+                <p className="mt-0.5 text-xs text-fg-muted leading-relaxed">{app.description}</p>
               </div>
             </button>
           ))}
 
           {/* Placeholder for future apps */}
           {appRegistry.length > 0 && (
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-700/30 p-5 opacity-40">
-              <span className="flex h-16 w-16 items-center justify-center rounded-2xl text-3xl text-slate-600">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line/30 p-5 opacity-40">
+              <span className="flex h-16 w-16 items-center justify-center rounded-2xl text-3xl text-fg-muted">
                 +
               </span>
               <div>
-                <h2 className="text-sm font-semibold text-slate-600">Em breve</h2>
-                <p className="mt-0.5 text-xs text-slate-700">Novo app</p>
+                <h2 className="text-sm font-semibold text-fg-muted">Em breve</h2>
+                <p className="mt-0.5 text-xs text-fg-dim">Novo app</p>
               </div>
             </div>
           )}
@@ -99,16 +99,16 @@ export function Launcher() {
 
         {appRegistry.length === 0 && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3">
-            <span className="text-5xl text-slate-700">+</span>
-            <p className="text-sm text-slate-500">Nenhum app instalado ainda.</p>
-            <p className="text-xs text-slate-600">Seus aplicativos aparecerão aqui</p>
+            <span className="text-5xl text-fg-muted">+</span>
+            <p className="text-sm text-fg-muted">Nenhum app instalado ainda.</p>
+            <p className="text-xs text-fg-dim">Seus aplicativos aparecerão aqui</p>
           </div>
         )}
       </main>
 
       {/* Footer */}
       <footer className="relative z-10 pb-6 text-center">
-        <p className="text-[10px] text-slate-700">Lab Hub v1.0</p>
+        <p className="text-[10px] text-fg-dim">Lab Hub v1.0</p>
       </footer>
     </div>
   )

@@ -7,16 +7,16 @@ import { actionLogService } from '../services/actionLogService'
 import { SkeletonStatCard, SkeletonTimeline } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 
-function formatDate(seconds: number) {
-  return new Date(seconds * 1000).toLocaleDateString('pt-BR')
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('pt-BR')
 }
 
-function isOverdue(seconds: number) {
-  return seconds < Math.floor(Date.now() / 1000)
+function isOverdue(iso: string) {
+  return new Date(iso).getTime() < Date.now()
 }
 
-function formatTime(seconds: number) {
-  const date = new Date(seconds * 1000)
+function formatTime(iso: string) {
+  const date = new Date(iso)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
   const mins = Math.floor(diff / 60000)
@@ -55,9 +55,23 @@ export function Dashboard() {
 
   const recentLogs = useMemo(() => {
     return actionLogService.getAll()
-      .sort((a, b) => b.timestamp.seconds - a.timestamp.seconds)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 5)
   }, [])
+
+  const labs = useMemo(() => {
+    const map = new Map<string, number>()
+    pcs.forEach((p) => map.set(p.labName, (map.get(p.labName) || 0) + 1))
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1])
+  }, [pcs])
+
+  const statusSummary = useMemo(() => {
+    const todos = pcs.length
+    const feitos = pcs.filter((p) => p.cleaningStatus === 'done').length
+    const andamento = pcs.filter((p) => p.cleaningStatus === 'in_progress').length
+    const pendentes = pcs.filter((p) => p.cleaningStatus === 'pending').length
+    return { todos, feitos, andamento, pendentes }
+  }, [pcs])
 
   if (pcsLoading || partsLoading || maintLoading) {
     return (
@@ -84,20 +98,6 @@ export function Dashboard() {
   ).length
 
   const lowStockParts = parts.filter((p) => p.quantity <= p.minQuantity)
-
-  const labs = useMemo(() => {
-    const map = new Map<string, number>()
-    pcs.forEach((p) => map.set(p.labName, (map.get(p.labName) || 0) + 1))
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1])
-  }, [pcs])
-
-  const statusSummary = useMemo(() => {
-    const todos = pcs.length
-    const feitos = pcs.filter((p) => p.cleaningStatus === 'done').length
-    const andamento = pcs.filter((p) => p.cleaningStatus === 'in_progress').length
-    const pendentes = pcs.filter((p) => p.cleaningStatus === 'pending').length
-    return { todos, feitos, andamento, pendentes }
-  }, [pcs])
 
   return (
     <div className="space-y-5">
@@ -168,13 +168,13 @@ export function Dashboard() {
               <div className="bg-amber-500 transition-all duration-500" style={{ width: `${(statusSummary.andamento / totalPCs) * 100}%` }} />
             )}
             {statusSummary.pendentes > 0 && (
-              <div className="bg-slate-600 transition-all duration-500" style={{ width: `${(statusSummary.pendentes / totalPCs) * 100}%` }} />
+              <div className="bg-fg-dim transition-all duration-500" style={{ width: `${(statusSummary.pendentes / totalPCs) * 100}%` }} />
             )}
           </div>
           <div className="mt-2 flex gap-4 text-[10px]">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Prontos ({statusSummary.feitos})</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Andamento ({statusSummary.andamento})</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-600" /> Pendentes ({statusSummary.pendentes})</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-fg-dim" /> Pendentes ({statusSummary.pendentes})</span>
           </div>
         </div>
       )}
@@ -203,7 +203,7 @@ export function Dashboard() {
         <div className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Manutenções Agendadas</h3>
-            <button type="button" onClick={() => navigate('/pcare/maintenance')} className="text-[10px] font-medium text-cyan-400 hover:text-cyan-300">
+            <button type="button" onClick={() => navigate('/pcare/maintenance')} className="text-[10px] font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">
               Ver todas
             </button>
           </div>
@@ -218,11 +218,11 @@ export function Dashboard() {
                 <div>
                   <p className="text-sm font-medium text-fg">{m.labName} — {m.pcNumber}</p>
                   <p className="text-xs text-fg-muted">
-                    {formatDate(m.scheduledDate.seconds)} · {m.type === 'cleaning' ? 'Limpeza' : m.type === 'restoration' ? 'Restauração' : 'Ambos'}
+                    {formatDate(m.scheduledDate)} · {m.type === 'cleaning' ? 'Limpeza' : m.type === 'restoration' ? 'Restauração' : 'Ambos'}
                   </p>
                 </div>
-                {isOverdue(m.scheduledDate.seconds) && (
-                  <span className="shrink-0 rounded-full bg-red-900/50 px-2 py-0.5 text-[10px] font-medium text-red-400">
+                {isOverdue(m.scheduledDate) && (
+                  <span className="shrink-0 rounded-full bg-red-100 dark:bg-red-900/50 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:text-red-400">
                     Atrasada
                   </span>
                 )}
@@ -233,17 +233,17 @@ export function Dashboard() {
       )}
 
       {lowStockParts.length > 0 && (
-        <div className="rounded-xl border border-red-900/30 bg-red-950/20 p-4">
+        <div className="rounded-xl border border-red-900/30 dark:border-red-900/30 bg-red-50 dark:bg-red-950/20 p-4">
           <div className="flex items-center gap-2">
             <icons.ui.alertTriangle size={20} />
             <div>
-              <p className="text-sm font-medium text-red-400">Estoque baixo</p>
-              <p className="text-xs text-red-400/70">{lowStockParts.length} {lowStockParts.length === 1 ? 'item precisa' : 'itens precisam'} de reposição</p>
+              <p className="text-sm font-medium text-red-700 dark:text-red-400">Estoque baixo</p>
+              <p className="text-xs text-red-600/70 dark:text-red-400/70">{lowStockParts.length} {lowStockParts.length === 1 ? 'item precisa' : 'itens precisam'} de reposição</p>
             </div>
             <button
               type="button"
               onClick={() => navigate('/pcare/parts')}
-              className="ml-auto shrink-0 rounded-lg bg-red-900/40 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-900/60"
+              className="ml-auto shrink-0 rounded-lg bg-red-100 dark:bg-red-900/40 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-300 transition-colors hover:bg-red-200 dark:hover:bg-red-900/60"
             >
               Ver
             </button>
@@ -255,7 +255,7 @@ export function Dashboard() {
         <div className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Atividade Recente</h3>
-            <button type="button" onClick={() => navigate('/pcare/pcs')} className="text-[10px] font-medium text-cyan-400 hover:text-cyan-300">
+            <button type="button" onClick={() => navigate('/pcare/pcs')} className="text-[10px] font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">
               Ver PCs
             </button>
           </div>
@@ -280,7 +280,7 @@ export function Dashboard() {
                     <p className="truncate text-sm text-fg">{log.description}</p>
                     <p className="text-xs text-fg-muted">
                       {pc ? `${pc.labName} — ${pc.pcNumber}` : 'PC removido'}
-                      {' · '}{formatTime(log.timestamp.seconds)}
+                      {' · '}{formatTime(log.timestamp)}
                     </p>
                   </div>
                 </button>
@@ -326,7 +326,7 @@ function StatCard({
     <button
       type="button"
       onClick={onClick}
-      className="group relative overflow-hidden rounded-xl bg-card p-4 text-left ring-1 ring-slate-800 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20"
+      className="group relative overflow-hidden rounded-xl bg-card p-4 text-left ring-1 ring-line transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20"
     >
       <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${gradient}`} />
       <div className="mb-3 flex items-center justify-between">

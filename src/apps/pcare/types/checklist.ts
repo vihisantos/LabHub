@@ -1,5 +1,3 @@
-import type { Timestamp } from 'firebase/firestore'
-
 export interface ChecklistItemDef {
   id: string
   label: string
@@ -12,8 +10,8 @@ export interface ChecklistTemplate {
   name: string
   labName: string
   items: ChecklistItemDef[]
-  createdAt: Timestamp
-  updatedAt: Timestamp
+  createdAt: string
+  updatedAt: string
 }
 
 export type ChecklistTemplateForm = Omit<ChecklistTemplate, 'id' | 'createdAt' | 'updatedAt'>
@@ -23,7 +21,7 @@ export interface PCChecklistItem {
   label: string
   category: string
   done: boolean
-  doneAt: Timestamp | null
+  doneAt: string | null
 }
 
 export interface PCChecklist {
@@ -33,7 +31,7 @@ export interface PCChecklist {
   templateName: string
   labName: string
   items: PCChecklistItem[]
-  completedAt: Timestamp | null
-  createdAt: Timestamp
-  updatedAt: Timestamp
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
 }

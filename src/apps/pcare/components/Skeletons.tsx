@@ -20,7 +20,7 @@ export function SkeletonCard() {
 
 export function SkeletonStatCard() {
   return (
-    <div className="animate-pulse rounded-xl bg-card p-4 ring-1 ring-slate-800">
+    <div className="animate-pulse rounded-xl bg-card p-4 ring-1 ring-line">
       <div className="mb-3 flex items-center justify-between">
         <div className="h-3 w-16 rounded bg-input" />
         <div className="h-7 w-7 rounded-lg bg-input" />

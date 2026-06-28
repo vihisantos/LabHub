@@ -5,8 +5,7 @@ import { maintenanceService } from '../services/maintenanceService'
 import { icons } from '../../../lib/icons'
 
 function useBadges() {
-  const now = Math.floor(Date.now() / 1000)
-  const overdue = maintenanceService.getAll().filter((m) => m.scheduledDate.seconds < now).length
+  const overdue = maintenanceService.getAll().filter((m) => new Date(m.scheduledDate).getTime() < Date.now()).length
   const lowStock = partService.getAll().filter((p) => p.quantity <= p.minQuantity).length
   return { overdue, lowStock }
 }
@@ -52,7 +51,7 @@ export function BottomNav() {
                     onClick={() => setShowMore(false)}
                     className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
                       active
-                        ? 'bg-cyan-900/25 text-cyan-400'
+                        ? 'bg-cyan-100 dark:bg-cyan-900/25 text-cyan-700 dark:text-cyan-400'
                         : 'text-fg-dim hover:bg-input/50 hover:text-fg'
                     }`}
                   >
@@ -77,7 +76,7 @@ export function BottomNav() {
               viewTransition
               className={({ isActive }) =>
                 `relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-                  isActive ? 'text-cyan-400' : 'text-fg-muted hover:text-slate-300'
+                   isActive ? 'text-cyan-600 dark:text-cyan-400' : 'text-fg-muted hover:text-fg-dim'
                 }`
               }
             >
@@ -94,7 +93,7 @@ export function BottomNav() {
                   <span className="relative">
                     {label}
                     {isActive && (
-                      <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />
+              <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-cyan-600 dark:bg-cyan-400 shadow-sm shadow-cyan-400/50" />
                     )}
                   </span>
                 </>
@@ -107,7 +106,7 @@ export function BottomNav() {
           type="button"
           onClick={() => setShowMore((v) => !v)}
           className={`relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-            isInMore ? 'text-cyan-400' : 'text-fg-muted hover:text-slate-300'
+            isInMore ? 'text-cyan-600 dark:text-cyan-400' : 'text-fg-muted hover:text-fg-dim'
           }`}
           aria-label="Mais opções"
         >

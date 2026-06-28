@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { visualizer } from 'rollup-plugin-visualizer'
 
 export default defineConfig({
   resolve: {
@@ -39,6 +40,12 @@ export default defineConfig({
           { name: 'Estoque Geral', short_name: 'Estoque', url: '/general-stock' },
         ],
       },
+    }),
+    process.env.ANALYZE && visualizer({
+      open: true,
+      gzipSize: true,
+      brotliSize: true,
+      filename: 'dist/stats.html',
     }),
   ],
   test: {

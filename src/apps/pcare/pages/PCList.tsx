@@ -86,7 +86,7 @@ export function PCList() {
         labName: pc.labName,
         pcNumber: pc.pcNumber,
         type: scheduleType,
-        scheduledDate: { seconds: Math.floor(date.getTime() / 1000), nanoseconds: 0 } as any,
+        scheduledDate: date.toISOString(),
         notes: `Agendamento em lote (${selectedPCs.length} PCs)`,
       })
     })
@@ -113,7 +113,7 @@ export function PCList() {
           <button
             type="button"
             onClick={() => navigate('/pcare/qr')}
-            className="rounded-lg border border-cyan-700 px-3 py-2 text-sm text-cyan-400 hover:bg-cyan-900/30"
+            className="rounded-lg border border-cyan-600 dark:border-cyan-700 px-3 py-2 text-sm text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/30"
           >
             QR
           </button>
@@ -122,8 +122,8 @@ export function PCList() {
             onClick={toggleSelectMode}
             className={`rounded-lg border px-3 py-2 text-sm ${
               selectMode
-                ? 'border-cyan-500 bg-cyan-900/30 text-cyan-300'
-                : 'border-line text-slate-300 hover:border-slate-500'
+                ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                : 'border-line text-fg-dim hover:border-line'
             }`}
           >
             {selectMode ? 'Cancelar' : 'Selecionar'}
@@ -145,13 +145,13 @@ export function PCList() {
           placeholder="Buscar por laboratório, PC ou sala..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
+          className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-cyan-500"
         />
         {search && (
           <button
             type="button"
             onClick={() => setSearch('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-slate-300"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-dim"
             aria-label="Limpar busca"
           >
             <icons.ui.close size={14} />
@@ -164,7 +164,7 @@ export function PCList() {
       )}
 
       {selectMode && filtered.length > 0 && (
-        <button type="button" onClick={selectAll} className="mb-3 text-xs font-medium text-cyan-400 hover:text-cyan-300">
+        <button type="button" onClick={selectAll} className="mb-3 text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">
           {selected.size === filtered.length ? 'Desmarcar todos' : `Selecionar todos (${filtered.length})`}
         </button>
       )}
@@ -209,7 +209,7 @@ export function PCList() {
                 <StatusQuickBtn label="Rest." value="in_progress" color="amber" onClick={() => batchUpdate('restorationStatus', 'in_progress')} />
                 <StatusQuickBtn label="Rest." value="done" color="emerald" onClick={() => batchUpdate('restorationStatus', 'done')} />
               </div>
-              <button type="button" onClick={() => setShowScheduleModal(true)} className="flex items-center gap-1 rounded-lg bg-input px-3 py-1.5 text-xs text-slate-300 ring-1 ring-slate-700 transition-colors hover:bg-slate-700">
+              <button type="button" onClick={() => setShowScheduleModal(true)} className="flex items-center gap-1 rounded-lg bg-input px-3 py-1.5 text-xs text-fg-dim ring-1 ring-line transition-colors hover:bg-card">
                 <icons.ui.calendar size={12} />
                 Agendar
               </button>
@@ -267,9 +267,9 @@ function StatusQuickBtn({
   onClick: () => void
 }) {
   const colors = {
-    slate: 'bg-input text-slate-300 hover:bg-slate-700 ring-1 ring-slate-700',
-    amber: 'bg-amber-900/40 text-amber-300 hover:bg-amber-900/60 ring-1 ring-amber-800/50',
-    emerald: 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60 ring-1 ring-emerald-800/50',
+    slate: 'bg-input text-fg-dim hover:bg-card ring-1 ring-line',
+    amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 ring-1 ring-amber-500 dark:ring-amber-800/50',
+    emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 ring-1 ring-emerald-500 dark:ring-emerald-800/50',
   }
 
   return (

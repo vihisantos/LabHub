@@ -64,8 +64,8 @@ export function Reports() {
                   onClick={() => setDataType('pcs')}
                   className={`rounded-lg border px-4 py-3 text-sm flex items-center gap-2 transition-all ${
                     dataType === 'pcs'
-                      ? 'border-cyan-500 bg-cyan-900/30 text-cyan-300'
-                      : 'border-line text-slate-300 hover:border-slate-600'
+                      ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                      : 'border-line text-fg-dim hover:border-line'
                   }`}
                 >
                   <icons.nav.pcs size={16} /> Computadores ({filteredPCs.length})
@@ -75,8 +75,8 @@ export function Reports() {
                   onClick={() => setDataType('parts')}
                   className={`rounded-lg border px-4 py-3 text-sm flex items-center gap-2 transition-all ${
                     dataType === 'parts'
-                      ? 'border-cyan-500 bg-cyan-900/30 text-cyan-300'
-                      : 'border-line text-slate-300 hover:border-slate-600'
+                      ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                      : 'border-line text-fg-dim hover:border-line'
                   }`}
                 >
                   <icons.nav.parts size={16} /> Peças ({parts.length})
@@ -110,8 +110,8 @@ export function Reports() {
                     onClick={() => setFormat(f)}
                     className={`rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
                       format === f
-                        ? 'border-cyan-500 bg-cyan-900/30 text-cyan-300'
-                        : 'border-line text-fg-dim hover:border-slate-600'
+                        ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                        : 'border-line text-fg-dim hover:border-line'
                     }`}
                   >
                     {f.toUpperCase()}
@@ -137,7 +137,7 @@ export function Reports() {
               <p className="text-sm text-fg-muted">Nenhum PC encontrado.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
+                <table className="w-full text-left text-xs text-fg-dim">
                   <thead>
                     <tr className="border-b border-line text-fg-muted">
                       <th className="px-2 py-1">Lab</th>
@@ -169,7 +169,7 @@ export function Reports() {
               <p className="text-sm text-fg-muted">Nenhuma peça no estoque.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
+                <table className="w-full text-left text-xs text-fg-dim">
                   <thead>
                     <tr className="border-b border-line text-fg-muted">
                       <th className="px-2 py-1">Nome</th>

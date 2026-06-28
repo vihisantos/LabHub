@@ -1,5 +1,3 @@
-import type { Timestamp } from 'firebase/firestore'
-
 export interface Part {
   id: string
   name: string
@@ -8,8 +6,8 @@ export interface Part {
   minQuantity: number
   serialNumber?: string
   notes?: string
-  createdAt: Timestamp
-  updatedAt: Timestamp
+  createdAt: string
+  updatedAt: string
 }
 
 export type PartFormData = Omit<Part, 'id' | 'createdAt' | 'updatedAt'>

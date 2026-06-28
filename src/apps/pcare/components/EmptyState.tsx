@@ -19,8 +19,8 @@ export function EmptyState({ icon, title, description, action, accentColor = 'cy
 
   function renderIcon() {
     if (!icon) return <icons.ui.inbox size={28} className="text-fg-muted" />
-    if (typeof icon === 'function') {
-      const Icon = icon
+    if (typeof icon === 'function' || (typeof icon === 'object' && icon !== null)) {
+      const Icon = icon as ComponentType<{ size?: number; className?: string }>
       return <Icon size={28} className="text-fg-muted" />
     }
     return icon
@@ -31,7 +31,7 @@ export function EmptyState({ icon, title, description, action, accentColor = 'cy
       <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-input/50">
         {renderIcon()}
       </div>
-      <h3 className="mb-1 text-lg font-medium text-slate-300">{title}</h3>
+      <h3 className="mb-1 text-lg font-medium text-fg-dim">{title}</h3>
       {description && <p className="mb-4 text-sm text-fg-muted">{description}</p>}
       {action && (
         <button

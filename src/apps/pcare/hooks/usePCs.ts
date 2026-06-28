@@ -9,7 +9,7 @@ export function usePCs() {
   const load = useCallback(() => {
     setLoading(true)
     const data = pcService.getAll()
-    setPCs(data.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds))
+    setPCs(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
     setLoading(false)
   }, [])
 

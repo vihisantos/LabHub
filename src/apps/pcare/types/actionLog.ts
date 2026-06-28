@@ -1,5 +1,3 @@
-import type { Timestamp } from 'firebase/firestore'
-
 export type ActionType =
   | 'pc_created'
   | 'status_changed'
@@ -13,5 +11,5 @@ export interface ActionLog {
   pcId: string
   type: ActionType
   description: string
-  timestamp: Timestamp
+  timestamp: string
 }

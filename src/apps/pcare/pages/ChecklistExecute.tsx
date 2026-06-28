@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useChecklistTemplates } from '../hooks/useChecklists'
 import { usePCs } from '../hooks/usePCs'
 import { icons } from '../../../lib/icons'
+import { ConfirmDialog } from '../components/Modal'
 import type { PCChecklistItem } from '../types/checklist'
 
 export function ChecklistExecute() {
@@ -15,6 +16,7 @@ export function ChecklistExecute() {
 
   const [selectedPcId, setSelectedPcId] = useState('')
   const [started, setStarted] = useState(false)
+  const [confirmBack, setConfirmBack] = useState(false)
   const [items, setItems] = useState<PCChecklistItem[]>([])
 
   const pcSelect = pcs.filter((p) => !template || p.labName === template.labName || !template.labName)
@@ -37,7 +39,7 @@ export function ChecklistExecute() {
     setItems((prev) =>
       prev.map((item) =>
         item.itemId === itemId
-          ? { ...item, done: !item.done, doneAt: !item.done ? ({ seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any) : null }
+          ? { ...item, done: !item.done, doneAt: !item.done ? new Date().toISOString() : null }
           : item,
       ),
     )
@@ -78,10 +80,10 @@ export function ChecklistExecute() {
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Itens do Checklist</h3>
           <div className="flex flex-col gap-2">
             {template.items.map((item, i) => (
-              <div key={item.id} className="flex items-center gap-2 text-sm text-slate-300">
+              <div key={item.id} className="flex items-center gap-2 text-sm text-fg-dim">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-input text-[10px] text-fg-muted">{i + 1}</span>
                 <span>{item.label}</span>
-                {item.optional && <span className="text-[10px] text-slate-600">(opcional)</span>}
+                {item.optional && <span className="text-[10px] text-fg-dim">(opcional)</span>}
               </div>
             ))}
           </div>
@@ -123,7 +125,7 @@ export function ChecklistExecute() {
         <button
           type="button"
           onClick={() => {
-            if (doneCount > 0 && !window.confirm('Perderá o progresso atual. Continuar?')) return
+            if (doneCount > 0) { setConfirmBack(true); return }
             setStarted(false)
             setItems([])
           }}
@@ -153,20 +155,20 @@ export function ChecklistExecute() {
             onClick={() => toggleItem(item.itemId)}
             className={`flex items-center gap-4 rounded-xl border p-5 text-left transition-all duration-200 active:scale-[0.98] ${
               item.done
-                ? 'border-emerald-700/50 bg-emerald-900/20'
-                : 'border-line bg-input/50 hover:border-slate-600'
+                ? 'border-emerald-500/50 dark:border-emerald-700/50 bg-emerald-50 dark:bg-emerald-900/20'
+                : 'border-line bg-input/50 hover:border-line'
             }`}
           >
             <span
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-lg transition-all ${
                 item.done
-                  ? 'bg-emerald-500/20 text-emerald-400'
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
                   : 'bg-input text-fg-muted'
               }`}
             >
               {item.done ? <icons.ui.check size={20} /> : String(items.indexOf(item) + 1)}
             </span>
-            <span className={`text-base font-medium ${item.done ? 'text-emerald-300 line-through' : 'text-fg'}`}>
+            <span className={`text-base font-medium ${item.done ? 'text-emerald-700 dark:text-emerald-300 line-through' : 'text-fg'}`}>
               {item.label}
             </span>
             {item.done && (
@@ -188,6 +190,16 @@ export function ChecklistExecute() {
       >
         {allDone ? <><icons.ui.check size={20} className="inline" /> Finalizar Checklist</> : `${doneCount}/${items.length} — Complete todos os itens`}
       </button>
+
+      <ConfirmDialog
+        open={confirmBack}
+        onClose={() => setConfirmBack(false)}
+        onConfirm={() => { setConfirmBack(false); setStarted(false); setItems([]) }}
+        title="Perder progresso?"
+        message="Perderá o progresso atual. Continuar?"
+        confirmLabel="Sair"
+        variant="warning"
+      />
     </div>
   )
 }

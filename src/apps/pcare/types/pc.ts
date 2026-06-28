@@ -1,11 +1,9 @@
-import type { Timestamp } from 'firebase/firestore'
-
 export interface PCPart {
   partId: string
   partName: string
   category: string
   quantity: number
-  replacedAt: Timestamp
+  replacedAt: string
   notes?: string
 }
 
@@ -31,9 +29,9 @@ export interface PC {
 
   observations: string
   photos: string[]
-  lastIntervention: Timestamp | null
-  createdAt: Timestamp
-  updatedAt: Timestamp
+  lastIntervention: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type PCFormData = Omit<PC, 'id' | 'createdAt' | 'updatedAt' | 'lastIntervention' | 'photos' | 'partsReplaced' | 'softwareInstalled'> & {

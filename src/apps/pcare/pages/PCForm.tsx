@@ -253,7 +253,7 @@ export function PCForm() {
               onChange={(e) => setSoftwareInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSoftware())}
               placeholder="Digite o nome do software..."
-              className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
+              className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-cyan-500"
             />
             <button
               type="button"
@@ -268,13 +268,13 @@ export function PCForm() {
               {form.softwareInstalled.map((sw) => (
                 <span
                   key={sw}
-                  className="flex items-center gap-1 rounded-md bg-slate-700 px-2 py-1 text-xs text-fg"
+                  className="flex items-center gap-1 rounded-md bg-input px-2 py-1 text-xs text-fg"
                 >
                   {sw}
                   <button
                     type="button"
                     onClick={() => removeSoftware(sw)}
-                    className="text-fg-dim hover:text-red-400"
+                    className="text-fg-dim hover:text-red-600 dark:hover:text-red-400"
                     aria-label={`Remover ${sw}`}
                   >
                     <icons.ui.close size={12} />
@@ -292,7 +292,7 @@ export function PCForm() {
             onChange={(e) => updateField('observations', e.target.value)}
             placeholder="Anotações sobre o estado do PC..."
             rows={3}
-            className="w-full resize-none rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-slate-600 transition-colors focus:border-cyan-500"
+            className="w-full resize-none rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-cyan-500"
           />
         </section>
 
@@ -300,7 +300,7 @@ export function PCForm() {
           <button
             type="button"
             onClick={handleBack}
-            className="flex-1 rounded-lg border border-line py-2 text-sm text-slate-300 transition-colors hover:bg-input"
+            className="flex-1 rounded-lg border border-line py-2 text-sm text-fg-dim transition-colors hover:bg-input"
           >
             Cancelar
           </button>

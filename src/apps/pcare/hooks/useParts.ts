@@ -9,7 +9,7 @@ export function useParts() {
   const load = useCallback(() => {
     setLoading(true)
     const data = partService.getAll()
-    setParts(data.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds))
+    setParts(data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
     setLoading(false)
   }, [])
 

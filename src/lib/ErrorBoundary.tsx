@@ -20,8 +20,8 @@ export class ErrorBoundary extends Component<Props, State> {
       return this.props.fallback || (
         <div className="flex flex-col items-center justify-center gap-3 px-6 py-20">
           <icons.ui.alertTriangle size={40} />
-          <p className="text-sm font-medium text-slate-300">Algo deu errado</p>
-          <p className="text-xs text-slate-500 text-center max-w-xs">{this.state.error?.message}</p>
+          <p className="text-sm font-medium text-fg-dim">Algo deu errado</p>
+          <p className="text-xs text-fg-muted text-center max-w-xs">{this.state.error?.message}</p>
           <button
             type="button"
             onClick={() => this.setState({ hasError: false, error: null })}

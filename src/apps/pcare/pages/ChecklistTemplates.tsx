@@ -4,6 +4,7 @@ import { useChecklistTemplates } from '../hooks/useChecklists'
 import { EmptyState } from '../components/EmptyState'
 import { SkeletonCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
+import { ConfirmDialog } from '../components/Modal'
 import type { ChecklistItemDef, ChecklistTemplateForm } from '../types/checklist'
 
 const emptyForm = (): ChecklistTemplateForm => ({
@@ -22,6 +23,7 @@ export function ChecklistTemplates() {
   const navigate = useNavigate()
   const { templates, loading, create, update, remove } = useChecklistTemplates()
   const [showForm, setShowForm] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [form, setForm] = useState<ChecklistTemplateForm>(emptyForm())
   const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -132,7 +134,7 @@ export function ChecklistTemplates() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs text-fg-muted">Itens do Checklist</label>
-                <button type="button" onClick={addItem} className="text-xs font-medium text-cyan-400 hover:text-cyan-300">
+                <button type="button" onClick={addItem} className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">
                   + Adicionar item
                 </button>
               </div>
@@ -143,7 +145,7 @@ export function ChecklistTemplates() {
 
               <div className="flex flex-col gap-2">
                 {form.items.map((item, index) => (
-                  <div key={index} className="flex items-start gap-2 rounded-lg bg-input/50 p-2 ring-1 ring-slate-700/50">
+                  <div key={index} className="flex items-start gap-2 rounded-lg bg-input/50 p-2 ring-1 ring-line/50">
                     <div className="flex-1">
                       <input
                         type="text"
@@ -156,7 +158,7 @@ export function ChecklistTemplates() {
                         <select
                           value={item.category}
                           onChange={(e) => updateItem(index, { category: e.target.value as any })}
-                          className="rounded border border-line bg-card px-1 py-0.5 text-xs text-slate-300 outline-none"
+                          className="rounded border border-line bg-card px-1 py-0.5 text-xs text-fg-dim outline-none"
                         >
                           {categories.map((c) => (
                             <option key={c.value} value={c.value}>{c.label}</option>
@@ -175,7 +177,7 @@ export function ChecklistTemplates() {
                     <button
                       type="button"
                       onClick={() => removeItem(index)}
-                      className="mt-1 text-xs text-red-400 hover:text-red-300"
+                      className="mt-1 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                       aria-label="Remover item"
                     >
                       <icons.ui.close size={12} />
@@ -210,17 +212,17 @@ export function ChecklistTemplates() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => navigate(`/pcare/checklists/${t.id}/execute`)} className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Executar</button>
-                  <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-cyan-400 hover:text-cyan-300">Editar</button>
-                  <button type="button" onClick={() => { if (window.confirm(`Remover "${t.name}"?`)) remove(t.id) }} className="text-xs font-medium text-red-400 hover:text-red-300">Excluir</button>
+                  <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">Editar</button>
+                  <button type="button" onClick={() => setConfirmRemove(t.id)} className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
                 </div>
               </div>
               <div className="flex flex-col gap-1">
                 {t.items.map((item) => (
                   <div key={item.id} className="flex items-center gap-2 text-xs text-fg-dim">
-                    <span className="h-1 w-1 rounded-full bg-slate-600" />
+                    <span className="h-1 w-1 rounded-full bg-fg-dim" />
                     <span>{item.label}</span>
-                    {item.optional && <span className="text-slate-600">(opcional)</span>}
-                    <span className="text-slate-600">· {categories.find(c => c.value === item.category)?.label}</span>
+                    {item.optional && <span className="text-fg-dim">(opcional)</span>}
+                    <span className="text-fg-dim">· {categories.find(c => c.value === item.category)?.label}</span>
                   </div>
                 ))}
               </div>
@@ -228,6 +230,15 @@ export function ChecklistTemplates() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmRemove}
+        onClose={() => setConfirmRemove(null)}
+        onConfirm={() => { if (confirmRemove) remove(confirmRemove); setConfirmRemove(null) }}
+        title="Remover template"
+        message={`Tem certeza que deseja remover "${templates.find((t) => t.id === confirmRemove)?.name}"?`}
+        confirmLabel="Remover"
+      />
     </div>
   )
 }

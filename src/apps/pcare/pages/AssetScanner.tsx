@@ -451,12 +451,12 @@ export function AssetScanner() {
                   <div className="absolute inset-0 z-20 flex items-center justify-center bg-card/80 backdrop-blur-sm">
                     <div className="flex flex-col items-center gap-2">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-green-400 border-t-transparent" />
-                      <p className="text-xs text-slate-300">Carregando modelo de mão...</p>
+                      <p className="text-xs text-fg-dim">Carregando modelo de mão...</p>
                     </div>
                   </div>
                 )}
                 {modelError && !modelLoading && (
-                  <div className="absolute right-2 top-2 rounded bg-red-900/60 px-2 py-1 text-[10px] text-red-300 backdrop-blur-sm">
+                  <div className="absolute right-2 top-2 rounded bg-red-100 dark:bg-red-900/60 px-2 py-1 text-[10px] text-red-700 dark:text-red-300 backdrop-blur-sm">
                     Mão: {modelError}
                   </div>
                 )}
@@ -503,7 +503,7 @@ export function AssetScanner() {
                 <div className="absolute left-2 top-2 z-20 flex items-center gap-2">
                   <div
                     className={`h-2.5 w-2.5 rounded-full transition-colors ${
-                      handVisible ? 'bg-green-400 shadow-[0_0_8px_#22c55e]' : 'bg-slate-600'
+                      handVisible ? 'bg-green-400 shadow-[0_0_8px_#22c55e]' : 'bg-fg-dim'
                     }`}
                   />
                   <span className="text-[10px] text-fg-muted">{handVisible ? 'Mão detectada' : 'Sem mão'}</span>
@@ -511,7 +511,7 @@ export function AssetScanner() {
                     type="button"
                     onClick={() => setDebug((d) => !d)}
                     className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                      debug ? 'bg-cyan-600 text-fg' : 'bg-slate-700 text-fg-dim'
+                      debug ? 'bg-cyan-600 text-fg' : 'bg-input text-fg-dim'
                     }`}
                   >
                     debug
@@ -547,7 +547,7 @@ export function AssetScanner() {
             {cameraError && (
               <div className="flex flex-col items-center px-4 py-16">
                 <icons.nav.scanner size={40} />
-                <p className="mb-1 text-sm text-red-400">{cameraError}</p>
+                <p className="mb-1 text-sm text-red-600 dark:text-red-400">{cameraError}</p>
                 <p className="mb-4 text-xs text-fg-muted">
                   Verifique as permissões da câmera nas configurações
                 </p>
@@ -567,7 +567,7 @@ export function AssetScanner() {
               <img
                 src={confirmImage}
                 alt="Captura"
-                className="mb-3 max-h-40 rounded-lg border border-slate-600 object-contain"
+                className="mb-3 max-h-40 rounded-lg border border-line object-contain"
               />
             )}
 
@@ -582,7 +582,7 @@ export function AssetScanner() {
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && handleConfirm()}
                 placeholder="Digite o número da etiqueta"
-                className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg placeholder-slate-600 outline-none transition-colors focus:border-cyan-500"
+                className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg placeholder:text-fg-muted outline-none transition-colors focus:border-cyan-500"
                 autoFocus
               />
               <button
@@ -601,15 +601,15 @@ export function AssetScanner() {
                   {foundPC.labName} — PC {foundPC.pcNumber}
                 </p>
                 <div className="space-y-0.5 text-xs text-fg-dim">
-                  <p>Patrimônio: <span className="text-slate-300">{foundPC.assetTag}</span></p>
-                  <p>Local: <span className="text-slate-300">{foundPC.roomLocation}</span></p>
-                  <p>Limpeza: <span className="text-slate-300">{foundPC.cleaningStatus}</span></p>
+                  <p>Patrimônio: <span className="text-fg-dim">{foundPC.assetTag}</span></p>
+                  <p>Local: <span className="text-fg-dim">{foundPC.roomLocation}</span></p>
+                  <p>Limpeza: <span className="text-fg-dim">{foundPC.cleaningStatus}</span></p>
                 </div>
               </div>
             )}
 
             {!foundPC && suggestedText && (
-              <p className="mb-4 text-sm text-red-400">
+              <p className="mb-4 text-sm text-red-600 dark:text-red-400">
                 Nenhum PC encontrado com este patrimônio
               </p>
             )}

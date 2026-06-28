@@ -1,11 +1,11 @@
 import type { ChecklistTemplate, ChecklistTemplateForm, PCChecklist } from '../types/checklist'
-import { createLocalService } from '../../../lib/storage'
+import { createSyncService } from '../../../lib/sync'
 
-const templateStore = createLocalService<ChecklistTemplate>('checklist_templates')
-const pcChecklistStore = createLocalService<PCChecklist>('pc_checklists')
+const templateStore = createSyncService<ChecklistTemplate>('checklist_templates')
+const pcChecklistStore = createSyncService<PCChecklist>('pc_checklists')
 
 function serialize<T>(data: T) {
-  const now = { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any
+  const now = new Date().toISOString()
   return { ...data, createdAt: now, updatedAt: now }
 }
 
@@ -19,7 +19,7 @@ export const checklistTemplateService = {
   update: (id: string, data: Partial<ChecklistTemplate>) => {
     return templateStore.update(id, {
       ...data,
-      updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      updatedAt: new Date().toISOString(),
     })
   },
   remove: (id: string) => templateStore.remove(id),
@@ -36,7 +36,7 @@ export const pcChecklistService = {
   update: (id: string, data: Partial<PCChecklist>) => {
     return pcChecklistStore.update(id, {
       ...data,
-      updatedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any,
+      updatedAt: new Date().toISOString(),
     })
   },
   remove: (id: string) => pcChecklistStore.remove(id),

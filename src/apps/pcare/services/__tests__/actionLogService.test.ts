@@ -21,7 +21,7 @@ describe('actionLogService', () => {
     const logs = actionLogService.getByPC('pc-1')
     expect(logs).toHaveLength(2)
     expect(logs.every((l) => l.pcId === 'pc-1')).toBe(true)
-    expect(logs[0].timestamp.seconds).toBeGreaterThanOrEqual(logs[1].timestamp.seconds)
+    expect(new Date(logs[0].timestamp).getTime()).toBeGreaterThanOrEqual(new Date(logs[1].timestamp).getTime())
   })
 
   it('getAll retorna todos os logs', () => {
