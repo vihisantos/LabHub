@@ -29,10 +29,9 @@ describe('Dashboard', () => {
     expect(screen.getByText('Total de PCs')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
     expect(screen.getByText('Limpos')).toBeInTheDocument()
-    expect(screen.getByText('1')).toBeInTheDocument()
+    expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(3)
     expect(screen.getByText('33%')).toBeInTheDocument()
     expect(screen.getByText('Em andamento')).toBeInTheDocument()
-    expect(screen.getByText('1')).toBeInTheDocument()
     expect(screen.getByText('Pendentes')).toBeInTheDocument()
   })
 
@@ -80,7 +79,7 @@ describe('Dashboard', () => {
     expect(screen.getByText('Progresso')).toBeInTheDocument()
     expect(screen.getByText('Limpeza')).toBeInTheDocument()
     expect(screen.getByText('Restauração')).toBeInTheDocument()
-    expect(screen.getByText('1/3')).toBeInTheDocument()
+    expect(screen.getAllByText('1/3').length).toBeGreaterThanOrEqual(2)
   })
 
   it('mostra seção de laboratórios quando há múltiplos', () => {

@@ -10,8 +10,8 @@ describe('PCList', () => {
     ])
     renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
 
-    expect(screen.getByText('PC-001')).toBeInTheDocument()
-    expect(screen.getByText('PC-002')).toBeInTheDocument()
+    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
+    expect(screen.getByText(/PC-002/)).toBeInTheDocument()
     expect(screen.getByText('Computadores')).toBeInTheDocument()
   })
 
@@ -25,8 +25,8 @@ describe('PCList', () => {
     const search = screen.getByPlaceholderText('Buscar por laboratório, PC ou sala...')
     fireEvent.change(search, { target: { value: 'PC-002' } })
 
-    expect(screen.getByText('PC-002')).toBeInTheDocument()
-    expect(screen.queryByText('PC-001')).not.toBeInTheDocument()
+    expect(screen.getByText(/PC-002/)).toBeInTheDocument()
+    expect(screen.queryByText(/PC-001/)).not.toBeInTheDocument()
   })
 
   it('mostra empty state quando nenhum PC encontrado na busca', () => {
@@ -58,8 +58,8 @@ describe('PCList', () => {
     const labSelect = screen.getByDisplayValue('Todos os laboratórios')
     fireEvent.change(labSelect, { target: { value: 'Lab A' } })
 
-    expect(screen.getByText('PC-001')).toBeInTheDocument()
-    expect(screen.queryByText('PC-002')).not.toBeInTheDocument()
+    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
+    expect(screen.queryByText(/PC-002/)).not.toBeInTheDocument()
   })
 
   it('filtra por status', () => {
@@ -72,8 +72,8 @@ describe('PCList', () => {
     const statusSelect = screen.getByDisplayValue('Todos os status')
     fireEvent.change(statusSelect, { target: { value: 'done' } })
 
-    expect(screen.getByText('PC-001')).toBeInTheDocument()
-    expect(screen.queryByText('PC-002')).not.toBeInTheDocument()
+    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
+    expect(screen.queryByText(/PC-002/)).not.toBeInTheDocument()
   })
 
   it('alterna modo de selecao', () => {

@@ -37,8 +37,8 @@ describe('PCDetail', () => {
 
     renderWithRoute('/pcare/pcs/pc-1')
 
-    expect(screen.getByText('PC-001')).toBeInTheDocument()
-    expect(screen.getByText('Lab A')).toBeInTheDocument()
+    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
+    expect(screen.getByText(/Lab A/)).toBeInTheDocument()
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
     expect(screen.getByText('i5')).toBeInTheDocument()
     expect(screen.getByText('8GB')).toBeInTheDocument()

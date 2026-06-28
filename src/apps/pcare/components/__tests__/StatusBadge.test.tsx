@@ -6,7 +6,7 @@ describe('StatusBadge', () => {
     render(<StatusBadge status="pending" />)
     const badge = screen.getByText('Pendente')
     expect(badge).toBeInTheDocument()
-    expect(badge.className).toMatch(/slate/)
+    expect(badge.className).toMatch(/bg-input/)
   })
 
   it('renderiza status in_progress', () => {
