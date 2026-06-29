@@ -66,13 +66,13 @@ export function PCForm() {
   function removeSoftware(name: string) {
     updateField(
       'softwareInstalled',
-      form.softwareInstalled.filter((s) => s !== name),
+      form!.softwareInstalled.filter((s) => s !== name),
     )
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    update(id!, form)
+    update(id!, form!)
     navigate('/pcare/pcs')
   }
 

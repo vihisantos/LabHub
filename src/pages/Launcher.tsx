@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { appRegistry } from '../appRegistry'
 import { useNavigateWithTransition } from '../lib/useNavigateWithTransition'
-import { icons } from '../lib/icons'
 
 export function Launcher() {
   const navigate = useNavigateWithTransition()
@@ -30,9 +29,7 @@ export function Launcher() {
 
       {/* Header */}
       <header className="relative z-10 flex w-full flex-col items-center px-4 pb-6 pt-12">
-        <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10">
-          <icons.ui.flaskConical size={28} className="text-emerald-500" />
-        </div>
+        <img src="/logo.svg" alt="Lab Hub" className="mb-2 h-16 w-16 rounded-2xl" />
         <h1 className="text-3xl font-bold tracking-tight text-fg">
           Lab Hub
         </h1>

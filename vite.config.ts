@@ -17,7 +17,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'logo.svg'],
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
@@ -30,8 +30,8 @@ export default defineConfig({
         display: 'standalone',
         start_url: '/',
         icons: [
-          { src: '/favicon.svg', sizes: '192x192', type: 'image/svg+xml' },
-          { src: '/favicon.svg', sizes: '512x512', type: 'image/svg+xml' },
+          { src: '/logo.svg', sizes: '192x192', type: 'image/svg+xml' },
+          { src: '/logo.svg', sizes: '512x512', type: 'image/svg+xml' },
         ],
         shortcuts: [
           { name: 'PCs', short_name: 'PCs', url: '/pcare/pcs' },
