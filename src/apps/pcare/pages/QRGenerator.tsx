@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { icons } from '../../../lib/icons'
 
+const RADIUS = 54
+const CIRC = 2 * Math.PI * RADIUS
+
 export function QRGenerator() {
   const navigate = useNavigate()
   const [countdown, setCountdown] = useState(3)
@@ -15,34 +18,64 @@ export function QRGenerator() {
     return () => clearTimeout(timer)
   }, [countdown, navigate])
 
+  const progress = countdown / 3
+
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-surface p-8 text-fg">
-      <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-lg shadow-sky-500/30">
-        <icons.ui.qrCode size={36} />
+    <div className="relative flex min-h-dvh flex-col items-center justify-center gap-8 overflow-hidden bg-surface p-8 text-fg">
+      {/* Wallpaper blob */}
+      <div className="pointer-events-none absolute -right-32 -top-32 h-[500px] w-[500px] rounded-full bg-sky-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full bg-blue-500/10 blur-3xl" />
+
+      {/* Anel de progresso */}
+      <div className="relative flex items-center justify-center">
+        <svg width="140" height="140" className="-rotate-90">
+          <circle
+            cx="70"
+            cy="70"
+            r={RADIUS}
+            fill="none"
+            stroke="oklch(0.5 0.1 240 / 0.15)"
+            strokeWidth="6"
+          />
+          <circle
+            cx="70"
+            cy="70"
+            r={RADIUS}
+            fill="none"
+            stroke="oklch(0.7 0.18 220)"
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray={CIRC}
+            strokeDashoffset={CIRC * (1 - progress)}
+            className="transition-all duration-1000 ease-linear"
+          />
+        </svg>
+        <span className="absolute text-3xl font-bold tracking-tight text-sky-400">{countdown}</span>
       </div>
 
-      <div className="text-center">
-        <h1 className="text-lg font-bold">Gerador de QR</h1>
-        <p className="mt-1 text-sm text-fg-muted">Redirecionando para o app Estoque...</p>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <div className="flex gap-1">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-2.5 w-2.5 rounded-full bg-sky-500 transition-all duration-300"
-              style={{ opacity: countdown > i ? 1 : 0.2 }}
-            />
-          ))}
+      {/* Card do app destino */}
+      <div className="animate-[slide-up_0.35s_ease-out] flex items-center gap-4 rounded-2xl border border-line/40 bg-card/70 p-4 backdrop-blur-xl shadow-[var(--shadow-card)]">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-md shadow-sky-500/20">
+          <icons.ui.qrCode size={24} />
         </div>
-        <span className="text-xs font-medium text-fg-muted">{countdown}s</span>
+        <div>
+          <p className="text-xs font-medium text-fg-muted">Redirecionando para</p>
+          <p className="text-base font-semibold text-fg">Estoque</p>
+        </div>
+      </div>
+
+      {/* Barra linear sutil */}
+      <div className="h-1 w-48 overflow-hidden rounded-full bg-input">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-500 transition-all duration-1000 ease-linear"
+          style={{ width: `${(1 - progress) * 100}%` }}
+        />
       </div>
 
       <button
         type="button"
         onClick={() => navigate('/stock/qr', { replace: true })}
-        className="rounded-xl bg-card px-6 py-3 text-sm font-medium shadow-[var(--shadow-card)] transition-colors hover:bg-input"
+        className="rounded-xl bg-card px-6 py-3 text-sm font-medium text-fg-muted transition-all hover:bg-input hover:text-fg active:scale-95"
       >
         Ir agora
       </button>
