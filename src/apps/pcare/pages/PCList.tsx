@@ -7,6 +7,7 @@ import { useFocusMode } from '../hooks/useFocusMode'
 import { useActiveLab } from '../../../lib/useLabContext'
 import { PCCard } from '../components/PCCard'
 import { FilterBar } from '../components/FilterBar'
+import { PCBatchBar } from '../components/PCBatchBar'
 import type { Status } from '../components/FilterBar'
 import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
@@ -260,33 +261,13 @@ export function PCList() {
         </div>
       )}
 
-      {selected.size > 0 && (
-        <div className="fixed left-0 right-0 z-40 mx-auto max-w-lg px-4" style={{ bottom: 'calc(4rem + max(1rem, env(safe-area-inset-bottom)))' }}>
-          <div className="rounded-xl border border-line bg-card p-3 shadow-lg shadow-black/40 backdrop-blur-xl">
-            <p className="mb-2 text-center text-xs text-fg-dim">{selected.size} PCs selecionados</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              <div className="flex gap-1">
-                <StatusQuickBtn label="Limpeza" value="pending" color="slate" onClick={() => batchUpdate('cleaningStatus', 'pending')} />
-                <StatusQuickBtn label="Limpeza" value="in_progress" color="amber" onClick={() => batchUpdate('cleaningStatus', 'in_progress')} />
-                <StatusQuickBtn label="Limpeza" value="done" color="emerald" onClick={() => batchUpdate('cleaningStatus', 'done')} />
-              </div>
-              <div className="flex gap-1">
-                <StatusQuickBtn label="Rest." value="pending" color="slate" onClick={() => batchUpdate('restorationStatus', 'pending')} />
-                <StatusQuickBtn label="Rest." value="in_progress" color="amber" onClick={() => batchUpdate('restorationStatus', 'in_progress')} />
-                <StatusQuickBtn label="Rest." value="done" color="emerald" onClick={() => batchUpdate('restorationStatus', 'done')} />
-              </div>
-              <button type="button" onClick={() => setShowScheduleModal(true)} className="flex items-center gap-1 rounded-lg bg-input px-3 py-1.5 text-xs text-fg-dim ring-1 ring-line transition-colors hover:bg-card btn-interactive">
-                <icons.ui.calendar size={12} />
-                Agendar
-              </button>
-              <button type="button" onClick={handleBatchExport} className="flex items-center gap-1 rounded-lg bg-input px-3 py-1.5 text-xs text-fg-dim ring-1 ring-line transition-colors hover:bg-card btn-interactive">
-                <icons.ui.fileBarChart size={12} />
-                Exportar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PCBatchBar
+        selectedCount={selected.size}
+        onBatchUpdate={batchUpdate}
+        onSchedule={() => setShowScheduleModal(true)}
+        onExport={handleBatchExport}
+        onClear={() => setSelected(new Set())}
+      />
 
       <PCChecklistModal
         open={focusPcId !== null}
@@ -334,26 +315,4 @@ export function PCList() {
   )
 }
 
-function StatusQuickBtn({
-  label,
-  value,
-  color,
-  onClick,
-}: {
-  label: string
-  value: string
-  color: 'slate' | 'amber' | 'emerald'
-  onClick: () => void
-}) {
-  const colors = {
-    slate: 'bg-input text-fg-dim hover:bg-card ring-1 ring-line',
-    amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 ring-1 ring-amber-500 dark:ring-amber-800/50',
-    emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 ring-1 ring-emerald-500 dark:ring-emerald-800/50',
-  }
 
-  return (
-    <button type="button" onClick={onClick} className={`rounded-lg px-2 py-1.5 text-[10px] font-medium transition-colors ${colors[color]}`}>
-      {label}: {value === 'pending' ? 'Pend' : value === 'in_progress' ? 'Andam' : 'Conc'}
-    </button>
-  )
-}

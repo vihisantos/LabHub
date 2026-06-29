@@ -16,7 +16,7 @@ const FEATURES: Feature[] = [
   { id: 4, cat: 'high', name: 'Dashboard com Gráficos', desc: 'Gráficos de barras/pizza, timeline de manutenções (Recharts)', effort: 'med', done: true },
   { id: 56, cat: 'high', name: 'Redesign Visual Stock (Apple Design)', desc: 'Redesign completo com cards, segmented controls, tipografia Apple', effort: 'high', done: true },
 
-  { id: 5, cat: 'mid', name: 'Operações em Lote', desc: 'Selecionar múltiplos PCs/itens e ações coletivas', effort: 'med', done: false },
+  { id: 5, cat: 'mid', name: 'Operações em Lote', desc: 'Selecionar múltiplos PCs/itens e ações coletivas', effort: 'med', done: true },
   { id: 6, cat: 'mid', name: 'Notificações Push', desc: 'Alertas de manutenção e sync via Push API', effort: 'high', done: false },
   { id: 7, cat: 'mid', name: 'Importar Dados (CSV/Excel)', desc: 'Importar planilhas existentes do laboratório', effort: 'med', done: false },
   { id: 8, cat: 'mid', name: 'Tema Customizável (Cor de Destaque)', desc: 'Seletor de cor primária nas Configurações', effort: 'med', done: true },
@@ -80,8 +80,8 @@ const FEATURES: Feature[] = [
   { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: true },
 
   { id: 65, cat: 'low', name: 'BottomNav Stock Expandido', desc: 'Adicionar tabs de Inventário e QR ao BottomNav', effort: 'low', done: true },
-  { id: 66, cat: 'low', name: 'Corrigir Rota general-stock', desc: 'Generalizar paths no StockLayout para sufixo /general-stock', effort: 'low', done: false },
-  { id: 67, cat: 'low', name: 'Sync Inventário p/ Supabase', desc: 'Migrar inventoryService para createSyncService', effort: 'low', done: false },
+  { id: 66, cat: 'low', name: 'Corrigir Rota general-stock', desc: 'Generalizar paths no StockLayout para sufixo /general-stock', effort: 'low', done: true },
+  { id: 67, cat: 'low', name: 'Sync Inventário p/ Supabase', desc: 'Migrar inventoryService para createSyncService', effort: 'low', done: true },
 ]
 
 const CATEGORIES = [

@@ -7,25 +7,42 @@ import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useKioskMode, KioskProvider, KioskExitPill } from '../../../lib/useKioskMode'
 import { icons } from '../../../lib/icons'
 
-const mainRoutes = new Set(['/stock', '/stock/items', '/stock/movements', '/stock/kits', '/stock/entry-exit'])
+const PREFIXES = ['/stock', '/general-stock'] as const
+
+function p(pathname: string, suffix: string) {
+  return PREFIXES.some((pre) => pathname === pre + suffix || pathname.startsWith(pre + suffix + '/'))
+}
+
+function m(pathname: string) {
+  return PREFIXES.some((pre) => pathname === pre)
+}
+
+function mainRoute(pathname: string) {
+  return m(pathname) || p(pathname, '/items') || p(pathname, '/movements') || p(pathname, '/kits') || p(pathname, '/entry-exit')
+}
 
 function isDetailPage(pathname: string) {
-  return !mainRoutes.has(pathname)
+  return !mainRoute(pathname)
+}
+
+function prefix(pathname: string) {
+  return PREFIXES.find((pre) => pathname.startsWith(pre)) || '/stock'
 }
 
 function getPageTitle(pathname: string): string {
-  if (pathname === '/stock') return 'Dashboard'
-  if (pathname === '/stock/items' || pathname.startsWith('/stock/items/')) return 'Estoque'
-  if (pathname.startsWith('/stock/movements')) return 'Movimentações'
-  if (pathname.startsWith('/stock/entry-exit')) return 'Entrada/Saída'
-  if (pathname.startsWith('/stock/kits')) return 'Kits'
+  if (m(pathname)) return 'Dashboard'
+  if (p(pathname, '/items')) return 'Estoque'
+  if (p(pathname, '/movements')) return 'Movimentações'
+  if (p(pathname, '/entry-exit')) return 'Entrada/Saída'
+  if (p(pathname, '/kits')) return 'Kits'
   return 'Estoque'
 }
 
 function getBackPath(pathname: string): string {
-  if (pathname.startsWith('/stock/items/')) return '/stock/items'
-  if (pathname.startsWith('/stock/kits/')) return '/stock/kits'
-  return '/stock'
+  const pre = prefix(pathname)
+  if (p(pathname, '/items')) return pre + '/items'
+  if (p(pathname, '/kits')) return pre + '/kits'
+  return pre
 }
 
 export function StockLayout() {

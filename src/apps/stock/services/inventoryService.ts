@@ -1,9 +1,8 @@
 import type { InventoryCycle, InventoryCycleFormData, InventoryCount } from '../types'
 import { createSyncService } from '../../../lib/sync'
-import { createLocalService } from '../../../lib/storage'
 
 const cycleService = createSyncService<InventoryCycle>('inventory_cycles')
-const countService = createLocalService<InventoryCount>('inventory_counts')
+const countService = createSyncService<InventoryCount>('inventory_counts')
 
 function serializeCycle(data: InventoryCycleFormData): InventoryCycle {
   const now = new Date().toISOString()
