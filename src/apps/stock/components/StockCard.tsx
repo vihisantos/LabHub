@@ -5,6 +5,7 @@ import { icons } from '../../../lib/icons'
 
 interface StockCardProps {
   item: StockItem
+  onEdit?: (item: StockItem) => void
   onMove: (item: StockItem) => void
   onRepair: (item: StockItem) => void
   onDiscard: (item: StockItem) => void
@@ -15,7 +16,7 @@ interface StockCardProps {
   onToggleSelect?: (id: string) => void
 }
 
-export function StockCard({ item, onMove, onRepair, onDiscard, onLoan, onReturn, selectable, selected, onToggleSelect }: StockCardProps) {
+export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, onReturn, selectable, selected, onToggleSelect }: StockCardProps) {
   const navigate = useNavigate()
 
   function handleClick() {
@@ -87,6 +88,14 @@ export function StockCard({ item, onMove, onRepair, onDiscard, onLoan, onReturn,
             </button>
           ) : (
             <>
+              <button
+                type="button"
+                onClick={() => onEdit?.(item)}
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-fg-dim transition-colors hover:bg-black/5 dark:hover:bg-white/5 btn-interactive"
+              >
+                <icons.ui.edit size={12} />
+                Editar
+              </button>
               <button
                 type="button"
                 onClick={() => onLoan?.(item)}

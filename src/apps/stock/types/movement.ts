@@ -28,6 +28,7 @@ export interface StockMovement {
   returnedAt?: string
   destinationRoom?: string
   createdAt: string
+  deletedAt?: string
 }
 
 export type StockMovementFormData = Omit<StockMovement, 'id' | 'createdAt'>

@@ -4,17 +4,18 @@ import { KitCard } from '../components/KitCard'
 import { PullToRefresh } from '../../pcare/components/PullToRefresh'
 import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { EmptyState } from '../../pcare/components/EmptyState'
-import { Modal } from '../../pcare/components/Modal'
+import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
-import type { KitFormData } from '../types'
+import type { Kit, KitFormData } from '../types'
 
 export function KitList() {
-  const { kits, loading, create, reload } = useKits()
+  const { kits, loading, create, remove, reload } = useKits()
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [newKitName, setNewKitName] = useState('')
   const [newKitRoom, setNewKitRoom] = useState('')
   const [newKitItems, setNewKitItems] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Kit | null>(null)
 
   const filtered = useMemo(() => {
     if (!search) return kits
@@ -83,11 +84,21 @@ export function KitList() {
         ) : (
           <div className="space-y-2">
             {filtered.map((kit) => (
-              <KitCard key={kit.id} kit={kit} />
+              <KitCard key={kit.id} kit={kit} onDelete={setDeleteTarget} />
             ))}
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) { remove(deleteTarget.id); setDeleteTarget(null) } }}
+        title="Deletar Kit"
+        message={`Tem certeza que deseja deletar "${deleteTarget?.name}" permanentemente? Esta ação não pode ser desfeita.`}
+        confirmLabel="Deletar"
+        variant="danger"
+      />
 
       <Modal open={showForm} onClose={() => setShowForm(false)} title="Novo Kit">
         <div className="flex flex-col gap-3">

@@ -12,7 +12,12 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
 }
 
-export function KitCard({ kit }: { kit: Kit }) {
+interface KitCardProps {
+  kit: Kit
+  onDelete?: (kit: Kit) => void
+}
+
+export function KitCard({ kit, onDelete }: KitCardProps) {
   const navigate = useNavigate()
   const config = statusConfig[kit.status]
   const presentCount = kit.items.filter((i) => i.present).length
@@ -31,10 +36,22 @@ export function KitCard({ kit }: { kit: Kit }) {
             {kit.lastChecked && ` · Última conferência: ${formatDate(kit.lastChecked)}`}
           </p>
         </div>
-        <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${config.cls}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
-          {config.label}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${config.cls}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
+            {config.label}
+          </span>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDelete(kit) }}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-muted hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              aria-label="Deletar kit"
+            >
+              <icons.ui.trash size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-2 flex items-center gap-2">
@@ -46,7 +63,7 @@ export function KitCard({ kit }: { kit: Kit }) {
         {kit.items.slice(0, 4).map((item) => (
           <span
             key={item.name}
-            className={            `rounded-lg px-2 py-0.5 text-[10px] font-medium ${
+            className={`rounded-lg px-2 py-0.5 text-[10px] font-medium ${
               item.present
                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
                 : 'bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-400'

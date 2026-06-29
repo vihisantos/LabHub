@@ -6,6 +6,7 @@ import { useMaintenance } from '../hooks/useMaintenance'
 import { actionLogService } from '../services/actionLogService'
 import { SkeletonStatCard, SkeletonTimeline } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
+import { ChartCard, DonutChart, BarChart } from '../../../lib/charts'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
@@ -49,7 +50,7 @@ export function Dashboard() {
   const navigate = useNavigate()
   const { pcs, loading: pcsLoading } = usePCs()
   const { parts, loading: partsLoading } = useParts()
-  const { upcoming, loading: maintLoading } = useMaintenance()
+  const { all: allMaint, upcoming, loading: maintLoading } = useMaintenance()
 
   const recentLogs = useMemo(() => {
     return actionLogService.getAll()
@@ -71,6 +72,33 @@ export function Dashboard() {
     return { todos, feitos, andamento, pendentes }
   }, [pcs])
 
+  const maintenanceByMonth = useMemo(() => {
+    const monthMap = new Map<string, number>()
+    for (const m of allMaint) {
+      const key = m.scheduledDate.slice(0, 7)
+      monthMap.set(key, (monthMap.get(key) || 0) + 1)
+    }
+    const months: { label: string; value: number }[] = []
+    const now = new Date()
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      months.push({ label: d.toLocaleDateString('pt-BR', { month: 'short' }), value: monthMap.get(key) || 0 })
+    }
+    return months
+  }, [allMaint])
+
+  const cleaningDonut = useMemo(() => {
+    const { feitos, andamento, pendentes } = statusSummary
+    return [
+      { name: 'Prontos', value: feitos, color: '#10b981' },
+      { name: 'Andamento', value: andamento, color: '#f59e0b' },
+      { name: 'Pendentes', value: pendentes, color: '#94a3b8' },
+    ]
+  }, [statusSummary])
+
+  const labColors = ['#06b6d4', '#8b5cf6', '#f43f5e', '#f97316', '#22c55e', '#eab308', '#a855f7', '#ec4899']
+
   if (pcsLoading || partsLoading || maintLoading) {
     return (
       <div className="space-y-5">
@@ -87,7 +115,6 @@ export function Dashboard() {
 
   const totalPCs = pcs.length
   const cleaned = pcs.filter((p) => p.cleaningStatus === 'done').length
-  const restored = pcs.filter((p) => p.restorationStatus === 'done').length
   const inProgress = pcs.filter(
     (p) => p.cleaningStatus === 'in_progress' || p.restorationStatus === 'in_progress',
   ).length
@@ -147,53 +174,41 @@ export function Dashboard() {
         ))}
       </div>
 
-      <div className="rounded-xl border border-line bg-card/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Progresso</h3>
-        <ProgressBar value={cleaned} total={totalPCs} label="Limpeza" color="from-cyan-500 to-blue-500" />
-        <div className="mt-3">
-          <ProgressBar value={restored} total={totalPCs} label="Restauração" color="from-emerald-500 to-green-500" />
-        </div>
-      </div>
-
       {totalPCs > 0 && (
-        <div className="rounded-xl border border-line bg-card/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Status de Limpeza</h3>
-          <div className="flex h-3 overflow-hidden rounded-full bg-input">
-            {statusSummary.feitos > 0 && (
-              <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${(statusSummary.feitos / totalPCs) * 100}%` }} />
-            )}
-            {statusSummary.andamento > 0 && (
-              <div className="bg-amber-500 transition-all duration-500" style={{ width: `${(statusSummary.andamento / totalPCs) * 100}%` }} />
-            )}
-            {statusSummary.pendentes > 0 && (
-              <div className="bg-fg-dim transition-all duration-500" style={{ width: `${(statusSummary.pendentes / totalPCs) * 100}%` }} />
-            )}
-          </div>
-          <div className="mt-2 flex gap-4 text-[10px]">
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Prontos ({statusSummary.feitos})</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Andamento ({statusSummary.andamento})</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-fg-dim" /> Pendentes ({statusSummary.pendentes})</span>
-          </div>
-        </div>
-      )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ChartCard title="Status de Limpeza">
+            <DonutChart
+              data={cleaningDonut}
+              size={180}
+              centralLabel={String(statusSummary.todos)}
+              centralSubLabel="total"
+            />
+          </ChartCard>
 
-      {labs.length > 1 && (
-        <div className="rounded-xl border border-line bg-card/50 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">PCs por Laboratório</h3>
-          <div className="space-y-2">
-            {labs.map(([lab, count]) => (
-              <div key={lab} className="flex items-center gap-2">
-                <span className="w-24 truncate text-xs text-fg-dim">{lab}</span>
-                <div className="flex-1 h-4 rounded-full bg-input overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500"
-                    style={{ width: `${(count / totalPCs) * 100}%` }}
-                  />
-                </div>
-                <span className="w-8 text-right text-xs text-fg-muted">{count}</span>
-              </div>
-            ))}
-          </div>
+          {labs.length > 1 && (
+            <ChartCard title="PCs por Laboratório">
+              <BarChart
+                data={labs.map(([lab, count], idx) => ({
+                  label: lab,
+                  value: count,
+                  color: labColors[idx % labColors.length],
+                }))}
+                layout="horizontal"
+                height={Math.max(100, labs.length * 36)}
+              />
+            </ChartCard>
+          )}
+
+          {maintenanceByMonth.some((m) => m.value > 0) && (
+            <ChartCard title="Manutenções no Tempo" subtitle="Últimos 6 meses">
+              <BarChart
+                data={maintenanceByMonth}
+                layout="vertical"
+                height={160}
+                defaultColor="#f43f5e"
+              />
+            </ChartCard>
+          )}
         </div>
       )}
 
@@ -340,20 +355,4 @@ function StatCard({
   )
 }
 
-function ProgressBar({ value, total, label, color }: { value: number; total: number; label: string; color: string }) {
-  const pct = total > 0 ? (value / total) * 100 : 0
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between text-xs">
-        <span className="text-fg-dim">{label}</span>
-        <span className="text-fg-muted">{value}/{total}</span>
-      </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-input">
-        <div
-          className={`h-full rounded-full bg-gradient-to-r ${color} transition-all duration-500`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  )
-}
+

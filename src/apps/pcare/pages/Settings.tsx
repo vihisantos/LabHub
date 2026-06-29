@@ -7,6 +7,7 @@ import { partService } from '../services/partService'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
 import { useOnlineSync } from '../hooks/useOnlineSync'
+import { useKioskMode } from '../../../lib/useKioskMode'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 
@@ -177,6 +178,29 @@ function SyncSection() {
   )
 }
 
+function KioskToggle() {
+  const { kioskMode, enterKiosk, exitKiosk } = useKioskMode()
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm text-fg">Modo quiosque</p>
+        <p className="text-xs text-fg-muted">{kioskMode ? 'Ativo' : 'Inativo'}</p>
+      </div>
+      <button
+        type="button"
+        onClick={kioskMode ? exitKiosk : enterKiosk}
+        className={`rounded-lg px-4 py-2 text-sm transition-colors ${
+          kioskMode
+            ? 'bg-red-500/15 text-red-500 hover:bg-red-500/25'
+            : 'border border-line text-fg-dim hover:bg-input'
+        }`}
+      >
+        {kioskMode ? 'Desativar' : 'Ativar'}
+      </button>
+    </div>
+  )
+}
+
 export function Settings() {
   const navigate = useNavigate()
   const { pcs, reload: reloadPCs } = usePCs()
@@ -316,6 +340,12 @@ export function Settings() {
             {theme === 'dark' ? <><icons.ui.sun size={16} className="inline" /> Claro</> : <><icons.ui.moon size={16} className="inline" /> Escuro</>}
           </button>
         </div>
+      </section>
+
+      <section className="rounded-xl border border-line bg-card/50 p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Modo Quiosque</h3>
+        <p className="mb-3 text-xs text-fg-muted">O modo quiosque oculta a navegação e o cabeçalho, ideal para exibir painéis em telas públicas.</p>
+        <KioskToggle />
       </section>
 
       <section className="rounded-xl border border-line bg-card/50 p-4">

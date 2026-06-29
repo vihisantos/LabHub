@@ -1,17 +1,22 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { StatusBadge } from '../components/StatusBadge'
+import { StockForm } from '../components/StockForm'
 import { MovementTimeline } from '../components/MovementTimeline'
 import { EmptyState } from '../../pcare/components/EmptyState'
+import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
+import type { StockItemFormData } from '../types'
 
 export function StockDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { items } = useStock()
+  const { items, update, remove } = useStock()
   const { movements } = useMovements()
+  const [showEdit, setShowEdit] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
 
   const item = items.find((i) => i.id === id)
   const itemMovements = useMemo(
@@ -29,6 +34,17 @@ export function StockDetail() {
     )
   }
 
+  function handleSave(data: StockItemFormData) {
+    update(item.id, data)
+    setShowEdit(false)
+  }
+
+  function handleDelete() {
+    remove(item.id)
+    setShowDelete(false)
+    navigate('/stock', { replace: true })
+  }
+
   return (
     <div>
       <div className="mb-5 flex items-center gap-2">
@@ -40,7 +56,23 @@ export function StockDetail() {
         >
           <icons.ui.back size={20} />
         </button>
-        <h2 className="text-2xl font-bold tracking-tight">{item.name}</h2>
+        <h2 className="text-2xl font-bold tracking-tight flex-1">{item.name}</h2>
+        <button
+          type="button"
+          onClick={() => setShowEdit(true)}
+          className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
+          aria-label="Editar"
+        >
+          <icons.ui.edit size={18} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowDelete(true)}
+          className="rounded-xl bg-card p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shadow-[var(--shadow-card)]"
+          aria-label="Deletar"
+        >
+          <icons.ui.trash size={18} />
+        </button>
         <StatusBadge status={item.status} />
       </div>
 
@@ -87,6 +119,24 @@ export function StockDetail() {
           <MovementTimeline movements={itemMovements} />
         </section>
       </div>
+
+      <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Editar Item">
+        <StockForm
+          initial={item}
+          onSave={handleSave}
+          onCancel={() => setShowEdit(false)}
+        />
+      </Modal>
+
+      <ConfirmDialog
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        onConfirm={handleDelete}
+        title="Deletar Item"
+        message={`Tem certeza que deseja deletar "${item.name}" permanentemente? Esta ação não pode ser desfeita.`}
+        confirmLabel="Deletar"
+        variant="danger"
+      />
     </div>
   )
 }

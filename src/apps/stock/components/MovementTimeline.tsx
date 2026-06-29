@@ -36,9 +36,11 @@ function formatDate(iso: string) {
 
 interface MovementTimelineProps {
   movements: StockMovement[]
+  onEdit?: (movement: StockMovement) => void
+  onDelete?: (movement: StockMovement) => void
 }
 
-export function MovementTimeline({ movements }: MovementTimelineProps) {
+export function MovementTimeline({ movements, onEdit, onDelete }: MovementTimelineProps) {
   if (movements.length === 0) {
     return <p className="text-sm text-fg-muted">Nenhuma movimentação registrada.</p>
   }
@@ -88,6 +90,30 @@ export function MovementTimeline({ movements }: MovementTimelineProps) {
                 {m.type === 'devolucao' && ' · Item devolvido'}
               </p>
             </div>
+            {(onEdit || onDelete) && (
+              <div className="flex shrink-0 flex-col gap-1">
+                {onEdit && (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(m)}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim hover:text-fg hover:bg-input transition-colors"
+                    aria-label="Editar"
+                  >
+                    <icons.ui.edit size={14} />
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(m)}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                    aria-label="Deletar"
+                  >
+                    <icons.ui.trash size={14} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )
       })}

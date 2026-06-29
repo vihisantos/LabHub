@@ -83,6 +83,11 @@ export function StockSectionPage() {
     setShowForm(false)
   }
 
+  function handleEdit(item: StockItem) {
+    setEditing(item)
+    setShowForm(true)
+  }
+
   function handleMove(item: StockItem) {
     setMovementTarget(item)
     setMovementType('mudanca_sala')
@@ -282,6 +287,7 @@ export function StockSectionPage() {
                 <StockCard
                   key={item.id}
                   item={item}
+                  onEdit={handleEdit}
                   onMove={handleMove}
                   onRepair={handleRepair}
                   onDiscard={handleDiscard}

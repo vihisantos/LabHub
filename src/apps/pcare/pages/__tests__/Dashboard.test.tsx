@@ -27,7 +27,7 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
 
     expect(screen.getByText('Total de PCs')).toBeInTheDocument()
-    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('Limpos')).toBeInTheDocument()
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(3)
     expect(screen.getByText('33%')).toBeInTheDocument()
@@ -70,14 +70,13 @@ describe('Dashboard', () => {
     expect(screen.getByText('PC criado')).toBeInTheDocument()
   })
 
-  it('mostra seção de progresso', () => {
+  it('mostra seção de gráficos', () => {
     seedAll()
     renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
 
-    expect(screen.getByText('Progresso')).toBeInTheDocument()
-    expect(screen.getByText('Limpeza')).toBeInTheDocument()
-    expect(screen.getByText('Restauração')).toBeInTheDocument()
-    expect(screen.getAllByText('1/3').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('Status de Limpeza')).toBeInTheDocument()
+    expect(screen.getByText('PCs por Laboratório')).toBeInTheDocument()
+    expect(screen.getByText('total')).toBeInTheDocument()
   })
 
   it('mostra seção de laboratórios quando há múltiplos', () => {
@@ -85,8 +84,6 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
 
     expect(screen.getByText('PCs por Laboratório')).toBeInTheDocument()
-    expect(screen.getByText('Lab A')).toBeInTheDocument()
-    expect(screen.getByText('Lab B')).toBeInTheDocument()
   })
 
   it('mostra empty state quando nao ha PCs', () => {

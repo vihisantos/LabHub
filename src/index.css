@@ -27,6 +27,8 @@
     --shadow-elevated: 0 4px 16px rgba(0,0,0,0.08);
     --bg-card-hover: #f0f0f2;
     --bg-segmented: #d4d4d8;
+    --color-chart-hover: rgba(0,0,0,0.03);
+    --color-chart-bar: #06b6d4;
   }
 
   .dark {
@@ -43,6 +45,8 @@
     --shadow-elevated: 0 4px 16px rgba(0,0,0,0.4);
     --bg-card-hover: #2c2c2e;
     --bg-segmented: #27272a;
+    --color-chart-hover: rgba(255,255,255,0.03);
+    --color-chart-bar: #22d3ee;
   }
 
   body {

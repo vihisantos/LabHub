@@ -7,21 +7,22 @@ interface MovementFormProps {
   itemName: string
   currentRoom: string
   initialType?: MovementType
+  initial?: Partial<StockMovementFormData>
   onSave: (data: StockMovementFormData) => void
   onCancel: () => void
 }
 
-export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mudanca_sala', onSave, onCancel }: MovementFormProps) {
-  const [type, setType] = useState<MovementType>(initialType)
-  const [toRoom, setToRoom] = useState('')
-  const [description, setDescription] = useState('')
-  const [replacedPart, setReplacedPart] = useState('')
-  const [newPart, setNewPart] = useState('')
-  const [performedBy, setPerformedBy] = useState('')
-  const [borrowedBy, setBorrowedBy] = useState('')
-  const [borrowerContact, setBorrowerContact] = useState('')
-  const [expectedReturnAt, setExpectedReturnAt] = useState('')
-  const [destinationRoom, setDestinationRoom] = useState('')
+export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mudanca_sala', initial, onSave, onCancel }: MovementFormProps) {
+  const [type, setType] = useState<MovementType>(initial?.type as MovementType || initialType)
+  const [toRoom, setToRoom] = useState(initial?.toRoom || '')
+  const [description, setDescription] = useState(initial?.description || '')
+  const [replacedPart, setReplacedPart] = useState(initial?.replacedPart || '')
+  const [newPart, setNewPart] = useState(initial?.newPart || '')
+  const [performedBy, setPerformedBy] = useState(initial?.performedBy || '')
+  const [borrowedBy, setBorrowedBy] = useState(initial?.borrowedBy || '')
+  const [borrowerContact, setBorrowerContact] = useState(initial?.borrowerContact || '')
+  const [expectedReturnAt, setExpectedReturnAt] = useState(initial?.expectedReturnAt || '')
+  const [destinationRoom, setDestinationRoom] = useState(initial?.destinationRoom || '')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -194,7 +195,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
           type="submit"
           className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
         >
-          Registrar
+          {initial ? 'Salvar' : 'Registrar'}
         </button>
         <button
           type="button"

@@ -23,9 +23,25 @@ export function useMovements() {
     return movement
   }, [])
 
+  const update = useCallback((id: string, data: Partial<StockMovement>) => {
+    const movement = movementService.update(id, data)
+    if (movement) {
+      setMovements((prev) => prev.map((m) => (m.id === id ? movement : m)))
+    }
+    return movement
+  }, [])
+
+  const remove = useCallback((id: string) => {
+    const ok = movementService.remove(id)
+    if (ok) {
+      setMovements((prev) => prev.filter((m) => m.id !== id))
+    }
+    return ok
+  }, [])
+
   const getByItem = useCallback((itemId: string) => {
     return movementService.getByItem(itemId)
   }, [])
 
-  return { movements, loading, create, getByItem, reload: load }
+  return { movements, loading, create, update, remove, getByItem, reload: load }
 }

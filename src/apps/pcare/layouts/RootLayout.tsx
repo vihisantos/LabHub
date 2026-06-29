@@ -10,6 +10,7 @@ import { useOnlineSync } from '../hooks/useOnlineSync'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useNavigateWithTransition } from '../../../lib/useNavigateWithTransition'
 import { useFocusMode, FocusModeProvider } from '../hooks/useFocusMode'
+import { useKioskMode, KioskProvider, KioskExitPill } from '../../../lib/useKioskMode'
 import { icons } from '../../../lib/icons'
 
 const mainRoutes = new Set([
@@ -64,16 +65,18 @@ export function RootLayout() {
 
   return (
     <FocusModeProvider>
-      <RootLayoutInner
-        location={location}
-        navigate={navigate}
-        title={title}
-        detail={detail}
-        theme={theme}
-        toggle={toggle}
-        mainRef={mainRef}
-        scrollToTop={scrollToTop}
-      />
+      <KioskProvider>
+        <RootLayoutInner
+          location={location}
+          navigate={navigate}
+          title={title}
+          detail={detail}
+          theme={theme}
+          toggle={toggle}
+          mainRef={mainRef}
+          scrollToTop={scrollToTop}
+        />
+      </KioskProvider>
     </FocusModeProvider>
   )
 }
@@ -91,79 +94,92 @@ function RootLayoutInner({
   scrollToTop: () => void
 }) {
   const { focusMode, toggleFocusMode } = useFocusMode()
+  const { kioskMode, enterKiosk } = useKioskMode()
   useSyncToasts()
 
   return (
     <div className="flex h-screen flex-col bg-surface">
       <OnlineBanner />
 
-      <header className="flex items-center gap-2 border-b border-line bg-card/80 px-3 py-2.5 backdrop-blur-xl">
-        {detail ? (
+      {!kioskMode && (
+        <header className="flex items-center gap-2 border-b border-line bg-card/80 px-3 py-2.5 backdrop-blur-xl">
+          {detail ? (
+            <button
+              type="button"
+              onClick={() => navigate(getBackPath(location.pathname))}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+              aria-label="Voltar"
+            >
+              <icons.ui.back size={18} />
+            </button>
+          ) : (
+            <Link
+              to="/"
+              viewTransition
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+              aria-label="Início"
+            >
+              <icons.ui.home size={18} />
+            </Link>
+          )}
+
           <button
             type="button"
-            onClick={() => navigate(getBackPath(location.pathname))}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            aria-label="Voltar"
+            onClick={scrollToTop}
+            className="flex items-center gap-2 overflow-hidden text-left"
           >
-            <icons.ui.back size={18} />
+            <div className="flex flex-col">
+              <h1 className="text-sm font-semibold text-fg leading-tight">{title}</h1>
+              <p className="text-[10px] text-fg-muted leading-tight">PCare {detail ? '' : '· ⌂ Início'}</p>
+            </div>
           </button>
-        ) : (
-          <Link
-            to="/"
-            viewTransition
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            aria-label="Início"
-          >
-            <icons.ui.home size={18} />
-          </Link>
-        )}
 
-        <button
-          type="button"
-          onClick={scrollToTop}
-          className="flex items-center gap-2 overflow-hidden text-left"
-        >
-          <div className="flex flex-col">
-            <h1 className="text-sm font-semibold text-fg leading-tight">{title}</h1>
-            <p className="text-[10px] text-fg-muted leading-tight">PCare {detail ? '' : '· ⌂ Início'}</p>
+          <div className="ml-auto flex items-center gap-1">
+            <SyncNowButton />
+            <SyncStatusBadge />
+            <button
+              type="button"
+              onClick={toggleFocusMode}
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-input ${
+                focusMode
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                  : 'text-fg-dim hover:text-fg'
+              }`}
+              aria-label={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+              title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+            >
+              {focusMode ? <icons.ui.focusActive size={16} /> : <icons.ui.focus size={16} />}
+            </button>
+            <button
+              type="button"
+              onClick={enterKiosk}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+              aria-label="Modo quiosque"
+              title="Modo quiosque"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15V9a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6"/></svg>
+            </button>
+            <button
+              type="button"
+              onClick={toggle}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+              aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+              title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+            >
+              {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
+            </button>
           </div>
-        </button>
+        </header>
+      )}
 
-        <div className="ml-auto flex items-center gap-1">
-          <SyncNowButton />
-          <SyncStatusBadge />
-          <button
-            type="button"
-            onClick={toggleFocusMode}
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-input ${
-              focusMode
-                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                : 'text-fg-dim hover:text-fg'
-            }`}
-            aria-label={focusMode ? 'Sair do modo foco' : 'Modo foco'}
-            title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
-          >
-            {focusMode ? <icons.ui.focusActive size={16} /> : <icons.ui.focus size={16} />}
-          </button>
-          <button
-            type="button"
-            onClick={toggle}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-            title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-          >
-            {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
-          </button>
-        </div>
-      </header>
-
-      <main ref={mainRef} className={`flex-1 overflow-y-auto ${focusMode ? 'pb-4' : 'pb-24'}`} style={{ paddingBottom: focusMode ? '1rem' : 'max(6rem, calc(3.5rem + env(safe-area-inset-bottom)))' }}>
+      <main ref={mainRef} className={`flex-1 overflow-y-auto ${kioskMode ? 'pb-4' : focusMode ? 'pb-4' : 'pb-24'}`} style={{ paddingBottom: kioskMode ? '1rem' : focusMode ? '1rem' : 'max(6rem, calc(3.5rem + env(safe-area-inset-bottom)))' }}>
         <div key={location.pathname} className="animate-[slide-up_0.25s_ease-out] p-4">
           <Outlet />
         </div>
       </main>
 
-      {!focusMode && <BottomNav />}
+      {!kioskMode && !focusMode && <BottomNav />}
+      {kioskMode && <KioskExitPill />}
       <ToastContainer />
     </div>
   )

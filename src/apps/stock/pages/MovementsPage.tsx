@@ -1,16 +1,21 @@
 import { useMemo, useState } from 'react'
 import { useMovements } from '../hooks/useMovements'
 import { MovementTimeline } from '../components/MovementTimeline'
+import { MovementForm } from '../components/MovementForm'
 import { movementTypes } from '../types'
 import { PullToRefresh } from '../../pcare/components/PullToRefresh'
 import { SkeletonCard } from '../../pcare/components/Skeletons'
+import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { exportMovementsCSV } from '../utils/export'
+import type { StockMovement, StockMovementFormData } from '../types'
 
 export function MovementsPage() {
-  const { movements, loading, reload } = useMovements()
+  const { movements, loading, update, remove, reload } = useMovements()
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [editTarget, setEditTarget] = useState<StockMovement | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<StockMovement | null>(null)
 
   const filtered = useMemo(() => {
     return movements.filter((m) => {
@@ -27,6 +32,20 @@ export function MovementsPage() {
       return true
     })
   }, [movements, search, typeFilter])
+
+  function handleEditSave(data: StockMovementFormData) {
+    if (editTarget) {
+      update(editTarget.id, data)
+      setEditTarget(null)
+    }
+  }
+
+  function handleDelete() {
+    if (deleteTarget) {
+      remove(deleteTarget.id)
+      setDeleteTarget(null)
+    }
+  }
 
   if (loading) {
     return <div className="space-y-2">{[1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}</div>
@@ -95,9 +114,48 @@ export function MovementsPage() {
             <p className="text-sm text-fg-muted">Registre movimentações nos itens do estoque.</p>
           </div>
         ) : (
-          <MovementTimeline movements={filtered} />
+          <MovementTimeline
+            movements={filtered}
+            onEdit={setEditTarget}
+            onDelete={setDeleteTarget}
+          />
         )}
       </div>
+
+      {editTarget && (
+        <Modal open={true} onClose={() => setEditTarget(null)} title="Editar Movimentação">
+          <MovementForm
+            itemId={editTarget.itemId}
+            itemName={editTarget.itemName}
+            currentRoom={editTarget.fromRoom}
+            initialType={editTarget.type}
+            initial={{
+              type: editTarget.type,
+              toRoom: editTarget.toRoom,
+              description: editTarget.description,
+              replacedPart: editTarget.replacedPart,
+              newPart: editTarget.newPart,
+              performedBy: editTarget.performedBy,
+              borrowedBy: editTarget.borrowedBy,
+              borrowerContact: editTarget.borrowerContact,
+              expectedReturnAt: editTarget.expectedReturnAt,
+              destinationRoom: editTarget.destinationRoom,
+            }}
+            onSave={handleEditSave}
+            onCancel={() => setEditTarget(null)}
+          />
+        </Modal>
+      )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Remover Movimentação"
+        message={`Tem certeza que deseja remover esta movimentação?`}
+        confirmLabel="Remover"
+        variant="danger"
+      />
     </PullToRefresh>
   )
 }
