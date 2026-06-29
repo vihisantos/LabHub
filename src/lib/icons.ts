@@ -54,6 +54,7 @@ import {
   Download,
   Printer,
   SlidersHorizontal,
+  Copy,
 } from 'lucide-react'
 
 export const icons = {
@@ -117,6 +118,7 @@ export const icons = {
     download: Download,
     printer: Printer,
     sliders: SlidersHorizontal,
+    copy: Copy,
   },
 } as const
 

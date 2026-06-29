@@ -13,9 +13,10 @@ import type { StockItemFormData } from '../types'
 export function StockDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { items, update, remove } = useStock()
+  const { items, create, update, remove } = useStock()
   const { movements } = useMovements()
   const [showEdit, setShowEdit] = useState(false)
+  const [showDuplicate, setShowDuplicate] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
 
   const item = items.find((i) => i.id === id)
@@ -37,6 +38,12 @@ export function StockDetail() {
   function handleSave(data: StockItemFormData) {
     update(item!.id, data)
     setShowEdit(false)
+  }
+
+  function handleDuplicate(data: StockItemFormData) {
+    const newItem = create(data)
+    setShowDuplicate(false)
+    navigate(`/stock/items/${newItem.id}`, { replace: true })
   }
 
   function handleDelete() {
@@ -64,6 +71,15 @@ export function StockDetail() {
           aria-label="Editar"
         >
           <icons.ui.edit size={18} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowDuplicate(true)}
+          className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
+          aria-label="Duplicar"
+          title="Duplicar"
+        >
+          <icons.ui.copy size={18} />
         </button>
         <button
           type="button"
@@ -125,6 +141,14 @@ export function StockDetail() {
           initial={item}
           onSave={handleSave}
           onCancel={() => setShowEdit(false)}
+        />
+      </Modal>
+
+      <Modal open={showDuplicate} onClose={() => setShowDuplicate(false)} title="Duplicar Item">
+        <StockForm
+          initial={item}
+          onSave={handleDuplicate}
+          onCancel={() => setShowDuplicate(false)}
         />
       </Modal>
 

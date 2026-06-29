@@ -75,7 +75,7 @@ const FEATURES: Feature[] = [
   { id: 59, cat: 'mid', name: 'Editar/Deletar Itens no Stock', desc: 'Botões de edição e exclusão no StockDetail', effort: 'low', done: true },
   { id: 60, cat: 'mid', name: 'Editar/Deletar Kits', desc: 'Edição de nome/sala/itens e exclusão de kits', effort: 'low', done: true },
   { id: 61, cat: 'mid', name: 'Alerta Empréstimo Atrasado', desc: 'Badge e filtro para empréstimos com prazo vencido', effort: 'low', done: true },
-  { id: 62, cat: 'mid', name: 'Duplicar Item no Stock', desc: 'Botão duplicar pré-preenche formulário com dados existentes', effort: 'low', done: false },
+  { id: 62, cat: 'mid', name: 'Duplicar Item no Stock', desc: 'Botão duplicar pré-preenche formulário com dados existentes', effort: 'low', done: true },
   { id: 63, cat: 'mid', name: 'Testes Unitários do Stock', desc: 'Cobertura de testes para services e páginas do stock', effort: 'high', done: false },
   { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: true },
 
