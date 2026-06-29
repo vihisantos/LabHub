@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LabHub Roadmap</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --card: #ffffff;
+      --input: #f5f5f7;
+      --fg: #0f172a;
+      --fg-dim: #475569;
+      --fg-muted: #94a3b8;
+      --border: rgba(0,0,0,0.05);
+      --accent: #10b981;
+      --accent-light: #d1fae5;
+      --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-elevated: 0 4px 16px rgba(0,0,0,0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000000;
+        --card: #1c1c1e;
+        --input: #2c2c2e;
+        --fg: #f8fafc;
+        --fg-dim: #94a3b8;
+        --fg-muted: #475569;
+        --border: rgba(255,255,255,0.06);
+        --accent: #34d399;
+        --accent-light: rgba(52,211,153,0.15);
+        --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+        --shadow-elevated: 0 4px 16px rgba(0,0,0,0.4);
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 20px 80px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    header h1 {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+    header p {
+      color: var(--fg-muted);
+      font-size: 14px;
+    }
+    .progress-global {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 20px 24px;
+      box-shadow: var(--shadow);
+      margin-bottom: 32px;
+    }
+    .progress-global .label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .progress-global .label span:last-child {
+      color: var(--accent);
+    }
+    .progress-bar {
+      height: 8px;
+      background: var(--input);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-bar .fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .stat {
+      text-align: center;
+    }
+    .stat .num {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .stat .lbl {
+      font-size: 11px;
+      color: var(--fg-muted);
+      font-weight: 500;
+    }
+    .category {
+      margin-bottom: 28px;
+    }
+    .category-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding: 0 4px;
+    }
+    .category-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .category-header .count {
+      font-size: 12px;
+      color: var(--fg-muted);
+      font-weight: 500;
+    }
+    .category-progress {
+      width: 80px;
+    }
+    .category-progress .mini-bar {
+      height: 4px;
+      background: var(--input);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .category-progress .mini-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .feature {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 8px;
+      transition: box-shadow 0.2s, opacity 0.2s;
+      cursor: pointer;
+    }
+    .feature:hover {
+      box-shadow: var(--shadow-elevated);
+    }
+    .feature.done {
+      opacity: 0.5;
+    }
+    .feature.done .feature-name {
+      text-decoration: line-through;
+    }
+    .feature input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border);
+      border-radius: 6px;
+      flex-shrink: 0;
+      margin-top: 1px;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+    }
+    .feature input[type="checkbox"]:checked {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .feature input[type="checkbox"]:checked::after {
+      content: '';
+      position: absolute;
+      left: 5px;
+      top: 2px;
+      width: 6px;
+      height: 10px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+    .feature-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .feature-name {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+    .feature-desc {
+      font-size: 12px;
+      color: var(--fg-muted);
+      line-height: 1.4;
+    }
+    .feature-meta {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .tag {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .tag.effort-low { background: rgba(16,185,129,0.1); color: #059669; }
+    .tag.effort-med { background: rgba(245,158,11,0.1); color: #d97706; }
+    .tag.effort-high { background: rgba(239,68,68,0.1); color: #dc2626; }
+    @media (prefers-color-scheme: dark) {
+      .tag.effort-low { color: #34d399; }
+      .tag.effort-med { color: #fbbf24; }
+      .tag.effort-high { color: #f87171; }
+    }
+    footer {
+      text-align: center;
+      padding: 24px 0;
+      font-size: 11px;
+      color: var(--fg-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>LabHub Roadmap</h1>
+      <p>55 features planejadas · progresso salvo localmente</p>
+    </header>
+
+    <div class="progress-global">
+      <div class="label">
+        <span>Progresso Geral</span>
+        <span id="global-pct">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div class="fill" id="global-fill" style="width: 0%"></div>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="num" id="stat-done">0</div>
+          <div class="lbl">Concluídas</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="stat-pending">0</div>
+          <div class="lbl">Pendentes</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="stat-total">0</div>
+          <div class="lbl">Total</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="app"></div>
+
+    <footer>
+      Última atualização: <span id="last-update"></span>
+    </footer>
+  </div>
+
+  <script>
+    const FEATURES = [
+      // 🔥 Alto Impacto
+      { id: 1, cat: 'high', name: 'Autenticação (Supabase Auth)', desc: 'Login com email/senha, rastreabilidade de quem fez o quê', effort: 'med' },
+      { id: 2, cat: 'high', name: 'Indicador de Sync em Tempo Real', desc: 'Badge de status: Salvo / Sincronizando / Offline', effort: 'low', done: true },
+      { id: 3, cat: 'high', name: 'Upload de Fotos (Supabase Storage)', desc: 'Fotos de PCs e itens de estoque no Supabase Storage', effort: 'med' },
+      { id: 4, cat: 'high', name: 'Dashboard com Gráficos', desc: 'Gráficos de barras/pizza, timeline de manutenções (Recharts)', effort: 'med' },
+
+      // 📋 Média Prioridade
+      { id: 5, cat: 'mid', name: 'Operações em Lote', desc: 'Selecionar múltiplos PCs/itens e ações coletivas', effort: 'med' },
+      { id: 6, cat: 'mid', name: 'Notificações Push', desc: 'Alertas de manutenção e sync via Push API', effort: 'high' },
+      { id: 7, cat: 'mid', name: 'Importar Dados (CSV/Excel)', desc: 'Importar planilhas existentes do laboratório', effort: 'med' },
+      { id: 8, cat: 'mid', name: 'Tema Customizável (Cor de Destaque)', desc: 'Seletor de cor primária nas Configurações', effort: 'med' },
+      { id: 9, cat: 'mid', name: 'Relatórios com Filtros Avançados', desc: 'Filtrar por período, laboratório, tipo antes de exportar', effort: 'med' },
+      { id: 10, cat: 'mid', name: 'Deploy Automático (Vercel)', desc: 'Deploy automático ao push na main', effort: 'low', done: true },
+      { id: 11, cat: 'mid', name: 'Atalhos de Teclado', desc: 'Ctrl+N, Ctrl+F, Escape para navegação rápida', effort: 'low' },
+      { id: 12, cat: 'mid', name: 'Detecção de Tema do Sistema', desc: 'Respeitar prefers-color-scheme do SO', effort: 'low' },
+      { id: 13, cat: 'mid', name: 'Histórico de Atividades Global', desc: 'Timeline consolidada de todas as ações', effort: 'med' },
+      { id: 14, cat: 'mid', name: 'Página Offline Customizada', desc: 'offline.html com identidade visual do LabHub', effort: 'low' },
+      { id: 15, cat: 'mid', name: 'Testes E2E (Playwright)', desc: 'Testes de fluxo completo: criar → listar → editar', effort: 'high' },
+      { id: 16, cat: 'mid', name: 'Gerador de Etiquetas QR', desc: 'Folha A4 com múltiplos QR codes para impressão', effort: 'low' },
+      { id: 17, cat: 'mid', name: 'Wizard de Cadastro em Massa', desc: 'Cadastro rápido com numeração sequencial', effort: 'low', done: true },
+      { id: 18, cat: 'mid', name: 'Mapa do Laboratório', desc: 'Editor visual de mapa da sala com grid de posições', effort: 'high' },
+      { id: 19, cat: 'mid', name: 'Multilab — Troca Rápida', desc: 'Seletor de laboratório ativo no header', effort: 'low' },
+      { id: 20, cat: 'mid', name: 'Checklist com Foto', desc: 'Capturar foto durante execução de checklist', effort: 'med' },
+
+      // 🎯 Baixa Prioridade
+      { id: 21, cat: 'low', name: 'Histórico por Peça', desc: 'Rastreabilidade completa de peças trocadas', effort: 'med' },
+      { id: 22, cat: 'low', name: 'Sync Periódico (Polling)', desc: 'Re-sincronizar a cada 30s via Service Worker', effort: 'med' },
+      { id: 23, cat: 'low', name: 'Atalho "Avançar Status" no Card', desc: 'Botão rápido para avançar status sem abrir detalhe', effort: 'low' },
+      { id: 24, cat: 'low', name: 'Comparar PCs Lado a Lado', desc: 'Tela dividida com specs e status comparados', effort: 'med' },
+      { id: 25, cat: 'low', name: 'Backup Manual (Exportar/Importar JSON)', desc: 'Exportar/importar todos os dados como .json', effort: 'low' },
+      { id: 26, cat: 'low', name: 'Suporte Multilíngue (i18n)', desc: 'Português e Inglês com react-i18next', effort: 'high' },
+      { id: 27, cat: 'low', name: 'Gestão de Garantia e Licenças', desc: 'Alertas de vencimento de garantia e software', effort: 'med' },
+      { id: 28, cat: 'low', name: 'Rastreamento por Etiqueta', desc: 'Busca por asset tag com leitura de código de barras', effort: 'med' },
+      { id: 29, cat: 'low', name: 'Modo Foco / Kiosk', desc: 'Interface mínima sem distrações para tablets', effort: 'med', done: true },
+      { id: 30, cat: 'low', name: 'Vincular Periféricos aos PCs', desc: 'Mouse, teclado, monitor vinculados ao PC', effort: 'med' },
+      { id: 31, cat: 'low', name: 'Histórico de Conexão (Sync Status)', desc: 'Status de sync, ping, log de erros', effort: 'low', done: true },
+      { id: 32, cat: 'low', name: 'Tour / Onboarding Integrado', desc: 'Overlay com passos para novo usuário', effort: 'med' },
+      { id: 33, cat: 'low', name: 'Resolução de Conflitos de Sync', desc: 'Modal com diff lado a lado para conflitos', effort: 'med' },
+      { id: 34, cat: 'low', name: 'Compartilhar PC via QR', desc: 'QR code com link direto para detalhe do PC', effort: 'low' },
+      { id: 35, cat: 'low', name: 'Ronda Diária de Laboratório', desc: 'Checklist rápido: todos os PCs ligados e respondendo', effort: 'med' },
+      { id: 36, cat: 'low', name: 'Sugestão de Reposição de Peças', desc: 'Calcular consumo médio e sugerir compra', effort: 'low' },
+      { id: 37, cat: 'low', name: 'Atalho "Desfazer" (Undo)', desc: 'Ctrl+Z e toast com opção de desfazer', effort: 'high' },
+      { id: 38, cat: 'low', name: 'Feed de Atividades Global', desc: 'Timeline consolidada com filtros por dia', effort: 'med' },
+      { id: 39, cat: 'low', name: 'Inventário Cíclico (Stock)', desc: 'Contagem física periódica com divergência', effort: 'high' },
+      { id: 40, cat: 'low', name: 'Pré-visualização QR na Lista', desc: 'Ícone de QR no card com preview em modal', effort: 'low' },
+      { id: 41, cat: 'low', name: 'Modo Noturno Automático', desc: 'Tema escuro à noite, claro de dia', effort: 'low' },
+      { id: 42, cat: 'low', name: 'Grade de Horários de Manutenção', desc: 'Calendário com manutenções agendadas', effort: 'med' },
+      { id: 43, cat: 'low', name: 'Consolidado de Estoque por Lab', desc: 'Visão de estoque por laboratório', effort: 'med' },
+      { id: 44, cat: 'low', name: 'Assistente de Migração', desc: 'Migrar dados antigos do localStorage automaticamente', effort: 'med' },
+      { id: 45, cat: 'low', name: 'Plugins / Extensões', desc: 'Sistema de plugins para funcionalidades customizadas', effort: 'high' },
+      { id: 46, cat: 'low', name: 'Exportar Dashboard como Imagem', desc: 'Download do dashboard como PNG via html2canvas', effort: 'low' },
+      { id: 47, cat: 'low', name: 'Central de Notificações', desc: 'Ícone de sino com badge e lista de alertas', effort: 'high' },
+      { id: 48, cat: 'low', name: 'Rascunho Automático', desc: 'Auto-save de formulários a cada 5s', effort: 'low' },
+      { id: 49, cat: 'low', name: 'Web Vitals', desc: 'Coletar LCP, FID, CLS para monitoramento', effort: 'med' },
+      { id: 50, cat: 'low', name: 'IndexedDB (Storage)', desc: 'Migrar dados do localStorage para IndexedDB', effort: 'high' },
+      { id: 51, cat: 'low', name: 'LED Virtual de Status', desc: 'Indicador colorido no card: verde/amarelo/vermelho', effort: 'low' },
+      { id: 52, cat: 'low', name: 'Timeline Gráfica', desc: 'Timeline horizontal com bolhas por data', effort: 'med' },
+      { id: 53, cat: 'low', name: 'Print Styles', desc: 'CSS @media print para relatórios e detalhes', effort: 'low' },
+      { id: 54, cat: 'low', name: 'Laboratórios Favoritos', desc: 'Marcar labs como favoritos e filtrar', effort: 'low' },
+      { id: 55, cat: 'low', name: 'Quick Stats Widget', desc: 'Resumo colapsável: pendências e urgências', effort: 'low' },
+    ];
+
+    const CATEGORIES = [
+      { key: 'high', emoji: '🔥', label: 'Alto Impacto' },
+      { key: 'mid', emoji: '📋', label: 'Média Prioridade' },
+      { key: 'low', emoji: '🎯', label: 'Baixa Prioridade' },
+    ];
+
+    const STORAGE_KEY = 'labhub_roadmap';
+
+    function loadState() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+      } catch { return {}; }
+    }
+
+    function saveState(state) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    const state = loadState();
+
+    function toggleFeature(id) {
+      state[id] = !state[id];
+      saveState(state);
+      render();
+    }
+
+    function getStats() {
+      const total = FEATURES.length;
+      const done = FEATURES.filter(f => state[f.id]).length;
+      return { total, done, pending: total - done };
+    }
+
+    function render() {
+      const { total, done, pending } = getStats();
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      document.getElementById('global-pct').textContent = pct + '%';
+      document.getElementById('global-fill').style.width = pct + '%';
+      document.getElementById('stat-done').textContent = done;
+      document.getElementById('stat-pending').textContent = pending;
+      document.getElementById('stat-total').textContent = total;
+      document.getElementById('last-update').textContent = new Date().toLocaleDateString('pt-BR');
+
+      const app = document.getElementById('app');
+      app.innerHTML = '';
+
+      for (const cat of CATEGORIES) {
+        const features = FEATURES.filter(f => f.cat === cat.key);
+        const catDone = features.filter(f => state[f.id]).length;
+        const catPct = features.length > 0 ? Math.round((catDone / features.length) * 100) : 0;
+
+        const section = document.createElement('div');
+        section.className = 'category';
+        section.innerHTML = `
+          <div class="category-header">
+            <h2>${cat.emoji} ${cat.label} <span class="count">${catDone}/${features.length}</span></h2>
+            <div class="category-progress">
+              <div class="mini-bar"><div class="mini-fill" style="width: ${catPct}%"></div></div>
+            </div>
+          </div>
+        `;
+
+        for (const f of features) {
+          const isDone = !!state[f.id];
+          const effortLabel = f.effort === 'low' ? 'Baixo' : f.effort === 'med' ? 'Médio' : 'Alto';
+          const effortClass = f.effort === 'low' ? 'effort-low' : f.effort === 'med' ? 'effort-med' : 'effort-high';
+
+          const card = document.createElement('div');
+          card.className = 'feature' + (isDone ? ' done' : '');
+          card.innerHTML = `
+            <input type="checkbox" ${isDone ? 'checked' : ''} />
+            <div class="feature-body">
+              <div class="feature-name">${f.name}</div>
+              <div class="feature-desc">${f.desc}</div>
+              <div class="feature-meta">
+                <span class="tag ${effortClass}">${effortLabel}</span>
+                ${f.done ? '<span class="tag effort-low">Feito</span>' : ''}
+              </div>
+            </div>
+          `;
+          card.querySelector('input').addEventListener('change', () => toggleFeature(f.id));
+          card.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'INPUT') {
+              card.querySelector('input').click();
+            }
+          });
+          section.appendChild(card);
+        }
+
+        app.appendChild(section);
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>
