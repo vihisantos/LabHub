@@ -269,15 +269,15 @@ export function StockDashboard() {
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-semibold text-rose-800 dark:text-rose-300">{item?.name || mov.itemId}</p>
                             <p className="mt-0.5 text-xs text-rose-600/80 dark:text-rose-400/80">
-                              Retirado por {mov.responsibleName || mov.responsibleId}
+                              Retirado por {mov.borrowedBy || mov.borrowerContact || '-'}
                             </p>
                           </div>
                           <span className="shrink-0 rounded-full bg-rose-200/60 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
                             {new Date(mov.expectedReturnAt!).toLocaleDateString('pt-BR')}
                           </span>
                         </div>
-                        {mov.notes && (
-                          <p className="mt-1 text-[11px] leading-relaxed text-rose-600/70 dark:text-rose-400/70">{mov.notes}</p>
+                        {mov.description && (
+                          <p className="mt-1 text-[11px] leading-relaxed text-rose-600/70 dark:text-rose-400/70">{mov.description}</p>
                         )}
                       </div>
                     )

@@ -61,11 +61,8 @@ export function ThemeProvider({
   }, [storageKey])
 
   function toggle() {
-    setTheme((prev) => {
-      if (prev === 'dark') return 'dim'
-      if (prev === 'dim') return 'light'
-      return 'dark'
-    })
+    const next = theme === 'dark' ? 'dim' : theme === 'dim' ? 'light' : 'dark'
+    setTheme(next)
   }
 
   useEffect(() => {
