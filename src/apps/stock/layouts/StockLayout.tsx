@@ -1,5 +1,6 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useRef } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { StockBottomNav } from '../components/StockBottomNav'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
@@ -129,9 +130,18 @@ function StockLayoutInner({
       )}
 
       <main ref={mainRef} className={`flex-1 overflow-y-auto ${kioskMode ? 'pb-4' : 'pb-24'}`} style={{ paddingBottom: kioskMode ? '1rem' : 'max(6rem, calc(3.5rem + env(safe-area-inset-bottom)))' }}>
-        <div key={location.pathname} className="mx-auto max-w-lg page-transition p-4">
-          <Outlet />
-        </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="mx-auto max-w-lg p-4"
+          >
+            <Outlet />
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {!kioskMode && <StockBottomNav />}

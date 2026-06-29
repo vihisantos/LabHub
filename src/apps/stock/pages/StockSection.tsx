@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
@@ -32,11 +32,20 @@ export function StockSectionPage() {
   }, [searchParams])
 
   const [search, setSearch] = useState('')
+  const [roomFilter, setRoomFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<StockItem | null>(null)
   const [movementTarget, setMovementTarget] = useState<StockItem | null>(null)
   const [movementType, setMovementType] = useState<'mudanca_sala' | 'conserto' | 'descarte' | 'emprestimo' | 'devolucao'>('mudanca_sala')
   const [discardTarget, setDiscardTarget] = useState<StockItem | null>(null)
+
+  const uniqueRooms = useMemo(() => {
+    const rooms = new Set(items.map((i) => i.room).filter(Boolean))
+    return Array.from(rooms).sort()
+  }, [items])
+
+  const hasActiveFilters = roomFilter !== '' || statusFilter !== '' || search !== ''
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
@@ -47,6 +56,8 @@ export function StockSectionPage() {
       } else {
         if (item.section !== activeSection) return false
       }
+      if (roomFilter && item.room !== roomFilter) return false
+      if (statusFilter && item.status !== statusFilter) return false
       if (search) {
         const q = search.toLowerCase()
         return (
@@ -58,7 +69,13 @@ export function StockSectionPage() {
       }
       return true
     })
-  }, [items, activeSection, search])
+  }, [items, activeSection, roomFilter, statusFilter, search])
+
+  const clearFilters = useCallback(() => {
+    setRoomFilter('')
+    setStatusFilter('')
+    setSearch('')
+  }, [])
 
   const sectionItems = useMemo(() => {
     if (activeSection === 'all') return items.filter((i) => i.status === 'ativo')
@@ -252,15 +269,52 @@ export function StockSectionPage() {
           </div>
         )}
 
-        <div className="relative">
-          <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-          <input
-            type="text"
-            placeholder="Buscar por nome, série ou sala..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+            <input
+              type="text"
+              placeholder="Buscar por nome, série ou sala..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
+            />
+          </div>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-input text-fg-dim transition-colors hover:bg-input/80 btn-interactive"
+              title="Limpar filtros"
+            >
+              <icons.ui.close size={16} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <select
+            value={roomFilter}
+            onChange={(e) => setRoomFilter(e.target.value)}
+            className="w-full rounded-xl bg-input px-3 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30 appearance-none"
+          >
+            <option value="">Todas as salas</option>
+            {uniqueRooms.map((room) => (
+              <option key={room} value={room}>{room}</option>
+            ))}
+          </select>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full rounded-xl bg-input px-3 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30 appearance-none"
+          >
+            <option value="">Todos os status</option>
+            <option value="ativo">Ativo</option>
+            <option value="em_conserto">Em Conserto</option>
+            <option value="emprestado">Emprestado</option>
+            <option value="descartado">Descartado</option>
+          </select>
         </div>
 
         {filtered.length === 0 ? (
