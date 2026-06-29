@@ -2,9 +2,11 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useRef } from 'react'
 import { BottomNav } from '../components/BottomNav'
 import { OnlineBanner } from '../components/OnlineBanner'
+import { SyncStatusBadge } from '../components/SyncStatusBadge'
 import { useSwipeBack } from '../hooks/useSwipeBack'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useNavigateWithTransition } from '../../../lib/useNavigateWithTransition'
+import { useFocusMode, FocusModeProvider } from '../hooks/useFocusMode'
 import { icons } from '../../../lib/icons'
 
 const mainRoutes = new Set([
@@ -20,6 +22,7 @@ function getPageTitle(pathname: string): string {
   if (pathname === '/pcare') return 'Dashboard'
   if (pathname.startsWith('/pcare/pcs')) {
     if (pathname.endsWith('/new')) return 'Novo PC'
+    if (pathname.endsWith('/bulk')) return 'Cadastro em Massa'
     if (pathname.endsWith('/edit')) return 'Editar PC'
     if (pathname.match(/\/pcare\/pcs\/[\w-]+$/)) return 'Detalhes do PC'
     return 'PCs'
@@ -59,6 +62,36 @@ export function RootLayout() {
   }
 
   return (
+    <FocusModeProvider>
+      <RootLayoutInner
+        location={location}
+        navigate={navigate}
+        title={title}
+        detail={detail}
+        theme={theme}
+        toggle={toggle}
+        mainRef={mainRef}
+        scrollToTop={scrollToTop}
+      />
+    </FocusModeProvider>
+  )
+}
+
+function RootLayoutInner({
+  location, navigate, title, detail, theme, toggle, mainRef, scrollToTop,
+}: {
+  location: ReturnType<typeof useLocation>
+  navigate: ReturnType<typeof useNavigateWithTransition>
+  title: string
+  detail: boolean
+  theme: ReturnType<typeof useTheme>['theme']
+  toggle: ReturnType<typeof useTheme>['toggle']
+  mainRef: React.RefObject<HTMLDivElement | null>
+  scrollToTop: () => void
+}) {
+  const { focusMode, toggleFocusMode } = useFocusMode()
+
+  return (
     <div className="flex h-screen flex-col bg-surface">
       <OnlineBanner />
 
@@ -94,24 +127,40 @@ export function RootLayout() {
           </div>
         </button>
 
-        <button
-          type="button"
-          onClick={toggle}
-          className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-          aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-          title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-        >
-          {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <SyncStatusBadge />
+          <button
+            type="button"
+            onClick={toggleFocusMode}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-input ${
+              focusMode
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                : 'text-fg-dim hover:text-fg'
+            }`}
+            aria-label={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+            title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+          >
+            {focusMode ? <icons.ui.focusActive size={16} /> : <icons.ui.focus size={16} />}
+          </button>
+          <button
+            type="button"
+            onClick={toggle}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+            aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+            title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+          >
+            {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
+          </button>
+        </div>
       </header>
 
-      <main ref={mainRef} className="flex-1 overflow-y-auto pb-24" style={{ paddingBottom: 'max(6rem, calc(3.5rem + env(safe-area-inset-bottom)))' }}>
+      <main ref={mainRef} className={`flex-1 overflow-y-auto ${focusMode ? 'pb-4' : 'pb-24'}`} style={{ paddingBottom: focusMode ? '1rem' : 'max(6rem, calc(3.5rem + env(safe-area-inset-bottom)))' }}>
         <div key={location.pathname} className="animate-[slide-up_0.25s_ease-out] p-4">
           <Outlet />
         </div>
       </main>
 
-      <BottomNav />
+      {!focusMode && <BottomNav />}
     </div>
   )
 }

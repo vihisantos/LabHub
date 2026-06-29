@@ -6,6 +6,7 @@ import { pcService } from '../services/pcService'
 import { partService } from '../services/partService'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
+import { useOnlineSync } from '../hooks/useOnlineSync'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 
@@ -37,6 +38,143 @@ function importCSV<T>(text: string): T[] {
     headers.forEach((h, i) => { obj[h] = values[i] || '' })
     return obj as unknown as T
   })
+}
+
+function SyncSection() {
+  const { online, syncing, syncError, lastSync, pendingChanges, triggerSync, syncLog } = useOnlineSync()
+  const [pinging, setPinging] = useState(false)
+  const [pingResult, setPingResult] = useState<string | null>(null)
+
+  function formatTime(isoString: string): string {
+    const d = new Date(isoString)
+    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  }
+
+  async function handlePing() {
+    setPinging(true)
+    setPingResult(null)
+    const start = Date.now()
+    try {
+      const { pcareDb } = await import('../../../lib/supabase')
+      if (pcareDb) {
+        await pcareDb.from('pcs').select('id').limit(1)
+        setPingResult(`✓ Supabase respondeu em ${Date.now() - start}ms`)
+      } else {
+        setPingResult('⚠ Supabase não configurado (modo local)')
+      }
+    } catch (e) {
+      setPingResult(`✗ Erro: ${e instanceof Error ? e.message : 'Falha na conexão'}`)
+    } finally {
+      setPinging(false)
+    }
+  }
+
+  const recentLogs = [...syncLog].reverse().slice(0, 20)
+
+  return (
+    <section className="rounded-xl border border-line bg-card/50 p-4 space-y-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Sincronização</h3>
+
+      {/* Status geral */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-fg">Status</p>
+          <p className="text-xs text-fg-muted mt-0.5">
+            {!online ? 'Offline' : syncing ? 'Sincronizando...' : syncError ? 'Erro no último sync' : pendingChanges > 0 ? `${pendingChanges} alteração(ões) pendente(s)` : 'Sincronizado'}
+          </p>
+          {lastSync && (
+            <p className="text-[10px] text-fg-muted mt-0.5">
+              Última sync: {lastSync.toLocaleString('pt-BR')}
+            </p>
+          )}
+        </div>
+        <span className={`h-2.5 w-2.5 rounded-full ${
+          !online ? 'bg-red-400' :
+          syncing ? 'bg-amber-400 animate-pulse' :
+          syncError ? 'bg-red-400 animate-pulse' :
+          pendingChanges > 0 ? 'bg-amber-400 animate-pulse' :
+          'bg-emerald-400'
+        }`} />
+      </div>
+
+      {/* Erro */}
+      {syncError && (
+        <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <p className="font-medium">Erro:</p>
+          <p className="font-mono text-[10px] mt-0.5 break-all">{syncError}</p>
+        </div>
+      )}
+
+      {/* Botões */}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          id="settings-sync-now"
+          onClick={() => triggerSync()}
+          disabled={syncing || !online}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <icons.ui.refresh size={12} className={syncing ? 'animate-spin' : ''} />
+          {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
+        </button>
+        <button
+          type="button"
+          id="settings-ping-supabase"
+          onClick={handlePing}
+          disabled={pinging}
+          className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs text-fg-dim transition-colors hover:bg-input disabled:opacity-50"
+        >
+          <icons.ui.cloud size={12} />
+          {pinging ? 'Testando...' : 'Testar conexão'}
+        </button>
+      </div>
+
+      {pingResult && (
+        <p className={`text-xs rounded-lg px-3 py-2 ${pingResult.startsWith('✓') ? 'bg-emerald-500/10 text-emerald-400' : pingResult.startsWith('⚠') ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'}`}>
+          {pingResult}
+        </p>
+      )}
+
+      {/* Log de sync */}
+      <div>
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-muted">Log de sincronização</p>
+        {recentLogs.length === 0 ? (
+          <p className="text-xs text-fg-muted">Nenhuma entrada no log.</p>
+        ) : (
+          <div className="rounded-lg border border-line overflow-hidden">
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="border-b border-line bg-input/50">
+                  <th className="px-3 py-1.5 text-left font-medium text-fg-muted">Coleção</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-fg-muted">Itens</th>
+                  <th className="px-2 py-1.5 text-center font-medium text-fg-muted">Status</th>
+                  <th className="px-3 py-1.5 text-right font-medium text-fg-muted">Horário</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentLogs.map((entry, i) => (
+                  <tr key={i} className={`border-b border-line last:border-0 ${i % 2 === 0 ? '' : 'bg-input/20'}`}>
+                    <td className="px-3 py-1.5 text-fg-dim font-mono">{entry.collection}</td>
+                    <td className="px-2 py-1.5 text-center text-fg-dim">{entry.itemCount}</td>
+                    <td className="px-2 py-1.5 text-center">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${
+                        entry.status === 'ok' ? 'bg-emerald-500/15 text-emerald-400' :
+                        entry.status === 'error' ? 'bg-red-500/15 text-red-400' :
+                        'bg-amber-500/15 text-amber-400'
+                      }`}>
+                        {entry.status === 'ok' ? 'ok' : entry.status === 'error' ? 'erro' : 'local'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-fg-muted">{formatTime(entry.at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+  )
 }
 
 export function Settings() {
@@ -259,6 +397,8 @@ export function Settings() {
         confirmLabel="Sim, estou certo"
         variant="danger"
       />
+
+      <SyncSection />
 
       <section className="rounded-xl border border-line bg-card/50 p-4">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Sobre</h3>

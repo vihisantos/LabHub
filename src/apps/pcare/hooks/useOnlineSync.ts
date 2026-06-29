@@ -1,31 +1,35 @@
 import { useCallback, useEffect, useState } from 'react'
-import { syncAll, getPendingChanges } from '../../../lib/sync'
+import { syncAll, getPendingChanges, getSyncLog, getLastSyncedAt, type SyncLogEntry } from '../../../lib/sync'
 
 export function useOnlineSync() {
   const [online, setOnline] = useState(navigator.onLine)
   const [syncing, setSyncing] = useState(false)
-  const [lastSync, setLastSync] = useState<Date>(() => {
-    try {
-      const logs = JSON.parse(localStorage.getItem('labhub_sync_log') || '[]')
-      if (logs.length > 0) return new Date(logs[logs.length - 1].at)
-    } catch {}
-    return new Date()
-  })
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [lastSync, setLastSync] = useState<Date | null>(() => getLastSyncedAt())
   const [pendingChanges, setPendingChanges] = useState(getPendingChanges())
+  const [syncLog, setSyncLog] = useState<SyncLogEntry[]>(() => getSyncLog())
+
+  const refreshLog = useCallback(() => {
+    setSyncLog(getSyncLog())
+    setLastSync(getLastSyncedAt())
+    setPendingChanges(getPendingChanges())
+  }, [])
 
   const triggerSync = useCallback(async () => {
     if (syncing || !navigator.onLine) return
     setSyncing(true)
+    setSyncError(null)
     try {
       await syncAll()
-      setLastSync(new Date())
-      setPendingChanges(getPendingChanges())
+      refreshLog()
     } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Erro desconhecido'
+      setSyncError(msg)
       console.warn('[Sync] triggerSync failed:', e)
     } finally {
       setSyncing(false)
     }
-  }, [syncing])
+  }, [syncing, refreshLog])
 
   useEffect(() => {
     function goOnline() {
@@ -55,5 +59,5 @@ export function useOnlineSync() {
     }
   }, [triggerSync])
 
-  return { online, syncing, lastSync, triggerSync, pendingChanges }
+  return { online, syncing, syncError, lastSync, triggerSync, pendingChanges, syncLog, refreshLog }
 }

@@ -41,6 +41,13 @@ import {
   PartyPopper,
   Scan,
   FlaskConical,
+  CheckCircle,
+  Focus,
+  Cloud,
+  CloudOff,
+  CloudCheck,
+  AlertCircle,
+  WifiOff,
 } from 'lucide-react'
 
 export const icons = {
@@ -90,6 +97,14 @@ export const icons = {
     partyPopper: PartyPopper,
     scan: Scan,
     flaskConical: FlaskConical,
+    checkCircle: CheckCircle,
+    focus: Focus,
+    focusActive: Focus,
+    cloud: Cloud,
+    cloudOff: CloudOff,
+    cloudCheck: CloudCheck,
+    alertCircle: AlertCircle,
+    wifiOff: WifiOff,
   },
 } as const
 

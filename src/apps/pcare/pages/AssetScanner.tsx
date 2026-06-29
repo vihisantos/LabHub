@@ -596,10 +596,13 @@ export function AssetScanner() {
             </div>
 
             {foundPC && (
-              <div className="mb-4 w-full max-w-xs rounded-lg border border-line bg-card/50 p-3">
-                <p className="mb-1 text-sm font-semibold text-fg">
-                  {foundPC.labName} — PC {foundPC.pcNumber}
-                </p>
+              <div className="mb-4 w-full max-w-xs rounded-lg border-2 border-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20 p-3 shadow-[0_0_12px_rgba(34,197,94,0.3)]">
+                <div className="mb-2 flex items-center gap-2">
+                  <icons.ui.checkCircle size={18} className="text-emerald-500" />
+                  <p className="text-sm font-semibold text-fg">
+                    {foundPC.labName} — PC {foundPC.pcNumber}
+                  </p>
+                </div>
                 <div className="space-y-0.5 text-xs text-fg-dim">
                   <p>Patrimônio: <span className="text-fg-dim">{foundPC.assetTag}</span></p>
                   <p>Local: <span className="text-fg-dim">{foundPC.roomLocation}</span></p>

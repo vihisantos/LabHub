@@ -55,6 +55,27 @@ function setAllLocal<T>(collection: string, data: T[]) {
   localStorage.setItem(getItemKey(collection), JSON.stringify(data))
 }
 
+export interface SyncLogEntry {
+  collection: string
+  itemCount: number
+  status: 'ok' | 'simulated' | 'error'
+  at: string
+}
+
+export function getSyncLog(): SyncLogEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(SYNC_LOG_KEY) || '[]')
+  } catch {
+    return []
+  }
+}
+
+export function getLastSyncedAt(): Date | null {
+  const logs = getSyncLog()
+  const last = logs.filter((l) => l.status !== 'error').at(-1)
+  return last ? new Date(last.at) : null
+}
+
 function logSync(collection: string, itemCount: number, status: 'ok' | 'simulated' | 'error') {
   try {
     const logs = JSON.parse(localStorage.getItem(SYNC_LOG_KEY) || '[]')

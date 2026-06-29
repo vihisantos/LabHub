@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { useMaintenance } from '../hooks/useMaintenance'
+import { useChecklistTemplates, usePCChecklists } from '../hooks/useChecklists'
+import { useFocusMode } from '../hooks/useFocusMode'
 import { PCCard } from '../components/PCCard'
 import { FilterBar } from '../components/FilterBar'
 import type { Status } from '../components/FilterBar'
@@ -9,12 +11,15 @@ import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
 import { Modal } from '../components/Modal'
+import { PCChecklistModal } from '../components/PCChecklistModal'
 import { icons } from '../../../lib/icons'
 
 export function PCList() {
   const navigate = useNavigate()
   const { pcs, loading, update, reload } = usePCs()
   const { create: scheduleMaint } = useMaintenance()
+  const { templates } = useChecklistTemplates()
+  const { focusMode } = useFocusMode()
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<{ lab: string; status: Status }>({
     lab: '',
@@ -25,6 +30,11 @@ export function PCList() {
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleType, setScheduleType] = useState<'cleaning' | 'restoration' | 'both'>('cleaning')
+  const [focusPcId, setFocusPcId] = useState<string | null>(null)
+
+  const { checklists: focusPcChecklists, create: createFocusChecklist, update: updateFocusChecklist, reload: reloadFocusChecklists } = usePCChecklists(focusPcId ?? '')
+
+  const focusPC = focusPcId ? pcs.find((p) => p.id === focusPcId) ?? null : null
 
   const labs = useMemo(() => {
     const unique = new Set(pcs.map((p) => p.labName))
@@ -40,12 +50,19 @@ export function PCList() {
         return (
           pc.labName.toLowerCase().includes(q) ||
           pc.pcNumber.toLowerCase().includes(q) ||
-          pc.roomLocation.toLowerCase().includes(q)
+          pc.roomLocation.toLowerCase().includes(q) ||
+          pc.assetTag.toLowerCase().includes(q)
         )
       }
       return true
     })
   }, [pcs, filters, search])
+
+  const highlightedId = useMemo(() => {
+    if (!search) return null
+    const exact = pcs.find((pc) => pc.assetTag.toLowerCase() === search.toLowerCase())
+    return exact?.id ?? null
+  }, [pcs, search])
 
   const selectedPCs = useMemo(() => {
     return pcs.filter((p) => selected.has(p.id))
@@ -103,63 +120,108 @@ export function PCList() {
     setSelected(new Set())
   }
 
+  function handleFocusClick(pcId: string) {
+    setFocusPcId(pcId)
+  }
+
+  function handleFocusApplyTemplate(templateId: string) {
+    if (!focusPcId) return
+    createFocusChecklist({
+      pcId: focusPcId,
+      templateId,
+      templateName: templates.find((t) => t.id === templateId)?.name ?? '',
+      labName: focusPC?.labName ?? '',
+      items: templates.find((t) => t.id === templateId)?.items.map((i) => ({ itemId: i.id, label: i.label, category: i.category, done: false, doneAt: null })) ?? [],
+      completedAt: null,
+    })
+    reloadFocusChecklists()
+  }
+
+  function handleFocusToggleItem(checklistId: string, itemId: string) {
+    updateFocusChecklist(checklistId, {
+      items: focusPcChecklists.find((c) => c.id === checklistId)?.items.map((i) =>
+        i.itemId === itemId ? { ...i, done: !i.done, doneAt: !i.done ? new Date().toISOString() : null } : i
+      ) ?? [],
+    })
+    reloadFocusChecklists()
+  }
+
   if (loading) return <div className="space-y-2">{[1,2,3,4,5].map(i => <SkeletonCard key={i} />)}</div>
 
   return (
     <PullToRefresh onRefresh={reload}>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Computadores</h2>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => navigate('/pcare/qr')}
-            className="rounded-lg border border-cyan-600 dark:border-cyan-700 px-3 py-2 text-sm text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/30"
-          >
-            QR
-          </button>
-          <button
-            type="button"
-            onClick={toggleSelectMode}
-            className={`rounded-lg border px-3 py-2 text-sm ${
-              selectMode
-                ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
-                : 'border-line text-fg-dim hover:border-line'
-            }`}
-          >
-            {selectMode ? 'Cancelar' : 'Selecionar'}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/pcare/pcs/new')}
-            className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
-          >
-            + Novo PC
-          </button>
+      {!focusMode && (
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Computadores</h2>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/pcare/qr')}
+              className="rounded-lg border border-cyan-600 dark:border-cyan-700 px-3 py-2 text-sm text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/30"
+            >
+              QR
+            </button>
+            <button
+              type="button"
+              onClick={toggleSelectMode}
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                selectMode
+                  ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                  : 'border-line text-fg-dim hover:border-line'
+              }`}
+            >
+              {selectMode ? 'Cancelar' : 'Selecionar'}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/pcare/pcs/bulk')}
+              title="Cadastrar vários PCs de uma vez"
+              className="rounded-lg border border-line px-3 py-2 text-sm text-fg-dim transition-colors hover:bg-input hover:text-fg"
+            >
+              <icons.ui.plusCircle size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/pcare/pcs/new')}
+              className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+            >
+              + Novo PC
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="relative mb-3">
-        <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-        <input
-          type="text"
-          placeholder="Buscar por laboratório, PC ou sala..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-cyan-500"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => setSearch('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-dim"
-            aria-label="Limpar busca"
-          >
-            <icons.ui.close size={14} />
-          </button>
-        )}
-      </div>
+      {focusMode && (
+        <div className="mb-4">
+          <h2 className="text-2xl font-bold text-fg">Modo Foco</h2>
+          <p className="text-sm text-fg-dim">Toque em um PC para abrir o checklist</p>
+        </div>
+      )}
 
-      {labs.length > 0 && (
+      {!focusMode && (
+        <div className="relative mb-3">
+          <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+          <input
+            type="text"
+            placeholder="Buscar por laboratório, PC ou sala..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-line bg-card py-2 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-colors focus:border-cyan-500"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg-dim"
+              aria-label="Limpar busca"
+            >
+              <icons.ui.close size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {!focusMode && labs.length > 0 && (
         <FilterBar labs={labs} onFilterChange={setFilters} />
       )}
 
@@ -177,19 +239,24 @@ export function PCList() {
           action={{ label: 'Adicionar PC', onClick: () => navigate('/pcare/pcs/new') }}
         />
       ) : (
-        <div className="flex flex-col gap-3">
-          <p className="text-xs text-fg-muted">
-            {filtered.length} de {pcs.length} PCs exibidos
-            {selected.size > 0 && ` · ${selected.size} selecionados`}
-          </p>
+        <div className={`flex flex-col ${focusMode ? 'gap-4' : 'gap-3'}`}>
+          {!focusMode && (
+            <p className="text-xs text-fg-muted">
+              {filtered.length} de {pcs.length} PCs exibidos
+              {selected.size > 0 && ` · ${selected.size} selecionados`}
+            </p>
+          )}
           {filtered.map((pc) => (
-            <PCCard
-              key={pc.id}
-              pc={pc}
-              selectable={selectMode}
-              selected={selected.has(pc.id)}
-              onToggleSelect={toggleSelect}
-            />
+            <div key={pc.id} onClick={focusMode ? () => handleFocusClick(pc.id) : undefined}>
+              <PCCard
+                pc={pc}
+                selectable={selectMode}
+                selected={selected.has(pc.id)}
+                highlighted={pc.id === highlightedId}
+                onToggleSelect={toggleSelect}
+                focusMode={focusMode}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -217,6 +284,15 @@ export function PCList() {
           </div>
         </div>
       )}
+
+      <PCChecklistModal
+        open={focusPcId !== null}
+        onClose={() => setFocusPcId(null)}
+        templates={templates}
+        existingChecklists={focusPcChecklists}
+        onApplyTemplate={handleFocusApplyTemplate}
+        onToggleItem={handleFocusToggleItem}
+      />
 
       <Modal open={showScheduleModal} onClose={() => setShowScheduleModal(false)} title="Agendar Manutenção">
         <div className="space-y-3">
