@@ -52,9 +52,9 @@ export function KitDetail() {
   }
 
   function openEdit() {
-    setEditName(kit.name)
-    setEditRoom(kit.room)
-    setEditItems(kit.items.map((i) => i.name).join('\n'))
+    setEditName(kit!.name)
+    setEditRoom(kit!.room)
+    setEditItems(kit!.items.map((i) => i.name).join('\n'))
     setShowEdit(true)
   }
 
@@ -64,15 +64,15 @@ export function KitDetail() {
       .split('\n')
       .filter((l) => l.trim())
       .map((name) => {
-        const existing = kit.items.find((i) => i.name === name.trim())
+        const existing = kit!.items.find((i) => i.name === name.trim())
         return existing || { name: name.trim(), expected: 1, present: false }
       })
-    update(kit.id, { name: editName.trim(), room: editRoom.trim(), items })
+    update(kit!.id, { name: editName.trim(), room: editRoom.trim(), items })
     setShowEdit(false)
   }
 
   function handleDelete() {
-    remove(kit.id)
+    remove(kit!.id)
     setShowDelete(false)
     navigate('/stock/kits', { replace: true })
   }

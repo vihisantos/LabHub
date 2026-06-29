@@ -59,7 +59,7 @@ export function useKioskMode() {
 export function KioskExitPill() {
   const { exitKiosk } = useKioskMode()
   const [show, setShow] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function handleTap() {
     setShow(true)

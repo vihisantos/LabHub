@@ -35,12 +35,12 @@ export function StockDetail() {
   }
 
   function handleSave(data: StockItemFormData) {
-    update(item.id, data)
+    update(item!.id, data)
     setShowEdit(false)
   }
 
   function handleDelete() {
-    remove(item.id)
+    remove(item!.id)
     setShowDelete(false)
     navigate('/stock', { replace: true })
   }
