@@ -26,7 +26,7 @@
     --shadow-card: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
     --shadow-elevated: 0 4px 16px rgba(0,0,0,0.08);
     --bg-card-hover: #f0f0f2;
-    --bg-segmented: #e8e8ed;
+    --bg-segmented: #d4d4d8;
   }
 
   .dark {
@@ -38,11 +38,11 @@
     --border-focus: #10b981;
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
-    --text-muted: #475569;
+    --text-muted: #71717a;
     --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
     --shadow-elevated: 0 4px 16px rgba(0,0,0,0.4);
     --bg-card-hover: #2c2c2e;
-    --bg-segmented: #3a3a3c;
+    --bg-segmented: #27272a;
   }
 
   body {
