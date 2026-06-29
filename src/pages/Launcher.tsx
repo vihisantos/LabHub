@@ -7,11 +7,20 @@ export function Launcher() {
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-surface text-fg">
-      {/* Subtle gradient background */}
+      {/* Animated wallpaper blobs */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -left-32 -top-32 h-[500px] w-[500px] rounded-full bg-emerald-500/[0.07] blur-[80px]" />
-        <div className="absolute -bottom-40 -right-32 h-[400px] w-[400px] rounded-full bg-blue-500/[0.05] blur-[80px]" />
-        <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-violet-500/[0.04] blur-[80px]" />
+        <div
+          className="wallpaper-blob -left-32 -top-32 h-[500px] w-[500px] bg-emerald-500/20"
+          style={{ animation: 'blob-float 20s ease-in-out infinite' }}
+        />
+        <div
+          className="wallpaper-blob -bottom-40 -right-32 h-[400px] w-[400px] bg-blue-500/15"
+          style={{ animation: 'blob-float-2 25s ease-in-out infinite' }}
+        />
+        <div
+          className="wallpaper-blob left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 bg-violet-500/10"
+          style={{ animation: 'blob-float-3 18s ease-in-out infinite' }}
+        />
       </div>
 
       {/* Header */}
