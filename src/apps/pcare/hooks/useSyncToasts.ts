@@ -35,5 +35,5 @@ export function useSyncToasts() {
         action: { label: 'Tentar novamente', onClick: () => triggerSync() },
       })
     }
-  }, [syncError])
+  }, [syncError, addToast, triggerSync])
 }

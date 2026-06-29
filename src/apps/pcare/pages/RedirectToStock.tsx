@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { icons } from '../../../lib/icons'
 
 export function RedirectToStock() {
   const navigate = useNavigate()
