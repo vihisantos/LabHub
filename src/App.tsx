@@ -1,6 +1,5 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { ThemeProvider } from './lib/ThemeContext'
 
 const Launcher = lazy(() => import('./pages/Launcher').then(m => ({ default: m.Launcher })))
 const PCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCareApp })))
@@ -19,17 +18,15 @@ function RouteFallback() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <BrowserRouter>
-        <Suspense fallback={<RouteFallback />}>
-          <Routes>
-            <Route index element={<Launcher />} />
-            <Route path="pcare/*" element={<PCareApp />} />
-            <Route path="stock/*" element={<StockApp />} />
-            <Route path="general-stock/*" element={<StockApp />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    </ThemeProvider>
+    <BrowserRouter>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route index element={<Launcher />} />
+          <Route path="pcare/*" element={<PCareApp />} />
+          <Route path="stock/*" element={<StockApp />} />
+          <Route path="general-stock/*" element={<StockApp />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
   )
 }

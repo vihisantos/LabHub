@@ -1,9 +1,14 @@
+import { useEffect } from 'react'
 import { appRegistry } from '../appRegistry'
 import { useNavigateWithTransition } from '../lib/useNavigateWithTransition'
 import { icons } from '../lib/icons'
 
 export function Launcher() {
   const navigate = useNavigateWithTransition()
+
+  useEffect(() => {
+    document.documentElement.classList.add('dark')
+  }, [])
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-surface text-fg">
