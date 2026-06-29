@@ -1,4 +1,4 @@
-export type MovementType = 'entrada' | 'saida' | 'mudanca_sala' | 'conserto' | 'descarte' | 'substituicao'
+export type MovementType = 'entrada' | 'saida' | 'mudanca_sala' | 'conserto' | 'descarte' | 'substituicao' | 'emprestimo' | 'devolucao'
 
 export const movementTypes: { value: MovementType; label: string }[] = [
   { value: 'entrada', label: 'Entrada' },
@@ -7,6 +7,8 @@ export const movementTypes: { value: MovementType; label: string }[] = [
   { value: 'conserto', label: 'Conserto' },
   { value: 'descarte', label: 'Descarte' },
   { value: 'substituicao', label: 'Substituição' },
+  { value: 'emprestimo', label: 'Empréstimo' },
+  { value: 'devolucao', label: 'Devolução' },
 ]
 
 export interface StockMovement {
@@ -20,6 +22,11 @@ export interface StockMovement {
   replacedPart: string
   newPart: string
   performedBy: string
+  borrowedBy?: string
+  borrowerContact?: string
+  expectedReturnAt?: string
+  returnedAt?: string
+  destinationRoom?: string
   createdAt: string
 }
 

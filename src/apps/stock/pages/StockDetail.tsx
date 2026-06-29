@@ -53,7 +53,26 @@ export function StockDetail() {
             <div><span className="text-fg-muted font-medium">Sala:</span> <span className="text-fg">{item.room || '-'}</span></div>
             <div><span className="text-fg-muted font-medium">Nº Série:</span> <span className="text-fg">{item.serialNumber || '-'}</span></div>
             <div><span className="text-fg-muted font-medium">Condição:</span> <span className="text-fg">{item.condition || '-'}</span></div>
+            {item.section === 'cabos' && (
+              <>
+                {item.cableType && <div><span className="text-fg-muted font-medium">Tipo Cabo:</span> <span className="text-fg">{item.cableType}</span></div>}
+                {item.cableLength && <div><span className="text-fg-muted font-medium">Comprimento:</span> <span className="text-fg">{item.cableLength}m</span></div>}
+                {item.connectorType && <div><span className="text-fg-muted font-medium">Conectores:</span> <span className="text-fg">{item.connectorType}</span></div>}
+                {item.outletCount && <div><span className="text-fg-muted font-medium">Tomadas:</span> <span className="text-fg">{item.outletCount}</span></div>}
+              </>
+            )}
           </div>
+          {item.status === 'emprestado' && (
+            <div className="mt-3 rounded-xl bg-violet-50 dark:bg-violet-950/30 p-3 text-sm text-violet-700 dark:text-violet-300">
+              <span className="font-medium">Emprestado</span>
+              {itemMovements.length > 0 && itemMovements[0].type === 'emprestimo' && (
+                <div className="mt-1 text-xs text-violet-600 dark:text-violet-400">
+                  {itemMovements[0].borrowedBy && <p>Com: {itemMovements[0].borrowedBy}</p>}
+                  {itemMovements[0].expectedReturnAt && <p>Previsão de devolução: {new Date(itemMovements[0].expectedReturnAt).toLocaleDateString('pt-BR')}</p>}
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {item.notes && (

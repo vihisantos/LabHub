@@ -48,6 +48,9 @@ import {
   CloudCheck,
   AlertCircle,
   WifiOff,
+  User,
+  UserCheck,
+  Cable,
 } from 'lucide-react'
 
 export const icons = {
@@ -105,6 +108,9 @@ export const icons = {
     cloudCheck: CloudCheck,
     alertCircle: AlertCircle,
     wifiOff: WifiOff,
+    user: User,
+    userCheck: UserCheck,
+    cable: Cable,
   },
 } as const
 

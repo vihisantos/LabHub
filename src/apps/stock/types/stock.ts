@@ -1,6 +1,6 @@
-export type StockSection = 'maquinas' | 'perifericos' | 'material_escritorio' | 'adaptadores' | 'equipamentos' | 'outros'
+export type StockSection = 'maquinas' | 'perifericos' | 'material_escritorio' | 'adaptadores' | 'equipamentos' | 'cabos' | 'outros'
 
-export type StockItemStatus = 'ativo' | 'em_conserto' | 'descartado'
+export type StockItemStatus = 'ativo' | 'em_conserto' | 'descartado' | 'emprestado'
 
 export const stockSections: { value: StockSection; label: string }[] = [
   { value: 'maquinas', label: 'Máquinas' },
@@ -8,6 +8,7 @@ export const stockSections: { value: StockSection; label: string }[] = [
   { value: 'material_escritorio', label: 'Material de Escritório' },
   { value: 'adaptadores', label: 'Adaptadores' },
   { value: 'equipamentos', label: 'Equipamentos' },
+  { value: 'cabos', label: 'Cabos' },
   { value: 'outros', label: 'Outros' },
 ]
 
@@ -16,7 +17,8 @@ export const sectionSubcategories: Record<StockSection, string[]> = {
   perifericos: ['Mouse', 'Teclado', 'Webcam', 'Caixa de Som', 'Headset'],
   material_escritorio: ['Papel', 'Caneta', 'Fita', 'Envelope'],
   adaptadores: ['USB-C', 'HDMI', 'VGA', 'Rede', 'Energia'],
-  equipamentos: ['SSD', 'HD', 'RAM', 'Fonte', 'Cabo'],
+  equipamentos: ['SSD', 'HD', 'RAM', 'Fonte'],
+  cabos: ['Cabo HDMI', 'Cabo VGA', 'Cabo USB', 'Cabo Rede', 'Cabo Extensão', 'Cabo Energia'],
   outros: [],
 }
 
@@ -32,6 +34,10 @@ export interface StockItem {
   status: StockItemStatus
   condition: string
   notes: string
+  cableType?: string
+  cableLength?: string
+  connectorType?: string
+  outletCount?: number
   createdAt: string
   updatedAt: string
 }

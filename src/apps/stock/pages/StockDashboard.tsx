@@ -16,6 +16,7 @@ const sectionIcons: Record<StockSection, typeof icons.ui.package> = {
   material_escritorio: icons.ui.paperclip,
   adaptadores: icons.ui.link,
   equipamentos: icons.ui.hardDrive,
+  cabos: icons.ui.cable,
   outros: icons.ui.moreHorizontal,
 }
 
@@ -25,6 +26,7 @@ const sectionColors: Record<StockSection, { bg: string; text: string; icon: stri
   material_escritorio: { bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400', icon: 'text-orange-500' },
   adaptadores: { bg: 'bg-teal-50 dark:bg-teal-950/30', text: 'text-teal-700 dark:text-teal-400', icon: 'text-teal-500' },
   equipamentos: { bg: 'bg-pink-50 dark:bg-pink-950/30', text: 'text-pink-700 dark:text-pink-400', icon: 'text-pink-500' },
+  cabos: { bg: 'bg-purple-50 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-400', icon: 'text-purple-500' },
   outros: { bg: 'bg-slate-50 dark:bg-slate-800/30', text: 'text-slate-700 dark:text-slate-400', icon: 'text-slate-500' },
 }
 
@@ -186,7 +188,7 @@ export function StockDashboard() {
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                {(['maquinas', 'perifericos', 'material_escritorio', 'adaptadores', 'equipamentos', 'outros'] as StockSection[]).map((section) => {
+                {(['maquinas', 'perifericos', 'material_escritorio', 'adaptadores', 'equipamentos', 'cabos', 'outros'] as StockSection[]).map((section) => {
                   const count = sectionCounts[section] || 0
                   const Icon = sectionIcons[section]
                   const color = sectionColors[section]

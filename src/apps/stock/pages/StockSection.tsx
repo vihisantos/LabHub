@@ -35,7 +35,7 @@ export function StockSectionPage() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<StockItem | null>(null)
   const [movementTarget, setMovementTarget] = useState<StockItem | null>(null)
-  const [movementType, setMovementType] = useState<'mudanca_sala' | 'conserto' | 'descarte'>('mudanca_sala')
+  const [movementType, setMovementType] = useState<'mudanca_sala' | 'conserto' | 'descarte' | 'emprestimo' | 'devolucao'>('mudanca_sala')
   const [discardTarget, setDiscardTarget] = useState<StockItem | null>(null)
 
   const filtered = useMemo(() => {
@@ -93,6 +93,16 @@ export function StockSectionPage() {
     setMovementType('conserto')
   }
 
+  function handleLoan(item: StockItem) {
+    setMovementTarget(item)
+    setMovementType('emprestimo')
+  }
+
+  function handleReturn(item: StockItem) {
+    setMovementTarget(item)
+    setMovementType('devolucao')
+  }
+
   function handleDiscard(item: StockItem) {
     setDiscardTarget(item)
   }
@@ -121,6 +131,10 @@ export function StockSectionPage() {
         update(movementTarget.id, { room: data.toRoom })
       } else if (data.type === 'conserto') {
         update(movementTarget.id, { status: 'em_conserto' })
+      } else if (data.type === 'emprestimo') {
+        update(movementTarget.id, { status: 'emprestado', room: data.destinationRoom || movementTarget.room })
+      } else if (data.type === 'devolucao') {
+        update(movementTarget.id, { status: 'ativo' })
       }
     }
     setMovementTarget(null)
@@ -271,6 +285,8 @@ export function StockSectionPage() {
                   onMove={handleMove}
                   onRepair={handleRepair}
                   onDiscard={handleDiscard}
+                  onLoan={handleLoan}
+                  onReturn={handleReturn}
                   selectable={selection.selectMode}
                   selected={selection.selected.has(item.id)}
                   onToggleSelect={selection.toggle}
@@ -285,7 +301,13 @@ export function StockSectionPage() {
         <Modal
           open={true}
           onClose={() => setMovementTarget(null)}
-          title={movementType === 'mudanca_sala' ? 'Mover Item' : 'Registrar Conserto'}
+          title={
+            movementType === 'mudanca_sala' ? 'Mover Item' :
+            movementType === 'conserto' ? 'Registrar Conserto' :
+            movementType === 'emprestimo' ? 'Registrar Empréstimo' :
+            movementType === 'devolucao' ? 'Registrar Devolução' :
+            'Movimentar Item'
+          }
         >
           <MovementForm
             itemId={movementTarget.id}

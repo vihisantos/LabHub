@@ -17,6 +17,10 @@ const emptyForm = (): StockItemFormData => ({
   status: 'ativo',
   condition: 'Bom',
   notes: '',
+  cableType: '',
+  cableLength: '',
+  connectorType: '',
+  outletCount: undefined,
 })
 
 export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
@@ -65,18 +69,23 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-fg-muted">Subcategoria</label>
-          <input
-            type="text"
-            value={form.subcategory}
-            onChange={(e) => set('subcategory', e.target.value)}
-            placeholder={subcategories.length > 0 ? subcategories[0] : 'Ex: Notebook'}
-            list={`subcats-${form.section}`}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
-          />
-          {subcategories.length > 0 && (
-            <datalist id={`subcats-${form.section}`}>
-              {subcategories.map((s) => <option key={s} value={s} />)}
-            </datalist>
+          {subcategories.length > 0 ? (
+            <select
+              value={form.subcategory}
+              onChange={(e) => set('subcategory', e.target.value)}
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            >
+              <option value="">Selecione...</option>
+              {subcategories.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={form.subcategory}
+              onChange={(e) => set('subcategory', e.target.value)}
+              placeholder="Ex: Notebook"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            />
           )}
         </div>
         <div>
@@ -126,6 +135,72 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
         />
       </div>
+
+      {form.section === 'cabos' && (
+        <div className="rounded-xl bg-violet-50 dark:bg-violet-950/20 p-3 space-y-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">Informações do Cabo</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-fg-muted">Tipo de Cabo</label>
+              <select
+                value={form.cableType || ''}
+                onChange={(e) => set('cableType', e.target.value)}
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              >
+                <option value="">Selecione...</option>
+                <option value="HDMI">HDMI</option>
+                <option value="VGA">VGA</option>
+                <option value="USB">USB</option>
+                <option value="USB-C">USB-C</option>
+                <option value="Rede">Rede</option>
+                <option value="Extensão">Extensão</option>
+                <option value="Energia">Energia</option>
+                <option value="DisplayPort">DisplayPort</option>
+                <option value="P2">P2</option>
+                <option value="Outro">Outro</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-fg-muted">Comprimento (metros)</label>
+              <input
+                type="text"
+                value={form.cableLength || ''}
+                onChange={(e) => set('cableLength', e.target.value)}
+                placeholder="Ex: 1.5, 3, 5"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-fg-muted">Conectores</label>
+              <select
+                value={form.connectorType || ''}
+                onChange={(e) => set('connectorType', e.target.value)}
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              >
+                <option value="">Selecione...</option>
+                <option value="Macho/Macho">Macho / Macho</option>
+                <option value="Macho/Fêmea">Macho / Fêmea</option>
+                <option value="Fêmea/Fêmea">Fêmea / Fêmea</option>
+                <option value="Macho">Macho</option>
+                <option value="Fêmea">Fêmea</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-fg-muted">Nº Tomadas</label>
+              <input
+                type="number"
+                value={form.outletCount ?? ''}
+                onChange={(e) => set('outletCount', e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="Ex: 4"
+                min={1}
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-2 pt-1">
         <button

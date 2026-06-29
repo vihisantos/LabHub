@@ -8,7 +8,7 @@ export function exportStockItemsCSV(items: StockItem[]) {
   const sectionLabel = (section: string) =>
     stockSections.find((s) => s.value === section)?.label || section
 
-  const headers = ['Nome', 'Seção', 'Subcategoria', 'Nº Série', 'Sala', 'Status', 'Condição', 'Observações']
+  const headers = ['Nome', 'Seção', 'Subcategoria', 'Nº Série', 'Sala', 'Status', 'Condição', 'Tipo Cabo', 'Comprimento', 'Conectores', 'Tomadas', 'Observações']
 
   const rows = items.map((item) => [
     item.name,
@@ -18,6 +18,10 @@ export function exportStockItemsCSV(items: StockItem[]) {
     item.room,
     item.status,
     item.condition,
+    item.cableType || '',
+    item.cableLength || '',
+    item.connectorType || '',
+    item.outletCount?.toString() || '',
     item.notes,
   ])
 
@@ -32,7 +36,7 @@ export function exportMovementsCSV(movements: StockMovement[]) {
     return new Date(iso).toLocaleString('pt-BR')
   }
 
-  const headers = ['Item', 'Tipo', 'Sala Origem', 'Sala Destino', 'Descrição', 'Peça Substituída', 'Peça Nova', 'Responsável', 'Data']
+  const headers = ['Item', 'Tipo', 'Sala Origem', 'Sala Destino', 'Descrição', 'Peça Substituída', 'Peça Nova', 'Responsável', 'Quem Pegou', 'Contato', 'Previsão Devolução', 'Devolvido Em', 'Data']
 
   const rows = movements.map((m) => [
     m.itemName,
@@ -43,6 +47,10 @@ export function exportMovementsCSV(movements: StockMovement[]) {
     m.replacedPart,
     m.newPart,
     m.performedBy,
+    m.borrowedBy || '',
+    m.borrowerContact || '',
+    m.expectedReturnAt ? formatDate(m.expectedReturnAt) : '',
+    m.returnedAt ? formatDate(m.returnedAt) : '',
     formatDate(m.createdAt),
   ])
 

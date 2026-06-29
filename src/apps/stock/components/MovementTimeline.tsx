@@ -9,6 +9,8 @@ const typeIcons: Record<string, typeof icons.ui.check> = {
   conserto: icons.nav.parts,
   descarte: icons.ui.trash,
   substituicao: icons.ui.refresh,
+  emprestimo: icons.ui.user,
+  devolucao: icons.ui.userCheck,
 }
 
 const typeColors: Record<string, string> = {
@@ -18,6 +20,8 @@ const typeColors: Record<string, string> = {
   conserto: 'text-amber-600 dark:text-amber-400',
   descarte: 'text-red-600 dark:text-red-400',
   substituicao: 'text-violet-600 dark:text-violet-400',
+  emprestimo: 'text-violet-600 dark:text-violet-400',
+  devolucao: 'text-emerald-600 dark:text-emerald-400',
 }
 
 function formatDate(iso: string) {
@@ -59,6 +63,15 @@ export function MovementTimeline({ movements }: MovementTimelineProps) {
                   <span className="text-[11px] text-fg-muted">{m.fromRoom} → {m.toRoom}</span>
                 )}
               </div>
+              {m.type === 'emprestimo' && m.borrowedBy && (
+                <p className="mt-1 text-xs text-fg-dim">
+                  Com: <span className="font-medium text-fg">{m.borrowedBy}</span>
+                  {m.destinationRoom && ` → ${m.destinationRoom}`}
+                </p>
+              )}
+              {m.type === 'emprestimo' && m.expectedReturnAt && (
+                <p className="mt-0.5 text-[11px] text-fg-muted">Previsão devolução: {formatDate(m.expectedReturnAt)}</p>
+              )}
               {m.description && (
                 <p className="mt-1 text-xs text-fg-dim">{m.description}</p>
               )}
@@ -72,6 +85,7 @@ export function MovementTimeline({ movements }: MovementTimelineProps) {
               <p className="mt-1 text-[11px] text-fg-muted font-medium">
                 {formatDate(m.createdAt)}
                 {m.performedBy && ` · ${m.performedBy}`}
+                {m.type === 'devolucao' && ' · Item devolvido'}
               </p>
             </div>
           </div>

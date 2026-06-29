@@ -18,6 +18,10 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
   const [replacedPart, setReplacedPart] = useState('')
   const [newPart, setNewPart] = useState('')
   const [performedBy, setPerformedBy] = useState('')
+  const [borrowedBy, setBorrowedBy] = useState('')
+  const [borrowerContact, setBorrowerContact] = useState('')
+  const [expectedReturnAt, setExpectedReturnAt] = useState('')
+  const [destinationRoom, setDestinationRoom] = useState('')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -26,11 +30,16 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
       itemName,
       type,
       fromRoom: currentRoom,
-      toRoom: type === 'mudanca_sala' ? toRoom : currentRoom,
+      toRoom: type === 'mudanca_sala' ? toRoom : type === 'emprestimo' ? destinationRoom : currentRoom,
       description,
       replacedPart,
       newPart,
       performedBy,
+      borrowedBy,
+      borrowerContact,
+      expectedReturnAt,
+      returnedAt: type === 'devolucao' ? new Date().toISOString() : '',
+      destinationRoom: type === 'emprestimo' ? destinationRoom : '',
     })
   }
 
@@ -63,6 +72,72 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
         </div>
       )}
 
+      {type === 'emprestimo' && (
+        <>
+          <div className="rounded-xl bg-violet-50 dark:bg-violet-950/20 p-3 space-y-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">Dados do Empréstimo</p>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-fg-muted">Quem Pegou *</label>
+              <input
+                type="text"
+                value={borrowedBy}
+                onChange={(e) => setBorrowedBy(e.target.value)}
+                placeholder="Nome do aluno/professor"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-fg-muted">Contato</label>
+              <input
+                type="text"
+                value={borrowerContact}
+                onChange={(e) => setBorrowerContact(e.target.value)}
+                placeholder="Email ou telefone"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-fg-muted">Previsão de Devolução</label>
+                <input
+                  type="date"
+                  value={expectedReturnAt}
+                  onChange={(e) => setExpectedReturnAt(e.target.value)}
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-fg-muted">Sala de Destino</label>
+                <input
+                  type="text"
+                  value={destinationRoom}
+                  onChange={(e) => setDestinationRoom(e.target.value)}
+                  placeholder="Ex: Lab Info 2"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {type === 'devolucao' && (
+        <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Registro de Devolução</p>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-fg-muted">Recebido por</label>
+            <input
+              type="text"
+              value={performedBy}
+              onChange={(e) => setPerformedBy(e.target.value)}
+              placeholder="Quem recebeu o item"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            />
+          </div>
+        </div>
+      )}
+
       {(type === 'conserto' || type === 'substituicao') && (
         <>
           <div>
@@ -88,27 +163,31 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
         </>
       )}
 
-      <div>
-        <label className="mb-1 block text-xs font-medium text-fg-muted">Descrição / Motivo</label>
-        <input
-          type="text"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Ex: SSD com setores defeituosos"
-          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
-        />
-      </div>
+      {type !== 'devolucao' && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Descrição / Motivo</label>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={type === 'emprestimo' ? 'Motivo do empréstimo (opcional)' : 'Ex: SSD com setores defeituosos'}
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+          />
+        </div>
+      )}
 
-      <div>
-        <label className="mb-1 block text-xs font-medium text-fg-muted">Responsável</label>
-        <input
-          type="text"
-          value={performedBy}
-          onChange={(e) => setPerformedBy(e.target.value)}
-          placeholder="Nome (opcional)"
-          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
-        />
-      </div>
+      {type !== 'devolucao' && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-fg-muted">Responsável</label>
+          <input
+            type="text"
+            value={performedBy}
+            onChange={(e) => setPerformedBy(e.target.value)}
+            placeholder="Nome (opcional)"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+          />
+        </div>
+      )}
 
       <div className="flex gap-2 pt-1">
         <button
