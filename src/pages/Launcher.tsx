@@ -29,7 +29,7 @@ export function Launcher() {
 
       {/* Header */}
       <header className="relative z-10 flex w-full flex-col items-center px-4 pb-6 pt-12">
-        <img src="/logo.svg" alt="Lab Hub" className="mb-2 h-16 w-16 rounded-2xl" />
+        <img src="/logo-192.png" alt="Lab Hub" className="mb-2 h-16 w-16 rounded-2xl" />
         <h1 className="text-3xl font-bold tracking-tight text-fg">
           Lab Hub
         </h1>
