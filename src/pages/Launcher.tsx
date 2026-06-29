@@ -28,7 +28,7 @@ export function Launcher() {
       {/* Apps */}
       <main className="relative z-10 flex w-full max-w-md flex-1 flex-col gap-3 px-5 pb-8">
         <div className="grid grid-cols-2 gap-3">
-          {appRegistry.map((app, i) => (
+          {appRegistry.map((app) => (
             <button
               key={app.id}
               type="button"
@@ -37,9 +37,9 @@ export function Launcher() {
             >
               <span
                 className="flex h-14 w-14 items-center justify-center rounded-xl transition-all duration-300"
-                style={{ backgroundColor: app.color + '15' }}
+                style={{ backgroundColor: app.color + '15', color: app.color }}
               >
-                <app.icon size={28} style={{ color: app.color }} />
+                <app.icon size={28} />
               </span>
               <div>
                 <h2 className="text-sm font-semibold text-fg">{app.name}</h2>
