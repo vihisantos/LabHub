@@ -58,32 +58,34 @@ export function MovementsPage() {
           />
         </div>
 
-        <div className="flex rounded-xl bg-segmented p-0.5 select-none">
-          <button
-            type="button"
-            onClick={() => setTypeFilter('')}
-            className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-all duration-200 btn-interactive ${
-              typeFilter === ''
-                ? 'bg-surface shadow-sm text-fg'
-                : 'text-fg-muted hover:text-fg-dim'
-            }`}
-          >
-            Todas
-          </button>
-          {movementTypes.map((mt) => (
+        <div className="overflow-x-auto scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="flex gap-1 rounded-xl bg-segmented p-0.5 select-none w-max">
             <button
-              key={mt.value}
               type="button"
-              onClick={() => setTypeFilter(mt.value === typeFilter ? '' : mt.value)}
-              className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-all duration-200 btn-interactive ${
-                typeFilter === mt.value
+              onClick={() => setTypeFilter('')}
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-200 btn-interactive ${
+                typeFilter === ''
                   ? 'bg-surface shadow-sm text-fg'
-                  : 'text-fg-muted hover:text-fg-dim'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
               }`}
             >
-              {mt.label}
+              Todas
             </button>
-          ))}
+            {movementTypes.map((mt) => (
+              <button
+                key={mt.value}
+                type="button"
+                onClick={() => setTypeFilter(mt.value === typeFilter ? '' : mt.value)}
+                className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-200 btn-interactive ${
+                  typeFilter === mt.value
+                    ? 'bg-surface shadow-sm text-fg'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
+                }`}
+              >
+                {mt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {filtered.length === 0 ? (
