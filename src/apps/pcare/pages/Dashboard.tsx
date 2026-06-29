@@ -40,11 +40,9 @@ const iconMap: Record<string, ComponentType<{ size?: number }>> = {
 
 const quickActions: { to: string; label: string; icon: ComponentType<{ size?: number }>; color: string }[] = [
   { to: '/pcare/pcs/new', label: 'Novo PC', icon: icons.nav.pcs, color: 'from-cyan-600 to-cyan-500' },
-  { to: '/pcare/scanner', label: 'QR Code', icon: icons.ui.scan, color: 'from-violet-600 to-violet-500' },
-  { to: '/pcare/asset-scanner', label: 'Patrimônio', icon: icons.ui.tag, color: 'from-emerald-600 to-emerald-500' },
   { to: '/pcare/reports', label: 'Relatórios', icon: icons.nav.reports, color: 'from-amber-600 to-amber-500' },
   { to: '/pcare/checklists', label: 'Checklists', icon: icons.nav.checklists, color: 'from-rose-600 to-rose-500' },
-  { to: '/pcare/qr', label: 'Gerar QR', icon: icons.ui.qrCode, color: 'from-sky-600 to-sky-500' },
+  { to: '/pcare/qr', label: 'QR Code', icon: icons.ui.qrCode, color: 'from-sky-600 to-sky-500' },
 ]
 
 export function Dashboard() {

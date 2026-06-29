@@ -51,6 +51,9 @@ import {
   User,
   UserCheck,
   Cable,
+  Download,
+  Printer,
+  SlidersHorizontal,
 } from 'lucide-react'
 
 export const icons = {
@@ -111,6 +114,9 @@ export const icons = {
     user: User,
     userCheck: UserCheck,
     cable: Cable,
+    download: Download,
+    printer: Printer,
+    sliders: SlidersHorizontal,
   },
 } as const
 

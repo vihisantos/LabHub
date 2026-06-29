@@ -186,6 +186,16 @@ export function StockDashboard() {
                 <p className="mt-2 text-2xl font-bold tracking-tight text-fg">{inventoryCycles.length}</p>
                 <p className="text-[11px] font-medium text-fg-muted">Inventários</p>
               </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/stock/qr')}
+                className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
+              >
+                <icons.ui.qrCode size={20} className="text-fg-muted" />
+                <p className="mt-2 text-2xl font-bold tracking-tight text-fg">QR</p>
+                <p className="text-[11px] font-medium text-fg-muted">QR Codes</p>
+              </button>
             </div>
 
             <div>

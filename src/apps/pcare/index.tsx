@@ -8,7 +8,6 @@ import { PCForm } from './pages/PCForm'
 import { RedirectToStock } from './pages/RedirectToStock'
 import { PCDetail } from './pages/PCDetail'
 import { PartsList } from './pages/PartsList'
-import { AssetScanner } from './pages/AssetScanner'
 import { QRGenerator } from './pages/QRGenerator'
 import { ChecklistTemplates } from './pages/ChecklistTemplates'
 import { ChecklistExecute } from './pages/ChecklistExecute'
@@ -33,7 +32,6 @@ export function PCareApp() {
           <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
           <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
           <Route path="parts" element={<EB><PartsList /></EB>} />
-          <Route path="asset-scanner" element={<EB><AssetScanner /></EB>} />
           <Route path="qr" element={<EB><QRGenerator /></EB>} />
           <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
           <Route path="checklists/:templateId/execute" element={<EB><ChecklistExecute /></EB>} />

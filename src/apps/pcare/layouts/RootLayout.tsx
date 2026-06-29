@@ -14,7 +14,7 @@ import { icons } from '../../../lib/icons'
 
 const mainRoutes = new Set([
   '/pcare', '/pcare/pcs', '/pcare/parts', '/pcare/maintenance',
-  '/pcare/reports', '/pcare/checklists', '/pcare/scanner', '/pcare/asset-scanner', '/pcare/settings',
+  '/pcare/reports', '/pcare/checklists', '/pcare/settings',
 ])
 
 function isDetailPage(pathname: string) {
@@ -32,9 +32,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/pcare/maintenance')) return 'Manutenção'
   if (pathname.startsWith('/pcare/reports')) return 'Relatórios'
   if (pathname.startsWith('/pcare/checklists')) return 'Checklists'
-  if (pathname.startsWith('/pcare/scanner')) return 'QR Code'
-  if (pathname.startsWith('/pcare/asset-scanner')) return 'Patrimônio'
-  if (pathname.startsWith('/pcare/qr')) return 'Gerar QR'
+  if (pathname.startsWith('/pcare/qr')) return 'QR Code'
   if (pathname.startsWith('/pcare/settings')) return 'Configurações'
   return 'PCare'
 }
