@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
 import { useMaintenance } from '../hooks/useMaintenance'
+import { useActiveLab } from '../../../lib/useLabContext'
 import { actionLogService } from '../services/actionLogService'
 import { SkeletonStatCard, SkeletonTimeline } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
@@ -48,9 +49,15 @@ const quickActions: { to: string; label: string; icon: ComponentType<{ size?: nu
 
 export function Dashboard() {
   const navigate = useNavigate()
-  const { pcs, loading: pcsLoading } = usePCs()
+  const { pcs: allPcs, loading: pcsLoading } = usePCs()
   const { parts, loading: partsLoading } = useParts()
   const { all: allMaint, upcoming, loading: maintLoading } = useMaintenance()
+  const { activeLab } = useActiveLab()
+
+  const pcs = useMemo(() => {
+    if (!activeLab) return allPcs
+    return allPcs.filter((p) => p.labName === activeLab)
+  }, [allPcs, activeLab])
 
   const recentLogs = useMemo(() => {
     return actionLogService.getAll()

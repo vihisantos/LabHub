@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useTheme } from '../../../lib/ThemeContext'
+import { useTheme, type ThemeVariant, type Accent } from '../../../lib/ThemeContext'
 import { exportCSV, exportXLSX, pcToRows, partToRows } from '../utils/export'
 import { pcService } from '../services/pcService'
 import { partService } from '../services/partService'
@@ -205,7 +205,7 @@ export function Settings() {
   const navigate = useNavigate()
   const { pcs, reload: reloadPCs } = usePCs()
   const { parts, reload: reloadParts } = useParts()
-  const { theme, toggle } = useTheme()
+  const { theme, accent, setTheme, setAccent } = useTheme()
   const fileRef = useRef<HTMLInputElement>(null)
   const [importResult, setImportResult] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -325,20 +325,48 @@ export function Settings() {
     <div className="space-y-5">
       <h2 className="text-xl font-semibold">Configurações</h2>
 
-      <section className="rounded-xl border border-line bg-card/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Aparência</h3>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-fg">Tema</p>
-            <p className="text-xs text-fg-muted">{theme === 'dark' ? 'Escuro' : 'Claro'}</p>
+      <section className="rounded-xl border border-line bg-card/50 p-4 space-y-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Aparência</h3>
+
+        <div>
+          <p className="mb-2 text-sm text-fg">Tema base</p>
+          <div className="flex gap-2">
+            {(['dark', 'dim', 'light'] as ThemeVariant[]).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setTheme(v)}
+                className={`flex-1 rounded-lg py-2 text-xs font-medium transition-colors ${
+                  theme === v
+                    ? 'bg-fg text-surface shadow-sm'
+                    : 'border border-line text-fg-dim hover:bg-input'
+                }`}
+              >
+                {v === 'dark' ? 'Escuro' : v === 'dim' ? 'Suave' : 'Claro'}
+              </button>
+            ))}
           </div>
-          <button
-            type="button"
-            onClick={toggle}
-            className="rounded-lg border border-line px-4 py-2 text-sm text-fg-dim transition-colors hover:bg-input"
-          >
-            {theme === 'dark' ? <><icons.ui.sun size={16} className="inline" /> Claro</> : <><icons.ui.moon size={16} className="inline" /> Escuro</>}
-          </button>
+        </div>
+
+        <div>
+          <p className="mb-2 text-sm text-fg">Cor de destaque</p>
+          <div className="flex gap-2">
+            {(['emerald', 'cyan', 'blue', 'purple'] as Accent[]).map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setAccent(a)}
+                className={`flex-1 rounded-lg py-2 text-xs font-medium transition-colors ${
+                  accent === a
+                    ? 'text-fg shadow-sm'
+                    : 'border border-line text-fg-dim hover:bg-input'
+                }`}
+                style={accent === a ? { backgroundColor: `var(--accent)`, color: '#fff' } : undefined}
+              >
+                {a === 'emerald' ? 'Verde' : a === 'cyan' ? 'Ciano' : a === 'blue' ? 'Azul' : 'Roxo'}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 

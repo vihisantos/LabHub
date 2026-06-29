@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { useRef } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { BottomNav } from '../components/BottomNav'
 import { OnlineBanner } from '../components/OnlineBanner'
 import { SyncStatusBadge } from '../components/SyncStatusBadge'
@@ -11,6 +11,8 @@ import { useTheme } from '../../../lib/ThemeContext'
 import { useNavigateWithTransition } from '../../../lib/useNavigateWithTransition'
 import { useFocusMode, FocusModeProvider } from '../hooks/useFocusMode'
 import { useKioskMode, KioskProvider, KioskExitPill } from '../../../lib/useKioskMode'
+import { useActiveLab } from '../../../lib/useLabContext'
+import { usePCs } from '../hooks/usePCs'
 import { AnimatePresence, motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
 
@@ -96,10 +98,17 @@ function RootLayoutInner({
 }) {
   const { focusMode, toggleFocusMode } = useFocusMode()
   const { kioskMode, enterKiosk } = useKioskMode()
+  const { activeLab, setActiveLab } = useActiveLab()
+  const { pcs } = usePCs()
+  const labs = useMemo(() => {
+    const unique = new Set(pcs.map((p) => p.labName))
+    return Array.from(unique).sort()
+  }, [pcs])
+  const [showLabPicker, setShowLabPicker] = useState(false)
   useSyncToasts()
 
   return (
-    <div className="flex h-screen flex-col bg-surface">
+    <div className="flex h-screen flex-col bg-surface overflow-x-hidden">
       <OnlineBanner />
 
       {!kioskMode && (
@@ -135,6 +144,50 @@ function RootLayoutInner({
             </div>
           </button>
 
+          {labs.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowLabPicker((v) => !v)}
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium text-fg-muted transition-colors hover:bg-input hover:text-fg"
+              >
+                <icons.ui.flaskConical size={12} />
+                <span>{activeLab || 'Todos'}</span>
+                <icons.ui.chevronDown size={10} />
+              </button>
+              {showLabPicker && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowLabPicker(false)} />
+                  <div className="absolute left-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-xl border border-line bg-card py-1 shadow-xl shadow-black/30 animate-[fade-in-up_0.15s_ease-out]">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveLab(null); setShowLabPicker(false) }}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-input ${
+                        !activeLab ? 'text-cyan-600 dark:text-cyan-400' : 'text-fg-dim'
+                      }`}
+                    >
+                      <icons.ui.check size={12} className={!activeLab ? 'opacity-100' : 'opacity-0'} />
+                      Todos os laboratórios
+                    </button>
+                    {labs.map((lab) => (
+                      <button
+                        key={lab}
+                        type="button"
+                        onClick={() => { setActiveLab(lab); setShowLabPicker(false) }}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-input ${
+                          activeLab === lab ? 'text-cyan-600 dark:text-cyan-400' : 'text-fg-dim'
+                        }`}
+                      >
+                        <icons.ui.check size={12} className={activeLab === lab ? 'opacity-100' : 'opacity-0'} />
+                        {lab}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="ml-auto flex items-center gap-1">
             <SyncNowButton />
             <SyncStatusBadge />
@@ -160,15 +213,15 @@ function RootLayoutInner({
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15V9a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6"/></svg>
             </button>
-            <button
-              type="button"
-              onClick={toggle}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-              title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-            >
-              {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
-            </button>
+          <button
+            type="button"
+            onClick={toggle}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+            aria-label="Alternar tema"
+            title={theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
+          >
+            {theme === 'light' ? <icons.ui.moon size={16} /> : <icons.ui.sun size={16} />}
+          </button>
           </div>
         </header>
       )}

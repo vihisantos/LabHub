@@ -20,6 +20,8 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'logo.svg', 'logo-192.png', 'logo-512.png'],
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        navigateFallback: '/offline.html',
+        navigateFallbackAllowlist: [/^\/[^_]/],
       },
       manifest: {
         name: 'Lab Hub',

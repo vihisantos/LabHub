@@ -72,7 +72,7 @@ function StockLayoutInner({
   const { kioskMode, enterKiosk } = useKioskMode()
 
   return (
-    <div className="flex min-h-dvh flex-col bg-surface text-fg">
+    <div className="flex min-h-dvh flex-col bg-surface text-fg overflow-x-hidden">
       {!kioskMode && (
         <header className="sticky top-0 z-30 flex items-center gap-2 bg-surface px-4 py-3.5 shadow-sm shadow-black/5 dark:shadow-black/20">
           {detail ? (
@@ -120,16 +120,16 @@ function StockLayoutInner({
               type="button"
               onClick={toggle}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-              title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+              aria-label="Alternar tema"
+              title={theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
             >
-              {theme === 'dark' ? <icons.ui.sun size={18} /> : <icons.ui.moon size={18} />}
+              {theme === 'light' ? <icons.ui.moon size={18} /> : <icons.ui.sun size={18} />}
             </button>
           </div>
         </header>
       )}
 
-      <main ref={mainRef} className={`flex-1 overflow-y-auto ${kioskMode ? 'pb-4' : 'pb-24'}`} style={{ paddingBottom: kioskMode ? '1rem' : 'max(6rem, calc(3.5rem + env(safe-area-inset-bottom)))' }}>
+      <main ref={mainRef} className={`flex-1 overflow-y-auto ${kioskMode ? 'pb-4' : 'pb-28'}`} style={{ paddingBottom: kioskMode ? '1rem' : 'max(7rem, calc(4rem + env(safe-area-inset-bottom)))' }}>
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}

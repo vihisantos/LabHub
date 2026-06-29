@@ -4,6 +4,7 @@ import { usePCs } from '../hooks/usePCs'
 import { useMaintenance } from '../hooks/useMaintenance'
 import { useChecklistTemplates, usePCChecklists } from '../hooks/useChecklists'
 import { useFocusMode } from '../hooks/useFocusMode'
+import { useActiveLab } from '../../../lib/useLabContext'
 import { PCCard } from '../components/PCCard'
 import { FilterBar } from '../components/FilterBar'
 import type { Status } from '../components/FilterBar'
@@ -17,10 +18,16 @@ import { exportCSV, pcToRows } from '../utils/export'
 
 export function PCList() {
   const navigate = useNavigate()
-  const { pcs, loading, update, reload } = usePCs()
+  const { pcs: allPcs, loading, update, reload } = usePCs()
   const { create: scheduleMaint } = useMaintenance()
   const { templates } = useChecklistTemplates()
   const { focusMode } = useFocusMode()
+  const { activeLab } = useActiveLab()
+
+  const pcs = useMemo(() => {
+    if (!activeLab) return allPcs
+    return allPcs.filter((p) => p.labName === activeLab)
+  }, [allPcs, activeLab])
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<{ lab: string; status: Status }>({
     lab: '',

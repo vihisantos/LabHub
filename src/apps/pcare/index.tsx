@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { ThemeProvider } from '../../lib/ThemeContext'
 import { ToastProvider } from '../../lib/ToastContext'
+import { LabProvider } from '../../lib/useLabContext'
 import { RootLayout } from './layouts/RootLayout'
 import { Dashboard } from './pages/Dashboard'
 import { PCList } from './pages/PCList'
@@ -26,24 +27,26 @@ export function PCareApp() {
   return (
     <ThemeProvider storageKey="pcare_theme" defaultTheme="dark">
       <ToastProvider>
-        <Routes>
-          <Route path="scanner" element={<QRScanner />} />
-          <Route element={<RootLayout />}>
-            <Route index element={<EB><Dashboard /></EB>} />
-            <Route path="pcs" element={<EB><PCList /></EB>} />
-            <Route path="pcs/new" element={<RedirectToStock />} />
-            <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
-            <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
-            <Route path="parts" element={<EB><PartsList /></EB>} />
-            <Route path="parts/consolidado" element={<EB><StockConsolidado /></EB>} />
-            <Route path="qr" element={<EB><QRGenerator /></EB>} />
-            <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
-            <Route path="checklists/:templateId/execute" element={<EB><ChecklistExecute /></EB>} />
-            <Route path="reports" element={<EB><Reports /></EB>} />
-            <Route path="maintenance" element={<EB><Maintenance /></EB>} />
-            <Route path="settings" element={<EB><Settings /></EB>} />
-          </Route>
-        </Routes>
+        <LabProvider>
+          <Routes>
+            <Route path="scanner" element={<QRScanner />} />
+            <Route element={<RootLayout />}>
+              <Route index element={<EB><Dashboard /></EB>} />
+              <Route path="pcs" element={<EB><PCList /></EB>} />
+              <Route path="pcs/new" element={<RedirectToStock />} />
+              <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
+              <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
+              <Route path="parts" element={<EB><PartsList /></EB>} />
+              <Route path="parts/consolidado" element={<EB><StockConsolidado /></EB>} />
+              <Route path="qr" element={<EB><QRGenerator /></EB>} />
+              <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
+              <Route path="checklists/:templateId/execute" element={<EB><ChecklistExecute /></EB>} />
+              <Route path="reports" element={<EB><Reports /></EB>} />
+              <Route path="maintenance" element={<EB><Maintenance /></EB>} />
+              <Route path="settings" element={<EB><Settings /></EB>} />
+            </Route>
+          </Routes>
+        </LabProvider>
       </ToastProvider>
     </ThemeProvider>
   )

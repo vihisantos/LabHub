@@ -9,6 +9,7 @@ import { MovementTimeline } from '../components/MovementTimeline'
 import { PullToRefresh } from '../../pcare/components/PullToRefresh'
 import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { icons } from '../../../lib/icons'
+import { getOverdueLoans } from '../utils/overdue'
 import type { StockSection } from '../types'
 
 const sectionIcons: Record<StockSection, typeof icons.ui.package> = {
@@ -50,6 +51,9 @@ export function StockDashboard() {
     }
     return counts
   }, [activeItems])
+
+  const overdueLoans = useMemo(() => getOverdueLoans(movements), [movements])
+  const overdueCount = overdueLoans.length
 
   const recentMovements = useMemo(
     () => [...movements].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3),
@@ -170,11 +174,17 @@ export function StockDashboard() {
               <button
                 type="button"
                 onClick={() => navigate('/stock/movements')}
-                className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
+                className={`rounded-xl p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive ${
+                  overdueCount > 0 ? 'bg-rose-50 dark:bg-rose-950/30' : 'bg-card'
+                }`}
               >
-                <icons.ui.clock size={20} className="text-fg-muted" />
-                <p className="mt-2 text-2xl font-bold tracking-tight text-fg">{movements.length}</p>
-                <p className="text-[11px] font-medium text-fg-muted">Movimentações</p>
+                <icons.ui.clock size={20} className={overdueCount > 0 ? 'text-rose-500' : 'text-fg-muted'} />
+                <p className={`mt-2 text-2xl font-bold tracking-tight ${overdueCount > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-fg'}`}>
+                  {overdueCount}
+                </p>
+                <p className={`text-[11px] font-medium ${overdueCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-fg-muted'}`}>
+                  Empréstimos Atrasados
+                </p>
               </button>
 
               <button
@@ -231,6 +241,50 @@ export function StockDashboard() {
                 })}
               </div>
             </div>
+
+            {overdueLoans.length > 0 && (
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-rose-600 dark:text-rose-400">
+                    <icons.ui.alert size={16} className="inline-block -mt-0.5 mr-1" />
+                    Empréstimos Atrasados
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/stock/movements')}
+                    className="text-xs font-medium text-rose-600 dark:text-rose-400"
+                  >
+                    Ver todos
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {overdueLoans.map((mov) => {
+                    const item = items.find((i) => i.id === mov.itemId)
+                    return (
+                      <div
+                        key={mov.id}
+                        className="rounded-xl border border-rose-200/60 bg-rose-50/50 p-3.5 dark:border-rose-900/30 dark:bg-rose-950/20"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-rose-800 dark:text-rose-300">{item?.name || mov.itemId}</p>
+                            <p className="mt-0.5 text-xs text-rose-600/80 dark:text-rose-400/80">
+                              Retirado por {mov.responsibleName || mov.responsibleId}
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-rose-200/60 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                            {new Date(mov.expectedReturnAt!).toLocaleDateString('pt-BR')}
+                          </span>
+                        </div>
+                        {mov.notes && (
+                          <p className="mt-1 text-[11px] leading-relaxed text-rose-600/70 dark:text-rose-400/70">{mov.notes}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {recentMovements.length > 0 && (
               <div>
