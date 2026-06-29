@@ -1,56 +1,25 @@
 import { appRegistry } from '../appRegistry'
-import { useTheme } from '../lib/ThemeContext'
 import { useNavigateWithTransition } from '../lib/useNavigateWithTransition'
 import { icons } from '../lib/icons'
 
 export function Launcher() {
   const navigate = useNavigateWithTransition()
-  const { theme, toggle } = useTheme()
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-surface text-fg">
-      {/* Animated wallpaper blobs */}
-      <div className="absolute inset-0">
-        <div
-          className="wallpaper-blob -left-32 -top-32 h-[550px] w-[550px] bg-cyan-500/25"
-          style={{ animation: 'blob-float 20s ease-in-out infinite' }}
-        />
-        <div
-          className="wallpaper-blob -bottom-40 -right-32 h-[500px] w-[500px] bg-blue-500/20"
-          style={{ animation: 'blob-float-2 25s ease-in-out infinite' }}
-        />
-        <div
-          className="wallpaper-blob left-1/3 top-1/2 h-[400px] w-[400px] bg-violet-500/15"
-          style={{ animation: 'blob-float-3 18s ease-in-out infinite' }}
-        />
-        <div
-          className="wallpaper-blob -bottom-20 left-1/4 h-[300px] w-[300px] bg-emerald-500/15"
-          style={{ animation: 'blob-float-4 22s ease-in-out infinite' }}
-        />
-        <div
-          className="wallpaper-blob -right-20 top-1/4 h-[350px] w-[350px] bg-amber-500/12"
-          style={{ animation: 'blob-float-5 28s ease-in-out infinite' }}
-        />
-        <div
-          className="wallpaper-blob left-2/3 top-1/3 h-[250px] w-[250px] bg-rose-500/12"
-          style={{ animation: 'blob-float-6 16s ease-in-out infinite' }}
-        />
+      {/* Subtle gradient background */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-[500px] w-[500px] rounded-full bg-emerald-500/[0.07] blur-[80px]" />
+        <div className="absolute -bottom-40 -right-32 h-[400px] w-[400px] rounded-full bg-blue-500/[0.05] blur-[80px]" />
+        <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-violet-500/[0.04] blur-[80px]" />
       </div>
 
       {/* Header */}
       <header className="relative z-10 flex w-full flex-col items-center px-4 pb-6 pt-12">
-        <button
-          type="button"
-          onClick={toggle}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-sm text-fg-muted transition-colors hover:bg-input hover:text-fg-dim"
-          title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
-        >
-          {theme === 'dark' ? <icons.ui.sun size={16} /> : <icons.ui.moon size={16} />}
-        </button>
-        <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 ring-1 ring-cyan-500/30 backdrop-blur-sm">
-          <icons.ui.flaskConical size={28} />
+        <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10">
+          <icons.ui.flaskConical size={28} className="text-emerald-500" />
         </div>
-        <h1 className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-3xl font-bold text-transparent">
+        <h1 className="text-3xl font-bold tracking-tight text-fg">
           Lab Hub
         </h1>
         <p className="mt-1 text-sm text-fg-muted">Seus aplicativos</p>
@@ -64,17 +33,13 @@ export function Launcher() {
               key={app.id}
               type="button"
               onClick={() => navigate(app.route)}
-              style={{ animationDelay: `${i * 100}ms` }}
-              className="group flex flex-col items-center gap-3 rounded-2xl border border-line/50 bg-card/60 p-5 text-center backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-line hover:bg-card/80 hover:shadow-xl hover:shadow-black/10 animate-[fade-in-up_0.5s_ease-out_both]"
+              className="group flex flex-col items-center gap-3 rounded-2xl bg-card p-5 text-center shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
             >
               <span
-                className="flex h-16 w-16 items-center justify-center rounded-2xl text-3xl transition-shadow duration-300 group-hover:animate-[glow-pulse_2s_ease-in-out_infinite]"
-                style={{
-                  backgroundColor: app.color + '15',
-                  boxShadow: `0 0 0 0 ${app.color}20`,
-                }}
+                className="flex h-14 w-14 items-center justify-center rounded-xl transition-all duration-300"
+                style={{ backgroundColor: app.color + '15' }}
               >
-                  <app.icon size={32} />
+                <app.icon size={28} style={{ color: app.color }} />
               </span>
               <div>
                 <h2 className="text-sm font-semibold text-fg">{app.name}</h2>
@@ -85,8 +50,8 @@ export function Launcher() {
 
           {/* Placeholder for future apps */}
           {appRegistry.length > 0 && (
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line/30 p-5 opacity-40">
-              <span className="flex h-16 w-16 items-center justify-center rounded-2xl text-3xl text-fg-muted">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line/30 p-5 opacity-30">
+              <span className="flex h-14 w-14 items-center justify-center rounded-xl text-2xl text-fg-muted">
                 +
               </span>
               <div>
