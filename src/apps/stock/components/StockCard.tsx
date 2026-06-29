@@ -8,22 +8,42 @@ interface StockCardProps {
   onMove: (item: StockItem) => void
   onRepair: (item: StockItem) => void
   onDiscard: (item: StockItem) => void
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: (id: string) => void
 }
 
-export function StockCard({ item, onMove, onRepair, onDiscard }: StockCardProps) {
+export function StockCard({ item, onMove, onRepair, onDiscard, selectable, selected, onToggleSelect }: StockCardProps) {
   const navigate = useNavigate()
+
+  function handleClick() {
+    if (selectable && onToggleSelect) {
+      onToggleSelect(item.id)
+    } else {
+      navigate(`/stock/items/${item.id}`)
+    }
+  }
 
   return (
     <button
       type="button"
-      onClick={() => navigate(`/stock/items/${item.id}`)}
-      className="group w-full rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)]"
+      onClick={handleClick}
+      className={`group w-full rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)] ${
+        selected ? 'ring-2 ring-emerald-500' : ''
+      }`}
     >
       <div className="mb-2 flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
+            {selectable && (
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                selected ? 'bg-emerald-500' : 'border-2 border-line'
+              }`}>
+                {selected && <icons.ui.check size={12} className="text-white" />}
+              </span>
+            )}
             <h3 className="truncate font-semibold text-fg text-sm">{item.name}</h3>
-            <StatusBadge status={item.status} />
+            {!selectable && <StatusBadge status={item.status} />}
           </div>
           <p className="mt-0.5 text-xs text-fg-muted">
             {item.subcategory}
@@ -31,6 +51,7 @@ export function StockCard({ item, onMove, onRepair, onDiscard }: StockCardProps)
             {item.serialNumber && ` · ${item.serialNumber}`}
           </p>
         </div>
+        {selectable && <StatusBadge status={item.status} />}
       </div>
 
       {item.condition && (
@@ -41,7 +62,7 @@ export function StockCard({ item, onMove, onRepair, onDiscard }: StockCardProps)
         <p className="mb-2 line-clamp-1 text-[10px] text-fg-dim">{item.notes}</p>
       )}
 
-      {item.status !== 'descartado' && (
+      {!selectable && item.status !== 'descartado' && (
         <div className="flex gap-1 pt-2" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"

@@ -2,7 +2,9 @@ import { useMemo, useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
+import { useStockSelection } from '../hooks/useStockSelection'
 import { StockCard } from '../components/StockCard'
+import { StockBatchBar } from '../components/StockBatchBar'
 import { StockForm } from '../components/StockForm'
 import { MovementForm } from '../components/MovementForm'
 import { SectionTabs } from '../components/SectionTabs'
@@ -16,8 +18,9 @@ import { icons } from '../../../lib/icons'
 import { exportStockItemsCSV } from '../utils/export'
 
 export function StockSectionPage() {
-  const { items, loading, create, update, reload } = useStock()
+  const { items, loading, create, update, remove, reload } = useStock()
   const { create: createMovement } = useMovements()
+  const selection = useStockSelection()
   const [searchParams] = useSearchParams()
   const [activeSection, setActiveSection] = useState<Section | 'all' | 'repair'>('maquinas')
 
@@ -123,6 +126,16 @@ export function StockSectionPage() {
     setMovementTarget(null)
   }
 
+  function handleBatchUpdate(ids: string[], data: Partial<StockItem>) {
+    for (const id of ids) update(id, data)
+    reload()
+  }
+
+  function handleBatchDelete(ids: string[]) {
+    for (const id of ids) remove(id)
+    reload()
+  }
+
   if (loading) {
     return <div className="space-y-2">{[1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}</div>
   }
@@ -140,13 +153,32 @@ export function StockSectionPage() {
                 ? 'Itens em Conserto'
                 : stockSections.find((s) => s.value === activeSection)?.label}
           </h2>
-          <button
-            type="button"
-            onClick={() => { setEditing(null); setShowForm(true) }}
-            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
-          >
-            + Novo Item
-          </button>
+          <div className="flex gap-2">
+            {selection.selectMode ? (
+              <button
+                type="button"
+                onClick={selection.exit}
+                className="rounded-xl bg-input px-3 py-2 text-xs font-medium text-fg-dim transition-colors hover:bg-input/80 btn-interactive"
+              >
+                Cancelar
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={selection.enter}
+                className="rounded-xl bg-input px-3 py-2 text-xs font-medium text-fg-dim transition-colors hover:bg-input/80 btn-interactive"
+              >
+                Selecionar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { setEditing(null); setShowForm(true) }}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+            >
+              + Novo Item
+            </button>
+          </div>
         </div>
 
         {stats.total > 0 && (
@@ -221,17 +253,31 @@ export function StockSectionPage() {
             accentColor="emerald"
           />
         ) : (
-          <div className="space-y-2">
-            {filtered.map((item) => (
-              <StockCard
-                key={item.id}
-                item={item}
-                onMove={handleMove}
-                onRepair={handleRepair}
-                onDiscard={handleDiscard}
-              />
-            ))}
-          </div>
+          <>
+            {selection.selectMode && (
+              <button
+                type="button"
+                onClick={() => selection.toggleAll(filtered.map((i) => i.id))}
+                className="text-xs font-medium text-emerald-600 dark:text-emerald-400 btn-interactive"
+              >
+                {filtered.every((i) => selection.selected.has(i.id)) ? 'Desmarcar todos' : 'Selecionar todos'}
+              </button>
+            )}
+            <div className="space-y-2">
+              {filtered.map((item) => (
+                <StockCard
+                  key={item.id}
+                  item={item}
+                  onMove={handleMove}
+                  onRepair={handleRepair}
+                  onDiscard={handleDiscard}
+                  selectable={selection.selectMode}
+                  selected={selection.selected.has(item.id)}
+                  onToggleSelect={selection.toggle}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -261,6 +307,18 @@ export function StockSectionPage() {
         confirmLabel="Descartar"
         variant="danger"
       />
+
+      {selection.selectMode && selection.selected.size > 0 && (
+        <StockBatchBar
+          selected={selection.selected}
+          items={items}
+          onClear={selection.clear}
+          onExit={selection.exit}
+          onUpdate={handleBatchUpdate}
+          onDelete={handleBatchDelete}
+          onCreateMovement={createMovement}
+        />
+      )}
     </PullToRefresh>
   )
 }
