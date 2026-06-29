@@ -30,7 +30,7 @@ export function Launcher() {
       {/* Header */}
       <header className="relative z-10 flex w-full flex-col items-center px-4 pb-6 pt-12">
         <img src="/logo-192.png" alt="Lab Hub" className="mb-2 h-16 w-16 rounded-2xl" />
-        <h1 className="text-3xl font-bold tracking-tight text-fg">
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 via-blue-400 to-violet-400 bg-[length:200%_200%] bg-clip-text text-transparent animate-gradient">
           Lab Hub
         </h1>
         <p className="mt-1 text-sm text-fg-muted">Seus aplicativos</p>
