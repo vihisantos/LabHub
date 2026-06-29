@@ -38,6 +38,18 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
 
   const subcategories = sectionSubcategories[form.section as StockSection] || []
 
+  const placeholders: Record<StockSection, { name: string; serial: string; room: string; notes: string }> = {
+    maquinas: { name: 'Ex: Dell Optiplex 7090', serial: 'Ex: PAT-001', room: 'Lab Info 1', notes: 'Especificações técnicas...' },
+    perifericos: { name: 'Ex: Mouse Logitech M90', serial: 'Ex: SN-123', room: 'Lab Info 1', notes: 'Detalhes do periférico...' },
+    material_escritorio: { name: 'Ex: Resma Papel A4', serial: '', room: 'Sala 5', notes: 'Quantidade, marca...' },
+    adaptadores: { name: 'Ex: Adaptador HDMI-VGA', serial: '', room: 'Lab Info 1', notes: 'Tipo de adaptador...' },
+    equipamentos: { name: 'Ex: SSD Kingston 480GB', serial: 'Ex: SN-456', room: 'Lab Info 1', notes: 'Especificações do componente...' },
+    cabos: { name: 'Ex: Cabo HDMI 3m', serial: '', room: 'Lab Redes', notes: 'Estado do cabo...' },
+    outros: { name: 'Ex: Item genérico', serial: 'Ex: TAG-001', room: 'Sala', notes: 'Detalhes adicionais...' },
+  }
+
+  const p = placeholders[form.section as StockSection]
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3">
@@ -47,7 +59,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             type="text"
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
-            placeholder="Ex: Notebook Dell"
+            placeholder={p.name}
             className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
             required
           />
@@ -83,7 +95,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
               type="text"
               value={form.subcategory}
               onChange={(e) => set('subcategory', e.target.value)}
-              placeholder="Ex: Notebook"
+              placeholder={form.section === 'cabos' ? 'Ex: Extensão 5 tomadas' : 'Ex: Notebook'}
               className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
             />
           )}
@@ -109,7 +121,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             type="text"
             value={form.serialNumber}
             onChange={(e) => set('serialNumber', e.target.value)}
-            placeholder="TAG-001"
+            placeholder={p.serial || 'Nº de série'}
             className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
@@ -119,7 +131,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             type="text"
             value={form.room}
             onChange={(e) => set('room', e.target.value)}
-            placeholder="Lab Info 1"
+            placeholder={p.room}
             className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
@@ -131,7 +143,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           type="text"
           value={form.notes}
           onChange={(e) => set('notes', e.target.value)}
-          placeholder="Detalhes adicionais..."
+          placeholder={p.notes}
           className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
         />
       </div>

@@ -237,7 +237,7 @@ export function StockSectionPage() {
         {showForm && (
           <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
-              {editing ? 'Editar Item' : 'Novo Item'}
+              {editing ? 'Editar Item' : `Novo ${activeSection === 'cabos' ? 'Cabo' : activeSection === 'maquinas' ? 'Equipamento' : activeSection === 'perifericos' ? 'Periférico' : 'Item'}`}
             </h3>
             <StockForm
               initial={editing ? { ...editing } : { section: (activeSection === 'all' || activeSection === 'repair') ? 'maquinas' : activeSection }}
