@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useKits } from '../hooks/useKits'
 import { useMovements } from '../hooks/useMovements'
+import { useInventory } from '../hooks/useInventory'
 import { StatusBadge } from '../components/StatusBadge'
 import { MovementTimeline } from '../components/MovementTimeline'
 import { PullToRefresh } from '../../pcare/components/PullToRefresh'
@@ -35,6 +36,7 @@ export function StockDashboard() {
   const { items, loading, reload } = useStock()
   const { kits } = useKits()
   const { movements } = useMovements()
+  const { cycles: inventoryCycles } = useInventory()
   const [search, setSearch] = useState('')
 
   const activeItems = items.filter((i) => i.status === 'ativo')
@@ -173,6 +175,16 @@ export function StockDashboard() {
                 <icons.ui.clock size={20} className="text-fg-muted" />
                 <p className="mt-2 text-2xl font-bold tracking-tight text-fg">{movements.length}</p>
                 <p className="text-[11px] font-medium text-fg-muted">Movimentações</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/stock/inventory')}
+                className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
+              >
+                <icons.nav.checklists size={20} className="text-fg-muted" />
+                <p className="mt-2 text-2xl font-bold tracking-tight text-fg">{inventoryCycles.length}</p>
+                <p className="text-[11px] font-medium text-fg-muted">Inventários</p>
               </button>
             </div>
 

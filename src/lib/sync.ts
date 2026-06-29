@@ -100,9 +100,17 @@ function markSynced() {
   localStorage.setItem(SYNCED_FLAG, new Date().toISOString())
 }
 
-export async function syncAll(onItem?: (collection: string, current: number, total: number) => void): Promise<void> {
+export interface SyncResult {
+  synced: number
+  failed: string[]
+}
+
+export async function syncAll(onItem?: (collection: string, current: number, total: number) => void): Promise<SyncResult> {
   const dirty = getDirtyCollections()
-  if (dirty.length === 0) return
+  if (dirty.length === 0) return { synced: 0, failed: [] }
+
+  let synced = 0
+  const failed: string[] = []
 
   for (const collection of dirty) {
     try {
@@ -152,12 +160,16 @@ export async function syncAll(onItem?: (collection: string, current: number, tot
       }
 
       clearDirty(collection)
+      synced++
       onItem?.(collection, 1, dirty.length)
     } catch (e) {
       console.warn(`[Sync] Failed to sync "${collection}":`, e)
       logSync(collection, 0, 'error')
+      failed.push(collection)
     }
   }
+
+  return { synced, failed }
 }
 
 export function createSyncService<T extends { id: string }>(collection: string) {

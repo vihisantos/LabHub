@@ -45,7 +45,6 @@ describe('PCList', () => {
     renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
 
     expect(screen.getByText('Nenhum PC encontrado')).toBeInTheDocument()
-    expect(screen.getByText('Adicionar PC')).toBeInTheDocument()
   })
 
   it('filtra por laboratorio', () => {

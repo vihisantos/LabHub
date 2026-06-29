@@ -1,8 +1,9 @@
 import { pcService } from '../pcService'
-import type { PCFormData } from '../../types'
+import type { PC } from '../../types'
 
-function validFormData(): PCFormData {
+function makePC(overrides: Partial<PC> = {}): PC {
   return {
+    id: 'pc-1',
     labName: 'Lab A',
     pcNumber: 'PC-001',
     assetTag: 'TAG-001',
@@ -13,6 +14,11 @@ function validFormData(): PCFormData {
     softwareInstalled: ['Chrome', 'VS Code'],
     partsReplaced: [],
     observations: '',
+    photos: [],
+    lastIntervention: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
   }
 }
 
@@ -25,19 +31,19 @@ describe('pcService', () => {
     expect(pcService.getAll()).toEqual([])
   })
 
-  it('create adiciona um PC com timestamps', () => {
-    const pc = pcService.create(validFormData())
-    expect(pc.id).toBeDefined()
-    expect(pc.labName).toBe('Lab A')
-    expect(pc.pcNumber).toBe('PC-001')
-    expect(pc.createdAt).toBeDefined()
-    expect(pc.updatedAt).toBeDefined()
+  it('getAll retorna PCs do localStorage', () => {
+    const pc = makePC()
+    localStorage.setItem('labhub_pcs', JSON.stringify([pc]))
+    const all = pcService.getAll()
+    expect(all).toHaveLength(1)
+    expect(all[0].labName).toBe('Lab A')
   })
 
-  it('getById retorna PC criado', () => {
-    const created = pcService.create(validFormData())
-    const found = pcService.getById(created.id)
-    expect(found).toEqual(created)
+  it('getById retorna PC existente', () => {
+    const pc = makePC()
+    localStorage.setItem('labhub_pcs', JSON.stringify([pc]))
+    const found = pcService.getById('pc-1')
+    expect(found?.labName).toBe('Lab A')
   })
 
   it('getById retorna undefined para id inexistente', () => {
@@ -45,23 +51,17 @@ describe('pcService', () => {
   })
 
   it('update modifica campos do PC', () => {
-    const pc = pcService.create(validFormData())
-    const updated = pcService.update(pc.id, { pcNumber: 'PC-002' })
+    const pc = makePC()
+    localStorage.setItem('labhub_pcs', JSON.stringify([pc]))
+    const updated = pcService.update('pc-1', { pcNumber: 'PC-002' })
     expect(updated?.pcNumber).toBe('PC-002')
     expect(updated?.labName).toBe('Lab A')
   })
 
-  it('remove deleta PC', () => {
-    const pc = pcService.create(validFormData())
-    expect(pcService.remove(pc.id)).toBe(true)
-    expect(pcService.getById(pc.id)).toBeUndefined()
-  })
-
   it('query filtra PCs por predicado', () => {
-    const a = { ...validFormData(), labName: 'Lab A' }
-    const b = { ...validFormData(), labName: 'Lab B' }
-    pcService.create(a)
-    pcService.create(b)
+    const a = makePC({ id: 'a', labName: 'Lab A' })
+    const b = makePC({ id: 'b', labName: 'Lab B' })
+    localStorage.setItem('labhub_pcs', JSON.stringify([a, b]))
     const result = pcService.query((pc) => pc.labName === 'Lab A')
     expect(result).toHaveLength(1)
     expect(result[0].labName).toBe('Lab A')

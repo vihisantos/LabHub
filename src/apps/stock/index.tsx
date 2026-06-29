@@ -7,6 +7,8 @@ import { StockDetail } from './pages/StockDetail'
 import { MovementsPage } from './pages/MovementsPage'
 import { KitList } from './pages/KitList'
 import { KitDetail } from './pages/KitDetail'
+import { InventoryList } from './pages/InventoryList'
+import { InventoryDetail } from './pages/InventoryDetail'
 
 export function StockApp() {
   return (
@@ -19,6 +21,8 @@ export function StockApp() {
           <Route path="movements" element={<MovementsPage />} />
           <Route path="kits" element={<KitList />} />
           <Route path="kits/:id" element={<KitDetail />} />
+          <Route path="inventory" element={<InventoryList />} />
+          <Route path="inventory/:id" element={<InventoryDetail />} />
         </Route>
       </Routes>
     </ThemeProvider>

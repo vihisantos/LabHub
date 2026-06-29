@@ -95,6 +95,6 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
 
     expect(screen.getByText('Nenhum PC cadastrado ainda')).toBeInTheDocument()
-    expect(screen.getByText('Adicionar primeiro PC')).toBeInTheDocument()
+    expect(screen.getByText('Ir para Estoque')).toBeInTheDocument()
   })
 })

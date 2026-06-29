@@ -11,13 +11,12 @@ import { PCChecklistModal } from '../components/PCChecklistModal'
 import { ActionTimeline } from '../components/ActionTimeline'
 import { partUsageService } from '../services/partUsageService'
 import { icons } from '../../../lib/icons'
-import { ConfirmDialog } from '../components/Modal'
 import type { PC, PCPart } from '../types'
 
 export function PCDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { pcs, update, remove, reload } = usePCs()
+  const { pcs, update, reload } = usePCs()
 
   const pc = pcs.find((p) => p.id === id)
   if (!pc) {
@@ -30,18 +29,16 @@ export function PCDetail() {
     )
   }
 
-  return <PCDetailContent pc={pc} onUpdate={update} onRemove={remove} onReload={reload} />
+  return <PCDetailContent pc={pc} onUpdate={update} onReload={reload} />
 }
 
 function PCDetailContent({
   pc,
   onUpdate,
-  onRemove,
   onReload,
 }: {
   pc: PC
   onUpdate: (id: string, data: Partial<PC>) => PC | undefined
-  onRemove: (id: string) => boolean
   onReload: () => void
 }) {
   const navigate = useNavigate()
@@ -51,7 +48,6 @@ function PCDetailContent({
   const { logs, log: addLog } = useActionLog(pc.id)
   const [showAddPart, setShowAddPart] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const partUsages = useMemo(() => partUsageService.getByPC(pc.id), [pc.id])
 
@@ -141,11 +137,6 @@ function PCDetailContent({
     reloadChecklists()
 
     addLog('checklist_toggled', newDone ? `"${item?.label}" concluído` : `"${item?.label}" pendente`)
-  }
-
-  function handleDelete() {
-    onRemove(pc.id)
-    navigate('/pcare/pcs')
   }
 
   return (
@@ -319,9 +310,7 @@ function PCDetailContent({
 
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={() => navigate(`/pcare/pcs/${pc.id}/edit`)} className="flex-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Editar</button>
-          <button type="button" onClick={() => navigate('/pcare/pcs/new', { state: { clone: pc } })} className="rounded-lg border border-line px-4 py-2 text-sm text-fg-dim hover:bg-input">Clonar</button>
           <button type="button" onClick={() => navigate('/pcare/qr')} className="rounded-lg border border-cyan-600 dark:border-cyan-700 px-4 py-2 text-sm text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/30">QR</button>
-          <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg border border-red-600 dark:border-red-800 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30">Excluir</button>
         </div>
       </div>
 
@@ -338,14 +327,6 @@ function PCDetailContent({
         existingChecklists={pcChecklists}
         onApplyTemplate={handleApplyChecklist}
         onToggleItem={handleToggleItem}
-      />
-      <ConfirmDialog
-        open={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        onConfirm={() => { setConfirmDelete(false); handleDelete() }}
-        title="Remover PC"
-        message={`Tem certeza que deseja remover ${pc.labName} — ${pc.pcNumber}?`}
-        confirmLabel="Remover"
       />
     </div>
   )

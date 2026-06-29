@@ -10,14 +10,14 @@ import type { Status } from '../components/FilterBar'
 import { EmptyState } from '../components/EmptyState'
 import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
-import { Modal, ConfirmDialog } from '../components/Modal'
+import { Modal } from '../components/Modal'
 import { PCChecklistModal } from '../components/PCChecklistModal'
 import { icons } from '../../../lib/icons'
 import { exportCSV, pcToRows } from '../utils/export'
 
 export function PCList() {
   const navigate = useNavigate()
-  const { pcs, loading, update, remove, reload } = usePCs()
+  const { pcs, loading, update, reload } = usePCs()
   const { create: scheduleMaint } = useMaintenance()
   const { templates } = useChecklistTemplates()
   const { focusMode } = useFocusMode()
@@ -32,7 +32,6 @@ export function PCList() {
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleType, setScheduleType] = useState<'cleaning' | 'restoration' | 'both'>('cleaning')
   const [focusPcId, setFocusPcId] = useState<string | null>(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const { checklists: focusPcChecklists, create: createFocusChecklist, update: updateFocusChecklist, reload: reloadFocusChecklists } = usePCChecklists(focusPcId ?? '')
 
@@ -117,14 +116,6 @@ export function PCList() {
     setScheduleType('cleaning')
   }
 
-  function handleBatchDelete() {
-    selected.forEach((id) => remove(id))
-    reload()
-    setSelected(new Set())
-    setSelectMode(false)
-    setShowDeleteConfirm(false)
-  }
-
   function handleBatchExport() {
     const { headers, rows } = pcToRows(selectedPCs)
     exportCSV(headers, rows, 'pcs_selecionados')
@@ -189,21 +180,6 @@ export function PCList() {
             >
               {selectMode ? 'Cancelar' : 'Selecionar'}
             </button>
-            <button
-              type="button"
-              onClick={() => navigate('/pcare/pcs/bulk')}
-              title="Cadastrar vários PCs de uma vez"
-              className="rounded-lg border border-line px-3 py-2 text-sm text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            >
-              <icons.ui.plusCircle size={16} />
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/pcare/pcs/new')}
-              className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
-            >
-              + Novo PC
-            </button>
           </div>
         </div>
       )}
@@ -252,8 +228,7 @@ export function PCList() {
         <EmptyState
           icon={icons.nav.pcs}
           title="Nenhum PC encontrado"
-          description="Crie o primeiro computador para começar o inventário."
-          action={{ label: 'Adicionar PC', onClick: () => navigate('/pcare/pcs/new') }}
+          description="Nenhum computador encontrado com os filtros atuais."
         />
       ) : (
         <div className={`flex flex-col ${focusMode ? 'gap-4' : 'gap-3'}`}>
@@ -300,10 +275,6 @@ export function PCList() {
               <button type="button" onClick={handleBatchExport} className="flex items-center gap-1 rounded-lg bg-input px-3 py-1.5 text-xs text-fg-dim ring-1 ring-line transition-colors hover:bg-card btn-interactive">
                 <icons.ui.fileBarChart size={12} />
                 Exportar
-              </button>
-              <button type="button" onClick={() => setShowDeleteConfirm(true)} className="flex items-center gap-1 rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-1.5 text-xs text-red-700 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800/30 transition-colors hover:bg-red-100 dark:hover:bg-red-950/50 btn-interactive">
-                <icons.ui.trash size={12} />
-                Deletar
               </button>
             </div>
           </div>
@@ -352,16 +323,6 @@ export function PCList() {
           </button>
         </div>
       </Modal>
-
-      <ConfirmDialog
-        open={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleBatchDelete}
-        title="Deletar PCs"
-        message={`Tem certeza que deseja deletar ${selected.size} PC${selected.size > 1 ? 's' : ''} permanentemente? Esta ação não pode ser desfeita.`}
-        confirmLabel="Deletar"
-        variant="danger"
-      />
     </PullToRefresh>
   )
 }

@@ -53,8 +53,8 @@ export function QRGenerator() {
       <EmptyState
         icon={icons.ui.qrCode}
         title="Nenhum PC cadastrado"
-        description="Adicione PCs primeiro para gerar QR Codes."
-        action={{ label: 'Adicionar PC', onClick: () => navigate('/pcare/pcs/new') }}
+        description="Cadastre PCs pelo app Estoque para gerar QR Codes."
+        action={{ label: 'Ir para Estoque', onClick: () => navigate('/stock/items') }}
       />
     )
   }

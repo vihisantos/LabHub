@@ -1,82 +1,63 @@
 import { useEffect, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { icons } from '../../../lib/icons'
-import type { PC, PCFormData } from '../types'
+import type { PC } from '../types'
 
-function cloneForm(clone: PC): PCFormData {
-  return {
-    labName: clone.labName,
-    pcNumber: '',
-    assetTag: '',
-    roomLocation: clone.roomLocation,
-    specs: { ...clone.specs },
-    cleaningStatus: 'pending',
-    restorationStatus: 'pending',
-    softwareInstalled: [...clone.softwareInstalled],
-    partsReplaced: [],
-    observations: clone.observations,
-  }
-}
-
-const emptyForm: PCFormData = {
-  labName: '',
-  pcNumber: '',
-  assetTag: '',
-  roomLocation: '',
-  specs: { cpu: '', ram: '', storage: '', os: '' },
-  cleaningStatus: 'pending',
-  restorationStatus: 'pending',
-  softwareInstalled: [],
-  partsReplaced: [],
-  observations: '',
-}
+type PCEditData = Omit<PC, 'id' | 'createdAt' | 'updatedAt' | 'lastIntervention' | 'photos'>
 
 export function PCForm() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const location = useLocation()
-  const { pcs, create, update } = usePCs()
-  const isEditing = !!id
+  const { pcs, update } = usePCs()
 
-  const clone = (location.state as { clone?: PC })?.clone
-  const [form, setForm] = useState<PCFormData>(clone ? cloneForm(clone) : emptyForm)
+  const pc = pcs.find((p) => p.id === id)
+  const [form, setForm] = useState<PCEditData | null>(null)
   const [softwareInput, setSoftwareInput] = useState('')
 
   useEffect(() => {
-    if (isEditing) {
-      const pc = pcs.find((p) => p.id === id)
-      if (pc) {
-        setForm({
-          labName: pc.labName,
-          pcNumber: pc.pcNumber,
-          assetTag: pc.assetTag,
-          roomLocation: pc.roomLocation,
-          specs: { ...pc.specs },
-          cleaningStatus: pc.cleaningStatus,
-          restorationStatus: pc.restorationStatus,
-          softwareInstalled: [...pc.softwareInstalled],
-          partsReplaced: [...pc.partsReplaced],
-          observations: pc.observations,
-        })
-      }
+    if (pc) {
+      setForm({
+        labName: pc.labName,
+        pcNumber: pc.pcNumber,
+        assetTag: pc.assetTag,
+        roomLocation: pc.roomLocation,
+        specs: { ...pc.specs },
+        cleaningStatus: pc.cleaningStatus,
+        restorationStatus: pc.restorationStatus,
+        softwareInstalled: [...pc.softwareInstalled],
+        partsReplaced: [...pc.partsReplaced],
+        observations: pc.observations,
+      })
     }
-  }, [id, isEditing, pcs])
+  }, [pc])
 
-  function updateField(field: keyof PCFormData, value: any) {
-    setForm((prev) => ({ ...prev, [field]: value }))
+  if (!pc) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12">
+        <icons.ui.search size={32} className="text-fg-muted" />
+        <p className="text-sm text-fg-muted">PC não encontrado</p>
+        <button type="button" onClick={() => navigate('/pcare/pcs')} className="text-sm text-cyan-600 dark:text-cyan-400">Voltar</button>
+      </div>
+    )
   }
 
-  function updateSpec(field: keyof PCFormData['specs'], value: string) {
-    setForm((prev) => ({
+  if (!form) return null
+
+  function updateField(field: keyof PCEditData, value: any) {
+    setForm((prev) => prev ? { ...prev, [field]: value } : prev)
+  }
+
+  function updateSpec(field: keyof PCEditData['specs'], value: string) {
+    setForm((prev) => prev ? {
       ...prev,
       specs: { ...prev.specs, [field]: value },
-    }))
+    } : prev)
   }
 
   function addSoftware() {
     const name = softwareInput.trim()
-    if (name && !form.softwareInstalled.includes(name)) {
+    if (name && form && !form.softwareInstalled.includes(name)) {
       updateField('softwareInstalled', [...form.softwareInstalled, name])
       setSoftwareInput('')
     }
@@ -91,11 +72,7 @@ export function PCForm() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (isEditing) {
-      update(id!, form)
-    } else {
-      create(form)
-    }
+    update(id!, form)
     navigate('/pcare/pcs')
   }
 
@@ -114,9 +91,7 @@ export function PCForm() {
           >
             <icons.ui.back size={20} />
           </button>
-        <h2 className="text-xl font-semibold">
-          {isEditing ? 'Editar PC' : 'Novo Computador'}
-        </h2>
+        <h2 className="text-xl font-semibold">Editar PC</h2>
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -308,7 +283,7 @@ export function PCForm() {
             type="submit"
             className="flex-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
           >
-            {isEditing ? 'Salvar' : 'Criar PC'}
+            Salvar
           </button>
         </div>
       </form>

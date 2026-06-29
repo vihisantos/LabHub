@@ -20,8 +20,11 @@ export function useOnlineSync() {
     setSyncing(true)
     setSyncError(null)
     try {
-      await syncAll()
+      const result = await syncAll()
       refreshLog()
+      if (result.failed.length > 0) {
+        setSyncError(`Falha ao sincronizar: ${result.failed.join(', ')}`)
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro desconhecido'
       setSyncError(msg)

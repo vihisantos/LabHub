@@ -1,10 +1,11 @@
 import { Routes, Route } from 'react-router-dom'
 import { ThemeProvider } from '../../lib/ThemeContext'
+import { ToastProvider } from '../../lib/ToastContext'
 import { RootLayout } from './layouts/RootLayout'
 import { Dashboard } from './pages/Dashboard'
 import { PCList } from './pages/PCList'
 import { PCForm } from './pages/PCForm'
-import { BulkPCWizard } from './pages/BulkPCWizard'
+import { RedirectToStock } from './pages/RedirectToStock'
 import { PCDetail } from './pages/PCDetail'
 import { PartsList } from './pages/PartsList'
 import { AssetScanner } from './pages/AssetScanner'
@@ -23,12 +24,12 @@ function EB({ children }: { children: React.ReactNode }) {
 export function PCareApp() {
   return (
     <ThemeProvider storageKey="pcare_theme" defaultTheme="dark">
-      <Routes>
+      <ToastProvider>
+        <Routes>
         <Route element={<RootLayout />}>
           <Route index element={<EB><Dashboard /></EB>} />
           <Route path="pcs" element={<EB><PCList /></EB>} />
-          <Route path="pcs/new" element={<EB><PCForm /></EB>} />
-          <Route path="pcs/bulk" element={<EB><BulkPCWizard /></EB>} />
+          <Route path="pcs/new" element={<RedirectToStock />} />
           <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
           <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
           <Route path="parts" element={<EB><PartsList /></EB>} />
@@ -41,6 +42,7 @@ export function PCareApp() {
           <Route path="settings" element={<EB><Settings /></EB>} />
         </Route>
       </Routes>
+      </ToastProvider>
     </ThemeProvider>
   )
 }

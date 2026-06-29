@@ -1,2 +1,2 @@
-export type { PC, PCFormData, PCPart } from './pc'
+export type { PC, PCPart } from './pc'
 export type { Part, PartFormData } from './part'

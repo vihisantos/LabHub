@@ -33,8 +33,3 @@ export interface PC {
   createdAt: string
   updatedAt: string
 }
-
-export type PCFormData = Omit<PC, 'id' | 'createdAt' | 'updatedAt' | 'lastIntervention' | 'photos' | 'partsReplaced' | 'softwareInstalled'> & {
-  softwareInstalled: string[]
-  partsReplaced: PCPart[]
-}

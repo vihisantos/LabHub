@@ -294,12 +294,13 @@ export function Dashboard() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line py-12">
           <icons.nav.pcs size={32} />
           <p className="text-sm text-fg-muted">Nenhum PC cadastrado ainda</p>
+          <p className="text-xs text-fg-dim">Cadastre PCs pelo app Estoque</p>
           <button
             type="button"
-            onClick={() => navigate('/pcare/pcs/new')}
+            onClick={() => navigate('/stock/items')}
             className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md hover:shadow-cyan-500/30"
           >
-            Adicionar primeiro PC
+            Ir para Estoque
           </button>
         </div>
       )}

@@ -3,7 +3,10 @@ import { useRef } from 'react'
 import { BottomNav } from '../components/BottomNav'
 import { OnlineBanner } from '../components/OnlineBanner'
 import { SyncStatusBadge } from '../components/SyncStatusBadge'
+import { ToastContainer } from '../components/ToastContainer'
 import { useSwipeBack } from '../hooks/useSwipeBack'
+import { useSyncToasts } from '../hooks/useSyncToasts'
+import { useOnlineSync } from '../hooks/useOnlineSync'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useNavigateWithTransition } from '../../../lib/useNavigateWithTransition'
 import { useFocusMode, FocusModeProvider } from '../hooks/useFocusMode'
@@ -21,8 +24,6 @@ function isDetailPage(pathname: string) {
 function getPageTitle(pathname: string): string {
   if (pathname === '/pcare') return 'Dashboard'
   if (pathname.startsWith('/pcare/pcs')) {
-    if (pathname.endsWith('/new')) return 'Novo PC'
-    if (pathname.endsWith('/bulk')) return 'Cadastro em Massa'
     if (pathname.endsWith('/edit')) return 'Editar PC'
     if (pathname.match(/\/pcare\/pcs\/[\w-]+$/)) return 'Detalhes do PC'
     return 'PCs'
@@ -90,6 +91,7 @@ function RootLayoutInner({
   scrollToTop: () => void
 }) {
   const { focusMode, toggleFocusMode } = useFocusMode()
+  useSyncToasts()
 
   return (
     <div className="flex h-screen flex-col bg-surface">
@@ -128,6 +130,7 @@ function RootLayoutInner({
         </button>
 
         <div className="ml-auto flex items-center gap-1">
+          <SyncNowButton />
           <SyncStatusBadge />
           <button
             type="button"
@@ -161,6 +164,24 @@ function RootLayoutInner({
       </main>
 
       {!focusMode && <BottomNav />}
+      <ToastContainer />
     </div>
+  )
+}
+
+function SyncNowButton() {
+  const { online, syncing, triggerSync } = useOnlineSync()
+  if (!online) return null
+  return (
+    <button
+      type="button"
+      onClick={triggerSync}
+      disabled={syncing}
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg disabled:opacity-50"
+      aria-label="Sincronizar agora"
+      title="Sincronizar agora"
+    >
+      <icons.ui.refresh size={16} className={syncing ? 'animate-spin' : ''} />
+    </button>
   )
 }
