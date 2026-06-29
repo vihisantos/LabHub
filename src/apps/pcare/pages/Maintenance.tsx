@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMaintenance } from '../hooks/useMaintenance'
 import { usePCs } from '../hooks/usePCs'
@@ -16,11 +16,25 @@ function isOverdue(iso: string) {
   return new Date(iso).getTime() < Date.now()
 }
 
+function toDateKey(iso: string) {
+  return iso.slice(0, 10)
+}
+
+const MONTHS = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+]
+const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
 export function Maintenance() {
   const navigate = useNavigate()
   const { pcs } = usePCs()
   const { all, upcoming, loading, create, complete, remove, reload } = useMaintenance()
   const [showForm, setShowForm] = useState(false)
+  const [view, setView] = useState<'list' | 'calendar'>('list')
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear())
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     pcId: '',
@@ -49,7 +63,6 @@ export function Maintenance() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.pcId || !form.scheduledDate) return
-
     const date = new Date(form.scheduledDate)
     create({
       pcId: form.pcId,
@@ -60,6 +73,45 @@ export function Maintenance() {
       notes: form.notes,
     })
     resetForm()
+  }
+
+  const calendarDays = useMemo(() => {
+    const firstDay = new Date(calYear, calMonth, 1).getDay()
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+    const today = new Date().toISOString().slice(0, 10)
+
+    const maintByDay = new Map<string, typeof all>()
+    all.forEach((m) => {
+      const key = toDateKey(m.scheduledDate)
+      if (!maintByDay.has(key)) maintByDay.set(key, [])
+      maintByDay.get(key)!.push(m)
+    })
+
+    const days: { date: string; day: number; isToday: boolean; isOther: boolean; items: typeof all }[] = []
+
+    for (let i = 0; i < firstDay; i++) {
+      days.push({ date: '', day: 0, isToday: false, isOther: true, items: [] })
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      days.push({ date, day: d, isToday: date === today, isOther: false, items: maintByDay.get(date) || [] })
+    }
+
+    const selectedDayItems = selectedDay ? all.filter((m) => toDateKey(m.scheduledDate) === selectedDay) : []
+
+    return { days, selectedDayItems }
+  }, [all, calMonth, calYear, selectedDay])
+
+  function prevMonth() {
+    if (calMonth === 0) { setCalMonth(11); setCalYear((y) => y - 1) }
+    else setCalMonth((m) => m - 1)
+    setSelectedDay(null)
+  }
+
+  function nextMonth() {
+    if (calMonth === 11) { setCalMonth(0); setCalYear((y) => y + 1) }
+    else setCalMonth((m) => m + 1)
+    setSelectedDay(null)
   }
 
   if (loading) return <div className="space-y-2">{[1,2,3,4].map(i => <SkeletonCard key={i} />)}</div>
@@ -80,6 +132,28 @@ export function Maintenance() {
         </button>
       </div>
 
+      {/* View switcher */}
+      <div className="mb-4 flex gap-1 rounded-xl bg-input/50 p-1">
+        <button
+          type="button"
+          onClick={() => setView('list')}
+          className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
+            view === 'list' ? 'bg-card text-fg shadow-sm' : 'text-fg-muted hover:text-fg'
+          }`}
+        >
+          Lista
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('calendar')}
+          className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
+            view === 'calendar' ? 'bg-card text-fg shadow-sm' : 'text-fg-muted hover:text-fg'
+          }`}
+        >
+          Grade
+        </button>
+      </div>
+
       {showForm && (
         <form onSubmit={handleSubmit} className="mb-4 rounded-xl border border-line bg-card/50 p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Nova Manutenção</h3>
@@ -94,9 +168,7 @@ export function Maintenance() {
               >
                 <option value="">Selecione um PC</option>
                 {pcs.map((pc) => (
-                  <option key={pc.id} value={pc.id}>
-                    {pc.labName} — {pc.pcNumber}
-                  </option>
+                  <option key={pc.id} value={pc.id}>{pc.labName} — {pc.pcNumber}</option>
                 ))}
               </select>
             </div>
@@ -146,6 +218,102 @@ export function Maintenance() {
           description="Programe a manutenção dos computadores."
           action={{ label: 'Agendar', onClick: () => setShowForm(true) }}
         />
+      ) : view === 'calendar' ? (
+        <div>
+          {/* Month header */}
+          <div className="mb-3 flex items-center justify-between">
+            <button type="button" onClick={prevMonth} className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-dim hover:bg-input hover:text-fg transition-colors">
+              <icons.ui.back size={16} />
+            </button>
+            <span className="text-sm font-semibold">{MONTHS[calMonth]} {calYear}</span>
+            <button type="button" onClick={nextMonth} className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-dim hover:bg-input hover:text-fg transition-colors">
+              <icons.ui.back size={16} className="rotate-180" />
+            </button>
+          </div>
+
+          {/* Weekday headers */}
+          <div className="mb-1 grid grid-cols-7 gap-1">
+            {WEEKDAYS.map((d) => (
+              <div key={d} className="py-1 text-center text-[10px] font-semibold uppercase text-fg-dim">{d}</div>
+            ))}
+          </div>
+
+          {/* Calendar grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {calendarDays.days.map((d, i) => (
+              d.isOther ? (
+                <div key={i} />
+              ) : (
+                <button
+                  key={d.date}
+                  type="button"
+                  onClick={() => setSelectedDay(selectedDay === d.date ? null : d.date)}
+                  className={`relative flex flex-col items-center rounded-lg py-2 text-xs font-medium transition-all ${
+                    selectedDay === d.date
+                      ? 'bg-cyan-600 text-white shadow-sm'
+                      : d.isToday
+                        ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
+                        : 'text-fg hover:bg-input'
+                  }`}
+                >
+                  <span>{d.day}</span>
+                  {d.items.length > 0 && (
+                    <div className="mt-0.5 flex gap-0.5">
+                      {d.items.slice(0, 3).map((m) => (
+                        <span
+                          key={m.id}
+                          className={`h-1 w-1 rounded-full ${
+                            m.completed ? 'bg-emerald-500' : isOverdue(m.scheduledDate) ? 'bg-red-500' : 'bg-cyan-500'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </button>
+              )
+            ))}
+          </div>
+
+          {/* Selected day items */}
+          {selectedDay && (
+            <div className="mt-4 space-y-2">
+              <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
+                {formatDate(selectedDay)} · {calendarDays.selectedDayItems.length} {calendarDays.selectedDayItems.length === 1 ? 'manutenção' : 'manutenções'}
+              </h3>
+              {calendarDays.selectedDayItems.length === 0 ? (
+                <p className="py-3 text-center text-xs text-fg-dim">Nenhuma manutenção neste dia</p>
+              ) : (
+                calendarDays.selectedDayItems.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => navigate(`/pcare/pcs/${m.pcId}`)}
+                    className={`w-full rounded-xl border p-3 text-left transition-all hover:shadow-md ${
+                      m.completed
+                        ? 'border-emerald-500/30 bg-emerald-50 dark:bg-emerald-900/10'
+                        : isOverdue(m.scheduledDate)
+                          ? 'border-red-500/30 bg-red-50 dark:bg-red-950/20'
+                          : 'border-line bg-card/50'
+                    }`}
+                  >
+                    <p className="text-sm font-medium">{m.labName} — {m.pcNumber}</p>
+                    <p className="text-xs text-fg-muted">
+                      {m.type === 'cleaning' ? 'Limpeza' : m.type === 'restoration' ? 'Restauração' : 'Ambos'}
+                      {m.notes && ` · ${m.notes}`}
+                    </p>
+                    <div className="mt-1 flex gap-1">
+                      {m.completed ? (
+                        <span className="inline-block rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">Concluída</span>
+                      ) : isOverdue(m.scheduledDate) ? (
+                        <span className="inline-block rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">Atrasada</span>
+                      ) : null}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="flex flex-col gap-4">
           {overdue.length > 0 && (
@@ -158,7 +326,6 @@ export function Maintenance() {
               </div>
             </section>
           )}
-
           {future.length > 0 && (
             <section>
               <h3 className="mb-2 text-sm font-medium text-fg-dim">Próximas ({future.length})</h3>
@@ -169,7 +336,6 @@ export function Maintenance() {
               </div>
             </section>
           )}
-
           {all.filter((m) => m.completed).length > 0 && (
             <section>
               <h3 className="mb-2 text-sm font-medium text-fg-muted">Concluídas</h3>

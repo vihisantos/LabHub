@@ -69,6 +69,19 @@ const FEATURES: Feature[] = [
   { id: 53, cat: 'low', name: 'Print Styles', desc: 'CSS @media print para relatórios e detalhes', effort: 'low', done: true },
   { id: 54, cat: 'low', name: 'Laboratórios Favoritos', desc: 'Marcar labs como favoritos e filtrar', effort: 'low', done: true },
   { id: 55, cat: 'low', name: 'Quick Stats Widget', desc: 'Resumo colapsável: pendências e urgências', effort: 'low', done: true },
+
+  { id: 58, cat: 'high', name: 'Workflow Entrada/Saída (Stock)', desc: 'Registrar entrada e saída de itens com movimentação automática', effort: 'med', done: false },
+
+  { id: 59, cat: 'mid', name: 'Editar/Deletar Itens no Stock', desc: 'Botões de edição e exclusão no StockDetail', effort: 'low', done: false },
+  { id: 60, cat: 'mid', name: 'Editar/Deletar Kits', desc: 'Edição de nome/sala/itens e exclusão de kits', effort: 'low', done: false },
+  { id: 61, cat: 'mid', name: 'Alerta Empréstimo Atrasado', desc: 'Badge e filtro para empréstimos com prazo vencido', effort: 'low', done: false },
+  { id: 62, cat: 'mid', name: 'Duplicar Item no Stock', desc: 'Botão duplicar pré-preenche formulário com dados existentes', effort: 'low', done: false },
+  { id: 63, cat: 'mid', name: 'Testes Unitários do Stock', desc: 'Cobertura de testes para services e páginas do stock', effort: 'high', done: false },
+  { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: false },
+
+  { id: 65, cat: 'low', name: 'BottomNav Stock Expandido', desc: 'Adicionar tabs de Inventário e QR ao BottomNav', effort: 'low', done: false },
+  { id: 66, cat: 'low', name: 'Corrigir Rota general-stock', desc: 'Generalizar paths no StockLayout para sufixo /general-stock', effort: 'low', done: false },
+  { id: 67, cat: 'low', name: 'Sync Inventário p/ Supabase', desc: 'Migrar inventoryService para createSyncService', effort: 'low', done: false },
 ]
 
 const CATEGORIES = [

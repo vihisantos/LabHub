@@ -21,7 +21,7 @@
 
 ---
 
-### 2. Indicador de Sync em Tempo Real
+### 2. ~~Indicador de Sync em Tempo Real~~ ✅
 
 **Problema:** `OnlineBanner` mostra se há alterações pendentes, mas não dá feedback visual quando o sync está rodando ou falhou. Usuário não sabe se os dados dele foram salvos no servidor.
 
@@ -771,14 +771,146 @@
 
 ---
 
+### 56. Editar/Deletar Itens no StockDetail
+
+**Problema:** StockDetail é read-only. Usuário precisa voltar pra lista pra editar ou excluir um item.
+
+**O que fazer:**
+- Botão "Editar" no StockDetail que abre o StockForm em modo edição
+- Botão "Excluir" com confirmação (ConfirmDialog)
+- Seguir o mesmo padrão do PCDetail no pcare
+
+**Arquivos envolvidos:** `src/apps/stock/pages/StockDetail.tsx`, `src/apps/stock/pages/StockForm.tsx`
+
+---
+
+### 57. Editar/Deletar Kits
+
+**Problema:** KitDetail não permite editar nome/sala/itens nem deletar kit. O usuário precisa criar um novo kit se algo estiver errado.
+
+**O que fazer:**
+- Botão "Editar" no KitDetail que abre formulário com dados preenchidos
+- Botão "Excluir" com confirmação
+- Permitir adicionar/remover itens na edição
+
+**Arquivos envolvidos:** `src/apps/stock/pages/KitDetail.tsx`, `src/apps/stock/pages/KitList.tsx`
+
+---
+
+### 58. Workflow de Entrada/Saída no Stock
+
+**Problema:** Tipos "entrada" e "saída" existem no enum de movimentações mas nunca são usados. Itens aparecem como "ativo" sem registro de como/when entraram no estoque.
+
+**O que fazer:**
+- Botão "Registrar Entrada" ao criar item (movimentação automática)
+- Botão "Registrar Saída" no StockDetail para itens que saem do estoque
+- Gerar movimentação automaticamente com timestamp e responsável
+
+**Arquivos envolvidos:** `src/apps/stock/pages/StockForm.tsx`, `src/apps/stock/pages/StockDetail.tsx`, `src/apps/stock/services/movementService.ts`
+
+---
+
+### 59. Alerta de Empréstimo Atrasado
+
+**Problema:** Itens emprestados têm `expectedReturnAt` mas não há alerta quando o prazo vence. Técnico esquece de cobrar devolução.
+
+**O que fazer:**
+- Badge/alerta no Dashboard do stock para empréstimos atrasados
+- Filtro "Atrasados" na MovementsPage
+- Badge vermelho no BottomNav quando há empréstimos atrasados
+
+**Arquivos envolvidos:** `src/apps/stock/pages/StockDashboard.tsx`, `src/apps/stock/pages/MovementsPage.tsx`, `src/apps/stock/components/StockBottomNav.tsx`
+
+---
+
+### 60. Duplicar Item no Stock
+
+**Problema:** Para adicionar 10 mice idênticos, precisa preencher o formulário 10 vezes com os mesmos dados.
+
+**O que fazer:**
+- Botão "Duplicar" no StockDetail que abre StockForm pré-preenchido
+- Ao salvar, gerar novo ID mas manter todos os outros campos
+- Útil para itens em lote com mesma especificação
+
+**Arquivos envolvidos:** `src/apps/stock/pages/StockDetail.tsx`, `src/apps/stock/pages/StockForm.tsx`
+
+---
+
+### 61. Corrigir BottomNav do Stock
+
+**Problema:** BottomNav só tem 4 tabs (Dashboard, Estoque, Mov., Kits). Inventário e QR ficam escondidos no grid do Dashboard — difícil de acessar.
+
+**O que fazer:**
+- Adicionar tabs de Inventário e QR ao BottomNav
+- Ou criar submenu/overflow menu no BottomNav
+- Reavaliar se 4 tabs é suficiente ou se precisa de 6
+
+**Arquivos envolvidos:** `src/apps/stock/components/StockBottomNav.tsx`
+
+---
+
+### 62. Editar/Deletar Movimentações
+
+**Problema:** Movimentações são append-only. Um erro de digitação no tipo ou na data não tem como corrigir.
+
+**O que fazer:**
+- Botão de editar no MovementTimeline (tipo, data, notas)
+- Botão de deletar com confirmação (soft-delete: marcar como cancelada)
+- Ou: criar movimentação de "correção" que estorna a anterior
+
+**Arquivos envolvidos:** `src/apps/stock/services/movementService.ts`, `src/apps/stock/components/MovementTimeline.tsx`
+
+---
+
+### 63. Testes Unitários do Stock
+
+**Problema:** Stock app tem ZERO testes apesar do vitest estar configurado. Qualquer refactor pode quebrar funcionalidade sem perceber.
+
+**O que fazer:**
+- Testes para `stockService`, `movementService`, `kitService`, `inventoryService`
+- Testes de renderização para StockSection, StockDetail, KitDetail, InventoryList
+- Seguir padrão dos testes existentes no pcare
+
+**Arquivos envolvidos:** `src/apps/stock/services/__tests__/`, `src/apps/stock/pages/__tests__/`
+
+---
+
+### 64. Corrigir Rota `/general-stock` no Layout
+
+**Problema:** `App.tsx` mapeia `general-stock/*` para StockApp, mas StockLayout hardcoded `/stock/*` no `mainRoutes`. A lógica de back button e título pode quebrar nessa rota.
+
+**O que fazer:**
+- Generalizar paths no StockLayout para suportar ambos os prefixos (`/stock` e `/general-stock`)
+- Usar `pathname.startsWith('/stock') || pathname.startsWith('/general-stock')`
+
+**Arquivos envolvidos:** `src/apps/stock/layouts/StockLayout.tsx`
+
+---
+
+### 65. Sync do Inventário para Supabase
+
+**Problema:** `inventoryService` usa `createLocalService` (não `createSyncService`). Dados de contagem de inventário não são sincronizados com o Supabase e podem ser perdidos.
+
+**O que fazer:**
+- Migrar `inventoryService` para usar `createSyncService`
+- Adicionar coleção `inventory_cycles` ao array de sync no pcare
+- Garantir que dados de contagem persistem entre dispositivos
+
+**Arquivos envolvidos:** `src/apps/stock/services/inventoryService.ts`, `src/lib/sync.ts`
+
+---
+
 ## Resumo
 
 | Prioridade | Feature | Esforço | Impacto |
 |---|---|---|---|
+| ✅ | Indicador de sync | Baixo | Alto |
 | 🔥 | Auth (Supabase) | Médio | Alto |
-| 🔥 | Indicador de sync | Baixo | Alto |
 | 🔥 | Upload de fotos | Médio | Alto |
 | 🔥 | Dashboard com gráficos | Médio | Alto |
+| 🔥 | Workflow entrada/saída (stock) | Médio | Alto |
+| 📋 | Editar/deletar itens stock | Baixo | Alto |
+| 📋 | Testes unitários stock | Alto | Alto |
 | 📋 | Operações em lote | Médio | Médio |
 | 📋 | Notificações push | Alto | Médio |
 | 📋 | Importar dados | Médio | Médio |
@@ -786,9 +918,7 @@
 | 📋 | Relatórios avançados | Médio | Médio |
 | 📋 | Deploy automático | Baixo | Alto |
 | 📋 | Etiquetas QR | Baixo | Médio |
-| 📋 | Cadastro em massa | Baixo | Alto |
 | 📋 | Seletor de laboratório | Baixo | Alto |
-| 📋 | Etiquetas QR | Baixo | Médio |
 | 📋 | Checklist com foto | Médio | Médio |
 | 📋 | Multilíngue (i18n) | Alto | Médio |
 | 📋 | Garantia e licenças | Médio | Médio |
@@ -797,6 +927,11 @@
 | 📋 | Inventário cíclico (stock) | Alto | Alto |
 | 📋 | Consolidado por laboratório | Médio | Médio |
 | 📋 | Grade de manutenção (calendário) | Médio | Médio |
+| 📋 | Alerta empréstimo atrasado | Baixo | Médio |
+| 📋 | Duplicar item stock | Baixo | Médio |
+| 📋 | Editar/deletar movimentações | Médio | Médio |
+| 📋 | Sync inventário Supabase | Baixo | Médio |
+| 📋 | Editar/deletar kits | Baixo | Médio |
 | 🎯 | Atalhos teclado | Baixo | Baixo |
 | 🎯 | Tema do sistema | Baixo | Baixo |
 | 🎯 | Atividades global | Médio | Baixo |
@@ -815,7 +950,7 @@
 | 🎯 | Desfazer (undo) | Alto | Alto |
 | 🎯 | Feed de atividades global | Médio | Médio |
 | 🎯 | Modo foco / kiosk | Médio | Médio |
-| 🎯 | Comprar PCs lado a lado | Médio | Baixo |
+| 🎯 | Comparar PCs lado a lado | Médio | Baixo |
 | 🎯 | Modo noturno automático | Baixo | Baixo |
 | 🎯 | Histórico de conexão | Baixo | Baixo |
 | 🎯 | Pré-visualização QR na lista | Baixo | Baixo |
@@ -831,3 +966,5 @@
 | 🎯 | Print styles | Baixo | Médio |
 | 🎯 | Laboratórios favoritos | Baixo | Baixo |
 | 🎯 | Quick Stats widget | Baixo | Médio |
+| 🎯 | BottomNav stock expandido | Baixo | Médio |
+| 🎯 | Corrigir rota general-stock | Baixo | Baixo |

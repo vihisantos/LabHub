@@ -15,6 +15,7 @@ import { ChecklistExecute } from './pages/ChecklistExecute'
 import { Reports } from './pages/Reports'
 import { Maintenance } from './pages/Maintenance'
 import { Settings } from './pages/Settings'
+import { StockConsolidado } from './pages/StockConsolidado'
 import { ErrorBoundary } from '../../lib/ErrorBoundary'
 
 function EB({ children }: { children: React.ReactNode }) {
@@ -34,6 +35,7 @@ export function PCareApp() {
             <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
             <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
             <Route path="parts" element={<EB><PartsList /></EB>} />
+            <Route path="parts/consolidado" element={<EB><StockConsolidado /></EB>} />
             <Route path="qr" element={<EB><QRGenerator /></EB>} />
             <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
             <Route path="checklists/:templateId/execute" element={<EB><ChecklistExecute /></EB>} />

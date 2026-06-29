@@ -15,6 +15,7 @@ import { icons } from '../../../lib/icons'
 const mainRoutes = new Set([
   '/pcare', '/pcare/pcs', '/pcare/parts', '/pcare/maintenance',
   '/pcare/reports', '/pcare/checklists', '/pcare/settings',
+  '/pcare/parts/consolidado',
 ])
 
 function isDetailPage(pathname: string) {
@@ -28,6 +29,7 @@ function getPageTitle(pathname: string): string {
     if (pathname.match(/\/pcare\/pcs\/[\w-]+$/)) return 'Detalhes do PC'
     return 'PCs'
   }
+  if (pathname.startsWith('/pcare/parts/consolidado')) return 'Consolidado'
   if (pathname.startsWith('/pcare/parts')) return 'Estoque'
   if (pathname.startsWith('/pcare/maintenance')) return 'Manutenção'
   if (pathname.startsWith('/pcare/reports')) return 'Relatórios'

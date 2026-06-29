@@ -18,11 +18,12 @@ const mainNav = [
 ]
 
 const moreItems = [
-  { to: '/pcare/scanner', label: 'Scanner', icon: icons.ui.scanBarcode },
-  { to: '/pcare/reports', label: 'Relatórios', icon: icons.nav.reports },
-  { to: '/pcare/checklists', label: 'Checklist', icon: icons.nav.checklists },
-  { to: '/pcare/qr', label: 'QR Code', icon: icons.ui.qrCode },
-  { to: '/pcare/settings', label: 'Config', icon: icons.nav.settings },
+  { to: '/pcare/scanner',          label: 'Scanner',    icon: icons.ui.scanBarcode },
+  { to: '/pcare/reports',          label: 'Relatórios', icon: icons.nav.reports },
+  { to: '/pcare/checklists',       label: 'Checklist',  icon: icons.nav.checklists },
+  { to: '/pcare/parts/consolidado', label: 'Consolidado', icon: icons.ui.fileBarChart },
+  { to: '/pcare/qr',               label: 'QR Code',    icon: icons.ui.qrCode },
+  { to: '/pcare/settings',         label: 'Config',     icon: icons.nav.settings },
 ]
 
 export function BottomNav() {
