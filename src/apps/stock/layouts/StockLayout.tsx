@@ -5,7 +5,7 @@ import { useTheme } from '../../../lib/ThemeContext'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { icons } from '../../../lib/icons'
 
-const mainRoutes = new Set(['/stock', '/stock/items', '/stock/movements', '/stock/kits'])
+const mainRoutes = new Set(['/stock', '/stock/items', '/stock/movements', '/stock/kits', '/stock/entry-exit'])
 
 function isDetailPage(pathname: string) {
   return !mainRoutes.has(pathname)
@@ -15,6 +15,7 @@ function getPageTitle(pathname: string): string {
   if (pathname === '/stock') return 'Dashboard'
   if (pathname === '/stock/items' || pathname.startsWith('/stock/items/')) return 'Estoque'
   if (pathname.startsWith('/stock/movements')) return 'Movimentações'
+  if (pathname.startsWith('/stock/entry-exit')) return 'Entrada/Saída'
   if (pathname.startsWith('/stock/kits')) return 'Kits'
   return 'Estoque'
 }

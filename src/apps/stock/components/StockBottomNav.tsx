@@ -14,6 +14,7 @@ function useBadges() {
 const navItems = [
   { to: '/stock', label: 'Dashboard', icon: icons.nav.dashboard, end: true },
   { to: '/stock/items', label: 'Estoque', icon: icons.ui.package },
+  { to: '/stock/entry-exit', label: 'Ent/Sai', icon: icons.ui.refresh },
   { to: '/stock/movements', label: 'Mov.', icon: icons.ui.clock },
   { to: '/stock/kits', label: 'Kits', icon: icons.ui.check },
 ]

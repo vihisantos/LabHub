@@ -10,6 +10,7 @@ import { KitDetail } from './pages/KitDetail'
 import { InventoryList } from './pages/InventoryList'
 import { InventoryDetail } from './pages/InventoryDetail'
 import { QRGenerator } from './pages/QRGenerator'
+import { StockEntryExit } from './pages/StockEntryExit'
 
 export function StockApp() {
   return (
@@ -25,6 +26,7 @@ export function StockApp() {
           <Route path="inventory" element={<InventoryList />} />
           <Route path="inventory/:id" element={<InventoryDetail />} />
           <Route path="qr" element={<QRGenerator />} />
+          <Route path="entry-exit" element={<StockEntryExit />} />
         </Route>
       </Routes>
     </ThemeProvider>
