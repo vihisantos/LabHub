@@ -18,6 +18,7 @@ const mainNav = [
 ]
 
 const moreItems = [
+  { to: '/pcare/scanner', label: 'Scanner', icon: icons.ui.scanBarcode },
   { to: '/pcare/reports', label: 'Relatórios', icon: icons.nav.reports },
   { to: '/pcare/checklists', label: 'Checklist', icon: icons.nav.checklists },
   { to: '/stock/qr', label: 'QR Code', icon: icons.ui.qrCode },

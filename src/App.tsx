@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 
 const Launcher = lazy(() => import('./pages/Launcher').then(m => ({ default: m.Launcher })))
+const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
 const PCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCareApp })))
 const StockApp = lazy(() => import('./apps/stock').then(m => ({ default: m.StockApp })))
 
@@ -22,6 +23,7 @@ export default function App() {
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route index element={<Launcher />} />
+          <Route path="roadmap" element={<Roadmap />} />
           <Route path="pcare/*" element={<PCareApp />} />
           <Route path="stock/*" element={<StockApp />} />
           <Route path="general-stock/*" element={<StockApp />} />

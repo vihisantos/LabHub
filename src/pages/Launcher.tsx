@@ -84,12 +84,13 @@ export function Launcher() {
 
       {/* Footer */}
       <footer className="relative z-10 flex flex-col items-center gap-2 pb-6">
-        <a
-          href="/roadmap.html"
+        <button
+          type="button"
+          onClick={() => navigate('/roadmap')}
           className="text-xs font-medium text-emerald-500 hover:text-emerald-400 transition-colors"
         >
           Roadmap
-        </a>
+        </button>
         <p className="text-[10px] text-fg-dim">Lab Hub v1.0</p>
       </footer>
     </div>

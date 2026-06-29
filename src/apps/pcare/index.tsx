@@ -9,6 +9,7 @@ import { RedirectToStock } from './pages/RedirectToStock'
 import { PCDetail } from './pages/PCDetail'
 import { PartsList } from './pages/PartsList'
 import { QRGenerator } from './pages/QRGenerator'
+import { QRScanner } from './pages/QRScanner'
 import { ChecklistTemplates } from './pages/ChecklistTemplates'
 import { ChecklistExecute } from './pages/ChecklistExecute'
 import { Reports } from './pages/Reports'
@@ -25,21 +26,22 @@ export function PCareApp() {
     <ThemeProvider storageKey="pcare_theme" defaultTheme="dark">
       <ToastProvider>
         <Routes>
-        <Route element={<RootLayout />}>
-          <Route index element={<EB><Dashboard /></EB>} />
-          <Route path="pcs" element={<EB><PCList /></EB>} />
-          <Route path="pcs/new" element={<RedirectToStock />} />
-          <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
-          <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
-          <Route path="parts" element={<EB><PartsList /></EB>} />
-          <Route path="qr" element={<EB><QRGenerator /></EB>} />
-          <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
-          <Route path="checklists/:templateId/execute" element={<EB><ChecklistExecute /></EB>} />
-          <Route path="reports" element={<EB><Reports /></EB>} />
-          <Route path="maintenance" element={<EB><Maintenance /></EB>} />
-          <Route path="settings" element={<EB><Settings /></EB>} />
-        </Route>
-      </Routes>
+          <Route path="scanner" element={<QRScanner />} />
+          <Route element={<RootLayout />}>
+            <Route index element={<EB><Dashboard /></EB>} />
+            <Route path="pcs" element={<EB><PCList /></EB>} />
+            <Route path="pcs/new" element={<RedirectToStock />} />
+            <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
+            <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
+            <Route path="parts" element={<EB><PartsList /></EB>} />
+            <Route path="qr" element={<EB><QRGenerator /></EB>} />
+            <Route path="checklists" element={<EB><ChecklistTemplates /></EB>} />
+            <Route path="checklists/:templateId/execute" element={<EB><ChecklistExecute /></EB>} />
+            <Route path="reports" element={<EB><Reports /></EB>} />
+            <Route path="maintenance" element={<EB><Maintenance /></EB>} />
+            <Route path="settings" element={<EB><Settings /></EB>} />
+          </Route>
+        </Routes>
       </ToastProvider>
     </ThemeProvider>
   )

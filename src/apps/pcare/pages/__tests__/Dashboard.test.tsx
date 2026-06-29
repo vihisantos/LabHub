@@ -42,7 +42,7 @@ describe('Dashboard', () => {
     expect(screen.getByText('Novo PC')).toBeInTheDocument()
     expect(screen.getByText('Relatórios')).toBeInTheDocument()
     expect(screen.getByText('Checklists')).toBeInTheDocument()
-    expect(screen.getByText('QR Code')).toBeInTheDocument()
+    expect(screen.getByText('Scanner')).toBeInTheDocument()
   })
 
   it('mostra seção de manutenção agendada', () => {
