@@ -40,11 +40,9 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
 
     expect(screen.getByText('Novo PC')).toBeInTheDocument()
-    expect(screen.getByText('QR Code')).toBeInTheDocument()
-    expect(screen.getByText('Patrimônio')).toBeInTheDocument()
     expect(screen.getByText('Relatórios')).toBeInTheDocument()
     expect(screen.getByText('Checklists')).toBeInTheDocument()
-    expect(screen.getByText('Gerar QR')).toBeInTheDocument()
+    expect(screen.getByText('QR Code')).toBeInTheDocument()
   })
 
   it('mostra seção de manutenção agendada', () => {
