@@ -31,8 +31,17 @@ export function QRScanner() {
     }
   }, [pcs, navigate])
 
+  function stopStream() {
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream
+      stream.getTracks().forEach(t => t.stop())
+      videoRef.current.srcObject = null
+    }
+  }
+
   const startCamera = useCallback(() => {
     if (!videoRef.current || cancelledRef.current) return
+    stopStream()
     setFeedback('scanning')
     cancelledRef.current = false
 
@@ -56,6 +65,7 @@ export function QRScanner() {
     return () => {
       cancelledRef.current = true
       controlsRef.current?.stop?.()
+      stopStream()
     }
   }, [startCamera])
 
