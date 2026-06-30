@@ -5,6 +5,7 @@ const Launcher = lazy(() => import('./pages/Launcher').then(m => ({ default: m.L
 const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
 const PCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCareApp })))
 const StockApp = lazy(() => import('./apps/stock').then(m => ({ default: m.StockApp })))
+const ReservaLabApp = lazy(() => import('./apps/reservalab').then(m => ({ default: m.ReservaLabApp })))
 
 function RouteFallback() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="pcare/*" element={<PCareApp />} />
           <Route path="stock/*" element={<StockApp />} />
           <Route path="general-stock/*" element={<StockApp />} />
+          <Route path="reservalab/*" element={<ReservaLabApp />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

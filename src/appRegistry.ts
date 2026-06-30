@@ -28,4 +28,12 @@ export const appRegistry: AppModule[] = [
     route: '/stock',
     color: '#10b981',
   },
+  {
+    id: 'reservalab',
+    name: 'ReservaLab',
+    description: 'Reserva de laboratórios, tablets e gestão de inventário',
+    icon: icons.ui.flaskConical,
+    route: '/reservalab',
+    color: '#6366f1',
+  },
 ]

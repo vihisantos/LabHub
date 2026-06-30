@@ -12,7 +12,7 @@ interface Feature {
 const FEATURES: Feature[] = [
   { id: 1, cat: 'high', name: 'Autenticação (Supabase Auth)', desc: 'Login com email/senha, rastreabilidade de quem fez o quê', effort: 'med', done: false },
   { id: 2, cat: 'high', name: 'Indicador de Sync em Tempo Real', desc: 'Badge de status: Salvo / Sincronizando / Offline', effort: 'low', done: true },
-  { id: 3, cat: 'high', name: 'Upload de Fotos (Supabase Storage)', desc: 'Fotos de PCs e itens de estoque no Supabase Storage', effort: 'med', done: false },
+  { id: 3, cat: 'high', name: 'Upload de Fotos (localStorage)', desc: 'Fotos de itens do estoque armazenadas localmente (base64)', effort: 'med', done: true },
   { id: 4, cat: 'high', name: 'Dashboard com Gráficos', desc: 'Gráficos de barras/pizza, timeline de manutenções (Recharts)', effort: 'med', done: true },
   { id: 56, cat: 'high', name: 'Redesign Visual Stock (Apple Design)', desc: 'Redesign completo com cards, segmented controls, tipografia Apple', effort: 'high', done: true },
 
@@ -83,7 +83,7 @@ const FEATURES: Feature[] = [
   { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: true },
   { id: 68, cat: 'mid', name: 'Vincular Itens do Stock a PCs', desc: 'Associar periféricos, peças e equipamentos do estoque a PCs específicos com rastreamento', effort: 'med', done: true },
   { id: 72, cat: 'mid', name: 'Importar Dados (CSV) para Estoque', desc: 'Importar planilhas de itens do estoque (mesma lógica do PCare)', effort: 'med', done: true },
-  { id: 73, cat: 'mid', name: 'Etiquetas para Impressão (Nome/Série/QR)', desc: 'Layout A4 com etiquetas adesivas nome/série/QR para colar nos equipamentos', effort: 'med', done: false },
+  { id: 73, cat: 'mid', name: 'Etiquetas para Impressão (Nome/Série/QR)', desc: 'Layout A4 com etiquetas adesivas nome/série/QR para colar nos equipamentos', effort: 'med', done: true },
   { id: 74, cat: 'mid', name: 'Manutenção Preventiva de Equipamentos', desc: 'Calendário de manutenções periódicas para equipamentos do estoque', effort: 'med', done: true },
 
   { id: 65, cat: 'low', name: 'BottomNav Stock Expandido', desc: 'Adicionar tabs de Inventário e QR ao BottomNav', effort: 'low', done: true },

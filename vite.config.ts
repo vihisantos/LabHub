@@ -17,7 +17,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'logo.svg', 'logo-192.png', 'logo-512.png'],
+      includeAssets: ['favicon.svg', 'logo.svg', 'logo-192.png', 'logo-512.png', 'push-sw.js', 'app-icons/*.svg'],
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/offline.html',
@@ -49,6 +49,14 @@ export default defineConfig({
       filename: 'dist/stats.html',
     }),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

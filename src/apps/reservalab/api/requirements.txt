@@ -1,0 +1,7 @@
+flask
+flask-cors
+openpyxl
+python-dotenv
+requests
+pywebpush
+upstash-redis

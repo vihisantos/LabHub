@@ -9,46 +9,137 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       display: flex; align-items: center; justify-content: center;
-      min-height: 100vh; background: #0f172a; color: #e2e8f0;
+      min-height: 100dvh; background: #0f172a; color: #e2e8f0;
       padding: 24px;
     }
     .card {
-      text-align: center; max-width: 360px;
-      padding: 40px 32px; border-radius: 20px;
-      background: #1e293b; border: 1px solid #334155;
-      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      text-align: center; max-width: 400px; width: 100%;
+      padding: 48px 32px 40px; border-radius: 24px;
+      background: linear-gradient(145deg, #1e293b, #0f172a);
+      border: 1px solid #334155;
+      box-shadow: 0 8px 40px rgba(0,0,0,.5);
     }
-    .icon { width: 48px; height: 48px; margin: 0 auto 20px; display: block; }
-    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    p { font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 24px; }
+    .logo {
+      width: 64px; height: 64px; margin: 0 auto 24px; display: block;
+    }
+    .signal {
+      position: relative; display: inline-flex; margin-bottom: 8px;
+    }
+    .signal .bars {
+      display: flex; align-items: end; gap: 3px; height: 24px;
+    }
+    .signal .bars span {
+      width: 4px; background: #64748b; border-radius: 2px;
+      animation: fade 1.5s ease-in-out infinite;
+    }
+    .signal .bars span:nth-child(1) { height: 8px; animation-delay: 0s; }
+    .signal .bars span:nth-child(2) { height: 14px; animation-delay: 0.2s; }
+    .signal .bars span:nth-child(3) { height: 20px; animation-delay: 0.4s; }
+    .signal .bars span:nth-child(4) { height: 24px; animation-delay: 0.6s; }
+    .signal .x {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 28px; font-weight: 800; color: #ef4444;
+      opacity: 0.8;
+    }
+    @keyframes fade {
+      0%, 100% { opacity: 0.2; }
+      50% { opacity: 0.6; }
+    }
+    h1 {
+      font-size: 22px; font-weight: 700; margin-bottom: 4px;
+      background: linear-gradient(135deg, #f8fafc, #94a3b8);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .sub {
+      font-size: 14px; color: #64748b; margin-bottom: 28px;
+    }
+    .apps { display: flex; gap: 12px; justify-content: center; margin-bottom: 28px; flex-wrap: wrap; }
+    .app {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      padding: 14px 18px; border-radius: 16px;
+      background: rgba(255,255,255,0.04); border: 1px solid #334155;
+      text-decoration: none; color: #cbd5e1; font-size: 12px; font-weight: 500;
+      transition: background .2s, transform .2s; min-width: 80px;
+      cursor: pointer;
+    }
+    .app:hover { background: rgba(255,255,255,0.08); transform: translateY(-2px); }
+    .app svg { width: 24px; height: 24px; }
     .btn {
       display: inline-flex; align-items: center; gap: 8px;
-      padding: 12px 24px; border-radius: 12px; border: none;
-      background: #059669; color: #fff; font-size: 14px; font-weight: 500;
-      cursor: pointer; transition: background .2s;
+      padding: 12px 28px; border-radius: 9999px; border: none;
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: #fff; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: opacity .2s, transform .2s;
+      box-shadow: 0 4px 16px rgba(5,150,105,.3);
     }
-    .btn:hover { background: #047857; }
-    .btn:disabled { opacity: .5; cursor: not-allowed; }
-    .footer { margin-top: 24px; font-size: 11px; color: #475569; }
-    .spinner { width: 16px; height: 16px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; display: none; }
+    .btn:hover { opacity: .9; transform: scale(1.02); }
+    .btn:active { transform: scale(.97); }
+    .btn .spinner {
+      width: 16px; height: 16px; border: 2px solid #fff;
+      border-top-color: transparent; border-radius: 50%;
+      animation: spin .6s linear infinite; display: none;
+    }
     .btn.loading .spinner { display: inline-block; }
     .btn.loading .label { display: none; }
+    .footer { margin-top: 28px; font-size: 11px; color: #475569; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <div class="card">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+  <div class="card" role="alert">
+    <div class="signal">
+      <div class="bars">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <span class="x">/</span>
+    </div>
+
+    <svg class="logo" viewBox="0 0 120 120" fill="none">
+      <rect width="120" height="120" rx="28" fill="#1e293b" stroke="#334155" stroke-width="2"/>
+      <path d="M60 24L72 48L96 48L76 64L84 88L60 72L36 88L44 64L24 48L48 48L60 24Z" fill="#10b981" opacity=".9"/>
+      <circle cx="60" cy="96" r="8" fill="#334155"/>
     </svg>
+
     <h1>Sem conexão</h1>
-    <p>Você está offline. Os dados salvos localmente serão sincronizados quando a conexão for restabelecida.</p>
+    <p class="sub">Você está offline no momento</p>
+
+    <div class="apps">
+      <a class="app" href="/pcare" onclick="if(!navigator.onLine){event.preventDefault()}" style="--c:#06b6d4">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        <span>PCare</span>
+      </a>
+      <a class="app" href="/stock" style="--c:#10b981">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16.5 9.4 7.55 4.24a1 1 0 0 0-1.1 0L3 6.5"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+          <polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/>
+        </svg>
+        <span>Estoque</span>
+      </a>
+      <a class="app" href="/reservalab" style="--c:#6366f1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M8 19v2"/><path d="M16 19v2"/><path d="M12 19v-6"/>
+        </svg>
+        <span>ReservaLab</span>
+      </a>
+    </div>
+
     <button class="btn" id="retryBtn" onclick="location.reload()">
       <span class="label">Tentar novamente</span>
       <span class="spinner"></span>
     </button>
+
     <p class="footer">LabHub · Hub de aplicações para laboratórios</p>
   </div>
+
+  <script>
+    const btn = document.getElementById('retryBtn')
+    btn.addEventListener('click', () => {
+      btn.classList.add('loading')
+    })
+    document.addEventListener('online', () => location.reload())
+  </script>
 </body>
 </html>

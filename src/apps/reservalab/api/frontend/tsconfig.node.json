@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "strict": false
+  },
+  "include": ["vite.config.js"]
+}
