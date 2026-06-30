@@ -1,9 +1,17 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 export function BackgroundAI() {
   const isMobile = useIsMobile()
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [bgLoaded, setBgLoaded] = useState(false)
+
+  useEffect(() => {
+    if (isMobile) return
+    const img = new Image()
+    img.onload = () => setBgLoaded(true)
+    img.src = '/bg_science.png'
+  }, [isMobile])
 
   useEffect(() => {
     if (isMobile) return
@@ -22,20 +30,10 @@ export function BackgroundAI() {
     resize()
     window.addEventListener('resize', resize)
 
-    const nodes = Array.from({ length: 28 }, () => ({
-      x: Math.random() * window.innerWidth,
-      y: Math.random() * window.innerHeight,
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
-      radius: Math.random() * 2 + 1,
-      pulse: Math.random() * Math.PI * 2,
-    }))
-
     const draw = () => {
       time += 0.008
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // Semi-transparent dark overlay so the image shows through
       const bg = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
       bg.addColorStop(0, 'rgba(6, 12, 24, 0.55)')
       bg.addColorStop(0.5, 'rgba(8, 15, 32, 0.5)')
@@ -63,54 +61,6 @@ export function BackgroundAI() {
         ctx.lineTo(canvas.width, y)
         ctx.stroke()
       }
-
-      nodes.forEach(node => {
-        node.x += node.vx
-        node.y += node.vy
-        node.pulse += 0.02
-        if (node.x < 0 || node.x > canvas.width) node.vx *= -1
-        if (node.y < 0 || node.y > canvas.height) node.vy *= -1
-      })
-
-      const maxDist = 160
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j]
-          const dx = a.x - b.x, dy = a.y - b.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dist < maxDist) {
-            const alpha = (1 - dist / maxDist) * 0.25
-            const isBlue = (i + j) % 2 === 0
-            ctx.strokeStyle = isBlue
-              ? `rgba(59, 130, 246, ${alpha})`
-              : `rgba(16, 185, 129, ${alpha})`
-            ctx.lineWidth = (1 - dist / maxDist) * 1.2
-            ctx.beginPath()
-            ctx.moveTo(a.x, a.y)
-            ctx.lineTo(b.x, b.y)
-            ctx.stroke()
-          }
-        }
-      }
-
-      nodes.forEach((node, i) => {
-        const pulseScale = 1 + Math.sin(node.pulse) * 0.4
-        const isBlue = i % 2 === 0
-        const color = isBlue ? '59, 130, 246' : '16, 185, 129'
-
-        const glow = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, node.radius * 6 * pulseScale)
-        glow.addColorStop(0, `rgba(${color}, 0.3)`)
-        glow.addColorStop(1, `rgba(${color}, 0)`)
-        ctx.fillStyle = glow
-        ctx.beginPath()
-        ctx.arc(node.x, node.y, node.radius * 6 * pulseScale, 0, Math.PI * 2)
-        ctx.fill()
-
-        ctx.fillStyle = `rgba(${color}, 0.9)`
-        ctx.beginPath()
-        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
-        ctx.fill()
-      })
 
       const scanY = ((time * 60) % (canvas.height + 200)) - 100
       const scanGrad = ctx.createLinearGradient(0, scanY - 30, 0, scanY + 30)
@@ -142,7 +92,8 @@ export function BackgroundAI() {
       height: '100%',
       zIndex: 0,
       pointerEvents: 'none',
-      backgroundImage: 'url(/bg_science.png)',
+      backgroundColor: '#060c18',
+      backgroundImage: bgLoaded ? 'url(/bg_science.png)' : undefined,
       backgroundSize: 'cover',
       backgroundPosition: 'center',
       backgroundAttachment: 'fixed',
