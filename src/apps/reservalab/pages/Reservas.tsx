@@ -47,7 +47,7 @@ function FigmaLabSection({
           transition={{ duration: 1, delay: 0.2 }}
           className="smoky-bg-text"
           style={{
-            fontSize: '10rem', fontWeight: 900, lineHeight: 1,
+            fontSize: 'clamp(3.5rem, 12vw, 10rem)', fontWeight: 900, lineHeight: 1,
             color: '#0a0a0a', letterSpacing: '-0.05em',
             filter: 'blur(3px)', whiteSpace: 'nowrap',
           }}
@@ -56,25 +56,25 @@ function FigmaLabSection({
         </motion.h2>
       </div>
 
-      <div className="lab-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '2rem', position: 'relative', zIndex: 1 }}>
+      <div className="lab-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1rem', position: 'relative', zIndex: 1, flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
-          <h3 style={{ fontSize: '1.875rem', fontWeight: 700, letterSpacing: '-0.025em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#1e293b' }}>
+          <h3 style={{ fontSize: 'clamp(1.25rem, 5vw, 1.875rem)', fontWeight: 700, letterSpacing: '-0.025em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#1e293b' }}>
             {labName}
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'block' }} />
           </h3>
-          <p style={{ color: '#71717a', fontSize: '0.875rem' }}>Reservas do dia para este laboratório</p>
+          <p style={{ color: '#71717a', fontSize: 'clamp(0.75rem, 2.5vw, 0.875rem)' }}>Reservas do dia para este laboratório</p>
         </div>
 
         {/* Segmented Control Filter */}
-        <div className="filter-segmented" style={{ display: 'flex', padding: '4px', background: 'rgba(255,255,255,0.7)', borderRadius: '9999px', border: '1px solid rgba(99,102,241,0.15)', backdropFilter: 'blur(8px)', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+        <div className="filter-segmented" style={{ display: 'flex', padding: '3px', background: 'rgba(255,255,255,0.7)', borderRadius: '9999px', border: '1px solid rgba(99,102,241,0.15)', backdropFilter: 'blur(8px)', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
           {periods.map((period) => (
             <motion.button
               key={period}
               onClick={() => setFilter(period)}
               whileTap={{ scale: 0.95 }}
               style={{
-                padding: '8px 16px', borderRadius: '9999px', border: 'none',
-                fontSize: '14px', fontWeight: 500, cursor: 'pointer',
+                padding: '6px 12px', borderRadius: '9999px', border: 'none',
+                fontSize: 'clamp(12px, 3.5vw, 14px)', fontWeight: 500, cursor: 'pointer',
                 background: 'transparent', color: filter === period ? '#ffffff' : '#64748b',
                 position: 'relative', zIndex: 1, transition: 'color 0.2s',
                 whiteSpace: 'nowrap',
@@ -328,10 +328,10 @@ export function ReservasView() {
           Sistema de reservas atualizado ao vivo
         </div>
 
-        <h2 className="hero-title" style={{ fontSize: '3rem', fontWeight: 900, letterSpacing: '-0.025em', lineHeight: 1.2, color: '#1e293b' }}>
+        <h2 className="hero-title" style={{ fontSize: 'clamp(1.5rem, 6vw, 3rem)', fontWeight: 900, letterSpacing: '-0.025em', lineHeight: 1.2, color: '#1e293b' }}>
           Gestão inteligente de laboratórios
         </h2>
-        <p className="hero-subtitle" style={{ fontSize: '1.125rem', color: '#71717a', marginTop: '1.5rem', lineHeight: 1.625 }}>
+        <p className="hero-subtitle" style={{ fontSize: 'clamp(0.875rem, 3vw, 1.125rem)', color: '#71717a', marginTop: '1.5rem', lineHeight: 1.625 }}>
           Consulte a disponibilidade em tempo real e verifique os agendamentos. Filtre por período ou visualize toda a grade da semana.
         </p>
       </motion.div>
@@ -364,7 +364,7 @@ export function ReservasView() {
             transition={{ duration: 1, delay: 0.2 }}
             className="smoky-bg-text"
             style={{
-              fontSize: '10rem', fontWeight: 900, lineHeight: 1,
+              fontSize: 'clamp(3.5rem, 12vw, 10rem)', fontWeight: 900, lineHeight: 1,
               color: '#0a0a0a', letterSpacing: '-0.05em',
               filter: 'blur(3px)', whiteSpace: 'nowrap',
             }}
@@ -373,13 +373,13 @@ export function ReservasView() {
           </motion.h2>
         </div>
 
-        <div className="lab-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '2rem', position: 'relative', zIndex: 1 }}>
+        <div className="lab-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1rem', position: 'relative', zIndex: 1, flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
-            <h3 style={{ fontSize: '1.875rem', fontWeight: 700, letterSpacing: '-0.025em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#1e293b' }}>
+            <h3 style={{ fontSize: 'clamp(1.25rem, 5vw, 1.875rem)', fontWeight: 700, letterSpacing: '-0.025em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#1e293b' }}>
               Reserva de Tablets
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'block' }} />
             </h3>
-            <p style={{ color: '#71717a', fontSize: '0.875rem' }}>
+            <p style={{ color: '#71717a', fontSize: 'clamp(0.75rem, 2.5vw, 0.875rem)' }}>
               {tabletReservas.length} reserva{tabletReservas.length !== 1 ? 's' : ''} hoje
             </p>
           </div>
