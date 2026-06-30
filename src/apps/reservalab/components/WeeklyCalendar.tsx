@@ -73,9 +73,12 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
         className="calendar-grid-7"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(7, 1fr)',
+          gridTemplateColumns: 'repeat(7, minmax(120px, 1fr))',
           gap: '1rem',
           alignItems: 'start',
+          overflowX: 'auto',
+          paddingBottom: '0.5rem',
+          scrollbarWidth: 'thin',
         }}
       >
         {weekData.map((day, i) => {

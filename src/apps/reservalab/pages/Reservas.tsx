@@ -66,17 +66,18 @@ function FigmaLabSection({
         </div>
 
         {/* Segmented Control Filter */}
-        <div className="filter-segmented" style={{ display: 'flex', padding: '4px', background: 'rgba(255,255,255,0.7)', borderRadius: '9999px', border: '1px solid rgba(99,102,241,0.15)', backdropFilter: 'blur(8px)', position: 'relative' }}>
+        <div className="filter-segmented" style={{ display: 'flex', padding: '4px', background: 'rgba(255,255,255,0.7)', borderRadius: '9999px', border: '1px solid rgba(99,102,241,0.15)', backdropFilter: 'blur(8px)', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
           {periods.map((period) => (
             <motion.button
               key={period}
               onClick={() => setFilter(period)}
               whileTap={{ scale: 0.95 }}
               style={{
-                padding: '8px 24px', borderRadius: '9999px', border: 'none',
+                padding: '8px 16px', borderRadius: '9999px', border: 'none',
                 fontSize: '14px', fontWeight: 500, cursor: 'pointer',
                 background: 'transparent', color: filter === period ? '#ffffff' : '#64748b',
                 position: 'relative', zIndex: 1, transition: 'color 0.2s',
+                whiteSpace: 'nowrap',
               }}
             >
               {filter === period && (

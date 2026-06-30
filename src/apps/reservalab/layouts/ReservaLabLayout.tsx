@@ -14,7 +14,7 @@ export function ReservaLabLayout() {
     <>
       <BackgroundAI />
       <Navbar />
-      <main>
+      <main style={{ overflowX: 'hidden' }}>
         <Outlet />
       </main>
       <PushNotificationButton />

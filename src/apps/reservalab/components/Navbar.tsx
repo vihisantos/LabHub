@@ -43,9 +43,9 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
           display: 'flex',
           justifyContent: 'space-around',
           alignItems: 'center',
-          padding: '4px 8px',
-          minWidth: '200px',
+          padding: '4px 6px',
           maxWidth: '90vw',
+          overflow: 'hidden',
           background: 'rgba(15, 23, 42, 0.7)',
           backdropFilter: 'blur(32px) saturate(180%)',
           WebkitBackdropFilter: 'blur(32px) saturate(180%)',
@@ -62,20 +62,21 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
             flexDirection: 'column',
             alignItems: 'center',
             gap: '2px',
-            padding: '8px 12px',
-            borderRadius: '9999px',
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            color: 'rgba(255,255,255,0.5)',
-            fontSize: '10px',
-            fontWeight: 500,
-            transition: 'color 0.2s',
-            minHeight: '36px',
-          }}
-          title="Início"
-        >
-          <icons.ui.home size={18} />
+                padding: '8px 8px',
+                borderRadius: '9999px',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: '10px',
+                fontWeight: 500,
+                transition: 'color 0.2s',
+                minHeight: '36px',
+                flexShrink: 0,
+              }}
+              title="Início"
+            >
+              <icons.ui.home size={16} />
           <span>Início</span>
         </button>
         {tabs.map((tab) => {
@@ -88,8 +89,8 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '2px',
-                padding: '8px 16px',
+                gap: '1px',
+                padding: '6px 10px',
                 borderRadius: '9999px',
                 border: 'none',
                 background: 'transparent',
@@ -100,6 +101,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
                 position: 'relative',
                 transition: 'color 0.2s',
                 minHeight: '36px',
+                flexShrink: 0,
               }}
             >
               {isActive && (
@@ -115,7 +117,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
                 />
               )}
               <span style={{ position: 'relative', zIndex: 1 }}>
-                <tab.icon size={18} />
+                <tab.icon size={16} />
               </span>
               <span style={{ position: 'relative', zIndex: 1 }}>{tab.label}</span>
             </button>
