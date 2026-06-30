@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
+import { pcService } from '../../pcare/services/pcService'
 import { StatusBadge } from '../components/StatusBadge'
 import { StockForm } from '../components/StockForm'
 import { MovementTimeline } from '../components/MovementTimeline'
@@ -23,6 +24,11 @@ export function StockDetail() {
   const itemMovements = useMemo(
     () => movements.filter((m) => m.itemId === id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [movements, id],
+  )
+
+  const linkedPc = useMemo(
+    () => (item?.linkedPcId ? pcService.getAll().find((p) => p.id === item.linkedPcId) : undefined),
+    [item?.linkedPcId],
   )
 
   if (!item) {
@@ -101,6 +107,23 @@ export function StockDetail() {
             <div><span className="text-fg-muted font-medium">Sala:</span> <span className="text-fg">{item.room || '-'}</span></div>
             <div><span className="text-fg-muted font-medium">Nº Série:</span> <span className="text-fg">{item.serialNumber || '-'}</span></div>
             <div><span className="text-fg-muted font-medium">Condição:</span> <span className="text-fg">{item.condition || '-'}</span></div>
+            {item.linkedPcLabel && (
+              <div className="col-span-2">
+                <span className="text-fg-muted font-medium">Vinculado ao PC:</span>{' '}
+                {linkedPc ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/pcare/pcs/${linkedPc.id}`)}
+                    className="inline-flex items-center gap-1 text-sm font-medium text-violet-600 dark:text-violet-400 hover:underline"
+                  >
+                    <icons.nav.pcs size={14} />
+                    {linkedPc.labName} — {linkedPc.pcNumber}
+                  </button>
+                ) : (
+                  <span className="text-sm text-fg">{item.linkedPcLabel}</span>
+                )}
+              </div>
+            )}
             {item.section === 'cabos' && (
               <>
                 {item.cableType && <div><span className="text-fg-muted font-medium">Tipo Cabo:</span> <span className="text-fg">{item.cableType}</span></div>}

@@ -78,7 +78,7 @@ const FEATURES: Feature[] = [
   { id: 62, cat: 'mid', name: 'Duplicar Item no Stock', desc: 'Botão duplicar pré-preenche formulário com dados existentes', effort: 'low', done: true },
   { id: 63, cat: 'mid', name: 'Testes Unitários do Stock', desc: 'Cobertura de testes para services e páginas do stock', effort: 'high', done: true },
   { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: true },
-  { id: 68, cat: 'mid', name: 'Vincular Itens do Stock a PCs', desc: 'Associar periféricos, peças e equipamentos do estoque a PCs específicos com rastreamento', effort: 'med', done: false },
+  { id: 68, cat: 'mid', name: 'Vincular Itens do Stock a PCs', desc: 'Associar periféricos, peças e equipamentos do estoque a PCs específicos com rastreamento', effort: 'med', done: true },
 
   { id: 65, cat: 'low', name: 'BottomNav Stock Expandido', desc: 'Adicionar tabs de Inventário e QR ao BottomNav', effort: 'low', done: true },
   { id: 66, cat: 'low', name: 'Corrigir Rota general-stock', desc: 'Generalizar paths no StockLayout para sufixo /general-stock', effort: 'low', done: true },

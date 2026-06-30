@@ -57,6 +57,13 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
         {selectable && <StatusBadge status={item.status} />}
       </div>
 
+      {item.linkedPcLabel && (
+        <p className="mb-1.5 flex items-center gap-1 text-[10px] text-violet-600 dark:text-violet-400 font-medium">
+          <icons.nav.pcs size={10} />
+          Vinculado a {item.linkedPcLabel}
+        </p>
+      )}
+
       {item.condition && (
         <p className="mb-2 text-[10px] text-fg-dim">Condição: {item.condition}</p>
       )}

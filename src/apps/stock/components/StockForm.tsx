@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { StockItemFormData, StockSection } from '../types'
 import { stockSections, sectionSubcategories, stockConditions } from '../types'
+import { pcService } from '../../pcare/services/pcService'
+import { icons } from '../../../lib/icons'
 
 interface StockFormProps {
   initial?: Partial<StockItemFormData>
@@ -21,10 +23,28 @@ const emptyForm = (): StockItemFormData => ({
   cableLength: '',
   connectorType: '',
   outletCount: undefined,
+  linkedPcId: undefined,
+  linkedPcLabel: undefined,
 })
 
 export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
   const [form, setForm] = useState<StockItemFormData>({ ...emptyForm(), ...initial })
+  const [pcSearch, setPcSearch] = useState('')
+  const [showPcPicker, setShowPcPicker] = useState(false)
+
+  const pcs = useMemo(() => pcService.getAll(), [])
+
+  const filteredPcs = useMemo(() => {
+    if (!pcSearch.trim()) return pcs.slice(0, 20)
+    const q = pcSearch.toLowerCase()
+    return pcs.filter(
+      (p) =>
+        p.labName.toLowerCase().includes(q) ||
+        p.pcNumber.toLowerCase().includes(q) ||
+        p.roomLocation.toLowerCase().includes(q) ||
+        p.assetTag.toLowerCase().includes(q),
+    ).slice(0, 20)
+  }, [pcs, pcSearch])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -146,6 +166,66 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           placeholder={p.notes}
           className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
         />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-fg-muted">Vincular a um PC</label>
+        {form.linkedPcId ? (
+          <div className="flex items-center gap-2 rounded-xl bg-violet-50 dark:bg-violet-950/20 px-3.5 py-2.5">
+            <icons.nav.pcs size={16} className="shrink-0 text-violet-500" />
+            <span className="flex-1 text-sm text-fg">{form.linkedPcLabel || 'PC vinculado'}</span>
+            <button
+              type="button"
+              onClick={() => { set('linkedPcId', undefined); set('linkedPcLabel', undefined) }}
+              className="rounded-lg p-1 text-fg-muted hover:text-red-500 transition-colors"
+              aria-label="Desvincular PC"
+            >
+              <icons.ui.close size={14} />
+            </button>
+          </div>
+        ) : (
+          <div className="relative">
+            <input
+              type="text"
+              value={pcSearch}
+              onChange={(e) => { setPcSearch(e.target.value); setShowPcPicker(true) }}
+              onFocus={() => setShowPcPicker(true)}
+              placeholder="Buscar PC por lab, número ou sala..."
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-violet-500/30"
+            />
+            {showPcPicker && filteredPcs.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-line bg-card p-1 shadow-lg shadow-black/20">
+                {filteredPcs.map((pc) => (
+                  <button
+                    key={pc.id}
+                    type="button"
+                    onClick={() => {
+                      set('linkedPcId', pc.id)
+                      set('linkedPcLabel', `${pc.labName} - ${pc.pcNumber}`)
+                      setPcSearch('')
+                      setShowPcPicker(false)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-fg-dim hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:text-fg transition-colors"
+                  >
+                    <icons.nav.pcs size={14} className="text-violet-500" />
+                    <span>{pc.labName} — {pc.pcNumber}</span>
+                    {pc.roomLocation && <span className="text-xs text-fg-muted ml-auto">{pc.roomLocation}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            {showPcPicker && filteredPcs.length === 0 && pcSearch.trim() && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl border border-line bg-card p-3 text-center text-xs text-fg-muted">
+                Nenhum PC encontrado
+              </div>
+            )}
+            <div
+              className={`fixed inset-0 z-40 ${showPcPicker ? 'block' : 'hidden'}`}
+              onClick={() => setShowPcPicker(false)}
+            />
+          </div>
+        )}
+        <p className="mt-1 text-[10px] text-fg-muted">Opção de associar este item a um computador específico</p>
       </div>
 
       {form.section === 'cabos' && (

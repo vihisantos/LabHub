@@ -10,6 +10,7 @@ import { AddPartToPcModal } from '../components/AddPartToPcModal'
 import { PCChecklistModal } from '../components/PCChecklistModal'
 import { ActionTimeline } from '../components/ActionTimeline'
 import { partUsageService } from '../services/partUsageService'
+import { stockService } from '../../stock/services/stockService'
 import { icons } from '../../../lib/icons'
 import type { PC, PCPart } from '../types'
 
@@ -50,6 +51,10 @@ function PCDetailContent({
   const [showChecklist, setShowChecklist] = useState(false)
 
   const partUsages = useMemo(() => partUsageService.getByPC(pc.id), [pc.id])
+  const linkedStockItems = useMemo(
+    () => stockService.query((item) => item.linkedPcId === pc.id),
+    [pc.id],
+  )
 
   function toggleStatus(type: 'cleaning' | 'restoration') {
     const key = type === 'cleaning' ? 'cleaningStatus' : 'restorationStatus'
@@ -298,6 +303,34 @@ function PCDetailContent({
                     <p className="text-xs text-fg-muted">{new Date(u.timestamp).toLocaleDateString('pt-BR')}</p>
                   </div>
                 </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {linkedStockItems.length > 0 && (
+          <section className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
+              Itens Vinculados do Estoque
+            </h3>
+            <div className="flex flex-col gap-2">
+              {linkedStockItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => navigate(`/stock/items/${item.id}`)}
+                  className="flex items-center justify-between rounded-lg bg-violet-50/50 dark:bg-violet-950/20 px-3 py-2 text-left transition-colors hover:bg-violet-100 dark:hover:bg-violet-950/40"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-fg">{item.name}</p>
+                    <p className="text-xs text-fg-muted">
+                      {item.subcategory}
+                      {item.serialNumber && ` · ${item.serialNumber}`}
+                      {item.room && ` · ${item.room}`}
+                    </p>
+                  </div>
+                  <icons.nav.pcs size={14} className="ml-2 shrink-0 text-violet-500" />
+                </button>
               ))}
             </div>
           </section>

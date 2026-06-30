@@ -38,6 +38,8 @@ export interface StockItem {
   cableLength?: string
   connectorType?: string
   outletCount?: number
+  linkedPcId?: string
+  linkedPcLabel?: string
   createdAt: string
   updatedAt: string
 }
