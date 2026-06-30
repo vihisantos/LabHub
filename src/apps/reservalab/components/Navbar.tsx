@@ -8,8 +8,8 @@ interface NavbarProps {
 }
 
 const tabs = [
-  { id: '', label: 'Dashboard', icon: icons.nav.dashboard },
   { id: 'reservas', label: 'Reservas', icon: icons.ui.clock },
+  { id: 'dashboard', label: 'Dashboard', icon: icons.nav.dashboard },
   { id: 'tablets', label: 'Tablets', icon: icons.nav.pcs },
 ]
 
@@ -18,11 +18,16 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const pathParts = location.pathname.split('/')
-  const activeTab = pathParts[pathParts.length - 1] || ''
+  const currentPath = location.pathname
+  const isRoot = currentPath === '/reservalab' || currentPath === '/reservalab/'
+  const activeTab = isRoot ? 'reservas' : (currentPath.split('/').pop() || '')
 
   const handleNavigate = (tabId: string) => {
-    navigate(tabId || '.', { relative: 'path' })
+    if (tabId === 'reservas') {
+      navigate('/reservalab')
+    } else {
+      navigate(`/reservalab/${tabId}`)
+    }
   }
 
   if (isMobile) {

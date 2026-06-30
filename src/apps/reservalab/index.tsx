@@ -8,8 +8,8 @@ export function ReservaLabApp() {
   return (
     <Routes>
       <Route element={<ReservaLabLayout />}>
-        <Route index element={<DashboardView />} />
-        <Route path="reservas" element={<ReservasView />} />
+        <Route index element={<ReservasView />} />
+        <Route path="dashboard" element={<DashboardView />} />
         <Route path="tablets" element={<TabletsView />} />
       </Route>
     </Routes>

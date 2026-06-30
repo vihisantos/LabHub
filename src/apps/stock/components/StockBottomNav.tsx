@@ -46,7 +46,17 @@ export function StockBottomNav() {
     <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <nav
         aria-label="Navegação principal"
-        className="flex items-stretch rounded-2xl border border-white/10 bg-card/80 px-2 py-1 backdrop-blur-2xl shadow-lg shadow-black/50"
+        style={{
+          display: 'flex',
+          alignItems: 'stretch',
+          borderRadius: '9999px',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          background: 'rgba(15, 23, 42, 0.7)',
+          padding: '4px 8px',
+          backdropFilter: 'blur(32px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(32px) saturate(180%)',
+          boxShadow: '0 4px 32px rgba(0, 0, 0, 0.15)',
+        }}
       >
         {mainNav.map(({ to, label, icon: Icon, end }) => {
           const badge = to === '/stock' ? (inRepair + overdueCount) : 0
@@ -59,7 +69,7 @@ export function StockBottomNav() {
               viewTransition
               className={({ isActive }) =>
                 `relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-                  isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-fg-muted hover:text-fg-dim'
+                  isActive ? 'text-indigo-400' : 'text-white/70 hover:text-white/90'
                 }`
               }
             >
@@ -68,7 +78,7 @@ export function StockBottomNav() {
                   <span className="relative mb-0.5">
                     <Icon size={18} />
                     {badge > 0 && (
-                      <span className={`absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-1 text-[8px] font-bold text-fg leading-none shadow-sm ${
+                      <span className={`absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-1 text-[8px] font-bold text-white leading-none shadow-sm ${
                         badgeKind === 'rose' ? 'bg-rose-500 shadow-rose-500/50' : 'bg-red-500 shadow-red-500/50'
                       }`}>
                         {badge}
@@ -78,7 +88,7 @@ export function StockBottomNav() {
                   <span className="relative">
                     {label}
                     {isActive && (
-                      <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-emerald-600 dark:bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+                      <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-indigo-400 shadow-sm shadow-indigo-400/50" />
                     )}
                   </span>
                 </>
@@ -92,14 +102,14 @@ export function StockBottomNav() {
             <button
               type="button"
               className={`relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-                isInMore ? 'text-emerald-600 dark:text-emerald-400' : 'text-fg-muted hover:text-fg-dim'
+                isInMore ? 'text-indigo-400' : 'text-white/70 hover:text-white/90'
               }`}
               aria-label="Mais opções"
             >
               <span className="relative mb-0.5">
                 {moreActive ? <moreActive.icon size={18} /> : <MoreIcon size={18} />}
                 {moreBadge > 0 && !isInMore && (
-                  <span className="absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-fg leading-none shadow-sm shadow-red-500/50">
+                  <span className="absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-white leading-none shadow-sm shadow-red-500/50">
                     {moreBadge}
                   </span>
                 )}
@@ -107,12 +117,12 @@ export function StockBottomNav() {
               <span className="relative">
                 {moreActive ? moreActive.label : 'Mais'}
                 {isInMore && (
-                  <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+                  <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-indigo-400 shadow-sm shadow-indigo-400/50" />
                 )}
               </span>
             </button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="center" className="w-72 border border-white/10 bg-card/95 p-2 backdrop-blur-2xl shadow-xl shadow-black/50">
+          <PopoverContent side="top" align="center" className="w-72 border border-white/15 bg-slate-900/95 p-2 backdrop-blur-2xl shadow-xl shadow-black/20">
             <div className="grid grid-cols-2 gap-1">
               {moreItems.map(({ to, label, icon: Icon }) => {
                 const active = location.pathname.startsWith(to)
@@ -123,8 +133,8 @@ export function StockBottomNav() {
                     onClick={() => setShowMore(false)}
                     className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
                       active
-                        ? 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-700 dark:text-emerald-400'
-                        : 'text-fg-dim hover:bg-input/50 hover:text-fg'
+                        ? 'bg-indigo-900/25 text-indigo-400'
+                        : 'text-white/60 hover:bg-white/5 hover:text-white/90'
                     }`}
                   >
                     <Icon size={18} />
