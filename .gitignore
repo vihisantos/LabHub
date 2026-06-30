@@ -31,3 +31,11 @@ supabase/
 *.sln
 *.sw?
 .mimocode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+*.egg-info/
+.vercel

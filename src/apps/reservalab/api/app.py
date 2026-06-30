@@ -94,7 +94,7 @@ def set_cached_reservas(data):
     except Exception as e:
         logger.error(f"Erro ao salvar cache: {e}")
 
-app = Flask(__name__, static_folder='frontend/dist', static_url_path='')
+app = Flask(__name__)
 CORS(app)
 
 VAPID_PUBLIC_KEY = "BPySgynYSvDIXSa3haOi3GyDolJqGhMyCdWdZfurxZA-OFySm-rZaIWXDJss2sEV2ngRe2Zp6_1gvxizQ9v2s8g"
@@ -270,17 +270,6 @@ def health():
         },
         'url_configurada': bool(ARQUIVO_URL)
     })
-
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve_frontend(path):
-    if path.startswith('api/'):
-        return jsonify({'error': 'Not found'}), 404
-    # Tenta servir arquivo estático real (sw.js, assets, etc.)
-    file_path = os.path.join(app.static_folder, path)
-    if path and os.path.isfile(file_path):
-        return app.send_static_file(path)
-    return app.send_static_file('index.html')
 
 # ─── Push Notifications ──────────────────────────────────────────
 

@@ -1,8 +1,0 @@
-export { default as Navbar } from './Navbar'
-export { default as StatsCard } from './StatsCard'
-export { default as ChartContainer } from './ChartContainer'
-export { default as ErrorBoundary } from './ErrorBoundary'
-export { default as ReservationCard } from './ReservationCard'
-export { default as ItemModal } from './ItemModal'
-export { default as Loader } from './Loader'
-export { default as TabletReservationCard } from './TabletReservationCard'
