@@ -34,13 +34,6 @@ export function BackgroundAI() {
       time += 0.008
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      const bg = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
-      bg.addColorStop(0, 'rgba(6, 12, 24, 0.55)')
-      bg.addColorStop(0.5, 'rgba(8, 15, 32, 0.5)')
-      bg.addColorStop(1, 'rgba(5, 11, 21, 0.6)')
-      ctx.fillStyle = bg
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
       const gridSize = 60
       ctx.lineWidth = 0.4
 
