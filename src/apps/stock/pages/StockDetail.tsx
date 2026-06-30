@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { pcService } from '../../pcare/services/pcService'
+import { stockPhotoService } from '../services/stockPhotoService'
 import { StatusBadge } from '../components/StatusBadge'
 import { StockForm } from '../components/StockForm'
 import { MovementTimeline } from '../components/MovementTimeline'
@@ -19,12 +20,15 @@ export function StockDetail() {
   const [showEdit, setShowEdit] = useState(false)
   const [showDuplicate, setShowDuplicate] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
   const item = items.find((i) => i.id === id)
   const itemMovements = useMemo(
     () => movements.filter((m) => m.itemId === id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [movements, id],
   )
+
+  const photos = useMemo(() => (item?.id ? stockPhotoService.get(item.id) : []), [item?.id])
 
   const linkedPc = useMemo(
     () => (item?.linkedPcId ? pcService.getAll().find((p) => p.id === item.linkedPcId) : undefined),
@@ -41,18 +45,25 @@ export function StockDetail() {
     )
   }
 
-  function handleSave(data: StockItemFormData) {
+  function handleSave(data: StockItemFormData, photos?: string[]) {
     update(item!.id, data)
+    if (photos !== undefined) {
+      stockPhotoService.setAll(item!.id, photos)
+    }
     setShowEdit(false)
   }
 
-  function handleDuplicate(data: StockItemFormData) {
+  function handleDuplicate(data: StockItemFormData, photos?: string[]) {
     const newItem = create(data)
+    if (photos && photos.length > 0) {
+      stockPhotoService.setAll(newItem.id, photos)
+    }
     setShowDuplicate(false)
     navigate(`/stock/items/${newItem.id}`, { replace: true })
   }
 
   function handleDelete() {
+    stockPhotoService.deleteAll(item!.id)
     remove(item!.id)
     setShowDelete(false)
     navigate('/stock', { replace: true })
@@ -99,6 +110,87 @@ export function StockDetail() {
       </div>
 
       <div className="flex flex-col gap-4">
+        {photos.length > 0 && (
+          <section className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+            <div className="flex flex-wrap gap-2">
+              {photos.map((photo, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setLightboxIndex(i)}
+                  className="group relative h-24 w-24 overflow-hidden rounded-xl bg-input transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <img
+                    src={photo}
+                    alt={`Foto ${i + 1} de ${item.name}`}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  {i === 0 && photos.length > 1 && (
+                    <span className="absolute bottom-1 right-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] text-white font-medium">
+                      +{photos.length - 1}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Lightbox */}
+        {lightboxIndex !== null && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+            onClick={() => setLightboxIndex(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxIndex(null)}
+              className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+              aria-label="Fechar"
+            >
+              <icons.ui.close size={20} />
+            </button>
+            <div className="flex max-h-full max-w-full items-center gap-3" onClick={(e) => e.stopPropagation()}>
+              {photos.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setLightboxIndex((prev) => (prev === 0 ? photos.length - 1 : prev! - 1))
+                  }}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+                  aria-label="Anterior"
+                >
+                  <icons.ui.back size={20} />
+                </button>
+              )}
+              <img
+                src={photos[lightboxIndex]}
+                alt={`Foto ${lightboxIndex + 1}`}
+                className="max-h-[85vh] max-w-[85vw] rounded-xl object-contain"
+                onClick={(e) => e.stopPropagation()}
+              />
+              {photos.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setLightboxIndex((prev) => (prev === photos.length - 1 ? 0 : prev! + 1))
+                  }}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+                  aria-label="Próximo"
+                >
+                  <icons.ui.chevronDown size={20} className="-rotate-90" />
+                </button>
+              )}
+            </div>
+            <p className="absolute bottom-4 text-sm text-white/70">
+              {lightboxIndex + 1} / {photos.length}
+            </p>
+          </div>
+        )}
+
         <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Informações</h3>
           <div className="grid grid-cols-2 gap-3 text-sm">

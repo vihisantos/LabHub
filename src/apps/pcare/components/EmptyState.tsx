@@ -13,6 +13,7 @@ export function EmptyState({ icon, title, description, action, accentColor = 'cy
   const gradients: Record<string, string> = {
     cyan: 'from-cyan-600 to-blue-600 shadow-cyan-500/20',
     emerald: 'from-emerald-600 to-green-600 shadow-emerald-500/20',
+    amber: 'from-amber-600 to-orange-600 shadow-amber-500/20',
   }
 
   const gradient = gradients[accentColor] || gradients.cyan

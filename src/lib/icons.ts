@@ -120,6 +120,7 @@ export const icons = {
     download: Download,
     upload: Upload,
     printer: Printer,
+    camera: Camera,
     sliders: SlidersHorizontal,
     copy: Copy,
     chevronDown: ChevronDown,

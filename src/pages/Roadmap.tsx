@@ -71,6 +71,9 @@ const FEATURES: Feature[] = [
   { id: 55, cat: 'low', name: 'Quick Stats Widget', desc: 'Resumo colapsável: pendências e urgências', effort: 'low', done: true },
 
   { id: 58, cat: 'high', name: 'Workflow Entrada/Saída (Stock)', desc: 'Registrar entrada e saída de itens com movimentação automática', effort: 'med', done: true },
+  { id: 69, cat: 'high', name: 'Fotos para Itens do Estoque', desc: 'Upload de fotos dos itens, visualização no card e detalhe do item', effort: 'med', done: true },
+  { id: 70, cat: 'high', name: 'Scanner QR para Localizar Itens', desc: 'Leitor de QR code integrado ao estoque para localizar itens instantaneamente', effort: 'med', done: false },
+  { id: 71, cat: 'high', name: 'Dashboard com Gráficos do Stock', desc: 'Barras/pizza por seção, tendências de movimentação, precisão de inventário', effort: 'high', done: false },
 
   { id: 59, cat: 'mid', name: 'Editar/Deletar Itens no Stock', desc: 'Botões de edição e exclusão no StockDetail', effort: 'low', done: true },
   { id: 60, cat: 'mid', name: 'Editar/Deletar Kits', desc: 'Edição de nome/sala/itens e exclusão de kits', effort: 'low', done: true },
@@ -79,10 +82,14 @@ const FEATURES: Feature[] = [
   { id: 63, cat: 'mid', name: 'Testes Unitários do Stock', desc: 'Cobertura de testes para services e páginas do stock', effort: 'high', done: true },
   { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: true },
   { id: 68, cat: 'mid', name: 'Vincular Itens do Stock a PCs', desc: 'Associar periféricos, peças e equipamentos do estoque a PCs específicos com rastreamento', effort: 'med', done: true },
+  { id: 72, cat: 'mid', name: 'Importar Dados (CSV) para Estoque', desc: 'Importar planilhas de itens do estoque (mesma lógica do PCare)', effort: 'med', done: true },
+  { id: 73, cat: 'mid', name: 'Etiquetas para Impressão (Nome/Série/QR)', desc: 'Layout A4 com etiquetas adesivas nome/série/QR para colar nos equipamentos', effort: 'med', done: false },
+  { id: 74, cat: 'mid', name: 'Manutenção Preventiva de Equipamentos', desc: 'Calendário de manutenções periódicas para equipamentos do estoque', effort: 'med', done: true },
 
   { id: 65, cat: 'low', name: 'BottomNav Stock Expandido', desc: 'Adicionar tabs de Inventário e QR ao BottomNav', effort: 'low', done: true },
   { id: 66, cat: 'low', name: 'Corrigir Rota general-stock', desc: 'Generalizar paths no StockLayout para sufixo /general-stock', effort: 'low', done: true },
   { id: 67, cat: 'low', name: 'Sync Inventário p/ Supabase', desc: 'Migrar inventoryService para createSyncService', effort: 'low', done: true },
+  { id: 75, cat: 'low', name: 'Configurações Customizáveis do Stock', desc: 'Editar seções, subcategorias, condições e campos personalizados do estoque', effort: 'med', done: false },
 ]
 
 const CATEGORIES = [

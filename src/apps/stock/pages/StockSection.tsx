@@ -1,8 +1,9 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { useStockSelection } from '../hooks/useStockSelection'
+import { stockPhotoService } from '../services/stockPhotoService'
 import { StockCard } from '../components/StockCard'
 import { StockBatchBar } from '../components/StockBatchBar'
 import { StockForm } from '../components/StockForm'
@@ -16,6 +17,7 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { exportStockItemsCSV } from '../utils/export'
+import { parseFile, mapStockRow, validateRows } from '../utils/import'
 
 export function StockSectionPage() {
   const { items, loading, create, update, remove, reload } = useStock()
@@ -39,6 +41,25 @@ export function StockSectionPage() {
   const [movementTarget, setMovementTarget] = useState<StockItem | null>(null)
   const [movementType, setMovementType] = useState<'mudanca_sala' | 'conserto' | 'descarte' | 'emprestimo' | 'devolucao'>('mudanca_sala')
   const [discardTarget, setDiscardTarget] = useState<StockItem | null>(null)
+  const [importMode, setImportMode] = useState(false)
+  const [importResult, setImportResult] = useState<{ headers: string[]; rows: string[][] } | null>(null)
+  const [importError, setImportError] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importSuccess, setImportSuccess] = useState(0)
+  const [cleanupMessage, setCleanupMessage] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // Auto-cleanup orphaned photos when items load
+  useEffect(() => {
+    if (loading) return
+    const validIds = new Set(items.map((i) => i.id))
+    const cleaned = stockPhotoService.cleanupOrphans(validIds)
+    if (cleaned > 0) {
+      setCleanupMessage(`${cleaned} foto${cleaned > 1 ? 's' : ''} órfã${cleaned > 1 ? 's' : ''} limpa${cleaned > 1 ? 's' : ''}`)
+      const timer = setTimeout(() => setCleanupMessage(''), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [loading, items])
 
   const uniqueRooms = useMemo(() => {
     const rooms = new Set(items.map((i) => i.room).filter(Boolean))
@@ -90,11 +111,17 @@ export function StockSectionPage() {
     descartados: sectionItems.filter((i) => i.status === 'descartado').length,
   }), [sectionItems])
 
-  function handleSave(data: StockItemFormData) {
+  function handleSave(data: StockItemFormData, photos?: string[]) {
     if (editing) {
       update(editing.id, data)
+      if (photos !== undefined) {
+        stockPhotoService.setAll(editing.id, photos)
+      }
     } else {
-      create(data)
+      const item = create(data)
+      if (photos && photos.length > 0) {
+        stockPhotoService.setAll(item.id, photos)
+      }
     }
     setEditing(null)
     setShowForm(false)
@@ -168,7 +195,10 @@ export function StockSectionPage() {
   }
 
   function handleBatchDelete(ids: string[]) {
-    for (const id of ids) remove(id)
+    for (const id of ids) {
+      stockPhotoService.deleteAll(id)
+      remove(id)
+    }
     reload()
   }
 
@@ -245,7 +275,26 @@ export function StockSectionPage() {
           </div>
         )}
 
+        {cleanupMessage && (
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
+            <icons.ui.checkCircle size={16} />
+            <span>{cleanupMessage}</span>
+          </div>
+        )}
+
         <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setImportMode(!importMode)}
+            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors ${
+              importMode
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                : 'bg-input text-fg-dim hover:bg-input/80'
+            }`}
+          >
+            <icons.ui.upload size={14} />
+            Importar CSV
+          </button>
           <button
             type="button"
             onClick={() => exportStockItemsCSV(filtered)}
@@ -255,6 +304,132 @@ export function StockSectionPage() {
             Exportar CSV
           </button>
         </div>
+
+        {importMode && (
+          <div className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Importar Itens</h3>
+
+            {importSuccess > 0 && (
+              <div className="mb-3 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+                {importSuccess} registro{importSuccess > 1 ? 's' : ''} importado{importSuccess > 1 ? 's' : ''} com sucesso!
+              </div>
+            )}
+
+            {!importResult ? (
+              <div className="flex flex-col gap-3">
+                <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-line bg-input/50 p-8 text-center transition-colors hover:bg-input">
+                  <icons.ui.upload size={28} className="text-fg-muted" />
+                  <span className="text-sm text-fg-dim">
+                    Clique para selecionar .csv ou .xlsx
+                  </span>
+                  <span className="text-[10px] text-fg-dim">
+                    Colunas esperadas: Nome, Seção, Subcategoria, Nº Série, Sala, Status, Condição, Tipo Cabo, Comprimento, Conectores, Tomadas, Observações
+                  </span>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".csv,.xlsx"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      setImportError('')
+                      setImportResult(null)
+                      setImportSuccess(0)
+                      try {
+                        const parsed = await parseFile(file)
+                        setImportResult({ headers: parsed.headers, rows: parsed.rows })
+                      } catch (err) {
+                        setImportError((err as Error).message)
+                      }
+                    }}
+                    className="hidden"
+                  />
+                </label>
+                {importError && <p className="text-sm text-red-500">{importError}</p>}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-fg-dim">
+                    {importResult.rows.length} linha{importResult.rows.length !== 1 ? 's' : ''} encontrada{importResult.rows.length !== 1 ? 's' : ''}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportResult(null)
+                        setImportError('')
+                        if (fileRef.current) fileRef.current.value = ''
+                      }}
+                      className="text-xs text-fg-muted hover:text-fg"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-lg border border-line">
+                  <table className="w-full text-left text-xs text-fg-dim">
+                    <thead>
+                      <tr className="bg-input">
+                        {importResult.headers.slice(0, 6).map((h, i) => (
+                          <th key={i} className="px-2 py-1.5 font-medium text-fg-muted">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importResult.rows.slice(0, 5).map((row, i) => (
+                        <tr key={i} className="border-t border-line/50">
+                          {row.slice(0, 6).map((cell, j) => (
+                            <td key={j} className="px-2 py-1 truncate max-w-[120px]">{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {importResult.rows.length > 5 && (
+                    <p className="p-2 text-[10px] text-fg-muted">
+                      + {importResult.rows.length - 5} linha{importResult.rows.length - 5 > 1 ? 's' : ''}
+                    </p>
+                  )}
+                </div>
+
+                {importError && <p className="text-sm text-red-500">{importError}</p>}
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!importResult) return
+                    setImporting(true)
+                    setImportError('')
+                    let success = 0
+                    try {
+                      const err = validateRows(importResult.rows, 3)
+                      if (err) { setImportError(err); setImporting(false); return }
+                      for (const row of importResult.rows) {
+                        const data = mapStockRow(importResult.headers, row)
+                        if (data.name) {
+                          create(data)
+                          success++
+                        }
+                      }
+                      setImportSuccess(success)
+                      setImportResult(null)
+                      reload()
+                    } catch {
+                      setImportError('Erro ao importar dados.')
+                    }
+                    setImporting(false)
+                  }}
+                  disabled={importing}
+                  className="rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 py-3 text-sm font-medium text-fg shadow-sm transition-all hover:shadow-md disabled:opacity-50"
+                >
+                  {importing ? 'Importando...' : `Importar ${importResult.rows.length} registro${importResult.rows.length !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {showForm && (
           <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
@@ -317,7 +492,7 @@ export function StockSectionPage() {
           </select>
         </div>
 
-        {filtered.length === 0 ? (
+        {!importMode && (filtered.length === 0 ? (
           <EmptyState
             icon={icons.ui.package}
             title={items.length === 0 ? 'Estoque vazio' : 'Nenhum item nesta seção'}
@@ -354,7 +529,7 @@ export function StockSectionPage() {
               ))}
             </div>
           </>
-        )}
+        ))}
       </div>
 
       {movementTarget && (

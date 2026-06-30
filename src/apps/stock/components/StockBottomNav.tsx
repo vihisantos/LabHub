@@ -25,6 +25,8 @@ const mainNav = [
 const moreItems = [
   { to: '/stock/movements', label: 'Mov.', icon: icons.ui.clock },
   { to: '/stock/kits', label: 'Kits', icon: icons.ui.check },
+  { to: '/stock/maintenance', label: 'Manut.', icon: icons.nav.maintenance },
+  { to: '/stock/qr', label: 'QR', icon: icons.ui.qrCode },
 ]
 
 export function StockBottomNav() {

@@ -1,12 +1,54 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { StockItemFormData, StockSection } from '../types'
 import { stockSections, sectionSubcategories, stockConditions } from '../types'
 import { pcService } from '../../pcare/services/pcService'
+import { stockPhotoService, compressImage } from '../services/stockPhotoService'
 import { icons } from '../../../lib/icons'
 
+interface PhotoUploadButtonProps {
+  uploading: boolean
+  onSelect: (files: FileList) => void
+}
+
+function PhotoUploadButton({ uploading, onSelect }: PhotoUploadButtonProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            onSelect(e.target.files)
+            e.target.value = ''
+          }
+        }}
+        className="hidden"
+      />
+      <button
+        type="button"
+        disabled={uploading}
+        onClick={() => inputRef.current?.click()}
+        className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-line bg-input/50 text-fg-muted transition-colors hover:bg-input disabled:opacity-50"
+      >
+        {uploading ? (
+          <span className="text-[10px] font-medium">Comprimindo...</span>
+        ) : (
+          <>
+            <icons.ui.camera size={18} />
+            <span className="text-[10px] font-medium">Adicionar</span>
+          </>
+        )}
+      </button>
+    </>
+  )
+}
+
 interface StockFormProps {
-  initial?: Partial<StockItemFormData>
-  onSave: (data: StockItemFormData) => void
+  initial?: Partial<StockItemFormData> & { id?: string }
+  onSave: (data: StockItemFormData, photos?: string[]) => void
   onCancel: () => void
 }
 
@@ -31,6 +73,10 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
   const [form, setForm] = useState<StockItemFormData>({ ...emptyForm(), ...initial })
   const [pcSearch, setPcSearch] = useState('')
   const [showPcPicker, setShowPcPicker] = useState(false)
+  const [localPhotos, setLocalPhotos] = useState<string[]>(() => {
+    return initial?.id ? stockPhotoService.get(initial.id) : []
+  })
+  const [uploading, setUploading] = useState(false)
 
   const pcs = useMemo(() => pcService.getAll(), [])
 
@@ -46,10 +92,16 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
     ).slice(0, 20)
   }, [pcs, pcSearch])
 
+  useEffect(() => {
+    if (initial?.id) {
+      setLocalPhotos(stockPhotoService.get(initial.id))
+    }
+  }, [initial?.id])
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) return
-    onSave(form)
+    onSave(form, localPhotos.length > 0 ? localPhotos : undefined)
   }
 
   function set<K extends keyof StockItemFormData>(key: K, value: StockItemFormData[K]) {
@@ -226,6 +278,58 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           </div>
         )}
         <p className="mt-1 text-[10px] text-fg-muted">Opção de associar este item a um computador específico</p>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-fg-muted">Fotos</label>
+        {localPhotos.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {localPhotos.map((photo, i) => (
+              <div key={i} className="group relative h-20 w-20 overflow-hidden rounded-xl bg-input">
+                <img
+                  src={photo}
+                  alt={`Foto ${i + 1}`}
+                  className="h-full w-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocalPhotos((prev) => prev.filter((_, idx) => idx !== i))
+                  }}
+                  className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="Remover foto"
+                >
+                  <icons.ui.close size={12} />
+                </button>
+              </div>
+            ))}
+            <PhotoUploadButton
+              uploading={uploading}
+              onSelect={async (files) => {
+                setUploading(true)
+                const compressed = await Promise.all(
+                  Array.from(files).map((f) => compressImage(f)),
+                )
+                setLocalPhotos((prev) => [...prev, ...compressed])
+                setUploading(false)
+              }}
+            />
+          </div>
+        ) : (
+          <PhotoUploadButton
+            uploading={uploading}
+            onSelect={async (files) => {
+              setUploading(true)
+              const compressed = await Promise.all(
+                Array.from(files).map((f) => compressImage(f)),
+              )
+              setLocalPhotos(compressed)
+              setUploading(false)
+            }}
+          />
+        )}
+  
+        <p className="mt-1 text-[10px] text-fg-muted">Fotos armazenadas apenas localmente (não sobem pro servidor) — JPEG comprimido até 800px</p>
       </div>
 
       {form.section === 'cabos' && (

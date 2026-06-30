@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import type { StockItem } from '../types'
 import { StatusBadge } from './StatusBadge'
+import { stockPhotoService } from '../services/stockPhotoService'
 import { icons } from '../../../lib/icons'
 
 interface StockCardProps {
@@ -35,26 +36,43 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
         selected ? 'ring-2 ring-emerald-500' : ''
       }`}
     >
-      <div className="mb-2 flex items-start justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {selectable && (
-              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg transition-colors ${
-                selected ? 'bg-emerald-500' : 'border-2 border-line'
-              }`}>
-                {selected && <icons.ui.check size={12} className="text-white" />}
-              </span>
-            )}
-            <h3 className="truncate font-semibold text-fg text-sm">{item.name}</h3>
-            {!selectable && <StatusBadge status={item.status} />}
+      <div className="flex gap-3">
+        {(() => {
+          const firstPhoto = stockPhotoService.get(item.id)[0]
+          return firstPhoto ? (
+            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-input">
+              <img
+                src={firstPhoto}
+                alt=""
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            </div>
+          ) : null
+        })()}
+        <div className="flex-1 min-w-0">
+          <div className="mb-1 flex items-start justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                {selectable && (
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                    selected ? 'bg-emerald-500' : 'border-2 border-line'
+                  }`}>
+                    {selected && <icons.ui.check size={12} className="text-white" />}
+                  </span>
+                )}
+                <h3 className="truncate font-semibold text-fg text-sm">{item.name}</h3>
+                {!selectable && <StatusBadge status={item.status} />}
+              </div>
+              <p className="mt-0.5 text-xs text-fg-muted">
+                {item.subcategory}
+                {item.room && ` · ${item.room}`}
+                {item.serialNumber && ` · ${item.serialNumber}`}
+              </p>
+            </div>
+            {selectable && <StatusBadge status={item.status} />}
           </div>
-          <p className="mt-0.5 text-xs text-fg-muted">
-            {item.subcategory}
-            {item.room && ` · ${item.room}`}
-            {item.serialNumber && ` · ${item.serialNumber}`}
-          </p>
         </div>
-        {selectable && <StatusBadge status={item.status} />}
       </div>
 
       {item.linkedPcLabel && (
