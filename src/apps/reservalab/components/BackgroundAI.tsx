@@ -7,11 +7,10 @@ export function BackgroundAI() {
   const [bgLoaded, setBgLoaded] = useState(false)
 
   useEffect(() => {
-    if (isMobile) return
     const img = new Image()
     img.onload = () => setBgLoaded(true)
     img.src = '/bg_science.png'
-  }, [isMobile])
+  }, [])
 
   useEffect(() => {
     if (isMobile) return
@@ -74,8 +73,6 @@ export function BackgroundAI() {
     }
   }, [isMobile])
 
-  if (isMobile) return null
-
   return (
     <div style={{
       position: 'fixed',
@@ -85,22 +82,24 @@ export function BackgroundAI() {
       height: '100%',
       zIndex: 0,
       pointerEvents: 'none',
-      backgroundColor: '#060c18',
+      backgroundColor: '#e8edf5',
       backgroundImage: bgLoaded ? 'url(/bg_science.png)' : undefined,
       backgroundSize: 'cover',
       backgroundPosition: 'center',
       backgroundAttachment: 'fixed',
     }}>
-      <canvas
-        ref={canvasRef}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-        }}
-      />
+      {!isMobile && (
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+          }}
+        />
+      )}
     </div>
   )
 }

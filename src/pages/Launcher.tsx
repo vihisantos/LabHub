@@ -6,7 +6,12 @@ export function Launcher() {
   const navigate = useNavigateWithTransition()
 
   useEffect(() => {
-    document.documentElement.classList.add('dark')
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    if (mq.matches) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
   }, [])
 
   return (
