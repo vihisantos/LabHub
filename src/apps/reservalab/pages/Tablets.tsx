@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { Tablet as TabletIcon, Plus, X } from 'lucide-react'
 import { TimeInput } from '../components/TimeInput'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -153,9 +152,7 @@ export function TabletsView() {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+    <div
       style={{
         maxWidth: '80rem',
         margin: '0 auto',
@@ -191,8 +188,7 @@ export function TabletsView() {
               {mostrarTodas ? 'Só hoje' : 'Todas'}
             </button>
           )}
-          <motion.button
-            whileTap={{ scale: 0.95 }}
+          <button
             onClick={() => setShowForm(!showForm)}
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
@@ -203,16 +199,12 @@ export function TabletsView() {
           >
             {showForm ? <X size={16} /> : <Plus size={16} />}
             {showForm ? 'Fechar' : 'Nova reserva'}
-          </motion.button>
+          </button>
         </div>
       </div>
 
-      <AnimatePresence>
-        {showForm && (
-          <motion.form
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
+      {showForm && (
+          <form
             onSubmit={handleSubmit}
             style={{
               background: 'rgba(255, 255, 255, 0.7)',
@@ -311,10 +303,9 @@ export function TabletsView() {
               </FormField>
             </div>
 
-            <motion.button
+            <button
               type="submit"
               disabled={submitting}
-              whileTap={{ scale: 0.95 }}
               style={{
                 marginTop: '1rem', padding: '12px 24px', borderRadius: '9999px', border: 'none',
                 background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#ffffff',
@@ -323,10 +314,9 @@ export function TabletsView() {
               }}
             >
               {submitting ? 'Salvando...' : 'Criar Reserva'}
-            </motion.button>
-          </motion.form>
+            </button>
+          </form>
         )}
-      </AnimatePresence>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {mostrarTodas
@@ -352,7 +342,7 @@ export function TabletsView() {
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -388,11 +378,7 @@ function ReservationRow({
   formatTime: (iso: string) => string
 }) {
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+    <div
       style={{
         padding: '1rem', borderRadius: '1rem',
         background: 'rgba(255, 255, 255, 0.7)', backdropFilter: 'blur(12px)',
@@ -428,6 +414,6 @@ function ReservationRow({
       >
         Cancelar
       </button>
-    </motion.div>
+    </div>
   )
 }
