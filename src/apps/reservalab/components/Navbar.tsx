@@ -8,8 +8,8 @@ interface NavbarProps {
 }
 
 const tabs = [
-  { id: 'reservas', label: 'Reservas', icon: icons.ui.clock },
   { id: 'dashboard', label: 'Dashboard', icon: icons.nav.dashboard },
+  { id: 'reservas', label: 'Reservas', icon: icons.ui.clock },
   { id: 'tablets', label: 'Tablets', icon: icons.nav.pcs },
 ]
 
