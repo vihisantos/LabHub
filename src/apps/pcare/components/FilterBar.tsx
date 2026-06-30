@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 type Status = 'all' | 'pending' | 'in_progress' | 'done'
 
@@ -8,7 +9,7 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ labs, onFilterChange }: FilterBarProps) {
-  const [lab, setLab] = useState('')
+  const [lab, setLab] = useState('all')
   const [status, setStatus] = useState<Status>('all')
 
   function handleChange(newLab: string, newStatus: Status) {
@@ -19,29 +20,29 @@ export function FilterBar({ labs, onFilterChange }: FilterBarProps) {
 
   return (
     <div className="mb-4 flex gap-2">
-      <select
-        value={lab}
-        onChange={(e) => handleChange(e.target.value, status)}
-        className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-      >
-        <option value="">Todos os laboratórios</option>
-        {labs.map((l) => (
-          <option key={l} value={l}>
-            {l}
-          </option>
-        ))}
-      </select>
+      <Select value={lab} onValueChange={(v) => handleChange(v, status)}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Todos os laboratórios" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todos os laboratórios</SelectItem>
+          {labs.map((l) => (
+            <SelectItem key={l} value={l}>{l}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      <select
-        value={status}
-        onChange={(e) => handleChange(lab, e.target.value as Status)}
-        className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-      >
-        <option value="all">Todos os status</option>
-        <option value="pending">Pendente</option>
-        <option value="in_progress">Em andamento</option>
-        <option value="done">Concluído</option>
-      </select>
+      <Select value={status} onValueChange={(v) => handleChange(lab, v as Status)}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Todos os status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todos os status</SelectItem>
+          <SelectItem value="pending">Pendente</SelectItem>
+          <SelectItem value="in_progress">Em andamento</SelectItem>
+          <SelectItem value="done">Concluído</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   )
 }

@@ -31,7 +31,7 @@ export function PCList() {
   }, [allPcs, activeLab])
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState<{ lab: string; status: Status }>({
-    lab: '',
+    lab: 'all',
     status: 'all',
   })
   const [selectMode, setSelectMode] = useState(false)

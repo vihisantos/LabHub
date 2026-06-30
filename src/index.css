@@ -10,6 +10,13 @@
   --color-line: var(--border);
   --color-segmented: var(--bg-segmented);
   --color-card-hover: var(--bg-card-hover);
+  --animate-overlay-show: overlay-show 200ms ease-out;
+  --animate-overlay-hide: overlay-hide 150ms ease-in;
+  --animate-content-show: content-show 200ms ease-out;
+  --animate-content-hide: content-hide 150ms ease-in;
+  --animate-popover-content-show: popover-content-show 150ms ease-out;
+  --animate-select-content-show: select-content-show 150ms ease-out;
+  --animate-tooltip-show: tooltip-show 100ms ease-out;
 }
 
 @layer base {
@@ -163,6 +170,36 @@
 
 .animate-gradient {
   animation: gradient-shift 6s ease infinite;
+}
+
+/* ── Radix Dialog / Popover animations ── */
+@keyframes overlay-show {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes overlay-hide {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes content-show {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes content-hide {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+}
+@keyframes popover-content-show {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes select-content-show {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes tooltip-show {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 

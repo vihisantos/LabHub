@@ -6,6 +6,7 @@ import { useTheme } from '../../../lib/ThemeContext'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useKioskMode, KioskProvider, KioskExitPill } from '../../../lib/useKioskMode'
 import { icons } from '../../../lib/icons'
+import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 
 const PREFIXES = ['/stock', '/general-stock'] as const
 
@@ -124,24 +125,36 @@ function StockLayoutInner({
           </button>
 
           <div className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onClick={enterKiosk}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label="Modo quiosque"
-              title="Modo quiosque"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15V9a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6"/></svg>
-            </button>
-            <button
-              type="button"
-              onClick={toggle}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label="Alternar tema"
-              title={theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
-            >
-              {theme === 'light' ? <icons.ui.moon size={18} /> : <icons.ui.sun size={18} />}
-            </button>
+            <TooltipProvider>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={enterKiosk}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
+                    aria-label="Modo quiosque"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15V9a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6"/></svg>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Modo quiosque</TooltipContent>
+              </TooltipRoot>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
+                    aria-label="Alternar tema"
+                  >
+                    {theme === 'light' ? <icons.ui.moon size={18} /> : <icons.ui.sun size={18} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
+                </TooltipContent>
+              </TooltipRoot>
+            </TooltipProvider>
           </div>
         </header>
       )}

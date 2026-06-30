@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { partService } from '../services/partService'
 import { maintenanceService } from '../services/maintenanceService'
 import { icons } from '../../../lib/icons'
+import { Popover, PopoverTrigger, PopoverContent } from '../../../lib/components/ui'
 
 function useBadges() {
   const overdue = maintenanceService.getAll().filter((m) => new Date(m.scheduledDate).getTime() < Date.now()).length
@@ -38,35 +39,6 @@ export function BottomNav() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-      {showMore && (
-        <>
-          <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={() => setShowMore(false)} />
-          <div className="absolute bottom-full left-4 right-4 z-50 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-card/95 p-2 backdrop-blur-2xl shadow-xl shadow-black/50 animate-[fade-in-up_0.2s_ease-out]">
-            <div className="grid grid-cols-2 gap-1">
-              {moreItems.map(({ to, label, icon: Icon }) => {
-                const active = location.pathname.startsWith(to)
-                return (
-                  <NavLink
-                    key={to}
-                    to={to}
-                    end={to === '/pcare'}
-                    onClick={() => setShowMore(false)}
-                    className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
-                      active
-                        ? 'bg-cyan-100 dark:bg-cyan-900/25 text-cyan-700 dark:text-cyan-400'
-                        : 'text-fg-dim hover:bg-input/50 hover:text-fg'
-                    }`}
-                  >
-                    <Icon size={18} />
-                    <span>{label}</span>
-                  </NavLink>
-                )
-              })}
-            </div>
-          </div>
-        </>
-      )}
-
       <nav aria-label="Navegação principal" className="flex items-stretch rounded-2xl border border-white/10 bg-card/80 px-2 py-1 backdrop-blur-2xl shadow-lg shadow-black/50">
         {mainNav.map(({ to, label, icon: Icon }) => {
           const badge = to === '/pcare/maintenance' ? overdue : to === '/pcare/parts' ? lowStock : 0
@@ -104,24 +76,50 @@ export function BottomNav() {
           )
         })}
 
-        <button
-          type="button"
-          onClick={() => setShowMore((v) => !v)}
-          className={`relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-            isInMore ? 'text-cyan-600 dark:text-cyan-400' : 'text-fg-muted hover:text-fg-dim'
-          }`}
-          aria-label="Mais opções"
-        >
-          <span className="mb-0.5">
-            {moreActive ? <moreActive.icon size={18} /> : <MoreIcon size={18} />}
-          </span>
-          <span className="relative">
-            {moreActive ? moreActive.label : 'Mais'}
-            {isInMore && (
-              <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />
-            )}
-          </span>
-        </button>
+        <Popover open={showMore} onOpenChange={setShowMore}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
+                isInMore ? 'text-cyan-600 dark:text-cyan-400' : 'text-fg-muted hover:text-fg-dim'
+              }`}
+              aria-label="Mais opções"
+            >
+              <span className="mb-0.5">
+                {moreActive ? <moreActive.icon size={18} /> : <MoreIcon size={18} />}
+              </span>
+              <span className="relative">
+                {moreActive ? moreActive.label : 'Mais'}
+                {isInMore && (
+                  <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />
+                )}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="top" align="center" className="w-72 border border-white/10 bg-card/95 p-2 backdrop-blur-2xl shadow-xl shadow-black/50">
+            <div className="grid grid-cols-2 gap-1">
+              {moreItems.map(({ to, label, icon: Icon }) => {
+                const active = location.pathname.startsWith(to)
+                return (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={to === '/pcare'}
+                    onClick={() => setShowMore(false)}
+                    className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
+                      active
+                        ? 'bg-cyan-100 dark:bg-cyan-900/25 text-cyan-700 dark:text-cyan-400'
+                        : 'text-fg-dim hover:bg-input/50 hover:text-fg'
+                    }`}
+                  >
+                    <Icon size={18} />
+                    <span>{label}</span>
+                  </NavLink>
+                )
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
       </nav>
     </div>
   )

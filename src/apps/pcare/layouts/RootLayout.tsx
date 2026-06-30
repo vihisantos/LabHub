@@ -15,6 +15,7 @@ import { useActiveLab } from '../../../lib/useLabContext'
 import { usePCs } from '../hooks/usePCs'
 import { AnimatePresence, motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
+import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 
 const mainRoutes = new Set([
   '/pcare', '/pcare/pcs', '/pcare/parts', '/pcare/maintenance',
@@ -191,37 +192,55 @@ function RootLayoutInner({
           <div className="ml-auto flex items-center gap-1">
             <SyncNowButton />
             <SyncStatusBadge />
-            <button
-              type="button"
-              onClick={toggleFocusMode}
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-input ${
-                focusMode
-                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                  : 'text-fg-dim hover:text-fg'
-              }`}
-              aria-label={focusMode ? 'Sair do modo foco' : 'Modo foco'}
-              title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
-            >
-              {focusMode ? <icons.ui.focusActive size={16} /> : <icons.ui.focus size={16} />}
-            </button>
-            <button
-              type="button"
-              onClick={enterKiosk}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label="Modo quiosque"
-              title="Modo quiosque"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15V9a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6"/></svg>
-            </button>
-          <button
-            type="button"
-            onClick={toggle}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            aria-label="Alternar tema"
-            title={theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
-          >
-            {theme === 'light' ? <icons.ui.moon size={16} /> : <icons.ui.sun size={16} />}
-          </button>
+            <TooltipProvider>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={toggleFocusMode}
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-input ${
+                      focusMode
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : 'text-fg-dim hover:text-fg'
+                    }`}
+                    aria-label={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+                  >
+                    {focusMode ? <icons.ui.focusActive size={16} /> : <icons.ui.focus size={16} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {focusMode ? 'Sair do modo foco' : 'Modo foco'}
+                </TooltipContent>
+              </TooltipRoot>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={enterKiosk}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+                    aria-label="Modo quiosque"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15V9a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6"/></svg>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Modo quiosque</TooltipContent>
+              </TooltipRoot>
+              <TooltipRoot>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
+                    aria-label="Alternar tema"
+                  >
+                    {theme === 'light' ? <icons.ui.moon size={16} /> : <icons.ui.sun size={16} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
+                </TooltipContent>
+              </TooltipRoot>
+            </TooltipProvider>
           </div>
         </header>
       )}
