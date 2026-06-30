@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Tablet as TabletIcon, Plus, X } from 'lucide-react'
 import { TimeInput } from '../components/TimeInput'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { fetchTabletReservas, createTabletReserva, deleteTabletReserva, cleanupOldCancelledTablets } from '../services/supabase'
+import { fetchTabletReservas, createTabletReserva, deleteTabletReserva } from '../services/supabase'
 import type { TabletReserva } from '../types'
 
 const SALAS_PRESET = [
@@ -45,7 +45,6 @@ export function TabletsView() {
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      cleanupOldCancelledTablets()
       try {
         const hoje = new Date()
         hoje.setHours(0, 0, 0, 0)
@@ -57,7 +56,8 @@ export function TabletsView() {
         if (mounted) setLoading(false)
       }
     }
-    load()
+    const timer = setTimeout(load, 100)
+    return () => { mounted = false; clearTimeout(timer) }
   }, [])
 
   const hoje = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
@@ -336,7 +336,7 @@ export function TabletsView() {
               <ReservationRow key={r.id} reservation={r} onCancel={handleCancel} formatTime={formatTimeDisplay} />
             ))}
         {reservas.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '4rem', color: '#94a3b8' }}>
+          <div style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
             <TabletIcon size={48} style={{ opacity: 0.3, marginBottom: '1rem' }} />
             <p>Nenhuma reserva encontrada</p>
           </div>

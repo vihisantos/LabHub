@@ -7,7 +7,7 @@ import { TabletReservationCard } from '../components/TabletReservationCard'
 import { TabletModal } from '../components/TabletModal'
 import { WeeklyCalendar } from '../components/WeeklyCalendar'
 import { fetchReservas } from '../services/api'
-import { fetchTabletReservas, cleanupOldCancelledTablets } from '../services/supabase'
+import { fetchTabletReservas } from '../services/supabase'
 import { diasSemana, getPeriodo, isReservaAtiva, isReservaEmBreve, isReservaEncerrada } from '../utils/timeUtils'
 import { getLabDisplayName } from '../utils/labUtils'
 import type { ReservasAPIResponse, TabletReserva, TransformedReservation, WeekDayData } from '../types'
@@ -150,7 +150,6 @@ export function ReservasView() {
   const [selectedTablet, setSelectedTablet] = useState<TabletReserva | null>(null)
 
   const buscarTablets = async () => {
-    cleanupOldCancelledTablets()
     try {
       const hoje = new Date()
       hoje.setHours(0, 0, 0, 0)
