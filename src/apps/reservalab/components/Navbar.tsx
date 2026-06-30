@@ -41,10 +41,10 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
           padding: '4px 8px',
           minWidth: '200px',
           maxWidth: '90vw',
-          background: 'rgba(255, 255, 255, 0.12)',
+          background: 'rgba(15, 23, 42, 0.7)',
           backdropFilter: 'blur(32px) saturate(180%)',
           WebkitBackdropFilter: 'blur(32px) saturate(180%)',
-          border: '1px solid rgba(255, 255, 255, 0.35)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
           borderRadius: '9999px',
           boxShadow: '0 4px 32px rgba(0, 0, 0, 0.15)',
           gap: '2px',
@@ -134,10 +134,10 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
         alignItems: 'center',
         gap: '4px',
         padding: '6px 12px',
-        background: 'rgba(255, 255, 255, 0.15)',
+        background: 'rgba(15, 23, 42, 0.7)',
         backdropFilter: 'blur(32px) saturate(180%)',
         WebkitBackdropFilter: 'blur(32px) saturate(180%)',
-        border: '1px solid rgba(255, 255, 255, 0.3)',
+        border: '1px solid rgba(255, 255, 255, 0.15)',
         borderRadius: '9999px',
         boxShadow: '0 4px 32px rgba(0, 0, 0, 0.1)',
       }}
@@ -181,7 +181,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
         </span>
       </div>
 
-      <div className="nav-separator" style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.2)' }} />
+      <div className="nav-separator" style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)' }} />
 
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id
