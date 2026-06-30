@@ -24,7 +24,7 @@ export function parseFile(file: File): Promise<ParseResult> {
         const headers = json[0] as string[]
         const rows = json.slice(1) as string[][]
         resolve({ headers, rows, sheetName: name })
-      } catch (err) {
+      } catch {
         reject(new Error('Erro ao ler o arquivo'))
       }
     }

@@ -14,6 +14,16 @@ import { icons } from '../../../lib/icons'
 import { getOverdueLoans } from '../utils/overdue'
 import type { StockSection } from '../types'
 
+const donutColors: Record<StockSection, string> = {
+  maquinas: '#3b82f6',
+  perifericos: '#8b5cf6',
+  material_escritorio: '#f97316',
+  adaptadores: '#14b8a6',
+  equipamentos: '#ec4899',
+  cabos: '#a855f7',
+  outros: '#64748b',
+}
+
 const sectionIcons: Record<StockSection, typeof icons.ui.package> = {
   maquinas: icons.nav.pcs,
   perifericos: icons.ui.plug,
@@ -63,16 +73,6 @@ export function StockDashboard() {
     return counts
   }, [items])
 
-  const donutColors: Record<StockSection, string> = {
-    maquinas: '#3b82f6',
-    perifericos: '#8b5cf6',
-    material_escritorio: '#f97316',
-    adaptadores: '#14b8a6',
-    equipamentos: '#ec4899',
-    cabos: '#a855f7',
-    outros: '#64748b',
-  }
-
   const sectionDonutData = useMemo(() => {
     const labels: Record<StockSection, string> = {
       maquinas: 'Máquinas',
@@ -90,21 +90,19 @@ export function StockDashboard() {
     }))
   }, [sectionCounts])
 
-  const statusColors: Record<string, string> = {
-    ativo: '#10b981',
-    em_conserto: '#f59e0b',
-    emprestado: '#8b5cf6',
-    descartado: '#ef4444',
-  }
-
-  const statusLabels: Record<string, string> = {
-    ativo: 'Ativo',
-    em_conserto: 'Em Conserto',
-    emprestado: 'Emprestado',
-    descartado: 'Descartado',
-  }
-
   const statusBarData = useMemo(() => {
+    const statusColors: Record<string, string> = {
+      ativo: '#10b981',
+      em_conserto: '#f59e0b',
+      emprestado: '#8b5cf6',
+      descartado: '#ef4444',
+    }
+    const statusLabels: Record<string, string> = {
+      ativo: 'Ativo',
+      em_conserto: 'Em Conserto',
+      emprestado: 'Emprestado',
+      descartado: 'Descartado',
+    }
     return (Object.keys(allStatuses) as string[]).map((s) => ({
       label: statusLabels[s] || s,
       value: allStatuses[s],
