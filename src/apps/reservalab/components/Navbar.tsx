@@ -50,6 +50,29 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
           gap: '2px',
         }}
       >
+        <button
+          onClick={() => navigate('/')}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '2px',
+            padding: '8px 12px',
+            borderRadius: '9999px',
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            color: 'rgba(255,255,255,0.5)',
+            fontSize: '10px',
+            fontWeight: 500,
+            transition: 'color 0.2s',
+            minHeight: '36px',
+          }}
+          title="Início"
+        >
+          <icons.ui.home size={18} />
+          <span>Início</span>
+        </button>
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id
           return (
@@ -119,6 +142,27 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
         boxShadow: '0 4px 32px rgba(0, 0, 0, 0.1)',
       }}
     >
+      {/* Home */}
+      <button
+        onClick={() => navigate('/')}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '8px',
+          borderRadius: '9999px',
+          border: 'none',
+          background: 'transparent',
+          cursor: 'pointer',
+          color: 'rgba(255,255,255,0.5)',
+          transition: 'color 0.2s',
+          marginRight: '4px',
+        }}
+        title="Início"
+      >
+        <icons.ui.home size={18} />
+      </button>
+
       {/* Logo */}
       <div style={{
         display: 'flex',

@@ -53,7 +53,7 @@ export function PCList() {
 
   const filtered = useMemo(() => {
     return pcs.filter((pc) => {
-      if (filters.lab && pc.labName !== filters.lab) return false
+      if (filters.lab !== 'all' && pc.labName !== filters.lab) return false
       if (filters.status !== 'all' && pc.cleaningStatus !== filters.status && pc.restorationStatus !== filters.status) return false
       if (search) {
         const q = search.toLowerCase()

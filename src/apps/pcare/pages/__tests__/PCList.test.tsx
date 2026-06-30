@@ -1,4 +1,5 @@
 import { screen, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { PCList } from '../PCList'
 import { renderWithProviders, seedLocalStorage, makePC } from '../../../../test/helpers'
 
@@ -47,29 +48,37 @@ describe('PCList', () => {
     expect(screen.getByText('Nenhum PC encontrado')).toBeInTheDocument()
   })
 
-  it('filtra por laboratorio', () => {
+  it('filtra por laboratorio', async () => {
+    vi.useRealTimers()
+    const user = userEvent.setup()
     seedLocalStorage('pcs', [
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
       makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002' }),
     ])
     renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
 
-    const labSelect = screen.getByDisplayValue('Todos os laboratórios')
-    fireEvent.change(labSelect, { target: { value: 'Lab A' } })
+    const [labTrigger] = screen.getAllByRole('combobox')
+    await user.click(labTrigger)
+    const labOption = await screen.findByText('Lab A')
+    await user.click(labOption)
 
     expect(screen.getByText(/PC-001/)).toBeInTheDocument()
     expect(screen.queryByText(/PC-002/)).not.toBeInTheDocument()
   })
 
-  it('filtra por status', () => {
+  it('filtra por status', async () => {
+    vi.useRealTimers()
+    const user = userEvent.setup()
     seedLocalStorage('pcs', [
       makePC({ id: 'pc-1', cleaningStatus: 'done', pcNumber: 'PC-001' }),
       makePC({ id: 'pc-2', cleaningStatus: 'pending', pcNumber: 'PC-002' }),
     ])
     renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
 
-    const statusSelect = screen.getByDisplayValue('Todos os status')
-    fireEvent.change(statusSelect, { target: { value: 'done' } })
+    const [, statusTrigger] = screen.getAllByRole('combobox')
+    await user.click(statusTrigger)
+    const doneOption = await screen.findByRole('option', { name: 'Concluído' })
+    await user.click(doneOption)
 
     expect(screen.getByText(/PC-001/)).toBeInTheDocument()
     expect(screen.queryByText(/PC-002/)).not.toBeInTheDocument()
