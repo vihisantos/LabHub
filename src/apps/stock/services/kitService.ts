@@ -20,4 +20,6 @@ export const kitService = {
   update: (id: string, data: Partial<Kit>) => service.update(id, data),
 
   remove: (id: string) => service.remove(id),
+
+  query: (predicate: (item: Kit) => boolean) => service.query(predicate),
 }

@@ -18,10 +18,10 @@ const FEATURES: Feature[] = [
 
   { id: 5, cat: 'mid', name: 'Operações em Lote', desc: 'Selecionar múltiplos PCs/itens e ações coletivas', effort: 'med', done: true },
   { id: 6, cat: 'mid', name: 'Notificações Push', desc: 'Alertas de manutenção e sync via Push API', effort: 'high', done: false },
-  { id: 7, cat: 'mid', name: 'Importar Dados (CSV/Excel)', desc: 'Importar planilhas existentes do laboratório', effort: 'med', done: false },
+  { id: 7, cat: 'mid', name: 'Importar Dados (CSV/Excel)', desc: 'Importar planilhas existentes do laboratório', effort: 'med', done: true },
   { id: 8, cat: 'mid', name: 'Tema Customizável (Cor de Destaque)', desc: 'Seletor de cor primária nas Configurações', effort: 'med', done: true },
   { id: 57, cat: 'mid', name: 'Tema Isolado por App', desc: 'Cada app mantém seu próprio tema (dark/light) independente', effort: 'low', done: true },
-  { id: 9, cat: 'mid', name: 'Relatórios com Filtros Avançados', desc: 'Filtrar por período, laboratório, tipo antes de exportar', effort: 'med', done: false },
+  { id: 9, cat: 'mid', name: 'Relatórios com Filtros Avançados', desc: 'Filtrar por período, laboratório, tipo antes de exportar', effort: 'med', done: true },
   { id: 10, cat: 'mid', name: 'Deploy Automático (Vercel)', desc: 'Deploy automático ao push na main', effort: 'low', done: true },
   { id: 11, cat: 'mid', name: 'Atalhos de Teclado', desc: 'Ctrl+N, Ctrl+F, Escape para navegação rápida', effort: 'low', done: true },
   { id: 12, cat: 'mid', name: 'Detecção de Tema do Sistema', desc: 'Respeitar prefers-color-scheme do SO', effort: 'low', done: true },
@@ -34,7 +34,7 @@ const FEATURES: Feature[] = [
   { id: 19, cat: 'mid', name: 'Multilab — Troca Rápida', desc: 'Seletor de laboratório ativo no header', effort: 'low', done: true },
   { id: 20, cat: 'mid', name: 'Checklist com Foto', desc: 'Capturar foto durante execução de checklist', effort: 'med', done: false },
 
-  { id: 21, cat: 'low', name: 'Histórico por Peça', desc: 'Rastreabilidade completa de peças trocadas', effort: 'med', done: false },
+  { id: 21, cat: 'low', name: 'Histórico por Peça', desc: 'Rastreabilidade completa de peças trocadas', effort: 'med', done: true },
   { id: 22, cat: 'low', name: 'Sync Periódico (Polling)', desc: 'Re-sincronizar a cada 30s via Service Worker', effort: 'med', done: false },
   { id: 23, cat: 'low', name: 'Atalho "Avançar Status" no Card', desc: 'Botão rápido para avançar status sem abrir detalhe', effort: 'low', done: true },
   { id: 24, cat: 'low', name: 'Comparar PCs Lado a Lado', desc: 'Tela dividida com specs e status comparados', effort: 'med', done: false },
@@ -76,8 +76,9 @@ const FEATURES: Feature[] = [
   { id: 60, cat: 'mid', name: 'Editar/Deletar Kits', desc: 'Edição de nome/sala/itens e exclusão de kits', effort: 'low', done: true },
   { id: 61, cat: 'mid', name: 'Alerta Empréstimo Atrasado', desc: 'Badge e filtro para empréstimos com prazo vencido', effort: 'low', done: true },
   { id: 62, cat: 'mid', name: 'Duplicar Item no Stock', desc: 'Botão duplicar pré-preenche formulário com dados existentes', effort: 'low', done: true },
-  { id: 63, cat: 'mid', name: 'Testes Unitários do Stock', desc: 'Cobertura de testes para services e páginas do stock', effort: 'high', done: false },
+  { id: 63, cat: 'mid', name: 'Testes Unitários do Stock', desc: 'Cobertura de testes para services e páginas do stock', effort: 'high', done: true },
   { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: true },
+  { id: 68, cat: 'mid', name: 'Vincular Itens do Stock a PCs', desc: 'Associar periféricos, peças e equipamentos do estoque a PCs específicos com rastreamento', effort: 'med', done: false },
 
   { id: 65, cat: 'low', name: 'BottomNav Stock Expandido', desc: 'Adicionar tabs de Inventário e QR ao BottomNav', effort: 'low', done: true },
   { id: 66, cat: 'low', name: 'Corrigir Rota general-stock', desc: 'Generalizar paths no StockLayout para sufixo /general-stock', effort: 'low', done: true },
