@@ -72,8 +72,8 @@ const FEATURES: Feature[] = [
 
   { id: 58, cat: 'high', name: 'Workflow Entrada/Saída (Stock)', desc: 'Registrar entrada e saída de itens com movimentação automática', effort: 'med', done: true },
   { id: 69, cat: 'high', name: 'Fotos para Itens do Estoque', desc: 'Upload de fotos dos itens, visualização no card e detalhe do item', effort: 'med', done: true },
-  { id: 70, cat: 'high', name: 'Scanner QR para Localizar Itens', desc: 'Leitor de QR code integrado ao estoque para localizar itens instantaneamente', effort: 'med', done: false },
-  { id: 71, cat: 'high', name: 'Dashboard com Gráficos do Stock', desc: 'Barras/pizza por seção, tendências de movimentação, precisão de inventário', effort: 'high', done: false },
+  { id: 70, cat: 'high', name: 'Scanner QR para Localizar Itens', desc: 'Leitor de QR code integrado ao estoque para localizar itens instantaneamente', effort: 'med', done: true },
+  { id: 71, cat: 'high', name: 'Dashboard com Gráficos do Stock', desc: 'Barras/pizza por seção, tendências de movimentação, precisão de inventário', effort: 'high', done: true },
 
   { id: 59, cat: 'mid', name: 'Editar/Deletar Itens no Stock', desc: 'Botões de edição e exclusão no StockDetail', effort: 'low', done: true },
   { id: 60, cat: 'mid', name: 'Editar/Deletar Kits', desc: 'Edição de nome/sala/itens e exclusão de kits', effort: 'low', done: true },
