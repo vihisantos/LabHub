@@ -7,6 +7,7 @@ import { PullToRefresh } from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
@@ -160,29 +161,29 @@ export function Maintenance() {
           <div className="flex flex-col gap-3">
             <div>
               <label className="mb-1 block text-xs text-fg-muted">Computador</label>
-              <select
-                value={form.pcId}
-                onChange={(e) => handlePcChange(e.target.value)}
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-                required
-              >
-                <option value="">Selecione um PC</option>
-                {pcs.map((pc) => (
-                  <option key={pc.id} value={pc.id}>{pc.labName} — {pc.pcNumber}</option>
-                ))}
-              </select>
+              <Select value={form.pcId} onValueChange={handlePcChange}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione um PC" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pcs.map((pc) => (
+                    <SelectItem key={pc.id} value={pc.id}>{pc.labName} — {pc.pcNumber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1 block text-xs text-fg-muted">Tipo</label>
-              <select
-                value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value as any })}
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-              >
-                <option value="cleaning">Limpeza</option>
-                <option value="restoration">Restauração</option>
-                <option value="both">Ambos</option>
-              </select>
+              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as any })}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cleaning">Limpeza</SelectItem>
+                  <SelectItem value="restoration">Restauração</SelectItem>
+                  <SelectItem value="both">Ambos</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1 block text-xs text-fg-muted">Data prevista</label>

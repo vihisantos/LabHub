@@ -16,6 +16,7 @@ import { Modal } from '../components/Modal'
 import { PCChecklistModal } from '../components/PCChecklistModal'
 import { icons } from '../../../lib/icons'
 import { exportCSV, pcToRows } from '../utils/export'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 export function PCList() {
   const navigate = useNavigate()
@@ -291,15 +292,16 @@ export function PCList() {
           </div>
           <div>
             <label className="mb-1 block text-xs text-fg-dim">Tipo</label>
-            <select
-              value={scheduleType}
-              onChange={(e) => setScheduleType(e.target.value as any)}
-              className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none focus:border-cyan-500"
-            >
-              <option value="cleaning">Limpeza</option>
-              <option value="restoration">Restauração</option>
-              <option value="both">Ambas</option>
-            </select>
+            <Select value={scheduleType} onValueChange={(v) => setScheduleType(v as any)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cleaning">Limpeza</SelectItem>
+                <SelectItem value="restoration">Restauração</SelectItem>
+                <SelectItem value="both">Ambas</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <button
             type="button"

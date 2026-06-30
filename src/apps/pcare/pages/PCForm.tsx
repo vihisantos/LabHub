@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { icons } from '../../../lib/icons'
 import type { PC } from '../types'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 type PCEditData = Omit<PC, 'id' | 'createdAt' | 'updatedAt' | 'lastIntervention' | 'photos'>
 
@@ -194,27 +195,29 @@ export function PCForm() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs text-fg-muted">Limpeza</label>
-              <select
-                value={form.cleaningStatus}
-                onChange={(e) => updateField('cleaningStatus', e.target.value)}
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-              >
-                <option value="pending">Pendente</option>
-                <option value="in_progress">Em andamento</option>
-                <option value="done">Concluído</option>
-              </select>
+              <Select value={form.cleaningStatus} onValueChange={(v) => updateField('cleaningStatus', v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pendente</SelectItem>
+                  <SelectItem value="in_progress">Em andamento</SelectItem>
+                  <SelectItem value="done">Concluído</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1 block text-xs text-fg-muted">Restauração</label>
-              <select
-                value={form.restorationStatus}
-                onChange={(e) => updateField('restorationStatus', e.target.value)}
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-              >
-                <option value="pending">Pendente</option>
-                <option value="in_progress">Em andamento</option>
-                <option value="done">Concluído</option>
-              </select>
+              <Select value={form.restorationStatus} onValueChange={(v) => updateField('restorationStatus', v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pendente</SelectItem>
+                  <SelectItem value="in_progress">Em andamento</SelectItem>
+                  <SelectItem value="done">Concluído</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </section>

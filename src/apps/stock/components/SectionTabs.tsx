@@ -1,5 +1,6 @@
 import type { StockSection } from '../types'
 import { stockSections } from '../types'
+import { Tabs, TabsList, TabsTrigger } from '../../../lib/components/ui'
 
 interface SectionTabsProps {
   active: StockSection | 'all' | 'repair'
@@ -9,22 +10,15 @@ interface SectionTabsProps {
 export function SectionTabs({ active, onChange }: SectionTabsProps) {
   return (
     <div className="overflow-x-auto scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none]">
-      <div className="flex gap-1 rounded-xl bg-segmented p-0.5 select-none w-max">
-        {stockSections.map((s) => (
-          <button
-            key={s.value}
-            type="button"
-            onClick={() => onChange(s.value)}
-            className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-200 btn-interactive ${
-              active === s.value
-                ? 'bg-surface shadow-sm text-fg'
-                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={active as string} onValueChange={(v) => onChange(v as StockSection)} className="w-max">
+        <TabsList className="bg-segmented">
+          {stockSections.map((s) => (
+            <TabsTrigger key={s.value} value={s.value} className="text-[11px] px-3 py-1.5">
+              {s.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
     </div>
   )
 }

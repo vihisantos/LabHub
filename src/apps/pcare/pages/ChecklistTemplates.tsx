@@ -6,6 +6,7 @@ import { SkeletonCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { ChecklistItemDef, ChecklistTemplateForm } from '../types/checklist'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 const emptyForm = (): ChecklistTemplateForm => ({
   name: '',
@@ -155,15 +156,16 @@ export function ChecklistTemplates() {
                         className="mb-1 w-full rounded border border-line bg-card px-2 py-1 text-xs text-fg outline-none focus:border-cyan-500"
                       />
                       <div className="flex gap-2">
-                        <select
-                          value={item.category}
-                          onChange={(e) => updateItem(index, { category: e.target.value as any })}
-                          className="rounded border border-line bg-card px-1 py-0.5 text-xs text-fg-dim outline-none"
-                        >
-                          {categories.map((c) => (
-                            <option key={c.value} value={c.value}>{c.label}</option>
-                          ))}
-                        </select>
+                        <Select value={item.category} onValueChange={(v) => updateItem(index, { category: v as any })}>
+                          <SelectTrigger className="h-7 rounded border border-line bg-card px-1 text-xs text-fg-dim outline-none">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {categories.map((c) => (
+                              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <label className="flex items-center gap-1 text-xs text-fg-dim">
                           <input
                             type="checkbox"

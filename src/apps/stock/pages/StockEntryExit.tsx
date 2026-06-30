@@ -4,6 +4,7 @@ import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { icons } from '../../../lib/icons'
+import { Tabs, TabsList, TabsTrigger } from '../../../lib/components/ui'
 
 
 export function StockEntryExit() {
@@ -115,28 +116,18 @@ export function StockEntryExit() {
       </div>
 
       {/* Mode switch */}
-      <div className="flex gap-1 rounded-xl bg-input/50 p-1">
-        <button
-          type="button"
-          onClick={() => { setMode('entrada'); reset() }}
-          className={`flex-1 rounded-lg py-2 text-xs font-medium transition-all ${
-            mode === 'entrada' ? 'bg-card text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-fg-muted hover:text-fg'
-          }`}
-        >
-          <icons.ui.plus size={14} className="inline mr-1" />
-          Entrada
-        </button>
-        <button
-          type="button"
-          onClick={() => { setMode('saida'); reset() }}
-          className={`flex-1 rounded-lg py-2 text-xs font-medium transition-all ${
-            mode === 'saida' ? 'bg-card text-red-600 dark:text-red-400 shadow-sm' : 'text-fg-muted hover:text-fg'
-          }`}
-        >
-          <icons.ui.minus size={14} className="inline mr-1" />
-          Saída
-        </button>
-      </div>
+      <Tabs value={mode} onValueChange={(v) => { setMode(v as 'entrada' | 'saida'); reset() }}>
+        <TabsList className="bg-input/50 w-full">
+          <TabsTrigger value="entrada" className="flex-1 text-xs data-[state=active]:text-emerald-600 dark:data-[state=active]:text-emerald-400">
+            <icons.ui.plus size={14} className="inline mr-1" />
+            Entrada
+          </TabsTrigger>
+          <TabsTrigger value="saida" className="flex-1 text-xs data-[state=active]:text-red-600 dark:data-[state=active]:text-red-400">
+            <icons.ui.minus size={14} className="inline mr-1" />
+            Saída
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {success ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 py-12">

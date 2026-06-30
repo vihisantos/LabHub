@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Part, PCPart } from '../types'
 import { Modal } from './Modal'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 interface AddPartToPcModalProps {
   open: boolean
@@ -39,18 +40,18 @@ export function AddPartToPcModal({ open, onClose, parts, onConfirm }: AddPartToP
       <div className="flex flex-col gap-4">
         <div>
           <label className="mb-1 block text-xs text-fg-muted">Peça</label>
-          <select
-            value={selectedPartId}
-            onChange={(e) => setSelectedPartId(e.target.value)}
-            className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-          >
-            <option value="">Selecione uma peça</option>
-            {availableParts.map((part) => (
-              <option key={part.id} value={part.id}>
-                {part.name} ({part.quantity} disponível)
-              </option>
-            ))}
-          </select>
+          <Select value={selectedPartId} onValueChange={setSelectedPartId}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Selecione uma peça" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableParts.map((part) => (
+                <SelectItem key={part.id} value={part.id}>
+                  {part.name} ({part.quantity} disponível)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {availableParts.length === 0 && (
             <p className="mt-1 text-xs text-fg-muted">Nenhuma peça disponível no estoque.</p>
           )}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ChecklistTemplate, PCChecklist } from '../types/checklist'
 import { Modal } from './Modal'
 import { icons } from '../../../lib/icons'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 interface PCChecklistModalProps {
   open: boolean
@@ -71,16 +72,16 @@ export function PCChecklistModal({
           <div>
             <label className="mb-1 block text-xs text-fg-muted">Aplicar novo checklist</label>
             <div className="flex gap-2">
-              <select
-                value={selectedTemplate}
-                onChange={(e) => setSelectedTemplate(e.target.value)}
-                className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-              >
-                <option value="">Selecione um template</option>
-                {availableTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name} ({t.labName || 'Todos'})</option>
-                ))}
-              </select>
+              <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Selecione um template" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTemplates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name} ({t.labName || 'Todos'})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <button
                 type="button"
                 onClick={handleApply}

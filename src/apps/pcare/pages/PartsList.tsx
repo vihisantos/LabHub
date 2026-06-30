@@ -8,6 +8,7 @@ import { partUsageService } from '../services/partUsageService'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { PartFormData } from '../types'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 const emptyPartForm: PartFormData = {
   name: '',
@@ -106,19 +107,16 @@ export function PartsList() {
               </div>
               <div>
                 <label className="mb-1 block text-xs text-fg-muted">Categoria</label>
-                <select
-                  value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-                  required
-                >
-                  <option value="">Selecione</option>
+              <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
                   {categories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                   ))}
-                </select>
+                </SelectContent>
+              </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

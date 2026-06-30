@@ -7,6 +7,7 @@ import { pcService } from '../services/pcService'
 import { partService } from '../services/partService'
 import { SkeletonStatCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 type DataType = 'pcs' | 'parts'
 type Format = 'csv' | 'xlsx' | 'pdf'
@@ -336,16 +337,17 @@ export function Reports() {
                 {dataType === 'pcs' && labs.length > 0 && (
                   <div>
                     <label className="mb-1 block text-xs text-fg-muted">Filtrar por laboratório</label>
-                    <select
-                      value={labFilter}
-                      onChange={(e) => setLabFilter(e.target.value)}
-                      className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-                    >
-                      <option value="">Todos os laboratórios</option>
-                      {labs.map((l) => (
-                        <option key={l} value={l}>{l}</option>
-                      ))}
-                    </select>
+                    <Select value={labFilter} onValueChange={setLabFilter}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Todos os laboratórios" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Todos os laboratórios</SelectItem>
+                        {labs.map((l) => (
+                          <SelectItem key={l} value={l}>{l}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 
@@ -375,32 +377,34 @@ export function Reports() {
                 {dataType === 'pcs' && (
                   <div>
                     <label className="mb-1 block text-xs text-fg-muted">Status</label>
-                    <select
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                      className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-                    >
-                      <option value="">Todos</option>
-                      <option value="done">Concluído</option>
-                      <option value="in_progress">Em andamento</option>
-                      <option value="pending">Pendente</option>
-                    </select>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Todos</SelectItem>
+                        <SelectItem value="done">Concluído</SelectItem>
+                        <SelectItem value="in_progress">Em andamento</SelectItem>
+                        <SelectItem value="pending">Pendente</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 
                 {dataType === 'parts' && categories.length > 0 && (
                   <div>
                     <label className="mb-1 block text-xs text-fg-muted">Categoria</label>
-                    <select
-                      value={categoryFilter}
-                      onChange={(e) => setCategoryFilter(e.target.value)}
-                      className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
-                    >
-                      <option value="">Todas</option>
-                      {categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
+                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Todas" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Todas</SelectItem>
+                        {categories.map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 

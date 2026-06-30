@@ -5,6 +5,7 @@ import { usePCs } from '../hooks/usePCs'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { PCChecklistItem } from '../types/checklist'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 
 export function ChecklistExecute() {
   const { templateId } = useParams()
@@ -94,16 +95,16 @@ export function ChecklistExecute() {
           {pcSelect.length === 0 ? (
             <p className="text-sm text-fg-muted">Nenhum PC encontrado para este laboratório.</p>
           ) : (
-            <select
-              value={selectedPcId}
-              onChange={(e) => setSelectedPcId(e.target.value)}
-              className="w-full rounded-lg border border-line bg-card px-3 py-2.5 text-sm text-fg outline-none focus:border-cyan-500"
-            >
-              <option value="">Selecione um PC</option>
-              {pcSelect.map((pc) => (
-                <option key={pc.id} value={pc.id}>{pc.labName} — {pc.pcNumber}</option>
-              ))}
-            </select>
+            <Select value={selectedPcId} onValueChange={setSelectedPcId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione um PC" />
+              </SelectTrigger>
+              <SelectContent>
+                {pcSelect.map((pc) => (
+                  <SelectItem key={pc.id} value={pc.id}>{pc.labName} — {pc.pcNumber}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
 

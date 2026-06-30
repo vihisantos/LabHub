@@ -4,6 +4,7 @@ import { stockSections, sectionSubcategories, stockConditions } from '../types'
 import { pcService } from '../../pcare/services/pcService'
 import { stockPhotoService, compressImage } from '../services/stockPhotoService'
 import { icons } from '../../../lib/icons'
+import { Popover, PopoverTrigger, PopoverContent } from '../../../lib/components/ui'
 
 interface PhotoUploadButtonProps {
   uploading: boolean
@@ -236,46 +237,45 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             </button>
           </div>
         ) : (
-          <div className="relative">
-            <input
-              type="text"
-              value={pcSearch}
-              onChange={(e) => { setPcSearch(e.target.value); setShowPcPicker(true) }}
-              onFocus={() => setShowPcPicker(true)}
-              placeholder="Buscar PC por lab, número ou sala..."
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-violet-500/30"
-            />
-            {showPcPicker && filteredPcs.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-line bg-card p-1 shadow-lg shadow-black/20">
-                {filteredPcs.map((pc) => (
-                  <button
-                    key={pc.id}
-                    type="button"
-                    onClick={() => {
-                      set('linkedPcId', pc.id)
-                      set('linkedPcLabel', `${pc.labName} - ${pc.pcNumber}`)
-                      setPcSearch('')
-                      setShowPcPicker(false)
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-fg-dim hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:text-fg transition-colors"
-                  >
-                    <icons.nav.pcs size={14} className="text-violet-500" />
-                    <span>{pc.labName} — {pc.pcNumber}</span>
-                    {pc.roomLocation && <span className="text-xs text-fg-muted ml-auto">{pc.roomLocation}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-            {showPcPicker && filteredPcs.length === 0 && pcSearch.trim() && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl border border-line bg-card p-3 text-center text-xs text-fg-muted">
-                Nenhum PC encontrado
-              </div>
-            )}
-            <div
-              className={`fixed inset-0 z-40 ${showPcPicker ? 'block' : 'hidden'}`}
-              onClick={() => setShowPcPicker(false)}
-            />
-          </div>
+          <Popover open={showPcPicker} onOpenChange={setShowPcPicker}>
+            <PopoverTrigger asChild>
+              <input
+                type="text"
+                value={pcSearch}
+                onChange={(e) => { setPcSearch(e.target.value); setShowPcPicker(true) }}
+                onFocus={() => setShowPcPicker(true)}
+                placeholder="Buscar PC por lab, número ou sala..."
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-violet-500/30"
+              />
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="start" className="w-[var(--radix-popover-trigger-width)] p-1 border-line bg-card shadow-lg shadow-black/20" onOpenAutoFocus={(e) => e.preventDefault()}>
+              {filteredPcs.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto">
+                  {filteredPcs.map((pc) => (
+                    <button
+                      key={pc.id}
+                      type="button"
+                      onClick={() => {
+                        set('linkedPcId', pc.id)
+                        set('linkedPcLabel', `${pc.labName} - ${pc.pcNumber}`)
+                        setPcSearch('')
+                        setShowPcPicker(false)
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-fg-dim hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:text-fg transition-colors"
+                    >
+                      <icons.nav.pcs size={14} className="text-violet-500" />
+                      <span>{pc.labName} — {pc.pcNumber}</span>
+                      {pc.roomLocation && <span className="text-xs text-fg-muted ml-auto">{pc.roomLocation}</span>}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-3 text-center text-xs text-fg-muted">
+                  {pcSearch.trim() ? 'Nenhum PC encontrado' : 'Digite para buscar...'}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
         )}
         <p className="mt-1 text-[10px] text-fg-muted">Opção de associar este item a um computador específico</p>
       </div>
