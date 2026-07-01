@@ -209,5 +209,12 @@
   from { transform: scaleY(0.4); }
   to { transform: scaleY(1); }
 }
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  25% { background-position: 100% 50%; }
+  50% { background-position: 100% 0%; }
+  75% { background-position: 0% 100%; }
+  100% { background-position: 0% 50%; }
+}
 
 
