@@ -74,11 +74,11 @@ export function BackgroundAudio({ playlists, isPlaying }: BackgroundAudioProps) 
       controls: 0,
       disablekb: 1,
       rel: 0,
-      loop: 0,
+      loop: 1,
       origin: window.location.origin,
       ...(info.type === 'playlist' && info.playlistId
         ? { list: info.playlistId, listType: 'playlist' as const, index: 0 }
-        : {}),
+        : { playlist: videoId }),
     },
   }
 
@@ -88,17 +88,26 @@ export function BackgroundAudio({ playlists, isPlaying }: BackgroundAudioProps) 
     }
   }
 
+  const videoId = info.videoId
+
   return (
     <div style={{ display: 'none' }}>
       <YouTube
-        videoId={info.videoId}
+        videoId={videoId}
         opts={opts}
         onReady={(e) => {
           playerRef.current = e.target
           e.target.setVolume(currentVolRef.current)
           e.target.playVideo()
         }}
-        onEnd={advance}
+        onEnd={() => {
+          if (playlists.length > 1) {
+            advance()
+          } else {
+            playerRef.current?.seekTo(0)
+            playerRef.current?.playVideo()
+          }
+        }}
       />
     </div>
   )

@@ -22,3 +22,26 @@ export interface TvPlaylist {
 }
 
 export type ContentType = 'video' | 'music' | 'events'
+
+export interface TvMusicQueue {
+  id: string
+  name: string
+  shuffle: boolean
+  created_at: string
+}
+
+export interface TvMusicTrack {
+  id: string
+  queue_id: string
+  youtube_video_id: string
+  title: string
+  duration_seconds: number
+  position: number
+  created_at: string
+}
+
+export interface YouTubeTrackInfo {
+  videoId: string
+  title: string
+  duration: number
+}

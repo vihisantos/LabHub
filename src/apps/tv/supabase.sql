@@ -26,3 +26,31 @@ create table if not exists tv_playlists (
 -- Índices para consulta rápida
 create index if not exists idx_tv_events_active on tv_events(is_active, sort_order);
 create index if not exists idx_tv_playlists_active on tv_playlists(is_active, sort_order);
+
+-- Filas de música (substitui o type='music' em tv_playlists)
+create table if not exists tv_music_queues (
+  id uuid default gen_random_uuid() primary key,
+  name text not null,
+  shuffle boolean default false,
+  created_at timestamptz default now()
+);
+
+-- Tracks individuais dentro de uma fila
+create table if not exists tv_music_tracks (
+  id uuid default gen_random_uuid() primary key,
+  queue_id uuid not null references tv_music_queues(id) on delete cascade,
+  youtube_video_id text not null,
+  title text not null,
+  duration_seconds int default 0,
+  position int not null,
+  created_at timestamptz default now(),
+  unique(queue_id, position)
+);
+
+alter table tv_music_tracks enable row level security;
+alter table tv_music_queues enable row level security;
+
+create policy "Permitir tudo para anon" on tv_music_queues for all using (true) with check (true);
+create policy "Permitir tudo para anon" on tv_music_tracks for all using (true) with check (true);
+
+create index if not exists idx_music_tracks_queue on tv_music_tracks(queue_id, position);

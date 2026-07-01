@@ -1,23 +1,41 @@
 import { useState, useEffect } from 'react'
-import { Settings, Tv } from 'lucide-react'
+import { Settings, Tv, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useEvents } from '../hooks/useEvents'
 import { usePlaylists } from '../hooks/usePlaylists'
 import { YouTubePlayer } from '../components/YouTubePlayer'
 import { MusicPlayer } from '../components/MusicPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
 import { BackgroundAudio } from '../components/BackgroundAudio'
+import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
+import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 
 export function TvDisplay() {
-  const { events } = useEvents()
-  const { playlists: videoPlaylists } = usePlaylists('video')
-  const { playlists: musicPlaylists } = usePlaylists('music')
+  const { events, loading: eventsLoading } = useEvents()
+  const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists('video')
+  const { playlists: musicPlaylists, loading: musicLoading } = usePlaylists('music')
+  const { tracks: musicQueueTracks, shuffle: musicShuffle } = useAllMusicTracks()
 
   const [clock, setClock] = useState(new Date())
+  const [hasLoaded, setHasLoaded] = useState(false)
+  const [paused, setPaused] = useState(false)
+
+  const isVideoPlaying = showingVideo && !paused
+
+  const EVENT_DURATIONS = [10000, 15000, 30000, 60000] as const
+  const [eventDurationIndex, setEventDurationIndex] = useState(1)
+  const eventDisplayMs = EVENT_DURATIONS[eventDurationIndex]
 
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  /* ── Track initial load complete ── */
+  useEffect(() => {
+    if (!eventsLoading && !videoLoading && !musicLoading) {
+      setHasLoaded(true)
+    }
+  }, [eventsLoading, videoLoading, musicLoading])
 
   /* ── Video index cycles through playlists on natural end ── */
   const [videoIndex, setVideoIndex] = useState(0)
@@ -45,12 +63,12 @@ export function TvDisplay() {
     return () => clearTimeout(timer)
   }, [showingVideo, currentPlaylist?.id, currentPlaylist?.duration_seconds])
 
-  /* ── Events timer: after 15s, resume video ── */
+  /* ── Events timer: after eventDisplayMs, resume video ── */
   useEffect(() => {
-    if (showingVideo || videoPlaylists.length === 0) return
-    const timer = setTimeout(() => setShowingVideo(true), events.length > 0 ? 15000 : 6000)
+    if (showingVideo || paused || videoPlaylists.length === 0) return
+    const timer = setTimeout(() => setShowingVideo(true), events.length > 0 ? eventDisplayMs : 6000)
     return () => clearTimeout(timer)
-  }, [showingVideo, videoPlaylists.length, events.length])
+  }, [showingVideo, paused, videoPlaylists.length, events.length, eventDisplayMs])
 
   const advanceToNextVideo = () => {
     if (videoPlaylists.length > 1) {
@@ -59,11 +77,21 @@ export function TvDisplay() {
     setShowingVideo(true)
   }
 
+  const goToPrevVideo = () => {
+    if (videoPlaylists.length > 0) {
+      setVideoIndex((i) => (i - 1 + videoPlaylists.length) % videoPlaylists.length)
+    }
+    setPaused(false)
+    setShowingVideo(true)
+  }
+
+  const togglePause = () => setPaused((p) => !p)
+
   /* ── Music: plays during events, pauses during video ── */
   const [musicPlaying, setMusicPlaying] = useState(false)
   useEffect(() => {
-    setMusicPlaying(!showingVideo)
-  }, [showingVideo])
+    setMusicPlaying(!showingVideo && !paused)
+  }, [showingVideo, paused])
 
   /* ── Formatting ── */
   const formatTime = (d: Date) =>
@@ -73,7 +101,7 @@ export function TvDisplay() {
     d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const hasContent = videoPlaylists.length > 0 || events.length > 0
-  const hasMusic = musicPlaylists.length > 0
+  const hasMusic = musicPlaylists.length > 0 || musicQueueTracks.length > 0
 
   return (
     <div
@@ -112,7 +140,7 @@ export function TvDisplay() {
               <YouTubePlayer
                 key={currentPlaylist.id}
                 url={currentPlaylist.youtube_url}
-                isPlaying={showingVideo}
+                isPlaying={isVideoPlaying}
                 onEnd={advanceToNextVideo}
               />
             </div>
@@ -120,10 +148,64 @@ export function TvDisplay() {
         </div>
       )}
 
-      {/* ── Layer 3: Background audio ── */}
-      <BackgroundAudio playlists={musicPlaylists} isPlaying={musicPlaying} />
+      {/* ── Layer 3: Music (queue or legacy) ── */}
+      {musicQueueTracks.length > 0 ? (
+        <MusicQueuePlayer
+          tracks={musicQueueTracks}
+          shuffle={musicShuffle}
+          isPlaying={musicPlaying}
+        />
+      ) : (
+        <BackgroundAudio playlists={musicPlaylists} isPlaying={musicPlaying} />
+      )}
 
-      {/* ── Layer 4: UI overlay ── */}
+      {/* ── Layer 4: Playback controls ── */}
+      {videoPlaylists.length > 0 && showingVideo && (
+        <div style={{
+          position: 'fixed', bottom: '4.5rem', left: '50%',
+          transform: 'translateX(-50%)', zIndex: 20,
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.35rem 0.75rem', borderRadius: '9999px',
+          background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          <button
+            onClick={goToPrevVideo}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(255,255,255,0.5)', padding: '0.35rem',
+              display: 'flex', borderRadius: '50%', transition: 'color 0.2s',
+            }}
+            title="Anterior"
+          >
+            <SkipBack size={16} />
+          </button>
+          <button
+            onClick={togglePause}
+            style={{
+              background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer',
+              color: '#fff', padding: '0.4rem',
+              display: 'flex', borderRadius: '50%', transition: 'background 0.2s',
+            }}
+            title={paused ? 'Continuar' : 'Pausar'}
+          >
+            {paused ? <Play size={16} /> : <Pause size={16} />}
+          </button>
+          <button
+            onClick={advanceToNextVideo}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(255,255,255,0.5)', padding: '0.35rem',
+              display: 'flex', borderRadius: '50%', transition: 'color 0.2s',
+            }}
+            title="Próximo"
+          >
+            <SkipForward size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* ── Layer 5: UI overlay ── */}
 
       {/* Admin button */}
       <a
@@ -183,7 +265,7 @@ export function TvDisplay() {
       </div>
 
       {/* Music visualizer widget */}
-      {hasMusic && (
+      {musicPlaylists.length > 0 && musicQueueTracks.length === 0 && (
         <div style={{
           position: 'fixed', bottom: '2rem', right: '3rem', zIndex: 10,
         }}>
@@ -195,20 +277,37 @@ export function TvDisplay() {
       <div style={{
         position: 'fixed', bottom: '2rem', left: '50%',
         transform: 'translateX(-50%)', zIndex: 10,
-        display: 'flex', gap: '0.5rem',
+        display: 'flex', gap: '0.5rem', alignItems: 'center',
       }}>
-        <div style={{
-          width: showingVideo ? '24px' : '8px',
-          height: '6px', borderRadius: '3px',
-          background: showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
-          transition: 'all 0.3s',
-        }} />
-        <div style={{
-          width: !showingVideo ? '24px' : '8px',
-          height: '6px', borderRadius: '3px',
-          background: !showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
-          transition: 'all 0.3s',
-        }} />
+        <div
+          style={{
+            width: showingVideo ? '24px' : '8px',
+            height: '6px', borderRadius: '3px',
+            background: showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
+            transition: 'all 0.3s',
+          }}
+        />
+        <div
+          onClick={() => {
+            setEventDurationIndex((i) => (i + 1) % EVENT_DURATIONS.length)
+          }}
+          title={`Eventos: ${eventDisplayMs / 1000}s`}
+          style={{
+            cursor: events.length > 0 ? 'pointer' : 'default',
+            width: !showingVideo ? '24px' : '8px',
+            height: '6px', borderRadius: '3px',
+            background: !showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
+            transition: 'all 0.3s',
+          }}
+        />
+        {events.length > 0 && !showingVideo && (
+          <span style={{
+            fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)',
+            marginLeft: '0.25rem', fontVariantNumeric: 'tabular-nums',
+          }}>
+            {eventDisplayMs / 1000}s
+          </span>
+        )}
       </div>
 
       {/* Branding */}
@@ -220,8 +319,8 @@ export function TvDisplay() {
         <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>Lab Hub TV</span>
       </div>
 
-      {/* Empty state */}
-      {!hasContent && !hasMusic && (
+      {/* Empty state (only after initial load) */}
+      {hasLoaded && !hasContent && !hasMusic && (
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', flexDirection: 'column', alignItems: 'center',

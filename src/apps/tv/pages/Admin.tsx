@@ -4,6 +4,7 @@ import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
 import { EventManager } from '../components/EventManager'
 import { PlaylistManager } from '../components/PlaylistManager'
+import { QueueManager } from '../components/QueueManager'
 
 export function AdminView() {
   const navigate = useNavigate()
@@ -71,6 +72,7 @@ export function AdminView() {
               onEdit={editPlaylist}
               onDelete={deletePlaylist}
             />
+            <QueueManager />
 
             <div style={{
               background: '#fff', borderRadius: '0.75rem',
@@ -82,6 +84,7 @@ export function AdminView() {
               <ol style={{ color: '#475569', fontSize: '0.875rem', lineHeight: 2, paddingLeft: '1.25rem' }}>
                 <li>Crie eventos com título, descrição e imagem (opcional)</li>
                 <li>Adicione playlists do YouTube (vídeos ou músicas)</li>
+                <li>Crie filas de música com links do YouTube (vídeos ou playlists)</li>
                 <li>Abra <strong>/tv/display</strong> em um PC conectado à TV</li>
                 <li>O conteúdo vai rodar em loop automaticamente</li>
               </ol>

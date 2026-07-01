@@ -332,6 +332,134 @@ def push_test():
             count += 1
     return jsonify({'sent': count, 'total': len(subs)})
 
+@app.route('/api/youtube/fetch', methods=['POST'])
+def youtube_fetch():
+    try:
+        data = request.get_json()
+        url = data.get('url', '') if data else ''
+        if not url:
+            return jsonify({'error': 'URL é obrigatória'}), 400
+
+        import re as _re
+
+        # Parse YouTube URL (same logic as frontend parseYouTubeUrl)
+        parsed = None
+        try:
+            from urllib.parse import urlparse, parse_qs
+            u = urlparse(url)
+            host = u.hostname.replace('www.', '') if u.hostname else ''
+            qs = parse_qs(u.query)
+
+            if host in ('youtube.com', 'm.youtube.com'):
+                playlist_id = qs.get('list', [None])[0]
+                video_id = qs.get('v', [None])[0]
+                if playlist_id and video_id:
+                    parsed = {'type': 'playlist', 'videoId': video_id, 'playlistId': playlist_id}
+                elif playlist_id:
+                    parsed = {'type': 'playlist', 'playlistId': playlist_id}
+                elif video_id:
+                    parsed = {'type': 'video', 'videoId': video_id}
+            elif host == 'youtu.be':
+                video_id = u.path.lstrip('/').split('/')[0]
+                if video_id:
+                    parsed = {'type': 'video', 'videoId': video_id}
+        except:
+            pass
+
+        if not parsed:
+            return jsonify({'error': 'URL do YouTube inválida'}), 400
+
+        api_key = os.environ.get('YOUTUBE_API_KEY')
+        if not api_key:
+            return jsonify({'error': 'YouTube API key não configurada'}), 500
+
+        def iso_duration_to_seconds(duration):
+            """Converte ISO 8601 duration (PT1H30M15S) para segundos."""
+            if not duration:
+                return 0
+            match = _re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
+            if not match:
+                return 0
+            h = int(match.group(1) or 0)
+            m = int(match.group(2) or 0)
+            s = int(match.group(3) or 0)
+            return h * 3600 + m * 60 + s
+
+        tracks = []
+
+        if parsed['type'] == 'playlist':
+            playlist_id = parsed['playlistId']
+            # Fetch playlist items
+            pl_url = (
+                f'https://www.googleapis.com/youtube/v3/playlistItems'
+                f'?part=snippet,contentDetails&playlistId={playlist_id}'
+                f'&maxResults=50&key={api_key}'
+            )
+            resp = requests.get(pl_url, timeout=15)
+            if not resp.ok:
+                return jsonify({'error': f'Erro YouTube API: {resp.status_code}'}), 502
+            pl_data = resp.json()
+
+            items = pl_data.get('items', [])
+            video_ids = [item['contentDetails']['videoId'] for item in items if 'contentDetails' in item]
+
+            if not video_ids:
+                return jsonify({'tracks': []})
+
+            # Fetch video details (titles + durations)
+            vid_url = (
+                f'https://www.googleapis.com/youtube/v3/videos'
+                f'?part=snippet,contentDetails&id={",".join(video_ids)}&key={api_key}'
+            )
+            vresp = requests.get(vid_url, timeout=15)
+            if vresp.ok:
+                vdata = vresp.json()
+                vid_map = {}
+                for vitem in vdata.get('items', []):
+                    vid = vitem.get('id', '')
+                    title = vitem.get('snippet', {}).get('title', 'Sem título')
+                    dur = iso_duration_to_seconds(vitem.get('contentDetails', {}).get('duration', ''))
+                    vid_map[vid] = {'title': title, 'duration': dur}
+
+                # Maintain playlist order
+                for vid in video_ids:
+                    info = vid_map.get(vid, {'title': 'Sem título', 'duration': 0})
+                    tracks.append({
+                        'videoId': vid,
+                        'title': info['title'],
+                        'duration': info['duration'],
+                    })
+            else:
+                # Fallback: just use video IDs without details
+                for vid in video_ids:
+                    tracks.append({'videoId': vid, 'title': 'Carregando...', 'duration': 0})
+        else:
+            # Single video
+            video_id = parsed['videoId']
+            vid_url = (
+                f'https://www.googleapis.com/youtube/v3/videos'
+                f'?part=snippet,contentDetails&id={video_id}&key={api_key}'
+            )
+            resp = requests.get(vid_url, timeout=15)
+            if not resp.ok:
+                return jsonify({'error': f'Erro YouTube API: {resp.status_code}'}), 502
+            vdata = resp.json()
+            items = vdata.get('items', [])
+            if items:
+                item = items[0]
+                tracks.append({
+                    'videoId': video_id,
+                    'title': item.get('snippet', {}).get('title', 'Sem título'),
+                    'duration': iso_duration_to_seconds(item.get('contentDetails', {}).get('duration', '')),
+                })
+
+        return jsonify({'tracks': tracks})
+
+    except Exception as e:
+        logger.error(f"YouTube fetch error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/push/check', methods=['GET'])
 def push_check():
     if not redis:

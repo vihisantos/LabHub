@@ -13,6 +13,7 @@ const API_KEY = 'EtKxIwZz6wyLZ9z6Wa-Z58ei6XU'
 export function CloudinaryUpload({ onUpload, resourceType = 'image' }: CloudinaryUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,15 +39,20 @@ export function CloudinaryUpload({ onUpload, resourceType = 'image' }: Cloudinar
       if (data.secure_url) {
         onUpload(data.secure_url)
         setDone(true)
+        setError(null)
         setTimeout(() => setDone(false), 2000)
+      } else {
+        setError(data.error?.message || 'Falha no upload')
       }
-    } catch {
-      /* silently ignore */
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro de rede')
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ''
     }
   }
+
+  const dismissError = () => setError(null)
 
   const Icon = resourceType === 'video' ? Film : Image
 
@@ -59,24 +65,43 @@ export function CloudinaryUpload({ onUpload, resourceType = 'image' }: Cloudinar
         onChange={handleFile}
         style={{ display: 'none' }}
       />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        style={{
-          display: 'flex', alignItems: 'center', gap: '6px',
-          padding: '0.6rem 0.75rem', borderRadius: '0.5rem',
-          border: '1px solid #e2e8f0',
-          background: uploading ? '#f1f5f9' : '#fff',
-          color: uploading ? '#94a3b8' : '#6366f1',
-          fontSize: '0.875rem', fontWeight: 500,
-          cursor: uploading ? 'not-allowed' : 'pointer',
-          whiteSpace: 'nowrap', flexShrink: 0,
-        }}
-      >
-        {uploading ? <Loader2 size={16} className="spin" /> : done ? <Check size={16} /> : <Icon size={16} />}
-        {uploading ? 'Enviando...' : done ? 'Enviado' : resourceType === 'video' ? 'Upload Vídeo' : 'Upload'}
-      </button>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        {error && (
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, marginTop: '4px',
+            padding: '0.4rem 0.6rem', borderRadius: '0.375rem',
+            background: '#fef2f2', border: '1px solid #fecaca',
+            color: '#dc2626', fontSize: '0.75rem', fontWeight: 500,
+            whiteSpace: 'nowrap',
+          }}>
+            {error}
+            <button type="button" onClick={dismissError} style={{
+              marginLeft: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626',
+              fontSize: '0.8rem', lineHeight: 1, padding: 0,
+            }}>
+              ✕
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '0.6rem 0.75rem', borderRadius: '0.5rem',
+            border: '1px solid #e2e8f0',
+            background: uploading ? '#f1f5f9' : '#fff',
+            color: uploading ? '#94a3b8' : '#6366f1',
+            fontSize: '0.875rem', fontWeight: 500,
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {uploading ? <Loader2 size={16} className="spin" /> : done ? <Check size={16} /> : <Icon size={16} />}
+          {uploading ? 'Enviando...' : done ? 'Enviado' : resourceType === 'video' ? 'Upload Vídeo' : 'Upload'}
+        </button>
+      </div>
     </>
   )
 }

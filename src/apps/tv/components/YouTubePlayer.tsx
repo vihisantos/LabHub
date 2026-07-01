@@ -86,7 +86,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>
         origin: window.location.origin,
         ...(info.type === 'playlist' && info.playlistId
           ? { list: info.playlistId, listType: 'playlist' as const, index: 0 }
-          : {}),
+          : { playlist: info.videoId }),
       },
     }
 
