@@ -28,7 +28,7 @@ export function usePlaylists(type?: 'video' | 'music') {
     const db = supabase
     if (!db) return
     const channel = db
-      .channel('tv-playlists-realtime')
+      .channel(`tv-playlists-realtime-${type ?? 'all'}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tv_playlists' },
         () => { load() }

@@ -1,19 +1,18 @@
 import { createClient } from '@supabase/supabase-js'
+import { PostgrestClient } from '@supabase/postgrest-js'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-const hasConfig = url && anonKey
-
-let pcareDb: ReturnType<typeof createClient> | null = null
-let stockDb: ReturnType<typeof createClient> | null = null
 let defaultDb: ReturnType<typeof createClient> | null = null
+let pcareDb: PostgrestClient | null = null
+let stockDb: PostgrestClient | null = null
 
-if (hasConfig) {
+if (url && anonKey) {
   try {
-    pcareDb = createClient(url, anonKey, { db: { schema: 'pcare' as any } })
-    stockDb = createClient(url, anonKey, { db: { schema: 'stock' as any } })
     defaultDb = createClient(url, anonKey)
+    pcareDb = defaultDb.schema('pcare')
+    stockDb = defaultDb.schema('stock')
   } catch (e) {
     console.warn('[Supabase] Failed to initialize:', e)
   }
