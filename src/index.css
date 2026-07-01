@@ -216,5 +216,9 @@
   75% { background-position: 0% 100%; }
   100% { background-position: 0% 50%; }
 }
+@keyframes hue-shift {
+  from { filter: hue-rotate(0deg); }
+  to { filter: hue-rotate(360deg); }
+}
 
 

@@ -182,12 +182,9 @@ export function TvDisplay() {
           fontSize: 'clamp(2.5rem, 5vw, 5rem)',
           fontWeight: 800,
           lineHeight: 1.2,
-          background: 'linear-gradient(135deg, #f1f5f9, #818cf8, #a855f7, #06b6d4, #f59e0b, #818cf8, #f1f5f9)',
-          backgroundSize: '300% 300%',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          animation: 'gradient-shift 6s ease-in-out infinite',
-          textShadow: '0 0 80px rgba(99,102,241,0.15)',
+          color: '#f1f5f9',
+          textShadow: '0 0 40px rgba(129,140,248,0.4), 0 0 80px rgba(99,102,241,0.15)',
+          animation: 'hue-shift 4s linear infinite',
         }}>
           {clock.getHours() >= 5 && clock.getHours() < 12
             ? 'Bom dia, Campus!'
