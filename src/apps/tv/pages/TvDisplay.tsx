@@ -23,6 +23,13 @@ export function TvDisplay() {
   const [videoIndex, setVideoIndex] = useState(0)
   const currentPlaylist = videoPlaylists[videoIndex]
 
+  /* ── Reset index when current playlist is removed ── */
+  useEffect(() => {
+    if (videoPlaylists.length > 0 && videoIndex >= videoPlaylists.length) {
+      setVideoIndex(0)
+    }
+  }, [videoPlaylists.length, videoIndex])
+
   /* ── Toggle: video vs events ── */
   const [showingVideo, setShowingVideo] = useState(true)
 
@@ -83,7 +90,7 @@ export function TvDisplay() {
       )}
 
       {/* ── Layer 2: Video player (always mounted once available) ── */}
-      {videoPlaylists.length > 0 && (
+      {videoPlaylists.length > 0 && currentPlaylist && (
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
