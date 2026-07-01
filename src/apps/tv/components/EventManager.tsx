@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Plus, Pencil, Trash2, X, ChevronUp, ChevronDown } from 'lucide-react'
 import type { TvEvent } from '../types'
+import { CloudinaryUpload } from './CloudinaryUpload'
 
 interface EventManagerProps {
   events: TvEvent[]
@@ -97,8 +98,11 @@ export function EventManager({ events, onAdd, onEdit, onDelete }: EventManagerPr
             style={inputStyle} />
           <textarea placeholder="Descrição (opcional)" value={description} onChange={e => setDescription(e.target.value)}
             style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }} />
-          <input placeholder="URL da imagem (opcional)" value={imageUrl} onChange={e => setImageUrl(e.target.value)}
-            style={inputStyle} />
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input placeholder="URL da imagem (opcional)" value={imageUrl} onChange={e => setImageUrl(e.target.value)}
+              style={{ ...inputStyle, flex: 1 }} />
+            <CloudinaryUpload onUpload={(url) => setImageUrl(url)} />
+          </div>
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <input type="datetime-local" placeholder="Início" value={startDate} onChange={e => setStartDate(e.target.value)}
               style={inputStyle} />
