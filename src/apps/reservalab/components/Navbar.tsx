@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -17,6 +18,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
   const isMobile = useIsMobile()
   const location = useLocation()
   const navigate = useNavigate()
+  const touchStartX = useRef(0)
 
   const currentPath = location.pathname
   const isRoot = currentPath === '/reservalab' || currentPath === '/reservalab/'
@@ -30,10 +32,27 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
     }
   }
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const delta = e.changedTouches[0].clientX - touchStartX.current
+    if (Math.abs(delta) < 30) return
+    const idx = tabs.findIndex(t => t.id === activeTab)
+    if (delta < 0 && idx < tabs.length - 1) {
+      handleNavigate(tabs[idx + 1].id)
+    } else if (delta > 0 && idx > 0) {
+      handleNavigate(tabs[idx - 1].id)
+    }
+  }
+
   if (isMobile) {
     return (
       <div
         className="bottom-navbar"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         style={{
           position: 'fixed',
           bottom: 'max(1rem, env(safe-area-inset-bottom))',

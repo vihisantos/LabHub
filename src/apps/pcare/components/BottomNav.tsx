@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { partService } from '../services/partService'
@@ -31,6 +31,7 @@ const moreItems = [
 export function BottomNav() {
   const location = useLocation()
   const navigate = useNavigate()
+  const touchStartX = useRef(0)
   const [showMore, setShowMore] = useState(false)
   const { overdue, lowStock } = useBadges()
 
@@ -44,9 +45,26 @@ export function BottomNav() {
     return location.pathname.startsWith(to + '/') || location.pathname === to
   }
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const delta = e.changedTouches[0].clientX - touchStartX.current
+    if (Math.abs(delta) < 30) return
+    const idx = mainNav.findIndex(n => isActive(n.to))
+    if (delta < 0 && idx < mainNav.length - 1) {
+      navigate(mainNav[idx + 1].to)
+    } else if (delta > 0 && idx > 0) {
+      navigate(mainNav[idx - 1].to)
+    }
+  }
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <nav
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         aria-label="Navegação principal"
         style={{
           display: 'flex',
