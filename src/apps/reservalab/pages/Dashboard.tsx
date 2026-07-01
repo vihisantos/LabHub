@@ -176,7 +176,7 @@ export function DashboardView() {
       style={{
         maxWidth: '80rem',
         margin: '0 auto',
-        padding: isMobile ? '6rem 1.5rem 5rem' : '9rem 1.5rem 6rem',
+        padding: isMobile ? '6rem 1rem 5rem' : '9rem 1.5rem 6rem',
         background: 'transparent',
         minHeight: '100vh',
         color: '#0a0a0a',
@@ -189,12 +189,12 @@ export function DashboardView() {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
-        marginBottom: '3rem',
+        marginBottom: isMobile ? '1.5rem' : '3rem',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{
-            width: '3rem',
-            height: '3rem',
+            width: isMobile ? '2.25rem' : '3rem',
+            height: isMobile ? '2.25rem' : '3rem',
             borderRadius: '0.75rem',
             background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
             display: 'flex',
@@ -202,10 +202,10 @@ export function DashboardView() {
             justifyContent: 'center',
             boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)',
           }}>
-            <BarChart3 size={20} color="#fff" />
+            <BarChart3 size={isMobile ? 16 : 20} color="#fff" />
           </div>
           <div>
-            <h2 style={{ fontSize: isMobile ? '1.5rem' : '2rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
+            <h2 style={{ fontSize: isMobile ? '1.25rem' : '2rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
               Visão Geral
             </h2>
             <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginTop: '2px' }}>
@@ -241,11 +241,11 @@ export function DashboardView() {
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: '1.5rem',
+        gap: isMobile ? '1rem' : '1.5rem',
         marginBottom: '2rem',
       }}>
         {statsCards.map((card, idx) => (
-          <StatsCard key={idx} {...card} index={idx} />
+          <StatsCard key={idx} {...card} index={idx} isMobile={isMobile} />
         ))}
       </div>
 
@@ -253,13 +253,13 @@ export function DashboardView() {
       <div style={{
         display: 'grid',
         gridTemplateColumns: isMobile ? '1fr' : '1fr 360px',
-        gap: '1.5rem',
+        gap: isMobile ? '1rem' : '1.5rem',
         alignItems: 'start',
       }}>
         {/* Charts */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <ChartContainer title="Reservas por Dia" subtitle="Próxima semana">
-            <div style={{ height: '200px', width: '100%', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '1rem' : '1.5rem' }}>
+          <ChartContainer title="Reservas por Dia" subtitle="Próxima semana" isMobile={isMobile}>
+            <div style={{ height: isMobile ? '140px' : '200px', width: '100%', marginBottom: isMobile ? '0.5rem' : '1.5rem' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={weeklyUsageData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -274,8 +274,8 @@ export function DashboardView() {
             </div>
           </ChartContainer>
 
-          <ChartContainer title="Distribuição por Horário" subtitle="Horários mais solicitados">
-            <div style={{ height: '200px', width: '100%', marginBottom: '1.5rem' }}>
+          <ChartContainer title="Distribuição por Horário" subtitle="Horários mais solicitados" isMobile={isMobile}>
+            <div style={{ height: isMobile ? '140px' : '200px', width: '100%', marginBottom: isMobile ? '0.5rem' : '1.5rem' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={timeDistributionData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                   <defs>
@@ -305,7 +305,7 @@ export function DashboardView() {
             borderRadius: '1rem',
             border: '1px solid rgba(99, 102, 241, 0.15)',
             boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-            padding: '1.5rem',
+            padding: isMobile ? '1rem' : '1.5rem',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>

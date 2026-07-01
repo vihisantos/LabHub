@@ -8,6 +8,7 @@ interface StatsCardProps {
   icon: ReactNode
   color: string
   index: number
+  isMobile?: boolean
 }
 
 function AnimatedValue({ value }: { value: number }) {
@@ -33,7 +34,7 @@ function AnimatedValue({ value }: { value: number }) {
   return <>{display}</>
 }
 
-export function StatsCard({ title, value, subtitle, icon, color, index }: StatsCardProps) {
+export function StatsCard({ title, value, subtitle, icon, color, index, isMobile }: StatsCardProps) {
   const isNumeric = typeof value === 'number'
 
   return (
@@ -46,7 +47,7 @@ export function StatsCard({ title, value, subtitle, icon, color, index }: StatsC
         backdropFilter: 'blur(12px)',
         borderRadius: '1rem',
         border: '1px solid rgba(99, 102, 241, 0.15)',
-        padding: '1.5rem',
+        padding: isMobile ? '1rem' : '1.5rem',
         position: 'relative',
         overflow: 'hidden',
       }}
@@ -64,11 +65,11 @@ export function StatsCard({ title, value, subtitle, icon, color, index }: StatsC
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <p style={{ fontSize: '0.85rem', color: '#71717a', fontWeight: 500, marginBottom: '0.5rem' }}>
+          <p style={{ fontSize: isMobile ? '0.75rem' : '0.85rem', color: '#71717a', fontWeight: 500, marginBottom: '0.5rem' }}>
             {title}
           </p>
           <p style={{
-            fontSize: '2rem',
+            fontSize: isMobile ? '1.5rem' : '2rem',
             fontWeight: 800,
             color: '#0f172a',
             fontVariantNumeric: 'tabular-nums',
@@ -78,8 +79,8 @@ export function StatsCard({ title, value, subtitle, icon, color, index }: StatsC
           </p>
         </div>
         <div style={{
-          width: '40px',
-          height: '40px',
+          width: isMobile ? '32px' : '40px',
+          height: isMobile ? '32px' : '40px',
           borderRadius: '0.75rem',
           background: `${color}15`,
           display: 'flex',
@@ -90,7 +91,7 @@ export function StatsCard({ title, value, subtitle, icon, color, index }: StatsC
           {icon}
         </div>
       </div>
-      <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.75rem' }}>
+      <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {subtitle}
       </p>
     </motion.div>
