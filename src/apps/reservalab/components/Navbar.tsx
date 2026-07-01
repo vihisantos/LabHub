@@ -57,14 +57,15 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
     if (!containerRef.current) return
     const containerRect = containerRef.current.getBoundingClientRect()
     const relX = e.touches[0].clientX - containerRect.left
-    for (let i = 0; i < tabs.length; i++) {
-      const pos = tabPositionsRef.current[i]
-      if (!pos) continue
-      if (relX >= pos.left && relX <= pos.left + pos.width) {
-        setHoveredTab(tabs[i].id)
-        return
-      }
-    }
+    const firstPos = tabPositionsRef.current[0]
+    const lastPos = tabPositionsRef.current[tabs.length - 1]
+    if (!firstPos || !lastPos) return
+    const areaStart = firstPos.left
+    const areaWidth = (lastPos.left + lastPos.width) - areaStart
+    if (areaWidth <= 0) return
+    const proportion = Math.max(0, Math.min(1, (relX - areaStart) / areaWidth))
+    const index = Math.min(Math.floor(proportion * tabs.length), tabs.length - 1)
+    setHoveredTab(tabs[index].id)
   }
 
   const handleTouchEnd = () => {
@@ -155,7 +156,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
               {isActive && (
                 <motion.div
                   layoutId="activeTab"
-                  transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+                  transition={{ type: 'spring', stiffness: 800, damping: 50 }}
                   style={{
                     position: 'absolute',
                     inset: 0,

@@ -76,14 +76,15 @@ export function StockBottomNav() {
     if (!navRef.current) return
     const containerRect = navRef.current.getBoundingClientRect()
     const relX = e.touches[0].clientX - containerRect.left
-    for (let i = 0; i < mainNav.length; i++) {
-      const pos = tabPositionsRef.current[i]
-      if (!pos) continue
-      if (relX >= pos.left && relX <= pos.left + pos.width) {
-        setHoveredTab(mainNav[i].to)
-        return
-      }
-    }
+    const firstPos = tabPositionsRef.current[0]
+    const lastPos = tabPositionsRef.current[mainNav.length - 1]
+    if (!firstPos || !lastPos) return
+    const areaStart = firstPos.left
+    const areaWidth = (lastPos.left + lastPos.width) - areaStart
+    if (areaWidth <= 0) return
+    const proportion = Math.max(0, Math.min(1, (relX - areaStart) / areaWidth))
+    const index = Math.min(Math.floor(proportion * mainNav.length), mainNav.length - 1)
+    setHoveredTab(mainNav[index].to)
   }
 
   const handleTouchEnd = () => {
