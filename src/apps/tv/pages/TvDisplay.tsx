@@ -19,6 +19,9 @@ export function TvDisplay() {
   const [hasLoaded, setHasLoaded] = useState(false)
   const [paused, setPaused] = useState(false)
 
+  /* ── Toggle: video vs events ── */
+  const [showingVideo, setShowingVideo] = useState(true)
+
   const isVideoPlaying = showingVideo && !paused
 
   const EVENT_DURATIONS = [10000, 15000, 30000, 60000] as const
@@ -51,9 +54,6 @@ export function TvDisplay() {
       setVideoIndex(0)
     }
   }, [videoPlaylists.length, videoIndex])
-
-  /* ── Toggle: video vs events ── */
-  const [showingVideo, setShowingVideo] = useState(true)
 
   /* ── Video timer: after duration_seconds, pause & show events ── */
   useEffect(() => {
