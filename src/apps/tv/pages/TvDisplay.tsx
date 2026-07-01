@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
 import { Settings, Tv } from 'lucide-react'
 import { useEvents } from '../hooks/useEvents'
 import { usePlaylists } from '../hooks/usePlaylists'
@@ -7,7 +6,6 @@ import { YouTubePlayer } from '../components/YouTubePlayer'
 import { MusicPlayer } from '../components/MusicPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
 import { BackgroundAudio } from '../components/BackgroundAudio'
-import type { TvPlaylist } from '../types'
 
 export function TvDisplay() {
   const { events } = useEvents()
@@ -21,67 +19,40 @@ export function TvDisplay() {
     return () => clearInterval(timer)
   }, [])
 
-  /* ── Content rotation (video ↔ events) ── */
-  const [contentQueue, setContentQueue] = useState<{ type: 'video' | 'events'; playlist?: TvPlaylist }[]>([])
-  const [queueIndex, setQueueIndex] = useState(0)
+  /* ── Video index cycles through playlists on natural end ── */
+  const [videoIndex, setVideoIndex] = useState(0)
+  const currentPlaylist = videoPlaylists[videoIndex]
 
-  const buildQueue = useCallback(() => {
-    const queue: { type: 'video' | 'events'; playlist?: TvPlaylist }[] = []
-    const hasVideo = videoPlaylists.length > 0
-    const hasEvents = events.length > 0
+  /* ── Toggle: video vs events ── */
+  const [showingVideo, setShowingVideo] = useState(true)
 
-    if (hasVideo) {
-      for (const p of videoPlaylists) {
-        queue.push({ type: 'video', playlist: p })
-      }
-    }
-    if (hasEvents) {
-      queue.push({ type: 'events' })
-    }
-
-    if (queue.length === 0) {
-      queue.push({ type: 'events' })
-    }
-
-    setContentQueue(queue)
-    setQueueIndex(0)
-  }, [events.length, videoPlaylists])
-
+  /* ── Video timer: after duration_seconds, pause & show events ── */
   useEffect(() => {
-    buildQueue()
-  }, [buildQueue])
-
-  const currentItem = contentQueue[queueIndex]
-  const hasContent = videoPlaylists.length > 0 || events.length > 0
-  const hasMusic = musicPlaylists.length > 0
-  const showEvents = !currentItem || currentItem.type === 'events'
-
-  /* ── Music playback: pause during video, resume during events ── */
-  const [musicPlaying, setMusicPlaying] = useState(true)
-  useEffect(() => {
-    setMusicPlaying(!currentItem || currentItem.type === 'events')
-  }, [currentItem])
-
-  const advance = useCallback(() => {
-    setQueueIndex((i) => (i + 1) % contentQueue.length)
-  }, [contentQueue.length])
-
-  /* ── Timer for video items ── */
-  useEffect(() => {
-    if (currentItem?.type !== 'video' || !currentItem.playlist) return
-    const ms = currentItem.playlist.duration_seconds * 1000
-    const timer = setTimeout(advance, ms)
+    if (!showingVideo || !currentPlaylist) return
+    const ms = currentPlaylist.duration_seconds * 1000
+    const timer = setTimeout(() => setShowingVideo(false), ms)
     return () => clearTimeout(timer)
-  }, [queueIndex, currentItem, advance])
+  }, [showingVideo, currentPlaylist?.id, currentPlaylist?.duration_seconds])
 
-  /* ── Timer for events items ── */
+  /* ── Events timer: after 15s, resume video ── */
   useEffect(() => {
-    if (currentItem?.type !== 'events' && contentQueue.length > 0) return
-    const timer = setInterval(() => {
-      advance()
-    }, events.length > 0 ? 15000 : 6000)
-    return () => clearInterval(timer)
-  }, [currentItem?.type, contentQueue.length, events.length, advance])
+    if (showingVideo || videoPlaylists.length === 0) return
+    const timer = setTimeout(() => setShowingVideo(true), events.length > 0 ? 15000 : 6000)
+    return () => clearTimeout(timer)
+  }, [showingVideo, videoPlaylists.length, events.length])
+
+  const advanceToNextVideo = () => {
+    if (videoPlaylists.length > 1) {
+      setVideoIndex((i) => (i + 1) % videoPlaylists.length)
+    }
+    setShowingVideo(true)
+  }
+
+  /* ── Music: plays during events, pauses during video ── */
+  const [musicPlaying, setMusicPlaying] = useState(false)
+  useEffect(() => {
+    setMusicPlaying(!showingVideo)
+  }, [showingVideo])
 
   /* ── Formatting ── */
   const formatTime = (d: Date) =>
@@ -89,6 +60,9 @@ export function TvDisplay() {
 
   const formatDate = (d: Date) =>
     d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
+
+  const hasContent = videoPlaylists.length > 0 || events.length > 0
+  const hasMusic = musicPlaylists.length > 0
 
   return (
     <div
@@ -99,7 +73,7 @@ export function TvDisplay() {
       }}
     >
       {/* ── Layer 1: Background ── */}
-      {showEvents ? (
+      {!showingVideo && events.length > 0 ? (
         <EventsCarousel events={events} interval={8000} fullBleed />
       ) : (
         <div style={{
@@ -108,36 +82,34 @@ export function TvDisplay() {
         }} />
       )}
 
-      {/* ── Layer 2: Video player ── */}
-      {currentItem?.type === 'video' && currentItem.playlist && (
+      {/* ── Layer 2: Video player (always mounted once available) ── */}
+      {videoPlaylists.length > 0 && (
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          opacity: showingVideo ? 1 : 0,
+          pointerEvents: showingVideo ? 'auto' : 'none',
+          transition: 'opacity 0.5s',
           background: 'rgba(8,10,20,0.85)',
         }}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`video-${currentItem.playlist.id}`}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.5 }}
-              style={{
-                width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
-                borderRadius: '1rem', overflow: 'hidden',
-                boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
-              }}
-            >
+          {currentPlaylist && (
+            <div style={{
+              width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
+              borderRadius: '1rem', overflow: 'hidden',
+              boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
+            }}>
               <YouTubePlayer
-                url={currentItem.playlist.youtube_url}
-                onEnd={advance}
+                key={currentPlaylist.id}
+                url={currentPlaylist.youtube_url}
+                isPlaying={showingVideo}
+                onEnd={advanceToNextVideo}
               />
-            </motion.div>
-          </AnimatePresence>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Layer 3: Background audio (always playing) ── */}
+      {/* ── Layer 3: Background audio ── */}
       <BackgroundAudio playlists={musicPlaylists} isPlaying={musicPlaying} />
 
       {/* ── Layer 4: UI overlay ── */}
@@ -209,23 +181,24 @@ export function TvDisplay() {
         </div>
       )}
 
-      {/* Content type dots */}
+      {/* Status dots */}
       <div style={{
         position: 'fixed', bottom: '2rem', left: '50%',
         transform: 'translateX(-50%)', zIndex: 10,
         display: 'flex', gap: '0.5rem',
       }}>
-        {contentQueue.map((_item, i) => (
-          <div
-            key={i}
-            style={{
-              width: i === queueIndex ? '24px' : '8px',
-              height: '6px', borderRadius: '3px',
-              background: i === queueIndex ? '#6366f1' : 'rgba(255,255,255,0.15)',
-              transition: 'all 0.3s',
-            }}
-          />
-        ))}
+        <div style={{
+          width: showingVideo ? '24px' : '8px',
+          height: '6px', borderRadius: '3px',
+          background: showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
+          transition: 'all 0.3s',
+        }} />
+        <div style={{
+          width: !showingVideo ? '24px' : '8px',
+          height: '6px', borderRadius: '3px',
+          background: !showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
+          transition: 'all 0.3s',
+        }} />
       </div>
 
       {/* Branding */}
