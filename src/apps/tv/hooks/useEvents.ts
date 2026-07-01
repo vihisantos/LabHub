@@ -37,6 +37,13 @@ export function useEvents() {
     return () => { db.removeChannel(channel) }
   }, [load])
 
+  /* ── Poll fallback: refresh every 30s in case Realtime is not enabled ── */
+  useEffect(() => {
+    if (!supabase) return
+    const timer = setInterval(() => { load() }, 30000)
+    return () => clearInterval(timer)
+  }, [load])
+
   return { events, loading, refresh: load }
 }
 
