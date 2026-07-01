@@ -152,7 +152,7 @@ export function TvDisplay() {
         <Settings size={18} />
       </a>
 
-      {/* Clock */}
+      {/* Clock + Greeting */}
       <div style={{
         position: 'fixed', top: '2.5rem', left: '3rem', zIndex: 10,
         display: 'flex', flexDirection: 'column', gap: '0.25rem',
@@ -167,6 +167,18 @@ export function TvDisplay() {
         </span>
         <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 400, textTransform: 'capitalize' }}>
           {formatDate(clock)}
+        </span>
+        <span style={{
+          fontSize: 'clamp(1rem, 2vw, 1.5rem)',
+          fontWeight: 500,
+          color: '#94a3b8',
+          marginTop: '0.75rem',
+        }}>
+          {clock.getHours() >= 5 && clock.getHours() < 12
+            ? 'Bom dia, Campus!'
+            : clock.getHours() >= 12 && clock.getHours() < 18
+            ? 'Boa tarde, Campus!'
+            : 'Boa noite, Campus!'}
         </span>
       </div>
 
