@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useKits } from '../hooks/useKits'
 import { useMovements } from '../hooks/useMovements'
@@ -32,6 +32,7 @@ const moreItems = [
 
 export function StockBottomNav() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [showMore, setShowMore] = useState(false)
   const { inRepair, incompleteKits, overdueCount } = useBadges()
 
@@ -52,12 +53,21 @@ export function StockBottomNav() {
           borderRadius: '9999px',
           border: '1px solid rgba(255, 255, 255, 0.15)',
           background: 'rgba(15, 23, 42, 0.7)',
-          padding: '4px 8px',
+          padding: '4px 6px',
           backdropFilter: 'blur(32px) saturate(180%)',
           WebkitBackdropFilter: 'blur(32px) saturate(180%)',
           boxShadow: '0 4px 32px rgba(0, 0, 0, 0.15)',
         }}
       >
+        <button
+          onClick={() => navigate('/')}
+          className="flex flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium text-white/50 hover:text-white/90 transition-colors flex-shrink-0"
+          style={{ padding: '8px 6px', minHeight: '36px' }}
+          title="Início"
+        >
+          <icons.ui.home size={16} />
+          <span>Início</span>
+        </button>
         {mainNav.map(({ to, label, icon: Icon, end }) => {
           const badge = to === '/stock' ? (inRepair + overdueCount) : 0
           const badgeKind = to === '/stock' && badge > 0 ? (overdueCount > 0 ? 'rose' : 'amber') : 'default'
