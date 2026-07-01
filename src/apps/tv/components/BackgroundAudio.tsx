@@ -1,18 +1,48 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import YouTube, { type YouTubeProps } from 'react-youtube'
 import { parseYouTubeUrl } from '../utils/youtubeUtils'
 import type { TvPlaylist } from '../types'
 
 interface BackgroundAudioProps {
   playlists: TvPlaylist[]
+  volume: number
 }
 
-export function BackgroundAudio({ playlists }: BackgroundAudioProps) {
+export function BackgroundAudio({ playlists, volume }: BackgroundAudioProps) {
   const [index, setIndex] = useState(0)
+  const playerRef = useRef<any>(null)
+  const currentVolRef = useRef(100)
+  const fadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     setIndex(0)
   }, [playlists.length])
+
+  useEffect(() => {
+    if (!playerRef.current) return
+    if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
+    const target = Math.max(0, Math.min(100, volume))
+    const step = currentVolRef.current < target ? 5 : -5
+    const interval = 60
+
+    fadeTimerRef.current = setInterval(() => {
+      const current = currentVolRef.current
+      if (Math.abs(current - target) < 5) {
+        playerRef.current?.setVolume(target)
+        currentVolRef.current = target
+        if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
+        fadeTimerRef.current = null
+        return
+      }
+      const next = current + step
+      playerRef.current?.setVolume(next)
+      currentVolRef.current = next
+    }, interval)
+
+    return () => {
+      if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
+    }
+  }, [volume])
 
   if (playlists.length === 0) return null
 
@@ -49,6 +79,11 @@ export function BackgroundAudio({ playlists }: BackgroundAudioProps) {
       <YouTube
         videoId={info.videoId}
         opts={opts}
+        onReady={(e) => {
+          playerRef.current = e.target
+          e.target.setVolume(currentVolRef.current)
+          e.target.playVideo()
+        }}
         onEnd={advance}
       />
     </div>
