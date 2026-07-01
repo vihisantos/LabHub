@@ -34,7 +34,9 @@ const moreItems = [
 export function StockBottomNav() {
   const location = useLocation()
   const navigate = useNavigate()
-  const touchStartX = useRef(0)
+  const navRef = useRef<HTMLElement>(null)
+  const tabPositionsRef = useRef<{ left: number, width: number }[]>([])
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null)
   const [showMore, setShowMore] = useState(false)
   const { inRepair, incompleteKits, overdueCount } = useBadges()
 
@@ -49,26 +51,54 @@ export function StockBottomNav() {
     if (to === '/stock') return location.pathname === '/stock' || location.pathname === '/stock/'
     return location.pathname.startsWith(to + '/') || location.pathname === to
   }
+  const activeTab = mainNav.find(n => isActive(n.to))
+  const displayTab = hoveredTab ? mainNav.find(n => n.to === hoveredTab) : activeTab
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX
+  const measureTabPositions = () => {
+    if (!navRef.current) return
+    const children = Array.from(navRef.current.children).filter(c => c.tagName === 'BUTTON' && c.getAttribute('aria-label') !== 'Mais opções')
+    const containerRect = navRef.current.getBoundingClientRect()
+    const positions: { left: number, width: number }[] = []
+    for (let i = 0; i < mainNav.length; i++) {
+      const btn = children[i + 1]
+      if (!btn) continue
+      const rect = btn.getBoundingClientRect()
+      positions.push({ left: rect.left - containerRect.left, width: rect.width })
+    }
+    tabPositionsRef.current = positions
   }
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const delta = e.changedTouches[0].clientX - touchStartX.current
-    if (Math.abs(delta) < 30) return
-    const idx = mainNav.findIndex(n => isActive(n.to))
-    if (delta < 0 && idx < mainNav.length - 1) {
-      navigate(mainNav[idx + 1].to)
-    } else if (delta > 0 && idx > 0) {
-      navigate(mainNav[idx - 1].to)
+  const handleTouchStart = () => {
+    measureTabPositions()
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!navRef.current) return
+    const containerRect = navRef.current.getBoundingClientRect()
+    const relX = e.touches[0].clientX - containerRect.left
+    for (let i = 0; i < mainNav.length; i++) {
+      const pos = tabPositionsRef.current[i]
+      if (!pos) continue
+      if (relX >= pos.left && relX <= pos.left + pos.width) {
+        setHoveredTab(mainNav[i].to)
+        return
+      }
     }
+  }
+
+  const handleTouchEnd = () => {
+    if (hoveredTab && hoveredTab !== activeTab?.to) {
+      navigate(hoveredTab)
+    }
+    setHoveredTab(null)
   }
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <nav
+        ref={navRef}
         onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         aria-label="Navegação principal"
         style={{
@@ -93,7 +123,7 @@ export function StockBottomNav() {
           <span>Início</span>
         </button>
         {mainNav.map(({ to, label, icon: Icon }) => {
-          const active = isActive(to)
+          const active = (displayTab?.to ?? activeTab?.to) === to
           const badge = to === '/stock' ? (inRepair + overdueCount) : 0
           const badgeKind = to === '/stock' && badge > 0 ? (overdueCount > 0 ? 'rose' : 'amber') : 'default'
           return (
@@ -112,7 +142,7 @@ export function StockBottomNav() {
               {active && (
                 <motion.div
                   layoutId="stockActiveTab"
-                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 40 }}
                   style={{
                     position: 'absolute',
                     inset: 2,

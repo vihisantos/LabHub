@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -18,11 +18,14 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
   const isMobile = useIsMobile()
   const location = useLocation()
   const navigate = useNavigate()
-  const touchStartX = useRef(0)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const tabPositionsRef = useRef<{ left: number, width: number }[]>([])
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null)
 
   const currentPath = location.pathname
   const isRoot = currentPath === '/reservalab' || currentPath === '/reservalab/'
   const activeTab = isRoot ? 'reservas' : (currentPath.split('/').pop() || '')
+  const displayTab = hoveredTab ?? activeTab
 
   const handleNavigate = (tabId: string) => {
     if (tabId === 'reservas') {
@@ -32,26 +35,52 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
     }
   }
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX
+  const measureTabPositions = () => {
+    if (!containerRef.current) return
+    const children = containerRef.current.children
+    const positions: { left: number, width: number }[] = []
+    const containerRect = containerRef.current.getBoundingClientRect()
+    for (let i = 0; i < tabs.length; i++) {
+      const btn = children[i + 1]
+      if (!btn) continue
+      const rect = btn.getBoundingClientRect()
+      positions.push({ left: rect.left - containerRect.left, width: rect.width })
+    }
+    tabPositionsRef.current = positions
   }
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const delta = e.changedTouches[0].clientX - touchStartX.current
-    if (Math.abs(delta) < 30) return
-    const idx = tabs.findIndex(t => t.id === activeTab)
-    if (delta < 0 && idx < tabs.length - 1) {
-      handleNavigate(tabs[idx + 1].id)
-    } else if (delta > 0 && idx > 0) {
-      handleNavigate(tabs[idx - 1].id)
+  const handleTouchStart = () => {
+    measureTabPositions()
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!containerRef.current) return
+    const containerRect = containerRef.current.getBoundingClientRect()
+    const relX = e.touches[0].clientX - containerRect.left
+    for (let i = 0; i < tabs.length; i++) {
+      const pos = tabPositionsRef.current[i]
+      if (!pos) continue
+      if (relX >= pos.left && relX <= pos.left + pos.width) {
+        setHoveredTab(tabs[i].id)
+        return
+      }
     }
+  }
+
+  const handleTouchEnd = () => {
+    if (hoveredTab && hoveredTab !== activeTab) {
+      handleNavigate(hoveredTab)
+    }
+    setHoveredTab(null)
   }
 
   if (isMobile) {
     return (
       <div
+        ref={containerRef}
         className="bottom-navbar"
         onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         style={{
           position: 'fixed',
@@ -99,7 +128,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
           <span>Início</span>
         </button>
         {tabs.map((tab) => {
-          const isActive = activeTab === tab.id
+          const isActive = displayTab === tab.id
           return (
             <button
               key={tab.id}
@@ -126,7 +155,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
               {isActive && (
                 <motion.div
                   layoutId="activeTab"
-                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 40 }}
                   style={{
                     position: 'absolute',
                     inset: 0,
