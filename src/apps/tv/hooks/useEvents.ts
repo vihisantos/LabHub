@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchEvents, fetchAllEvents, createEvent, updateEvent, deleteEvent } from '../services/supabase'
+import { defaultDb as supabase } from '../../../lib/supabase'
 import { useToast } from '../../../lib/ToastContext'
 import type { TvEvent } from '../types'
 
@@ -21,6 +22,20 @@ export function useEvents() {
   }, [addToast])
 
   useEffect(() => { load() }, [load])
+
+  /* ── Realtime: auto-refresh when events change ── */
+  useEffect(() => {
+    const db = supabase
+    if (!db) return
+    const channel = db
+      .channel('tv-events-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'tv_events' },
+        () => { load() }
+      )
+      .subscribe()
+    return () => { db.removeChannel(channel) }
+  }, [load])
 
   return { events, loading, refresh: load }
 }

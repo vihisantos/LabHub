@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchPlaylists, fetchAllPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from '../services/supabase'
+import { defaultDb as supabase } from '../../../lib/supabase'
 import { useToast } from '../../../lib/ToastContext'
 import type { TvPlaylist } from '../types'
 
@@ -21,6 +22,20 @@ export function usePlaylists(type?: 'video' | 'music') {
   }, [type, addToast])
 
   useEffect(() => { load() }, [load])
+
+  /* ── Realtime: auto-refresh when playlists change ── */
+  useEffect(() => {
+    const db = supabase
+    if (!db) return
+    const channel = db
+      .channel('tv-playlists-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'tv_playlists' },
+        () => { load() }
+      )
+      .subscribe()
+    return () => { db.removeChannel(channel) }
+  }, [load])
 
   return { playlists, loading, refresh: load }
 }
