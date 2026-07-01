@@ -9,15 +9,15 @@ export function useEvents() {
   const [loading, setLoading] = useState(true)
   const { addToast } = useToast()
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent?: boolean) => {
     try {
-      setLoading(true)
+      if (!silent) setLoading(true)
       const data = await fetchEvents()
       setEvents(data)
     } catch {
-      addToast('error', 'Erro ao carregar eventos')
+      if (!silent) addToast('error', 'Erro ao carregar eventos')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [addToast])
 
@@ -31,16 +31,16 @@ export function useEvents() {
       .channel('tv-events-realtime')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tv_events' },
-        () => { load() }
+        () => { load(true) }
       )
       .subscribe()
     return () => { db.removeChannel(channel) }
   }, [load])
 
-  /* ── Poll fallback: refresh every 30s in case Realtime is not enabled ── */
+  /* ── Poll fallback: refresh every 15s ── */
   useEffect(() => {
     if (!supabase) return
-    const timer = setInterval(() => { load() }, 30000)
+    const timer = setInterval(() => { load(true) }, 15000)
     return () => clearInterval(timer)
   }, [load])
 
