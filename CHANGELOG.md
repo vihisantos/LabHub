@@ -1,51 +1,99 @@
-# Changelog
+# [1.0.0](https://github.com/vihisantos/LabHub/compare/0b9c3cc3e2a65df6676dd6ef353ad9b696114501...v1.0.0) (2026-07-01)
 
-All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+### Bug Fixes
 
-## [0.1.1] - 2026-06-28
+* add origin param + onError handler for blocked videos ([cf26128](https://github.com/vihisantos/LabHub/commit/cf261285de2dce6424a396ac406e90b5a4c524d7))
+* build errors - icon aliases, stock movement fields, theme toggle type ([edb6241](https://github.com/vihisantos/LabHub/commit/edb6241e9b15898fae2703f735be48bd2aacc6a8))
+* correct vercel SPA fallback dest to /index.html ([2f3b74d](https://github.com/vihisantos/LabHub/commit/2f3b74d5234a6ccfb2e9b0c11c1dc0e16d061a21))
+* corrige testes de UI (PCList, PCDetail, Dashboard, StatusBadge, ErrorBoundary) ([6264f31](https://github.com/vihisantos/LabHub/commit/6264f3157aa6fb13f7747e759eeaa9106abd5a9f))
+* countdown timer below event date ([adf15ac](https://github.com/vihisantos/LabHub/commit/adf15acc228cb1630058dbe865e58c3a6fbfa48a))
+* erros TS no build (imports nao usados) ([86b1ef7](https://github.com/vihisantos/LabHub/commit/86b1ef7c3e10ef556d34950dd200a93bcad5f1f0))
+* exclude api/frontend from lint, fix exhaustive-deps and unused catch in main app ([3c21ab8](https://github.com/vihisantos/LabHub/commit/3c21ab8c8152c5290c029e883a0905981f45a65e))
+* greeting top 12% + white-space nowrap ([5012d41](https://github.com/vihisantos/LabHub/commit/5012d4144e03ed3d211bd6cecb7fa3a8a7d51dc4))
+* light theme on mobile - only add dark class when system prefers dark, remove dark class in ReservaLab, show background image on mobile ([af4c032](https://github.com/vihisantos/LabHub/commit/af4c032b576fffe9301c04995314bb499be59c4d))
+* move useMemo before early return in Dashboard to avoid conditional hook ([d5342ec](https://github.com/vihisantos/LabHub/commit/d5342ecb2e051f31f050f2000ffd8134fb54c2be))
+* null-safety guards for kit/item detail pages + useKioskMode ref init ([9d107a7](https://github.com/vihisantos/LabHub/commit/9d107a72fb77a843155c4d59e8980409a90a687c))
+* **pcare:** remove BulkPCWizard, fix null assertions, restore pcService.create; feat: add logo to launcher and PWA ([aec3dc3](https://github.com/vihisantos/LabHub/commit/aec3dc3da4719df9354b2a371990e8f58adc6110))
+* prevent horizontal scroll on mobile - add overflow-x hidden to main, calendar grid minmax+scroll, compact navbar padding, shrink filter control ([a5539ba](https://github.com/vihisantos/LabHub/commit/a5539ba69ad3b44b1d64ce4b1e1e22faf7bb86c3))
+* remove duplicate home button from PCare and Stock headers ([5d7323b](https://github.com/vihisantos/LabHub/commit/5d7323bf4b5e66209b935cdd9c1b65027861d715))
+* remove env secrets from vercel.json (configure in Vercel dashboard) ([44e9510](https://github.com/vihisantos/LabHub/commit/44e95109e9394be1ba97079dcc2b74d23d8858e5))
+* remove invalid framework field from vercel.json ([e08c819](https://github.com/vihisantos/LabHub/commit/e08c8196f1d9303125e0a4df6c1987ac3bb48614))
+* remove react-qr-reader peer dep conflict, add .npmrc ([12c3612](https://github.com/vihisantos/LabHub/commit/12c36123c3451f0c23347a422599fd5c5b9a6d03))
+* remove theme toggle from launcher, replace blobs with subtle gradient ([7fc5cd2](https://github.com/vihisantos/LabHub/commit/7fc5cd29e0f148735c9c0b583750ac3e4eb73437))
+* remove unused import and fix exhaustive-deps warnings ([3699e1d](https://github.com/vihisantos/LabHub/commit/3699e1d8a710e765192b5c87778f2ab1952aa183))
+* remove unused var and invalid style prop from Launcher icons ([10d3327](https://github.com/vihisantos/LabHub/commit/10d3327ffe9e22eff41e5d78346d51e61f2ce91c))
+* reorder navbar tabs to Dashboard-Reservas-Tablets, keep Reservas as default index ([f153fa1](https://github.com/vihisantos/LabHub/commit/f153fa18414d1f198098e15adea6535bbc5028ff))
+* **reservalab:** darken navbar background for readability over lighter background ([08c8dcf](https://github.com/vihisantos/LabHub/commit/08c8dcfcfed9302c977afb51d2fa74ff91d167b2))
+* **reservalab:** remove dark overlay from background ([3db3f5e](https://github.com/vihisantos/LabHub/commit/3db3f5e2f09cbba26376ded04f23e5b92979b0e4))
+* **reservalab:** remove framer-motion wrappers from Tablets page to diagnose white screen ([5688633](https://github.com/vihisantos/LabHub/commit/568863370fd8ed224d22f09ba72e2b1d19233509))
+* responsive text sizes on mobile - clamp font sizes, wrap lab headers, shrink filter buttons ([8fe738f](https://github.com/vihisantos/LabHub/commit/8fe738f853f2b6c50059fe3ec52ca1f66a19d328))
+* restore supabase.ts shared lib, make TV app use own client ([468b62f](https://github.com/vihisantos/LabHub/commit/468b62fd7a23eb20c8d69754c712c8bee4dd4faf))
+* roadmap features 70 e 71 marcadas como done ([8fb23da](https://github.com/vihisantos/LabHub/commit/8fb23dadd37ff1d85511f8850f0453510c67fe53))
+* SPA fallback routes in vercel.json for page refresh handling ([5251679](https://github.com/vihisantos/LabHub/commit/52516794243f3180fc1b08573b8cc8ba3e75fdef))
+* **stock:** dynamic placeholders and modal titles per section ([6f707c2](https://github.com/vihisantos/LabHub/commit/6f707c20669aac56b43f78d052619cddde6498e3))
+* **stock:** scrollable movement filter tabs, same dark mode fix ([41b9d31](https://github.com/vihisantos/LabHub/commit/41b9d310d266fe7398390fa8bdbee8ed20612c23))
+* **stock:** scrollable section tabs, fix dark mode contrast in segmented controls ([8249eb7](https://github.com/vihisantos/LabHub/commit/8249eb71886d19068b8fe9fd88f58f553de237ef))
+* stop camera stream on scanner unmount; QR Code link goes via /pcare/qr redirect ([ef8405e](https://github.com/vihisantos/LabHub/commit/ef8405e1509abe65462cedb44e7ae1196873ab98))
+* swipe now maps finger X proportionally, no per-tab hit detection ([923eaf9](https://github.com/vihisantos/LabHub/commit/923eaf9120af4e6407c58f5b90119a741a9410d7))
+* TS errors causing CI failure (unused vars, Partial initial) ([0b9c3cc](https://github.com/vihisantos/LabHub/commit/0b9c3cc3e2a65df6676dd6ef353ad9b696114501))
+* update Dashboard test to match removed Patrimônio quick action ([2b0f0b2](https://github.com/vihisantos/LabHub/commit/2b0f0b29810b99b8e73f8f5b99f52631f0a7e23c))
+* use hue-rotate animation + solid text color for reliable rendering ([952942c](https://github.com/vihisantos/LabHub/commit/952942c939cb274eed1abb9900a61edfcddebf02))
+* use PNG icons for PWA and iOS home screen (SVG causes white border on iPhone) ([19db3b7](https://github.com/vihisantos/LabHub/commit/19db3b7323a3b2c4153a3c319931b50bc662d646))
 
-### Changed
 
-- Firebase removido; sync engine migrado para Supabase (PostgreSQL)
-- Timestamps migrados de Firestore Timestamp para ISO 8601 strings
-- Primeiro sync é pull-only (dados mock não sobem para o banco)
-- `src/lib/firebase.ts` removido (substituído por `src/lib/supabase.ts`)
+### Features
 
-## [0.1.0] - 2026-06-28
+* add Bom dia/Boa tarde/Boa noite greeting on TV display ([bd44512](https://github.com/vihisantos/LabHub/commit/bd44512e59d40830d39494c18a40dc10a8815c15))
+* add home button to PCare and Stock navbars ([b04b3ed](https://github.com/vihisantos/LabHub/commit/b04b3ed9993c0bb6df06fe753d2678a38b2437a1))
+* add home button to ReservaLab Navbar, fix PCList filter and Radix Select tests ([f7682ff](https://github.com/vihisantos/LabHub/commit/f7682ffadd2320abc958bee5f4056cb5693e8096))
+* add Radix UI components (Dialog, Select, Tooltip, Popover, Tabs) and migrate Modal, FilterBar, BottomNav, SyncStatusBadge, tooltips ([fef4483](https://github.com/vihisantos/LabHub/commit/fef44833c3cc1bb8a371e1503322afbbf2886531))
+* add roadmap link to launcher footer ([1dd478d](https://github.com/vihisantos/LabHub/commit/1dd478d1a64460f6c20b8ed4050c9dcda2d41bad))
+* add TV app — fullscreen display with YouTube, music & events ([5bed651](https://github.com/vihisantos/LabHub/commit/5bed65179d41b714ec99cc0511fa56e46a9860bb))
+* animações de transição entre rotas (View Transitions API) ([140fbe4](https://github.com/vihisantos/LabHub/commit/140fbe42fedb8340aee0aaa8756a79638365601d))
+* animated flowing gradient on greeting text ([1a45ecb](https://github.com/vihisantos/LabHub/commit/1a45ecb901fd73b0e76d1cf163f7f3ce10e1a7d1))
+* animated gradient text on Launcher title ([7860f95](https://github.com/vihisantos/LabHub/commit/7860f957512688f831ba2a617d03754cfe3dbc65))
+* batch operations - Stock selection system + PCare export/delete ([59c34b3](https://github.com/vihisantos/LabHub/commit/59c34b318a22e6d62b8389533aa9088c00321937))
+* centered large gradient greeting with glow ([76fd1b2](https://github.com/vihisantos/LabHub/commit/76fd1b25371b7a3e83f6ce4a6b4e66091879940b))
+* checklist execution mode with large buttons, progress bar, PC selection ([04a41d1](https://github.com/vihisantos/LabHub/commit/04a41d13000f1a902c529e8820f7ef3ab840567a))
+* combined stock filters + framer-motion page transitions ([b0f24b4](https://github.com/vihisantos/LabHub/commit/b0f24b4b0dbabe8ffc67735aca38ed018fc06e33))
+* countdown timer on events with start_date ([f1823d1](https://github.com/vihisantos/LabHub/commit/f1823d15ad0b5605328661e90be7a4f0b240fe78))
+* draggable tab indicator follows finger in real-time, swipe navigates on touchEnd ([a051023](https://github.com/vihisantos/LabHub/commit/a05102336e7260dd88d972e92811f2af44e55a22))
+* duplicate stock item button in StockDetail ([f4294c2](https://github.com/vihisantos/LabHub/commit/f4294c2ee84dd8ed825ac57192f13f7875617bad))
+* edit/delete stock items, kits and movements + kiosk mode ([7128fd8](https://github.com/vihisantos/LabHub/commit/7128fd89666e901ab301750843773d02391d04b1))
+* fotos nos PCs via Cloudinary + docs + testes TV ([2258f84](https://github.com/vihisantos/LabHub/commit/2258f842a597a98ce26c46d06bf665c22ca21f31))
+* fotos, QR scanner, dashboard graficos, import CSV, manutencao preventiva, roadmap atualizado ([05e8e00](https://github.com/vihisantos/LabHub/commit/05e8e004f6f9bc5ac6c0fa901fad54e6e88529de))
+* general-stock route, sync inventory counts, PC batch bar component ([ea5f9b2](https://github.com/vihisantos/LabHub/commit/ea5f9b23c347ce5efe6b9d8920ab2b95acd540e7))
+* interactive roadmap page with 55 features and progress tracking ([685334f](https://github.com/vihisantos/LabHub/commit/685334ff31126ab963e0a0fc44db62ede582d1da))
+* isolate theme per app (stock_theme, pcare_theme independent) ([d574187](https://github.com/vihisantos/LabHub/commit/d5741874f8ec6d8083deec70f08c467073f97d26))
+* launcher theme toggle, clone PC, dashboard charts, part usage history, PWA shortcuts ([11b0033](https://github.com/vihisantos/LabHub/commit/11b0033b5fc725817652d917439ce29f7ddd37f3))
+* maintenance calendar grade view + stock consolidado by lab ([acd6e28](https://github.com/vihisantos/LabHub/commit/acd6e283b7470ddf86d30b4004e0bf57865cf0bd))
+* mark completed features in roadmap (Stock redesign, per-app theme, 7 total) ([35fedd6](https://github.com/vihisantos/LabHub/commit/35fedd610deb4429d8f2b9ffa802b8d3eeccafe9))
+* mobile-optimize ReservaLab dashboard ([5ce0b4c](https://github.com/vihisantos/LabHub/commit/5ce0b4c6820877fb950f7bbdab4f271658c896b0))
+* music plays continuous background, events full-bleed images ([c71e1e5](https://github.com/vihisantos/LabHub/commit/c71e1e54d9cd7e3b55bf9ec2075fa063d621f9d6))
+* overdue loan alerts, multilab context, offline page + roadmap update ([1f73379](https://github.com/vihisantos/LabHub/commit/1f7337979951825d0e32eb1689db79af02703575))
+* part usage history, theme toggle, settings, skeletons, error boundaries, animations, badges ([5044f1b](https://github.com/vihisantos/LabHub/commit/5044f1bde747ccc443bd5e1a55d919869a82a70d))
+* **pcare:** sync status indicator + redirect PC creation to stock ([73cc8fc](https://github.com/vihisantos/LabHub/commit/73cc8fc15183019d4d11313727905c6622a26bc4))
+* **pcare:** sync status, focus mode, bulk wizard, online sync improvements ([47371d0](https://github.com/vihisantos/LabHub/commit/47371d0e509cfdbe6eeb66da893d5f6bf57faa18))
+* redesign visual completo do app Stock (estilo Apple Design) ([54667cd](https://github.com/vihisantos/LabHub/commit/54667cdc9448ad474124517b6e3aac265fbe4a56))
+* redirect screen with 3s countdown for QR generator ([8f383ec](https://github.com/vihisantos/LabHub/commit/8f383ec6059ea5a1957410d0b36247c29a8da864))
+* remove asset scanner, add robust QR generator (items/PCs/kits) with ZIP download, print, and customization ([5fdf557](https://github.com/vihisantos/LabHub/commit/5fdf55716c39d3231445c8928a0ae254e1e24808))
+* replace all native <select> with Radix Select, SectionTabs/StockEntryExit with Radix Tabs, StockForm PC picker with Radix Popover ([027b0b2](https://github.com/vihisantos/LabHub/commit/027b0b2d67ba68329f6736d30c43d143eba3c6db))
+* reservalab app, push notifications, offline page redesign, and tsconfig fix ([e9fe16b](https://github.com/vihisantos/LabHub/commit/e9fe16b5bab468497ef4b60e54ea4f361e42e2f4))
+* **reservalab:** lazy load background image, remove light dot animations ([c33779e](https://github.com/vihisantos/LabHub/commit/c33779edfd5629aaa2757f27cdcc9cf055031f72))
+* Reservas as default tab, unify all navbars to glassmorphism style ([c72981d](https://github.com/vihisantos/LabHub/commit/c72981dca2813574fda355875fef7651613ddebe))
+* restore animated color blobs on launcher background ([d356e00](https://github.com/vihisantos/LabHub/commit/d356e000c0c1f0b3af5cf9dcedd1a067ca7ad206))
+* sliding tab indicator with framer-motion layoutId on all navbars ([65cc260](https://github.com/vihisantos/LabHub/commit/65cc26003af4a7d74af8486bf22f084f4430ad62))
+* stock entry/exit workflow page with item selection and batch movements ([5247a04](https://github.com/vihisantos/LabHub/commit/5247a042f8d9ae2f9f155c6b099b9b196556df9b))
+* stock unit tests (63), fix build errors in import/Reports + add Upload icon ([6eab9b8](https://github.com/vihisantos/LabHub/commit/6eab9b85242d3e75c5a8480a59d87db8523a7129))
+* **stock:** add cabos section, loan/return movements, and emprestado status ([7fc3385](https://github.com/vihisantos/LabHub/commit/7fc3385e8d2a243b26fe764bd7ec2b3fed83a7d6))
+* swipe left/right on navbar to switch tabs ([5811691](https://github.com/vihisantos/LabHub/commit/5811691653dc52e279da43e7e1033315d8b6fcab))
+* vincular itens do stock a PCs (68) - StockForm picker, StockCard badge, PCDetail linked items ([9688541](https://github.com/vihisantos/LabHub/commit/9688541425db9b6774f58c9bcbc1f20395fe8434))
 
-### Added
 
-- PCare app: PC management with cleaning/restoration tracking, parts inventory, maintenance scheduling, checklists, QR code scanner, asset scanner, reports, and settings
-- Stock app: asset tracking by section, movements history, kit conferencing
-- Bottom navigation with badges for PCare and Stock apps
-- Dark/light theme toggle
-- View transitions API for route animations
-- CSV/XLSX/PDF export for PCs and parts
-- CSV export for stock items and movements
-- ConfirmDialog replacing native browser dialogs
-- PWA support with offline service worker (Workbox)
-- Pull-to-refresh on all list pages
-- Skeleton loading states
-- Empty states with action prompts
-- Error boundaries
+### Performance Improvements
 
-### Fixed
+* remove cleanupOldCancelledTablets from page mounts, add loading delay ([bde8221](https://github.com/vihisantos/LabHub/commit/bde82217a8706f22cb932f23dd6f6fae2a826744))
 
-- Theme toggle properly alternating `.dark` class on `<html>`
-- TypeScript errors in StockForm and GeneralStockLayout
-- React Router view transitions support
 
-### Changed
 
-- Stock app restructured with StockBottomNav, simplified header with theme toggle
-- Removed legacy `general-stock` app (superseded by new StockApp)
-- Removed duplicate `src/apps/pcare/services/firebase.ts` (unused)
-- CI pipeline now runs `npm run test:run` and `npm run lint`
-- All `window.confirm()` calls replaced with `ConfirmDialog` component
-
-### Security
-
-- Firebase credentials now loaded from environment variables (`.env`)
