@@ -172,15 +172,16 @@ export function TvDisplay() {
 
       {/* Greeting */}
       <div style={{
-        position: 'fixed', top: '50%', left: '50%',
+        position: 'fixed', top: '12%', left: '50%',
         transform: 'translate(-50%, -50%)', zIndex: 10,
         pointerEvents: 'none', userSelect: 'none',
         textAlign: 'center',
+        whiteSpace: 'nowrap',
       }}>
         <span style={{
-          fontSize: 'clamp(3rem, 8vw, 7rem)',
+          fontSize: 'clamp(2.5rem, 5vw, 5rem)',
           fontWeight: 800,
-          lineHeight: 1.1,
+          lineHeight: 1.2,
           background: 'linear-gradient(135deg, #f1f5f9 0%, #818cf8 50%, #a855f7 100%)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
@@ -192,15 +193,6 @@ export function TvDisplay() {
             ? 'Boa tarde, Campus!'
             : 'Boa noite, Campus!'}
         </span>
-        <p style={{
-          fontSize: 'clamp(1rem, 2vw, 1.5rem)',
-          color: '#64748b',
-          fontWeight: 400,
-          marginTop: '1rem',
-          letterSpacing: '0.05em',
-        }}>
-          Lab Hub TV
-        </p>
       </div>
 
       {/* Music visualizer widget */}
