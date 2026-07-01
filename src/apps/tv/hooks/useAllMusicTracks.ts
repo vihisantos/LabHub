@@ -31,8 +31,9 @@ export function useAllMusicTracks() {
 
   /* Realtime */
   useEffect(() => {
-    if (!supabase) return
-    const ch = supabase
+    const db = supabase
+    if (!db) return
+    const ch = db
       .channel('tv-all-music-realtime')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tv_music_queues' },
@@ -43,7 +44,7 @@ export function useAllMusicTracks() {
         () => load()
       )
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    return () => { db.removeChannel(ch) }
   }, [load])
 
   /* Poll */

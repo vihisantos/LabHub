@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import YouTube, { type YouTubeProps } from 'react-youtube'
 import { Music } from 'lucide-react'
 import type { TvMusicTrack } from '../types'

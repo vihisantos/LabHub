@@ -12,7 +12,7 @@ import {
   reorderTracks,
 } from '../services/supabase'
 import { fetchYouTubeTracks } from '../utils/youtubeApi'
-import type { TvMusicQueue, TvMusicTrack, YouTubeTrackInfo } from '../types'
+import type { TvMusicQueue, TvMusicTrack } from '../types'
 
 export interface QueueWithTracks extends TvMusicQueue {
   tracks: TvMusicTrack[]
@@ -45,8 +45,9 @@ export function useMusicQueues() {
 
   /* Realtime */
   useEffect(() => {
-    if (!supabase) return
-    const ch = supabase
+    const db = supabase
+    if (!db) return
+    const ch = db
       .channel('tv-music-realtime')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tv_music_queues' },
@@ -57,7 +58,7 @@ export function useMusicQueues() {
         () => load(true)
       )
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    return () => { db.removeChannel(ch) }
   }, [load])
 
   /* Poll */

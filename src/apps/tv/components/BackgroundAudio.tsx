@@ -66,6 +66,8 @@ export function BackgroundAudio({ playlists, isPlaying }: BackgroundAudioProps) 
   const info = parseYouTubeUrl(current.youtube_url)
   if (!info) return null
 
+  const videoId = info.videoId
+
   const opts: YouTubeProps['opts'] = {
     height: '0',
     width: '0',
@@ -87,8 +89,6 @@ export function BackgroundAudio({ playlists, isPlaying }: BackgroundAudioProps) 
       setIndex((i) => (i + 1) % playlists.length)
     }
   }
-
-  const videoId = info.videoId
 
   return (
     <div style={{ display: 'none' }}>
