@@ -1,5 +1,5 @@
 import YouTube, { type YouTubeProps } from 'react-youtube'
-import { parseYouTubeUrl } from './youtubeUtils'
+import { parseYouTubeUrl } from '../utils/youtubeUtils'
 
 interface YouTubePlayerProps {
   url: string

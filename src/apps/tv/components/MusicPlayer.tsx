@@ -1,40 +1,47 @@
-import YouTube, { type YouTubeProps } from 'react-youtube'
-import { parseYouTubeUrl } from './youtubeUtils'
 import { Music } from 'lucide-react'
 
 interface MusicPlayerProps {
-  url: string
-  onEnd?: () => void
+  compact?: boolean
 }
 
-export function MusicPlayer({ url, onEnd }: MusicPlayerProps) {
-  const info = parseYouTubeUrl(url)
-
-  if (!info) {
+export function MusicPlayer({ compact }: MusicPlayerProps) {
+  if (compact) {
     return (
       <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        height: '100%', color: '#64748b', fontSize: '1.25rem', gap: '1rem',
+        display: 'flex', alignItems: 'center', gap: '10px',
+        padding: '10px 16px',
+        background: 'rgba(0,0,0,0.4)',
+        backdropFilter: 'blur(12px)',
+        borderRadius: '9999px',
+        border: '1px solid rgba(255,255,255,0.08)',
       }}>
-        <Music size={64} strokeWidth={1} />
-        <span>URL inválida</span>
+        <div style={{
+          width: '32px', height: '32px', borderRadius: '50%',
+          background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'spin 6s linear infinite',
+          flexShrink: 0,
+        }}>
+          <Music size={14} color="#fff" />
+        </div>
+        <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '20px' }}>
+          {[10, 16, 8, 20, 12, 6, 22].map((h, i) => (
+            <div
+              key={i}
+              style={{
+                width: '3px', height: `${h}px`, borderRadius: '2px',
+                background: '#6366f1',
+                animation: 'equalizer 0.5s ease-in-out infinite alternate',
+                animationDelay: `${i * 0.07}s`,
+              }}
+            />
+          ))}
+        </div>
+        <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>
+          Música
+        </span>
       </div>
     )
-  }
-
-  const opts: YouTubeProps['opts'] = {
-    height: '0',
-    width: '0',
-    playerVars: {
-      autoplay: 1,
-      controls: 0,
-      disablekb: 1,
-      rel: 0,
-      loop: 1,
-      ...(info.type === 'playlist' && info.playlistId
-        ? { list: info.playlistId, listType: 'playlist' as const, index: 0 }
-        : {}),
-    },
   }
 
   return (
@@ -67,12 +74,6 @@ export function MusicPlayer({ url, onEnd }: MusicPlayerProps) {
           />
         ))}
       </div>
-      <YouTube
-        videoId={info.videoId}
-        opts={opts}
-        onEnd={onEnd}
-        style={{ display: 'none' }}
-      />
     </div>
   )
 }

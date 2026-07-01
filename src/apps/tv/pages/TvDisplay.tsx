@@ -6,7 +6,8 @@ import { usePlaylists } from '../hooks/usePlaylists'
 import { YouTubePlayer } from '../components/YouTubePlayer'
 import { MusicPlayer } from '../components/MusicPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
-import type { ContentType, TvPlaylist } from '../types'
+import { BackgroundAudio } from '../components/BackgroundAudio'
+import type { TvPlaylist } from '../types'
 
 export function TvDisplay() {
   const { events } = useEvents()
@@ -20,24 +21,18 @@ export function TvDisplay() {
     return () => clearInterval(timer)
   }, [])
 
-  /* ── Content rotation ── */
-  const [contentQueue, setContentQueue] = useState<{ type: ContentType; playlist?: TvPlaylist }[]>([])
+  /* ── Content rotation (video ↔ events) ── */
+  const [contentQueue, setContentQueue] = useState<{ type: 'video' | 'events'; playlist?: TvPlaylist }[]>([])
   const [queueIndex, setQueueIndex] = useState(0)
 
   const buildQueue = useCallback(() => {
-    const queue: { type: ContentType; playlist?: TvPlaylist }[] = []
-    const hasEvents = events.length > 0
+    const queue: { type: 'video' | 'events'; playlist?: TvPlaylist }[] = []
     const hasVideo = videoPlaylists.length > 0
-    const hasMusic = musicPlaylists.length > 0
+    const hasEvents = events.length > 0
 
     if (hasVideo) {
       for (const p of videoPlaylists) {
         queue.push({ type: 'video', playlist: p })
-      }
-    }
-    if (hasMusic) {
-      for (const p of musicPlaylists) {
-        queue.push({ type: 'music', playlist: p })
       }
     }
     if (hasEvents) {
@@ -50,64 +45,39 @@ export function TvDisplay() {
 
     setContentQueue(queue)
     setQueueIndex(0)
-  }, [events.length, videoPlaylists, musicPlaylists])
+  }, [events.length, videoPlaylists])
 
   useEffect(() => {
     buildQueue()
   }, [buildQueue])
 
-  const currentItem = contentQueue[queueIndex] || { type: 'events' as ContentType }
-  const hasContent = videoPlaylists.length > 0 || musicPlaylists.length > 0 || events.length > 0
+  const currentItem = contentQueue[queueIndex]
+  const hasContent = videoPlaylists.length > 0 || events.length > 0
+  const hasMusic = musicPlaylists.length > 0
+  const showEvents = !currentItem || currentItem.type === 'events'
 
-  const [mediaReady, setMediaReady] = useState(false)
-
-  const handleMediaEnd = () => {
-    setMediaReady(false)
-    advance()
-  }
-
-  const advance = () => {
+  const advance = useCallback(() => {
     setQueueIndex((i) => (i + 1) % contentQueue.length)
-  }
+  }, [contentQueue.length])
 
-  /* ── Timer for auto-advance (fallback for non-YT items) ── */
+  /* ── Timer for video items ── */
   useEffect(() => {
-    if (currentItem.type !== 'events') {
-      setMediaReady(true)
-    }
-  }, [currentItem])
+    if (currentItem?.type !== 'video' || !currentItem.playlist) return
+    const ms = currentItem.playlist.duration_seconds * 1000
+    const timer = setTimeout(advance, ms)
+    return () => clearTimeout(timer)
+  }, [queueIndex, currentItem, advance])
 
+  /* ── Timer for events items ── */
   useEffect(() => {
-    if (currentItem.type === 'events') {
-      const timer = setInterval(() => {
-        advance()
-      }, events.length > 0 ? 12000 : 6000)
-      return () => clearInterval(timer)
-    }
-  }, [currentItem.type, events.length])
+    if (currentItem?.type !== 'events' && contentQueue.length > 0) return
+    const timer = setInterval(() => {
+      advance()
+    }, events.length > 0 ? 15000 : 6000)
+    return () => clearInterval(timer)
+  }, [currentItem?.type, contentQueue.length, events.length, advance])
 
-  useEffect(() => {
-    const scheduleNext = () => {
-      const item = contentQueue[queueIndex]
-      if (item?.type === 'video' && item.playlist) {
-        return item.playlist.duration_seconds * 1000
-      }
-      if (item?.type === 'music' && item.playlist) {
-        return item.playlist.duration_seconds * 1000
-      }
-      return null
-    }
-
-    const ms = scheduleNext()
-    if (ms !== null) {
-      const timer = setTimeout(() => {
-        setMediaReady(false)
-        advance()
-      }, ms)
-      return () => clearTimeout(timer)
-    }
-  }, [queueIndex, contentQueue])
-
+  /* ── Formatting ── */
   const formatTime = (d: Date) =>
     d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
@@ -122,14 +92,51 @@ export function TvDisplay() {
         color: '#f1f5f9', position: 'relative', fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
-      {/* Background gradient */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: 'radial-gradient(ellipse at 30% 20%, rgba(99,102,241,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(168,85,247,0.06) 0%, transparent 60%)',
-        pointerEvents: 'none',
-      }} />
+      {/* ── Layer 1: Background ── */}
+      {showEvents ? (
+        <EventsCarousel events={events} interval={8000} fullBleed />
+      ) : (
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'radial-gradient(ellipse at center, #1e293b 0%, #080a14 100%)',
+        }} />
+      )}
 
-      {/* Admin button (corner) */}
+      {/* ── Layer 2: Video player ── */}
+      {currentItem?.type === 'video' && currentItem.playlist && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(8,10,20,0.85)',
+        }}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`video-${currentItem.playlist.id}`}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.5 }}
+              style={{
+                width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
+                borderRadius: '1rem', overflow: 'hidden',
+                boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
+              }}
+            >
+              <YouTubePlayer
+                url={currentItem.playlist.youtube_url}
+                onEnd={advance}
+              />
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* ── Layer 3: Background audio (always playing) ── */}
+      <BackgroundAudio playlists={musicPlaylists} />
+
+      {/* ── Layer 4: UI overlay ── */}
+
+      {/* Admin button */}
       <a
         href="/tv/admin"
         style={{
@@ -145,7 +152,7 @@ export function TvDisplay() {
         <Settings size={18} />
       </a>
 
-      {/* Clock — top left */}
+      {/* Clock */}
       <div style={{
         position: 'fixed', top: '2.5rem', left: '3rem', zIndex: 10,
         display: 'flex', flexDirection: 'column', gap: '0.25rem',
@@ -163,58 +170,35 @@ export function TvDisplay() {
         </span>
       </div>
 
-      {/* Main content area */}
+      {/* Music visualizer widget */}
+      {hasMusic && (
+        <div style={{
+          position: 'fixed', bottom: '2rem', right: '3rem', zIndex: 10,
+        }}>
+          <MusicPlayer compact />
+        </div>
+      )}
+
+      {/* Content type dots */}
       <div style={{
-        position: 'absolute', inset: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        position: 'fixed', bottom: '2rem', left: '50%',
+        transform: 'translateX(-50%)', zIndex: 10,
+        display: 'flex', gap: '0.5rem',
       }}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={`${currentItem.type}-${currentItem.playlist?.id || 'events'}-${queueIndex}`}
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.6, ease: 'easeInOut' }}
+        {contentQueue.map((_item, i) => (
+          <div
+            key={i}
             style={{
-              width: '100%', height: '100%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: i === queueIndex ? '24px' : '8px',
+              height: '6px', borderRadius: '3px',
+              background: i === queueIndex ? '#6366f1' : 'rgba(255,255,255,0.15)',
+              transition: 'all 0.3s',
             }}
-          >
-            {currentItem.type === 'video' && currentItem.playlist && (
-              <div style={{
-                width: '100%', height: '100%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <div style={{
-                  width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
-                  borderRadius: '1rem', overflow: 'hidden',
-                  boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
-                }}>
-                  {mediaReady && (
-                    <YouTubePlayer
-                      url={currentItem.playlist.youtube_url}
-                      onEnd={handleMediaEnd}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {currentItem.type === 'music' && currentItem.playlist && (
-              <MusicPlayer
-                url={currentItem.playlist.youtube_url}
-                onEnd={handleMediaEnd}
-              />
-            )}
-
-            {currentItem.type === 'events' && (
-              <EventsCarousel events={events} interval={8000} />
-            )}
-          </motion.div>
-        </AnimatePresence>
+          />
+        ))}
       </div>
 
-      {/* Corner decoration */}
+      {/* Branding */}
       <div style={{
         position: 'fixed', bottom: '2rem', left: '3rem', zIndex: 10,
         display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#334155',
@@ -223,30 +207,12 @@ export function TvDisplay() {
         <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>Lab Hub TV</span>
       </div>
 
-      {/* Content type indicator */}
-      <div style={{
-        position: 'fixed', bottom: '2rem', right: '3rem', zIndex: 10,
-        display: 'flex', gap: '0.5rem',
-      }}>
-        {contentQueue.map((_item, i) => (
-          <div
-            key={i}
-            style={{
-              width: i === queueIndex ? '24px' : '8px',
-              height: '6px',
-              borderRadius: '3px',
-              background: i === queueIndex ? '#6366f1' : '#1e293b',
-              transition: 'all 0.3s',
-            }}
-          />
-        ))}
-      </div>
-
       {/* Empty state */}
-      {!hasContent && (
+      {!hasContent && !hasMusic && (
         <div style={{
+          position: 'absolute', inset: 0,
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', height: '100%', gap: '1rem', color: '#475569',
+          justifyContent: 'center', gap: '1rem', color: '#475569',
         }}>
           <Tv size={80} strokeWidth={1} />
           <p style={{ fontSize: '1.5rem', fontWeight: 600 }}>Nenhum conteúdo configurado</p>

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Plus, Pencil, Trash2, X, Monitor, Music, ChevronUp, ChevronDown } from 'lucide-react'
 import type { TvPlaylist } from '../types'
-import { parseYouTubeUrl } from './youtubeUtils'
+import { parseYouTubeUrl } from '../utils/youtubeUtils'
 
 interface PlaylistManagerProps {
   playlists: TvPlaylist[]
