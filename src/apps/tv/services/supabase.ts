@@ -1,16 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
+import { defaultDb as supabase } from '../../../lib/supabase'
 import type { TvEvent, TvPlaylist } from '../types'
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-let client: ReturnType<typeof createClient> | null = null
-
-if (supabaseUrl && supabaseAnonKey) {
-  client = createClient(supabaseUrl, supabaseAnonKey)
-}
-
-export const supabase = client
 
 /* ── Events ── */
 
