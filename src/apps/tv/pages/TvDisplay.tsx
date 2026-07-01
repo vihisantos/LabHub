@@ -56,14 +56,10 @@ export function TvDisplay() {
   const hasMusic = musicPlaylists.length > 0
   const showEvents = !currentItem || currentItem.type === 'events'
 
-  /* ── Music volume: fade out during video, fade in during events ── */
-  const [musicVolume, setMusicVolume] = useState(100)
+  /* ── Music playback: pause during video, resume during events ── */
+  const [musicPlaying, setMusicPlaying] = useState(true)
   useEffect(() => {
-    if (!currentItem || currentItem.type === 'events') {
-      setMusicVolume(100)
-    } else {
-      setMusicVolume(0)
-    }
+    setMusicPlaying(!currentItem || currentItem.type === 'events')
   }, [currentItem])
 
   const advance = useCallback(() => {
@@ -142,7 +138,7 @@ export function TvDisplay() {
       )}
 
       {/* ── Layer 3: Background audio (always playing) ── */}
-      <BackgroundAudio playlists={musicPlaylists} volume={musicVolume} />
+      <BackgroundAudio playlists={musicPlaylists} isPlaying={musicPlaying} />
 
       {/* ── Layer 4: UI overlay ── */}
 

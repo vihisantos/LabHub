@@ -5,14 +5,15 @@ import type { TvPlaylist } from '../types'
 
 interface BackgroundAudioProps {
   playlists: TvPlaylist[]
-  volume: number
+  isPlaying: boolean
 }
 
-export function BackgroundAudio({ playlists, volume }: BackgroundAudioProps) {
+export function BackgroundAudio({ playlists, isPlaying }: BackgroundAudioProps) {
   const [index, setIndex] = useState(0)
   const playerRef = useRef<any>(null)
   const currentVolRef = useRef(100)
   const fadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const wasPlayingRef = useRef(false)
 
   useEffect(() => {
     setIndex(0)
@@ -20,29 +21,42 @@ export function BackgroundAudio({ playlists, volume }: BackgroundAudioProps) {
 
   useEffect(() => {
     if (!playerRef.current) return
-    if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
-    const target = Math.max(0, Math.min(100, volume))
-    const step = currentVolRef.current < target ? 5 : -5
-    const interval = 60
+    if (isPlaying === wasPlayingRef.current) return
+    wasPlayingRef.current = isPlaying
 
-    fadeTimerRef.current = setInterval(() => {
-      const current = currentVolRef.current
-      if (Math.abs(current - target) < 5) {
-        playerRef.current?.setVolume(target)
-        currentVolRef.current = target
-        if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
+    if (isPlaying) {
+      /* Resume with fade-in */
+      if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
+      playerRef.current.setVolume(0)
+      currentVolRef.current = 0
+      playerRef.current.playVideo()
+
+      fadeTimerRef.current = setInterval(() => {
+        const current = currentVolRef.current
+        if (current >= 95) {
+          playerRef.current?.setVolume(100)
+          currentVolRef.current = 100
+          if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
+          fadeTimerRef.current = null
+          return
+        }
+        const next = current + 5
+        playerRef.current?.setVolume(next)
+        currentVolRef.current = next
+      }, 60)
+    } else {
+      /* Pause immediately */
+      if (fadeTimerRef.current) {
+        clearInterval(fadeTimerRef.current)
         fadeTimerRef.current = null
-        return
       }
-      const next = current + step
-      playerRef.current?.setVolume(next)
-      currentVolRef.current = next
-    }, interval)
+      playerRef.current.pauseVideo()
+    }
 
     return () => {
       if (fadeTimerRef.current) clearInterval(fadeTimerRef.current)
     }
-  }, [volume])
+  }, [isPlaying])
 
   if (playlists.length === 0) return null
 
