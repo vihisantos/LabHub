@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Upload, Loader2, Check, Film, Image } from 'lucide-react'
+import { Loader2, Check, Film, Image } from 'lucide-react'
 
 interface CloudinaryUploadProps {
   onUpload: (url: string) => void

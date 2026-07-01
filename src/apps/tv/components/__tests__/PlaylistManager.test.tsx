@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { PlaylistManager } from '../PlaylistManager'
 import type { TvPlaylist } from '../../types'
 

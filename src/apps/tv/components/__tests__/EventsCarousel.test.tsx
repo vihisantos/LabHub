@@ -4,7 +4,7 @@ import type { TvEvent } from '../../types'
 
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => <div>{children}</div>,
+    div: ({ children }: any) => <div>{children}</div>,
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
 }))
