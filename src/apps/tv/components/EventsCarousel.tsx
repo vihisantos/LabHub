@@ -145,11 +145,6 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
               }}>
                 {event.title}
               </h2>
-              {event.start_date && (
-                <div style={{ marginBottom: '0.75rem' }}>
-                  <CountdownTimer target={event.start_date} />
-                </div>
-              )}
               {event.description && (
                 <p style={{
                   fontSize: 'clamp(1rem, 2vw, 1.5rem)',
@@ -171,6 +166,11 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
                     weekday: 'long', day: 'numeric', month: 'long',
                   })}
                 </p>
+              )}
+              {event.start_date && (
+                <div style={{ marginTop: '1rem' }}>
+                  <CountdownTimer target={event.start_date} />
+                </div>
               )}
             </motion.div>
           </AnimatePresence>
