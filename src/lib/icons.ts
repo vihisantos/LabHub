@@ -57,6 +57,7 @@ import {
   SlidersHorizontal,
   Copy,
   ChevronDown,
+  Tv,
 } from 'lucide-react'
 
 export const icons = {
@@ -125,6 +126,7 @@ export const icons = {
     copy: Copy,
     chevronDown: ChevronDown,
     alert: AlertTriangle,
+    tv: Tv,
   },
 } as const
 

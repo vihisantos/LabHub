@@ -36,4 +36,12 @@ export const appRegistry: AppModule[] = [
     route: '/reservalab',
     color: '#6366f1',
   },
+  {
+    id: 'tv',
+    name: 'TV',
+    description: 'Canal corporativo e murais digitais',
+    icon: icons.ui.tv,
+    route: '/tv',
+    color: '#ef4444',
+  },
 ]
