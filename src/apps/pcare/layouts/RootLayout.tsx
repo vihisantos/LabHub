@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { useRef, useState, useMemo } from 'react'
 import { BottomNav } from '../components/BottomNav'
 import { OnlineBanner } from '../components/OnlineBanner'
@@ -114,7 +114,7 @@ function RootLayoutInner({
 
       {!kioskMode && (
         <header className="flex items-center gap-2 border-b border-line bg-card/80 px-3 py-2.5 backdrop-blur-xl">
-          {detail ? (
+          {detail && (
             <button
               type="button"
               onClick={() => navigate(getBackPath(location.pathname))}
@@ -123,15 +123,6 @@ function RootLayoutInner({
             >
               <icons.ui.back size={18} />
             </button>
-          ) : (
-            <Link
-              to="/"
-              viewTransition
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label="Início"
-            >
-              <icons.ui.home size={18} />
-            </Link>
           )}
 
           <button
@@ -141,7 +132,7 @@ function RootLayoutInner({
           >
             <div className="flex flex-col">
               <h1 className="text-sm font-semibold text-fg leading-tight">{title}</h1>
-              <p className="text-[10px] text-fg-muted leading-tight">PCare {detail ? '' : '· ⌂ Início'}</p>
+              <p className="text-[10px] text-fg-muted leading-tight">PCare</p>
             </div>
           </button>
 

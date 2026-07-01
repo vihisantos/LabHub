@@ -93,7 +93,7 @@ function StockLayoutInner({
     <div className="flex min-h-dvh flex-col bg-surface text-fg overflow-x-hidden">
       {!kioskMode && (
         <header className="sticky top-0 z-30 flex items-center gap-2 bg-surface px-4 py-3.5 shadow-sm shadow-black/5 dark:shadow-black/20">
-          {detail ? (
+          {detail && (
             <Link
               to={getBackPath(location.pathname)}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
@@ -101,15 +101,6 @@ function StockLayoutInner({
               viewTransition
             >
               <icons.ui.back size={20} />
-            </Link>
-          ) : (
-            <Link
-              to="/"
-              viewTransition
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label="Início"
-            >
-              <icons.ui.home size={20} />
             </Link>
           )}
 
@@ -120,7 +111,7 @@ function StockLayoutInner({
           >
             <div className="flex flex-col">
               <h1 className="text-[17px] font-semibold tracking-tight text-fg leading-tight">{title}</h1>
-              <p className="text-[11px] text-fg-muted leading-tight">Estoque {detail ? '' : '· ⌂ Início'}</p>
+              <p className="text-[11px] text-fg-muted leading-tight">Estoque</p>
             </div>
           </button>
 
