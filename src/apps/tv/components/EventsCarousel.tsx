@@ -3,6 +3,58 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Calendar } from 'lucide-react'
 import type { TvEvent } from '../types'
 
+interface CountdownProps {
+  target: string
+}
+
+function CountdownTimer({ target }: CountdownProps) {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const diff = new Date(target).getTime() - now
+  if (diff <= 0) {
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+        padding: '0.4rem 1rem', borderRadius: '9999px',
+        background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.3)',
+        color: '#4ade80', fontSize: '0.9rem', fontWeight: 600,
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
+        Acontecendo agora
+      </span>
+    )
+  }
+
+  const days = Math.floor(diff / 86400000)
+  const hours = Math.floor((diff % 86400000) / 3600000)
+  const minutes = Math.floor((diff % 3600000) / 60000)
+  const seconds = Math.floor((diff % 60000) / 1000)
+
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  const unit = days > 0
+    ? `${days}d ${pad(hours)}h ${pad(minutes)}m`
+    : `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`
+
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+      padding: '0.4rem 1rem', borderRadius: '9999px',
+      background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)',
+      color: '#818cf8', fontSize: 'clamp(0.9rem, 1.5vw, 1.25rem)',
+      fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+      letterSpacing: '0.02em',
+    }}>
+      Em {unit}
+    </span>
+  )
+}
+
 interface EventsCarouselProps {
   events: TvEvent[]
   interval?: number
@@ -93,6 +145,11 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
               }}>
                 {event.title}
               </h2>
+              {event.start_date && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <CountdownTimer target={event.start_date} />
+                </div>
+              )}
               {event.description && (
                 <p style={{
                   fontSize: 'clamp(1rem, 2vw, 1.5rem)',
