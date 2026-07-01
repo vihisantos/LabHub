@@ -31,6 +31,7 @@ export function BackgroundAudio({ playlists }: BackgroundAudioProps) {
       disablekb: 1,
       rel: 0,
       loop: 0,
+      origin: window.location.origin,
       ...(info.type === 'playlist' && info.playlistId
         ? { list: info.playlistId, listType: 'playlist' as const, index: 0 }
         : {}),
