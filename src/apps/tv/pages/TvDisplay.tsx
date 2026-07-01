@@ -152,7 +152,7 @@ export function TvDisplay() {
         <Settings size={18} />
       </a>
 
-      {/* Clock + Greeting */}
+      {/* Clock */}
       <div style={{
         position: 'fixed', top: '2.5rem', left: '3rem', zIndex: 10,
         display: 'flex', flexDirection: 'column', gap: '0.25rem',
@@ -168,11 +168,23 @@ export function TvDisplay() {
         <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 400, textTransform: 'capitalize' }}>
           {formatDate(clock)}
         </span>
+      </div>
+
+      {/* Greeting */}
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)', zIndex: 10,
+        pointerEvents: 'none', userSelect: 'none',
+        textAlign: 'center',
+      }}>
         <span style={{
-          fontSize: 'clamp(1rem, 2vw, 1.5rem)',
-          fontWeight: 500,
-          color: '#94a3b8',
-          marginTop: '0.75rem',
+          fontSize: 'clamp(3rem, 8vw, 7rem)',
+          fontWeight: 800,
+          lineHeight: 1.1,
+          background: 'linear-gradient(135deg, #f1f5f9 0%, #818cf8 50%, #a855f7 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          textShadow: '0 0 80px rgba(99,102,241,0.15)',
         }}>
           {clock.getHours() >= 5 && clock.getHours() < 12
             ? 'Bom dia, Campus!'
@@ -180,6 +192,15 @@ export function TvDisplay() {
             ? 'Boa tarde, Campus!'
             : 'Boa noite, Campus!'}
         </span>
+        <p style={{
+          fontSize: 'clamp(1rem, 2vw, 1.5rem)',
+          color: '#64748b',
+          fontWeight: 400,
+          marginTop: '1rem',
+          letterSpacing: '0.05em',
+        }}>
+          Lab Hub TV
+        </p>
       </div>
 
       {/* Music visualizer widget */}
