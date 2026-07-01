@@ -1,4 +1,4 @@
-import { ArrowLeft, Tv } from 'lucide-react'
+import { ArrowLeft, Monitor } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
@@ -23,23 +23,20 @@ export function AdminView() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <button
-            onClick={() => navigate('/tv')}
+            onClick={() => navigate('/')}
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
               background: 'none', border: 'none', cursor: 'pointer',
               color: '#6366f1', fontSize: '0.9rem', fontWeight: 500,
             }}
           >
-            <ArrowLeft size={18} /> TV
+            <ArrowLeft size={18} /> Início
           </button>
           <div style={{ width: '1px', height: '24px', background: '#e2e8f0' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Tv size={20} color="#6366f1" />
-            <h1 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Admin TV</h1>
-          </div>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Lab Hub TV</h1>
         </div>
         <a
-          href="/tv"
+          href="/tv/display"
           style={{
             display: 'flex', alignItems: 'center', gap: '6px',
             padding: '0.5rem 1rem', borderRadius: '0.5rem',
@@ -47,7 +44,7 @@ export function AdminView() {
             fontSize: '0.875rem', fontWeight: 500, textDecoration: 'none',
           }}
         >
-          Ver TV
+          <Monitor size={16} /> Abrir Modo TV
         </a>
       </div>
 
@@ -85,7 +82,7 @@ export function AdminView() {
               <ol style={{ color: '#475569', fontSize: '0.875rem', lineHeight: 2, paddingLeft: '1.25rem' }}>
                 <li>Crie eventos com título, descrição e imagem (opcional)</li>
                 <li>Adicione playlists do YouTube (vídeos ou músicas)</li>
-                <li>Abra <strong>/tv</strong> em um PC conectado à TV</li>
+                <li>Abra <strong>/tv/display</strong> em um PC conectado à TV</li>
                 <li>O conteúdo vai rodar em loop automaticamente</li>
               </ol>
             </div>

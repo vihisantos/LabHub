@@ -116,7 +116,7 @@ export function TvDisplay() {
 
       {/* Admin button */}
       <a
-        href="/tv/admin"
+        href="/tv"
         style={{
           position: 'fixed', top: '1rem', right: '1rem', zIndex: 50,
           width: '40px', height: '40px', borderRadius: '50%',
@@ -220,7 +220,7 @@ export function TvDisplay() {
           <Tv size={80} strokeWidth={1} />
           <p style={{ fontSize: '1.5rem', fontWeight: 600 }}>Nenhum conteúdo configurado</p>
           <a
-            href="/tv/admin"
+            href="/tv"
             style={{
               color: '#6366f1', fontSize: '1rem', textDecoration: 'none',
               padding: '0.75rem 1.5rem', borderRadius: '0.5rem',

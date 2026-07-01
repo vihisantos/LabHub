@@ -7,8 +7,8 @@ export function TvApp() {
   return (
     <ToastProvider>
       <Routes>
-        <Route index element={<TvDisplay />} />
-        <Route path="admin" element={<AdminView />} />
+        <Route index element={<AdminView />} />
+        <Route path="display" element={<TvDisplay />} />
       </Routes>
     </ToastProvider>
   )
