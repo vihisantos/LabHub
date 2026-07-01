@@ -37,6 +37,15 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>
       }
     }, [isPlaying])
 
+    useEffect(() => {
+      return () => {
+        if (playerRef.current) {
+          try { playerRef.current.destroy() } catch {}
+          playerRef.current = null
+        }
+      }
+    }, [])
+
     const info = parseYouTubeUrl(url)
 
     if (!info) {

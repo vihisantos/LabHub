@@ -23,9 +23,13 @@ export function TvDisplay() {
   const [videoIndex, setVideoIndex] = useState(0)
   const currentPlaylist = videoPlaylists[videoIndex]
 
-  /* ── Reset index when current playlist is removed ── */
+  /* ── Reset index when current playlist is removed, switch to events ── */
   useEffect(() => {
-    if (videoPlaylists.length > 0 && videoIndex >= videoPlaylists.length) {
+    if (videoPlaylists.length === 0) {
+      setShowingVideo(false)
+      return
+    }
+    if (videoIndex >= videoPlaylists.length) {
       setVideoIndex(0)
     }
   }, [videoPlaylists.length, videoIndex])
