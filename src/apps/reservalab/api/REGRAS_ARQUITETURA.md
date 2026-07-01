@@ -12,12 +12,11 @@
 planilha/
 ├── app.py              ← Servidor Flask principal. TODAS as rotas /api/* ficam aqui.
 ├── api/
-│   ├── invent.py       ← Módulo de lógica do Inventário (SEM Flask, só funções puras)
 │   └── index.py        ← Entry point da Vercel (não mexa aqui)
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx     ← Componente raiz. Só busca /api/reservas aqui.
-│   │   ├── layouts/    ← Telas: Dashboard.jsx, FigmaReservas.jsx, Inventario.jsx
+│   │   ├── layouts/    ← Telas: Dashboard.jsx, FigmaReservas.jsx
 │   │   ├── components/ ← Componentes reutilizáveis: Navbar.jsx, etc.
 │   │   └── hooks/      ← useIsMobile.js e outros hooks
 │   └── public/
@@ -79,7 +78,7 @@ json.dump(data, f, cls=DateEncoder)
 ### Frontend (React)
 
 6. **Cada tela busca seus próprios dados com `useEffect` interno.**
-   O `App.jsx` só busca `/api/reservas`. O `Inventario.jsx` busca `/api/inventario` sozinho.
+   O `App.jsx` só busca `/api/reservas`.
    Nunca centralize todos os fetches no `App.jsx`.
 
 7. **Use `React.lazy()` para novas telas** — já está configurado em `App.jsx`.
@@ -108,7 +107,6 @@ json.dump(data, f, cls=DateEncoder)
 | Variável | Onde | Descrição |
 |---|---|---|
 | `SHAREPOINT_URL` | `.env` + Vercel | URL da planilha de reservas |
-| `INVENTARIO_URL` | `.env` + Vercel | URL da planilha de inventário |
 
 ## Como Adicionar uma Nova API (passo a passo seguro)
 
@@ -121,6 +119,5 @@ json.dump(data, f, cls=DateEncoder)
 
 ## Bugs Conhecidos e Correções Já Aplicadas
 - `Object of type date is not JSON serializable` → Resolvido com `DateEncoder` em `app.py`
-- `/api/inventario` retornando 404 → Resolvido com `importlib.util` para carregar o módulo
 - Navbar muito alta no iPhone → Resolvido com `env(safe-area-inset-top)` no CSS
 - Tela branca no PWA → Causada por cache do browser; solução: reinstalar o app da tela de início

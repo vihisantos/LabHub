@@ -4,8 +4,9 @@ import { usePCs } from '../hooks/usePCs'
 import { icons } from '../../../lib/icons'
 import type { PC } from '../types'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
+import { PCPhotoUpload } from '../components/PCPhotoUpload'
 
-type PCEditData = Omit<PC, 'id' | 'createdAt' | 'updatedAt' | 'lastIntervention' | 'photos'>
+type PCEditData = Omit<PC, 'id' | 'createdAt' | 'updatedAt' | 'lastIntervention'>
 
 export function PCForm() {
   const { id } = useParams()
@@ -29,6 +30,7 @@ export function PCForm() {
         softwareInstalled: [...pc.softwareInstalled],
         partsReplaced: [...pc.partsReplaced],
         observations: pc.observations,
+        photos: pc.photos || [],
       })
     }
   }, [pc])
@@ -261,6 +263,15 @@ export function PCForm() {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Fotos</h3>
+          <PCPhotoUpload
+            photos={form.photos}
+            onChange={(photos) => updateField('photos', photos)}
+          />
+          <p className="mt-1 text-[10px] text-fg-muted">As fotos são enviadas para o Cloudinary</p>
         </section>
 
         <section className="rounded-xl border border-line bg-card/50 p-4">

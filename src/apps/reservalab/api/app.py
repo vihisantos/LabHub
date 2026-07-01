@@ -454,30 +454,5 @@ def push_check():
         logger.error(f"Push check error: {e}")
         return jsonify({'error': str(e)}), 500
 
-# ─── Inventário ───────────────────────────────────────────────────
-import importlib.util as _ilu
-
-_invent_path = os.path.join(BASE_DIR, 'api', 'invent.py')
-_invent_spec = _ilu.spec_from_file_location('invent', _invent_path)
-_invent_mod  = _ilu.module_from_spec(_invent_spec)
-
-try:
-    _invent_spec.loader.exec_module(_invent_mod)
-
-    @app.route('/api/inventario', methods=['GET'])
-    def api_inventario():
-        aba = request.args.get('aba', '')
-        result = _invent_mod.get_inventario_data(aba if aba else None)
-        return jsonify(result)
-
-    @app.route('/api/inventario/abas', methods=['GET'])
-    def api_inventario_abas():
-        return jsonify(_invent_mod.get_abas_disponiveis())
-
-    logger.info("Módulo de inventário carregado com sucesso.")
-
-except Exception as _e:
-    logger.error(f"Módulo de inventário não carregado: {_e}. Rotas /api/inventario indisponíveis.")
-
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)

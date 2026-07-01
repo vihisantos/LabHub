@@ -49,10 +49,18 @@ export function PCCard({ pc, selectable, selected, highlighted, focusMode, onTog
               aria-label={`Selecionar ${pc.labName} ${pc.pcNumber}`}
             />
           )}
-          <div className={`flex items-center justify-center rounded-lg bg-input ring-1 ring-line ${
+          <div className={`relative flex items-center justify-center rounded-lg bg-input ring-1 ring-line overflow-hidden ${
             focusMode ? 'h-12 w-12 text-lg' : 'h-9 w-9 text-base'
           }`}>
-            <icons.nav.pcs size={focusMode ? 22 : 18} className="text-fg-dim" />
+            {pc.photos?.[0] ? (
+              <img
+                src={pc.photos[0]}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <icons.nav.pcs size={focusMode ? 22 : 18} className="text-fg-dim" />
+            )}
           </div>
           <div>
             <h3 className={`font-semibold text-fg ${focusMode ? 'text-base' : 'text-sm'}`}>

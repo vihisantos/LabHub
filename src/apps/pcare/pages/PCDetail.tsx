@@ -49,6 +49,7 @@ function PCDetailContent({
   const { logs, log: addLog } = useActionLog(pc.id)
   const [showAddPart, setShowAddPart] = useState(false)
   const [showChecklist, setShowChecklist] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
   const partUsages = useMemo(() => partUsageService.getByPC(pc.id), [pc.id])
   const linkedStockItems = useMemo(
@@ -161,6 +162,87 @@ function PCDetailContent({
       </div>
 
       <div className="flex flex-col gap-3">
+        {pc.photos && pc.photos.length > 0 && (
+          <section className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Fotos</h3>
+            <div className="flex flex-wrap gap-2">
+              {pc.photos.map((url, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setLightboxIndex(i)}
+                  className="group relative h-24 w-24 overflow-hidden rounded-xl bg-input transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <img
+                    src={url}
+                    alt={`Foto ${i + 1}`}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  {i === 0 && pc.photos.length > 1 && (
+                    <span className="absolute bottom-1 right-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] text-white font-medium">
+                      +{pc.photos.length - 1}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {lightboxIndex !== null && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+            onClick={() => setLightboxIndex(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxIndex(null)}
+              className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+              aria-label="Fechar"
+            >
+              <icons.ui.close size={20} />
+            </button>
+            <div className="flex max-h-full max-w-full items-center gap-3" onClick={(e) => e.stopPropagation()}>
+              {pc.photos.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setLightboxIndex((prev) => (prev === 0 ? pc.photos.length - 1 : prev! - 1))
+                  }}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+                  aria-label="Anterior"
+                >
+                  <icons.ui.back size={20} />
+                </button>
+              )}
+              <img
+                src={pc.photos[lightboxIndex]}
+                alt={`Foto ${lightboxIndex + 1}`}
+                className="max-h-[85vh] max-w-[85vw] rounded-xl object-contain"
+                onClick={(e) => e.stopPropagation()}
+              />
+              {pc.photos.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setLightboxIndex((prev) => (prev === pc.photos.length - 1 ? 0 : prev! + 1))
+                  }}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
+                  aria-label="Próximo"
+                >
+                  <icons.ui.chevronDown size={20} className="-rotate-90" />
+                </button>
+              )}
+            </div>
+            <p className="absolute bottom-4 text-sm text-white/70">
+              {lightboxIndex + 1} / {pc.photos.length}
+            </p>
+          </div>
+        )}
+
         <section className="rounded-xl border border-line bg-card/50 p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Localização</h3>
           <p className="text-fg">{pc.roomLocation || 'Não informado'}</p>

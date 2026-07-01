@@ -1,15 +1,16 @@
 import { useState, useRef } from 'react'
-import { Upload, Loader2, Check } from 'lucide-react'
+import { Upload, Loader2, Check, Film, Image } from 'lucide-react'
 
 interface CloudinaryUploadProps {
   onUpload: (url: string) => void
+  resourceType?: 'image' | 'video'
 }
 
 const CLOUD_NAME = 'horytsxg'
 const UPLOAD_PRESET = 'tv_events'
 const API_KEY = 'EtKxIwZz6wyLZ9z6Wa-Z58ei6XU'
 
-export function CloudinaryUpload({ onUpload }: CloudinaryUploadProps) {
+export function CloudinaryUpload({ onUpload, resourceType = 'image' }: CloudinaryUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [done, setDone] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -28,7 +29,8 @@ export function CloudinaryUpload({ onUpload }: CloudinaryUploadProps) {
     form.append('folder', 'tv')
 
     try {
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+      const endpoint = resourceType === 'video' ? 'video' : 'image'
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${endpoint}/upload`, {
         method: 'POST',
         body: form,
       })
@@ -46,12 +48,14 @@ export function CloudinaryUpload({ onUpload }: CloudinaryUploadProps) {
     }
   }
 
+  const Icon = resourceType === 'video' ? Film : Image
+
   return (
     <>
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={resourceType === 'video' ? 'video/*' : 'image/*'}
         onChange={handleFile}
         style={{ display: 'none' }}
       />
@@ -70,8 +74,8 @@ export function CloudinaryUpload({ onUpload }: CloudinaryUploadProps) {
           whiteSpace: 'nowrap', flexShrink: 0,
         }}
       >
-        {uploading ? <Loader2 size={16} className="spin" /> : done ? <Check size={16} /> : <Upload size={16} />}
-        {uploading ? 'Enviando...' : done ? 'Enviado' : 'Upload'}
+        {uploading ? <Loader2 size={16} className="spin" /> : done ? <Check size={16} /> : <Icon size={16} />}
+        {uploading ? 'Enviando...' : done ? 'Enviado' : resourceType === 'video' ? 'Upload Vídeo' : 'Upload'}
       </button>
     </>
   )
