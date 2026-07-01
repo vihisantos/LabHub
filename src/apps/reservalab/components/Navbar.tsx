@@ -203,17 +203,31 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
               padding: '8px 16px',
               borderRadius: '9999px',
               border: 'none',
-              background: isActive ? 'rgba(99, 102, 241, 0.6)' : 'transparent',
+              background: 'transparent',
               cursor: 'pointer',
               color: '#ffffff',
               fontSize: '13px',
               fontWeight: isActive ? 600 : 500,
-              transition: 'background 0.2s',
               whiteSpace: 'nowrap',
+              position: 'relative',
             }}
           >
-            <tab.icon size={16} />
-            {tab.label}
+            {isActive && (
+              <motion.div
+                layoutId="desktopActiveTab"
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(99, 102, 241, 0.6)',
+                  borderRadius: '9999px',
+                }}
+              />
+            )}
+            <span style={{ position: 'relative', zIndex: 1 }}>
+              <tab.icon size={16} />
+            </span>
+            <span style={{ position: 'relative', zIndex: 1 }}>{tab.label}</span>
           </button>
         )
       })}

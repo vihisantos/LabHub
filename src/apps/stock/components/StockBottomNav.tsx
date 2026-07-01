@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { useStock } from '../hooks/useStock'
 import { useKits } from '../hooks/useKits'
 import { useMovements } from '../hooks/useMovements'
@@ -18,7 +19,7 @@ function useBadges() {
 }
 
 const mainNav = [
-  { to: '/stock', label: 'Dashboard', icon: icons.nav.dashboard, end: true },
+  { to: '/stock', label: 'Dashboard', icon: icons.nav.dashboard },
   { to: '/stock/items', label: 'Estoque', icon: icons.ui.package },
   { to: '/stock/entry-exit', label: 'Ent/Sai', icon: icons.ui.refresh },
 ]
@@ -42,6 +43,11 @@ export function StockBottomNav() {
   const moreActive = moreItems.find((i) => location.pathname.startsWith(i.to))
 
   const MoreIcon = icons.nav.more
+
+  const isActive = (to: string) => {
+    if (to === '/stock') return location.pathname === '/stock' || location.pathname === '/stock/'
+    return location.pathname.startsWith(to + '/') || location.pathname === to
+  }
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -68,42 +74,47 @@ export function StockBottomNav() {
           <icons.ui.home size={16} />
           <span>Início</span>
         </button>
-        {mainNav.map(({ to, label, icon: Icon, end }) => {
+        {mainNav.map(({ to, label, icon: Icon }) => {
+          const active = isActive(to)
           const badge = to === '/stock' ? (inRepair + overdueCount) : 0
           const badgeKind = to === '/stock' && badge > 0 ? (overdueCount > 0 ? 'rose' : 'amber') : 'default'
           return (
-            <NavLink
+            <button
               key={to}
-              to={to}
-              end={end}
-              viewTransition
-              className={({ isActive }) =>
-                `relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-                  isActive ? 'text-indigo-400' : 'text-white/70 hover:text-white/90'
-                }`
-              }
+              onClick={() => navigate(to)}
+              className="relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors flex-shrink-0"
+              style={{
+                color: active ? '#818cf8' : 'rgba(255,255,255,0.7)',
+                fontWeight: active ? 700 : 500,
+                padding: '6px 10px',
+                minHeight: '36px',
+                position: 'relative',
+              }}
             >
-              {({ isActive }) => (
-                <>
-                  <span className="relative mb-0.5">
-                    <Icon size={18} />
-                    {badge > 0 && (
-                      <span className={`absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-1 text-[8px] font-bold text-white leading-none shadow-sm ${
-                        badgeKind === 'rose' ? 'bg-rose-500 shadow-rose-500/50' : 'bg-red-500 shadow-red-500/50'
-                      }`}>
-                        {badge}
-                      </span>
-                    )}
-                  </span>
-                  <span className="relative">
-                    {label}
-                    {isActive && (
-                      <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-indigo-400 shadow-sm shadow-indigo-400/50" />
-                    )}
-                  </span>
-                </>
+              {active && (
+                <motion.div
+                  layoutId="stockActiveTab"
+                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                  style={{
+                    position: 'absolute',
+                    inset: 2,
+                    background: 'rgba(99, 102, 241, 0.2)',
+                    borderRadius: '9999px',
+                  }}
+                />
               )}
-            </NavLink>
+              <span className="relative mb-0.5" style={{ zIndex: 1 }}>
+                <Icon size={16} />
+                {badge > 0 && (
+                  <span className={`absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-1 text-[8px] font-bold text-white leading-none shadow-sm ${
+                    badgeKind === 'rose' ? 'bg-rose-500 shadow-rose-500/50' : 'bg-red-500 shadow-red-500/50'
+                  }`}>
+                    {badge}
+                  </span>
+                )}
+              </span>
+              <span className="relative" style={{ zIndex: 1 }}>{label}</span>
+            </button>
           )
         })}
 
@@ -117,7 +128,7 @@ export function StockBottomNav() {
               aria-label="Mais opções"
             >
               <span className="relative mb-0.5">
-                {moreActive ? <moreActive.icon size={18} /> : <MoreIcon size={18} />}
+                {moreActive ? <moreActive.icon size={16} /> : <MoreIcon size={16} />}
                 {moreBadge > 0 && !isInMore && (
                   <span className="absolute -right-2 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-bold text-white leading-none shadow-sm shadow-red-500/50">
                     {moreBadge}
@@ -126,9 +137,6 @@ export function StockBottomNav() {
               </span>
               <span className="relative">
                 {moreActive ? moreActive.label : 'Mais'}
-                {isInMore && (
-                  <span className="absolute -bottom-[3px] left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-indigo-400 shadow-sm shadow-indigo-400/50" />
-                )}
               </span>
             </button>
           </PopoverTrigger>
@@ -137,10 +145,9 @@ export function StockBottomNav() {
               {moreItems.map(({ to, label, icon: Icon }) => {
                 const active = location.pathname.startsWith(to)
                 return (
-                  <NavLink
+                  <button
                     key={to}
-                    to={to}
-                    onClick={() => setShowMore(false)}
+                    onClick={() => { navigate(to); setShowMore(false) }}
                     className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
                       active
                         ? 'bg-indigo-900/25 text-indigo-400'
@@ -149,7 +156,7 @@ export function StockBottomNav() {
                   >
                     <Icon size={18} />
                     <span>{label}</span>
-                  </NavLink>
+                  </button>
                 )
               })}
             </div>
