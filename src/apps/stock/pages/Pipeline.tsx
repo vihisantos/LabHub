@@ -21,8 +21,7 @@ type PipelineItem = StockItem | PCItem
 interface ColumnDef {
   id: string
   title: string
-  icon: keyof typeof icons.ui | keyof typeof icons.nav
-  iconSet: 'ui' | 'nav'
+  Icon: React.ComponentType<{ size?: number; className?: string }>
   color: string
   bgColor: string
   items: PipelineItem[]
@@ -116,12 +115,6 @@ function PipelineCard({ item, onActivate }: { item: PipelineItem; onActivate?: (
   )
 }
 
-function ColumnIcon({ col }: { col: ColumnDef }) {
-  const set = col.iconSet === 'nav' ? icons.nav : icons.ui
-  const Icon = set[col.icon] as React.ComponentType<{ size?: number; className?: string }>
-  return <Icon size={16} />
-}
-
 export function Pipeline() {
   const navigate = useNavigate()
   const [, forceUpdate] = useState(0)
@@ -134,8 +127,7 @@ export function Pipeline() {
       {
         id: 'missing_parts',
         title: 'Aguardando Peças',
-        icon: 'hardDrive',
-        iconSet: 'ui',
+        Icon: icons.ui.hardDrive,
         color: 'text-amber-500',
         bgColor: 'bg-amber-500',
         items: stockItems
@@ -144,8 +136,7 @@ export function Pipeline() {
       {
         id: 'ready_to_activate',
         title: 'Pronto pra Ativar',
-        icon: 'checkCircle',
-        iconSet: 'ui',
+        Icon: icons.ui.checkCircle,
         color: 'text-emerald-500',
         bgColor: 'bg-emerald-500',
         items: stockItems
@@ -154,8 +145,7 @@ export function Pipeline() {
       {
         id: 'needs_config',
         title: 'Configurar SO',
-        icon: 'pcs',
-        iconSet: 'nav',
+        Icon: icons.nav.pcs,
         color: 'text-cyan-500',
         bgColor: 'bg-cyan-500',
         items: pcs.filter(p => !p.hasConfig),
@@ -163,8 +153,7 @@ export function Pipeline() {
       {
         id: 'needs_cleaning',
         title: 'Limpeza',
-        icon: 'brushCleaning',
-        iconSet: 'ui',
+        Icon: icons.ui.brushCleaning,
         color: 'text-violet-500',
         bgColor: 'bg-violet-500',
         items: pcs.filter(p => p.hasConfig && p.cleaningStatus !== 'done'),
@@ -172,8 +161,7 @@ export function Pipeline() {
       {
         id: 'needs_restoration',
         title: 'Restauração',
-        icon: 'refresh',
-        iconSet: 'ui',
+        Icon: icons.ui.refresh,
         color: 'text-orange-500',
         bgColor: 'bg-orange-500',
         items: pcs.filter(p => p.hasConfig && p.cleaningStatus === 'done' && p.restorationStatus !== 'done'),
@@ -181,8 +169,7 @@ export function Pipeline() {
       {
         id: 'completed',
         title: 'Concluído',
-        icon: 'partyPopper',
-        iconSet: 'ui',
+        Icon: icons.ui.partyPopper,
         color: 'text-emerald-500',
         bgColor: 'bg-emerald-500',
         items: pcs.filter(p => p.hasConfig && p.cleaningStatus === 'done' && p.restorationStatus === 'done'),
@@ -241,17 +228,14 @@ export function Pipeline() {
       </div>
 
       <div className="flex gap-3 overflow-x-auto pb-4" style={{ scrollSnapType: 'x mandatory' }}>
-        {columns.map(col => {
-          const IconComponent = (col.iconSet === 'nav' ? icons.nav : icons.ui)[col.icon] as React.ComponentType<{ size?: number; className?: string }>
-
-          return (
+        {columns.map(col => (
             <div
               key={col.id}
               className="flex shrink-0 flex-col gap-2"
               style={{ width: '280px', scrollSnapAlign: 'start' }}
             >
               <div className="flex items-center gap-2 px-1">
-                <IconComponent size={16} className={col.color} />
+                <col.Icon size={16} className={col.color} />
                 <h3 className="text-sm font-semibold text-fg">{col.title}</h3>
                 <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white ${col.bgColor}`}>
                   {col.items.length}
@@ -275,7 +259,7 @@ export function Pipeline() {
               </div>
             </div>
           )
-        })}
+        )}
       </div>
     </div>
   )

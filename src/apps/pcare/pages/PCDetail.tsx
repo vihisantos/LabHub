@@ -13,7 +13,7 @@ import { partUsageService } from '../services/partUsageService'
 import { stockService } from '../../stock/services/stockService'
 import { icons } from '../../../lib/icons'
 import type { PC, PCPart, OsType, OsEdition, PcTypeLabel } from '../types'
-import { OS_TYPE_LABELS, OS_EDITION_LABELS, PC_TYPE_LABELS, PC_TYPE_DOMAIN } from '../types'
+import { OS_TYPE_LABELS, OS_EDITION_LABELS, PC_TYPE_LABELS } from '../types'
 
 export function PCDetail() {
   const { id } = useParams()

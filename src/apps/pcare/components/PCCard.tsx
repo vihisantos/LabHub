@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import type { PC, OsType, OsEdition, PcTypeLabel } from '../types'
+import type { PC, OsType, PcTypeLabel } from '../types'
 import { OS_TYPE_LABELS, PC_TYPE_LABELS } from '../types'
 import { StatusBadge } from './StatusBadge'
 import { icons } from '../../../lib/icons'

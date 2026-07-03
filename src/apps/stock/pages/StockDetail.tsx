@@ -11,7 +11,6 @@ import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import type { StockItemFormData } from '../types'
-import { DEFAULT_PC_PARTS } from '../types'
 
 export function StockDetail() {
   const { id } = useParams()

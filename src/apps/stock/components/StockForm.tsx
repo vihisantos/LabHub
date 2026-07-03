@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import type { StockItemFormData, StockSection, PcPartRequirement } from '../types'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import type { StockItemFormData, StockSection } from '../types'
 import { stockSections, sectionSubcategories, stockConditions, DEFAULT_PC_PARTS } from '../types'
 import { pcService } from '../../pcare/services/pcService'
 import { stockPhotoService, compressImage } from '../services/stockPhotoService'
