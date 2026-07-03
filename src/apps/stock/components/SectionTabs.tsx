@@ -22,17 +22,7 @@ const sectionColors: Record<StockSection, string> = {
   outros: 'text-slate-600 dark:text-slate-400',
 }
 
-const sectionBg: Record<StockSection, string> = {
-  maquinas: 'bg-sky-100 dark:bg-sky-950/30',
-  perifericos: 'bg-purple-100 dark:bg-purple-950/30',
-  material_escritorio: 'bg-amber-100 dark:bg-amber-950/30',
-  adaptadores: 'bg-cyan-100 dark:bg-cyan-950/30',
-  equipamentos: 'bg-rose-100 dark:bg-rose-950/30',
-  cabos: 'bg-orange-100 dark:bg-orange-950/30',
-  outros: 'bg-slate-100 dark:bg-slate-950/30',
-}
-
-const sectionIcons: Record<StockSection, React.FC<{ size?: number }>> = {
+const sectionIcons: Record<StockSection, React.ComponentType<{ size?: number; className?: string }>> = {
   maquinas: icons.nav.pcs,
   perifericos: icons.ui.printer,
   material_escritorio: icons.ui.fileBarChart,
@@ -42,7 +32,7 @@ const sectionIcons: Record<StockSection, React.FC<{ size?: number }>> = {
   outros: icons.ui.package,
 }
 
-const specialTabs: { id: TabId; label: string; icon: React.FC<{ size?: number }>; color: string }[] = [
+const specialTabs: { id: TabId; label: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }[] = [
   { id: 'all', label: 'Ativos', icon: icons.ui.inbox, color: 'text-emerald-600 dark:text-emerald-400' },
   { id: 'emprestados', label: 'Emprestados', icon: icons.ui.user, color: 'text-violet-600 dark:text-violet-400' },
   { id: 'repair', label: 'Em Conserto', icon: icons.nav.parts, color: 'text-amber-600 dark:text-amber-400' },
@@ -99,7 +89,6 @@ export function SectionTabs({ active, onChange, items }: SectionTabsProps) {
           const count = counts[s.value] ?? 0
           const isActive = active === s.value
           const color = sectionColors[s.value]
-          const bg = sectionBg[s.value]
           return (
             <button
               key={s.value}

@@ -44,7 +44,7 @@ export function StockSectionPage() {
   const [statusFilter, setStatusFilter] = useState('')
   const [conditionFilter, setConditionFilter] = useState('')
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     clearTimeout(debounceRef.current)
