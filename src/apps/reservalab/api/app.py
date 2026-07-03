@@ -512,6 +512,94 @@ def push_notify_return():
 
 
 @app.route('/api/push/check-overdue', methods=['GET'])
+def _supabase_headers():
+    supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+    return {'apikey': supabase_key, 'Authorization': f'Bearer {supabase_key}'}
+
+def _ensure_stock_schema():
+    """Cria schema stock e tabelas se não existirem usando SQL direto no Postgres."""
+    supabase_url = os.environ.get('SUPABASE_URL', '')
+    key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+    if not supabase_url or not key:
+        return
+
+    headers = _supabase_headers()
+
+    # Tenta criar via RPC call (precisa que a função pg_sql exista)
+    sql_stock = """
+    CREATE SCHEMA IF NOT EXISTS stock;
+    CREATE TABLE IF NOT EXISTS stock.stock_items (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL DEFAULT '',
+        section TEXT NOT NULL DEFAULT '',
+        subcategory TEXT NOT NULL DEFAULT '',
+        serialNumber TEXT NOT NULL DEFAULT '',
+        room TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'ativo',
+        condition TEXT NOT NULL DEFAULT 'Bom',
+        cableType TEXT DEFAULT '',
+        cableLength TEXT DEFAULT '',
+        connectors TEXT DEFAULT '',
+        outlets TEXT DEFAULT '',
+        notes TEXT DEFAULT '',
+        linkedPcId TEXT DEFAULT '',
+        linkedPcLabel TEXT DEFAULT '',
+        manualPcNumber TEXT DEFAULT '',
+        createdAt TIMESTAMPTZ DEFAULT NOW(),
+        updatedAt TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS stock.stock_movements (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        itemId TEXT NOT NULL DEFAULT '',
+        itemName TEXT NOT NULL DEFAULT '',
+        type TEXT NOT NULL DEFAULT '',
+        fromRoom TEXT DEFAULT '',
+        toRoom TEXT DEFAULT '',
+        borrowedBy TEXT DEFAULT '',
+        borrowedAt TIMESTAMPTZ DEFAULT NOW(),
+        expectedReturnAt TIMESTAMPTZ,
+        returnedAt TIMESTAMPTZ,
+        notes TEXT DEFAULT '',
+        createdAt TIMESTAMPTZ DEFAULT NOW()
+    );
+    """
+    sql_pcare = """
+    CREATE SCHEMA IF NOT EXISTS pcare;
+    CREATE TABLE IF NOT EXISTS pcare.parts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL DEFAULT '',
+        quantity INTEGER DEFAULT 0,
+        minQuantity INTEGER DEFAULT 0,
+        unit TEXT DEFAULT 'un',
+        createdAt TIMESTAMPTZ DEFAULT NOW(),
+        updatedAt TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS pcare.maintenance (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        pcNumber TEXT DEFAULT '',
+        labName TEXT DEFAULT '',
+        type TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        completed BOOLEAN DEFAULT FALSE,
+        scheduledDate DATE,
+        createdAt TIMESTAMPTZ DEFAULT NOW()
+    );
+    """
+    try:
+        # Tenta via pg_sql RPC
+        rpc_payload = {'query': sql_stock}
+        r = requests.post(f"{supabase_url}/rest/v1/rpc/pg_sql", json=rpc_payload, headers=headers, timeout=10)
+        logger.info(f"pg_sql stock result: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        logger.info(f"pg_sql stock error: {e}")
+
+    try:
+        rpc_payload = {'query': sql_pcare}
+        r = requests.post(f"{supabase_url}/rest/v1/rpc/pg_sql", json=rpc_payload, headers=headers, timeout=10)
+        logger.info(f"pg_sql pcare result: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        logger.info(f"pg_sql pcare error: {e}")
+
 def push_check_overdue():
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
@@ -521,13 +609,12 @@ def push_check_overdue():
         if not supabase_url or not supabase_key:
             return jsonify({'error': 'Supabase not configured'}), 500
 
+        _ensure_stock_schema()
+
         agora = get_now_sp()
         limite_12h = agora + timedelta(hours=12)
 
-        headers = {
-            'apikey': supabase_key,
-            'Authorization': f'Bearer {supabase_key}',
-        }
+        headers = _supabase_headers()
 
         url = (
             f"{supabase_url}/rest/v1/stock_movements"
@@ -535,7 +622,8 @@ def push_check_overdue():
             f"&type=eq.{quote('emprestimo')}"
             f"&returnedAt=is.null"
         )
-        resp = requests.get(url, headers=headers, timeout=10)
+        headers2 = {**headers, 'Accept-Profile': 'stock'}
+        resp = requests.get(url, headers=headers2, timeout=10)
         if not resp.ok:
             logger.error(f"check-overdue Supabase error: {resp.status_code} url={url} body={resp.text[:500]}")
             return jsonify({'error': 'Supabase query failed', 'detail': resp.text[:500]}), 500
@@ -597,22 +685,21 @@ def push_check_pcare():
         if not supabase_url or not supabase_key:
             return jsonify({'error': 'Supabase not configured'}), 500
 
+        _ensure_stock_schema()
+
         agora = get_now_sp()
         hoje_str = agora.strftime('%Y-%m-%d')
         amanha_str = (agora + timedelta(days=1)).strftime('%Y-%m-%d')
 
-        base_headers = {
-            'apikey': supabase_key,
-            'Authorization': f'Bearer {supabase_key}',
-        }
+        base_headers = _supabase_headers()
         subs = _get_subs()
         sent = 0
 
         # ── Estoque baixo de peças ──
-        parts_headers = base_headers
+        parts_headers = {**base_headers, 'Accept-Profile': 'pcare'}
         try:
             pr = requests.get(
-                f"{supabase_url}/rest/v1/parts?select=*&schema=pcare",
+                f"{supabase_url}/rest/v1/parts?select=*",
                 headers=parts_headers, timeout=10
             )
             if pr.ok:
@@ -638,7 +725,6 @@ def push_check_pcare():
             mr = requests.get(
                 f"{supabase_url}/rest/v1/maintenance"
                 f"?select=*"
-                f"&schema=pcare"
                 f"&completed=eq.false"
                 f"&scheduledDate=gte.{quote(hoje_str)}"
                 f"&scheduledDate=lte.{quote(amanha_str)}",
