@@ -532,14 +532,13 @@ def push_check_overdue():
         url = (
             f"{supabase_url}/rest/v1/stock_movements"
             f"?select=*"
-            f"&schema=stock"
             f"&type=eq.{quote('emprestimo')}"
             f"&returnedAt=is.null"
         )
         resp = requests.get(url, headers=headers, timeout=10)
         if not resp.ok:
-            logger.error(f"check-overdue Supabase error: {resp.status_code} body={resp.text}")
-            return jsonify({'error': 'Supabase query failed', 'detail': resp.text}), 500
+            logger.error(f"check-overdue Supabase error: {resp.status_code} url={url} body={resp.text[:500]}")
+            return jsonify({'error': 'Supabase query failed', 'detail': resp.text[:500]}), 500
 
         all_loans = resp.json()
         subs = _get_subs()
