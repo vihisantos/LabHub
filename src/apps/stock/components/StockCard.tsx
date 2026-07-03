@@ -113,7 +113,7 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
       )}
 
       {!selectable && item.status !== 'descartado' && (
-        <div className="flex gap-1 pt-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap gap-1 pt-2" onClick={(e) => e.stopPropagation()}>
           {item.status === 'emprestado' ? (
             <button
               type="button"

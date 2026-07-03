@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { useStockSelection } from '../hooks/useStockSelection'
@@ -24,6 +24,7 @@ export function StockSectionPage() {
   const { items, loading, create, update, remove, reload } = useStock()
   const { create: createMovement } = useMovements()
   const selection = useStockSelection()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [activeSection, setActiveSection] = useState<Section | 'all' | 'repair'>('maquinas')
 
@@ -113,6 +114,24 @@ export function StockSectionPage() {
     conserto: sectionItems.filter((i) => i.status === 'em_conserto').length,
     descartados: sectionItems.filter((i) => i.status === 'descartado').length,
   }), [sectionItems])
+
+  const groupedItems = useMemo(() => {
+    const groups = new Map<string, { pcId: string; pcLabel: string; items: StockItem[] }>()
+    const unlinked: StockItem[] = []
+    for (const item of filtered) {
+      if (item.linkedPcId && item.linkedPcLabel) {
+        const key = item.linkedPcId
+        if (!groups.has(key)) {
+          groups.set(key, { pcId: item.linkedPcId, pcLabel: item.linkedPcLabel, items: [] })
+        }
+        groups.get(key)!.items.push(item)
+      } else {
+        unlinked.push(item)
+      }
+    }
+    const sortedGroups = Array.from(groups.values()).sort((a, b) => a.pcLabel.localeCompare(b.pcLabel))
+    return { groups: sortedGroups, unlinked }
+  }, [filtered])
 
   function handleSave(data: StockItemFormData, photos?: string[]) {
     if (editing) {
@@ -555,22 +574,66 @@ export function StockSectionPage() {
                 {filtered.every((i) => selection.selected.has(i.id)) ? 'Desmarcar todos' : 'Selecionar todos'}
               </button>
             )}
-            <div className="space-y-2">
-              {filtered.map((item) => (
-                <StockCard
-                  key={item.id}
-                  item={item}
-                  onEdit={handleEdit}
-                  onMove={handleMove}
-                  onRepair={handleRepair}
-                  onDiscard={handleDiscard}
-                  onLoan={handleLoan}
-                  onReturn={handleReturn}
-                  selectable={selection.selectMode}
-                  selected={selection.selected.has(item.id)}
-                  onToggleSelect={selection.toggle}
-                />
+            <div className="space-y-3">
+              {groupedItems.groups.map((group) => (
+                <div key={group.pcId}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/pcare/pcs/${group.pcId}`)}
+                    className="mb-2 flex w-full items-center gap-2 rounded-xl bg-violet-50 dark:bg-violet-950/20 px-4 py-2.5 text-left transition-colors hover:bg-violet-100 dark:hover:bg-violet-950/40"
+                  >
+                    <icons.nav.pcs size={16} className="shrink-0 text-violet-500" />
+                    <span className="flex-1 text-sm font-semibold text-fg">{group.pcLabel}</span>
+                    <span className="text-[11px] text-fg-muted">{group.items.length} {group.items.length === 1 ? 'item' : 'itens'}</span>
+                    <icons.ui.chevronRight size={14} className="text-fg-muted" />
+                  </button>
+                  <div className="space-y-2 pl-3 border-l-2 border-violet-200 dark:border-violet-900">
+                    {group.items.map((item) => (
+                      <StockCard
+                        key={item.id}
+                        item={item}
+                        onEdit={handleEdit}
+                        onMove={handleMove}
+                        onRepair={handleRepair}
+                        onDiscard={handleDiscard}
+                        onLoan={handleLoan}
+                        onReturn={handleReturn}
+                        selectable={selection.selectMode}
+                        selected={selection.selected.has(item.id)}
+                        onToggleSelect={selection.toggle}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
+              {groupedItems.unlinked.length > 0 && (
+                <div>
+                  {groupedItems.groups.length > 0 && (
+                    <div className="mb-2 flex items-center gap-2 px-4 py-2">
+                      <icons.ui.package size={14} className="text-fg-muted" />
+                      <span className="text-xs font-medium text-fg-muted">Sem vínculo</span>
+                      <span className="text-[11px] text-fg-muted">({groupedItems.unlinked.length})</span>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {groupedItems.unlinked.map((item) => (
+                      <StockCard
+                        key={item.id}
+                        item={item}
+                        onEdit={handleEdit}
+                        onMove={handleMove}
+                        onRepair={handleRepair}
+                        onDiscard={handleDiscard}
+                        onLoan={handleLoan}
+                        onReturn={handleReturn}
+                        selectable={selection.selectMode}
+                        selected={selection.selected.has(item.id)}
+                        onToggleSelect={selection.toggle}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </>
         ))}
