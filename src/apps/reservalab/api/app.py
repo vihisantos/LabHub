@@ -527,12 +527,12 @@ def push_check_overdue():
         headers = {
             'apikey': supabase_key,
             'Authorization': f'Bearer {supabase_key}',
-            'Accept-Profile': 'stock',
         }
 
         url = (
             f"{supabase_url}/rest/v1/stock_movements"
             f"?select=*"
+            f"&schema=stock"
             f"&type=eq.{quote('emprestimo')}"
             f"&returnedAt=is.null"
         )
@@ -610,10 +610,10 @@ def push_check_pcare():
         sent = 0
 
         # ── Estoque baixo de peças ──
-        parts_headers = {**base_headers, 'Accept-Profile': 'pcare'}
+        parts_headers = base_headers
         try:
             pr = requests.get(
-                f"{supabase_url}/rest/v1/parts?select=*",
+                f"{supabase_url}/rest/v1/parts?select=*&schema=pcare",
                 headers=parts_headers, timeout=10
             )
             if pr.ok:
@@ -639,6 +639,7 @@ def push_check_pcare():
             mr = requests.get(
                 f"{supabase_url}/rest/v1/maintenance"
                 f"?select=*"
+                f"&schema=pcare"
                 f"&completed=eq.false"
                 f"&scheduledDate=gte.{quote(hoje_str)}"
                 f"&scheduledDate=lte.{quote(amanha_str)}",
