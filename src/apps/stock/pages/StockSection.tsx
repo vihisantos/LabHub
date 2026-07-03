@@ -185,8 +185,25 @@ export function StockSectionPage() {
         update(movementTarget.id, { status: 'em_conserto' })
       } else if (data.type === 'emprestimo') {
         update(movementTarget.id, { status: 'emprestado', room: data.destinationRoom || movementTarget.room })
+        fetch('/api/push/notify-loan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itemName: movementTarget.name,
+            borrowedBy: data.borrowedBy || 'Alguém',
+            expectedReturnAt: data.expectedReturnAt || '',
+          }),
+        }).catch(() => {})
       } else if (data.type === 'devolucao') {
         update(movementTarget.id, { status: 'ativo' })
+        fetch('/api/push/notify-return', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itemName: movementTarget.name,
+            returnedBy: data.performedBy || 'Alguém',
+          }),
+        }).catch(() => {})
       }
     }
     setMovementTarget(null)

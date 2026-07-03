@@ -455,5 +455,215 @@ def push_check():
         logger.error(f"Push check error: {e}")
         return jsonify({'error': str(e)}), 500
 
+# ─── Notificações de Empréstimos (Stock) ─────────────────────────
+
+def _get_subs():
+    raw = redis.smembers('push:subscribers') if redis else []
+    return [json.loads(s) if isinstance(s, str) else s for s in raw]
+
+
+@app.route('/api/push/notify-loan', methods=['POST'])
+def push_notify_loan():
+    if not redis:
+        return jsonify({'error': 'Redis not configured'}), 500
+    try:
+        body = request.get_json()
+        item_name = body.get('itemName', 'Item')
+        borrowed_by = body.get('borrowedBy', 'Alguém')
+        expected_return = body.get('expectedReturnAt', '')
+
+        title = f"📦 Empréstimo: {item_name}"
+        msg = f"Emprestado para {borrowed_by}"
+        if expected_return:
+            msg += f" — Devolução até {expected_return[:10]}"
+
+        subs = _get_subs()
+        for sub in subs:
+            push_notify(sub, title, msg)
+
+        logger.info(f"Loan notify: {title}")
+        return jsonify({'sent': len(subs)})
+    except Exception as e:
+        logger.error(f"notify-loan error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/push/notify-return', methods=['POST'])
+def push_notify_return():
+    if not redis:
+        return jsonify({'error': 'Redis not configured'}), 500
+    try:
+        body = request.get_json()
+        item_name = body.get('itemName', 'Item')
+        returned_by = body.get('returnedBy', 'Alguém')
+
+        title = f"✅ Devolução: {item_name}"
+        msg = f"Devolvido por {returned_by}"
+
+        subs = _get_subs()
+        for sub in subs:
+            push_notify(sub, title, msg)
+
+        logger.info(f"Return notify: {title}")
+        return jsonify({'sent': len(subs)})
+    except Exception as e:
+        logger.error(f"notify-return error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/push/check-overdue', methods=['GET'])
+def push_check_overdue():
+    if not redis:
+        return jsonify({'error': 'Redis not configured'}), 500
+    try:
+        supabase_url = os.environ.get('SUPABASE_URL', '')
+        supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+        if not supabase_url or not supabase_key:
+            return jsonify({'error': 'Supabase not configured'}), 500
+
+        agora = get_now_sp()
+        limite_12h = agora + timedelta(hours=12)
+
+        headers = {
+            'apikey': supabase_key,
+            'Authorization': f'Bearer {supabase_key}',
+            'Accept-Profile': 'stock',
+        }
+
+        url = (
+            f"{supabase_url}/rest/v1/stock_movements"
+            f"?select=*"
+            f"&type=eq.{quote('emprestimo')}"
+            f"&returnedAt=is.null"
+        )
+        resp = requests.get(url, headers=headers, timeout=10)
+        if not resp.ok:
+            logger.error(f"check-overdue Supabase error: {resp.status_code}")
+            return jsonify({'error': 'Supabase query failed'}), 500
+
+        all_loans = resp.json()
+        subs = _get_subs()
+        sent = 0
+        found = 0
+
+        for loan in all_loans:
+            expected_raw = loan.get('expectedReturnAt')
+            if not expected_raw:
+                continue
+            try:
+                if 'T' in expected_raw:
+                    dt = datetime.fromisoformat(expected_raw.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.strptime(expected_raw[:10], '%Y-%m-%d').replace(hour=23, minute=59)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=ZoneInfo('America/Sao_Paulo'))
+                else:
+                    dt = dt.astimezone(ZoneInfo('America/Sao_Paulo'))
+            except Exception:
+                continue
+
+            if not (agora <= dt <= limite_12h):
+                continue
+
+            found += 1
+            nid = hashlib.md5(f"overdue|{loan['id']}".encode()).hexdigest()
+            if redis.get(f'push:sent:{nid}'):
+                continue
+
+            item_name = loan.get('itemName', 'Item')
+            borrowed_by = loan.get('borrowedBy', 'Alguém')
+
+            title = f"⏰ Prazo de devolução: {item_name}"
+            msg = f"Emprestado para {borrowed_by} — Vence {expected_raw[:10]}"
+            for sub in subs:
+                push_notify(sub, title, msg)
+
+            redis.setex(f'push:sent:{nid}', 43200, '1')
+            sent += 1
+            logger.info(f"Overdue notify: {item_name}")
+
+        return jsonify({'checked': True, 'sent': sent, 'found': found, 'subscribers': len(subs)})
+    except Exception as e:
+        logger.error(f"check-overdue error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/push/check-pcare', methods=['GET'])
+def push_check_pcare():
+    if not redis:
+        return jsonify({'error': 'Redis not configured'}), 500
+    try:
+        supabase_url = os.environ.get('SUPABASE_URL', '')
+        supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+        if not supabase_url or not supabase_key:
+            return jsonify({'error': 'Supabase not configured'}), 500
+
+        agora = get_now_sp()
+        hoje_str = agora.strftime('%Y-%m-%d')
+        amanha_str = (agora + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        base_headers = {
+            'apikey': supabase_key,
+            'Authorization': f'Bearer {supabase_key}',
+        }
+        subs = _get_subs()
+        sent = 0
+
+        # ── Estoque baixo de peças ──
+        parts_headers = {**base_headers, 'Accept-Profile': 'pcare'}
+        try:
+            pr = requests.get(
+                f"{supabase_url}/rest/v1/parts?select=*",
+                headers=parts_headers, timeout=10
+            )
+            if pr.ok:
+                for part in pr.json():
+                    qty = part.get('quantity', 0)
+                    min_qty = part.get('minQuantity', 0)
+                    if qty < min_qty:
+                        nid = hashlib.md5(f"pcare|part|{part['id']}".encode()).hexdigest()
+                        if redis.get(f'push:sent:{nid}'):
+                            continue
+                        title = f"🔧 Estoque baixo: {part.get('name', 'Peça')}"
+                        msg = f"Quantidade: {qty} | Mínimo: {min_qty}"
+                        for sub in subs:
+                            push_notify(sub, title, msg)
+                        redis.setex(f'push:sent:{nid}', 86400, '1')
+                        sent += 1
+                        logger.info(f"Low stock: {part.get('name')}")
+        except Exception as e:
+            logger.error(f"check-pcare parts error: {e}")
+
+        # ── Manutenções agendadas ──
+        try:
+            mr = requests.get(
+                f"{supabase_url}/rest/v1/maintenance"
+                f"?select=*"
+                f"&completed=eq.false"
+                f"&scheduledDate=gte.{quote(hoje_str)}"
+                f"&scheduledDate=lte.{quote(amanha_str)}",
+                headers=parts_headers, timeout=10
+            )
+            if mr.ok:
+                for m in mr.json():
+                    nid = hashlib.md5(f"pcare|maint|{m['id']}".encode()).hexdigest()
+                    if redis.get(f'push:sent:{nid}'):
+                        continue
+                    title = f"🔧 Manutenção: {m.get('pcNumber', 'PC')}"
+                    msg = f"{m.get('labName', 'Lab')} — {m.get('type', '')} — {m.get('scheduledDate', '')[:10]}"
+                    for sub in subs:
+                        push_notify(sub, title, msg)
+                    redis.setex(f'push:sent:{nid}', 86400, '1')
+                    sent += 1
+                    logger.info(f"Maintenance: {m.get('pcNumber')}")
+        except Exception as e:
+            logger.error(f"check-pcare maintenance error: {e}")
+
+        return jsonify({'checked': True, 'sent': sent, 'subscribers': len(subs)})
+    except Exception as e:
+        logger.error(f"check-pcare error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)

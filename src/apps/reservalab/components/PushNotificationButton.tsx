@@ -1,17 +1,10 @@
 import { motion } from 'framer-motion'
-import { usePushNotifications, type PushAppConfig } from '../../../lib/usePushNotifications'
-
-const apps: PushAppConfig[] = [
-  {
-    id: 'reservalab',
-    name: 'ReservaLab',
-    subscribeUrl: '/api/push/subscribe',
-    icon: '/app-icons/reservalab.svg',
-  },
-]
+import { usePushNotifications } from '../../../lib/usePushNotifications'
 
 export function PushNotificationButton() {
-  const { supported, permission, subscribed, loading, subscribe } = usePushNotifications(apps)
+  const { supported, permission, subscribed, loading, subscribe } = usePushNotifications([
+    { id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' },
+  ])
 
   if (!supported || permission === 'granted' || subscribed) return null
 

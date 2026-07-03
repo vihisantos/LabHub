@@ -94,6 +94,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
 
   function handleLoan() {
     if (!loanBorrowedBy.trim()) return
+    const names = selectedItems.map((i) => i.name)
     for (const item of selectedItems) {
       onCreateMovement({
         itemId: item.id,
@@ -113,6 +114,20 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
       })
     }
     onUpdate(ids, { status: 'emprestado', room: loanDestinationRoom.trim() || undefined })
+
+    // Notificar empréstimo
+    for (const name of names) {
+      fetch('/api/push/notify-loan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemName: name,
+          borrowedBy: loanBorrowedBy.trim(),
+          expectedReturnAt: loanExpectedReturn,
+        }),
+      }).catch(() => {})
+    }
+
     setLoanBorrowedBy('')
     setLoanBorrowerContact('')
     setLoanExpectedReturn('')

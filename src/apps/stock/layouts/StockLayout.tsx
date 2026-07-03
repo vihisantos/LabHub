@@ -7,6 +7,7 @@ import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useKioskMode, KioskProvider, KioskExitPill } from '../../../lib/useKioskMode'
 import { icons } from '../../../lib/icons'
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
+import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 
 const PREFIXES = ['/stock', '/general-stock'] as const
 
@@ -167,6 +168,7 @@ function StockLayoutInner({
 
       {!kioskMode && <StockBottomNav />}
       {kioskMode && <KioskExitPill />}
+      <PushNotificationButton />
     </div>
   )
 }

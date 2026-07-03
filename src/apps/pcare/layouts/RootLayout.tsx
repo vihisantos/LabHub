@@ -16,6 +16,7 @@ import { usePCs } from '../hooks/usePCs'
 import { AnimatePresence, motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
+import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 
 const mainRoutes = new Set([
   '/pcare', '/pcare/pcs', '/pcare/parts', '/pcare/maintenance',
@@ -253,6 +254,7 @@ function RootLayoutInner({
 
       {!kioskMode && !focusMode && <BottomNav />}
       {kioskMode && <KioskExitPill />}
+      <PushNotificationButton />
       <ToastContainer />
     </div>
   )
