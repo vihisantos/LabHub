@@ -527,6 +527,7 @@ def push_check_overdue():
         headers = {
             'apikey': supabase_key,
             'Authorization': f'Bearer {supabase_key}',
+            'Accept-Profile': 'stock',
         }
 
         url = (
@@ -537,8 +538,8 @@ def push_check_overdue():
         )
         resp = requests.get(url, headers=headers, timeout=10)
         if not resp.ok:
-            logger.error(f"check-overdue Supabase error: {resp.status_code}")
-            return jsonify({'error': 'Supabase query failed'}), 500
+            logger.error(f"check-overdue Supabase error: {resp.status_code} body={resp.text}")
+            return jsonify({'error': 'Supabase query failed', 'detail': resp.text}), 500
 
         all_loans = resp.json()
         subs = _get_subs()
@@ -609,7 +610,7 @@ def push_check_pcare():
         sent = 0
 
         # ── Estoque baixo de peças ──
-        parts_headers = base_headers
+        parts_headers = {**base_headers, 'Accept-Profile': 'pcare'}
         try:
             pr = requests.get(
                 f"{supabase_url}/rest/v1/parts?select=*",
