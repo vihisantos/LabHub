@@ -8,8 +8,8 @@ import { StockCard } from '../components/StockCard'
 import { StockBatchBar } from '../components/StockBatchBar'
 import { StockForm } from '../components/StockForm'
 import { MovementForm } from '../components/MovementForm'
-import { SectionTabs } from '../components/SectionTabs'
-import type { StockSection as Section, StockItem, StockItemFormData, StockMovementFormData } from '../types'
+import { SectionTabs, type TabId } from '../components/SectionTabs'
+import type { StockItem, StockItemFormData, StockMovementFormData } from '../types'
 import { stockSections } from '../types'
 import { EmptyState } from '../../pcare/components/EmptyState'
 import { PullToRefresh } from '../../pcare/components/PullToRefresh'
@@ -26,18 +26,32 @@ export function StockSectionPage() {
   const selection = useStockSelection()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [activeSection, setActiveSection] = useState<Section | 'all' | 'repair'>('maquinas')
+  const [activeTab, setActiveTab] = useState<TabId>('all')
 
   useEffect(() => {
     const section = searchParams.get('section')
-    if (section && (stockSections.some((s) => s.value === section) || section === 'all' || section === 'repair')) {
-      setActiveSection(section as any)
+    if (section) {
+      const valid: TabId[] = [...stockSections.map((s) => s.value), 'all', 'repair', 'emprestados']
+      if (valid.includes(section as TabId)) {
+        setActiveTab(section as TabId)
+      }
     }
   }, [searchParams])
 
+  const [searchRaw, setSearchRaw] = useState('')
   const [search, setSearch] = useState('')
   const [roomFilter, setRoomFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [conditionFilter, setConditionFilter] = useState('')
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setSearch(searchRaw), 300)
+    return () => clearTimeout(debounceRef.current)
+  }, [searchRaw])
+
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<StockItem | null>(null)
   const [movementTarget, setMovementTarget] = useState<StockItem | null>(null)
@@ -70,48 +84,59 @@ export function StockSectionPage() {
     return Array.from(rooms).sort()
   }, [items])
 
-  const hasActiveFilters = roomFilter !== '' || statusFilter !== '' || search !== ''
+  const hasActiveFilters = roomFilter !== '' || statusFilter !== '' || conditionFilter !== '' || search !== ''
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
-      if (activeSection === 'all') {
+      if (activeTab === 'all') {
         if (item.status !== 'ativo') return false
-      } else if (activeSection === 'repair') {
+      } else if (activeTab === 'repair') {
         if (item.status !== 'em_conserto') return false
+      } else if (activeTab === 'emprestados') {
+        if (item.status !== 'emprestado') return false
       } else {
-        if (item.section !== activeSection) return false
+        if (item.section !== activeTab) return false
       }
       if (roomFilter && item.room !== roomFilter) return false
       if (statusFilter && item.status !== statusFilter) return false
+      if (conditionFilter && item.condition !== conditionFilter) return false
       if (search) {
         const q = search.toLowerCase()
         return (
           item.name.toLowerCase().includes(q) ||
           item.subcategory.toLowerCase().includes(q) ||
           item.serialNumber.toLowerCase().includes(q) ||
-          item.room.toLowerCase().includes(q)
+          item.room.toLowerCase().includes(q) ||
+          item.notes.toLowerCase().includes(q) ||
+          (item.linkedPcLabel || '').toLowerCase().includes(q)
         )
       }
       return true
     })
-  }, [items, activeSection, roomFilter, statusFilter, search])
+  }, [items, activeTab, roomFilter, statusFilter, conditionFilter, search])
 
   const clearFilters = useCallback(() => {
     setRoomFilter('')
     setStatusFilter('')
+    setConditionFilter('')
+    setSearchRaw('')
     setSearch('')
   }, [])
 
+  const activeFilterCount = [roomFilter, statusFilter, conditionFilter].filter(Boolean).length
+
   const sectionItems = useMemo(() => {
-    if (activeSection === 'all') return items.filter((i) => i.status === 'ativo')
-    if (activeSection === 'repair') return items.filter((i) => i.status === 'em_conserto')
-    return items.filter((i) => i.section === activeSection)
-  }, [items, activeSection])
+    if (activeTab === 'all') return items.filter((i) => i.status === 'ativo')
+    if (activeTab === 'repair') return items.filter((i) => i.status === 'em_conserto')
+    if (activeTab === 'emprestados') return items.filter((i) => i.status === 'emprestado')
+    return items.filter((i) => i.section === activeTab)
+  }, [items, activeTab])
 
   const stats = useMemo(() => ({
     total: sectionItems.length,
     ativos: sectionItems.filter((i) => i.status === 'ativo').length,
     conserto: sectionItems.filter((i) => i.status === 'em_conserto').length,
+    emprestados: sectionItems.filter((i) => i.status === 'emprestado').length,
     descartados: sectionItems.filter((i) => i.status === 'descartado').length,
   }), [sectionItems])
 
@@ -250,24 +275,25 @@ export function StockSectionPage() {
     reload()
   }
 
+  const tabLabel = activeTab === 'all' ? 'Ativos'
+    : activeTab === 'repair' ? 'Em Conserto'
+    : activeTab === 'emprestados' ? 'Emprestados'
+    : stockSections.find((s) => s.value === activeTab)?.label || ''
+
   if (loading) {
     return <div className="space-y-2">{[1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}</div>
   }
 
   return (
     <PullToRefresh onRefresh={reload}>
-      <div className="space-y-4">
-        <SectionTabs active={activeSection} onChange={setActiveSection} />
+      <div className="space-y-3">
+        {/* ── Abas ── */}
+        <SectionTabs active={activeTab} onChange={setActiveTab} items={items} />
 
+        {/* ── Cabeçalho ── */}
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold tracking-tight">
-            {activeSection === 'all'
-              ? 'Todos os Itens Ativos'
-              : activeSection === 'repair'
-                ? 'Itens em Conserto'
-                : stockSections.find((s) => s.value === activeSection)?.label}
-          </h2>
-          <div className="flex gap-2">
+          <h2 className="text-xl font-bold tracking-tight">{tabLabel}</h2>
+          <div className="flex gap-1.5">
             {selection.selectMode ? (
               <button
                 type="button"
@@ -288,86 +314,143 @@ export function StockSectionPage() {
             <button
               type="button"
               onClick={() => { setEditing(null); setShowForm(true) }}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+              className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
             >
-              + Novo Item
+              + Novo
             </button>
             <button
               type="button"
               onClick={() => setShowBatch(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-700 shadow-sm btn-interactive"
+              className="flex items-center gap-1 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-violet-700 shadow-sm btn-interactive"
             >
-              <icons.ui.copy size={14} />
-              Criar Lote
+              <icons.ui.copy size={13} />
+              Lote
             </button>
           </div>
         </div>
 
-        {stats.total > 0 && (
-          <div className="grid grid-cols-4 gap-3">
-            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
-              <p className="text-[11px] text-fg-muted font-medium">Total</p>
-              <p className="text-2xl font-bold tracking-tight text-fg">{stats.total}</p>
-            </div>
-            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Ativos</p>
-              <p className="text-2xl font-bold tracking-tight text-emerald-700 dark:text-emerald-400">{stats.ativos}</p>
-            </div>
-            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
-              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Conserto</p>
-              <p className="text-2xl font-bold tracking-tight text-amber-700 dark:text-amber-400">{stats.conserto}</p>
-            </div>
-            <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
-              <p className="text-[11px] text-red-600 dark:text-red-400 font-medium">Descartados</p>
-              <p className="text-2xl font-bold tracking-tight text-red-700 dark:text-red-400">{stats.descartados}</p>
-            </div>
+        {/* ── Busca + Filtros ── */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Buscar nome, série, sala, PC..."
+              value={searchRaw}
+              onChange={(e) => setSearchRaw(e.target.value)}
+              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-violet-500/30"
+            />
+            {searchRaw && (
+              <button
+                type="button"
+                onClick={() => { setSearchRaw(''); setSearch('') }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
+              >
+                <icons.ui.close size={14} />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterSheetOpen(true)}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors btn-interactive ${
+              activeFilterCount > 0
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400'
+                : 'bg-input text-fg-dim hover:text-fg'
+            }`}
+          >
+            <icons.ui.sliders size={16} />
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[14px] items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* ── Filtros ativos (chips) ── */}
+        {hasActiveFilters && (
+          <div className="flex flex-wrap gap-1.5">
+            {roomFilter && (
+              <Chip label={`Sala: ${roomFilter}`} onRemove={() => setRoomFilter('')} />
+            )}
+            {statusFilter && (
+              <Chip label={`Status: ${statusFilter}`} onRemove={() => setStatusFilter('')} />
+            )}
+            {conditionFilter && (
+              <Chip label={`Condição: ${conditionFilter}`} onRemove={() => setConditionFilter('')} />
+            )}
+            {search && (
+              <Chip label={`Busca: "${search}"`} onRemove={() => { setSearchRaw(''); setSearch('') }} />
+            )}
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-[11px] text-fg-muted hover:text-fg underline underline-offset-2"
+            >
+              Limpar tudo
+            </button>
           </div>
         )}
 
-        {stats.conserto > 0 && (
-          <div className="flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-            <icons.nav.parts size={16} />
-            <span>{stats.conserto} {stats.conserto === 1 ? 'item em conserto' : 'itens em conserto'} — <span className="text-amber-600 dark:text-amber-400 font-medium">requer atenção</span></span>
+        {/* ── Mini stats ── */}
+        {stats.total > 0 && (
+          <div className="flex gap-3 overflow-x-auto scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] -mx-4 px-4 pb-1">
+            <StatChip label="Total" value={stats.total} />
+            {stats.ativos > 0 && <StatChip label="Ativos" value={stats.ativos} color="text-emerald-600 dark:text-emerald-400" />}
+            {stats.emprestados > 0 && <StatChip label="Emprestados" value={stats.emprestados} color="text-violet-600 dark:text-violet-400" />}
+            {stats.conserto > 0 && <StatChip label="Conserto" value={stats.conserto} color="text-amber-600 dark:text-amber-400" />}
+            {stats.descartados > 0 && <StatChip label="Descartados" value={stats.descartados} color="text-red-600 dark:text-red-400" />}
+          </div>
+        )}
+
+        {/* ── Alertas ── */}
+        {stats.conserto > 0 && activeTab !== 'repair' && (
+          <div className="flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+            <icons.nav.parts size={15} />
+            <span>{stats.conserto} {stats.conserto === 1 ? 'item em conserto' : 'itens em conserto'}</span>
           </div>
         )}
 
         {batchSuccess > 0 && (
-          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-            <icons.ui.checkCircle size={16} />
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2.5 text-sm text-emerald-700 dark:text-emerald-300">
+            <icons.ui.checkCircle size={15} />
             <span>{batchSuccess} {batchSuccess === 1 ? 'item criado' : 'itens criados'} com sucesso!</span>
           </div>
         )}
 
         {cleanupMessage && (
-          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-            <icons.ui.checkCircle size={16} />
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2.5 text-sm text-emerald-700 dark:text-emerald-300">
+            <icons.ui.checkCircle size={15} />
             <span>{cleanupMessage}</span>
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
+        {/* ── Import / Export (compacto) ── */}
+        <div className="flex justify-end gap-1.5 -mt-1">
           <button
             type="button"
             onClick={() => setImportMode(!importMode)}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
               importMode
                 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                : 'bg-input text-fg-dim hover:bg-input/80'
+                : 'text-fg-muted hover:bg-input'
             }`}
           >
-            <icons.ui.upload size={14} />
-            Importar CSV
+            <icons.ui.upload size={12} />
+            Importar
           </button>
           <button
             type="button"
             onClick={() => exportStockItemsCSV(filtered)}
-            className="flex items-center gap-1.5 rounded-xl bg-input px-3 py-1.5 text-xs font-medium text-fg-dim transition-colors hover:bg-input/80"
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-input"
           >
-            <icons.ui.fileBarChart size={14} />
-            Exportar CSV
+            <icons.ui.fileBarChart size={12} />
+            Exportar
           </button>
         </div>
 
+        {/* ── Import Mode ── */}
         {importMode && (
           <div className="rounded-xl border border-line bg-card/50 p-4">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Importar Itens</h3>
@@ -386,7 +469,7 @@ export function StockSectionPage() {
                     Clique para selecionar .csv ou .xlsx
                   </span>
                   <span className="text-[10px] text-fg-dim">
-                    Colunas esperadas: Nome, Seção, Subcategoria, Nº Série, Sala, Status, Condição, Tipo Cabo, Comprimento, Conectores, Tomadas, Observações
+                    Colunas: Nome, Seção, Subcategoria, Nº Série, Sala, Status, Condição, Tipo Cabo, Comprimento, Conectores, Tomadas, Observações
                   </span>
                   <input
                     ref={fileRef}
@@ -416,19 +499,13 @@ export function StockSectionPage() {
                   <p className="text-sm text-fg-dim">
                     {importResult.rows.length} linha{importResult.rows.length !== 1 ? 's' : ''} encontrada{importResult.rows.length !== 1 ? 's' : ''}
                   </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setImportResult(null)
-                        setImportError('')
-                        if (fileRef.current) fileRef.current.value = ''
-                      }}
-                      className="text-xs text-fg-muted hover:text-fg"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setImportResult(null); setImportError(''); if (fileRef.current) fileRef.current.value = '' }}
+                    className="text-xs text-fg-muted hover:text-fg"
+                  >
+                    Cancelar
+                  </button>
                 </div>
 
                 <div className="overflow-x-auto rounded-lg border border-line">
@@ -494,71 +571,25 @@ export function StockSectionPage() {
           </div>
         )}
 
+        {/* ── Form ── */}
         {showForm && (
           <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
-              {editing ? 'Editar Item' : `Novo ${activeSection === 'cabos' ? 'Cabo' : activeSection === 'maquinas' ? 'Equipamento' : activeSection === 'perifericos' ? 'Periférico' : 'Item'}`}
+              {editing ? 'Editar Item' : `Novo ${tabLabel}`}
             </h3>
             <StockForm
-              initial={editing ? { ...editing } : { section: (activeSection === 'all' || activeSection === 'repair') ? 'maquinas' : activeSection }}
+              initial={editing ? { ...editing } : { section: (activeTab === 'all' || activeTab === 'repair' || activeTab === 'emprestados') ? 'maquinas' : activeTab }}
               onSave={handleSave}
               onCancel={() => { setEditing(null); setShowForm(false) }}
             />
           </div>
         )}
 
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-            <input
-              type="text"
-              placeholder="Buscar por nome, série ou sala..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
-            />
-          </div>
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-input text-fg-dim transition-colors hover:bg-input/80 btn-interactive"
-              title="Limpar filtros"
-            >
-              <icons.ui.close size={16} />
-            </button>
-          )}
-        </div>
-
-        <div className="flex gap-2">
-          <select
-            value={roomFilter}
-            onChange={(e) => setRoomFilter(e.target.value)}
-            className="w-full rounded-xl bg-input px-3 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30 appearance-none"
-          >
-            <option value="">Todas as salas</option>
-            {uniqueRooms.map((room) => (
-              <option key={room} value={room}>{room}</option>
-            ))}
-          </select>
-
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full rounded-xl bg-input px-3 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30 appearance-none"
-          >
-            <option value="">Todos os status</option>
-            <option value="ativo">Ativo</option>
-            <option value="em_conserto">Em Conserto</option>
-            <option value="emprestado">Emprestado</option>
-            <option value="descartado">Descartado</option>
-          </select>
-        </div>
-
+        {/* ── Lista de Itens ── */}
         {!importMode && (filtered.length === 0 ? (
           <EmptyState
             icon={icons.ui.package}
-            title={items.length === 0 ? 'Estoque vazio' : 'Nenhum item nesta seção'}
+            title={items.length === 0 ? 'Estoque vazio' : 'Nenhum item encontrado'}
             description={items.length === 0 ? 'Adicione itens para controlar o estoque.' : 'Tente alterar os filtros ou busca.'}
             action={items.length === 0 ? { label: 'Adicionar Item', onClick: () => { setEditing(null); setShowForm(true) } } : undefined}
             accentColor="emerald"
@@ -574,33 +605,25 @@ export function StockSectionPage() {
                 {filtered.every((i) => selection.selected.has(i.id)) ? 'Desmarcar todos' : 'Selecionar todos'}
               </button>
             )}
-            <div className="space-y-3">
-              {groupedItems.groups.map((group) => (
+            <div className="space-y-2">
+              {groupedItems.groups.length > 0 && groupedItems.groups.map((group) => (
                 <div key={group.pcId}>
                   <button
                     type="button"
                     onClick={() => navigate(`/pcare/pcs/${group.pcId}`)}
-                    className="mb-2 flex w-full items-center gap-2 rounded-xl bg-violet-50 dark:bg-violet-950/20 px-4 py-2.5 text-left transition-colors hover:bg-violet-100 dark:hover:bg-violet-950/40"
+                    className="mb-1.5 flex w-full items-center gap-2 rounded-xl bg-violet-50 dark:bg-violet-950/20 px-4 py-2 text-left transition-colors hover:bg-violet-100 dark:hover:bg-violet-950/40"
                   >
-                    <icons.nav.pcs size={16} className="shrink-0 text-violet-500" />
+                    <icons.nav.pcs size={15} className="shrink-0 text-violet-500" />
                     <span className="flex-1 text-sm font-semibold text-fg">{group.pcLabel}</span>
-                    <span className="text-[11px] text-fg-muted">{group.items.length} {group.items.length === 1 ? 'item' : 'itens'}</span>
-                    <icons.ui.chevronRight size={14} className="text-fg-muted" />
+                    <span className="text-[11px] text-fg-muted">{group.items.length}</span>
+                    <icons.ui.chevronRight size={13} className="text-fg-muted" />
                   </button>
-                  <div className="space-y-2 pl-3 border-l-2 border-violet-200 dark:border-violet-900">
+                  <div className="space-y-1.5 pl-3 border-l-2 border-violet-200 dark:border-violet-900">
                     {group.items.map((item) => (
-                      <StockCard
-                        key={item.id}
-                        item={item}
-                        onEdit={handleEdit}
-                        onMove={handleMove}
-                        onRepair={handleRepair}
-                        onDiscard={handleDiscard}
-                        onLoan={handleLoan}
-                        onReturn={handleReturn}
-                        selectable={selection.selectMode}
-                        selected={selection.selected.has(item.id)}
-                        onToggleSelect={selection.toggle}
+                      <StockCard key={item.id} item={item}
+                        onEdit={handleEdit} onMove={handleMove} onRepair={handleRepair}
+                        onDiscard={handleDiscard} onLoan={handleLoan} onReturn={handleReturn}
+                        selectable={selection.selectMode} selected={selection.selected.has(item.id)} onToggleSelect={selection.toggle}
                       />
                     ))}
                   </div>
@@ -609,26 +632,17 @@ export function StockSectionPage() {
               {groupedItems.unlinked.length > 0 && (
                 <div>
                   {groupedItems.groups.length > 0 && (
-                    <div className="mb-2 flex items-center gap-2 px-4 py-2">
-                      <icons.ui.package size={14} className="text-fg-muted" />
-                      <span className="text-xs font-medium text-fg-muted">Sem vínculo</span>
-                      <span className="text-[11px] text-fg-muted">({groupedItems.unlinked.length})</span>
+                    <div className="flex items-center gap-1.5 px-4 py-1.5">
+                      <icons.ui.package size={12} className="text-fg-muted" />
+                      <span className="text-xs text-fg-muted">Sem vínculo ({groupedItems.unlinked.length})</span>
                     </div>
                   )}
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {groupedItems.unlinked.map((item) => (
-                      <StockCard
-                        key={item.id}
-                        item={item}
-                        onEdit={handleEdit}
-                        onMove={handleMove}
-                        onRepair={handleRepair}
-                        onDiscard={handleDiscard}
-                        onLoan={handleLoan}
-                        onReturn={handleReturn}
-                        selectable={selection.selectMode}
-                        selected={selection.selected.has(item.id)}
-                        onToggleSelect={selection.toggle}
+                      <StockCard key={item.id} item={item}
+                        onEdit={handleEdit} onMove={handleMove} onRepair={handleRepair}
+                        onDiscard={handleDiscard} onLoan={handleLoan} onReturn={handleReturn}
+                        selectable={selection.selectMode} selected={selection.selected.has(item.id)} onToggleSelect={selection.toggle}
                       />
                     ))}
                   </div>
@@ -639,56 +653,135 @@ export function StockSectionPage() {
         ))}
       </div>
 
+      {/* ── Filter Bottom Sheet ── */}
+      {filterSheetOpen && (
+        <div className="fixed inset-0 z-50 flex items-end">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setFilterSheetOpen(false)} />
+          <div className="relative z-10 w-full rounded-t-2xl bg-card pb-safe-bottom shadow-2xl animate-[slide-up_0.2s_ease-out]">
+            <div className="flex items-center justify-between px-5 pt-4 pb-2">
+              <h3 className="text-base font-semibold text-fg">Filtros</h3>
+              <button
+                type="button"
+                onClick={() => setFilterSheetOpen(false)}
+                className="rounded-lg p-1.5 text-fg-muted hover:text-fg transition-colors"
+              >
+                <icons.ui.close size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto px-5 pb-6 space-y-5">
+              {/* Sala */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Sala</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip label="Todas" active={!roomFilter} onClick={() => setRoomFilter('')} />
+                  {uniqueRooms.map((room) => (
+                    <FilterChip key={room} label={room} active={roomFilter === room} onClick={() => setRoomFilter(room)} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Status</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip label="Todos" active={!statusFilter} onClick={() => setStatusFilter('')} />
+                  <FilterChip label="Ativo" active={statusFilter === 'ativo'} onClick={() => setStatusFilter('ativo')} />
+                  <FilterChip label="Em Conserto" active={statusFilter === 'em_conserto'} onClick={() => setStatusFilter('em_conserto')} />
+                  <FilterChip label="Emprestado" active={statusFilter === 'emprestado'} onClick={() => setStatusFilter('emprestado')} />
+                  <FilterChip label="Descartado" active={statusFilter === 'descartado'} onClick={() => setStatusFilter('descartado')} />
+                </div>
+              </div>
+
+              {/* Condição */}
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-fg-muted">Condição</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip label="Todas" active={!conditionFilter} onClick={() => setConditionFilter('')} />
+                  <FilterChip label="Bom" active={conditionFilter === 'Bom'} onClick={() => setConditionFilter('Bom')} />
+                  <FilterChip label="Regular" active={conditionFilter === 'Regular'} onClick={() => setConditionFilter('Regular')} />
+                  <FilterChip label="Danificado" active={conditionFilter === 'Danificado'} onClick={() => setConditionFilter('Danificado')} />
+                </div>
+              </div>
+
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { clearFilters(); setFilterSheetOpen(false) }}
+                  className="w-full rounded-xl bg-red-50 dark:bg-red-950/20 py-3 text-sm font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-950/30"
+                >
+                  Limpar todos os filtros
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Movement Modal ── */}
       {movementTarget && (
-        <Modal
-          open={true}
-          onClose={() => setMovementTarget(null)}
-          title={
-            movementType === 'mudanca_sala' ? 'Mover Item' :
-            movementType === 'conserto' ? 'Registrar Conserto' :
-            movementType === 'emprestimo' ? 'Registrar Empréstimo' :
-            movementType === 'devolucao' ? 'Registrar Devolução' :
-            'Movimentar Item'
-          }
+        <Modal open={true} onClose={() => setMovementTarget(null)}
+          title={movementType === 'mudanca_sala' ? 'Mover Item' : movementType === 'conserto' ? 'Registrar Conserto' : movementType === 'emprestimo' ? 'Registrar Empréstimo' : movementType === 'devolucao' ? 'Registrar Devolução' : 'Movimentar Item'}
         >
           <MovementForm
-            itemId={movementTarget.id}
-            itemName={movementTarget.name}
-            currentRoom={movementTarget.room}
-            initialType={movementType}
-            onSave={handleMovementSave}
-            onCancel={() => setMovementTarget(null)}
+            itemId={movementTarget.id} itemName={movementTarget.name} currentRoom={movementTarget.room}
+            initialType={movementType} onSave={handleMovementSave} onCancel={() => setMovementTarget(null)}
           />
         </Modal>
       )}
 
       <ConfirmDialog
-        open={!!discardTarget}
-        onClose={() => setDiscardTarget(null)}
-        onConfirm={confirmDiscard}
-        title="Descartar Item"
-        message={`Tem certeza que deseja descartar "${discardTarget?.name}"? Esta ação não pode ser desfeita.`}
-        confirmLabel="Descartar"
-        variant="danger"
+        open={!!discardTarget} onClose={() => setDiscardTarget(null)} onConfirm={confirmDiscard}
+        title="Descartar Item" message={`Tem certeza que deseja descartar "${discardTarget?.name}"? Esta ação não pode ser desfeita.`}
+        confirmLabel="Descartar" variant="danger"
       />
 
-      <BatchCreateModal
-        open={showBatch}
-        onClose={() => setShowBatch(false)}
-        onCreate={handleBatchCreate}
-      />
+      <BatchCreateModal open={showBatch} onClose={() => setShowBatch(false)} onCreate={handleBatchCreate} />
 
       {selection.selectMode && selection.selected.size > 0 && (
         <StockBatchBar
-          selected={selection.selected}
-          items={items}
-          onClear={selection.clear}
-          onExit={selection.exit}
-          onUpdate={handleBatchUpdate}
-          onDelete={handleBatchDelete}
-          onCreateMovement={createMovement}
+          selected={selection.selected} items={items} onClear={selection.clear} onExit={selection.exit}
+          onUpdate={handleBatchUpdate} onDelete={handleBatchDelete} onCreateMovement={createMovement}
         />
       )}
     </PullToRefresh>
+  )
+}
+
+/* ── Componentes auxiliares ── */
+
+function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-lg bg-violet-100 dark:bg-violet-950/30 px-2.5 py-1 text-[11px] font-medium text-violet-700 dark:text-violet-400">
+      {label}
+      <button type="button" onClick={onRemove} className="hover:text-violet-900 dark:hover:text-violet-200">
+        <icons.ui.close size={12} />
+      </button>
+    </span>
+  )
+}
+
+function StatChip({ label, value, color = 'text-fg' }: { label: string; value: number; color?: string }) {
+  return (
+    <div className="shrink-0 rounded-xl bg-card px-4 py-2 shadow-[var(--shadow-card)]">
+      <p className="text-[10px] font-medium text-fg-muted">{label}</p>
+      <p className={`text-lg font-bold tabular-nums ${color}`}>{value}</p>
+    </div>
+  )
+}
+
+function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+        active
+          ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400 ring-1 ring-violet-300 dark:ring-violet-800'
+          : 'bg-input text-fg-muted hover:text-fg hover:bg-input/80'
+      }`}
+    >
+      {label}
+    </button>
   )
 }
