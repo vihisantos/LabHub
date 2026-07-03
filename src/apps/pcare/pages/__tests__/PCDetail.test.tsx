@@ -25,7 +25,8 @@ describe('PCDetail', () => {
         pcNumber: 'PC-001',
         assetTag: 'TAG-001',
         roomLocation: 'Sala 101',
-        specs: { cpu: 'i5', ram: '8GB', storage: '256GB', os: 'Windows 11' },
+        specs: { cpu: 'i5', ram: '8GB', storage: '256GB' },
+        config: { osType: 'windows11', osVersion: '24H2', osEdition: 'enterprise', pcType: 'academico', domain: 'animaedu.intranet' },
         cleaningStatus: 'done',
         restorationStatus: 'pending',
         softwareInstalled: ['Chrome', 'VS Code'],
@@ -43,7 +44,7 @@ describe('PCDetail', () => {
     expect(screen.getByText('i5')).toBeInTheDocument()
     expect(screen.getByText('8GB')).toBeInTheDocument()
     expect(screen.getByText('256GB')).toBeInTheDocument()
-    expect(screen.getByText('Windows 11')).toBeInTheDocument()
+    expect(screen.getByText('Windows 11 Enterprise 24H2')).toBeInTheDocument()
     expect(screen.getByText('Chrome')).toBeInTheDocument()
     expect(screen.getByText('VS Code')).toBeInTheDocument()
   })

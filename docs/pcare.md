@@ -35,7 +35,13 @@ interface PC {
     cpu: string
     ram: string
     storage: string
-    os: string
+  }
+  config: {
+    osType: 'windows10' | 'windows11' | 'linux' | 'macos' | ''
+    osVersion: string
+    osEdition: 'enterprise' | 'education' | ''
+    pcType: 'academico' | 'administrativo' | ''
+    domain: string       // auto: animaedu.intranet | anima.intranet
   }
   cleaningStatus: 'pending' | 'in_progress' | 'done'
   restorationStatus: 'pending' | 'in_progress' | 'done'

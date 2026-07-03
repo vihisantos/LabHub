@@ -1,7 +1,8 @@
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { PC, Part } from '../types'
+import type { PC, Part, OsType, OsEdition, PcTypeLabel } from '../types'
+import { OS_TYPE_LABELS, OS_EDITION_LABELS, PC_TYPE_LABELS } from '../types'
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -59,7 +60,8 @@ export function exportPDF(
 export function pcToRows(pcs: PC[]): { headers: string[]; rows: string[][] } {
   const headers = [
     'Laboratório', 'PC', 'Localização', 'CPU', 'RAM',
-    'Armazenamento', 'SO', 'Limpeza', 'Restauração',
+    'Armazenamento', 'Sistema Operacional', 'Versão', 'Edição',
+    'Tipo', 'Domínio', 'Limpeza', 'Restauração',
     'Softwares', 'Peças Trocadas', 'Observações',
   ]
 
@@ -70,7 +72,11 @@ export function pcToRows(pcs: PC[]): { headers: string[]; rows: string[][] } {
     pc.specs.cpu,
     pc.specs.ram,
     pc.specs.storage,
-    pc.specs.os,
+    pc.config?.osType ? (OS_TYPE_LABELS[pc.config.osType as OsType] || pc.config.osType) : '',
+    pc.config?.osVersion || '',
+    pc.config?.osEdition ? (OS_EDITION_LABELS[pc.config.osEdition as OsEdition] || pc.config.osEdition) : '',
+    pc.config?.pcType ? (PC_TYPE_LABELS[pc.config.pcType as PcTypeLabel] || pc.config.pcType) : '',
+    pc.config?.domain || '',
     pc.cleaningStatus === 'done' ? 'Concluído' : pc.cleaningStatus === 'in_progress' ? 'Em andamento' : 'Pendente',
     pc.restorationStatus === 'done' ? 'Concluído' : pc.restorationStatus === 'in_progress' ? 'Em andamento' : 'Pendente',
     pc.softwareInstalled.join('; '),

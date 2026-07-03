@@ -82,6 +82,18 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
         </p>
       )}
 
+      {item.section === 'maquinas' && !item.linkedPcId && item.pcParts && item.pcParts.length > 0 && (
+        <p className="mb-1.5 flex items-center gap-1 text-[10px] font-medium">
+          {item.pcParts.every(p => p.present) ? (
+            <span className="text-emerald-600 dark:text-emerald-400">Completo</span>
+          ) : (
+            <span className="text-amber-600 dark:text-amber-400">
+              Falta {item.pcParts.filter(p => !p.present).length} peça(s)
+            </span>
+          )}
+        </p>
+      )}
+
       {item.condition && (
         <p className="mb-2 text-[10px] text-fg-dim">Condição: {item.condition}</p>
       )}

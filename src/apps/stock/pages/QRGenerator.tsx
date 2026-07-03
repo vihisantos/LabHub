@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
@@ -28,9 +28,13 @@ interface QRItem {
 }
 
 const sizeOptions = [
-  { value: 200, label: 'Pequeno' },
-  { value: 300, label: 'Médio' },
-  { value: 400, label: 'Grande' },
+  { value: 50, label: '50px — Minúsculo' },
+  { value: 60, label: '60px — Pulseira' },
+  { value: 80, label: '80px — Bem pequeno' },
+  { value: 100, label: '100px — Pequeno' },
+  { value: 150, label: '150px — Médio' },
+  { value: 200, label: '200px — Grande' },
+  { value: 300, label: '300px — Extragrande' },
 ]
 
 const labelFormats = [
@@ -48,7 +52,7 @@ export function QRGenerator() {
   const [search, setSearch] = useState('')
   const [sectionFilter, setSectionFilter] = useState('')
   const [options, setOptions] = useState<QROptions>({
-    size: 200,
+    size: 80,
     margin: 2,
     dark: '#1e293b',
     light: '#ffffff',
@@ -58,7 +62,6 @@ export function QRGenerator() {
   const [generating, setGenerating] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showOptions, setShowOptions] = useState(false)
-  const printRef = useRef<HTMLDivElement>(null)
 
   const sourceItems = useMemo(() => {
     if (entityType === 'items') {
@@ -179,7 +182,39 @@ export function QRGenerator() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-area { display: grid !important; }
+          .print-area > * {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            opacity: 1 !important;
+            border: 1px solid #e2e8f0 !important;
+            box-shadow: none !important;
+            border-radius: 2mm !important;
+            padding: 2mm !important;
+          }
+          .print-area img {
+            margin: 0 auto;
+            max-width: 100% !important;
+            height: auto !important;
+            image-rendering: pixelated;
+          }
+          .print-area p {
+            color: #0f172a !important;
+            font-size: 8px !important;
+          }
+          .print-area p:last-child {
+            color: #94a3b8 !important;
+            font-size: 7px !important;
+          }
+          .print-area .check-icon { display: none !important; }
+          body { background: white !important; }
+          @page { margin: 3mm; }
+        }
+      `}</style>
+      <div className="no-print mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <icons.ui.qrCode size={24} className="text-fg" />
           <h2 className="text-xl font-semibold">QR Codes</h2>
@@ -205,7 +240,7 @@ export function QRGenerator() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="no-print mb-4 flex flex-wrap items-center gap-2">
         {((['items', 'pcs', 'kits']) as EntityType[]).map((t) => (
           <button
             key={t}
@@ -246,7 +281,7 @@ export function QRGenerator() {
       </div>
 
       {showOptions && (
-        <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-card p-3">
+        <div className="no-print mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-card p-3">
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-medium text-fg-dim">Tamanho:</label>
             <select
@@ -256,6 +291,18 @@ export function QRGenerator() {
             >
               {sizeOptions.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-medium text-fg-dim">Margem:</label>
+            <select
+              value={options.margin}
+              onChange={(e) => setOptions((o) => ({ ...o, margin: Number(e.target.value) }))}
+              className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-fg outline-none"
+            >
+              {[0, 1, 2, 3, 4].map((m) => (
+                <option key={m} value={m}>{m}px</option>
               ))}
             </select>
           </div>
@@ -302,7 +349,7 @@ export function QRGenerator() {
         </div>
       ) : (
         <>
-          <div className="mb-3 flex items-center justify-between text-xs text-fg-dim">
+          <div className="no-print mb-3 flex items-center justify-between text-xs text-fg-dim">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -314,10 +361,7 @@ export function QRGenerator() {
             </label>
           </div>
 
-          <div
-            ref={printRef}
-            className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 print:grid-cols-4 print:gap-2"
-          >
+          <div className="print-area grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {qrItems.map((item) => (
               <button
                 key={item.id}
@@ -330,7 +374,7 @@ export function QRGenerator() {
                 }`}
               >
                 {selected.has(item.id) && (
-                  <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500 text-[10px] text-white shadow-sm">
+                  <span className="check-icon absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500 text-[10px] text-white shadow-sm">
                     <icons.ui.check size={12} />
                   </span>
                 )}
@@ -338,7 +382,7 @@ export function QRGenerator() {
                   src={item.dataUrl}
                   alt={item.label}
                   className="mb-1.5"
-                  style={{ width: options.size > 300 ? 128 : options.size > 200 ? 112 : 96 }}
+                  style={{ maxWidth: '100%', width: options.size }}
                 />
                 <p className="text-[10px] font-medium text-slate-800 leading-tight">
                   {options.labelFormat === 'name' ? item.label

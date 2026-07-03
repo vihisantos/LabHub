@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
-import type { StockItemFormData, StockSection } from '../types'
-import { stockSections, sectionSubcategories, stockConditions } from '../types'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import type { StockItemFormData, StockSection, PcPartRequirement } from '../types'
+import { stockSections, sectionSubcategories, stockConditions, DEFAULT_PC_PARTS } from '../types'
 import { pcService } from '../../pcare/services/pcService'
 import { stockPhotoService, compressImage } from '../services/stockPhotoService'
 import { icons } from '../../../lib/icons'
@@ -68,6 +68,7 @@ const emptyForm = (): StockItemFormData => ({
   outletCount: undefined,
   linkedPcId: undefined,
   linkedPcLabel: undefined,
+  pcParts: DEFAULT_PC_PARTS.map(name => ({ partName: name, present: false })),
 })
 
 export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
@@ -141,7 +142,22 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           <label className="mb-1 block text-xs font-medium text-fg-muted">Seção</label>
           <select
             value={form.section}
-            onChange={(e) => set('section', e.target.value as StockSection)}
+            onChange={(e) => {
+              const newSection = e.target.value as StockSection
+              if (newSection !== 'maquinas') {
+                setForm(prev => ({ ...prev, section: newSection, pcParts: undefined }))
+              } else if (!form.linkedPcId) {
+                setForm(prev => ({
+                  ...prev,
+                  section: newSection,
+                  pcParts: prev.pcParts && prev.pcParts.length > 0
+                    ? prev.pcParts
+                    : DEFAULT_PC_PARTS.map(name => ({ partName: name, present: false })),
+                }))
+              } else {
+                set('section', newSection)
+              }
+            }}
             className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           >
             {stockSections.map((s) => (
@@ -394,6 +410,44 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
                 className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {form.section === 'maquinas' && !form.linkedPcId && form.pcParts && form.pcParts.length > 0 && (
+        <div className="rounded-xl bg-cyan-50 dark:bg-cyan-950/20 p-3 space-y-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Peças do PC</p>
+          <p className="text-[11px] text-fg-dim">Marque as peças que estão presentes neste PC</p>
+          <div className="space-y-2">
+            {form.pcParts.map((part) => (
+              <label key={part.partName} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={part.present}
+                  onChange={() => {
+                    setForm(prev => ({
+                      ...prev,
+                      pcParts: prev.pcParts?.map(p =>
+                        p.partName === part.partName ? { ...p, present: !p.present } : p
+                      )
+                    }))
+                  }}
+                  className="h-4 w-4 rounded border-line text-cyan-600 focus:ring-cyan-500/30"
+                />
+                <span className="text-sm text-fg">{part.partName}</span>
+                {part.present ? (
+                  <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Presente</span>
+                ) : (
+                  <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">Faltando</span>
+                )}
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+            <span>{form.pcParts.filter(p => p.present).length} de {form.pcParts.length} peças</span>
+            {form.pcParts.every(p => p.present) && (
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">— Completo</span>
+            )}
           </div>
         </div>
       )}

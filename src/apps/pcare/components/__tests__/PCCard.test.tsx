@@ -9,7 +9,8 @@ const mockPC: PC = {
   pcNumber: 'PC-001',
   assetTag: 'TAG-001',
   roomLocation: 'Sala 101',
-  specs: { cpu: 'i5', ram: '8GB', storage: '256GB', os: 'Windows 11' },
+  specs: { cpu: 'i5', ram: '8GB', storage: '256GB' },
+  config: { osType: 'windows11', osVersion: '24H2', osEdition: 'enterprise', pcType: 'academico', domain: 'animaedu.intranet' },
   cleaningStatus: 'done',
   restorationStatus: 'in_progress',
   softwareInstalled: [],
@@ -33,7 +34,7 @@ describe('PCCard', () => {
     expect(screen.getByText('i5')).toBeInTheDocument()
     expect(screen.getByText('8GB')).toBeInTheDocument()
     expect(screen.getByText('256GB')).toBeInTheDocument()
-    expect(screen.getByText('Windows 11')).toBeInTheDocument()
+    expect(screen.getByText('Windows 11 (Acadêmico)')).toBeInTheDocument()
     expect(screen.getByText('Concluído')).toBeInTheDocument()
     expect(screen.getByText('Em andamento')).toBeInTheDocument()
     expect(screen.getByText('Observe')).toBeInTheDocument()

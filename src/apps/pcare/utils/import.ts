@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
-import type { PC, Part } from '../types'
+import type { PC, Part, OsType, OsEdition, PcTypeLabel } from '../types'
+import { PC_TYPE_DOMAIN } from '../types'
 
 export interface ParseResult {
   headers: string[]
@@ -33,6 +34,29 @@ export function parseFile(file: File): Promise<ParseResult> {
   })
 }
 
+const osTypeMap: Record<string, OsType> = {
+  'windows 10': 'windows10',
+  'windows10': 'windows10',
+  'windows 11': 'windows11',
+  'windows11': 'windows11',
+  'linux': 'linux',
+  'macos': 'macos',
+  'mac os': 'macos',
+}
+
+const osEditionMap: Record<string, OsEdition> = {
+  'enterprise': 'enterprise',
+  'education': 'education',
+}
+
+const pcTypeMap: Record<string, PcTypeLabel> = {
+  'academico': 'academico',
+  'acadêmico': 'academico',
+  'acad': 'academico',
+  'administrativo': 'administrativo',
+  'adm': 'administrativo',
+}
+
 export function mapPcRow(headers: string[], row: string[]): Omit<PC, 'id' | 'createdAt' | 'updatedAt'> {
   const map: Record<string, string> = {}
   headers.forEach((h, i) => { map[h.trim()] = (row[i] || '').trim() })
@@ -43,6 +67,8 @@ export function mapPcRow(headers: string[], row: string[]): Omit<PC, 'id' | 'cre
     'concluído': 'done',
   }
 
+  const pcType = pcTypeMap[map['Tipo']?.toLowerCase()] || ''
+
   return {
     labName: map['Laboratório'] || '',
     pcNumber: map['PC'] || '',
@@ -52,7 +78,13 @@ export function mapPcRow(headers: string[], row: string[]): Omit<PC, 'id' | 'cre
       cpu: map['CPU'] || '',
       ram: map['RAM'] || '',
       storage: map['Armazenamento'] || '',
-      os: map['SO'] || '',
+    },
+    config: {
+      osType: osTypeMap[map['Sistema Operacional']?.toLowerCase()] || '',
+      osVersion: map['Versão'] || '',
+      osEdition: osEditionMap[map['Edição']?.toLowerCase()] || '',
+      pcType: pcType,
+      domain: pcType ? PC_TYPE_DOMAIN[pcType] : (map['Domínio'] || ''),
     },
     cleaningStatus: statusLabels[map['Limpeza']?.toLowerCase()] || 'pending',
     restorationStatus: statusLabels[map['Restauração']?.toLowerCase()] || 'pending',

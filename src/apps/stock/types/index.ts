@@ -1,5 +1,5 @@
-export type { StockItem, StockItemFormData, StockSection, StockItemStatus } from './stock'
-export { stockSections, sectionSubcategories, stockConditions } from './stock'
+export type { StockItem, StockItemFormData, StockSection, StockItemStatus, PcPartRequirement } from './stock'
+export { stockSections, sectionSubcategories, stockConditions, DEFAULT_PC_PARTS } from './stock'
 export type { StockMovement, StockMovementFormData, MovementType } from './movement'
 export { movementTypes } from './movement'
 export type { Kit, KitFormData, KitItem, KitStatus } from './kit'

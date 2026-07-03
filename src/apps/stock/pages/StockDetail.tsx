@@ -11,6 +11,7 @@ import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import type { StockItemFormData } from '../types'
+import { DEFAULT_PC_PARTS } from '../types'
 
 export function StockDetail() {
   const { id } = useParams()
@@ -34,6 +35,41 @@ export function StockDetail() {
     () => (item?.linkedPcId ? pcService.getAll().find((p) => p.id === item.linkedPcId) : undefined),
     [item?.linkedPcId],
   )
+
+  function togglePart(partName: string) {
+    if (!item) return
+    const updatedParts = (item.pcParts || []).map(p =>
+      p.partName === partName ? { ...p, present: !p.present } : p,
+    )
+    update(item.id, { pcParts: updatedParts })
+  }
+
+  function handleActivate() {
+    if (!item) return
+    const now = new Date().toISOString()
+    const pc = pcService.create({
+      labName: item.room || 'Laboratório',
+      pcNumber: item.name,
+      assetTag: item.serialNumber || '',
+      roomLocation: item.room || '',
+      specs: { cpu: '', ram: '', storage: '' },
+      config: { osType: '', osVersion: '', osEdition: '', pcType: '', domain: '' },
+      cleaningStatus: 'pending',
+      restorationStatus: 'pending',
+      softwareInstalled: [],
+      partsReplaced: [],
+      observations: item.notes || '',
+      photos: [],
+      lastIntervention: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    update(item.id, {
+      linkedPcId: pc.id,
+      linkedPcLabel: `${pc.labName} — ${pc.pcNumber}`,
+    })
+    navigate(`/pcare/pcs/${pc.id}/edit`)
+  }
 
   if (!item) {
     return (
@@ -242,6 +278,52 @@ export function StockDetail() {
           <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Observações</h3>
             <p className="text-sm text-fg-dim">{item.notes}</p>
+          </section>
+        )}
+
+        {item.section === 'maquinas' && !item.linkedPcId && item.pcParts && item.pcParts.length > 0 && (
+          <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Peças do PC</h3>
+            <div className="space-y-2">
+              {item.pcParts.map((part) => (
+                <div key={part.partName} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => togglePart(part.partName)}
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
+                      part.present ? 'bg-emerald-500' : 'border-2 border-line'
+                    }`}
+                  >
+                    {part.present && <icons.ui.check size={12} className="text-white" />}
+                  </button>
+                  <span className="text-sm text-fg">{part.partName}</span>
+                  {part.present ? (
+                    <span className="ml-auto text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Presente</span>
+                  ) : (
+                    <span className="ml-auto text-[11px] text-amber-600 dark:text-amber-400 font-medium">Faltando</span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-xs text-fg-muted">
+                {item.pcParts.filter(p => p.present).length} de {item.pcParts.length} peças
+              </span>
+              {item.pcParts.every(p => p.present) ? (
+                <button
+                  type="button"
+                  onClick={handleActivate}
+                  className="rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:shadow-md btn-interactive"
+                >
+                  <icons.nav.pcs size={14} className="inline mr-1" />
+                  Ativar e enviar para PCare
+                </button>
+              ) : (
+                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                  Faltam {item.pcParts.filter(p => !p.present).length} peça(s)
+                </span>
+              )}
+            </div>
           </section>
         )}
 

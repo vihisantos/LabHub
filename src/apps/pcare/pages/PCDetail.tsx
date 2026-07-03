@@ -12,7 +12,8 @@ import { ActionTimeline } from '../components/ActionTimeline'
 import { partUsageService } from '../services/partUsageService'
 import { stockService } from '../../stock/services/stockService'
 import { icons } from '../../../lib/icons'
-import type { PC, PCPart } from '../types'
+import type { PC, PCPart, OsType, OsEdition, PcTypeLabel } from '../types'
+import { OS_TYPE_LABELS, OS_EDITION_LABELS, PC_TYPE_LABELS, PC_TYPE_DOMAIN } from '../types'
 
 export function PCDetail() {
   const { id } = useParams()
@@ -256,10 +257,39 @@ function PCDetailContent({
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div><span className="text-fg-muted">CPU:</span> <span className="text-fg">{pc.specs.cpu || '-'}</span></div>
             <div><span className="text-fg-muted">RAM:</span> <span className="text-fg">{pc.specs.ram || '-'}</span></div>
-            <div><span className="text-fg-muted">Armazenamento:</span> <span className="text-fg">{pc.specs.storage || '-'}</span></div>
-            <div><span className="text-fg-muted">Sistema:</span> <span className="text-fg">{pc.specs.os || '-'}</span></div>
+            <div className="col-span-2"><span className="text-fg-muted">Armazenamento:</span> <span className="text-fg">{pc.specs.storage || '-'}</span></div>
           </div>
         </section>
+
+        {(pc.config?.osType || pc.config?.pcType) && (
+          <section className="rounded-xl border border-line bg-card/50 p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Configuração do Sistema</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {pc.config.osType && (
+                <div className="col-span-2">
+                  <span className="text-fg-muted">SO:</span>{' '}
+                  <span className="text-fg">
+                    {OS_TYPE_LABELS[pc.config.osType as OsType] || pc.config.osType}
+                    {pc.config.osEdition && ` ${OS_EDITION_LABELS[pc.config.osEdition as OsEdition] || pc.config.osEdition}`}
+                    {pc.config.osVersion && ` ${pc.config.osVersion}`}
+                  </span>
+                </div>
+              )}
+              {pc.config.pcType && (
+                <div>
+                  <span className="text-fg-muted">Tipo:</span>{' '}
+                  <span className="text-fg">{PC_TYPE_LABELS[pc.config.pcType as PcTypeLabel] || pc.config.pcType}</span>
+                </div>
+              )}
+              {pc.config.domain && (
+                <div>
+                  <span className="text-fg-muted">Domínio:</span>{' '}
+                  <span className="text-fg font-mono text-[11px]">{pc.config.domain}</span>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-xl border border-line bg-card/50 p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Status</h3>

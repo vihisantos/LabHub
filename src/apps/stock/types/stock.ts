@@ -24,6 +24,13 @@ export const sectionSubcategories: Record<StockSection, string[]> = {
 
 export const stockConditions = ['Bom', 'Regular', 'Danificado']
 
+export interface PcPartRequirement {
+  partName: string
+  present: boolean
+}
+
+export const DEFAULT_PC_PARTS = ['SSD', 'Memória RAM']
+
 export interface StockItem {
   id: string
   name: string
@@ -40,6 +47,7 @@ export interface StockItem {
   outletCount?: number
   linkedPcId?: string
   linkedPcLabel?: string
+  pcParts?: PcPartRequirement[]
   createdAt: string
   updatedAt: string
 }

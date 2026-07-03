@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { icons } from '../../../lib/icons'
-import type { PC } from '../types'
+import type { PC, OsType, OsEdition, PcTypeLabel } from '../types'
+import { OS_TYPE_LABELS, OS_VERSIONS, OS_EDITION_LABELS, PC_TYPE_LABELS, PC_TYPE_DOMAIN } from '../types'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
 import { PCPhotoUpload } from '../components/PCPhotoUpload'
 
@@ -17,6 +18,11 @@ export function PCForm() {
   const [form, setForm] = useState<PCEditData | null>(null)
   const [softwareInput, setSoftwareInput] = useState('')
 
+  const osVersionOptions = useMemo(() => {
+    if (!form?.config.osType) return []
+    return OS_VERSIONS[form.config.osType as OsType] || []
+  }, [form?.config.osType])
+
   useEffect(() => {
     if (pc) {
       setForm({
@@ -25,6 +31,7 @@ export function PCForm() {
         assetTag: pc.assetTag,
         roomLocation: pc.roomLocation,
         specs: { ...pc.specs },
+        config: { osType: '', osVersion: '', osEdition: '', pcType: '', domain: '', ...pc.config },
         cleaningStatus: pc.cleaningStatus,
         restorationStatus: pc.restorationStatus,
         softwareInstalled: [...pc.softwareInstalled],
@@ -56,6 +63,20 @@ export function PCForm() {
       ...prev,
       specs: { ...prev.specs, [field]: value },
     } : prev)
+  }
+
+  function updateConfig<K extends keyof PCEditData['config']>(field: K, value: PCEditData['config'][K]) {
+    setForm((prev) => {
+      if (!prev) return prev
+      const config = { ...prev.config, [field]: value }
+      if (field === 'pcType' && (value === 'academico' || value === 'administrativo')) {
+        config.domain = PC_TYPE_DOMAIN[value as PcTypeLabel]
+      }
+      if (field === 'osType' && value !== prev.config.osType) {
+        config.osVersion = ''
+      }
+      return { ...prev, config }
+    })
   }
 
   function addSoftware() {
@@ -169,7 +190,7 @@ export function PCForm() {
                 className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
               />
             </div>
-            <div>
+            <div className="col-span-2">
               <label className="mb-1 block text-xs text-fg-muted">Armazenamento</label>
               <input
                 type="text"
@@ -179,14 +200,85 @@ export function PCForm() {
                 className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
               />
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Configuração do Sistema</h3>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs text-fg-muted">Sistema</label>
+              <label className="mb-1 block text-xs text-fg-muted">Sistema Operacional</label>
+              <Select
+                value={form.config.osType}
+                onValueChange={(v) => updateConfig('osType', v as OsType | '')}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(OS_TYPE_LABELS) as [OsType, string][]).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-fg-muted">Versão</label>
+              <Select
+                value={form.config.osVersion}
+                onValueChange={(v) => updateConfig('osVersion', v)}
+                disabled={!form.config.osType}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={form.config.osType ? 'Selecione...' : 'Escolha o SO'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {osVersionOptions.map((v) => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-fg-muted">Edição</label>
+              <Select
+                value={form.config.osEdition}
+                onValueChange={(v) => updateConfig('osEdition', v as OsEdition | '')}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(OS_EDITION_LABELS) as [OsEdition, string][]).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-fg-muted">Tipo de PC</label>
+              <Select
+                value={form.config.pcType}
+                onValueChange={(v) => updateConfig('pcType', v as PcTypeLabel | '')}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(PC_TYPE_LABELS) as [PcTypeLabel, string][]).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2">
+              <label className="mb-1 block text-xs text-fg-muted">Domínio</label>
               <input
                 type="text"
-                value={form.specs.os}
-                onChange={(e) => updateSpec('os', e.target.value)}
-                placeholder="Windows 11"
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                value={form.config.domain}
+                readOnly
+                placeholder="Selecione o tipo de PC para definir o domínio"
+                className="w-full rounded-lg border border-line bg-input/50 px-3 py-2 text-sm text-fg-dim outline-none cursor-not-allowed"
               />
             </div>
           </div>

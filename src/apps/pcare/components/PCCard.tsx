@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
-import type { PC } from '../types'
+import type { PC, OsType, OsEdition, PcTypeLabel } from '../types'
+import { OS_TYPE_LABELS, PC_TYPE_LABELS } from '../types'
 import { StatusBadge } from './StatusBadge'
 import { icons } from '../../../lib/icons'
 
@@ -74,7 +75,11 @@ export function PCCard({ pc, selectable, selected, highlighted, focusMode, onTog
         </div>
         {!focusMode && (
           <span className="shrink-0 rounded-md bg-input px-2 py-0.5 text-[10px] font-medium text-fg-dim ring-1 ring-line">
-            {pc.specs.os}
+            {pc.config?.osType
+              ? `${OS_TYPE_LABELS[pc.config.osType as OsType] || pc.config.osType}${pc.config.pcType ? ` (${PC_TYPE_LABELS[pc.config.pcType as PcTypeLabel] || pc.config.pcType})` : ''}`
+              : pc.config?.pcType
+                ? PC_TYPE_LABELS[pc.config.pcType as PcTypeLabel]
+                : 'Sem config'}
           </span>
         )}
       </div>

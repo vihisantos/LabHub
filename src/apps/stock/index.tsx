@@ -13,6 +13,7 @@ import { QRGenerator } from './pages/QRGenerator'
 import { StockQRScanner } from './pages/QRScanner'
 import { StockEntryExit } from './pages/StockEntryExit'
 import { StockMaintenance } from './pages/StockMaintenance'
+import { Pipeline } from './pages/Pipeline'
 
 export function StockApp() {
   return (
@@ -31,6 +32,7 @@ export function StockApp() {
           <Route path="qr-scan" element={<StockQRScanner />} />
           <Route path="entry-exit" element={<StockEntryExit />} />
           <Route path="maintenance" element={<StockMaintenance />} />
+          <Route path="pipeline" element={<Pipeline />} />
         </Route>
       </Routes>
     </ThemeProvider>

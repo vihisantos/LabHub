@@ -7,7 +7,8 @@ const mockPC: PC = {
   pcNumber: 'PC-001',
   assetTag: 'TAG-001',
   roomLocation: 'Sala 101',
-  specs: { cpu: 'i5', ram: '8GB', storage: '256GB', os: 'Windows 11' },
+  specs: { cpu: 'i5', ram: '8GB', storage: '256GB' },
+  config: { osType: 'windows11', osVersion: '24H2', osEdition: 'enterprise', pcType: 'academico', domain: 'animaedu.intranet' },
   cleaningStatus: 'done',
   restorationStatus: 'in_progress',
   softwareInstalled: ['Chrome', 'VS Code'],
@@ -36,7 +37,8 @@ describe('pcToRows', () => {
     const { headers } = pcToRows([mockPC])
     expect(headers).toEqual([
       'Laboratório', 'PC', 'Localização', 'CPU', 'RAM',
-      'Armazenamento', 'SO', 'Limpeza', 'Restauração',
+      'Armazenamento', 'Sistema Operacional', 'Versão', 'Edição',
+      'Tipo', 'Domínio', 'Limpeza', 'Restauração',
       'Softwares', 'Peças Trocadas', 'Observações',
     ])
   })
@@ -51,6 +53,10 @@ describe('pcToRows', () => {
       '8GB',
       '256GB',
       'Windows 11',
+      '24H2',
+      'Enterprise',
+      'Acadêmico',
+      'animaedu.intranet',
       'Concluído',
       'Em andamento',
       'Chrome; VS Code',
