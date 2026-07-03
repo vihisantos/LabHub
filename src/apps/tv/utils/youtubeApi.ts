@@ -1,7 +1,7 @@
 import type { YouTubeTrackInfo } from '../types'
 
 export async function fetchYouTubeTracks(url: string): Promise<YouTubeTrackInfo[]> {
-  const res = await fetch('/api/youtube/fetch', {
+  const res = await fetch('/api/tv/youtube/fetch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),

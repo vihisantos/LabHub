@@ -18,6 +18,7 @@ import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { exportStockItemsCSV } from '../utils/export'
 import { parseFile, mapStockRow, validateRows } from '../utils/import'
+import { BatchCreateModal } from '../components/BatchCreateModal'
 
 export function StockSectionPage() {
   const { items, loading, create, update, remove, reload } = useStock()
@@ -46,6 +47,8 @@ export function StockSectionPage() {
   const [importError, setImportError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importSuccess, setImportSuccess] = useState(0)
+  const [showBatch, setShowBatch] = useState(false)
+  const [batchSuccess, setBatchSuccess] = useState(0)
   const [cleanupMessage, setCleanupMessage] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -194,6 +197,15 @@ export function StockSectionPage() {
     reload()
   }
 
+  function handleBatchCreate(items: StockItemFormData[]) {
+    for (const data of items) {
+      create(data)
+    }
+    setBatchSuccess(items.length)
+    reload()
+    setTimeout(() => setBatchSuccess(0), 5000)
+  }
+
   function handleBatchDelete(ids: string[]) {
     for (const id of ids) {
       stockPhotoService.deleteAll(id)
@@ -244,6 +256,14 @@ export function StockSectionPage() {
             >
               + Novo Item
             </button>
+            <button
+              type="button"
+              onClick={() => setShowBatch(true)}
+              className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-700 shadow-sm btn-interactive"
+            >
+              <icons.ui.copy size={14} />
+              Criar Lote
+            </button>
           </div>
         </div>
 
@@ -272,6 +292,13 @@ export function StockSectionPage() {
           <div className="flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
             <icons.nav.parts size={16} />
             <span>{stats.conserto} {stats.conserto === 1 ? 'item em conserto' : 'itens em conserto'} — <span className="text-amber-600 dark:text-amber-400 font-medium">requer atenção</span></span>
+          </div>
+        )}
+
+        {batchSuccess > 0 && (
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
+            <icons.ui.checkCircle size={16} />
+            <span>{batchSuccess} {batchSuccess === 1 ? 'item criado' : 'itens criados'} com sucesso!</span>
           </div>
         )}
 
@@ -563,6 +590,12 @@ export function StockSectionPage() {
         message={`Tem certeza que deseja descartar "${discardTarget?.name}"? Esta ação não pode ser desfeita.`}
         confirmLabel="Descartar"
         variant="danger"
+      />
+
+      <BatchCreateModal
+        open={showBatch}
+        onClose={() => setShowBatch(false)}
+        onCreate={handleBatchCreate}
       />
 
       {selection.selectMode && selection.selected.size > 0 && (

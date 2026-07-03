@@ -1,7 +1,19 @@
 import { useState, type FormEvent } from 'react'
-import { Plus, Pencil, Trash2, X, Monitor, Music, ChevronUp, ChevronDown } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Plus, Pencil, Trash2, X, Monitor, ChevronUp, ChevronDown, Film } from 'lucide-react'
 import type { TvPlaylist } from '../types'
 import { parseYouTubeUrl } from '../utils/youtubeUtils'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '../../../lib/components/ui'
+import { TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 
 interface PlaylistManagerProps {
   playlists: TvPlaylist[]
@@ -14,18 +26,18 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<TvPlaylist | null>(null)
   const [name, setName] = useState('')
-  const [type, setType] = useState<'video' | 'music'>('video')
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [duration, setDuration] = useState('30')
   const [urlError, setUrlError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<TvPlaylist | null>(null)
 
   const openNew = () => {
-    setEditing(null); setName(''); setType('video'); setYoutubeUrl(''); setDuration('30'); setUrlError('')
+    setEditing(null); setName(''); setYoutubeUrl(''); setDuration('30'); setUrlError('')
     setShowForm(true)
   }
 
   const openEdit = (p: TvPlaylist) => {
-    setEditing(p); setName(p.name); setType(p.type); setYoutubeUrl(p.youtube_url); setDuration(String(p.duration_seconds)); setUrlError('')
+    setEditing(p); setName(p.name); setYoutubeUrl(p.youtube_url); setDuration(String(p.duration_seconds)); setUrlError('')
     setShowForm(true)
   }
 
@@ -39,7 +51,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
     setUrlError('')
     const payload = {
       name: name.trim(),
-      type,
+      type: 'video' as const,
       youtube_url: youtubeUrl.trim(),
       duration_seconds: Math.max(10, parseInt(duration) || 30),
       is_active: true,
@@ -69,121 +81,196 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>Playlists</h3>
-        <button onClick={openNew} style={{
-          display: 'flex', alignItems: 'center', gap: '6px', padding: '0.5rem 1rem',
-          borderRadius: '0.5rem', border: 'none', background: '#10b981', color: '#fff',
-          fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer',
-        }}>
-          <Plus size={16} /> Nova Playlist
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir playlist</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir <strong className="text-slate-700">{deleteTarget?.name}</strong>?
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-500"
+              onClick={() => {
+                if (deleteTarget) onDelete(deleteTarget.id)
+                setDeleteTarget(null)
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Header */}
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Monitor size={16} className="text-emerald-500" />
+          <h3 className="text-base font-semibold text-slate-800">Playlists de Vídeo</h3>
+          {playlists.length > 0 && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{playlists.length}</span>
+          )}
+        </div>
+        <button
+          onClick={openNew}
+          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:from-emerald-500 hover:to-green-500 active:scale-[0.97]"
+        >
+          <Plus size={14} /> Nova Playlist
         </button>
       </div>
 
-      {showForm && (
-        <form onSubmit={handleSubmit} style={{
-          background: '#f8fafc', borderRadius: '0.75rem', padding: '1.25rem',
-          marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 600, color: '#0f172a' }}>{editing ? 'Editar' : 'Nova'} Playlist</span>
-            <button type="button" onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
-              <X size={18} />
+      {/* Form Modal */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.form
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            onSubmit={handleSubmit}
+            className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white"
+          >
+            <div className="space-y-3 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-800">{editing ? 'Editar' : 'Nova'} Playlist de Vídeo</span>
+                <button type="button" onClick={() => setShowForm(false)} className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                  <X size={14} />
+                </button>
+              </div>
+              <input
+                placeholder="Nome"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                required
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-emerald-500 focus:bg-white"
+              />
+              <div className="relative">
+                <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  placeholder="URL do YouTube (vídeo ou playlist)"
+                  value={youtubeUrl}
+                  onChange={e => { setYoutubeUrl(e.target.value); setUrlError('') }}
+                  required
+                  className={`w-full rounded-lg border bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:bg-white ${
+                    urlError ? 'border-red-500' : 'border-slate-200 focus:border-emerald-500'
+                  }`}
+                />
+              </div>
+              {urlError && <p className="text-xs text-red-500">{urlError}</p>}
+              <div className="flex items-end gap-3">
+                <div className="w-28">
+                  <label className="mb-1.5 block text-xs text-slate-500">Duração (s)</label>
+                  <input
+                    type="number"
+                    min="10"
+                    value={duration}
+                    onChange={e => setDuration(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-emerald-500 focus:bg-white"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 pb-1">
+                  Tempo de exibição antes de alternar para eventos
+                </p>
+              </div>
+            </div>
+            <div className="border-t border-slate-100 px-4 py-3">
+              <button
+                type="submit"
+                className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:from-emerald-500 hover:to-green-500 active:scale-[0.98]"
+              >
+                {editing ? 'Salvar alterações' : 'Criar playlist'}
+              </button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
+
+      {/* Playlist List */}
+      <div className="space-y-2">
+        {playlists.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
+            <Monitor size={28} className="text-slate-300" />
+            <p className="text-sm text-slate-500">Nenhuma playlist cadastrada</p>
+            <button
+              onClick={openNew}
+              className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+            >
+              <Plus size={12} /> Criar primeira playlist
             </button>
           </div>
-          <input placeholder="Nome" value={name} onChange={e => setName(e.target.value)} required style={inputStyle} />
-          <input
-            placeholder="URL do YouTube (vídeo ou playlist)"
-            value={youtubeUrl}
-            onChange={e => { setYoutubeUrl(e.target.value); setUrlError('') }}
-            required
-            style={{ ...inputStyle, borderColor: urlError ? '#ef4444' : '#e2e8f0' }}
-          />
-          {urlError && <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>{urlError}</span>}
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '4px' }}>Tipo</label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button type="button" onClick={() => setType('video')} style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                  padding: '0.5rem', borderRadius: '0.5rem', border: type === 'video' ? '2px solid #6366f1' : '1px solid #e2e8f0',
-                  background: type === 'video' ? '#eef2ff' : '#fff', cursor: 'pointer', color: type === 'video' ? '#6366f1' : '#64748b',
-                  fontWeight: type === 'video' ? 600 : 400, fontSize: '0.875rem',
-                }}>
-                  <Monitor size={16} /> Vídeo
+        ) : (
+          playlists.map((p, idx) => (
+            <motion.div
+              key={p.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.03 }}
+              className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 transition-all hover:bg-slate-50 hover:border-slate-200"
+            >
+              {/* Reorder */}
+              <div className="flex flex-col gap-0.5">
+                <button
+                  onClick={() => moveUp(idx)}
+                  disabled={idx === 0}
+                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                >
+                  <ChevronUp size={12} />
                 </button>
-                <button type="button" onClick={() => setType('music')} style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                  padding: '0.5rem', borderRadius: '0.5rem', border: type === 'music' ? '2px solid #a855f7' : '1px solid #e2e8f0',
-                  background: type === 'music' ? '#faf5ff' : '#fff', cursor: 'pointer', color: type === 'music' ? '#a855f7' : '#64748b',
-                  fontWeight: type === 'music' ? 600 : 400, fontSize: '0.875rem',
-                }}>
-                  <Music size={16} /> Música
+                <button
+                  onClick={() => moveDown(idx)}
+                  disabled={idx === playlists.length - 1}
+                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                >
+                  <ChevronDown size={12} />
                 </button>
               </div>
-            </div>
-            <div style={{ width: '120px' }}>
-              <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '4px' }}>Duração (s)</label>
-              <input type="number" min="10" value={duration} onChange={e => setDuration(e.target.value)}
-                style={inputStyle} />
-            </div>
-          </div>
-          <button type="submit" style={{
-            padding: '0.6rem', borderRadius: '0.5rem', border: 'none',
-            background: type === 'music' ? '#a855f7' : '#6366f1', color: '#fff', fontWeight: 600, cursor: 'pointer',
-          }}>
-            {editing ? 'Salvar' : 'Criar'}
-          </button>
-        </form>
-      )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        {playlists.length === 0 && (
-          <p style={{ color: '#94a3b8', fontSize: '0.875rem', textAlign: 'center', padding: '2rem' }}>
-            Nenhuma playlist cadastrada
-          </p>
+              {/* Content */}
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                  <Monitor size={14} className="text-emerald-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-slate-800">{p.name}</span>
+                  <span className="block text-xs text-slate-400">
+                    Vídeo · {p.duration_seconds}s de exibição
+                  </span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <TooltipRoot>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => openEdit(p)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-600"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Editar</TooltipContent>
+                </TooltipRoot>
+                <TooltipRoot>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setDeleteTarget(p)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Excluir</TooltipContent>
+                </TooltipRoot>
+              </div>
+            </motion.div>
+          ))
         )}
-        {playlists.map((p, idx) => (
-          <div key={p.id} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '0.75rem 1rem', background: '#fff', borderRadius: '0.5rem',
-            border: '1px solid #e2e8f0',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <button onClick={() => moveUp(idx)} disabled={idx === 0}
-                  style={{ background: 'none', border: 'none', cursor: idx === 0 ? 'default' : 'pointer', color: idx === 0 ? '#e2e8f0' : '#94a3b8', padding: 0, lineHeight: 1 }}>
-                  <ChevronUp size={14} />
-                </button>
-                <button onClick={() => moveDown(idx)} disabled={idx === playlists.length - 1}
-                  style={{ background: 'none', border: 'none', cursor: idx === playlists.length - 1 ? 'default' : 'pointer', color: idx === playlists.length - 1 ? '#e2e8f0' : '#94a3b8', padding: 0, lineHeight: 1 }}>
-                  <ChevronDown size={14} />
-                </button>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.9rem', display: 'block' }}>{p.name}</span>
-                <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {p.type === 'video' ? <Monitor size={12} /> : <Music size={12} />}
-                  {p.type === 'video' ? 'Vídeo' : 'Música'} · {p.duration_seconds}s
-                </span>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
-              <button onClick={() => openEdit(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1' }}>
-                <Pencil size={16} />
-              </button>
-              <button onClick={() => onDelete(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444' }}>
-                <Trash2 size={16} />
-              </button>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   )
-}
-
-const inputStyle: React.CSSProperties = {
-  padding: '0.6rem 0.75rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0',
-  fontSize: '0.875rem', width: '100%', boxSizing: 'border-box', outline: 'none',
 }

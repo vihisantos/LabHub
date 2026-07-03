@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import YouTube, { type YouTubeProps } from 'react-youtube'
 import { Music } from 'lucide-react'
+import { useNowPlaying } from '../hooks/useNowPlaying'
 import type { TvMusicTrack } from '../types'
+
+const THUMB_BASE = 'https://img.youtube.com/vi/'
+const THUMB_SIZE = 'mqdefault.jpg' // 320×180, boa qualidade
 
 interface MusicQueuePlayerProps {
   tracks: TvMusicTrack[]
@@ -25,9 +29,30 @@ export function MusicQueuePlayer({ tracks, shuffle, isPlaying }: MusicQueuePlaye
   const [playOrder, setPlayOrder] = useState<number[]>(() =>
     tracks.map((_, i) => i)
   )
+  const { broadcast } = useNowPlaying()
 
   const currentPlayIndex = playOrder[currentTrackIdx]
   const currentTrack = tracks[currentPlayIndex]
+
+  /* Broadcast current track info to admin in real-time */
+  useEffect(() => {
+    if (currentTrack) {
+      broadcast({
+        trackTitle: currentTrack.title,
+        isPlaying,
+        trackPosition: `${currentTrackIdx + 1}/${tracks.length}`,
+        shuffle,
+      })
+    } else {
+      /* No track available — notify admin music stopped */
+      broadcast({
+        trackTitle: '',
+        isPlaying: false,
+        trackPosition: '',
+        shuffle: false,
+      })
+    }
+  }, [currentTrack?.id, currentTrack?.title, isPlaying, currentTrackIdx, tracks.length, shuffle, broadcast])
 
   /* Reset play order when tracks or shuffle mode changes */
   useEffect(() => {
@@ -77,8 +102,12 @@ export function MusicQueuePlayer({ tracks, shuffle, isPlaying }: MusicQueuePlaye
 
   return (
     <>
-      {/* Hidden player */}
-      <div style={{ display: 'none' }}>
+      {/* Hidden player (opacity + off-screen p/ não cortar o áudio) */}
+      <div style={{
+        position: 'absolute', top: '-9999px', left: '-9999px',
+        width: '1px', height: '1px', overflow: 'hidden',
+        opacity: 0, pointerEvents: 'none',
+      }}>
         <YouTube
           videoId={currentTrack.youtube_video_id}
           opts={opts}
@@ -94,21 +123,43 @@ export function MusicQueuePlayer({ tracks, shuffle, isPlaying }: MusicQueuePlaye
       <div style={{
         position: 'fixed', bottom: '2rem', right: '3rem', zIndex: 10,
         display: 'flex', alignItems: 'center', gap: '10px',
-        padding: '10px 16px',
-        background: 'rgba(0,0,0,0.4)',
-        backdropFilter: 'blur(12px)',
+        padding: '8px 14px 8px 8px',
+        background: 'rgba(0,0,0,0.45)',
+        backdropFilter: 'blur(16px)',
         borderRadius: '9999px',
         border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
       }}>
+        {/* Thumbnail */}
+        <img
+          key={currentTrack.youtube_video_id}
+          src={`${THUMB_BASE}${currentTrack.youtube_video_id}/${THUMB_SIZE}`}
+          alt={currentTrack.title}
+          style={{
+            width: '44px', height: '44px', borderRadius: '10px',
+            objectFit: 'cover', flexShrink: 0,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          }}
+          onError={(e) => {
+            /* Fallback: replace with gradient placeholder */
+            const target = e.currentTarget
+            target.style.display = 'none'
+            const fallback = target.nextElementSibling as HTMLElement | null
+            if (fallback) fallback.style.display = 'flex'
+          }}
+        />
+        {/* Fallback placeholder (hidden by default) */}
         <div style={{
-          width: '32px', height: '32px', borderRadius: '50%',
+          display: 'none',
+          width: '36px', height: '36px', borderRadius: '9999px',
           background: 'linear-gradient(135deg, #6366f1, #a855f7)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          alignItems: 'center', justifyContent: 'center',
           animation: 'spin 6s linear infinite',
           flexShrink: 0,
         }}>
           <Music size={14} color="#fff" />
         </div>
+
         <div style={{ maxWidth: '160px', overflow: 'hidden' }}>
           <div style={{
             fontSize: '0.8rem', fontWeight: 600, color: '#f1f5f9',

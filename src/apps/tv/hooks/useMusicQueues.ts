@@ -101,7 +101,7 @@ export function useMusicQueues() {
     try {
       const infos = await fetchYouTubeTracks(url)
       if (infos.length === 0) {
-        addToast('error', 'Nenhum track encontrado')
+        addToast('error', 'Nenhum track encontrado — verifique se a URL do YouTube é válida')
         return
       }
       const existing = queues.find(q => q.id === queueId)?.tracks || []
@@ -117,7 +117,9 @@ export function useMusicQueues() {
       await load()
       addToast('success', `${newTracks.length} track(s) adicionado(s)`)
     } catch (e) {
-      addToast('error', e instanceof Error ? e.message : 'Erro ao adicionar tracks')
+      const msg = e instanceof Error ? e.message : 'Erro ao adicionar tracks'
+      console.error('[addTracksFromUrl]', msg, e)
+      addToast('error', msg)
     }
   }
 

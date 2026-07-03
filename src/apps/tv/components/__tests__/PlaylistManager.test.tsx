@@ -1,5 +1,7 @@
+import { type ReactElement } from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { PlaylistManager } from '../PlaylistManager'
+import { TooltipProvider } from '../../../../lib/components/ui'
 import type { TvPlaylist } from '../../types'
 
 function makePlaylist(overrides: Partial<TvPlaylist> = {}): TvPlaylist {
@@ -16,14 +18,18 @@ function makePlaylist(overrides: Partial<TvPlaylist> = {}): TvPlaylist {
   }
 }
 
+function renderWithTooltip(ui: ReactElement) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>)
+}
+
 describe('PlaylistManager', () => {
   it('renderiza título "Playlists"', () => {
-    render(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
-    expect(screen.getByText('Playlists')).toBeInTheDocument()
+    renderWithTooltip(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    expect(screen.getByText('Playlists de Vídeo')).toBeInTheDocument()
   })
 
   it('renderiza mensagem de vazio quando não há playlists', () => {
-    render(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    renderWithTooltip(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
     expect(screen.getByText('Nenhuma playlist cadastrada')).toBeInTheDocument()
   })
 
@@ -32,26 +38,19 @@ describe('PlaylistManager', () => {
       makePlaylist({ name: 'Vídeos Aula' }),
       makePlaylist({ id: 'pl-2', name: 'Músicas' }),
     ]
-    render(<PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    renderWithTooltip(<PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
     expect(screen.getByText('Vídeos Aula')).toBeInTheDocument()
     expect(screen.getByText('Músicas')).toBeInTheDocument()
   })
 
   it('renderiza tipo e duração da playlist', () => {
     const playlists = [makePlaylist({ type: 'video', duration_seconds: 45 })]
-    render(<PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
-    expect(screen.getByText(/Vídeo/)).toBeInTheDocument()
-    expect(screen.getByText(/45s/)).toBeInTheDocument()
-  })
-
-  it('renderiza tipo música corretamente', () => {
-    const playlists = [makePlaylist({ type: 'music' })]
-    render(<PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
-    expect(screen.getByText(/Música/)).toBeInTheDocument()
+    renderWithTooltip(<PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    expect(screen.getByText(/Vídeo · 45s/)).toBeInTheDocument()
   })
 
   it('abre formulário ao clicar em "Nova Playlist"', () => {
-    render(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    renderWithTooltip(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
     expect(screen.getByPlaceholderText('Nome')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/URL do YouTube/)).toBeInTheDocument()
@@ -59,14 +58,14 @@ describe('PlaylistManager', () => {
 
   it('chama onAdd ao submeter nova playlist com URL válida', async () => {
     const onAdd = vi.fn().mockResolvedValue(undefined)
-    render(<PlaylistManager playlists={[]} onAdd={onAdd} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    renderWithTooltip(<PlaylistManager playlists={[]} onAdd={onAdd} onEdit={vi.fn()} onDelete={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
     fireEvent.change(screen.getByPlaceholderText('Nome'), { target: { value: 'Minha Playlist' } })
     fireEvent.change(screen.getByPlaceholderText(/URL do YouTube/), {
       target: { value: 'https://www.youtube.com/watch?v=test123' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Criar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Criar playlist' }))
 
     expect(onAdd).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Minha Playlist', type: 'video' })
@@ -74,58 +73,52 @@ describe('PlaylistManager', () => {
   })
 
   it('mostra erro para URL do YouTube inválida', () => {
-    render(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    renderWithTooltip(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
     fireEvent.change(screen.getByPlaceholderText('Nome'), { target: { value: 'Teste' } })
     fireEvent.change(screen.getByPlaceholderText(/URL do YouTube/), {
       target: { value: 'https://google.com' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Criar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Criar playlist' }))
 
     expect(screen.getByText('URL do YouTube inválida')).toBeInTheDocument()
   })
 
   it('não submete quando nome está vazio', () => {
     const onAdd = vi.fn()
-    render(<PlaylistManager playlists={[]} onAdd={onAdd} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    renderWithTooltip(<PlaylistManager playlists={[]} onAdd={onAdd} onEdit={vi.fn()} onDelete={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
     fireEvent.change(screen.getByPlaceholderText(/URL do YouTube/), {
       target: { value: 'https://www.youtube.com/watch?v=test' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Criar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Criar playlist' }))
 
     expect(onAdd).not.toHaveBeenCalled()
-  })
-
-  it('permite alternar tipo para música', () => {
-    render(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
-
-    const musicBtn = screen.getByRole('button', { name: /Música/ })
-    fireEvent.click(musicBtn)
-    expect(musicBtn).toHaveStyle({ fontWeight: 600 })
   })
 
   it('chama onDelete ao clicar no botão de deletar', () => {
     const onDelete = vi.fn()
     const playlists = [makePlaylist({ id: 'pl-1' })]
-    const { container } = render(
+    const { container } = renderWithTooltip(
       <PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={onDelete} />
     )
 
-    const trashIcon = container.querySelector('.lucide-trash2')
+    const trashIcon = container.querySelector('.lucide-trash-2')
     const deleteBtn = trashIcon?.closest('button')
     expect(deleteBtn).toBeDefined()
     fireEvent.click(deleteBtn!)
+
+    const confirmBtn = screen.getByRole('button', { name: 'Excluir' })
+    fireEvent.click(confirmBtn)
     expect(onDelete).toHaveBeenCalledWith('pl-1')
   })
 
   it('chama onEdit ao submeter edição de playlist', () => {
     const onEdit = vi.fn().mockResolvedValue(undefined)
     const playlists = [makePlaylist({ id: 'pl-1', name: 'Original' })]
-    const { container } = render(
+    const { container } = renderWithTooltip(
       <PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={onEdit} onDelete={vi.fn()} />
     )
 
@@ -135,7 +128,7 @@ describe('PlaylistManager', () => {
     fireEvent.click(editBtn!)
 
     fireEvent.change(screen.getByPlaceholderText('Nome'), { target: { value: 'Atualizada' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+    fireEvent.click(screen.getByRole('button', { name: /Salvar/ }))
 
     expect(onEdit).toHaveBeenCalledWith(
       'pl-1',
@@ -149,7 +142,7 @@ describe('PlaylistManager', () => {
       makePlaylist({ id: 'pl-1', name: 'A', sort_order: 0 }),
       makePlaylist({ id: 'pl-2', name: 'B', sort_order: 1 }),
     ]
-    const { container } = render(
+    const { container } = renderWithTooltip(
       <PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={onEdit} onDelete={vi.fn()} />
     )
 
@@ -171,7 +164,7 @@ describe('PlaylistManager', () => {
       makePlaylist({ id: 'pl-1', name: 'A', sort_order: 0 }),
       makePlaylist({ id: 'pl-2', name: 'B', sort_order: 1 }),
     ]
-    const { container } = render(
+    const { container } = renderWithTooltip(
       <PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={onEdit} onDelete={vi.fn()} />
     )
 

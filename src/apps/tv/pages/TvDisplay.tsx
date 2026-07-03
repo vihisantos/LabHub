@@ -3,16 +3,13 @@ import { Settings, Tv, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useEvents } from '../hooks/useEvents'
 import { usePlaylists } from '../hooks/usePlaylists'
 import { YouTubePlayer } from '../components/YouTubePlayer'
-import { MusicPlayer } from '../components/MusicPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
-import { BackgroundAudio } from '../components/BackgroundAudio'
 import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
 import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 
 export function TvDisplay() {
   const { events, loading: eventsLoading } = useEvents()
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists('video')
-  const { playlists: musicPlaylists, loading: musicLoading } = usePlaylists('music')
   const { tracks: musicQueueTracks, shuffle: musicShuffle } = useAllMusicTracks()
 
   const [clock, setClock] = useState(new Date())
@@ -35,10 +32,10 @@ export function TvDisplay() {
 
   /* ── Track initial load complete ── */
   useEffect(() => {
-    if (!eventsLoading && !videoLoading && !musicLoading) {
+    if (!eventsLoading && !videoLoading) {
       setHasLoaded(true)
     }
-  }, [eventsLoading, videoLoading, musicLoading])
+  }, [eventsLoading, videoLoading])
 
   /* ── Video index cycles through playlists on natural end ── */
   const [videoIndex, setVideoIndex] = useState(0)
@@ -101,7 +98,7 @@ export function TvDisplay() {
     d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const hasContent = videoPlaylists.length > 0 || events.length > 0
-  const hasMusic = musicPlaylists.length > 0 || musicQueueTracks.length > 0
+  const hasMusic = musicQueueTracks.length > 0
 
   return (
     <div
@@ -148,16 +145,12 @@ export function TvDisplay() {
         </div>
       )}
 
-      {/* ── Layer 3: Music (queue or legacy) ── */}
-      {musicQueueTracks.length > 0 ? (
-        <MusicQueuePlayer
-          tracks={musicQueueTracks}
-          shuffle={musicShuffle}
-          isPlaying={musicPlaying}
-        />
-      ) : (
-        <BackgroundAudio playlists={musicPlaylists} isPlaying={musicPlaying} />
-      )}
+      {/* ── Layer 3: Music ── */}
+      <MusicQueuePlayer
+        tracks={musicQueueTracks}
+        shuffle={musicShuffle}
+        isPlaying={musicPlaying}
+      />
 
       {/* ── Layer 4: Playback controls ── */}
       {videoPlaylists.length > 0 && showingVideo && (
@@ -264,14 +257,7 @@ export function TvDisplay() {
         </span>
       </div>
 
-      {/* Music visualizer widget */}
-      {musicPlaylists.length > 0 && musicQueueTracks.length === 0 && (
-        <div style={{
-          position: 'fixed', bottom: '2rem', right: '3rem', zIndex: 10,
-        }}>
-          <MusicPlayer compact />
-        </div>
-      )}
+
 
       {/* Status dots */}
       <div style={{
