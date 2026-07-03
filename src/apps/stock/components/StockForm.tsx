@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import type { StockItemFormData, StockSection } from '../types'
 import { stockSections, sectionSubcategories, stockConditions, DEFAULT_PC_PARTS } from '../types'
 import { pcService } from '../../pcare/services/pcService'
+import { stockService } from '../services/stockService'
 import { stockPhotoService, compressImage } from '../services/stockPhotoService'
 import { icons } from '../../../lib/icons'
 import { Popover, PopoverTrigger, PopoverContent } from '../../../lib/components/ui'
@@ -81,6 +82,15 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
   const [uploading, setUploading] = useState(false)
 
   const pcs = useMemo(() => pcService.getAll(), [])
+
+  const linkedPcIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const item of stockService.getAll()) {
+      if (item.linkedPcId && item.id !== initial?.id) ids.add(item.linkedPcId)
+    }
+    return ids
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.id])
 
   const filteredPcs = useMemo(() => {
     if (!pcSearch.trim()) return pcs.slice(0, 20)
@@ -281,7 +291,8 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
                     >
                       <icons.nav.pcs size={14} className="text-violet-500" />
                       <span>{pc.labName} — {pc.pcNumber}</span>
-                      {pc.roomLocation && <span className="text-xs text-fg-muted ml-auto">{pc.roomLocation}</span>}
+                      {linkedPcIds.has(pc.id) && <span className="ml-auto text-[10px] font-medium text-amber-600 dark:text-amber-400">já vinculado</span>}
+                      {!linkedPcIds.has(pc.id) && pc.roomLocation && <span className="text-xs text-fg-muted ml-auto">{pc.roomLocation}</span>}
                     </button>
                   ))}
                 </div>

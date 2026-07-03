@@ -48,7 +48,7 @@ export function StockDetail() {
     const now = new Date().toISOString()
     const pc = pcService.create({
       labName: item.room || 'Laboratório',
-      pcNumber: item.name,
+      pcNumber: item.serialNumber || item.name,
       assetTag: item.serialNumber || '',
       roomLocation: item.room || '',
       specs: { cpu: '', ram: '', storage: '' },

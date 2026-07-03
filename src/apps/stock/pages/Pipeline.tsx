@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { stockService } from '../services/stockService'
 import { pcService } from '../../pcare/services/pcService'
@@ -117,7 +117,13 @@ function PipelineCard({ item, onActivate }: { item: PipelineItem; onActivate?: (
 
 export function Pipeline() {
   const navigate = useNavigate()
-  const [, forceUpdate] = useState(0)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    function onStorage() { setRefreshKey(n => n + 1) }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const columns = useMemo((): ColumnDef[] => {
     const stockItems = stockService.getAll().filter(i => i.section === 'maquinas')
@@ -177,7 +183,7 @@ export function Pipeline() {
     ]
 
     return cols
-  }, [])
+  }, [refreshKey])
 
   function handleActivate(stockItemId: string) {
     const item = stockService.getAll().find(i => i.id === stockItemId)
@@ -185,7 +191,7 @@ export function Pipeline() {
     const now = new Date().toISOString()
     const pc = pcService.create({
       labName: item.room || 'Laboratório',
-      pcNumber: item.name,
+      pcNumber: item.serialNumber || item.name,
       assetTag: item.serialNumber || '',
       roomLocation: item.room || '',
       specs: { cpu: '', ram: '', storage: '' },
@@ -204,7 +210,7 @@ export function Pipeline() {
       linkedPcId: pc.id,
       linkedPcLabel: `${pc.labName} — ${pc.pcNumber}`,
     })
-    forceUpdate(n => n + 1)
+    setRefreshKey(n => n + 1)
     navigate(`/pcare/pcs/${pc.id}/edit`)
   }
 
