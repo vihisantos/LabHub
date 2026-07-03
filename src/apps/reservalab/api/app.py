@@ -511,7 +511,6 @@ def push_notify_return():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/push/check-overdue', methods=['GET'])
 def _ensure_stock_schema(supabase_url, supabase_key):
     """Cria schema stock e tabelas se não existirem usando SQL direto no Postgres."""
     if not supabase_url or not supabase_key:
@@ -560,6 +559,7 @@ CREATE TABLE IF NOT EXISTS pcare.maintenance (
     except Exception as e:
         logger.info(f"pg_sql pcare error: {e}")
 
+@app.route('/api/push/check-overdue', methods=['GET'])
 def push_check_overdue():
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
