@@ -527,7 +527,6 @@ def push_check_overdue():
         headers = {
             'apikey': supabase_key,
             'Authorization': f'Bearer {supabase_key}',
-            'Accept-Profile': 'stock',
         }
 
         url = (
@@ -610,7 +609,7 @@ def push_check_pcare():
         sent = 0
 
         # ── Estoque baixo de peças ──
-        parts_headers = {**base_headers, 'Accept-Profile': 'pcare'}
+        parts_headers = base_headers
         try:
             pr = requests.get(
                 f"{supabase_url}/rest/v1/parts?select=*",
