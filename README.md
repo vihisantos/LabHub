@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/badge/Acessar-Aplicacao-10b981?style=for-the-badge&logo=vercel&logoColor=white" alt="Acessar Aplicacao" />
   </a>
   <img src="https://img.shields.io/github/actions/workflow/status/vihisantos/LabHub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI Status" />
-  <img src="https://img.shields.io/badge/version-0.1.0-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT--Capybara--Holding-purple?style=for-the-badge" alt="License" />
 </p>
 
@@ -187,7 +187,7 @@ O roadmap publico esta disponivel em `/roadmap` dentro do app, com 75 features m
 
 ## Status
 
-**Versao:** 0.1.0 · **Status:** Pre-release
+**Versao:** 1.0.0 · **Status:** Pre-release
 
 - Camada de dados no localStorage (fonte de verdade local)
 - Sync Supabase disponivel quando configurado

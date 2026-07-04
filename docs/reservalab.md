@@ -46,7 +46,11 @@ O ReservaLab e o unico sub-app com backend proprio (Flask/Python).
 | `GET` | `/api/health` | Status do servidor e cache |
 | `POST` | `/api/push/subscribe` | Inscrever para push |
 | `GET` | `/api/push/test` | Enviar notificacao de teste |
-| `GET` | `/api/push/check` | Verificar e enviar push pendentes |
+| `GET` | `/api/push/check` | Verificar e enviar push de reservas pendentes |
+| `GET` | `/api/push/check-overdue` | Verificar emprestimos com prazo proximo |
+| `GET` | `/api/push/check-pcare` | Verificar estoque baixo e manutencoes |
+| `POST` | `/api/push/notify-loan` | Notificar novo emprestimo |
+| `POST` | `/api/push/notify-return` | Notificar devolucao |
 
 **Fontes de Dados:**
 - **Reservas**: Planilha Excel no SharePoint (aba "RESERVA LAB. INFORMÁTICA")

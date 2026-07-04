@@ -7,6 +7,27 @@
 
 ---
 
+## API Backend
+
+O TV possui backend proprio (Flask/Python) para integracao com YouTube API.
+
+**Endpoints:**
+
+| Metodo | Rota | Descricao |
+|--------|------|-----------|
+| `POST` | `/api/tv/youtube/fetch` | Buscar metadados de videos/playlists do YouTube |
+| `GET` | `/api/tv/health` | Status do servidor e configuracao da API |
+
+**Variaveis de Ambiente:**
+
+| Variavel | Obrigatorio | Descricao |
+|----------|-------------|-----------|
+| `YOUTUBE_API_KEY` | Sim | Chave da API do YouTube |
+
+**Localizacao:** `src/apps/tv/api/app.py`
+
+---
+
 ## Funcionalidades
 
 ### Modo Admin

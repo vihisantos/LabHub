@@ -22,21 +22,39 @@ LabHub/
 │   │   ├── pcare/                # Sub-app PCare
 │   │   ├── stock/                # Sub-app Estoque
 │   │   ├── reservalab/           # Sub-app ReservaLab
-│   │   └── tv/                   # Sub-app TV
-│   └── lib/
-│       ├── storage.ts            # Camada de persistencia localStorage
-│       ├── sync.ts               # Engine de sincronizacao (localStorage <-> Supabase)
-│       ├── supabase.ts           # Cliente Supabase (multi-schema)
-│       ├── charts.tsx            # Componentes de grafico reutilizaveis
-│       ├── ThemeContext.tsx       # Context de tema (dark/light) por app
-│       ├── ToastContext.tsx       # Context de notificacoes toast
-│       ├── ErrorBoundary.tsx     # Boundary de erros React
-│       ├── icons.ts              # Icones Lucide customizados
-│       ├── useLabContext.tsx      # Context de laboratorio ativo
-│       ├── useKioskMode.tsx      # Hook de modo kiosk/foco
-│       ├── useMediaQuery.ts      # Hook de media query
-│       ├── usePushNotifications.ts # Hook de push notifications
-│       └── useNavigateWithTransition.ts # Navegacao com View Transitions API
+│   │   └── tv/                   # Sub-app TV (com backend proprio)
+│   ├── lib/
+│   │   ├── storage.ts            # Camada de persistencia localStorage
+│   │   ├── sync.ts               # Engine de sincronizacao (localStorage <-> Supabase)
+│   │   ├── supabase.ts           # Cliente Supabase (multi-schema)
+│   │   ├── charts.tsx            # Componentes de grafico reutilizaveis
+│   │   ├── ThemeContext.tsx       # Context de tema (dark/light) por app
+│   │   ├── ToastContext.tsx       # Context de notificacoes toast
+│   │   ├── ErrorBoundary.tsx     # Boundary de erros React
+│   │   ├── icons.ts              # Icones Lucide customizados
+│   │   ├── useLabContext.tsx      # Context de laboratorio ativo
+│   │   ├── useKioskMode.tsx      # Hook de modo kiosk/foco
+│   │   ├── useMediaQuery.ts      # Hook de media query
+│   │   ├── usePushNotifications.ts # Hook de push notifications
+│   │   ├── useNavigateWithTransition.ts # Navegacao com View Transitions API
+│   │   ├── charts/               # Modulo de graficos
+│   │   │   ├── index.ts          # Exportacao do modulo
+│   │   │   ├── BarChart.tsx      # Grafico de barras
+│   │   │   ├── DonutChart.tsx    # Grafico de rosca
+│   │   │   └── ChartCard.tsx     # Container de grafico
+│   │   └── components/
+│   │       └── ui/               # Componentes Radix UI
+│   │           ├── index.ts      # Exportacao dos componentes
+│   │           ├── button.tsx
+│   │           ├── dialog.tsx
+│   │           ├── popover.tsx
+│   │           ├── select.tsx
+│   │           ├── tabs.tsx
+│   │           └── ...           # Demais componentes UI
+│   └── test/
+│       ├── helpers.tsx           # Helpers para testes
+│       ├── mocks.ts              # Mocks para testes
+│       └── setup.ts              # Setup dos testes
 ├── public/                       # Assets estaticos (icons, manifest)
 ├── dist/                         # Build de producao
 └── .github/workflows/ci.yml      # Pipeline de CI/CD
@@ -175,13 +193,21 @@ Launcher (index)
 
 ## Conexao Backend (Flask)
 
-O backend Python serve apenas o sub-app ReservaLab:
+O projeto possui dois backends Flask:
 
+### ReservaLab API (`src/apps/reservalab/api/app.py`)
 ```
 Frontend (React)  ─── /api/*  ───→  Flask (Vercel Serverless)
                                       ├── /api/reservas     → Planilha SharePoint
                                       ├── /api/health       → Status do servidor
                                       └── /api/push/*       → Notificacoes push
+```
+
+### TV API (`src/apps/tv/api/app.py`)
+```
+Frontend (React)  ─── /api/tv/*  ───→  Flask
+                                        ├── /api/tv/youtube/fetch  → YouTube API
+                                        └── /api/tv/health         → Status do servidor
 ```
 
 ---

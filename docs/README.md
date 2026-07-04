@@ -2,7 +2,7 @@
 
 > PWA modular para gestao de laboratorios de informatica em ambientes universitarios.
 
-**Versao:** 0.1.0  
+**Versao:** 1.0.0  
 **Status:** Pre-release  
 **Stack Principal:** React 19, TypeScript, Vite, Tailwind CSS v4, Supabase, Flask (Python)
 
@@ -47,7 +47,7 @@ O **LabHub** e uma plataforma web progressiva (PWA) desenvolvida para gerenciar 
 | Graficos | Recharts |
 | Dados Locais | localStorage (via `createLocalService`) |
 | Sync Remoto | Supabase (PostgreSQL) |
-| Backend API | Flask (Python) — Vercel Serverless |
+| Backend API | Flask (Python) — Vercel Serverless (ReservaLab + TV) |
 | Build | Vite, oxlint |
 | Testes | Vitest, Testing Library |
 | CI/CD | GitHub Actions + Vercel |

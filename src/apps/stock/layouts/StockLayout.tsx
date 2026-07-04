@@ -5,6 +5,7 @@ import { StockBottomNav } from '../components/StockBottomNav'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useKioskMode, KioskProvider, KioskExitPill } from '../../../lib/useKioskMode'
+import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { icons } from '../../../lib/icons'
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
@@ -55,6 +56,7 @@ export function StockLayout() {
   const { theme, toggle } = useTheme()
 
   useSwipeBack()
+  useOnlineSync()
 
   function scrollToTop() {
     if (mainRef.current && mainRef.current.scrollTop > 0) {
