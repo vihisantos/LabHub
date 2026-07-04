@@ -34,6 +34,11 @@ export function useOnlineSync() {
     }
   }, [syncing, refreshLog])
 
+  // Sync on mount
+  useEffect(() => {
+    if (navigator.onLine) triggerSync()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     function goOnline() {
       setOnline(true)
@@ -52,7 +57,8 @@ export function useOnlineSync() {
 
     const interval = setInterval(() => {
       setPendingChanges(getPendingChanges())
-    }, 3000)
+      if (navigator.onLine && !syncing) triggerSync()
+    }, 30000)
 
     return () => {
       window.removeEventListener('online', goOnline)
@@ -60,7 +66,7 @@ export function useOnlineSync() {
       window.removeEventListener('storage', onStorage)
       clearInterval(interval)
     }
-  }, [triggerSync])
+  }, [triggerSync, syncing])
 
   return { online, syncing, syncError, lastSync, triggerSync, pendingChanges, syncLog, refreshLog }
 }
