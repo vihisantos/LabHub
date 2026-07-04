@@ -518,23 +518,23 @@ def _ensure_stock_schema(supabase_url, supabase_key):
 
     h = {'apikey': supabase_key, 'Authorization': f'Bearer {supabase_key}'}
 
-    # Tenta criar via pg_sql RPC
+    # Tenta criar via pg_sql RPC (colunas com aspas p/ preservar case)
     sql = """CREATE SCHEMA IF NOT EXISTS stock;
 CREATE TABLE IF NOT EXISTS stock.stock_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL DEFAULT '', section TEXT NOT NULL DEFAULT '',
-    subcategory TEXT NOT NULL DEFAULT '', serialNumber TEXT NOT NULL DEFAULT '',
+    subcategory TEXT NOT NULL DEFAULT '', "serialNumber" TEXT NOT NULL DEFAULT '',
     room TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'ativo',
     condition TEXT NOT NULL DEFAULT 'Bom', notes TEXT DEFAULT '',
-    linkedPcId TEXT DEFAULT '', linkedPcLabel TEXT DEFAULT '',
-    createdAt TIMESTAMPTZ DEFAULT NOW(), updatedAt TIMESTAMPTZ DEFAULT NOW());
+    "linkedPcId" TEXT DEFAULT '', "linkedPcLabel" TEXT DEFAULT '',
+    "createdAt" TIMESTAMPTZ DEFAULT NOW(), "updatedAt" TIMESTAMPTZ DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS stock.stock_movements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    itemId TEXT NOT NULL DEFAULT '', itemName TEXT NOT NULL DEFAULT '',
-    type TEXT NOT NULL DEFAULT '', borrowedBy TEXT DEFAULT '',
-    borrowedAt TIMESTAMPTZ DEFAULT NOW(), expectedReturnAt TIMESTAMPTZ,
-    returnedAt TIMESTAMPTZ, notes TEXT DEFAULT '',
-    createdAt TIMESTAMPTZ DEFAULT NOW());"""
+    "itemId" TEXT NOT NULL DEFAULT '', "itemName" TEXT NOT NULL DEFAULT '',
+    type TEXT NOT NULL DEFAULT '', "borrowedBy" TEXT DEFAULT '',
+    "borrowedAt" TIMESTAMPTZ DEFAULT NOW(), "expectedReturnAt" TIMESTAMPTZ,
+    "returnedAt" TIMESTAMPTZ, notes TEXT DEFAULT '',
+    "createdAt" TIMESTAMPTZ DEFAULT NOW());"""
     try:
         r = requests.post(f"{supabase_url}/rest/v1/rpc/pg_sql", json={'query': sql}, headers=h, timeout=10)
         logger.info(f"pg_sql stock: {r.status_code} {r.text[:200]}")
@@ -545,14 +545,14 @@ CREATE TABLE IF NOT EXISTS stock.stock_movements (
 CREATE TABLE IF NOT EXISTS pcare.parts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL DEFAULT '', quantity INTEGER DEFAULT 0,
-    minQuantity INTEGER DEFAULT 0, unit TEXT DEFAULT 'un',
-    createdAt TIMESTAMPTZ DEFAULT NOW(), updatedAt TIMESTAMPTZ DEFAULT NOW());
+    "minQuantity" INTEGER DEFAULT 0, unit TEXT DEFAULT 'un',
+    "createdAt" TIMESTAMPTZ DEFAULT NOW(), "updatedAt" TIMESTAMPTZ DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS pcare.maintenance (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    pcNumber TEXT DEFAULT '', labName TEXT DEFAULT '',
+    "pcNumber" TEXT DEFAULT '', "labName" TEXT DEFAULT '',
     type TEXT DEFAULT '', description TEXT DEFAULT '',
-    completed BOOLEAN DEFAULT FALSE, scheduledDate DATE,
-    createdAt TIMESTAMPTZ DEFAULT NOW());"""
+    completed BOOLEAN DEFAULT FALSE, "scheduledDate" DATE,
+    "createdAt" TIMESTAMPTZ DEFAULT NOW());"""
     try:
         r = requests.post(f"{supabase_url}/rest/v1/rpc/pg_sql", json={'query': sql_p}, headers=h, timeout=10)
         logger.info(f"pg_sql pcare: {r.status_code} {r.text[:200]}")
@@ -580,7 +580,7 @@ def push_check_overdue():
             f"{supabase_url}/rest/v1/stock_movements"
             f"?select=*"
             f"&type=eq.{quote('emprestimo')}"
-            f"&returnedAt=is.null"
+            f"&returnedat=is.null"
         )
         headers2 = {**headers, 'Accept-Profile': 'stock'}
         resp = requests.get(url, headers=headers2, timeout=10)
@@ -594,7 +594,7 @@ def push_check_overdue():
         found = 0
 
         for loan in all_loans:
-            expected_raw = loan.get('expectedReturnAt')
+            expected_raw = loan.get('expectedreturnat')
             if not expected_raw:
                 continue
             try:
@@ -617,8 +617,8 @@ def push_check_overdue():
             if redis.get(f'push:sent:{nid}'):
                 continue
 
-            item_name = loan.get('itemName', 'Item')
-            borrowed_by = loan.get('borrowedBy', 'Alguém')
+            item_name = loan.get('itemname', 'Item')
+            borrowed_by = loan.get('borrowedby', 'Alguém')
 
             title = f"⏰ Prazo de devolução: {item_name}"
             msg = f"Emprestado para {borrowed_by} — Vence {expected_raw[:10]}"
@@ -665,7 +665,7 @@ def push_check_pcare():
             if pr.ok:
                 for part in pr.json():
                     qty = part.get('quantity', 0)
-                    min_qty = part.get('minQuantity', 0)
+                    min_qty = part.get('minquantity', 0)
                     if qty < min_qty:
                         nid = hashlib.md5(f"pcare|part|{part['id']}".encode()).hexdigest()
                         if redis.get(f'push:sent:{nid}'):
@@ -686,8 +686,8 @@ def push_check_pcare():
                 f"{supabase_url}/rest/v1/maintenance"
                 f"?select=*"
                 f"&completed=eq.false"
-                f"&scheduledDate=gte.{quote(hoje_str)}"
-                f"&scheduledDate=lte.{quote(amanha_str)}",
+                f"&scheduleddate=gte.{quote(hoje_str)}"
+                f"&scheduleddate=lte.{quote(amanha_str)}",
                 headers=parts_headers, timeout=10
             )
             if mr.ok:
@@ -695,13 +695,13 @@ def push_check_pcare():
                     nid = hashlib.md5(f"pcare|maint|{m['id']}".encode()).hexdigest()
                     if redis.get(f'push:sent:{nid}'):
                         continue
-                    title = f"🔧 Manutenção: {m.get('pcNumber', 'PC')}"
-                    msg = f"{m.get('labName', 'Lab')} — {m.get('type', '')} — {m.get('scheduledDate', '')[:10]}"
+                    title = f"🔧 Manutenção: {m.get('pcnumber', 'PC')}"
+                    msg = f"{m.get('labname', 'Lab')} — {m.get('type', '')} — {m.get('scheduleddate', '')[:10]}"
                     for sub in subs:
                         push_notify(sub, title, msg)
                     redis.setex(f'push:sent:{nid}', 86400, '1')
                     sent += 1
-                    logger.info(f"Maintenance: {m.get('pcNumber')}")
+                    logger.info(f"Maintenance: {m.get('pcnumber')}")
         except Exception as e:
             logger.error(f"check-pcare maintenance error: {e}")
 
