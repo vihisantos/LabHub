@@ -19,6 +19,7 @@ dist-ssr
 
 # Supabase migration scripts (one-time, already applied)
 supabase/
+supa/
 
 # Editor directories and files
 .vscode/*
