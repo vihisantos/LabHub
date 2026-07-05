@@ -8,7 +8,7 @@ export function TvApp() {
   return (
     <ToastProvider>
       <Routes>
-        <Route index element={<AdminView />} />
+        <Route index element={<ErrorBoundary><AdminView /></ErrorBoundary>} />
         <Route path="display" element={
           <ErrorBoundary>
             <TvDisplay />

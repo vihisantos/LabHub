@@ -8,7 +8,6 @@ interface CloudinaryUploadProps {
 
 const CLOUD_NAME = 'horytsxg'
 const UPLOAD_PRESET = 'tv_events'
-const API_KEY = 'EtKxIwZz6wyLZ9z6Wa-Z58ei6XU'
 
 export function CloudinaryUpload({ onUpload, resourceType = 'image' }: CloudinaryUploadProps) {
   const [uploading, setUploading] = useState(false)
@@ -26,7 +25,6 @@ export function CloudinaryUpload({ onUpload, resourceType = 'image' }: Cloudinar
     const form = new FormData()
     form.append('file', file)
     form.append('upload_preset', UPLOAD_PRESET)
-    form.append('api_key', API_KEY)
     form.append('folder', 'tv')
 
     try {

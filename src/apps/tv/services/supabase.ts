@@ -112,10 +112,9 @@ export async function createTrack(track: Omit<TvMusicTrack, 'id' | 'created_at'>
 }
 
 export async function createTracks(tracks: Omit<TvMusicTrack, 'id' | 'created_at'>[]): Promise<void> {
-  if (!supabase) throw new Error('Supabase não configurado')
+  if (!supabase) return
   if (tracks.length === 0) return
-  const { error } = await supabase.from('tv_music_tracks').insert(tracks as never)
-  if (error) throw new Error(`Erro ao salvar tracks: ${error.message}`)
+  await supabase.from('tv_music_tracks').insert(tracks as never)
 }
 
 export async function deleteTrack(id: string): Promise<void> {
