@@ -3,6 +3,7 @@ export interface TvEvent {
   title: string
   description: string | null
   image_url: string | null
+  pdf_url: string | null
   start_date: string | null
   end_date: string | null
   is_active: boolean
@@ -37,6 +38,14 @@ export interface TvMusicTrack {
   title: string
   duration_seconds: number
   position: number
+  created_at: string
+}
+
+export interface TvAnnouncement {
+  id: string
+  text: string
+  is_active: boolean
+  sort_order: number
   created_at: string
 }
 

@@ -1,35 +1,61 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
 import { useNowPlaying } from '../hooks/useNowPlaying'
+import { useAnnouncements } from '../hooks/useAnnouncements'
 import { EventManager } from '../components/EventManager'
 import { PlaylistManager } from '../components/PlaylistManager'
 import { QueueManager } from '../components/QueueManager'
+import { AnnouncementManager } from '../components/AnnouncementManager'
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../../../lib/components/ui'
 
-type TabId = 'events' | 'playlists' | 'music' | 'help'
+type TabId = 'events' | 'playlists' | 'music' | 'announcements' | 'help'
 
 const tabs: { id: TabId; label: string; icon: typeof Calendar }[] = [
   { id: 'events', label: 'Eventos', icon: Calendar },
   { id: 'playlists', label: 'Playlists', icon: Monitor },
   { id: 'music', label: 'Filas de Música', icon: ListMusic },
+  { id: 'announcements', label: 'Avisos', icon: Megaphone },
   { id: 'help', label: 'Ajuda', icon: HelpCircle },
 ]
 
 export function AdminView() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { events, loading: eventsLoading, add: addEvent, edit: editEvent, remove: deleteEvent } = useAllEvents()
   const { playlists, loading: playlistsLoading, add: addPlaylist, edit: editPlaylist, remove: deletePlaylist } = useAllPlaylists()
   const { nowPlaying } = useNowPlaying()
-  const [activeTab, setActiveTab] = useState<TabId>('events')
+  const { announcements, add: addAnnouncement, edit: editAnnouncement, remove: removeAnnouncement, moveUp, moveDown } = useAnnouncements()
+  // Read initial state from query params (e.g. from ReservaLab redirect)
+  const tabParam = searchParams.get('tab') as TabId | null
+  const [activeTab, setActiveTab] = useState<TabId>(tabParam ?? 'events')
+
+  const initialEventValues = searchParams.get('title')
+    ? {
+        title: searchParams.get('title') ?? undefined,
+        description: searchParams.get('description') ?? undefined,
+        start_date: searchParams.get('start_date') ?? undefined,
+        end_date: searchParams.get('end_date') ?? undefined,
+      }
+    : undefined
+
+  // Consume params once so they don't re-trigger
+  useEffect(() => {
+    if (searchParams.get('title')) {
+      setSearchParams({}, { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const announcementStats = announcements.filter(a => a.is_active).length
 
   const stats = useMemo(() => [
     { label: 'Eventos', value: events.length, icon: Calendar, color: 'from-violet-500 to-purple-600', badge: 'info' as const },
     { label: 'Playlists', value: playlists.length, icon: Monitor, color: 'from-emerald-500 to-green-600', badge: 'default' as const },
-  ], [events.length, playlists.length])
+    { label: 'Avisos', value: announcementStats, icon: Megaphone, color: 'from-amber-500 to-orange-600', badge: 'default' as const },
+  ], [events.length, playlists.length, announcementStats])
 
   const isLoading = eventsLoading || playlistsLoading
 
@@ -79,13 +105,13 @@ export function AdminView() {
                   <span className="text-[11px] text-slate-400">Sem música</span>
                 </div>
               )}
-              <a
-                href="/tv/display"
+              <button
+                onClick={() => navigate('/tv/display')}
                 className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:bg-slate-200 hover:text-slate-900 active:scale-[0.97]"
               >
                 <Monitor size={14} />
                 Modo TV
-              </a>
+              </button>
             </div>
           </div>
         </header>
@@ -141,7 +167,33 @@ export function AdminView() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             >
-              {isLoading ? (
+              {activeTab === 'help' ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-6">
+                  <h3 className="mb-4 text-base font-semibold text-slate-800">Como usar o Lab Hub TV</h3>
+                  <ol className="space-y-3 text-sm text-slate-500">
+                    <li className="flex items-start gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-600">1</span>
+                      <span><strong className="text-slate-700">Crie eventos</strong> com título, descrição e imagem (opcional) para exibir no display da TV</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-600">2</span>
+                      <span><strong className="text-slate-700">Adicione playlists de vídeo</strong> do YouTube para reprodução automática no display</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-600">3</span>
+                      <span><strong className="text-slate-700">Crie filas de música</strong> com links do YouTube — as músicas tocam em sequência durante os intervalos</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-600">4</span>
+                      <span>Abra <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-violet-600">/tv/display</code> em um PC conectado à TV ou projetor</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-semibold text-rose-600">5</span>
+                      <span>O conteúdo vai rodar em loop automaticamente — vídeos, eventos e música se alternam</span>
+                    </li>
+                  </ol>
+                </div>
+              ) : isLoading ? (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => (
                     <div key={i} className="h-16 animate-pulse rounded-xl bg-slate-200" />
@@ -155,6 +207,7 @@ export function AdminView() {
                       onAdd={addEvent}
                       onEdit={editEvent}
                       onDelete={deleteEvent}
+                      initialValues={initialEventValues}
                     />
                   )}
                   {activeTab === 'playlists' && (
@@ -168,32 +221,15 @@ export function AdminView() {
                   {activeTab === 'music' && (
                     <QueueManager />
                   )}
-                  {activeTab === 'help' && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-6">
-                      <h3 className="mb-4 text-base font-semibold text-slate-800">Como usar o Lab Hub TV</h3>
-                      <ol className="space-y-3 text-sm text-slate-500">
-                        <li className="flex items-start gap-3">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-600">1</span>
-                          <span><strong className="text-slate-700">Crie eventos</strong> com título, descrição e imagem (opcional) para exibir no display da TV</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-600">2</span>
-                          <span><strong className="text-slate-700">Adicione playlists de vídeo</strong> do YouTube para reprodução automática no display</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-600">3</span>
-                          <span><strong className="text-slate-700">Crie filas de música</strong> com links do YouTube — as músicas tocam em sequência durante os intervalos</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-600">4</span>
-                          <span>Abra <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-violet-600">/tv/display</code> em um PC conectado à TV ou projetor</span>
-                        </li>
-                        <li className="flex items-start gap-3">
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-semibold text-rose-600">5</span>
-                          <span>O conteúdo vai rodar em loop automaticamente — vídeos, eventos e música se alternam</span>
-                        </li>
-                      </ol>
-                    </div>
+                  {activeTab === 'announcements' && (
+                    <AnnouncementManager
+                      announcements={announcements}
+                      onAdd={addAnnouncement}
+                      onEdit={editAnnouncement}
+                      onRemove={removeAnnouncement}
+                      onMoveUp={moveUp}
+                      onMoveDown={moveDown}
+                    />
                   )}
                 </>
               )}

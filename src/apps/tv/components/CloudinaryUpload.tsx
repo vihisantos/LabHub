@@ -1,13 +1,13 @@
 import { useState, useRef } from 'react'
-import { Loader2, Check, Film, Image } from 'lucide-react'
+import { Loader2, Check, Film, Image, FileText } from 'lucide-react'
 
 interface CloudinaryUploadProps {
   onUpload: (url: string) => void
-  resourceType?: 'image' | 'video'
+  resourceType?: 'image' | 'video' | 'pdf'
 }
 
-const CLOUD_NAME = 'horytsxg'
-const UPLOAD_PRESET = 'tv_events'
+const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
+const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
 
 export function CloudinaryUpload({ onUpload, resourceType = 'image' }: CloudinaryUploadProps) {
   const [uploading, setUploading] = useState(false)
@@ -52,14 +52,18 @@ export function CloudinaryUpload({ onUpload, resourceType = 'image' }: Cloudinar
 
   const dismissError = () => setError(null)
 
-  const Icon = resourceType === 'video' ? Film : Image
+  const Icon = resourceType === 'video' ? Film : resourceType === 'pdf' ? FileText : Image
+
+  const accept = resourceType === 'video' ? 'video/*'
+    : resourceType === 'pdf' ? 'application/pdf'
+    : 'image/*,application/pdf'
 
   return (
     <>
       <input
         ref={inputRef}
         type="file"
-        accept={resourceType === 'video' ? 'video/*' : 'image/*'}
+        accept={accept}
         onChange={handleFile}
         style={{ display: 'none' }}
       />
@@ -97,7 +101,7 @@ export function CloudinaryUpload({ onUpload, resourceType = 'image' }: Cloudinar
           }}
         >
           {uploading ? <Loader2 size={16} className="spin" /> : done ? <Check size={16} /> : <Icon size={16} />}
-          {uploading ? 'Enviando...' : done ? 'Enviado' : resourceType === 'video' ? 'Upload Vídeo' : 'Upload'}
+          {uploading ? 'Enviando...' : done ? 'Enviado' : resourceType === 'video' ? 'Upload Vídeo' : resourceType === 'pdf' ? 'Upload PDF' : 'Upload'}
         </button>
       </div>
     </>

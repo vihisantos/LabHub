@@ -18,6 +18,7 @@ function makeEvent(overrides: Partial<TvEvent> = {}): TvEvent {
     title: 'Evento Teste',
     description: 'Descrição',
     image_url: null,
+    pdf_url: null,
     start_date: null,
     end_date: null,
     is_active: true,

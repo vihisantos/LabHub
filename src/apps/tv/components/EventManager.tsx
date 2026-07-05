@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Pencil, Trash2, X, ChevronUp, ChevronDown, Calendar, Image } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ChevronUp, ChevronDown, Calendar, Image, FileText } from 'lucide-react'
 import type { TvEvent } from '../types'
 import { CloudinaryUpload } from './CloudinaryUpload'
 import {
@@ -20,21 +20,37 @@ interface EventManagerProps {
   onAdd: (values: Omit<TvEvent, 'id' | 'created_at'>) => Promise<void>
   onEdit: (id: string, values: Partial<TvEvent>) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  initialValues?: { title?: string; description?: string; start_date?: string; end_date?: string }
 }
 
-export function EventManager({ events, onAdd, onEdit, onDelete }: EventManagerProps) {
+export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }: EventManagerProps) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<TvEvent | null>(null)
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
+  const [title, setTitle] = useState(initialValues?.title ?? '')
+  const [description, setDescription] = useState(initialValues?.description ?? '')
   const [imageUrl, setImageUrl] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [pdfUrl, setPdfUrl] = useState('')
+  const [startDate, setStartDate] = useState(initialValues?.start_date ? initialValues.start_date.slice(0, 16) : '')
+  const [endDate, setEndDate] = useState(initialValues?.end_date ? initialValues.end_date.slice(0, 16) : '')
   const [deleteTarget, setDeleteTarget] = useState<TvEvent | null>(null)
+
+  // Auto-open form when initialValues change (from ReservaLab redirect)
+  const [prevInit, setPrevInit] = useState(initialValues)
+  if (initialValues !== prevInit && initialValues?.title) {
+    setPrevInit(initialValues)
+    setShowForm(true)
+    setEditing(null)
+    setTitle(initialValues.title ?? '')
+    setDescription(initialValues.description ?? '')
+    setImageUrl('')
+    setPdfUrl('')
+    setStartDate(initialValues.start_date ? initialValues.start_date.slice(0, 16) : '')
+    setEndDate(initialValues.end_date ? initialValues.end_date.slice(0, 16) : '')
+  }
 
   const openNew = () => {
     setEditing(null)
-    setTitle(''); setDescription(''); setImageUrl(''); setStartDate(''); setEndDate('')
+    setTitle(''); setDescription(''); setImageUrl(''); setPdfUrl(''); setStartDate(''); setEndDate('')
     setShowForm(true)
   }
 
@@ -43,6 +59,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete }: EventManagerPr
     setTitle(e.title)
     setDescription(e.description || '')
     setImageUrl(e.image_url || '')
+    setPdfUrl(e.pdf_url || '')
     setStartDate(e.start_date ? e.start_date.slice(0, 16) : '')
     setEndDate(e.end_date ? e.end_date.slice(0, 16) : '')
     setShowForm(true)
@@ -55,6 +72,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete }: EventManagerPr
       title: title.trim(),
       description: description.trim() || null,
       image_url: imageUrl.trim() || null,
+      pdf_url: pdfUrl.trim() || null,
       start_date: startDate ? new Date(startDate).toISOString() : null,
       end_date: endDate ? new Date(endDate).toISOString() : null,
       is_active: true,
@@ -170,6 +188,18 @@ export function EventManager({ events, onAdd, onEdit, onDelete }: EventManagerPr
                   />
                 </div>
                 <CloudinaryUpload onUpload={(url) => setImageUrl(url)} />
+                <CloudinaryUpload resourceType="pdf" onUpload={(url) => setPdfUrl(url)} />
+              </div>
+              <div className="flex items-center gap-2">
+                <FileText size={14} className="text-slate-400" />
+                <span className="text-xs text-slate-400">
+                  {pdfUrl ? 'PDF anexado' : 'Nenhum PDF anexado'}
+                </span>
+                {pdfUrl && (
+                  <button type="button" onClick={() => setPdfUrl('')} className="text-xs text-red-400 hover:text-red-600 transition-colors">
+                    Remover
+                  </button>
+                )}
               </div>
               <div className="flex gap-3">
                 <input

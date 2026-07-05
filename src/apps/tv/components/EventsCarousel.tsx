@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Calendar } from 'lucide-react'
+import { Calendar, FileText } from 'lucide-react'
 import type { TvEvent } from '../types'
 
 interface CountdownProps {
@@ -172,6 +172,24 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
                   <CountdownTimer target={event.start_date} />
                 </div>
               )}
+              {event.pdf_url && (
+                <a
+                  href={event.pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                    padding: '0.6rem 1.5rem', borderRadius: '9999px',
+                    marginTop: '2rem',
+                    background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                    color: '#a5b4fc', fontSize: '1rem', fontWeight: 600,
+                    textDecoration: 'none', transition: 'all 0.2s',
+                  }}
+                >
+                  <FileText size={18} />
+                  Abrir PDF
+                </a>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -247,6 +265,23 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
               </span>
             )}
           </div>
+          {event.pdf_url && (
+            <a
+              href={event.pdf_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                padding: '0.6rem 1.2rem', borderRadius: '9999px',
+                background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                color: '#a5b4fc', fontSize: '0.9rem', fontWeight: 600,
+                textDecoration: 'none', transition: 'all 0.2s',
+              }}
+            >
+              <FileText size={16} />
+              Abrir PDF
+            </a>
+          )}
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {events.map((_, i) => (
               <div

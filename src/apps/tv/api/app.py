@@ -25,7 +25,7 @@ def iso_duration_to_seconds(duration: str) -> int:
     """Converte ISO 8601 duration (PT1H30M15S) para segundos."""
     if not duration:
         return 0
-    m = re.match(r'PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?', duration)
+    m = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
     if not m:
         return 0
     h = int(m.group(1) or 0)

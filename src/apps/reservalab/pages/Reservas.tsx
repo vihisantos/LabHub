@@ -228,6 +228,9 @@ export function ReservasView() {
       isEnded: isReservaEncerrada(r.horario),
       combined: r.labs?.length > 1,
       alunos: r.alunos || 12,
+      data: r.data,
+      horario_inicio: r.horario_inicio != null ? Number(r.horario_inicio) : null,
+      horario_fim: r.horario_fim != null ? Number(r.horario_fim) : null,
     }))
 
     return transformed.sort((a, b) => {

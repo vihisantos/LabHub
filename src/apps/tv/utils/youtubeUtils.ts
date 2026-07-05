@@ -9,9 +9,16 @@ export function parseYouTubeUrl(url: string): YouTubeInfo | null {
     const u = new URL(url)
     const host = u.hostname.replace('www.', '')
 
-    if (host === 'youtube.com' || host === 'm.youtube.com') {
+    if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
       const playlistId = u.searchParams.get('list')
-      const videoId = u.searchParams.get('v')
+      let videoId = u.searchParams.get('v')
+
+      // /shorts/abc123 or /embed/abc123
+      if (!videoId) {
+        const match = u.pathname.match(/^\/(?:shorts|embed)\/([a-zA-Z0-9_-]{11})/)
+        if (match) videoId = match[1]
+      }
+
       if (playlistId && videoId) return { type: 'playlist', videoId, playlistId }
       if (playlistId) return { type: 'playlist', playlistId }
       if (videoId) return { type: 'video', videoId }

@@ -92,7 +92,7 @@ describe('fetchAllEvents', () => {
 
 describe('createEvent', () => {
   it('insere evento com valores corretos', async () => {
-    const values = { title: 'Novo Evento', description: null, image_url: null, start_date: null, end_date: null, is_active: true, sort_order: 0 }
+    const values = { title: 'Novo Evento', description: null, image_url: null, pdf_url: null, start_date: null, end_date: null, is_active: true, sort_order: 0 }
     await createEvent(values)
     expect(chain.insert).toHaveBeenCalled()
   })

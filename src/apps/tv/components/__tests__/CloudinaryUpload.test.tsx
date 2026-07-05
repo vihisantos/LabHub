@@ -23,7 +23,7 @@ describe('CloudinaryUpload', () => {
     const { container } = render(<CloudinaryUpload onUpload={vi.fn()} />)
     const input = container.querySelector('input[type="file"]')
     expect(input).toBeInTheDocument()
-    expect(input).toHaveAttribute('accept', 'image/*')
+    expect(input).toHaveAttribute('accept', 'image/*,application/pdf')
   })
 
   it('abre seletor de arquivo ao clicar no botão', () => {

@@ -70,7 +70,7 @@ export function useMusicQueues() {
 
   const add = async (name: string) => {
     try {
-      await createQueue(name)
+      await createQueue({ name })
       await load()
       addToast('success', 'Fila criada')
     } catch {

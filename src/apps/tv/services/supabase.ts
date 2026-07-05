@@ -1,5 +1,5 @@
 import { defaultDb as supabase } from '../../../lib/supabase'
-import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack } from '../types'
+import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement } from '../types'
 
 /* ── Events ── */
 
@@ -79,9 +79,9 @@ export async function fetchQueues(): Promise<TvMusicQueue[]> {
   return (data as TvMusicQueue[]) || []
 }
 
-export async function createQueue(name: string): Promise<void> {
+export async function createQueue(values: Partial<TvMusicQueue>): Promise<void> {
   if (!supabase) return
-  await supabase.from('tv_music_queues').insert({ name })
+  await supabase.from('tv_music_queues').insert(values as never)
 }
 
 export async function updateQueue(id: string, values: Partial<TvMusicQueue>): Promise<void> {
@@ -120,6 +120,42 @@ export async function createTracks(tracks: Omit<TvMusicTrack, 'id' | 'created_at
 export async function deleteTrack(id: string): Promise<void> {
   if (!supabase) return
   await supabase.from('tv_music_tracks').delete().eq('id', id)
+}
+
+/* ── Announcements ── */
+
+export async function fetchAnnouncements(): Promise<TvAnnouncement[]> {
+  if (!supabase) return []
+  const { data } = await supabase
+    .from('tv_announcements')
+    .select('*')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+  return (data as TvAnnouncement[]) || []
+}
+
+export async function fetchAllAnnouncements(): Promise<TvAnnouncement[]> {
+  if (!supabase) return []
+  const { data } = await supabase
+    .from('tv_announcements')
+    .select('*')
+    .order('sort_order', { ascending: true })
+  return (data as TvAnnouncement[]) || []
+}
+
+export async function createAnnouncement(values: Omit<TvAnnouncement, 'id' | 'created_at'>): Promise<void> {
+  if (!supabase) return
+  await supabase.from('tv_announcements').insert(values as never)
+}
+
+export async function updateAnnouncement(id: string, values: Partial<TvAnnouncement>): Promise<void> {
+  if (!supabase) return
+  await supabase.from('tv_announcements').update(values as never).eq('id', id)
+}
+
+export async function deleteAnnouncement(id: string): Promise<void> {
+  if (!supabase) return
+  await supabase.from('tv_announcements').delete().eq('id', id)
 }
 
 export async function reorderTracks(queueId: string, trackIds: string[]): Promise<void> {

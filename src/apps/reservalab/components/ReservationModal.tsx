@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import type { TransformedReservation } from '../types'
 
 const X = ({ size = 24 }: { size?: number }) => (
@@ -37,10 +38,43 @@ const DESK_ROWS = 8
 const PCD_INDEX = 54
 
 export function ReservationModal({ reservation, onClose }: ReservationModalProps) {
+  const navigate = useNavigate()
   const desks = Array.from({ length: DESK_COLS * DESK_ROWS }, (_, i) => {
     if (i === PCD_INDEX) return { label: 'PCD', pcd: true }
     return { label: `${Math.floor(i / DESK_COLS) + 1}.${(i % DESK_COLS) + 1}`, pcd: false }
   })
+
+  const buildTvUrl = () => {
+    const params = new URLSearchParams()
+    params.set('tab', 'events')
+    params.set('title', reservation.subject)
+
+    // Build description from available data
+    const parts: string[] = []
+    if (reservation.data) parts.push(`Data: ${reservation.data}`)
+    if (reservation.professor) parts.push(`Professor: ${reservation.professor}`)
+    if (reservation.reservaFeitaPor) parts.push(`Reservado por: ${reservation.reservaFeitaPor}`)
+    parts.push(reservation.time)
+    params.set('description', parts.join(' | '))
+
+    // Build ISO dates from data + time
+    if (reservation.data && reservation.horario_inicio != null) {
+      const [dia, mes, ano] = reservation.data.split('/').map(Number)
+      const h = Math.floor(reservation.horario_inicio / 60)
+      const m = reservation.horario_inicio % 60
+      const start = new Date(ano, mes - 1, dia, h, m)
+      params.set('start_date', start.toISOString())
+    }
+    if (reservation.data && reservation.horario_fim != null) {
+      const [dia, mes, ano] = reservation.data.split('/').map(Number)
+      const h = Math.floor(reservation.horario_fim / 60)
+      const m = reservation.horario_fim % 60
+      const end = new Date(ano, mes - 1, dia, h, m)
+      params.set('end_date', end.toISOString())
+    }
+
+    return `/tv?${params.toString()}`
+  }
 
   return (
     <motion.div
@@ -84,17 +118,36 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
                 {reservation.isLive ? '🟢 Ativo agora' : reservation.isEmBreve ? '🟡 Começa em breve' : reservation.isEnded ? '⚫ Encerrada' : '🔵 Agendada'}
               </span>
             </div>
-            <button
-              onClick={onClose}
-              style={{
-                padding: '10px', borderRadius: '50%', border: 'none',
-                background: '#f5f5f5', cursor: 'pointer',
-                minHeight: '44px', minWidth: '44px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              <X size={20} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                onClick={() => { navigate(buildTvUrl()); onClose() }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                  padding: '6px 12px', borderRadius: '0.5rem', border: '1px solid #e2e8f0',
+                  background: '#fff', cursor: 'pointer', color: '#6366f1',
+                  fontSize: '0.75rem', fontWeight: 500, whiteSpace: 'nowrap',
+                  transition: 'all 0.15s',
+                }}
+                onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = '#f5f3ff' }}
+                onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = '#fff' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
+                </svg>
+                Criar evento na TV
+              </button>
+              <button
+                onClick={onClose}
+                style={{
+                  padding: '10px', borderRadius: '50%', border: 'none',
+                  background: '#f5f5f5', cursor: 'pointer',
+                  minHeight: '44px', minWidth: '44px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
           {/* Info Grid */}

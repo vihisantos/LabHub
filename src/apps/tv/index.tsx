@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from '../../lib/ToastContext'
 import { ErrorBoundary } from '../../lib/ErrorBoundary'
 import { TvDisplay } from './pages/TvDisplay'
@@ -14,6 +14,7 @@ export function TvApp() {
             <TvDisplay />
           </ErrorBoundary>
         } />
+        <Route path="*" element={<Navigate to="/tv" replace />} />
       </Routes>
     </ToastProvider>
   )

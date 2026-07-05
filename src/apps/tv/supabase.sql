@@ -4,6 +4,7 @@ create table if not exists tv_events (
   title text not null,
   description text,
   image_url text,
+  pdf_url text,
   start_date timestamptz,
   end_date timestamptz,
   is_active boolean default true,
@@ -54,3 +55,16 @@ create policy "Permitir tudo para anon" on tv_music_queues for all using (true) 
 create policy "Permitir tudo para anon" on tv_music_tracks for all using (true) with check (true);
 
 create index if not exists idx_music_tracks_queue on tv_music_tracks(queue_id, position);
+
+-- Avisos para ticker no display
+create table if not exists tv_announcements (
+  id uuid default gen_random_uuid() primary key,
+  text text not null,
+  is_active boolean default true,
+  sort_order int default 0,
+  created_at timestamptz default now()
+);
+
+alter table tv_announcements enable row level security;
+create policy "Permitir tudo para anon" on tv_announcements for all using (true) with check (true);
+create index if not exists idx_tv_announcements_active on tv_announcements(is_active, sort_order);

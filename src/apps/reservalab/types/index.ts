@@ -45,6 +45,12 @@ export interface TransformedReservation {
   isEnded: boolean
   combined: boolean
   alunos: number
+  /** Raw date from API (DD/MM/YYYY) */
+  data?: string
+  /** Parsed start time in minutes from midnight */
+  horario_inicio?: number | null
+  /** Parsed end time in minutes from midnight */
+  horario_fim?: number | null
 }
 
 export interface WeekDayData {

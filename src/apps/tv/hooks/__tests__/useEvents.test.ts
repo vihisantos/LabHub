@@ -62,7 +62,7 @@ describe('useAllEvents', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     await act(async () => {
-      await result.current.add({ title: 'X', description: null, image_url: null, start_date: null, end_date: null, is_active: true, sort_order: 0 })
+      await result.current.add({ title: 'X', description: null, image_url: null, pdf_url: null, start_date: null, end_date: null, is_active: true, sort_order: 0 })
     })
 
     expect(result.current.events).toEqual([])

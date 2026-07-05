@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import type { WeekDayData } from '../types'
 import { diasSemana, parseHorario } from '../utils/timeUtils'
 
@@ -25,7 +26,54 @@ const BookOpen = ({ size = 14 }: { size?: number }) => (
   </svg>
 )
 
+function parseTimeToISO(time: string, date: string): { start: string | null; end: string | null } {
+  const [dia, mes, ano] = date.split('/').map(Number)
+  const toISODate = (minutes: number) => {
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    return new Date(ano, mes - 1, dia, h, m).toISOString()
+  }
+
+  // Lab format: "07h30 às 09h20"
+  const labMatch = time.match(/(\d+)h(\d*)\s*(?:às|à)\s*(\d+)h(\d*)/)
+  if (labMatch) {
+    const start = parseInt(labMatch[1]) * 60 + parseInt(labMatch[2] || '0')
+    const end = parseInt(labMatch[3]) * 60 + parseInt(labMatch[4] || '0')
+    return { start: toISODate(start), end: toISODate(end) }
+  }
+
+  // Tablet format: "HH:MM - HH:MM"
+  const tabletMatch = time.match(/(\d+):(\d+)\s*-\s*(\d+):(\d+)/)
+  if (tabletMatch) {
+    const start = parseInt(tabletMatch[1]) * 60 + parseInt(tabletMatch[2])
+    const end = parseInt(tabletMatch[3]) * 60 + parseInt(tabletMatch[4])
+    return { start: toISODate(start), end: toISODate(end) }
+  }
+
+  // Single time: just "07h30" or "19h"
+  const singleMatch = time.match(/(\d+)h(\d*)/)
+  if (singleMatch) {
+    const start = parseInt(singleMatch[1]) * 60 + parseInt(singleMatch[2] || '0')
+    return { start: toISODate(start), end: null }
+  }
+
+  return { start: null, end: null }
+}
+
+function buildTvUrl(subject: string, professor: string, time: string, date: string, observacao: string): string {
+  const params = new URLSearchParams()
+  params.set('tab', 'events')
+  params.set('title', subject || observacao || 'Reserva')
+  const description = [`Professor: ${professor}`, observacao].filter(Boolean).join(' | ')
+  if (description) params.set('description', description)
+  const iso = parseTimeToISO(time, date)
+  if (iso.start) params.set('start_date', iso.start)
+  if (iso.end) params.set('end_date', iso.end)
+  return `/tv?${params.toString()}`
+}
+
 export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
+  const navigate = useNavigate()
   const [selectedDay, setSelectedDay] = useState<WeekDayData | null>(null)
   const [filtroTipo, setFiltroTipo] = useState<'lab' | 'tablet' | 'todas'>('todas')
   const [filtroPeriodo, setFiltroPeriodo] = useState('todos')
@@ -271,6 +319,22 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
                           </div>
                         </div>
                       )}
+                      <button
+                        onClick={() => { setSelectedDay(null); navigate(buildTvUrl(r.subject, r.professor, r.time, selectedDay.date, r.observacao)) }}
+                        style={{
+                          marginTop: '0.5rem',
+                          display: 'flex', alignItems: 'center', gap: '4px',
+                          padding: '4px 8px', borderRadius: '6px',
+                          border: '1px solid #e2e8f0', background: '#fff',
+                          cursor: 'pointer', color: '#6366f1',
+                          fontSize: '11px', fontWeight: 500,
+                        }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
+                        </svg>
+                        Criar evento na TV
+                      </button>
                     </motion.div>
                   ))}
                 </AnimatePresence>

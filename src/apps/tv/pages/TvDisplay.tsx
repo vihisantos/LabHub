@@ -1,18 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Settings, Tv, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useEvents } from '../hooks/useEvents'
 import { usePlaylists } from '../hooks/usePlaylists'
 import { YouTubePlayer } from '../components/YouTubePlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
 import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
+import { ClockDisplay } from '../components/ClockDisplay'
+import { Greeting } from '../components/Greeting'
+import { Ticker } from '../components/Ticker'
+import { WeatherWidget } from '../components/WeatherWidget'
+import { ScreenSaver } from '../components/ScreenSaver'
 import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 
 export function TvDisplay() {
   const { events, loading: eventsLoading } = useEvents()
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists('video')
   const { tracks: musicQueueTracks, shuffle: musicShuffle } = useAllMusicTracks()
+  const navigate = useNavigate()
 
-  const [clock, setClock] = useState(new Date())
   const [hasLoaded, setHasLoaded] = useState(false)
   const [paused, setPaused] = useState(false)
 
@@ -24,11 +30,6 @@ export function TvDisplay() {
   const EVENT_DURATIONS = [10000, 15000, 30000, 60000] as const
   const [eventDurationIndex, setEventDurationIndex] = useState(1)
   const eventDisplayMs = EVENT_DURATIONS[eventDurationIndex]
-
-  useEffect(() => {
-    const timer = setInterval(() => setClock(new Date()), 1000)
-    return () => clearInterval(timer)
-  }, [])
 
   /* ── Track initial load complete ── */
   useEffect(() => {
@@ -67,35 +68,74 @@ export function TvDisplay() {
     return () => clearTimeout(timer)
   }, [showingVideo, paused, videoPlaylists.length, events.length, eventDisplayMs])
 
-  const advanceToNextVideo = () => {
+  /* ── Keyboard shortcuts ── */
+  const advanceToNextVideo = useCallback(() => {
     if (videoPlaylists.length > 1) {
       setVideoIndex((i) => (i + 1) % videoPlaylists.length)
     }
     setShowingVideo(true)
-  }
+  }, [videoPlaylists.length])
 
-  const goToPrevVideo = () => {
+  const goToPrevVideo = useCallback(() => {
     if (videoPlaylists.length > 0) {
       setVideoIndex((i) => (i - 1 + videoPlaylists.length) % videoPlaylists.length)
     }
     setPaused(false)
     setShowingVideo(true)
-  }
+  }, [videoPlaylists.length])
 
-  const togglePause = () => setPaused((p) => !p)
+  const togglePause = useCallback(() => setPaused((p) => !p), [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {})
+    } else {
+      document.exitFullscreen().catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case ' ':
+          e.preventDefault()
+          togglePause()
+          break
+        case 'ArrowRight':
+          advanceToNextVideo()
+          break
+        case 'ArrowLeft':
+          goToPrevVideo()
+          break
+        case 'f':
+        case 'F':
+          toggleFullscreen()
+          break
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [togglePause, advanceToNextVideo, goToPrevVideo, toggleFullscreen])
+
+  /* ── Auto-fullscreen on mount ── */
+  useEffect(() => {
+    document.documentElement.requestFullscreen().catch(() => {})
+  }, [])
+
+  /* ── WakeLock: prevent screen sleep ── */
+  useEffect(() => {
+    let wakeLock: WakeLockSentinel | null = null
+    if ('wakeLock' in navigator) {
+      navigator.wakeLock.request('screen').then((wl) => { wakeLock = wl }).catch(() => {})
+    }
+    return () => { wakeLock?.release().catch(() => {}) }
+  }, [])
 
   /* ── Music: plays during events, pauses during video ── */
   const [musicPlaying, setMusicPlaying] = useState(false)
   useEffect(() => {
     setMusicPlaying(!showingVideo && !paused)
   }, [showingVideo, paused])
-
-  /* ── Formatting ── */
-  const formatTime = (d: Date) =>
-    d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const hasContent = videoPlaylists.length > 0 || events.length > 0
   const hasMusic = musicQueueTracks.length > 0
@@ -201,12 +241,12 @@ export function TvDisplay() {
       {/* ── Layer 5: UI overlay ── */}
 
       {/* Admin button */}
-      <a
-        href="/tv"
+      <button
+        onClick={() => navigate('/tv')}
         style={{
           position: 'fixed', top: '1rem', right: '1rem', zIndex: 50,
           width: '40px', height: '40px', borderRadius: '50%',
-          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.05)', border: 'none',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'rgba(255,255,255,0.3)', cursor: 'pointer',
           textDecoration: 'none', transition: 'all 0.2s',
@@ -214,50 +254,12 @@ export function TvDisplay() {
         title="Admin"
       >
         <Settings size={18} />
-      </a>
+      </button>
 
-      {/* Clock */}
-      <div style={{
-        position: 'fixed', top: '2.5rem', left: '3rem', zIndex: 10,
-        display: 'flex', flexDirection: 'column', gap: '0.125rem',
-      }}>
-        <span style={{
-          fontSize: '5rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums',
-          letterSpacing: '-0.03em', lineHeight: 1, color: '#ffffff',
-          textShadow: '0 0 30px rgba(255,255,255,0.15)',
-        }}>
-          {formatTime(clock)}
-        </span>
-        <span style={{ fontSize: '1.125rem', color: '#cbd5e1', fontWeight: 500, textTransform: 'capitalize', letterSpacing: '0.02em' }}>
-          {formatDate(clock)}
-        </span>
-      </div>
-
-      {/* Greeting */}
-      <div style={{
-        position: 'fixed', top: '12%', left: '50%',
-        transform: 'translate(-50%, -50%)', zIndex: 10,
-        pointerEvents: 'none', userSelect: 'none',
-        textAlign: 'center',
-        whiteSpace: 'nowrap',
-      }}>
-        <span style={{
-          fontSize: 'clamp(2.5rem, 5vw, 5rem)',
-          fontWeight: 800,
-          lineHeight: 1.2,
-          color: '#f1f5f9',
-          textShadow: '0 0 40px rgba(129,140,248,0.4), 0 0 80px rgba(99,102,241,0.15)',
-          animation: 'hue-shift 4s linear infinite',
-        }}>
-          {clock.getHours() >= 5 && clock.getHours() < 12
-            ? 'Bom dia, Campus!'
-            : clock.getHours() >= 12 && clock.getHours() < 18
-            ? 'Boa tarde, Campus!'
-            : 'Boa noite, Campus!'}
-        </span>
-      </div>
-
-
+      <ClockDisplay />
+      <WeatherWidget />
+      <Greeting />
+      <Ticker />
 
       {/* Status dots */}
       <div style={{
@@ -305,27 +307,8 @@ export function TvDisplay() {
         <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>Lab Hub TV</span>
       </div>
 
-      {/* Empty state (only after initial load) */}
-      {hasLoaded && !hasContent && !hasMusic && (
-        <div style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', gap: '1rem', color: '#475569',
-        }}>
-          <Tv size={80} strokeWidth={1} />
-          <p style={{ fontSize: '1.5rem', fontWeight: 600 }}>Nenhum conteúdo configurado</p>
-          <a
-            href="/tv"
-            style={{
-              color: '#6366f1', fontSize: '1rem', textDecoration: 'none',
-              padding: '0.75rem 1.5rem', borderRadius: '0.5rem',
-              border: '1px solid rgba(99,102,241,0.3)',
-            }}
-          >
-            Configurar
-          </a>
-        </div>
-      )}
+      {/* Empty state → screensaver */}
+      {hasLoaded && !hasContent && !hasMusic && <ScreenSaver />}
     </div>
   )
 }
