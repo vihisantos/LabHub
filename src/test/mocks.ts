@@ -1,3 +1,5 @@
+import { clearCache } from '../lib/db'
+
 if (!Element.prototype.hasPointerCapture) {
   Element.prototype.hasPointerCapture = () => false
 }
@@ -12,6 +14,7 @@ if (!Element.prototype.scrollIntoView) {
 }
 
 beforeEach(() => {
+  clearCache()
   localStorage.clear()
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-06-25T12:00:00Z'))

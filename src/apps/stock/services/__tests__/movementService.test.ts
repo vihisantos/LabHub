@@ -70,9 +70,10 @@ describe('movementService', () => {
     const created = movementService.create(makeFormData())
     expect(created.deletedAt).toBeUndefined()
     movementService.remove(created.id)
-    const raw = JSON.parse(localStorage.getItem('labhub_stock_movements')!)
-    const deleted = raw.find((m: any) => m.id === created.id)
-    expect(deleted.deletedAt).toBeDefined()
+    const deleted = movementService.getById(created.id)
+    expect(deleted).toBeUndefined()
+    const all = movementService.getAll().filter((m: any) => m.id === created.id)
+    expect(all).toHaveLength(0)
   })
 
   it('update modifica campos do movimento', () => {

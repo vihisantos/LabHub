@@ -1,22 +1,8 @@
-try { localStorage.setItem('__labhub_test', '1'); localStorage.removeItem('__labhub_test') } catch {}
-const STORAGE_PREFIX = 'labhub_'
-
-function getItem<T>(key: string): T[] {
-  try {
-    const raw = localStorage.getItem(`${STORAGE_PREFIX}${key}`)
-    return raw ? (JSON.parse(raw) as T[]) : []
-  } catch {
-    return []
-  }
-}
-
-function setItem<T>(key: string, data: T[]): void {
-  localStorage.setItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(data))
-}
+import { getCol, setCol } from './db'
 
 export function createLocalService<T extends { id: string }>(collection: string) {
   function getAll(): T[] {
-    return getItem<T>(collection)
+    return getCol<T>(collection)
   }
 
   function getById(id: string): T | undefined {
@@ -30,7 +16,7 @@ export function createLocalService<T extends { id: string }>(collection: string)
       id: crypto.randomUUID(),
     } as unknown as T
     items.push(newItem)
-    setItem(collection, items)
+    setCol(collection, items)
     return newItem
   }
 
@@ -39,7 +25,7 @@ export function createLocalService<T extends { id: string }>(collection: string)
     const index = items.findIndex((item) => item.id === id)
     if (index === -1) return undefined
     items[index] = { ...items[index], ...data }
-    setItem(collection, items)
+    setCol(collection, items)
     return items[index]
   }
 
@@ -47,7 +33,7 @@ export function createLocalService<T extends { id: string }>(collection: string)
     const items = getAll()
     const filtered = items.filter((item) => item.id !== id)
     if (filtered.length === items.length) return false
-    setItem(collection, filtered)
+    setCol(collection, filtered)
     return true
   }
 

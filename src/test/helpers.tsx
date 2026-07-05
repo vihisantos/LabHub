@@ -2,6 +2,7 @@ import { type ReactElement } from 'react'
 import { render, type RenderOptions } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider } from '../lib/ThemeContext'
+import { setCol } from '../lib/db'
 import type { PC } from '../apps/pcare/types'
 import type { Part } from '../apps/pcare/types/part'
 import type { ScheduledMaintenance } from '../apps/pcare/types/maintenance'
@@ -28,7 +29,7 @@ export function renderWithProviders(
 const now = Math.floor(Date.now() / 1000)
 
 export function seedLocalStorage(key: string, data: unknown) {
-  localStorage.setItem(`labhub_${key}`, JSON.stringify(data))
+  setCol(key, data as any[])
 }
 
 export function makePC(overrides: Partial<PC> = {}): PC {

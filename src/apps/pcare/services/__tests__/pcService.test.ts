@@ -1,4 +1,5 @@
 import { pcService } from '../pcService'
+import { setCol } from '../../../../lib/db'
 import type { PC } from '../../types'
 
 function makePC(overrides: Partial<PC> = {}): PC {
@@ -23,18 +24,14 @@ function makePC(overrides: Partial<PC> = {}): PC {
   }
 }
 
-beforeEach(() => {
-  localStorage.clear()
-})
-
 describe('pcService', () => {
   it('getAll retorna array vazio inicialmente', () => {
     expect(pcService.getAll()).toEqual([])
   })
 
-  it('getAll retorna PCs do localStorage', () => {
+  it('getAll retorna PCs do cache', () => {
     const pc = makePC()
-    localStorage.setItem('labhub_pcs', JSON.stringify([pc]))
+    setCol('pcs', [pc])
     const all = pcService.getAll()
     expect(all).toHaveLength(1)
     expect(all[0].labName).toBe('Lab A')
@@ -42,7 +39,7 @@ describe('pcService', () => {
 
   it('getById retorna PC existente', () => {
     const pc = makePC()
-    localStorage.setItem('labhub_pcs', JSON.stringify([pc]))
+    setCol('pcs', [pc])
     const found = pcService.getById('pc-1')
     expect(found?.labName).toBe('Lab A')
   })
@@ -53,7 +50,7 @@ describe('pcService', () => {
 
   it('update modifica campos do PC', () => {
     const pc = makePC()
-    localStorage.setItem('labhub_pcs', JSON.stringify([pc]))
+    setCol('pcs', [pc])
     const updated = pcService.update('pc-1', { pcNumber: 'PC-002' })
     expect(updated?.pcNumber).toBe('PC-002')
     expect(updated?.labName).toBe('Lab A')
@@ -62,7 +59,7 @@ describe('pcService', () => {
   it('query filtra PCs por predicado', () => {
     const a = makePC({ id: 'a', labName: 'Lab A' })
     const b = makePC({ id: 'b', labName: 'Lab B' })
-    localStorage.setItem('labhub_pcs', JSON.stringify([a, b]))
+    setCol('pcs', [a, b])
     const result = pcService.query((pc) => pc.labName === 'Lab A')
     expect(result).toHaveLength(1)
     expect(result[0].labName).toBe('Lab A')

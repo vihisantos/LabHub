@@ -1,4 +1,5 @@
 import { createLocalService } from '../storage'
+import { resetCache } from '../db'
 
 interface TestItem {
   id: string
@@ -11,7 +12,7 @@ function createTestService() {
 }
 
 beforeEach(() => {
-  localStorage.clear()
+  resetCache()
 })
 
 describe('createLocalService', () => {
@@ -82,7 +83,7 @@ describe('createLocalService', () => {
     expect(result.every((r) => r.value === 10)).toBe(true)
   })
 
-  it('persiste dados entre chamadas (localStorage)', () => {
+  it('persiste dados entre chamadas (cache em memória)', () => {
     const service1 = createTestService()
     service1.create({ name: 'persist', value: 1 })
     const service2 = createTestService()

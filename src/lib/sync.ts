@@ -1,9 +1,9 @@
 import { pcareDb, stockDb } from './supabase'
 import { createLocalService } from './storage'
+import { getCol, setCol } from './db'
 
 const DIRTY_KEY = 'labhub_dirty_collections'
 const SYNC_LOG_KEY = 'labhub_sync_log'
-const SYNCED_FLAG = 'labhub_synced_at'
 
 function getDirtySet(): Set<string> {
   try {
@@ -36,23 +36,6 @@ export function getDirtyCollections(): string[] {
 
 export function getPendingChanges(): number {
   return getDirtySet().size
-}
-
-function getItemKey(collection: string) {
-  return `labhub_${collection}`
-}
-
-function getAllLocal<T>(collection: string): T[] {
-  try {
-    const raw = localStorage.getItem(getItemKey(collection))
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function setAllLocal<T>(collection: string, data: T[]) {
-  localStorage.setItem(getItemKey(collection), JSON.stringify(data))
 }
 
 export interface SyncLogEntry {
@@ -92,14 +75,6 @@ function compareTimestamps(a: string | null | undefined, b: string | null | unde
   return a.localeCompare(b)
 }
 
-function hasSynced(): boolean {
-  return !!localStorage.getItem(SYNCED_FLAG)
-}
-
-function markSynced() {
-  localStorage.setItem(SYNCED_FLAG, new Date().toISOString())
-}
-
 export interface SyncResult {
   synced: number
   failed: string[]
@@ -114,7 +89,7 @@ export async function syncAll(onItem?: (collection: string, current: number, tot
 
   for (const collection of dirty) {
     try {
-      const items = getAllLocal<{ id: string; updatedAt?: string }>(collection)
+      const items = getCol<{ id: string; updatedAt?: string }>(collection)
 
       const isPcare = ['pcs', 'parts', 'part_usage', 'maintenance', 'checklist_templates', 'pc_checklists', 'action_logs'].includes(collection)
       const supabase = isPcare ? pcareDb : stockDb
@@ -130,29 +105,26 @@ export async function syncAll(onItem?: (collection: string, current: number, tot
           remoteMap.set(item.id, item)
         }
 
-        const alreadySynced = hasSynced()
-
-        // Primeiro sync = pull-only; dados locais não sobem pro banco
-        if (alreadySynced) {
-          for (const local of items) {
-            const remote = remoteMap.get(local.id)
-            if (!remote || compareTimestamps(local.updatedAt, (remote as any)?.updatedAt) > 0) {
-              const { error: upsertErr } = await s.upsert(local as any, { onConflict: 'id' })
-              if (upsertErr) throw upsertErr
-            }
+        // Sobe dados locais que não existem no remoto ou são mais recentes
+        for (const local of items) {
+          const remote = remoteMap.get(local.id)
+          if (!remote || compareTimestamps(local.updatedAt, (remote as any)?.updatedAt) > 0) {
+            const { error: upsertErr } = await s.upsert(local as any, { onConflict: 'id' })
+            if (upsertErr) throw upsertErr
           }
         }
 
+        // Puxa dados remotos que não existem localmente ou são mais recentes
         for (const [, remote] of remoteMap) {
-          if (!items.some((l) => l.id === (remote as any).id)) {
+          const idx = items.findIndex((l) => l.id === (remote as any).id)
+          if (idx === -1) {
             ;(items as any[]).push(remote)
+          } else if (compareTimestamps((remote as any).updatedAt, (items[idx] as any).updatedAt) > 0) {
+            ;(items as any[])[idx] = remote
           }
         }
 
-        setAllLocal(collection, items)
-
-        if (!alreadySynced) markSynced()
-
+        setCol(collection, items)
         logSync(collection, items.length, 'ok')
       } else {
         await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300))
