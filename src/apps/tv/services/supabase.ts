@@ -175,7 +175,7 @@ export async function deleteAnnouncement(id: string): Promise<void> {
   if (error) throw error
 }
 
-export async function reorderTracks(queueId: string, trackIds: string[]): Promise<void> {
+export async function reorderTracks(_queueId: string, trackIds: string[]): Promise<void> {
   if (!supabase) return
   for (const [idx, id] of trackIds.entries()) {
     const { error } = await supabase.from('tv_music_tracks').update({ position: idx }).eq('id', id)
