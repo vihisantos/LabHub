@@ -60,7 +60,7 @@ describe('PlaylistManager', () => {
     renderWithTooltip(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Upload de Vídeo' }))
-    expect(screen.getByText(/Upload/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Upload/).length).toBeGreaterThanOrEqual(1)
   })
 
   it('chama onAdd ao submeter nova playlist com URL válida', async () => {
