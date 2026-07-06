@@ -11,10 +11,12 @@ export interface TvEvent {
   created_at: string
 }
 
+export type PlaylistSource = 'youtube' | 'google_drive' | 'cloudinary'
+
 export interface TvPlaylist {
   id: string
   name: string
-  type: 'video' | 'music'
+  source: PlaylistSource
   youtube_url: string
   duration_seconds: number
   is_active: boolean

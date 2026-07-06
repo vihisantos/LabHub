@@ -8,7 +8,7 @@ function makePlaylist(overrides: Partial<TvPlaylist> = {}): TvPlaylist {
   return {
     id: 'pl-1',
     name: 'Playlist Teste',
-    type: 'video',
+    source: 'youtube',
     youtube_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     duration_seconds: 30,
     is_active: true,
@@ -43,10 +43,10 @@ describe('PlaylistManager', () => {
     expect(screen.getByText('Músicas')).toBeInTheDocument()
   })
 
-  it('renderiza tipo e duração da playlist', () => {
-    const playlists = [makePlaylist({ type: 'video', duration_seconds: 45 })]
+  it('renderiza source e duração da playlist', () => {
+    const playlists = [makePlaylist({ source: 'youtube', duration_seconds: 45 })]
     renderWithTooltip(<PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
-    expect(screen.getByText(/Vídeo · 45s/)).toBeInTheDocument()
+    expect(screen.getByText(/YouTube · 45s/)).toBeInTheDocument()
   })
 
   it('abre formulário ao clicar em "Nova Playlist"', () => {
@@ -54,6 +54,13 @@ describe('PlaylistManager', () => {
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
     expect(screen.getByPlaceholderText('Nome')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/URL do YouTube/)).toBeInTheDocument()
+  })
+
+  it('abre formulário com opção de upload para Cloudinary', () => {
+    renderWithTooltip(<PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload de Vídeo' }))
+    expect(screen.getByText(/Upload/)).toBeInTheDocument()
   })
 
   it('chama onAdd ao submeter nova playlist com URL válida', async () => {
@@ -68,7 +75,7 @@ describe('PlaylistManager', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Criar playlist' }))
 
     expect(onAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Minha Playlist', type: 'video' })
+      expect.objectContaining({ name: 'Minha Playlist', source: 'youtube' })
     )
   })
 
@@ -77,7 +84,7 @@ describe('PlaylistManager', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
     fireEvent.change(screen.getByPlaceholderText('Nome'), { target: { value: 'Teste' } })
-    fireEvent.change(screen.getByPlaceholderText(/URL do YouTube/), {
+    fireEvent.change(screen.getAllByPlaceholderText(/URL/)[0], {
       target: { value: 'https://google.com' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Criar playlist' }))
@@ -90,7 +97,7 @@ describe('PlaylistManager', () => {
     renderWithTooltip(<PlaylistManager playlists={[]} onAdd={onAdd} onEdit={vi.fn()} onDelete={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Nova Playlist/ }))
-    fireEvent.change(screen.getByPlaceholderText(/URL do YouTube/), {
+    fireEvent.change(screen.getAllByPlaceholderText(/URL/)[0], {
       target: { value: 'https://www.youtube.com/watch?v=test' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Criar playlist' }))

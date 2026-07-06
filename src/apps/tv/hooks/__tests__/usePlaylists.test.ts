@@ -36,14 +36,6 @@ describe('usePlaylists', () => {
     expect(result.current.playlists).toEqual([])
   })
 
-  it('passa tipo para fetchPlaylists', async () => {
-    const { result } = renderHook(() => usePlaylists('video'))
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false)
-    })
-    expect(result.current.playlists).toEqual([])
-  })
-
   it('refresh retorna vazio', async () => {
     const { result } = renderHook(() => usePlaylists())
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -70,7 +62,7 @@ describe('useAllPlaylists', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     await act(async () => {
-      await result.current.add({ name: 'X', type: 'video', youtube_url: 'url', duration_seconds: 30, is_active: true, sort_order: 0 })
+      await result.current.add({ name: 'X', source: 'youtube', youtube_url: 'url', duration_seconds: 30, is_active: true, sort_order: 0 })
     })
 
     expect(result.current.playlists).toEqual([])

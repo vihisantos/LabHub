@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { YouTubePlayer } from '../YouTubePlayer'
+import { VideoPlayer } from '../VideoPlayer'
 
 vi.mock('react-youtube', () => ({
   default: function MockYouTube({ videoId, className, onReady, onError }: any) {
@@ -16,40 +16,40 @@ vi.mock('react-youtube', () => ({
   },
 }))
 
-describe('YouTubePlayer', () => {
+describe('VideoPlayer (YouTube)', () => {
   it('renderiza URL inválida quando URL não é do YouTube', () => {
-    render(<YouTubePlayer url="https://google.com" />)
+    render(<VideoPlayer url="https://google.com" source="youtube" />)
     expect(screen.getByText('URL inválida')).toBeInTheDocument()
   })
 
   it('renderiza URL inválida para string vazia', () => {
-    render(<YouTubePlayer url="" />)
+    render(<VideoPlayer url="" source="youtube" />)
     expect(screen.getByText('URL inválida')).toBeInTheDocument()
   })
 
   it('renderiza URL inválida para string que não é URL', () => {
-    render(<YouTubePlayer url="not-a-url" />)
+    render(<VideoPlayer url="not-a-url" source="youtube" />)
     expect(screen.getByText('URL inválida')).toBeInTheDocument()
   })
 
   it('renderiza player do YouTube para URL válida', () => {
-    render(<YouTubePlayer url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" />)
+    render(<VideoPlayer url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" source="youtube" />)
     expect(screen.getByTestId('youtube-iframe')).toBeInTheDocument()
     expect(screen.getByTestId('youtube-iframe')).toHaveAttribute('data-video-id', 'dQw4w9WgXcQ')
   })
 
   it('aceita URL youtu.be curta', () => {
-    render(<YouTubePlayer url="https://youtu.be/dQw4w9WgXcQ" />)
+    render(<VideoPlayer url="https://youtu.be/dQw4w9WgXcQ" source="youtube" />)
     expect(screen.getByTestId('youtube-iframe')).toHaveAttribute('data-video-id', 'dQw4w9WgXcQ')
   })
 
   it('aceita URL de playlist', () => {
-    render(<YouTubePlayer url="https://www.youtube.com/playlist?list=PLtest123" />)
+    render(<VideoPlayer url="https://www.youtube.com/playlist?list=PLtest123" source="youtube" />)
     expect(screen.getByTestId('youtube-iframe')).toBeInTheDocument()
   })
 
   it('aplica className personalizada', () => {
-    render(<YouTubePlayer url="https://www.youtube.com/watch?v=test" className="custom-class" />)
+    render(<VideoPlayer url="https://www.youtube.com/watch?v=test" source="youtube" className="custom-class" />)
     expect(screen.getByTestId('youtube-iframe')).toHaveClass('custom-class')
   })
 })

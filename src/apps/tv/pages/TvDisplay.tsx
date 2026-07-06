@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Settings, Tv, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useEvents } from '../hooks/useEvents'
 import { usePlaylists } from '../hooks/usePlaylists'
-import { YouTubePlayer } from '../components/YouTubePlayer'
+import { VideoPlayer } from '../components/VideoPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
 import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
 import { ClockDisplay } from '../components/ClockDisplay'
@@ -15,7 +15,7 @@ import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 
 export function TvDisplay() {
   const { events, loading: eventsLoading } = useEvents()
-  const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists('video')
+  const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
   const { tracks: musicQueueTracks, shuffle: musicShuffle } = useAllMusicTracks()
   const navigate = useNavigate()
 
@@ -174,9 +174,10 @@ export function TvDisplay() {
               borderRadius: '1rem', overflow: 'hidden',
               boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
             }}>
-              <YouTubePlayer
+              <VideoPlayer
                 key={currentPlaylist.id}
                 url={currentPlaylist.youtube_url}
+                source={currentPlaylist.source}
                 isPlaying={isVideoPlaying}
                 onEnd={advanceToNextVideo}
               />

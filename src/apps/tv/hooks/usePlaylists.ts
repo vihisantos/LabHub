@@ -4,7 +4,7 @@ import { defaultDb as supabase } from '../../../lib/supabase'
 import { useToast } from '../../../lib/ToastContext'
 import type { TvPlaylist } from '../types'
 
-export function usePlaylists(type?: 'video' | 'music') {
+export function usePlaylists() {
   const [playlists, setPlaylists] = useState<TvPlaylist[]>([])
   const [loading, setLoading] = useState(true)
   const { addToast } = useToast()
@@ -12,14 +12,14 @@ export function usePlaylists(type?: 'video' | 'music') {
   const load = useCallback(async (silent?: boolean) => {
     try {
       if (!silent) setLoading(true)
-      const data = await fetchPlaylists(type)
+      const data = await fetchPlaylists()
       setPlaylists(data)
     } catch {
       if (!silent) addToast('error', 'Erro ao carregar playlists')
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [type, addToast])
+  }, [addToast])
 
   useEffect(() => { load() }, [load])
 
@@ -28,7 +28,7 @@ export function usePlaylists(type?: 'video' | 'music') {
     const db = supabase
     if (!db) return
     const channel = db
-      .channel(`tv-playlists-realtime-${type ?? 'all'}`)
+      .channel('tv-playlists-realtime')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'tv_playlists' },
         () => { load(true) }

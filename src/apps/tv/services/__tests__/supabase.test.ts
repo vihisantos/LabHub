@@ -118,7 +118,7 @@ describe('deleteEvent', () => {
 
 describe('fetchPlaylists', () => {
   it('retorna playlists ativas ordenadas por sort_order', async () => {
-    const mockData = [{ id: '1', name: 'Playlist A', type: 'video', is_active: true }]
+    const mockData = [{ id: '1', name: 'Playlist A', source: 'youtube', is_active: true }]
     chain = createMockChain({ data: mockData, error: null })
     mockFrom.mockReturnValue(chain)
 
@@ -126,16 +126,7 @@ describe('fetchPlaylists', () => {
     expect(result).toEqual(mockData)
     expect(mockFrom).toHaveBeenCalledWith('tv_playlists')
     expect(chain.eq).toHaveBeenCalledWith('is_active', true)
-  })
-
-  it('filtra por tipo quando type é fornecido', async () => {
-    await fetchPlaylists('music')
-    expect(chain.eq).toHaveBeenCalledWith('type', 'music')
-  })
-
-  it('não adiciona filtro de tipo quando type não é fornecido', async () => {
-    await fetchPlaylists()
-    expect(chain.eq).not.toHaveBeenCalledWith('type', expect.anything())
+    expect(chain.order).toHaveBeenCalledWith('sort_order', { ascending: true })
   })
 })
 
@@ -152,7 +143,7 @@ describe('fetchAllPlaylists', () => {
 
 describe('createPlaylist', () => {
   it('insere playlist com valores corretos', async () => {
-    const values = { name: 'Nova Playlist', type: 'video' as const, youtube_url: 'https://youtube.com/watch?v=test', duration_seconds: 30, is_active: true, sort_order: 0 }
+    const values = { name: 'Nova Playlist', source: 'youtube' as const, youtube_url: 'https://youtube.com/watch?v=test', duration_seconds: 30, is_active: true, sort_order: 0 }
     await createPlaylist(values)
     expect(chain.insert).toHaveBeenCalled()
   })

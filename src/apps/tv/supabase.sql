@@ -12,11 +12,11 @@ create table if not exists tv_events (
   created_at timestamptz default now()
 );
 
--- Tabela de playlists (YouTube) para TV
+-- Tabela de playlists (YouTube / Google Drive / Cloudinary) para TV
 create table if not exists tv_playlists (
   id uuid default gen_random_uuid() primary key,
   name text not null,
-  type text not null check (type in ('video', 'music')),
+  source text not null default 'youtube' check (source in ('youtube', 'google_drive', 'cloudinary')),
   youtube_url text not null,
   duration_seconds int default 30,
   is_active boolean default true,

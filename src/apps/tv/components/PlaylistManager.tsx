@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Pencil, Trash2, X, Monitor, ChevronUp, ChevronDown, Film } from 'lucide-react'
-import type { TvPlaylist } from '../types'
+import { Plus, Pencil, Trash2, X, Monitor, ChevronUp, ChevronDown, Film, Upload, Cloud } from 'lucide-react'
+import type { TvPlaylist, PlaylistSource } from '../types'
 import { parseYouTubeUrl } from '../utils/youtubeUtils'
+import { parseGoogleDriveUrl } from '../utils/googleDriveUtils'
+import { CloudinaryUpload } from './CloudinaryUpload'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -22,37 +24,52 @@ interface PlaylistManagerProps {
   onDelete: (id: string) => Promise<void>
 }
 
+const sources: { value: PlaylistSource; label: string; icon: typeof Film }[] = [
+  { value: 'youtube', label: 'YouTube', icon: Film },
+  { value: 'google_drive', label: 'Google Drive', icon: Cloud },
+  { value: 'cloudinary', label: 'Upload de Vídeo', icon: Upload },
+]
+
 export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: PlaylistManagerProps) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<TvPlaylist | null>(null)
   const [name, setName] = useState('')
-  const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [source, setSource] = useState<PlaylistSource>('youtube')
+  const [url, setUrl] = useState('')
   const [duration, setDuration] = useState('30')
   const [urlError, setUrlError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<TvPlaylist | null>(null)
 
   const openNew = () => {
-    setEditing(null); setName(''); setYoutubeUrl(''); setDuration('30'); setUrlError('')
+    setEditing(null); setName(''); setSource('youtube'); setUrl(''); setDuration('30'); setUrlError('')
     setShowForm(true)
   }
 
   const openEdit = (p: TvPlaylist) => {
-    setEditing(p); setName(p.name); setYoutubeUrl(p.youtube_url); setDuration(String(p.duration_seconds)); setUrlError('')
+    setEditing(p); setName(p.name); setSource(p.source); setUrl(p.youtube_url); setDuration(String(p.duration_seconds)); setUrlError('')
     setShowForm(true)
+  }
+
+  const validateUrl = (u: string, s: PlaylistSource): boolean => {
+    if (!u.trim()) { setUrlError('URL obrigatória'); return false }
+    if (s === 'youtube') {
+      if (!parseYouTubeUrl(u.trim())) { setUrlError('URL do YouTube inválida'); return false }
+    }
+    if (s === 'google_drive') {
+      if (!parseGoogleDriveUrl(u.trim())) { setUrlError('URL do Google Drive inválida'); return false }
+    }
+    return true
   }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || !youtubeUrl.trim()) return
-    if (!parseYouTubeUrl(youtubeUrl.trim())) {
-      setUrlError('URL do YouTube inválida')
-      return
-    }
+    if (!name.trim()) return
+    if (!validateUrl(url, source)) return
     setUrlError('')
     const payload = {
       name: name.trim(),
-      type: 'video' as const,
-      youtube_url: youtubeUrl.trim(),
+      source,
+      youtube_url: url.trim(),
       duration_seconds: Math.max(10, parseInt(duration) || 30),
       is_active: true,
       sort_order: editing?.sort_order ?? playlists.length,
@@ -77,6 +94,12 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
     const a = playlists[idx]; const b = playlists[idx + 1]
     await onEdit(a.id, { sort_order: b.sort_order })
     await onEdit(b.id, { sort_order: a.sort_order })
+  }
+
+  const sourceLabel = (s: PlaylistSource) => sources.find(x => x.value === s)?.label ?? s
+  const sourceIcon = (s: PlaylistSource) => {
+    const found = sources.find(x => x.value === s)
+    return found ? <found.icon size={14} /> : <Film size={14} />
   }
 
   return (
@@ -141,6 +164,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
                   <X size={14} />
                 </button>
               </div>
+
               <input
                 placeholder="Nome"
                 value={name}
@@ -148,19 +172,56 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
                 required
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-emerald-500 focus:bg-white"
               />
-              <div className="relative">
-                <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  placeholder="URL do YouTube (vídeo ou playlist)"
-                  value={youtubeUrl}
-                  onChange={e => { setYoutubeUrl(e.target.value); setUrlError('') }}
-                  required
-                  className={`w-full rounded-lg border bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:bg-white ${
-                    urlError ? 'border-red-500' : 'border-slate-200 focus:border-emerald-500'
-                  }`}
-                />
+
+              {/* Source selector */}
+              <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+                {sources.map(({ value, label, icon: Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => { setSource(value); setUrl(''); setUrlError('') }}
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all ${
+                      source === value
+                        ? 'bg-white text-slate-800 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    <Icon size={13} />
+                    {label}
+                  </button>
+                ))}
               </div>
+
+              {/* URL / Upload */}
+              {source === 'cloudinary' ? (
+                <div className="flex items-end gap-2">
+                  <input
+                    placeholder="URL do vídeo (ou faça upload)"
+                    value={url}
+                    onChange={e => { setUrl(e.target.value); setUrlError('') }}
+                    className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-emerald-500 focus:bg-white"
+                  />
+                  <CloudinaryUpload
+                    resourceType="video"
+                    onUpload={(uploadedUrl) => { setUrl(uploadedUrl); setUrlError('') }}
+                  />
+                </div>
+              ) : (
+                <div className="relative">
+                  <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    placeholder={source === 'youtube' ? 'URL do YouTube (vídeo ou playlist)' : 'URL do Google Drive'}
+                    value={url}
+                    onChange={e => { setUrl(e.target.value); setUrlError('') }}
+                    required
+                    className={`w-full rounded-lg border bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:bg-white ${
+                      urlError ? 'border-red-500' : 'border-slate-200 focus:border-emerald-500'
+                    }`}
+                  />
+                </div>
+              )}
               {urlError && <p className="text-xs text-red-500">{urlError}</p>}
+
               <div className="flex items-end gap-3">
                 <div className="w-28">
                   <label className="mb-1.5 block text-xs text-slate-500">Duração (s)</label>
@@ -232,12 +293,12 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
               {/* Content */}
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                  <Monitor size={14} className="text-emerald-600" />
+                  {sourceIcon(p.source)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-slate-800">{p.name}</span>
                   <span className="block text-xs text-slate-400">
-                    Vídeo · {p.duration_seconds}s de exibição
+                    {sourceLabel(p.source)} · {p.duration_seconds}s de exibição
                   </span>
                 </div>
               </div>
