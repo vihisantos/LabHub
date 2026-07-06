@@ -11,12 +11,10 @@ import { Greeting } from '../components/Greeting'
 import { Ticker } from '../components/Ticker'
 import { WeatherWidget } from '../components/WeatherWidget'
 import { ScreenSaver } from '../components/ScreenSaver'
-import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 
 export function TvDisplay() {
   const { events, loading: eventsLoading } = useEvents()
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
-  const { tracks: musicQueueTracks, shuffle: musicShuffle } = useAllMusicTracks()
   const navigate = useNavigate()
 
   const [hasLoaded, setHasLoaded] = useState(false)
@@ -123,14 +121,7 @@ export function TvDisplay() {
     return () => { wakeLock?.release().catch(() => {}) }
   }, [])
 
-  /* ── Music: plays during events, pauses during video ── */
-  const [musicPlaying, setMusicPlaying] = useState(false)
-  useEffect(() => {
-    setMusicPlaying(!showingVideo && !paused)
-  }, [showingVideo, paused])
-
   const hasContent = videoPlaylists.length > 0 || events.length > 0
-  const hasMusic = musicQueueTracks.length > 0
 
   return (
     <div
@@ -178,12 +169,8 @@ export function TvDisplay() {
         </div>
       )}
 
-      {/* ── Layer 3: Music ── */}
-      <MusicQueuePlayer
-        tracks={musicQueueTracks}
-        shuffle={musicShuffle}
-        isPlaying={musicPlaying}
-      />
+      {/* ── Layer 3: Music (persistent player lives in TvApp) ── */}
+      <MusicQueuePlayer />
 
       {/* ── Layer 4: Playback controls ── */}
       {videoPlaylists.length > 0 && showingVideo && (
@@ -301,7 +288,7 @@ export function TvDisplay() {
       </div>
 
       {/* Empty state → screensaver */}
-      {hasLoaded && !hasContent && !hasMusic && <ScreenSaver />}
+      {hasLoaded && !hasContent && <ScreenSaver />}
     </div>
   )
 }
