@@ -53,14 +53,6 @@ export function TvDisplay() {
     }
   }, [videoPlaylists.length, videoIndex])
 
-  /* ── Video timer: after duration_seconds, pause & show events ── */
-  useEffect(() => {
-    if (!showingVideo || !currentPlaylist) return
-    const ms = currentPlaylist.duration_seconds * 1000
-    const timer = setTimeout(() => setShowingVideo(false), ms)
-    return () => clearTimeout(timer)
-  }, [showingVideo, currentPlaylist?.id, currentPlaylist?.duration_seconds])
-
   /* ── Events timer: after eventDisplayMs, resume video ── */
   useEffect(() => {
     if (showingVideo || paused || videoPlaylists.length === 0) return
@@ -73,7 +65,7 @@ export function TvDisplay() {
     if (videoPlaylists.length > 1) {
       setVideoIndex((i) => (i + 1) % videoPlaylists.length)
     }
-    setShowingVideo(true)
+    setShowingVideo(false)
   }, [videoPlaylists.length])
 
   const goToPrevVideo = useCallback(() => {

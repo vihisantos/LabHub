@@ -18,7 +18,6 @@ create table if not exists tv_playlists (
   name text not null,
   source text not null default 'youtube' check (source in ('youtube', 'google_drive', 'cloudinary')),
   youtube_url text not null,
-  duration_seconds int default 30,
   is_active boolean default true,
   sort_order int default 0,
   created_at timestamptz default now()

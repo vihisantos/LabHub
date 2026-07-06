@@ -143,7 +143,7 @@ describe('fetchAllPlaylists', () => {
 
 describe('createPlaylist', () => {
   it('insere playlist com valores corretos', async () => {
-    const values = { name: 'Nova Playlist', source: 'youtube' as const, youtube_url: 'https://youtube.com/watch?v=test', duration_seconds: 30, is_active: true, sort_order: 0 }
+    const values = { name: 'Nova Playlist', source: 'youtube' as const, youtube_url: 'https://youtube.com/watch?v=test', is_active: true, sort_order: 0 }
     await createPlaylist(values)
     expect(chain.insert).toHaveBeenCalled()
   })

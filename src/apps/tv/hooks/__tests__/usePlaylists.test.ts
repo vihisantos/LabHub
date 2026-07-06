@@ -62,7 +62,7 @@ describe('useAllPlaylists', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     await act(async () => {
-      await result.current.add({ name: 'X', source: 'youtube', youtube_url: 'url', duration_seconds: 30, is_active: true, sort_order: 0 })
+      await result.current.add({ name: 'X', source: 'youtube', youtube_url: 'url', is_active: true, sort_order: 0 })
     })
 
     expect(result.current.playlists).toEqual([])

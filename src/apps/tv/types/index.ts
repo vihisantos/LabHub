@@ -18,7 +18,6 @@ export interface TvPlaylist {
   name: string
   source: PlaylistSource
   youtube_url: string
-  duration_seconds: number
   is_active: boolean
   sort_order: number
   created_at: string

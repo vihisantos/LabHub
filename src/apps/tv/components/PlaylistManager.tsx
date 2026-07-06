@@ -36,17 +36,16 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
   const [name, setName] = useState('')
   const [source, setSource] = useState<PlaylistSource>('youtube')
   const [url, setUrl] = useState('')
-  const [duration, setDuration] = useState('30')
   const [urlError, setUrlError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<TvPlaylist | null>(null)
 
   const openNew = () => {
-    setEditing(null); setName(''); setSource('youtube'); setUrl(''); setDuration('30'); setUrlError('')
+    setEditing(null); setName(''); setSource('youtube'); setUrl(''); setUrlError('')
     setShowForm(true)
   }
 
   const openEdit = (p: TvPlaylist) => {
-    setEditing(p); setName(p.name); setSource(p.source); setUrl(p.youtube_url); setDuration(String(p.duration_seconds)); setUrlError('')
+    setEditing(p); setName(p.name); setSource(p.source); setUrl(p.youtube_url); setUrlError('')
     setShowForm(true)
   }
 
@@ -70,7 +69,6 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
       name: name.trim(),
       source,
       youtube_url: url.trim(),
-      duration_seconds: Math.max(10, parseInt(duration) || 30),
       is_active: true,
       sort_order: editing?.sort_order ?? playlists.length,
     }
@@ -221,22 +219,6 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
                 </div>
               )}
               {urlError && <p className="text-xs text-red-500">{urlError}</p>}
-
-              <div className="flex items-end gap-3">
-                <div className="w-28">
-                  <label className="mb-1.5 block text-xs text-slate-500">Duração (s)</label>
-                  <input
-                    type="number"
-                    min="10"
-                    value={duration}
-                    onChange={e => setDuration(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-emerald-500 focus:bg-white"
-                  />
-                </div>
-                <p className="text-[11px] text-slate-400 pb-1">
-                  Tempo de exibição antes de alternar para eventos
-                </p>
-              </div>
             </div>
             <div className="border-t border-slate-100 px-4 py-3">
               <button
@@ -298,7 +280,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-slate-800">{p.name}</span>
                   <span className="block text-xs text-slate-400">
-                    {sourceLabel(p.source)} · {p.duration_seconds}s de exibição
+                    {sourceLabel(p.source)}
                   </span>
                 </div>
               </div>

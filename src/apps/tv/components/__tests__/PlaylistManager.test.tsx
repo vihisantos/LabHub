@@ -10,7 +10,6 @@ function makePlaylist(overrides: Partial<TvPlaylist> = {}): TvPlaylist {
     name: 'Playlist Teste',
     source: 'youtube',
     youtube_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-    duration_seconds: 30,
     is_active: true,
     sort_order: 0,
     created_at: '2026-01-01T00:00:00Z',
@@ -43,10 +42,10 @@ describe('PlaylistManager', () => {
     expect(screen.getByText('Músicas')).toBeInTheDocument()
   })
 
-  it('renderiza source e duração da playlist', () => {
-    const playlists = [makePlaylist({ source: 'youtube', duration_seconds: 45 })]
+  it('renderiza source da playlist', () => {
+    const playlists = [makePlaylist({ source: 'youtube' })]
     renderWithTooltip(<PlaylistManager playlists={playlists} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
-    expect(screen.getByText(/YouTube · 45s/)).toBeInTheDocument()
+    expect(screen.getByText('YouTube')).toBeInTheDocument()
   })
 
   it('abre formulário ao clicar em "Nova Playlist"', () => {
