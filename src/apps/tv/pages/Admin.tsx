@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -35,7 +35,15 @@ export function AdminView() {
   const { galleries, loading: galleriesLoading, create: createGallery, remove: removeGallery, setActive: setActiveGallery } = useGalleries()
   // Read initial state from query params (e.g. from ReservaLab redirect)
   const tabParam = searchParams.get('tab') as TabId | null
-  const [activeTab, setActiveTab] = useState<TabId>(tabParam ?? 'events')
+  const [activeTab, setActiveTabState] = useState<TabId>(tabParam ?? (() => {
+    const saved = localStorage.getItem('tv-admin-tab')
+    return (saved && tabs.some(t => t.id === saved) ? saved : 'events') as TabId
+  })())
+
+  const setActiveTab = useCallback((tab: TabId) => {
+    setActiveTabState(tab)
+    localStorage.setItem('tv-admin-tab', tab)
+  }, [])
 
   const initialEventValues = searchParams.get('title')
     ? {
@@ -147,21 +155,23 @@ export function AdminView() {
           </div>
 
           {/* ── Tabs ── */}
-          <div className="mb-6 flex gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className={`relative flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:text-sm ${
-                  activeTab === id
-                    ? 'bg-white text-slate-800 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                <Icon size={14} />
-                {label}
-              </button>
-            ))}
+          <div className="mb-6 overflow-x-auto rounded-xl border border-slate-200 bg-slate-100 p-1 [&::-webkit-scrollbar]:hidden">
+            <div className="flex min-w-max gap-1">
+              {tabs.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`relative flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium whitespace-nowrap transition-all sm:text-sm ${
+                    activeTab === id
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <Icon size={14} />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* ── Tab Content ── */}
