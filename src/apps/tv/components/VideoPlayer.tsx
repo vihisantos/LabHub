@@ -40,13 +40,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     }))
 
     useEffect(() => {
-      if (source !== 'cloudinary') return
       if (isPlaying === prevPlayingRef.current) return
       prevPlayingRef.current = isPlaying
-      if (isPlaying) {
-        videoRef.current?.play()
-      } else {
-        videoRef.current?.pause()
+      if (source === 'youtube') {
+        if (isPlaying) {
+          playerRef.current?.playVideo()
+        } else {
+          playerRef.current?.pauseVideo()
+        }
+      } else if (source === 'cloudinary') {
+        if (isPlaying) {
+          videoRef.current?.play()
+        } else {
+          videoRef.current?.pause()
+        }
       }
     }, [isPlaying, source])
 
@@ -82,14 +89,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         height: '100%',
         width: '100%',
         playerVars: {
-          autoplay: isPlaying ? 1 : 0,
+          autoplay: 1,
           controls: 0,
           disablekb: 1,
           fs: 0,
           modestbranding: 1,
           rel: 0,
           loop: 1,
-          origin: window.location.origin,
           ...(info.type === 'playlist' && info.playlistId
             ? { list: info.playlistId, listType: 'playlist' as const, index: 0 }
             : { playlist: info.videoId }),
