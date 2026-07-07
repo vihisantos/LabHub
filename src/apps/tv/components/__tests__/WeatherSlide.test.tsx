@@ -49,7 +49,7 @@ describe('WeatherSlide', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('renderiza todas as 5 cidades', async () => {
+  it('renderiza cidade principal e 4 cidades da região', async () => {
     vi.useRealTimers()
     vi.stubEnv('VITE_OPENWEATHER_API_KEY', 'test-key')
     globalThis.fetch = mockFetchByCity()
@@ -59,7 +59,7 @@ describe('WeatherSlide', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Piracicaba')).toBeInTheDocument()
+      expect(screen.getByText('26°')).toBeInTheDocument()
     })
     expect(screen.getByText('Campinas')).toBeInTheDocument()
     expect(screen.getByText('Limeira')).toBeInTheDocument()
