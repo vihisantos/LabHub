@@ -159,11 +159,9 @@ export function TvDisplay() {
         color: '#f1f5f9', position: 'relative', fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
-      {/* ── Layer 1: Background (events / gallery / fallback) ── */}
+      {/* ── Layer 1: Background ── */}
       {!showingVideo && showPhase === 'events' && events.length > 0 ? (
         <EventsCarousel events={events} interval={8000} fullBleed />
-      ) : !showingVideo && showPhase === 'gallery' && galleryPhotos.length > 0 && gallery ? (
-        <PhotoSlideshow photos={galleryPhotos} title={gallery.title} />
       ) : (
         <div style={{
           position: 'absolute', inset: 0,
@@ -171,21 +169,25 @@ export function TvDisplay() {
         }} />
       )}
 
-      {/* ── Layer 2: Video player (always mounted once available) ── */}
-      {videoPlaylists.length > 0 && currentPlaylist && (
+      {/* ── Layer 2: Centered content (video / gallery) ── */}
+      {(videoPlaylists.length > 0 && currentPlaylist) && (
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          opacity: showingVideo ? 1 : 0,
-          pointerEvents: showingVideo ? 'auto' : 'none',
-          transition: 'opacity 0.5s',
           background: 'rgba(8,10,20,0.85)',
         }}>
-          {currentPlaylist && (
+          <div style={{
+            position: 'relative',
+            width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
+            borderRadius: '1rem', overflow: 'hidden',
+            boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
+          }}>
+            {/* Video */}
             <div style={{
-              width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
-              borderRadius: '1rem', overflow: 'hidden',
-              boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
+              position: 'absolute', inset: 0,
+              opacity: showingVideo ? 1 : 0,
+              pointerEvents: showingVideo ? 'auto' : 'none',
+              transition: 'opacity 0.5s',
             }}>
               <VideoPlayer
                 key={currentPlaylist.id}
@@ -195,7 +197,19 @@ export function TvDisplay() {
                 onEnd={advanceToNextVideo}
               />
             </div>
-          )}
+
+            {/* Gallery */}
+            {gallery && galleryPhotos.length > 0 && (
+              <div style={{
+                position: 'absolute', inset: 0,
+                opacity: !showingVideo && showPhase === 'gallery' ? 1 : 0,
+                pointerEvents: !showingVideo && showPhase === 'gallery' ? 'auto' : 'none',
+                transition: 'opacity 0.5s',
+              }}>
+                <PhotoSlideshow photos={galleryPhotos} title={gallery.title} />
+              </div>
+            )}
+          </div>
         </div>
       )}
 
