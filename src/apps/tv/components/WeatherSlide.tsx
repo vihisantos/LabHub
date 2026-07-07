@@ -38,12 +38,24 @@ function weatherIcon(id: number) {
   return Cloud
 }
 
+function greeting(h: number) {
+  if (h >= 5 && h < 12) return 'Bom dia, Campus!'
+  if (h >= 12 && h < 18) return 'Boa tarde, Campus!'
+  return 'Boa noite, Campus!'
+}
+
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface WeatherSlideProps {}
 
 export function WeatherSlide(_props: WeatherSlideProps) {
   const [weathers, setWeathers] = useState<WeatherData[]>([])
   const [error, setError] = useState(false)
+  const [clock, setClock] = useState(new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setClock(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (!API_KEY) { setError(true); return }
@@ -91,6 +103,23 @@ export function WeatherSlide(_props: WeatherSlideProps) {
       background: 'radial-gradient(ellipse at center, #1e293b 0%, #080a14 100%)',
       padding: '2rem',
     }}>
+      {/* Saudação */}
+      <motion.span
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: 0.5 }}
+        style={{
+          fontSize: 'clamp(1.8rem, 3.5vw, 3.5rem)',
+          fontWeight: 800,
+          color: '#f1f5f9',
+          textShadow: '0 0 40px rgba(129,140,248,0.4), 0 0 80px rgba(99,102,241,0.15)',
+          letterSpacing: '-0.02em',
+          marginBottom: '1rem',
+        }}
+      >
+        {greeting(clock.getHours())}
+      </motion.span>
+
       {/* Cidade principal */}
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}

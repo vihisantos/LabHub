@@ -11,10 +11,10 @@ vi.mock('framer-motion', () => ({
 
 const CITY_DATA: Record<string, { temp: number; desc: string; id?: number }> = {
   'Piracicaba': { temp: 26, desc: 'céu limpo' },
-  'Campinas': { temp: 24, desc: 'nublado', id: 802 },
-  'Limeira': { temp: 27, desc: 'chuva', id: 500 },
+  'Campinas': { temp: 24, desc: 'nuvens dispersas', id: 802 },
+  'Limeira': { temp: 27, desc: 'chuva leve', id: 500 },
   'São Paulo': { temp: 23, desc: 'parcialmente nublado', id: 801 },
-  'Americana': { temp: 25, desc: 'nevoeiro', id: 741 },
+  'Americana': { temp: 25, desc: 'névoa', id: 741 },
 }
 
 function mockFetchByCity() {
@@ -83,6 +83,50 @@ describe('WeatherSlide', () => {
     expect(screen.getByText('27°')).toBeInTheDocument()
     expect(screen.getByText('23°')).toBeInTheDocument()
     expect(screen.getByText('25°')).toBeInTheDocument()
+  })
+
+  it('renderiza saudação de acordo com horário', async () => {
+    vi.useRealTimers()
+    vi.stubEnv('VITE_OPENWEATHER_API_KEY', 'test-key')
+    globalThis.fetch = mockFetchByCity()
+
+    await act(async () => {
+      render(<WeatherSlide />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Campus!/)).toBeInTheDocument()
+    })
+  })
+
+  it('renderiza "Boa tarde" no período da tarde', async () => {
+    vi.useRealTimers()
+    vi.stubEnv('VITE_OPENWEATHER_API_KEY', 'test-key')
+    globalThis.fetch = mockFetchByCity()
+    vi.setSystemTime(new Date('2026-06-25T18:00:00Z'))
+
+    await act(async () => {
+      render(<WeatherSlide />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Boa tarde, Campus!')).toBeInTheDocument()
+    })
+  })
+
+  it('renderiza "Boa noite" no período noturno', async () => {
+    vi.useRealTimers()
+    vi.stubEnv('VITE_OPENWEATHER_API_KEY', 'test-key')
+    globalThis.fetch = mockFetchByCity()
+    vi.setSystemTime(new Date('2026-06-26T01:00:00Z'))
+
+    await act(async () => {
+      render(<WeatherSlide />)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Boa noite, Campus!')).toBeInTheDocument()
+    })
   })
 
   it('não renderiza nada quando fetch retorna erro', async () => {
