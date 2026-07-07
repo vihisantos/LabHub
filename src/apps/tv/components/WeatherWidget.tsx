@@ -31,7 +31,7 @@ export function WeatherWidget() {
     const fetchWeather = async () => {
       try {
         const res = await fetch(
-          `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&appid=${API_KEY}`
+          `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&lang=pt&appid=${API_KEY}`
         )
         if (!res.ok) throw new Error()
         const data = await res.json()
