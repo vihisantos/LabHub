@@ -2,33 +2,33 @@ import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useToast } from '../../../lib/ToastContext'
 import {
-  fetchActiveGallery,
+  fetchActiveGalleries,
   fetchGalleries,
   fetchGalleryPhotos,
   createGallery,
   deleteGallery as deleteGallerySvc,
-  setActiveGallery as setActiveSvc,
+  toggleGalleryActive,
+  setGalleryOrder,
   addGalleryPhoto,
   deleteGalleryPhoto as deletePhotoSvc,
 } from '../services/supabase'
 import type { TvGallery, TvGalleryPhoto } from '../types'
 
-/* ── Display hook: returns active gallery + photos ── */
-export function useActiveGallery() {
-  const [gallery, setGallery] = useState<TvGallery | null>(null)
-  const [photos, setPhotos] = useState<TvGalleryPhoto[]>([])
+/* ── Display hook: returns all active galleries + their photos ── */
+export function useActiveGalleries() {
+  const [galleries, setGalleries] = useState<TvGallery[]>([])
+  const [photosMap, setPhotosMap] = useState<Record<string, TvGalleryPhoto[]>>({})
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     try {
-      const g = await fetchActiveGallery()
-      setGallery(g)
-      if (g) {
-        const p = await fetchGalleryPhotos(g.id)
-        setPhotos(p)
-      } else {
-        setPhotos([])
-      }
+      const gs = await fetchActiveGalleries()
+      setGalleries(gs)
+      const map: Record<string, TvGalleryPhoto[]> = {}
+      await Promise.all(gs.map(async (g) => {
+        map[g.id] = await fetchGalleryPhotos(g.id)
+      }))
+      setPhotosMap(map)
     } catch {
       /* ignore */
     } finally {
@@ -55,7 +55,7 @@ export function useActiveGallery() {
     return () => clearInterval(timer)
   }, [load])
 
-  return { gallery, photos, loading }
+  return { galleries, photosMap, loading }
 }
 
 /* ── Admin hook: CRUD for galleries ── */
@@ -100,17 +100,27 @@ export function useGalleries() {
     }
   }
 
-  const setActive = async (id: string | null) => {
+  const toggleActive = async (id: string) => {
     try {
-      await setActiveSvc(id)
+      await toggleGalleryActive(id)
       await load()
     } catch (err) {
-      console.error('[useGallery] setActive error:', err)
-      addToast('error', 'Erro ao ativar galeria')
+      console.error('[useGallery] toggleActive error:', err)
+      addToast('error', 'Erro ao alterar galeria')
     }
   }
 
-  return { galleries, loading, create, remove, setActive, refresh: load }
+  const reorder = async (ids: string[]) => {
+    try {
+      await setGalleryOrder(ids)
+      await load()
+    } catch (err) {
+      console.error('[useGallery] reorder error:', err)
+      addToast('error', 'Erro ao reordenar')
+    }
+  }
+
+  return { galleries, loading, create, remove, toggleActive, reorder, refresh: load }
 }
 
 /* ── Photos hook: managed inside GalleryManager ── */

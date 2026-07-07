@@ -20,10 +20,10 @@ interface GalleryManagerProps {
   galleries: TvGallery[]
   onCreate: (title: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
-  onSetActive: (id: string | null) => Promise<void>
+  onToggleActive: (id: string) => Promise<void>
 }
 
-export function GalleryManager({ galleries, onCreate, onDelete, onSetActive }: GalleryManagerProps) {
+export function GalleryManager({ galleries, onCreate, onDelete, onToggleActive }: GalleryManagerProps) {
   const [showForm, setShowForm] = useState(false)
   const [title, setTitle] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -36,8 +36,6 @@ export function GalleryManager({ galleries, onCreate, onDelete, onSetActive }: G
     setTitle('')
     setShowForm(false)
   }
-
-  const activeGallery = galleries.find((g) => g.is_active)
 
   return (
     <div>
@@ -139,10 +137,10 @@ export function GalleryManager({ galleries, onCreate, onDelete, onSetActive }: G
             <GalleryCard
               key={g.id}
               gallery={g}
-              isActive={g.id === activeGallery?.id}
+              isActive={g.is_active}
               isExpanded={expandedId === g.id}
               onToggle={() => setExpandedId(expandedId === g.id ? null : g.id)}
-              onActivate={() => onSetActive(g.is_active ? null : g.id)}
+              onActivate={() => onToggleActive(g.id)}
               onDelete={() => setDeleteTarget(g)}
             />
           ))

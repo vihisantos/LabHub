@@ -32,7 +32,7 @@ export function AdminView() {
   const { playlists, loading: playlistsLoading, add: addPlaylist, edit: editPlaylist, remove: deletePlaylist } = useAllPlaylists()
   const { nowPlaying } = useNowPlaying()
   const { announcements, add: addAnnouncement, edit: editAnnouncement, remove: removeAnnouncement, moveUp, moveDown } = useAnnouncements()
-  const { galleries, loading: galleriesLoading, create: createGallery, remove: removeGallery, setActive: setActiveGallery } = useGalleries()
+  const { galleries, loading: galleriesLoading, create: createGallery, remove: removeGallery, toggleActive: toggleGalleryActive } = useGalleries()
   // Read initial state from query params (e.g. from ReservaLab redirect)
   const tabParam = searchParams.get('tab') as TabId | null
   const [activeTab, setActiveTabState] = useState<TabId>(tabParam ?? (() => {
@@ -63,13 +63,13 @@ export function AdminView() {
 
   const announcementStats = announcements.filter(a => a.is_active).length
 
-  const activeGallery = galleries.find(g => g.is_active)
+  const activeGalleryCount = galleries.filter(g => g.is_active).length
   const stats = useMemo(() => [
     { label: 'Eventos', value: events.length, icon: Calendar, color: 'from-violet-500 to-purple-600', badge: 'info' as const },
     { label: 'Playlists', value: playlists.length, icon: Monitor, color: 'from-emerald-500 to-green-600', badge: 'default' as const },
-    { label: 'Galeria', value: activeGallery ? 1 : 0, icon: Images, color: 'from-pink-500 to-rose-600', badge: 'default' as const },
+    { label: 'Galerias', value: `${activeGalleryCount}/${galleries.length}`, icon: Images, color: 'from-pink-500 to-rose-600', badge: 'default' as const },
     { label: 'Avisos', value: announcementStats, icon: Megaphone, color: 'from-amber-500 to-orange-600', badge: 'default' as const },
-  ], [events.length, playlists.length, activeGallery, announcementStats])
+  ], [events.length, playlists.length, activeGalleryCount, galleries.length, announcementStats])
 
   const isLoading = eventsLoading || playlistsLoading || galleriesLoading
 
@@ -242,7 +242,7 @@ export function AdminView() {
                       galleries={galleries}
                       onCreate={createGallery}
                       onDelete={removeGallery}
-                      onSetActive={setActiveGallery}
+                      onToggleActive={toggleGalleryActive}
                     />
                   )}
                   {activeTab === 'announcements' && (

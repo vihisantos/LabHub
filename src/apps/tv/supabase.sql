@@ -98,5 +98,7 @@ create policy "Permitir tudo para anon" on tv_galleries for all using (true) wit
 drop policy if exists "Permitir tudo para anon" on tv_gallery_photos;
 create policy "Permitir tudo para anon" on tv_gallery_photos for all using (true) with check (true);
 
+alter table tv_galleries add column if not exists sort_order int default 0;
+
 create index if not exists idx_galleries_active on tv_galleries(is_active);
 create index if not exists idx_gallery_photos_order on tv_gallery_photos(gallery_id, sort_order);

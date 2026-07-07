@@ -46,6 +46,7 @@ interface MusicPlayerValue {
   currentTrackIndex: number
   playOrder: number[]
   togglePlay: () => void
+  setPlaying: (playing: boolean) => void
   next: () => void
   prev: () => void
 }
@@ -129,6 +130,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying((p) => !p)
   }, [])
 
+  const setPlaying = useCallback((playing: boolean) => {
+    setIsPlaying(playing)
+  }, [])
+
   /* Sync isPlaying to YouTube player */
   useEffect(() => {
     const p = playerRef.current
@@ -164,6 +169,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         currentTrackIndex: currentTrackIdx,
         playOrder,
         togglePlay,
+        setPlaying,
         next: advance,
         prev: goBack,
       }}

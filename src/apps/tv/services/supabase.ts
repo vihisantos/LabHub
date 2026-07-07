@@ -185,15 +185,14 @@ export async function reorderTracks(_queueId: string, trackIds: string[]): Promi
 
 /* ── Photo Galleries ── */
 
-export async function fetchActiveGallery(): Promise<TvGallery | null> {
-  if (!supabase) return null
+export async function fetchActiveGalleries(): Promise<TvGallery[]> {
+  if (!supabase) return []
   const { data } = await supabase
     .from('tv_galleries')
     .select('*')
     .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
-  return data as TvGallery | null
+    .order('sort_order', { ascending: true })
+  return (data as TvGallery[]) || []
 }
 
 export async function fetchGalleries(): Promise<TvGallery[]> {
@@ -201,13 +200,13 @@ export async function fetchGalleries(): Promise<TvGallery[]> {
   const { data } = await supabase
     .from('tv_galleries')
     .select('*')
-    .order('created_at', { ascending: false })
+    .order('sort_order', { ascending: true })
   return (data as TvGallery[]) || []
 }
 
 export async function createGallery(title: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_galleries').insert({ title } as never)
+  const { error } = await supabase.from('tv_galleries').insert({ title, sort_order: 0 } as never)
   if (error) throw error
 }
 
@@ -217,14 +216,25 @@ export async function deleteGallery(id: string): Promise<void> {
   if (error) throw error
 }
 
-export async function setActiveGallery(id: string | null): Promise<void> {
+export async function toggleGalleryActive(id: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  if (id) {
-    await supabase.from('tv_galleries').update({ is_active: false }).neq('id', id)
-    const { error } = await supabase.from('tv_galleries').update({ is_active: true }).eq('id', id)
-    if (error) throw error
-  } else {
-    const { error } = await supabase.from('tv_galleries').update({ is_active: false }).eq('is_active', true)
+  const { data: current } = await supabase
+    .from('tv_galleries')
+    .select('is_active')
+    .eq('id', id)
+    .single()
+  if (!current) return
+  const { error } = await supabase
+    .from('tv_galleries')
+    .update({ is_active: !current.is_active })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function setGalleryOrder(ids: string[]): Promise<void> {
+  if (!supabase) throw new Error('Supabase not initialized')
+  for (const [idx, id] of ids.entries()) {
+    const { error } = await supabase.from('tv_galleries').update({ sort_order: idx }).eq('id', id)
     if (error) throw error
   }
 }

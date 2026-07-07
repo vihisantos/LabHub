@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Settings, Tv, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useEvents } from '../hooks/useEvents'
 import { usePlaylists } from '../hooks/usePlaylists'
-import { useActiveGallery } from '../hooks/useGallery'
+import { useActiveGalleries } from '../hooks/useGallery'
+import { useMusicPlayer } from '../contexts/MusicPlayerContext'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
 import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
@@ -12,29 +13,51 @@ import { ClockDisplay } from '../components/ClockDisplay'
 import { Greeting } from '../components/Greeting'
 import { Ticker } from '../components/Ticker'
 import { WeatherWidget } from '../components/WeatherWidget'
+import { WeatherSlide } from '../components/WeatherSlide'
 import { ScreenSaver } from '../components/ScreenSaver'
+
+type Phase = { type: 'video' } | { type: 'gallery'; galleryId: string } | { type: 'events' } | { type: 'weather' }
 
 export function TvDisplay() {
   const { events, loading: eventsLoading } = useEvents()
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
-  const { gallery, photos: galleryPhotos, loading: galleryLoading } = useActiveGallery()
+  const { galleries: activeGalleries, photosMap, loading: galleryLoading } = useActiveGalleries()
+  const { setPlaying: setMusicPlaying } = useMusicPlayer()
   const navigate = useNavigate()
 
   const [hasLoaded, setHasLoaded] = useState(false)
   const [paused, setPaused] = useState(false)
 
-  /* ── Content phase: video → events → gallery → video ── */
-  const [showingVideo, setShowingVideo] = useState(true)
-  type ShowPhase = 'events' | 'gallery'
-  const [showPhase, setShowPhase] = useState<ShowPhase>('events')
+  /* ── Phase sequence: video → gallery[0] → events → gallery[1] → ... → weather → events ── */
+  const phaseSequence = useMemo<Phase[]>(() => {
+    const seq: Phase[] = [{ type: 'video' }]
+    for (const g of activeGalleries) {
+      seq.push({ type: 'gallery', galleryId: g.id })
+      seq.push({ type: 'events' })
+    }
+    seq.push({ type: 'weather' })
+    seq.push({ type: 'events' })
+    return seq
+  }, [activeGalleries])
 
-  const isVideoPlaying = showingVideo && !paused
+  const [phaseIdx, setPhaseIdx] = useState(0)
+  const currentPhase = phaseSequence[phaseIdx] ?? { type: 'video' }
+
+  const isVideoPhase = currentPhase.type === 'video'
+  const showingVideo = isVideoPhase
+
+  /* ── Pause music during video phase ── */
+  useEffect(() => {
+    setMusicPlaying(!isVideoPhase)
+  }, [isVideoPhase, setMusicPlaying])
 
   const EVENT_DURATIONS = [10000, 15000, 30000, 60000] as const
   const [eventDurationIndex, setEventDurationIndex] = useState(1)
   const eventDisplayMs = EVENT_DURATIONS[eventDurationIndex]
+  const EVENTS_BRIEF_MS = 6000
 
   const PHOTO_DISPLAY_MS = 15_000
+  const WEATHER_DISPLAY_MS = 10_000
 
   /* ── Track initial load complete ── */
   useEffect(() => {
@@ -47,59 +70,62 @@ export function TvDisplay() {
   const [videoIndex, setVideoIndex] = useState(0)
   const currentPlaylist = videoPlaylists[videoIndex]
 
-  /* ── Reset index when current playlist is removed, switch to events ── */
+  /* ── Reset index when current playlist is removed ── */
   useEffect(() => {
-    if (videoPlaylists.length === 0) {
-      setShowingVideo(false)
-      return
-    }
+    if (videoPlaylists.length === 0) return
     if (videoIndex >= videoPlaylists.length) {
       setVideoIndex(0)
     }
   }, [videoPlaylists.length, videoIndex])
 
-  /* ── Phase timer: transitions between events / gallery / video ── */
+  const advancePhase = useCallback(() => {
+    setPhaseIdx((i) => (i + 1) % phaseSequence.length)
+  }, [phaseSequence.length])
+
+  /* ── Phase timer ── */
   useEffect(() => {
-    if (showingVideo || paused || videoPlaylists.length === 0) return
+    if (isVideoPhase || paused || videoPlaylists.length === 0) return
 
-    if (showPhase === 'events') {
-      const ms = events.length > 0 ? eventDisplayMs : 1000
-      const timer = setTimeout(() => {
-        if (galleryPhotos.length > 0) {
-          setShowPhase('gallery')
-        } else {
-          setShowingVideo(true)
-          setShowPhase('events')
-        }
-      }, ms)
+    if (currentPhase.type === 'events') {
+      const prevType = phaseIdx > 0 ? phaseSequence[phaseIdx - 1].type : null
+      const isBrief = prevType === 'gallery' || prevType === 'weather'
+      const ms = events.length > 0 ? (isBrief ? EVENTS_BRIEF_MS : eventDisplayMs) : 1000
+      const timer = setTimeout(advancePhase, ms)
       return () => clearTimeout(timer)
     }
 
-    if (showPhase === 'gallery') {
-      const ms = galleryPhotos.length > 0 ? galleryPhotos.length * PHOTO_DISPLAY_MS : 1000
-      const timer = setTimeout(() => {
-        setShowingVideo(true)
-        setShowPhase('events')
-      }, ms)
+    if (currentPhase.type === 'gallery') {
+      const photos = photosMap[currentPhase.galleryId]
+      const ms = photos && photos.length > 0 ? photos.length * PHOTO_DISPLAY_MS : 3000
+      const timer = setTimeout(advancePhase, ms)
       return () => clearTimeout(timer)
     }
-  }, [showingVideo, paused, videoPlaylists.length, events.length, galleryPhotos.length, showPhase, eventDisplayMs])
+
+    if (currentPhase.type === 'weather') {
+      const timer = setTimeout(advancePhase, WEATHER_DISPLAY_MS)
+      return () => clearTimeout(timer)
+    }
+  }, [isVideoPhase, paused, videoPlaylists.length, currentPhase, phaseSequence, phaseIdx, events.length, eventDisplayMs, photosMap, advancePhase])
+
+  /* ── Reset phase sequence when active galleries change ── */
+  useEffect(() => {
+    setPhaseIdx(0)
+  }, [activeGalleries.length])
 
   /* ── Keyboard shortcuts ── */
   const advanceToNextVideo = useCallback(() => {
     if (videoPlaylists.length > 1) {
       setVideoIndex((i) => (i + 1) % videoPlaylists.length)
     }
-    setShowingVideo(false)
-    setShowPhase('events')
-  }, [videoPlaylists.length])
+    advancePhase()
+  }, [videoPlaylists.length, advancePhase])
 
   const goToPrevVideo = useCallback(() => {
     if (videoPlaylists.length > 0) {
       setVideoIndex((i) => (i - 1 + videoPlaylists.length) % videoPlaylists.length)
     }
     setPaused(false)
-    setShowingVideo(true)
+    setPhaseIdx(0)
   }, [videoPlaylists.length])
 
   const togglePause = useCallback(() => setPaused((p) => !p), [])
@@ -151,6 +177,14 @@ export function TvDisplay() {
 
   const hasContent = videoPlaylists.length > 0 || events.length > 0
 
+  /* ── Current gallery for display ── */
+  const currentGallery = currentPhase.type === 'gallery'
+    ? activeGalleries.find(g => g.id === currentPhase.galleryId) ?? null
+    : null
+  const currentGalleryPhotos = currentPhase.type === 'gallery'
+    ? photosMap[currentPhase.galleryId] ?? []
+    : []
+
   return (
     <div
       style={{
@@ -160,7 +194,7 @@ export function TvDisplay() {
       }}
     >
       {/* ── Layer 1: Background ── */}
-      {!showingVideo && showPhase === 'events' && events.length > 0 ? (
+      {!showingVideo && currentPhase.type === 'events' && events.length > 0 ? (
         <EventsCarousel events={events} interval={8000} fullBleed />
       ) : (
         <div style={{
@@ -169,7 +203,7 @@ export function TvDisplay() {
         }} />
       )}
 
-      {/* ── Layer 2: Centered content (video / gallery) ── */}
+      {/* ── Layer 2: Centered content (video / gallery / weather) ── */}
       {(videoPlaylists.length > 0 && currentPlaylist) && (
         <div style={{
           position: 'absolute', inset: 0,
@@ -193,27 +227,37 @@ export function TvDisplay() {
                 key={currentPlaylist.id}
                 url={currentPlaylist.youtube_url}
                 source={currentPlaylist.source}
-                isPlaying={isVideoPlaying}
+                isPlaying={isVideoPhase && !paused}
                 onEnd={advanceToNextVideo}
               />
             </div>
 
             {/* Gallery */}
-            {gallery && galleryPhotos.length > 0 && (
+            {currentGallery && currentGalleryPhotos.length > 0 && (
               <div style={{
                 position: 'absolute', inset: 0,
-                opacity: !showingVideo && showPhase === 'gallery' ? 1 : 0,
-                pointerEvents: !showingVideo && showPhase === 'gallery' ? 'auto' : 'none',
+                opacity: currentPhase.type === 'gallery' ? 1 : 0,
+                pointerEvents: currentPhase.type === 'gallery' ? 'auto' : 'none',
                 transition: 'opacity 0.5s',
               }}>
-                <PhotoSlideshow photos={galleryPhotos} title={gallery.title} />
+                <PhotoSlideshow photos={currentGalleryPhotos} title={currentGallery.title} />
               </div>
             )}
+
+            {/* Weather Slide */}
+            <div style={{
+              position: 'absolute', inset: 0,
+              opacity: currentPhase.type === 'weather' ? 1 : 0,
+              pointerEvents: currentPhase.type === 'weather' ? 'auto' : 'none',
+              transition: 'opacity 0.5s',
+            }}>
+              <WeatherSlide />
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── Layer 3: Music (persistent player lives in TvApp) ── */}
+      {/* ── Layer 3: Music ── */}
       <MusicQueuePlayer />
 
       {/* ── Layer 4: Playback controls ── */}
