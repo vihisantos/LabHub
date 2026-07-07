@@ -1,5 +1,5 @@
 import { defaultDb as supabase } from '../../../lib/supabase'
-import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement } from '../types'
+import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement, TvGallery, TvGalleryPhoto } from '../types'
 
 /* ── Events ── */
 
@@ -179,6 +179,91 @@ export async function reorderTracks(_queueId: string, trackIds: string[]): Promi
   if (!supabase) return
   for (const [idx, id] of trackIds.entries()) {
     const { error } = await supabase.from('tv_music_tracks').update({ position: idx }).eq('id', id)
+    if (error) throw error
+  }
+}
+
+/* ── Photo Galleries ── */
+
+export async function fetchActiveGallery(): Promise<TvGallery | null> {
+  if (!supabase) return null
+  const { data } = await supabase
+    .from('tv_galleries')
+    .select('*')
+    .eq('is_active', true)
+    .limit(1)
+    .single()
+  return data as TvGallery | null
+}
+
+export async function fetchGalleries(): Promise<TvGallery[]> {
+  if (!supabase) return []
+  const { data } = await supabase
+    .from('tv_galleries')
+    .select('*')
+    .order('created_at', { ascending: false })
+  return (data as TvGallery[]) || []
+}
+
+export async function createGallery(title: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase.from('tv_galleries').insert({ title } as never)
+  if (error) throw error
+}
+
+export async function deleteGallery(id: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase.from('tv_galleries').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function setActiveGallery(id: string | null): Promise<void> {
+  if (!supabase) return
+  if (id) {
+    await supabase.from('tv_galleries').update({ is_active: false }).neq('id', id)
+    const { error } = await supabase.from('tv_galleries').update({ is_active: true }).eq('id', id)
+    if (error) throw error
+  } else {
+    const { error } = await supabase.from('tv_galleries').update({ is_active: false }).eq('is_active', true)
+    if (error) throw error
+  }
+}
+
+export async function fetchGalleryPhotos(galleryId: string): Promise<TvGalleryPhoto[]> {
+  if (!supabase) return []
+  const { data } = await supabase
+    .from('tv_gallery_photos')
+    .select('*')
+    .eq('gallery_id', galleryId)
+    .order('sort_order', { ascending: true })
+  return (data as TvGalleryPhoto[]) || []
+}
+
+export async function addGalleryPhoto(galleryId: string, imageUrl: string): Promise<void> {
+  if (!supabase) return
+  const { data: existing } = await supabase
+    .from('tv_gallery_photos')
+    .select('sort_order')
+    .eq('gallery_id', galleryId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+  const nextOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0
+  const { error } = await supabase
+    .from('tv_gallery_photos')
+    .insert({ gallery_id: galleryId, image_url: imageUrl, sort_order: nextOrder } as never)
+  if (error) throw error
+}
+
+export async function deleteGalleryPhoto(id: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase.from('tv_gallery_photos').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function reorderGalleryPhotos(ids: string[]): Promise<void> {
+  if (!supabase) return
+  for (const [idx, id] of ids.entries()) {
+    const { error } = await supabase.from('tv_gallery_photos').update({ sort_order: idx }).eq('id', id)
     if (error) throw error
   }
 }

@@ -55,3 +55,18 @@ export interface YouTubeTrackInfo {
   title: string
   duration: number
 }
+
+export interface TvGallery {
+  id: string
+  title: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface TvGalleryPhoto {
+  id: string
+  gallery_id: string
+  image_url: string
+  sort_order: number
+  created_at: string
+}

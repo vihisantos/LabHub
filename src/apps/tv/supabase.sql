@@ -67,3 +67,28 @@ create table if not exists tv_announcements (
 alter table tv_announcements enable row level security;
 create policy "Permitir tudo para anon" on tv_announcements for all using (true) with check (true);
 create index if not exists idx_tv_announcements_active on tv_announcements(is_active, sort_order);
+
+-- Galerias de fotos para slideshow
+create table if not exists tv_galleries (
+  id uuid default gen_random_uuid() primary key,
+  title text not null,
+  is_active boolean default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists tv_gallery_photos (
+  id uuid default gen_random_uuid() primary key,
+  gallery_id uuid not null references tv_galleries(id) on delete cascade,
+  image_url text not null,
+  sort_order int default 0,
+  created_at timestamptz default now()
+);
+
+alter table tv_galleries enable row level security;
+alter table tv_gallery_photos enable row level security;
+
+create policy "Permitir tudo para anon" on tv_galleries for all using (true) with check (true);
+create policy "Permitir tudo para anon" on tv_gallery_photos for all using (true) with check (true);
+
+create index if not exists idx_galleries_active on tv_galleries(is_active);
+create index if not exists idx_gallery_photos_order on tv_gallery_photos(gallery_id, sort_order);

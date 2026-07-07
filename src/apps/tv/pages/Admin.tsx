@@ -1,23 +1,26 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone } from 'lucide-react'
+import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
 import { useNowPlaying } from '../hooks/useNowPlaying'
 import { useAnnouncements } from '../hooks/useAnnouncements'
+import { useGalleries } from '../hooks/useGallery'
 import { EventManager } from '../components/EventManager'
 import { PlaylistManager } from '../components/PlaylistManager'
 import { QueueManager } from '../components/QueueManager'
 import { AnnouncementManager } from '../components/AnnouncementManager'
+import { GalleryManager } from '../components/GalleryManager'
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../../../lib/components/ui'
 
-type TabId = 'events' | 'playlists' | 'music' | 'announcements' | 'help'
+type TabId = 'events' | 'playlists' | 'music' | 'gallery' | 'announcements' | 'help'
 
 const tabs: { id: TabId; label: string; icon: typeof Calendar }[] = [
   { id: 'events', label: 'Eventos', icon: Calendar },
   { id: 'playlists', label: 'Playlists', icon: Monitor },
   { id: 'music', label: 'Filas de Música', icon: ListMusic },
+  { id: 'gallery', label: 'Galeria', icon: Images },
   { id: 'announcements', label: 'Avisos', icon: Megaphone },
   { id: 'help', label: 'Ajuda', icon: HelpCircle },
 ]
@@ -29,6 +32,7 @@ export function AdminView() {
   const { playlists, loading: playlistsLoading, add: addPlaylist, edit: editPlaylist, remove: deletePlaylist } = useAllPlaylists()
   const { nowPlaying } = useNowPlaying()
   const { announcements, add: addAnnouncement, edit: editAnnouncement, remove: removeAnnouncement, moveUp, moveDown } = useAnnouncements()
+  const { galleries, loading: galleriesLoading, create: createGallery, remove: removeGallery, setActive: setActiveGallery } = useGalleries()
   // Read initial state from query params (e.g. from ReservaLab redirect)
   const tabParam = searchParams.get('tab') as TabId | null
   const [activeTab, setActiveTab] = useState<TabId>(tabParam ?? 'events')
@@ -51,13 +55,15 @@ export function AdminView() {
 
   const announcementStats = announcements.filter(a => a.is_active).length
 
+  const activeGallery = galleries.find(g => g.is_active)
   const stats = useMemo(() => [
     { label: 'Eventos', value: events.length, icon: Calendar, color: 'from-violet-500 to-purple-600', badge: 'info' as const },
     { label: 'Playlists', value: playlists.length, icon: Monitor, color: 'from-emerald-500 to-green-600', badge: 'default' as const },
+    { label: 'Galeria', value: activeGallery ? 1 : 0, icon: Images, color: 'from-pink-500 to-rose-600', badge: 'default' as const },
     { label: 'Avisos', value: announcementStats, icon: Megaphone, color: 'from-amber-500 to-orange-600', badge: 'default' as const },
-  ], [events.length, playlists.length, announcementStats])
+  ], [events.length, playlists.length, activeGallery, announcementStats])
 
-  const isLoading = eventsLoading || playlistsLoading
+  const isLoading = eventsLoading || playlistsLoading || galleriesLoading
 
   return (
     <TooltipProvider>
@@ -220,6 +226,14 @@ export function AdminView() {
                   )}
                   {activeTab === 'music' && (
                     <QueueManager />
+                  )}
+                  {activeTab === 'gallery' && (
+                    <GalleryManager
+                      galleries={galleries}
+                      onCreate={createGallery}
+                      onDelete={removeGallery}
+                      onSetActive={setActiveGallery}
+                    />
                   )}
                   {activeTab === 'announcements' && (
                     <AnnouncementManager

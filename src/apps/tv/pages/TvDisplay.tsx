@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { Settings, Tv, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useEvents } from '../hooks/useEvents'
 import { usePlaylists } from '../hooks/usePlaylists'
+import { useActiveGallery } from '../hooks/useGallery'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
 import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
+import { PhotoSlideshow } from '../components/PhotoSlideshow'
 import { ClockDisplay } from '../components/ClockDisplay'
 import { Greeting } from '../components/Greeting'
 import { Ticker } from '../components/Ticker'
@@ -15,13 +17,16 @@ import { ScreenSaver } from '../components/ScreenSaver'
 export function TvDisplay() {
   const { events, loading: eventsLoading } = useEvents()
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
+  const { gallery, photos: galleryPhotos, loading: galleryLoading } = useActiveGallery()
   const navigate = useNavigate()
 
   const [hasLoaded, setHasLoaded] = useState(false)
   const [paused, setPaused] = useState(false)
 
-  /* ── Toggle: video vs events ── */
+  /* ── Content phase: video → events → gallery → video ── */
   const [showingVideo, setShowingVideo] = useState(true)
+  type ShowPhase = 'events' | 'gallery'
+  const [showPhase, setShowPhase] = useState<ShowPhase>('events')
 
   const isVideoPlaying = showingVideo && !paused
 
@@ -29,12 +34,14 @@ export function TvDisplay() {
   const [eventDurationIndex, setEventDurationIndex] = useState(1)
   const eventDisplayMs = EVENT_DURATIONS[eventDurationIndex]
 
+  const PHOTO_DISPLAY_MS = 15_000
+
   /* ── Track initial load complete ── */
   useEffect(() => {
-    if (!eventsLoading && !videoLoading) {
+    if (!eventsLoading && !videoLoading && !galleryLoading) {
       setHasLoaded(true)
     }
-  }, [eventsLoading, videoLoading])
+  }, [eventsLoading, videoLoading, galleryLoading])
 
   /* ── Video index cycles through playlists on natural end ── */
   const [videoIndex, setVideoIndex] = useState(0)
@@ -51,12 +58,32 @@ export function TvDisplay() {
     }
   }, [videoPlaylists.length, videoIndex])
 
-  /* ── Events timer: after eventDisplayMs, resume video ── */
+  /* ── Phase timer: transitions between events / gallery / video ── */
   useEffect(() => {
     if (showingVideo || paused || videoPlaylists.length === 0) return
-    const timer = setTimeout(() => setShowingVideo(true), events.length > 0 ? eventDisplayMs : 6000)
-    return () => clearTimeout(timer)
-  }, [showingVideo, paused, videoPlaylists.length, events.length, eventDisplayMs])
+
+    if (showPhase === 'events') {
+      const ms = events.length > 0 ? eventDisplayMs : 1000
+      const timer = setTimeout(() => {
+        if (galleryPhotos.length > 0) {
+          setShowPhase('gallery')
+        } else {
+          setShowingVideo(true)
+          setShowPhase('events')
+        }
+      }, ms)
+      return () => clearTimeout(timer)
+    }
+
+    if (showPhase === 'gallery') {
+      const ms = galleryPhotos.length > 0 ? galleryPhotos.length * PHOTO_DISPLAY_MS : 1000
+      const timer = setTimeout(() => {
+        setShowingVideo(true)
+        setShowPhase('events')
+      }, ms)
+      return () => clearTimeout(timer)
+    }
+  }, [showingVideo, paused, videoPlaylists.length, events.length, galleryPhotos.length, showPhase, eventDisplayMs])
 
   /* ── Keyboard shortcuts ── */
   const advanceToNextVideo = useCallback(() => {
@@ -64,6 +91,7 @@ export function TvDisplay() {
       setVideoIndex((i) => (i + 1) % videoPlaylists.length)
     }
     setShowingVideo(false)
+    setShowPhase('events')
   }, [videoPlaylists.length])
 
   const goToPrevVideo = useCallback(() => {
@@ -131,9 +159,11 @@ export function TvDisplay() {
         color: '#f1f5f9', position: 'relative', fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
-      {/* ── Layer 1: Background ── */}
-      {!showingVideo && events.length > 0 ? (
+      {/* ── Layer 1: Background (events / gallery / fallback) ── */}
+      {!showingVideo && showPhase === 'events' && events.length > 0 ? (
         <EventsCarousel events={events} interval={8000} fullBleed />
+      ) : !showingVideo && showPhase === 'gallery' && galleryPhotos.length > 0 && gallery ? (
+        <PhotoSlideshow photos={galleryPhotos} title={gallery.title} />
       ) : (
         <div style={{
           position: 'absolute', inset: 0,
