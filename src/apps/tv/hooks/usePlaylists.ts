@@ -72,7 +72,7 @@ export function useAllPlaylists() {
       await load()
       addToast('success', 'Playlist criada')
     } catch (err) {
-      console.error('[usePlaylists] add error:', err)
+      console.error('[usePlaylists] add error:', JSON.stringify(err))
       addToast('error', 'Erro ao criar playlist')
     }
   }

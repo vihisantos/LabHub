@@ -50,7 +50,9 @@ create table if not exists tv_music_tracks (
 alter table tv_music_tracks enable row level security;
 alter table tv_music_queues enable row level security;
 
+drop policy if exists "Permitir tudo para anon" on tv_music_queues;
 create policy "Permitir tudo para anon" on tv_music_queues for all using (true) with check (true);
+drop policy if exists "Permitir tudo para anon" on tv_music_tracks;
 create policy "Permitir tudo para anon" on tv_music_tracks for all using (true) with check (true);
 
 create index if not exists idx_music_tracks_queue on tv_music_tracks(queue_id, position);
@@ -65,6 +67,7 @@ create table if not exists tv_announcements (
 );
 
 alter table tv_announcements enable row level security;
+drop policy if exists "Permitir tudo para anon" on tv_announcements;
 create policy "Permitir tudo para anon" on tv_announcements for all using (true) with check (true);
 create index if not exists idx_tv_announcements_active on tv_announcements(is_active, sort_order);
 
@@ -87,7 +90,9 @@ create table if not exists tv_gallery_photos (
 alter table tv_galleries enable row level security;
 alter table tv_gallery_photos enable row level security;
 
+drop policy if exists "Permitir tudo para anon" on tv_galleries;
 create policy "Permitir tudo para anon" on tv_galleries for all using (true) with check (true);
+drop policy if exists "Permitir tudo para anon" on tv_gallery_photos;
 create policy "Permitir tudo para anon" on tv_gallery_photos for all using (true) with check (true);
 
 create index if not exists idx_galleries_active on tv_galleries(is_active);

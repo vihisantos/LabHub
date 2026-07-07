@@ -63,7 +63,7 @@ export async function fetchAllPlaylists(): Promise<TvPlaylist[]> {
 
 export async function createPlaylist(values: Omit<TvPlaylist, 'id' | 'created_at'>): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_playlists').insert(values as never)
+  const { error } = await supabase.from('tv_playlists').insert(values)
   if (error) throw error
 }
 
@@ -192,7 +192,7 @@ export async function fetchActiveGallery(): Promise<TvGallery | null> {
     .select('*')
     .eq('is_active', true)
     .limit(1)
-    .single()
+    .maybeSingle()
   return data as TvGallery | null
 }
 
