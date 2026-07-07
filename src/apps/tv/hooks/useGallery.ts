@@ -83,7 +83,8 @@ export function useGalleries() {
       await createGallery(title)
       await load()
       addToast('success', 'Galeria criada')
-    } catch {
+    } catch (err) {
+      console.error('[useGallery] create error:', err)
       addToast('error', 'Erro ao criar galeria')
     }
   }
@@ -93,7 +94,8 @@ export function useGalleries() {
       await deleteGallerySvc(id)
       await load()
       addToast('success', 'Galeria removida')
-    } catch {
+    } catch (err) {
+      console.error('[useGallery] remove error:', err)
       addToast('error', 'Erro ao remover galeria')
     }
   }
@@ -102,7 +104,8 @@ export function useGalleries() {
     try {
       await setActiveSvc(id)
       await load()
-    } catch {
+    } catch (err) {
+      console.error('[useGallery] setActive error:', err)
       addToast('error', 'Erro ao ativar galeria')
     }
   }

@@ -71,7 +71,8 @@ export function useAllPlaylists() {
       await createPlaylist(values)
       await load()
       addToast('success', 'Playlist criada')
-    } catch {
+    } catch (err) {
+      console.error('[usePlaylists] add error:', err)
       addToast('error', 'Erro ao criar playlist')
     }
   }
@@ -80,7 +81,8 @@ export function useAllPlaylists() {
     try {
       await updatePlaylist(id, values)
       await load()
-    } catch {
+    } catch (err) {
+      console.error('[usePlaylists] edit error:', err)
       addToast('error', 'Erro ao salvar playlist')
     }
   }
@@ -90,7 +92,8 @@ export function useAllPlaylists() {
       await deletePlaylist(id)
       await load()
       addToast('success', 'Playlist removida')
-    } catch {
+    } catch (err) {
+      console.error('[usePlaylists] remove error:', err)
       addToast('error', 'Erro ao remover playlist')
     }
   }

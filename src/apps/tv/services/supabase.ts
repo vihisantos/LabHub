@@ -23,19 +23,19 @@ export async function fetchAllEvents(): Promise<TvEvent[]> {
 }
 
 export async function createEvent(values: Omit<TvEvent, 'id' | 'created_at'>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_events').insert(values as never)
   if (error) throw error
 }
 
 export async function updateEvent(id: string, values: Partial<TvEvent>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_events').update(values as never).eq('id', id)
   if (error) throw error
 }
 
 export async function deleteEvent(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_events').delete().eq('id', id)
   if (error) throw error
 }
@@ -62,19 +62,19 @@ export async function fetchAllPlaylists(): Promise<TvPlaylist[]> {
 }
 
 export async function createPlaylist(values: Omit<TvPlaylist, 'id' | 'created_at'>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_playlists').insert(values as never)
   if (error) throw error
 }
 
 export async function updatePlaylist(id: string, values: Partial<TvPlaylist>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_playlists').update(values as never).eq('id', id)
   if (error) throw error
 }
 
 export async function deletePlaylist(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_playlists').delete().eq('id', id)
   if (error) throw error
 }
@@ -206,19 +206,19 @@ export async function fetchGalleries(): Promise<TvGallery[]> {
 }
 
 export async function createGallery(title: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_galleries').insert({ title } as never)
   if (error) throw error
 }
 
 export async function deleteGallery(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_galleries').delete().eq('id', id)
   if (error) throw error
 }
 
 export async function setActiveGallery(id: string | null): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   if (id) {
     await supabase.from('tv_galleries').update({ is_active: false }).neq('id', id)
     const { error } = await supabase.from('tv_galleries').update({ is_active: true }).eq('id', id)
@@ -240,7 +240,7 @@ export async function fetchGalleryPhotos(galleryId: string): Promise<TvGalleryPh
 }
 
 export async function addGalleryPhoto(galleryId: string, imageUrl: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { data: existing } = await supabase
     .from('tv_gallery_photos')
     .select('sort_order')
@@ -255,7 +255,7 @@ export async function addGalleryPhoto(galleryId: string, imageUrl: string): Prom
 }
 
 export async function deleteGalleryPhoto(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_gallery_photos').delete().eq('id', id)
   if (error) throw error
 }
