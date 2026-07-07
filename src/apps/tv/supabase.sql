@@ -23,6 +23,9 @@ create table if not exists tv_playlists (
   created_at timestamptz default now()
 );
 
+-- Remove coluna legada 'type' se existir (era do schema antigo, antes da migração para tv_music_queues)
+alter table tv_playlists drop column if exists type;
+
 -- Índices para consulta rápida
 create index if not exists idx_tv_events_active on tv_events(is_active, sort_order);
 create index if not exists idx_tv_playlists_active on tv_playlists(is_active, sort_order);
