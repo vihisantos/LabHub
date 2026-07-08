@@ -67,5 +67,26 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     pool: 'threads',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'html'],
+      reportsDirectory: 'coverage',
+      include: ['src/**'],
+      exclude: [
+        'src/**/__tests__/**',
+        'src/**/*.test.{ts,tsx}',
+        'src/test/**',
+        'src/**/*.d.ts',
+        'src/apps/reservalab/api/**',
+        '**/*.py',
+        '**/.env*',
+      ],
+      thresholds: {
+        statements: 20,
+        branches: 14,
+        functions: 16,
+        lines: 20,
+      },
+    },
   },
 })

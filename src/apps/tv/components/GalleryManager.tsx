@@ -271,7 +271,7 @@ function PhotoGrid({ galleryId }: { galleryId: string }) {
               />
               <button
                 onClick={() => remove(p.id)}
-                className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500"
+                className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white opacity-60 transition-opacity hover:opacity-100 hover:bg-red-500"
               >
                 <X size={12} />
               </button>
