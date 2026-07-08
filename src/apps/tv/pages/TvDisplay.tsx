@@ -204,15 +204,22 @@ export function TvDisplay() {
         color: '#f1f5f9', position: 'relative', fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
-      {/* ── Layer 1: Background ── */}
-      {!showingVideo && currentPhase.type === 'events' && events.length > 0 ? (
-        <EventsCarousel events={events} interval={8000} fullBleed />
-      ) : (
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: 'radial-gradient(ellipse at center, #1e293b 0%, #080a14 100%)',
-        }} />
-      )}
+      {/* ── Layer 1: Background (events carousel always mounted) ── */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        opacity: !showingVideo && currentPhase.type === 'events' && events.length > 0 ? 1 : 0,
+        pointerEvents: !showingVideo && currentPhase.type === 'events' ? 'auto' : 'none',
+        transition: 'opacity 0.5s',
+      }}>
+        {events.length > 0 ? (
+          <EventsCarousel events={events} interval={8000} fullBleed />
+        ) : (
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'radial-gradient(ellipse at center, #1e293b 0%, #080a14 100%)',
+          }} />
+        )}
+      </div>
 
       {/* ── Layer 2: Centered content (video / gallery / weather) ── */}
       {/* Video player — only mounted when playlists exist */}
