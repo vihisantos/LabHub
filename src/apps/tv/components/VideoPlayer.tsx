@@ -89,7 +89,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         height: '100%',
         width: '100%',
         playerVars: {
-          autoplay: 1,
+          autoplay: isPlaying ? 1 : 0,
           controls: 0,
           disablekb: 1,
           fs: 0,
@@ -158,7 +158,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ref={videoRef}
           src={url}
           autoPlay={isPlaying}
-          loop
           muted={false}
           controls={false}
           onEnded={onEnd}

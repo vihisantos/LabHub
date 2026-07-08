@@ -149,7 +149,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     height: '1',
     width: '1',
     playerVars: {
-      autoplay: 1,
+      autoplay: isPlaying ? 1 : 0,
       controls: 0,
       disablekb: 1,
       rel: 0,
@@ -186,10 +186,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             onReady={(e) => {
               playerRef.current = e.target
               e.target.mute()
-              if (isPlaying) e.target.playVideo()
+              if (isPlaying) {
+                e.target.playVideo()
+              } else {
+                e.target.pauseVideo()
+              }
             }}
             onStateChange={(e) => {
-              if (e.data === 1 && e.target.isMuted()) {
+              // Unmute only when actually playing (state=1)
+              if (e.data === 1 && e.target.isMuted() && isPlaying) {
                 e.target.unMute()
               }
             }}

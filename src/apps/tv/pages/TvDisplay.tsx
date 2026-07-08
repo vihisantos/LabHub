@@ -82,30 +82,41 @@ export function TvDisplay() {
     setPhaseIdx((i) => (i + 1) % phaseSequence.length)
   }, [phaseSequence.length])
 
-  /* ── Phase timer ── */
+  /* ── Auto-skip video phase when no playlists are configured ── */
   useEffect(() => {
-    if (isVideoPhase || paused || videoPlaylists.length === 0) return
+    if (isVideoPhase && videoPlaylists.length === 0 && hasLoaded) {
+      advancePhase()
+    }
+  }, [isVideoPhase, videoPlaylists.length, hasLoaded, advancePhase])
 
+  /* ── Pre-compute current phase duration as a stable primitive ── */
+  const currentPhaseDurationMs = useMemo(() => {
+    if (isVideoPhase || paused) return null
     if (currentPhase.type === 'events') {
       const prevType = phaseIdx > 0 ? phaseSequence[phaseIdx - 1].type : null
       const isBrief = prevType === 'gallery' || prevType === 'weather'
-      const ms = events.length > 0 ? (isBrief ? EVENTS_BRIEF_MS : eventDisplayMs) : 1000
-      const timer = setTimeout(advancePhase, ms)
-      return () => clearTimeout(timer)
+      return events.length > 0 ? (isBrief ? EVENTS_BRIEF_MS : eventDisplayMs) : 1000
     }
-
     if (currentPhase.type === 'gallery') {
       const photos = photosMap[currentPhase.galleryId]
-      const ms = photos && photos.length > 0 ? photos.length * PHOTO_DISPLAY_MS : 3000
-      const timer = setTimeout(advancePhase, ms)
-      return () => clearTimeout(timer)
+      return photos && photos.length > 0 ? photos.length * PHOTO_DISPLAY_MS : 3000
     }
-
     if (currentPhase.type === 'weather') {
-      const timer = setTimeout(advancePhase, WEATHER_DISPLAY_MS)
-      return () => clearTimeout(timer)
+      return WEATHER_DISPLAY_MS
     }
-  }, [isVideoPhase, paused, videoPlaylists.length, currentPhase, phaseSequence, phaseIdx, events.length, eventDisplayMs, photosMap, advancePhase])
+    return null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVideoPhase, paused, currentPhase.type, (currentPhase as any).galleryId, phaseIdx,
+      phaseSequence, events.length, eventDisplayMs,
+      // Use a stable key for photosMap: the number of photos in the current gallery
+      currentPhase.type === 'gallery' ? (photosMap[(currentPhase as any).galleryId]?.length ?? 0) : 0])
+
+  /* ── Phase timer — depends only on primitive duration ── */
+  useEffect(() => {
+    if (currentPhaseDurationMs === null) return
+    const timer = setTimeout(advancePhase, currentPhaseDurationMs)
+    return () => clearTimeout(timer)
+  }, [currentPhaseDurationMs, advancePhase, phaseIdx])
 
   /* ── Reset phase sequence when active galleries change ── */
   useEffect(() => {
@@ -204,11 +215,15 @@ export function TvDisplay() {
       )}
 
       {/* ── Layer 2: Centered content (video / gallery / weather) ── */}
-      {(videoPlaylists.length > 0 && currentPlaylist) && (
+      {/* Video player — only mounted when playlists exist */}
+      {videoPlaylists.length > 0 && currentPlaylist && (
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'rgba(8,10,20,0.85)',
+          opacity: showingVideo ? 1 : 0,
+          pointerEvents: showingVideo ? 'auto' : 'none',
+          transition: 'opacity 0.5s',
         }}>
           <div style={{
             position: 'relative',
@@ -216,46 +231,47 @@ export function TvDisplay() {
             borderRadius: '1rem', overflow: 'hidden',
             boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
           }}>
-            {/* Video */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              opacity: showingVideo ? 1 : 0,
-              pointerEvents: showingVideo ? 'auto' : 'none',
-              transition: 'opacity 0.5s',
-            }}>
-              <VideoPlayer
-                key={currentPlaylist.id}
-                url={currentPlaylist.youtube_url}
-                source={currentPlaylist.source}
-                isPlaying={isVideoPhase && !paused}
-                onEnd={advanceToNextVideo}
-              />
-            </div>
-
-            {/* Gallery */}
-            {currentGallery && currentGalleryPhotos.length > 0 && (
-              <div style={{
-                position: 'absolute', inset: 0,
-                opacity: currentPhase.type === 'gallery' ? 1 : 0,
-                pointerEvents: currentPhase.type === 'gallery' ? 'auto' : 'none',
-                transition: 'opacity 0.5s',
-              }}>
-                <PhotoSlideshow photos={currentGalleryPhotos} title={currentGallery.title} />
-              </div>
-            )}
-
-            {/* Weather Slide */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              opacity: currentPhase.type === 'weather' ? 1 : 0,
-              pointerEvents: currentPhase.type === 'weather' ? 'auto' : 'none',
-              transition: 'opacity 0.5s',
-            }}>
-              <WeatherSlide />
-            </div>
+            <VideoPlayer
+              key={currentPlaylist.id}
+              url={currentPlaylist.youtube_url}
+              source={currentPlaylist.source}
+              isPlaying={isVideoPhase && !paused}
+              onEnd={advanceToNextVideo}
+            />
           </div>
         </div>
       )}
+
+      {/* Gallery player — always rendered when a gallery phase is active */}
+      {currentGallery && currentGalleryPhotos.length > 0 && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(8,10,20,0.85)',
+          opacity: currentPhase.type === 'gallery' ? 1 : 0,
+          pointerEvents: currentPhase.type === 'gallery' ? 'auto' : 'none',
+          transition: 'opacity 0.5s',
+        }}>
+          <div style={{
+            position: 'relative',
+            width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
+            borderRadius: '1rem', overflow: 'hidden',
+            boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
+          }}>
+            <PhotoSlideshow photos={currentGalleryPhotos} title={currentGallery.title} />
+          </div>
+        </div>
+      )}
+
+      {/* Weather slide — always rendered when weather phase is active */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        opacity: currentPhase.type === 'weather' ? 1 : 0,
+        pointerEvents: currentPhase.type === 'weather' ? 'auto' : 'none',
+        transition: 'opacity 0.5s',
+      }}>
+        <WeatherSlide />
+      </div>
 
       {/* ── Layer 3: Music ── */}
       <MusicQueuePlayer />

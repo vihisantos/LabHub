@@ -15,6 +15,13 @@ export function PhotoSlideshow({ photos, title }: PhotoSlideshowProps) {
   const [phase, setPhase] = useState<'enter' | 'zoom' | 'exit'>('enter')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Guard: reset index if photos were deleted and index is now out of bounds
+  useEffect(() => {
+    if (photos.length > 0 && index >= photos.length) {
+      setIndex(0)
+    }
+  }, [photos.length, index])
+
   useEffect(() => {
     if (photos.length === 0) return
 
