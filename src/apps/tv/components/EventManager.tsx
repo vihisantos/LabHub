@@ -33,6 +33,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
   const [startDate, setStartDate] = useState(initialValues?.start_date ? initialValues.start_date.slice(0, 16) : '')
   const [endDate, setEndDate] = useState(initialValues?.end_date ? initialValues.end_date.slice(0, 16) : '')
   const [deleteTarget, setDeleteTarget] = useState<TvEvent | null>(null)
+  const [titleError, setTitleError] = useState(false)
 
   // Auto-open form when initialValues change (from ReservaLab redirect)
   const [prevInit, setPrevInit] = useState(initialValues)
@@ -51,6 +52,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
   const openNew = () => {
     setEditing(null)
     setTitle(''); setDescription(''); setImageUrl(''); setPdfUrl(''); setStartDate(''); setEndDate('')
+    setTitleError(false)
     setShowForm(true)
   }
 
@@ -67,7 +69,11 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return
+    if (!title.trim()) {
+      setTitleError(true)
+      return
+    }
+    setTitleError(false)
     const payload = {
       title: title.trim(),
       description: description.trim() || null,
@@ -163,13 +169,24 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
                   <X size={14} />
                 </button>
               </div>
-              <input
-                placeholder="Título"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                required
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-violet-500 focus:bg-white"
-              />
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Título <span className="text-red-500">*</span>
+                </label>
+                <input
+                  placeholder="Ex: Simpósio de Engenharia"
+                  value={title}
+                  onChange={e => { setTitle(e.target.value); setTitleError(false) }}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:bg-white ${
+                    titleError
+                      ? 'border-red-400 bg-red-50 focus:border-red-500'
+                      : 'border-slate-200 bg-slate-50 focus:border-violet-500'
+                  }`}
+                />
+                {titleError && (
+                  <p className="mt-1 text-xs text-red-500">O título é obrigatório</p>
+                )}
+              </div>
               <textarea
                 placeholder="Descrição (opcional)"
                 value={description}

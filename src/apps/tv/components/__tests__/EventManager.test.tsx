@@ -59,7 +59,7 @@ describe('EventManager', () => {
   it('abre formulário ao clicar em "Novo Evento"', () => {
     renderWithTooltip(<EventManager events={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Novo Evento/ }))
-    expect(screen.getByPlaceholderText('Título')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Ex: Simpósio de Engenharia')).toBeInTheDocument()
   })
 
   it('chama onAdd ao submeter novo evento', () => {
@@ -67,7 +67,7 @@ describe('EventManager', () => {
     renderWithTooltip(<EventManager events={[]} onAdd={onAdd} onEdit={vi.fn()} onDelete={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Novo Evento/ }))
-    fireEvent.change(screen.getByPlaceholderText('Título'), { target: { value: 'Novo Evento' } })
+    fireEvent.change(screen.getByPlaceholderText('Ex: Simpósio de Engenharia'), { target: { value: 'Novo Evento' } })
     fireEvent.click(screen.getByRole('button', { name: 'Criar evento' }))
 
     expect(onAdd).toHaveBeenCalledWith(
@@ -100,7 +100,7 @@ describe('EventManager', () => {
     expect(editBtn).toBeDefined()
     fireEvent.click(editBtn!)
 
-    fireEvent.change(screen.getByPlaceholderText('Título'), { target: { value: 'Atualizado' } })
+    fireEvent.change(screen.getByPlaceholderText('Ex: Simpósio de Engenharia'), { target: { value: 'Atualizado' } })
     fireEvent.click(screen.getByRole('button', { name: /Salvar/ }))
 
     expect(onEdit).toHaveBeenCalledWith(
@@ -122,9 +122,9 @@ describe('EventManager', () => {
   it('fecha formulário ao clicar no X', () => {
     renderWithTooltip(<EventManager events={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Novo Evento/ }))
-    expect(screen.getByPlaceholderText('Título')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Ex: Simpósio de Engenharia')).toBeInTheDocument()
 
-    const form = screen.getByPlaceholderText('Título').closest('form')!
+    const form = screen.getByPlaceholderText('Ex: Simpósio de Engenharia').closest('form')!
     const closeBtn = form.querySelector('.lucide-x')?.closest('button')
     if (closeBtn) fireEvent.click(closeBtn)
   })
