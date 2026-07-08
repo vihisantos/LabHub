@@ -100,10 +100,10 @@ describe('WeatherSlide', () => {
   })
 
   it('renderiza "Boa tarde" no período da tarde', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.stubEnv('VITE_OPENWEATHER_API_KEY', 'test-key')
     globalThis.fetch = mockFetchByCity()
-    vi.setSystemTime(new Date('2026-06-25T18:00:00Z'))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 5, 25, 15, 0, 0))
 
     await act(async () => {
       render(<WeatherSlide />)
@@ -115,10 +115,10 @@ describe('WeatherSlide', () => {
   })
 
   it('renderiza "Boa noite" no período noturno', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.stubEnv('VITE_OPENWEATHER_API_KEY', 'test-key')
     globalThis.fetch = mockFetchByCity()
-    vi.setSystemTime(new Date('2026-06-26T01:00:00Z'))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 5, 26, 21, 0, 0))
 
     await act(async () => {
       render(<WeatherSlide />)
