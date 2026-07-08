@@ -9,8 +9,6 @@ interface WeatherData {
   icon: number
 }
 
-const API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY
-
 const CITIES = [
   'Piracicaba,BR',
   'Campinas,BR',
@@ -58,7 +56,8 @@ export function WeatherSlide(_props: WeatherSlideProps) {
   }, [])
 
   useEffect(() => {
-    if (!API_KEY) { setError(true); return }
+    const apiKey = import.meta.env.VITE_OPENWEATHER_API_KEY
+    if (!apiKey) { setError(true); return }
     let cancelled = false
 
     const fetchAll = async () => {
@@ -66,7 +65,7 @@ export function WeatherSlide(_props: WeatherSlideProps) {
         const results = await Promise.all(
           CITIES.map(async (city) => {
             const res = await fetch(
-              `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&lang=pt&appid=${API_KEY}`
+              `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&lang=pt&appid=${apiKey}`
             )
             if (!res.ok) throw new Error()
             const data = await res.json()
