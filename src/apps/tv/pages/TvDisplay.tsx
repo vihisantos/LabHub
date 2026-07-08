@@ -52,9 +52,9 @@ export function TvDisplay() {
   }, [isVideoPhase, setMusicPlaying])
 
   const EVENT_DURATIONS = [10000, 15000, 30000, 60000] as const
-  const [eventDurationIndex, setEventDurationIndex] = useState(1)
+  const [eventDurationIndex, setEventDurationIndex] = useState(2)
   const eventDisplayMs = EVENT_DURATIONS[eventDurationIndex]
-  const EVENTS_BRIEF_MS = 6000
+  const EVENTS_BRIEF_MS = 16000
 
   const PHOTO_DISPLAY_MS = 15_000
   const WEATHER_DISPLAY_MS = 10_000
