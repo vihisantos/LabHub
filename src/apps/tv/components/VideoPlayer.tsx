@@ -95,7 +95,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           fs: 0,
           modestbranding: 1,
           rel: 0,
-          loop: 1,
           ...(info.type === 'playlist' && info.playlistId
             ? { list: info.playlistId, listType: 'playlist' as const, index: 0 }
             : { playlist: info.videoId }),
