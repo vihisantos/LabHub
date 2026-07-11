@@ -6,10 +6,7 @@ import type { TransformedReservation } from '../../types'
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => {
-      const { initial, animate, transition, whileHover, whileTap, ...rest } = props
-      return <div {...rest}>{children}</div>
-    },
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
   },
 }))
 

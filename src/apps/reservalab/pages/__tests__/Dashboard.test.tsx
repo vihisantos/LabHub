@@ -20,18 +20,9 @@ vi.mock('../../hooks/useIsMobile', () => ({
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => {
-      const { initial, animate, transition, whileHover, ...rest } = props
-      return <div {...rest}>{children}</div>
-    },
-    button: ({ children, ...props }: any) => {
-      const { initial, animate, transition, whileHover, whileTap, ...rest } = props
-      return <button {...rest}>{children}</button>
-    },
-    span: ({ children, ...props }: any) => {
-      const { animate, transition, ...rest } = props
-      return <span {...rest}>{children}</span>
-    },
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+    span: ({ children, ...props }: any) => <span {...props}>{children}</span>,
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
 }))

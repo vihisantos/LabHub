@@ -53,6 +53,7 @@ interface MusicPlayerValue {
 
 const MusicPlayerCtx = createContext<MusicPlayerValue | null>(null)
 
+// eslint-disable-next-line react/only-export-components
 export function useMusicPlayer(): MusicPlayerValue {
   const v = useContext(MusicPlayerCtx)
   if (!v) throw new Error('useMusicPlayer must be used within <MusicPlayerProvider>')

@@ -137,7 +137,7 @@ export function GlobalPresenceIndicator() {
       const timer = setTimeout(() => setPulse(false), 700)
       return () => clearTimeout(timer)
     }
-  }, [otherUsers.length])
+  }, [otherUsers.length, playBeep])
 
   /* ── Tick every 15s to refresh relative times when popover is open ── */
   useEffect(() => {
@@ -156,9 +156,7 @@ export function GlobalPresenceIndicator() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otherUsers, tick])
 
-  if (otherUsers.length === 0) return null
-
-  /* Group users by app */
+  /* Group users by app (must be before any early return) */
   const byApp = useMemo(() => {
     const groups: Record<string, typeof otherUsers> = {}
     for (const user of otherUsers) {
@@ -168,6 +166,8 @@ export function GlobalPresenceIndicator() {
     }
     return groups
   }, [otherUsers])
+
+  if (otherUsers.length === 0) return null
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

@@ -52,6 +52,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// eslint-disable-next-line react/only-export-components
 export function useKioskMode() {
   return useContext(KioskContext)
 }

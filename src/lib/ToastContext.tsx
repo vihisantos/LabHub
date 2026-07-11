@@ -54,6 +54,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// eslint-disable-next-line react/only-export-components
 export function useToast() {
   return useContext(ToastContext)
 }

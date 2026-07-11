@@ -13,10 +13,7 @@ import { usePushNotifications } from '../../../../lib/usePushNotifications'
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
   motion: {
-    button: ({ children, ...props }: any) => {
-      const { initial, animate, whileTap, ...rest } = props
-      return <button {...rest}>{children}</button>
-    },
+    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
   },
 }))
 

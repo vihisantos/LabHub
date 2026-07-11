@@ -80,6 +80,7 @@ export function ThemeProvider({
   )
 }
 
+// eslint-disable-next-line react/only-export-components
 export function useTheme() {
   return useContext(ThemeContext)
 }

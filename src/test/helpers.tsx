@@ -9,6 +9,7 @@ import type { ScheduledMaintenance } from '../apps/pcare/types/maintenance'
 import type { ActionLog } from '../apps/pcare/types/actionLog'
 
 
+// eslint-disable-next-line react/only-export-components
 function Providers({ children, initialEntries }: { children: React.ReactNode; initialEntries?: string[] }) {
   return (
     <ThemeProvider>

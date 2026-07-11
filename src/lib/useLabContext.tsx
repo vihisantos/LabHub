@@ -31,6 +31,7 @@ export function LabProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// eslint-disable-next-line react/only-export-components
 export function useActiveLab() {
   return useContext(LabContext)
 }

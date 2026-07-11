@@ -5,11 +5,7 @@ import { StatsCard } from '../StatsCard'
 // framer-motion motion.div renderiza sem animação em teste
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => {
-      // Remove framer-motion specific props
-      const { initial, animate, transition, whileHover, whileTap, layout, layoutId, ...rest } = props
-      return <div {...rest}>{children}</div>
-    },
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
   },
 }))
 

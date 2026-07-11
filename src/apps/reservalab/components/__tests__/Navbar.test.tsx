@@ -9,10 +9,7 @@ vi.mock('../../hooks/useIsMobile', () => ({
 
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => {
-      const { initial, animate, transition, layoutId, ...rest } = props
-      return <div {...rest}>{children}</div>
-    },
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
   },
 }))
 

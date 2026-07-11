@@ -7,14 +7,8 @@ import type { WeekDayData } from '../../types'
 // Mock framer-motion (motion.div + AnimatePresence)
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: any) => {
-      const { initial, animate, transition, exit, layout, ...rest } = props
-      return <div {...rest}>{children}</div>
-    },
-    button: ({ children, ...props }: any) => {
-      const { initial, animate, transition, whileHover, whileTap, ...rest } = props
-      return <button {...rest}>{children}</button>
-    },
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
 }))

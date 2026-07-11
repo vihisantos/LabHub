@@ -74,7 +74,7 @@ export function OnlineUsersPresence() {
       const timer = setTimeout(() => setPulse(false), 700)
       return () => clearTimeout(timer)
     }
-  }, [otherUsers.length])
+  }, [otherUsers.length, playBeep])
 
   if (otherUsers.length === 0) return null
 
