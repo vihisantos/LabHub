@@ -57,7 +57,7 @@ describe('getCol / setCol', () => {
     setCol('pcs', [{ id: '1', name: 'old' }])
     setCol('pcs', [{ id: '2', name: 'new' }])
     expect(getCol('pcs')).toHaveLength(1)
-    expect(getCol('pcs')[0].name).toBe('new')
+    expect(getCol<{ id: string; name: string }>('pcs')[0].name).toBe('new')
   })
 
   it('lida com coleções separadas de forma independente', () => {
