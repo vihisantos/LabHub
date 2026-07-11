@@ -9,6 +9,7 @@ import { VideoPlayer } from '../components/VideoPlayer'
 import { EventsCarousel } from '../components/EventsCarousel'
 import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
 import { PhotoSlideshow } from '../components/PhotoSlideshow'
+import { UpdateBadge } from '../components/UpdateBadge'
 import { ClockDisplay } from '../components/ClockDisplay'
 import { Greeting } from '../components/Greeting'
 import { Ticker } from '../components/Ticker'
@@ -347,6 +348,7 @@ export function TvDisplay() {
         <Settings size={18} />
       </button>
 
+      <UpdateBadge />
       <ClockDisplay />
       <WeatherWidget />
       <Greeting />

@@ -64,6 +64,10 @@ interface EventsCarouselProps {
 export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCarouselProps) {
   const [index, setIndex] = useState(0)
 
+  /* ── Safe index: clamp DURANTE o render para evitar crash quando eventos
+     são deletados remotamente e o array encolhe (o useEffect roda depois) ── */
+  const safeIndex = Math.min(index, Math.max(events.length - 1, 0))
+
   useEffect(() => {
     if (events.length <= 1) return
     const timer = setInterval(() => {
@@ -84,7 +88,7 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
     )
   }
 
-  const event = events[index]
+  const event = events[safeIndex]
 
   if (fullBleed) {
     return (
@@ -204,9 +208,9 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
             <div
               key={i}
               style={{
-                width: i === index ? '24px' : '8px',
+                width: i === safeIndex ? '24px' : '8px',
                 height: '8px', borderRadius: '4px',
-                background: i === index ? '#6366f1' : 'rgba(255,255,255,0.2)',
+                background: i === safeIndex ? '#6366f1' : 'rgba(255,255,255,0.2)',
                 transition: 'all 0.3s',
               }}
             />
@@ -287,10 +291,10 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
               <div
                 key={i}
                 style={{
-                  width: i === index ? '24px' : '8px',
+                  width: i === safeIndex ? '24px' : '8px',
                   height: '8px',
                   borderRadius: '4px',
-                  background: i === index ? '#6366f1' : '#334155',
+                  background: i === safeIndex ? '#6366f1' : '#334155',
                   transition: 'all 0.3s',
                 }}
               />
