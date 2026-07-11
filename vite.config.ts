@@ -20,8 +20,14 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'logo.svg', 'logo-192.png', 'logo-512.png', 'push-sw.js', 'app-icons/*.svg'],
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        navigateFallback: '/offline.html',
-        navigateFallbackAllowlist: [/^\/[^_]/],
+        // NOTE: navigateFallback removido intencionalmente.
+        // O problema: quando um novo deploy muda os hashes dos assets,
+        // o SW antigo não consegue servir a página e cai no offline.html,
+        // fazendo a TV ficar presa nessa tela mesmo estando online.
+        // Com navigateFallback desligado, o SW deixa o navegador fazer
+        // a requisição normal para o servidor, que sempre serve o HTML
+        // mais recente. O offline.html ainda existe como PWA offline page
+        // mas não é mais interceptado automaticamente.
       },
       manifest: {
         name: 'Lab Hub',

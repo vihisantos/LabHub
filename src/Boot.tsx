@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { initDB } from './lib/db'
+import { useServiceWorker } from './lib/useServiceWorker'
 import App from './App'
 
 export default function Boot() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  /* ── Monitora atualizações do Service Worker ── */
+  useServiceWorker({ immediate: true })
 
   useEffect(() => {
     initDB()
