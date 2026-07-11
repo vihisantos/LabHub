@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 
 const Launcher = lazy(() => import('./pages/Launcher').then(m => ({ default: m.Launcher })))
 const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
@@ -33,6 +34,8 @@ export default function App() {
           <Route path="tv/*" element={<TvApp />} />
         </Routes>
       </Suspense>
+      {/* ── Global presence indicator (floating badge) ── */}
+      <GlobalPresenceIndicator />
     </BrowserRouter>
   )
 }

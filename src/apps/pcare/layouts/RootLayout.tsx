@@ -3,6 +3,7 @@ import { useRef, useState, useMemo } from 'react'
 import { BottomNav } from '../components/BottomNav'
 import { OnlineBanner } from '../components/OnlineBanner'
 import { SyncStatusBadge } from '../components/SyncStatusBadge'
+import { OnlineUsersPresence } from '../components/OnlineUsersPresence'
 import { ToastContainer } from '../components/ToastContainer'
 import { useSwipeBack } from '../hooks/useSwipeBack'
 import { useSyncToasts } from '../hooks/useSyncToasts'
@@ -184,6 +185,7 @@ function RootLayoutInner({
           <div className="ml-auto flex items-center gap-1">
             <SyncNowButton />
             <SyncStatusBadge />
+            <OnlineUsersPresence />
             <TooltipProvider>
               <TooltipRoot>
                 <TooltipTrigger asChild>

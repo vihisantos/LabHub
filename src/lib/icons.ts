@@ -59,6 +59,8 @@ import {
   ChevronDown,
   ChevronRight,
   Tv,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 
 export const icons = {
@@ -129,6 +131,8 @@ export const icons = {
     chevronRight: ChevronRight,
     alert: AlertTriangle,
     tv: Tv,
+    volume2: Volume2,
+    volumeX: VolumeX,
   },
 } as const
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
 import { fetchAllAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '../services/supabase'
 import type { TvAnnouncement } from '../types'
@@ -24,18 +25,7 @@ export function useAnnouncements() {
   useEffect(() => { load() }, [load])
 
   /* Realtime */
-  useEffect(() => {
-    const db = supabase
-    if (!db) return
-    const ch = db
-      .channel('tv-announcements-realtime')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tv_announcements' },
-        () => load()
-      )
-      .subscribe()
-    return () => { db.removeChannel(ch) }
-  }, [load])
+  useRealtimeSubscription('tv_announcements', '*', () => load())
 
   /* Poll fallback */
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchPlaylists, fetchAllPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from '../services/supabase'
 import { defaultDb as supabase } from '../../../lib/supabase'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
 import type { TvPlaylist } from '../types'
 
@@ -24,18 +25,7 @@ export function usePlaylists() {
   useEffect(() => { load() }, [load])
 
   /* ── Realtime: auto-refresh when playlists change ── */
-  useEffect(() => {
-    const db = supabase
-    if (!db) return
-    const channel = db
-      .channel('tv-playlists-realtime')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tv_playlists' },
-        () => { load(true) }
-      )
-      .subscribe()
-    return () => { db.removeChannel(channel) }
-  }, [load])
+  useRealtimeSubscription('tv_playlists', '*', () => load(true))
 
   /* ── Poll fallback: refresh every 15s ── */
   useEffect(() => {

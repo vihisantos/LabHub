@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { fetchQueues, fetchTracks } from '../services/supabase'
 import type { TvMusicTrack } from '../types'
 
@@ -29,23 +30,9 @@ export function useAllMusicTracks() {
 
   useEffect(() => { load() }, [load])
 
-  /* Realtime */
-  useEffect(() => {
-    const db = supabase
-    if (!db) return
-    const ch = db
-      .channel('tv-all-music-realtime')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tv_music_queues' },
-        () => load()
-      )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tv_music_tracks' },
-        () => load()
-      )
-      .subscribe()
-    return () => { db.removeChannel(ch) }
-  }, [load])
+  /* Realtime: auto-refresh when queues or tracks change */
+  useRealtimeSubscription('tv_music_queues', '*', () => load())
+  useRealtimeSubscription('tv_music_tracks', '*', () => load())
 
   /* Poll */
   useEffect(() => {

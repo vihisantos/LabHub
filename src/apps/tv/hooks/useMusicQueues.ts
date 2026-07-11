@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
 import {
   fetchQueues,
@@ -43,23 +44,9 @@ export function useMusicQueues() {
 
   useEffect(() => { load() }, [load])
 
-  /* Realtime */
-  useEffect(() => {
-    const db = supabase
-    if (!db) return
-    const ch = db
-      .channel('tv-music-realtime')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tv_music_queues' },
-        () => load(true)
-      )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tv_music_tracks' },
-        () => load(true)
-      )
-      .subscribe()
-    return () => { db.removeChannel(ch) }
-  }, [load])
+  /* Realtime: auto-refresh when queues or tracks change */
+  useRealtimeSubscription('tv_music_queues', '*', () => load(true))
+  useRealtimeSubscription('tv_music_tracks', '*', () => load(true))
 
   /* Poll */
   useEffect(() => {

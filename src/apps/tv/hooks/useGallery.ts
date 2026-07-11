@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
 import {
   fetchActiveGalleries,
@@ -38,16 +39,9 @@ export function useActiveGalleries() {
 
   useEffect(() => { load() }, [load])
 
-  useEffect(() => {
-    const db = supabase
-    if (!db) return
-    const ch = db
-      .channel('tv-galleries-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tv_galleries' }, () => load())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tv_gallery_photos' }, () => load())
-      .subscribe()
-    return () => { db.removeChannel(ch) }
-  }, [load])
+  /* Realtime: auto-refresh when galleries or photos change */
+  useRealtimeSubscription('tv_galleries', '*', () => load())
+  useRealtimeSubscription('tv_gallery_photos', '*', () => load())
 
   useEffect(() => {
     if (!supabase) return
