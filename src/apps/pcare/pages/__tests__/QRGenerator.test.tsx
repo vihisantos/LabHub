@@ -55,7 +55,9 @@ describe('QRGenerator', () => {
 
   it('navega para /stock/qr após 3 segundos', () => {
     renderQR()
-    act(() => { vi.advanceTimersByTime(3000) })
+    act(() => { vi.advanceTimersByTime(1000) })
+    act(() => { vi.advanceTimersByTime(1000) })
+    act(() => { vi.advanceTimersByTime(1000) })
     expect(mockNavigate).toHaveBeenCalledWith('/stock/qr', { replace: true })
   })
 })

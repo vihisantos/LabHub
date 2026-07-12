@@ -93,9 +93,9 @@ describe('Reports', () => {
   it('exibe skeleton durante loading', () => {
     ;(usePCs as any).mockReturnValue({ pcs: [], loading: true, reload: vi.fn() })
     ;(useParts as any).mockReturnValue({ parts: [], loading: true, reload: vi.fn() })
-    renderReports()
-    // SkeletonStatCard is rendered during loading
-    expect(screen.getByText('Relatórios')).toBeInTheDocument()
+    const { container } = renderReports()
+    // SkeletonStatCard is rendered during loading (no title visible yet)
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
   it('alterna para dataType parts', () => {

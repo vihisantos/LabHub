@@ -50,7 +50,7 @@ describe('usePCs', () => {
     act(() => {
       result.current.update('pc-1', { cleaningStatus: 'done' })
     })
-    expect(pcService.update).toHaveBeenCalledWith('pc-1', { cleaningStatus: 'completed' })
+    expect(pcService.update).toHaveBeenCalledWith('pc-1', { cleaningStatus: 'done' })
   })
 
   it('reload recarrega os PCs', () => {

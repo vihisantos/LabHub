@@ -11,6 +11,7 @@ vi.mock('../../components/EmptyState', () => ({ EmptyState: ({ title, action }: 
 vi.mock('../../components/Skeletons', () => ({ SkeletonCard: () => <div data-testid="skeleton" /> }))
 
 import { useParts } from '../../hooks/useParts'
+import { usePCs } from '../../hooks/usePCs'
 import { partUsageService } from '../../services/partUsageService'
 import { PartsList } from '../PartsList'
 
@@ -30,6 +31,7 @@ describe('PartsList', () => {
       parts: mockParts, loading: false,
       create: vi.fn(), update: vi.fn(), remove: vi.fn(), reload: vi.fn(),
     })
+    ;(usePCs as any).mockReturnValue({ pcs: [], loading: false, update: vi.fn(), reload: vi.fn() })
     ;(partUsageService.getByPartId as any).mockReturnValue([])
   })
 

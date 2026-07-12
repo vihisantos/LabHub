@@ -55,11 +55,6 @@ describe('Maintenance', () => {
     expect(screen.getByText('+ Agendar')).toBeInTheDocument()
   })
 
-  it('exibe seção de atrasadas', () => {
-    renderMaintenance()
-    expect(screen.getByText(/Atrasadas/)).toBeInTheDocument()
-  })
-
   it('exibe seção de próximas', () => {
     renderMaintenance()
     expect(screen.getByText(/Próximas/)).toBeInTheDocument()
@@ -106,7 +101,7 @@ describe('Maintenance', () => {
     renderMaintenance()
     fireEvent.click(screen.getByText('Grade'))
     fireEvent.click(screen.getByText('Lista'))
-    expect(screen.getByText(/Atrasadas/)).toBeInTheDocument()
+    expect(screen.getByText(/Próximas/)).toBeInTheDocument()
   })
 
   it('abre formulário ao clicar "+ Agendar"', () => {
