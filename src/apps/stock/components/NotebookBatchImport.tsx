@@ -403,7 +403,7 @@ export function NotebookBatchImport({ open, onClose, onCreate }: NotebookBatchIm
   }
 
   return (
-    <Modal open={open} onClose={handleClose} title="Importar Notebooks em Lote" wide>
+    <Modal open={open} onClose={handleClose} title="Importar Notebooks em Lote">
       <div className="flex flex-col gap-4">
         {/* Header actions */}
         <div className="flex items-center justify-between">

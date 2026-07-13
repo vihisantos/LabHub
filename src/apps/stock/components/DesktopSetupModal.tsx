@@ -111,7 +111,7 @@ export function DesktopSetupModal({ open, onClose, onCreate }: DesktopSetupModal
     notes: '',
   })
 
-  function updateDesktop(field: keyof DesktopData, value: string) {
+  function updateDesktop(field: keyof DesktopData, value: string | boolean) {
     setDesktop(prev => ({ ...prev, [field]: value }))
   }
 
