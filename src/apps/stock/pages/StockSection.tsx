@@ -19,6 +19,9 @@ import { icons } from '../../../lib/icons'
 import { exportStockItemsCSV } from '../utils/export'
 import { parseFile, mapStockRow, validateRows } from '../utils/import'
 import { BatchCreateModal } from '../components/BatchCreateModal'
+import { DesktopSetupModal } from '../components/DesktopSetupModal'
+import { NotebookSetupModal } from '../components/NotebookSetupModal'
+import { NotebookBatchImport } from '../components/NotebookBatchImport'
 
 export function StockSectionPage() {
   const { items, loading, create, update, remove, reload } = useStock()
@@ -63,6 +66,9 @@ export function StockSectionPage() {
   const [importing, setImporting] = useState(false)
   const [importSuccess, setImportSuccess] = useState(0)
   const [showBatch, setShowBatch] = useState(false)
+  const [showDesktopSetup, setShowDesktopSetup] = useState(false)
+  const [showNotebookSetup, setShowNotebookSetup] = useState(false)
+  const [showNotebookBatchImport, setShowNotebookBatchImport] = useState(false)
   const [batchSuccess, setBatchSuccess] = useState(0)
   const [cleanupMessage, setCleanupMessage] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -325,6 +331,30 @@ export function StockSectionPage() {
             >
               <icons.ui.copy size={13} />
               Lote
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDesktopSetup(true)}
+              className="flex items-center gap-1 rounded-xl bg-cyan-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-700 shadow-sm btn-interactive"
+            >
+              <icons.nav.pcs size={13} />
+              Desktop
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNotebookSetup(true)}
+              className="flex items-center gap-1 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 shadow-sm btn-interactive"
+            >
+              <icons.nav.pcs size={13} />
+              Notebook
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNotebookBatchImport(true)}
+              className="flex items-center gap-1 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 shadow-sm btn-interactive"
+            >
+              <icons.ui.upload size={13} />
+              Importar Notebooks
             </button>
           </div>
         </div>
@@ -737,6 +767,9 @@ export function StockSectionPage() {
       />
 
       <BatchCreateModal open={showBatch} onClose={() => setShowBatch(false)} onCreate={handleBatchCreate} />
+      <DesktopSetupModal open={showDesktopSetup} onClose={() => setShowDesktopSetup(false)} onCreate={handleBatchCreate} />
+      <NotebookSetupModal open={showNotebookSetup} onClose={() => setShowNotebookSetup(false)} onCreate={handleBatchCreate} />
+      <NotebookBatchImport open={showNotebookBatchImport} onClose={() => setShowNotebookBatchImport(false)} onCreate={handleBatchCreate} />
 
       {selection.selectMode && selection.selected.size > 0 && (
         <StockBatchBar
