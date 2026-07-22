@@ -72,7 +72,7 @@ export function useRealtimeSubscription<T extends Record<string, any>>(
           callbackRef.current(payload as RealtimePostgresChangesPayload<T>)
         },
       )
-      .subscribe((status, err) => {
+      .subscribe((_status, err) => {
         if (err) {
           console.warn(`[Realtime] Erro no canal ${channelName}:`, err?.message || err)
         }
