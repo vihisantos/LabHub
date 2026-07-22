@@ -265,35 +265,12 @@ export async function addGalleryPhoto(galleryId: string, imageUrl: string): Prom
 }
 
 /**
- * Extrai o public_id de uma URL do Cloudinary.
- * Ex: https://res.cloudinary.com/horytsxg/image/upload/v12345/tv/abc.jpg → tv/abc
- */
-function extractCloudinaryPublicId(imageUrl: string): string | null {
-  try {
-    const url = new URL(imageUrl)
-    // Path pattern: /{cloud_name}/image/upload/v{version}/{public_id}.{ext}
-    const match = url.pathname.match(/\/image\/upload\/(?:v\d+\/)?(.+)$/)
-    if (!match) return null
-    let publicId = match[1]
-    // Remove extension
-    publicId = publicId.replace(/\.(jpg|jpeg|png|gif|webp|svg|pdf)(\?.*)?$/i, '')
-    return publicId || null
-  } catch {
-    return null
-  }
-}
-
-/**
  * Tenta deletar a imagem do Cloudinary via backend.
  * Falha silenciosamente se o backend não estiver disponível.
+ * A extração do public_id é feita pelo backend — o frontend só envia a URL.
  */
 async function deleteFromCloudinary(imageUrl: string): Promise<void> {
   try {
-    const publicId = extractCloudinaryPublicId(imageUrl)
-    if (!publicId) {
-      console.warn('[Cloudinary] Não foi possível extrair public_id da URL:', imageUrl)
-      return
-    }
     const res = await fetch('/api/tv/cloudinary/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -301,7 +278,7 @@ async function deleteFromCloudinary(imageUrl: string): Promise<void> {
     })
     const data = await res.json()
     if (data.success) {
-      console.log('[Cloudinary] Imagem deletada:', publicId)
+      console.log('[Cloudinary] Imagem deletada')
     } else if (data.error) {
       console.warn('[Cloudinary] Erro ao deletar:', data.error)
     }
