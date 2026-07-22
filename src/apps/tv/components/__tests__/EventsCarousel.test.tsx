@@ -76,10 +76,14 @@ describe('EventsCarousel', () => {
     expect(screen.getByText('Full Bleed Event')).toBeInTheDocument()
   })
 
-  it('não renderiza imagem no fullBleed sem image_url', () => {
-    const events = [makeEvent({ image_url: null })]
+  it('renderiza imagem fallback no fullBleed quando image_url é null', () => {
+    const events = [makeEvent({ image_url: null, title: 'Evento Teste' })]
     const { container } = render(<EventsCarousel events={events} fullBleed />)
-    expect(container.querySelector('img')).not.toBeInTheDocument()
+    const img = container.querySelector('img')
+    expect(img).toBeInTheDocument()
+    // Como image_url é null, o eventImageProvider fornece uma URL de fallback
+    expect(img?.getAttribute('src')).toMatch(/^https:\/\/images\.unsplash\.com\/photo-/)
+    expect(img).toHaveAttribute('alt', 'Evento Teste')
   })
 
   it('renderiza data do evento em formato pt-BR', () => {
