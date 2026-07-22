@@ -264,8 +264,75 @@ export async function addGalleryPhoto(galleryId: string, imageUrl: string): Prom
   if (error) throw error
 }
 
-export async function deleteGalleryPhoto(id: string): Promise<void> {
+/**
+ * Extrai o public_id de uma URL do Cloudinary.
+ * Ex: https://res.cloudinary.com/horytsxg/image/upload/v12345/tv/abc.jpg → tv/abc
+ */
+function extractCloudinaryPublicId(imageUrl: string): string | null {
+  try {
+    const url = new URL(imageUrl)
+    // Path pattern: /{cloud_name}/image/upload/v{version}/{public_id}.{ext}
+    const match = url.pathname.match(/\/image\/upload\/(?:v\d+\/)?(.+)$/)
+    if (!match) return null
+    let publicId = match[1]
+    // Remove extension
+    publicId = publicId.replace(/\.(jpg|jpeg|png|gif|webp|svg|pdf)(\?.*)?$/i, '')
+    return publicId || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Tenta deletar a imagem do Cloudinary via backend.
+ * Falha silenciosamente se o backend não estiver disponível.
+ */
+async function deleteFromCloudinary(imageUrl: string): Promise<void> {
+  try {
+    const publicId = extractCloudinaryPublicId(imageUrl)
+    if (!publicId) {
+      console.warn('[Cloudinary] Não foi possível extrair public_id da URL:', imageUrl)
+      return
+    }
+    const res = await fetch('/api/tv/cloudinary/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_url: imageUrl }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      console.log('[Cloudinary] Imagem deletada:', publicId)
+    } else if (data.error) {
+      console.warn('[Cloudinary] Erro ao deletar:', data.error)
+    }
+  } catch (err) {
+    console.warn('[Cloudinary] Falha ao chamar delete endpoint:', err)
+  }
+}
+
+export async function deleteGalleryPhoto(id: string, imageUrl?: string | null): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
+
+  // 1. Se temos a URL, tenta deletar do Cloudinary primeiro
+  if (imageUrl) {
+    await deleteFromCloudinary(imageUrl)
+  } else {
+    // Fallback: busca a URL antes de deletar
+    try {
+      const { data: photo } = await supabase
+        .from('tv_gallery_photos')
+        .select('image_url')
+        .eq('id', id)
+        .single()
+      if (photo?.image_url) {
+        await deleteFromCloudinary(photo.image_url)
+      }
+    } catch {
+      // Silencioso — segue para deletar do DB mesmo assim
+    }
+  }
+
+  // 2. Deleta o registro do banco
   const { error } = await supabase.from('tv_gallery_photos').delete().eq('id', id)
   if (error) throw error
 }

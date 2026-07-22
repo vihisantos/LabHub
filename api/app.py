@@ -290,6 +290,74 @@ def tv_youtube_live():
         return jsonify({'isLive': False, 'error': str(e)}), 200
 
 
+@app.route('/api/tv/cloudinary/delete', methods=['POST'])
+def tv_cloudinary_delete():
+    """
+    Deleta uma imagem do Cloudinary pelo seu secure_url.
+    Requer CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET configurados no ambiente.
+    """
+    try:
+        data = request.get_json() or {}
+        image_url = data.get('image_url', '')
+        if not image_url:
+            return jsonify({'success': False, 'error': 'image_url é obrigatório'}), 400
+
+        cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+        api_key = os.environ.get('CLOUDINARY_API_KEY', '')
+        api_secret = os.environ.get('CLOUDINARY_API_SECRET', '')
+
+        if not cloud_name:
+            return jsonify({'success': False, 'error': 'Cloudinary cloud_name não configurado'}), 200
+
+        if not api_key or not api_secret:
+            return jsonify({'success': False, 'error': 'Cloudinary API key/secret não configurados'}), 200
+
+        # Extrair public_id da URL do Cloudinary
+        # URL example: https://res.cloudinary.com/{cloud_name}/image/upload/v{version}/{folder}/{public_id}.{ext}
+        import re
+
+        # Verificar se a URL pertence ao cloud_name configurado
+        if cloud_name not in image_url:
+            return jsonify({'success': False, 'error': 'URL não pertence ao Cloudinary configurado'}), 200
+
+        # Extrair o path após /image/upload/ (ignorando versão opcional v12345/)
+        upload_match = re.search(r'/image/upload/(?:v\d+/)?(.+)$', image_url)
+        if not upload_match:
+            return jsonify({'success': False, 'error': 'URL não é uma imagem do Cloudinary válida'}), 200
+
+        raw_path = upload_match.group(1)
+        # Remover query string e fragmento
+        raw_path = re.sub(r'[?#].*$', '', raw_path)
+        # Remover extensão final (.jpg, .png, etc)
+        public_id = re.sub(r'\.(jpg|jpeg|png|gif|webp|svg|pdf)$', '', raw_path, flags=re.IGNORECASE)
+
+        if not public_id:
+            return jsonify({'success': False, 'error': 'Não foi possível extrair public_id da URL'}), 200
+
+        # Chamar Cloudinary Admin API para destruir a imagem
+        import base64
+        auth = base64.b64encode(f'{api_key}:{api_secret}'.encode()).decode()
+        destroy_url = f'https://api.cloudinary.com/v1_1/{cloud_name}/image/destroy'
+        destroy_resp = requests.post(destroy_url, data={
+            'public_id': public_id,
+        }, headers={
+            'Authorization': f'Basic {auth}',
+        }, timeout=10)
+
+        if not destroy_resp.ok:
+            return jsonify({'success': False, 'error': f'Cloudinary API erro: {destroy_resp.status_code}'}), 200
+
+        result = destroy_resp.json()
+        return jsonify({
+            'success': result.get('result') == 'ok',
+            'result': result.get('result', 'unknown'),
+            'public_id': public_id,
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 200
+
+
 @app.route('/api/tv/health', methods=['GET'])
 def tv_health():
     api_key_configured = bool(os.environ.get('YOUTUBE_API_KEY'))

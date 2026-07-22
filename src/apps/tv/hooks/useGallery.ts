@@ -144,9 +144,9 @@ export function useGalleryPhotos(galleryId: string | null) {
     }
   }
 
-  const remove = async (id: string) => {
+  const remove = async (id: string, imageUrl?: string | null) => {
     try {
-      await deletePhotoSvc(id)
+      await deletePhotoSvc(id, imageUrl)
       await load()
     } catch {
       addToast('error', 'Erro ao remover foto')
