@@ -32,6 +32,8 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
   const [pdfUrl, setPdfUrl] = useState('')
   const [startDate, setStartDate] = useState(initialValues?.start_date ? initialValues.start_date.slice(0, 16) : '')
   const [endDate, setEndDate] = useState(initialValues?.end_date ? initialValues.end_date.slice(0, 16) : '')
+  const [showCountdown, setShowCountdown] = useState(false)
+  const [hasWelcome, setHasWelcome] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<TvEvent | null>(null)
   const [titleError, setTitleError] = useState(false)
 
@@ -47,11 +49,14 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
     setPdfUrl('')
     setStartDate(initialValues.start_date ? initialValues.start_date.slice(0, 16) : '')
     setEndDate(initialValues.end_date ? initialValues.end_date.slice(0, 16) : '')
+    setShowCountdown(false)
+    setHasWelcome(false)
   }
 
   const openNew = () => {
     setEditing(null)
     setTitle(''); setDescription(''); setImageUrl(''); setPdfUrl(''); setStartDate(''); setEndDate('')
+    setShowCountdown(false); setHasWelcome(false)
     setTitleError(false)
     setShowForm(true)
   }
@@ -64,6 +69,8 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
     setPdfUrl(e.pdf_url || '')
     setStartDate(e.start_date ? e.start_date.slice(0, 16) : '')
     setEndDate(e.end_date ? e.end_date.slice(0, 16) : '')
+    setShowCountdown(!!e.show_countdown)
+    setHasWelcome(!!e.has_welcome)
     setShowForm(true)
   }
 
@@ -81,6 +88,8 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
       pdf_url: pdfUrl.trim() || null,
       start_date: startDate ? new Date(startDate).toISOString() : null,
       end_date: endDate ? new Date(endDate).toISOString() : null,
+      show_countdown: showCountdown,
+      has_welcome: hasWelcome,
       is_active: true,
       sort_order: editing?.sort_order ?? events.length,
     }
@@ -231,6 +240,28 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
                   onChange={e => setEndDate(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-violet-500 focus:bg-white [color-scheme:light]"
                 />
+              </div>
+
+              {/* Toggles */}
+              <div className="flex flex-wrap gap-4 pt-1">
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showCountdown}
+                    onChange={e => setShowCountdown(e.target.checked)}
+                    className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  Exibir Contador Regressivo (Countdown)
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hasWelcome}
+                    onChange={e => setHasWelcome(e.target.checked)}
+                    className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  Exibir Slide de Boas-Vindas
+                </label>
               </div>
             </div>
             <div className="border-t border-slate-100 px-4 py-3">

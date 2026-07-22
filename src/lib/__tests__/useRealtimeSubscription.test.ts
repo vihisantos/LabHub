@@ -37,7 +37,7 @@ describe('useRealtimeSubscription', () => {
       useRealtimeSubscription('tv_events', '*', vi.fn()),
     )
 
-    expect(mockChannel).toHaveBeenCalledWith('public:tv_events:*')
+    expect(mockChannel).toHaveBeenCalledWith(expect.stringMatching(/^public:tv_events:\*:\d+$/))
     expect(mockChannelOn).toHaveBeenCalledWith(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'tv_events' },
@@ -54,7 +54,7 @@ describe('useRealtimeSubscription', () => {
       }),
     )
 
-    expect(mockChannel).toHaveBeenCalledWith('custom-channel')
+    expect(mockChannel).toHaveBeenCalledWith(expect.stringMatching(/^custom-channel:\d+$/))
     expect(mockChannelOn).toHaveBeenCalledWith(
       'postgres_changes',
       { event: 'INSERT', schema: 'stock', table: 'stock_items' },

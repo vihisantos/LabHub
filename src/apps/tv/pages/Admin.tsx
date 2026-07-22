@@ -1,20 +1,22 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images } from 'lucide-react'
+import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
 import { useNowPlaying } from '../hooks/useNowPlaying'
 import { useAnnouncements } from '../hooks/useAnnouncements'
 import { useGalleries } from '../hooks/useGallery'
+import { useUrgentAnnouncements } from '../hooks/useUrgentAnnouncements'
 import { EventManager } from '../components/EventManager'
 import { PlaylistManager } from '../components/PlaylistManager'
 import { QueueManager } from '../components/QueueManager'
 import { AnnouncementManager } from '../components/AnnouncementManager'
 import { GalleryManager } from '../components/GalleryManager'
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../../../lib/components/ui'
+import { CalendarManager } from '../components/CalendarManager'
 
-type TabId = 'events' | 'playlists' | 'music' | 'gallery' | 'announcements' | 'help'
+type TabId = 'events' | 'playlists' | 'music' | 'gallery' | 'announcements' | 'calendar' | 'help'
 
 const tabs: { id: TabId; label: string; icon: typeof Calendar }[] = [
   { id: 'events', label: 'Eventos', icon: Calendar },
@@ -22,6 +24,7 @@ const tabs: { id: TabId; label: string; icon: typeof Calendar }[] = [
   { id: 'music', label: 'Filas de Música', icon: ListMusic },
   { id: 'gallery', label: 'Galeria', icon: Images },
   { id: 'announcements', label: 'Avisos', icon: Megaphone },
+  { id: 'calendar', label: 'Calendário', icon: BookOpen },
   { id: 'help', label: 'Ajuda', icon: HelpCircle },
 ]
 
@@ -33,6 +36,12 @@ export function AdminView() {
   const { nowPlaying } = useNowPlaying()
   const { announcements, add: addAnnouncement, edit: editAnnouncement, remove: removeAnnouncement, moveUp, moveDown } = useAnnouncements()
   const { galleries, loading: galleriesLoading, create: createGallery, remove: removeGallery, toggleActive: toggleGalleryActive } = useGalleries()
+  const { activeAnnouncement, createUrgent, dismissUrgent } = useUrgentAnnouncements()
+
+  const [showUrgentModal, setShowUrgentModal] = useState(false)
+  const [urgentText, setUrgentText] = useState('')
+  const [urgentSeverity, setUrgentSeverity] = useState<'info' | 'warning' | 'danger'>('warning')
+  const [urgentDuration, setUrgentDuration] = useState('60')
   // Read initial state from query params (e.g. from ReservaLab redirect)
   const tabParam = searchParams.get('tab') as TabId | null
   const [activeTab, setActiveTabState] = useState<TabId>(tabParam ?? (() => {
@@ -120,6 +129,17 @@ export function AdminView() {
                 </div>
               )}
               <button
+                onClick={() => setShowUrgentModal(true)}
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                  activeAnnouncement
+                    ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 animate-pulse'
+                    : 'border-amber-200 bg-amber-50/50 text-amber-600 hover:bg-amber-100'
+                }`}
+              >
+                <AlertTriangle size={14} className="text-amber-500" />
+                {activeAnnouncement ? 'Aviso Ativo' : 'Aviso Urgente'}
+              </button>
+              <button
                 onClick={() => navigate('/tv/display')}
                 className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:bg-slate-200 hover:text-slate-900 active:scale-[0.97]"
               >
@@ -129,6 +149,119 @@ export function AdminView() {
             </div>
           </div>
         </header>
+
+        {/* Urgent Announcement Modal */}
+        <AnimatePresence>
+          {showUrgentModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                      <AlertTriangle size={18} />
+                    </div>
+                    <h3 className="font-semibold text-slate-800">Aviso de Urgência / Alerta</h3>
+                  </div>
+                  <button
+                    onClick={() => setShowUrgentModal(false)}
+                    className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {activeAnnouncement && (
+                  <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                    <div className="flex items-center justify-between font-semibold mb-1">
+                      <span>Aviso Ativo Agora ({activeAnnouncement.severity.toUpperCase()}):</span>
+                      <button
+                        onClick={() => dismissUrgent(activeAnnouncement.id)}
+                        className="text-red-600 hover:underline text-[11px]"
+                      >
+                        Encerrar aviso
+                      </button>
+                    </div>
+                    <p className="text-slate-700">{activeAnnouncement.message}</p>
+                  </div>
+                )}
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (!urgentText.trim()) return
+                    createUrgent(urgentText.trim(), urgentSeverity, urgentDuration ? Number(urgentDuration) : null)
+                    setUrgentText('')
+                    setShowUrgentModal(false)
+                  }}
+                  className="space-y-3"
+                >
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Mensagem do Alerta</label>
+                    <input
+                      placeholder="Ex: Elevador em manutenção / Lab 2 indisponível"
+                      value={urgentText}
+                      onChange={(e) => setUrgentText(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-500 focus:bg-white"
+                      maxLength={120}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Severidade</label>
+                      <select
+                        value={urgentSeverity}
+                        onChange={(e) => setUrgentSeverity(e.target.value as any)}
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none"
+                      >
+                        <option value="info">🔵 Informação</option>
+                        <option value="warning">🟡 Atenção</option>
+                        <option value="danger">🔴 Urgente</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Duração</label>
+                      <select
+                        value={urgentDuration}
+                        onChange={(e) => setUrgentDuration(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none"
+                      >
+                        <option value="30">30 Minutos</option>
+                        <option value="60">1 Hora</option>
+                        <option value="240">4 Horas</option>
+                        <option value="720">Até o fim do dia (12h)</option>
+                        <option value="">Sem expiração manual</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowUrgentModal(false)}
+                      className="flex-1 rounded-lg border border-slate-200 bg-slate-100 py-2 text-xs font-medium text-slate-600 hover:bg-slate-200"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!urgentText.trim()}
+                      className="flex-1 rounded-lg bg-amber-600 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
+                    >
+                      Exibir Alerta na TV
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         {/* ── Content ── */}
         <div className="mx-auto max-w-6xl px-4 pb-12 pt-6 sm:px-6">
@@ -254,6 +387,9 @@ export function AdminView() {
                       onMoveUp={moveUp}
                       onMoveDown={moveDown}
                     />
+                  )}
+                  {activeTab === 'calendar' && (
+                    <CalendarManager />
                   )}
                 </>
               )}

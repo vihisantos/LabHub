@@ -102,3 +102,45 @@ alter table tv_galleries add column if not exists sort_order int default 0;
 
 create index if not exists idx_galleries_active on tv_galleries(is_active);
 create index if not exists idx_gallery_photos_order on tv_gallery_photos(gallery_id, sort_order);
+
+-- ============================================================
+-- Calendar Cache: eventos do calendário acadêmico com expiração semestral
+-- ============================================================
+create table if not exists tv_calendar_cache (
+  id uuid primary key default gen_random_uuid(),
+  semester_code text not null,           -- ex: '26/2', '27/1'
+  source_url text not null,
+  events jsonb default '[]'::jsonb,
+  start_date date,
+  end_date date,                          -- ex: 2026-12-18
+  expires_at timestamptz not null,       -- ex: 2026-12-18 23:59:59
+  is_active boolean default true,
+  extracted_at timestamptz default now(),
+  created_at timestamptz default now()
+);
+
+alter table tv_calendar_cache enable row level security;
+drop policy if exists "Permitir tudo para anon" on tv_calendar_cache;
+create policy "Permitir tudo para anon" on tv_calendar_cache for all using (true) with check (true);
+
+create index if not exists idx_calendar_cache_active on tv_calendar_cache(is_active);
+create index if not exists idx_calendar_cache_expires on tv_calendar_cache(expires_at);
+
+-- ============================================================
+-- Urgent Announcements: avisos de urgência moderados pelo admin
+-- ============================================================
+create table if not exists tv_urgent_announcements (
+  id uuid primary key default gen_random_uuid(),
+  message text not null,
+  severity text not null default 'info' check (severity in ('info', 'warning', 'danger')),
+  expires_at timestamptz,
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+alter table tv_urgent_announcements enable row level security;
+drop policy if exists "Permitir tudo para anon" on tv_urgent_announcements;
+create policy "Permitir tudo para anon" on tv_urgent_announcements for all using (true) with check (true);
+
+create index if not exists idx_urgent_active on tv_urgent_announcements(is_active);
+create index if not exists idx_urgent_expires on tv_urgent_announcements(expires_at);

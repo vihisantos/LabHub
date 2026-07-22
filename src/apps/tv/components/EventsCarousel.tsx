@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Calendar, FileText } from 'lucide-react'
 import type { TvEvent } from '../types'
+import { getSafeEventImageUrl } from '../utils/eventImageProvider'
 
 interface CountdownProps {
   target: string
@@ -102,20 +103,18 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
             transition={{ duration: 0.8 }}
             style={{ position: 'absolute', inset: 0 }}
           >
-            {event.image_url ? (
-              <img
-                src={event.image_url}
-                alt={event.title}
-                style={{
-                  width: '100%', height: '100%', objectFit: 'cover',
-                }}
-              />
-            ) : (
-              <div style={{
-                width: '100%', height: '100%',
-                background: 'radial-gradient(ellipse at center, #1e293b 0%, #080a14 100%)',
-              }} />
-            )}
+            {(() => {
+              const bgUrl = getSafeEventImageUrl(event.title, event.description, event.image_url)
+              return (
+                <img
+                  src={bgUrl}
+                  alt={event.title}
+                  style={{
+                    width: '100%', height: '100%', objectFit: 'cover',
+                  }}
+                />
+              )
+            })()}
             {/* Gradient overlay for readability */}
             <div style={{
               position: 'absolute', inset: 0,
@@ -237,16 +236,14 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
             textAlign: 'center', maxWidth: '800px', gap: '1.5rem',
           }}
         >
-          {event.image_url && (
-            <img
-              src={event.image_url}
-              alt={event.title}
-              style={{
-                width: '100%', maxHeight: '300px', objectFit: 'cover',
-                borderRadius: '1rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-              }}
-            />
-          )}
+          <img
+            src={getSafeEventImageUrl(event.title, event.description, event.image_url)}
+            alt={event.title}
+            style={{
+              width: '100%', maxHeight: '300px', objectFit: 'cover',
+              borderRadius: '1rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            }}
+          />
           <h2 style={{
             fontSize: '2.5rem', fontWeight: 800, color: '#f1f5f9',
             lineHeight: 1.2,

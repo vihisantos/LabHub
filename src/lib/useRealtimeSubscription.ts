@@ -13,6 +13,10 @@ export interface UseRealtimeSubscriptionOptions {
   enabled?: boolean
 }
 
+// Contador global para gerar IDs únicos de canal entre montagens/desmontagens
+// Essencial para evitar conflitos de canais com React StrictMode (que monta/desmonta 2x)
+let channelCounter = 0
+
 /**
  * Subscribe to Postgres changes in real-time via Supabase Realtime WebSocket.
  *
@@ -39,9 +43,15 @@ export function useRealtimeSubscription<T extends Record<string, any>>(
 ): void {
   const {
     schema = 'public',
-    channelName = `${schema}:${table}:${event}`,
+    channelName: customChannelName,
     enabled = true,
   } = options
+
+  // Gera um ID único por instância/montagem para evitar conflitos de nome de canal
+  // com React StrictMode (que monta → desmonta → monta novamente)
+  const instanceId = useRef(channelCounter++)
+  const baseName = customChannelName || `${schema}:${table}:${event}`
+  const channelName = `${baseName}:${instanceId.current}`
 
   // Keep a ref to the latest callback to avoid re-subscribing on every render
   const callbackRef = useRef(callback)
@@ -62,10 +72,15 @@ export function useRealtimeSubscription<T extends Record<string, any>>(
           callbackRef.current(payload as RealtimePostgresChangesPayload<T>)
         },
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        if (err) {
+          console.warn(`[Realtime] Erro no canal ${channelName}:`, err?.message || err)
+        }
+      })
 
     return () => {
       db.removeChannel(channel)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [table, event, schema, channelName, enabled])
 }

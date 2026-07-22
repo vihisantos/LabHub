@@ -138,10 +138,165 @@ def tv_youtube_fetch():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/tv/calendar/extract', methods=['POST'])
+def tv_calendar_extract():
+    try:
+        data = request.get_json() or {}
+        pdf_url = data.get('url', '')
+        semester_code = data.get('semester_code', '26/2')
+        end_date_str = data.get('end_date', '2026-12-18')
+
+        if not pdf_url:
+            return jsonify({'error': 'URL do PDF é obrigatória'}), 400
+
+        # Download PDF
+        resp = requests.get(pdf_url, timeout=30)
+        if not resp.ok:
+            return jsonify({'error': f'Falha ao baixar PDF: HTTP {resp.status_code}'}), 502
+
+        from pypdf import PdfReader
+        import io
+
+        pdf_file = io.BytesIO(resp.content)
+        reader = PdfReader(pdf_file)
+
+        full_text = []
+        for i, page in enumerate(reader.pages):
+            txt = page.extract_text()
+            if txt:
+                full_text.append(txt)
+
+        text_content = "\n".join(full_text)
+
+        # Regex parser para capturar itens no formato "DD - Titulo" ou "DD a DD - Titulo"
+        lines = text_content.split('\n')
+        extracted_events = []
+        pattern = re.compile(r'^(\d{1,2}(?:\s*a\s*\d{1,2})?)\s*[-–—]\s*(.+)$')
+
+        months_map = {
+            'janeiro': 1, 'fevereiro': 2, 'março': 3, 'marco': 3, 'abril': 4,
+            'maio': 5, 'junho': 6, 'julho': 7, 'agosto': 8, 'setembro': 9,
+            'outubro': 10, 'novembro': 11, 'dezembro': 12
+        }
+
+        current_month = 8 # Padrão 2º semestre (agosto)
+
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+
+            # Verificar se é cabeçalho de mês
+            for m_name, m_num in months_map.items():
+                if m_name in line_clean.lower():
+                    current_month = m_num
+                    break
+
+            match = pattern.match(line_clean)
+            if match:
+                day_part = match.group(1).strip()
+                title_part = match.group(2).strip()
+
+                # Limpar encoding e ruídos comuns
+                title_part = title_part.encode('latin1', 'ignore').decode('utf-8', 'ignore') if not any(c in title_part for c in 'ãõçáéíóú') else title_part
+
+                extracted_events.append({
+                    'id': f'cal_{len(extracted_events) + 1}',
+                    'day_part': day_part,
+                    'title': title_part,
+                    'month': current_month,
+                    'semester_code': semester_code,
+                    'is_academic_calendar': True
+                })
+
+        expires_at = f"{end_date_str}T23:59:59Z"
+
+        return jsonify({
+            'success': True,
+            'semester_code': semester_code,
+            'expires_at': expires_at,
+            'total_events': len(extracted_events),
+            'events': extracted_events
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tv/youtube/live', methods=['GET'])
+def tv_youtube_live():
+    """
+    Verifica se o canal da faculdade está ao vivo no YouTube.
+    Usa um channel_id fixo ou configurado como variável de ambiente.
+    """
+    try:
+        api_key = os.environ.get('YOUTUBE_API_KEY')
+        if not api_key:
+            return jsonify({'isLive': False, 'error': 'API key não configurada'}), 200
+
+        channel_id = os.environ.get('YOUTUBE_CHANNEL_ID', '')
+        if not channel_id:
+            return jsonify({'isLive': False, 'error': 'Channel ID não configurado'}), 200
+
+        # YouTube Data API v3: search for active live broadcasts
+        search_url = (
+            f'https://www.googleapis.com/youtube/v3/search'
+            f'?part=snippet&channelId={channel_id}'
+            f'&eventType=live&type=video'
+            f'&order=date&maxResults=1&key={api_key}'
+        )
+
+        resp = requests.get(search_url, timeout=10)
+        if not resp.ok:
+            return jsonify({'isLive': False, 'error': f'YouTube API erro: {resp.status_code}'}), 200
+
+        data = resp.json()
+        items = data.get('items', [])
+
+        if not items:
+            return jsonify({'isLive': False})
+
+        live_item = items[0]
+        snippet = live_item.get('snippet', {})
+        video_id = live_item.get('id', {}).get('videoId', '')
+
+        # Buscar estatísticas (viewer count)
+        stats_url = (
+            f'https://www.googleapis.com/youtube/v3/videos'
+            f'?part=liveStreamingDetails,snippet'
+            f'&id={video_id}&key={api_key}'
+        )
+        stats_resp = requests.get(stats_url, timeout=10)
+        viewer_count = None
+        if stats_resp.ok:
+            stats_data = stats_resp.json()
+            stats_items = stats_data.get('items', [])
+            if stats_items:
+                live_details = stats_items[0].get('liveStreamingDetails', {})
+                viewer_count = live_details.get('concurrentViewers')
+                if viewer_count is not None:
+                    viewer_count = int(viewer_count)
+
+        return jsonify({
+            'isLive': True,
+            'channelTitle': snippet.get('channelTitle', ''),
+            'videoId': video_id,
+            'title': snippet.get('title', ''),
+            'thumbnailUrl': snippet.get('thumbnails', {}).get('high', {}).get('url', ''),
+            'viewerCount': viewer_count,
+        })
+
+    except Exception as e:
+        return jsonify({'isLive': False, 'error': str(e)}), 200
+
+
 @app.route('/api/tv/health', methods=['GET'])
 def tv_health():
     api_key_configured = bool(os.environ.get('YOUTUBE_API_KEY'))
+    channel_configured = bool(os.environ.get('YOUTUBE_CHANNEL_ID'))
     return jsonify({
         'status': 'ok',
         'youtube_api_key_configured': api_key_configured,
+        'youtube_channel_configured': channel_configured,
     })
+

@@ -14,32 +14,66 @@ import { ClockDisplay } from '../components/ClockDisplay'
 import { Greeting } from '../components/Greeting'
 import { Ticker } from '../components/Ticker'
 import { WeatherWidget } from '../components/WeatherWidget'
+import { useUrgentAnnouncements } from '../hooks/useUrgentAnnouncements'
+import { UrgentBanner } from '../components/UrgentBanner'
+import { CountdownSlide } from '../components/CountdownSlide'
+import { WelcomeSlide } from '../components/WelcomeSlide'
 import { WeatherSlide } from '../components/WeatherSlide'
 import { ScreenSaver } from '../components/ScreenSaver'
+import { SeasonalEffects } from '../components/SeasonalEffects'
+import { useYouTubeLive } from '../hooks/useYouTubeLive'
 
-type Phase = { type: 'video' } | { type: 'gallery'; galleryId: string } | { type: 'events' } | { type: 'weather' }
+type Phase =
+  | { type: 'video' }
+  | { type: 'gallery'; galleryId: string }
+  | { type: 'events' }
+  | { type: 'weather' }
+  | { type: 'countdown'; eventId: string }
+  | { type: 'welcome'; eventId?: string }
 
 export function TvDisplay() {
   const { events, loading: eventsLoading } = useEvents()
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
   const { galleries: activeGalleries, photosMap, loading: galleryLoading } = useActiveGalleries()
+  const { activeAnnouncement } = useUrgentAnnouncements()
   const { setPlaying: setMusicPlaying } = useMusicPlayer()
   const navigate = useNavigate()
 
   const [hasLoaded, setHasLoaded] = useState(false)
   const [paused, setPaused] = useState(false)
 
-  /* ── Phase sequence: video → gallery[0] → events → gallery[1] → ... → weather → events ── */
+  /* ── Phase sequence: countdown / welcome → video → gallery[0] → events → weather ... ── */
   const phaseSequence = useMemo<Phase[]>(() => {
-    const seq: Phase[] = [{ type: 'video' }]
+    const seq: Phase[] = []
+
+    // 1. Countdown for upcoming events with show_countdown or within 7 days
+    const countdownEvents = events.filter(e => {
+      if (!e.start_date) return false
+      const targetTime = new Date(e.start_date).getTime()
+      const diffDays = (targetTime - Date.now()) / (1000 * 60 * 60 * 24)
+      return e.show_countdown || (diffDays > 0 && diffDays <= 7)
+    })
+    for (const ce of countdownEvents) {
+      seq.push({ type: 'countdown', eventId: ce.id })
+    }
+
+    // 2. Welcome slide if event has_welcome
+    const welcomeEvent = events.find(e => e.has_welcome)
+    if (welcomeEvent) {
+      seq.push({ type: 'welcome', eventId: welcomeEvent.id })
+    }
+
+    // 3. Main rotation
+    seq.push({ type: 'video' })
     for (const g of activeGalleries) {
       seq.push({ type: 'gallery', galleryId: g.id })
       seq.push({ type: 'events' })
     }
     seq.push({ type: 'weather' })
     seq.push({ type: 'events' })
-    return seq
-  }, [activeGalleries])
+
+    return seq.length > 0 ? seq : [{ type: 'video' }]
+  }, [activeGalleries, events])
 
   const [phaseIdx, setPhaseIdx] = useState(0)
   const currentPhase = phaseSequence[phaseIdx] ?? { type: 'video' }
@@ -93,6 +127,12 @@ export function TvDisplay() {
   /* ── Pre-compute current phase duration as a stable primitive ── */
   const currentPhaseDurationMs = useMemo(() => {
     if (isVideoPhase || paused) return null
+    if (currentPhase.type === 'countdown') {
+      return 15_000
+    }
+    if (currentPhase.type === 'welcome') {
+      return 20_000
+    }
     if (currentPhase.type === 'events') {
       const prevType = phaseIdx > 0 ? phaseSequence[phaseIdx - 1].type : null
       const isBrief = prevType === 'gallery' || prevType === 'weather'
@@ -271,6 +311,36 @@ export function TvDisplay() {
         </div>
       )}
 
+      {/* Countdown slide */}
+      {currentPhase.type === 'countdown' && (() => {
+        const targetEvent = events.find(e => e.id === currentPhase.eventId) || events[0]
+        return targetEvent ? (
+          <div style={{
+            position: 'absolute', inset: 0,
+            opacity: currentPhase.type === 'countdown' ? 1 : 0,
+            pointerEvents: currentPhase.type === 'countdown' ? 'auto' : 'none',
+            transition: 'opacity 0.5s',
+          }}>
+            <CountdownSlide event={targetEvent} />
+          </div>
+        ) : null
+      })()}
+
+      {/* Welcome slide */}
+      {currentPhase.type === 'welcome' && (() => {
+        const targetEvent = events.find(e => e.id === currentPhase.eventId)
+        return (
+          <div style={{
+            position: 'absolute', inset: 0,
+            opacity: currentPhase.type === 'welcome' ? 1 : 0,
+            pointerEvents: currentPhase.type === 'welcome' ? 'auto' : 'none',
+            transition: 'opacity 0.5s',
+          }}>
+            <WelcomeSlide event={targetEvent} />
+          </div>
+        )
+      })()}
+
       {/* Weather slide — always rendered when weather phase is active */}
       <div style={{
         position: 'absolute', inset: 0,
@@ -280,6 +350,9 @@ export function TvDisplay() {
       }}>
         <WeatherSlide />
       </div>
+
+      {/* Urgent Banner Layer */}
+      <UrgentBanner announcement={activeAnnouncement} />
 
       {/* ── Layer 3: Music ── */}
       <MusicQueuePlayer />
@@ -400,8 +473,97 @@ export function TvDisplay() {
         <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>Lab Hub TV</span>
       </div>
 
+      {/* Seasonal particle effects (confetes, snow, leaves) */}
+      <SeasonalEffects />
+
+      {/* Live YouTube Indicator */}
+      <TvLiveBadge />
+
       {/* Empty state → screensaver */}
       {hasLoaded && !hasContent && <ScreenSaver />}
     </div>
+  )
+}
+
+/**
+ * Badge flutuante que indica quando o canal da faculdade está ao vivo no YouTube
+ */
+function TvLiveBadge() {
+  const { isLive, title, channelTitle, videoId, viewerCount } = useYouTubeLive()
+
+  if (!isLive) return null
+
+  return (
+    <a
+      href={videoId ? `https://www.youtube.com/watch?v=${videoId}` : `https://www.youtube.com/@${encodeURIComponent(channelTitle)}/live`}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        position: 'fixed',
+        top: '1rem',
+        left: '1rem',
+        zIndex: 45,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.6rem',
+        padding: '0.5rem 1rem',
+        borderRadius: '9999px',
+        background: 'rgba(220,38,38,0.2)',
+        border: '1px solid rgba(220,38,38,0.3)',
+        backdropFilter: 'blur(12px)',
+        boxShadow: '0 4px 20px rgba(220,38,38,0.3)',
+        color: '#ffffff',
+        textDecoration: 'none',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        transition: 'all 0.2s',
+        cursor: 'pointer',
+      }}
+    >
+      {/* Live dot animado */}
+      <span
+        style={{
+          width: '10px',
+          height: '10px',
+          borderRadius: '50%',
+          background: '#ef4444',
+          animation: 'pulse 1.5s ease-in-out infinite',
+          boxShadow: '0 0 12px rgba(239,68,68,0.6)',
+        }}
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+        <span style={{
+          fontSize: '0.75rem',
+          fontWeight: 800,
+          color: '#fca5a5',
+          letterSpacing: '0.05em',
+          textTransform: 'uppercase',
+        }}>
+          AO VIVO
+        </span>
+        <span style={{
+          fontSize: '0.7rem',
+          fontWeight: 600,
+          color: '#f1f5f9',
+          maxWidth: '200px',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}>
+          {title || channelTitle || 'YouTube'}
+        </span>
+      </div>
+      {viewerCount != null && viewerCount > 0 && (
+        <span style={{
+          fontSize: '0.6rem',
+          fontWeight: 700,
+          color: '#fca5a5',
+          background: 'rgba(0,0,0,0.2)',
+          padding: '0.15rem 0.5rem',
+          borderRadius: '9999px',
+        }}>
+          {viewerCount} espectadores
+        </span>
+      )}
+    </a>
   )
 }

@@ -8,6 +8,8 @@ export interface TvEvent {
   end_date: string | null
   is_active: boolean
   sort_order: number
+  show_countdown?: boolean
+  has_welcome?: boolean
   created_at: string
 }
 
