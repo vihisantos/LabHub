@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { appRegistry } from '../../appRegistry'
-import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { icons } from '../../lib/icons'
@@ -13,49 +12,8 @@ function getGreeting(): string {
   return 'Boa noite'
 }
 
-function HealthCard({ metrics }: { metrics: ReturnType<typeof useHealth>['metrics'] }) {
-  if (!metrics) return null
-
-  return (
-    <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-card)]">
-      <p className="mb-3 text-xs font-semibold text-fg-muted">Infraestrutura</p>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <p className="text-xl font-bold text-fg">{metrics.totalAssets}</p>
-          <p className="text-[10px] text-fg-muted">ativos</p>
-        </div>
-        <div>
-          <p className="text-xl font-bold text-amber-500">{metrics.openTickets}</p>
-          <p className="text-[10px] text-fg-muted">chamados abertos</p>
-        </div>
-        <div>
-          <p className="text-xl font-bold text-emerald-500">{metrics.computersOnline}</p>
-          <p className="text-[10px] text-fg-muted">computadores</p>
-        </div>
-        <div>
-          <p className="text-xl font-bold text-red-500">{metrics.criticalTickets}</p>
-          <p className="text-[10px] text-fg-muted">críticos</p>
-        </div>
-      </div>
-      <div className="mt-3 flex items-center gap-2 border-t border-line pt-3">
-        <div className={`h-2 w-2 rounded-full ${
-          metrics.syncStatus === 'ok' ? 'bg-emerald-500' :
-          metrics.syncStatus === 'syncing' ? 'bg-amber-500 animate-pulse' :
-          'bg-red-500'
-        }`} />
-        <span className="text-[10px] text-fg-muted">
-          {metrics.syncStatus === 'ok' ? 'Sincronizado' :
-           metrics.syncStatus === 'syncing' ? 'Sincronizando...' :
-           'Offline'}
-        </span>
-      </div>
-    </div>
-  )
-}
-
 export function Launcher() {
   const navigate = useNavigate()
-  const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
   const [greeting, setGreeting] = useState('')
 
@@ -71,11 +29,12 @@ export function Launcher() {
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
-      <div className="mx-auto max-w-lg px-5 pt-10 pb-8">
+      <div className="mx-auto max-w-lg px-5 pt-8 pb-8">
+        {/* Header */}
         <header className="mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-fg">{greeting}, Vitor</h1>
+              <h1 className="text-2xl font-bold text-fg">{greeting}</h1>
               <WorkspaceSelector />
             </div>
             <div className="flex items-center gap-2">
@@ -105,34 +64,81 @@ export function Launcher() {
           </div>
         </header>
 
-        <HealthCard metrics={metrics} />
+        {/* Quick Actions */}
+        <div className="mb-6">
+          <div className="grid grid-cols-4 gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/chamados-publico')}
+              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">
+                <icons.ui.scanBarcode size={18} />
+              </div>
+              <span className="text-[10px] font-medium text-fg-muted">Escanear</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/chamados')}
+              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">
+                <icons.ui.alertCircle size={18} />
+              </div>
+              <span className="text-[10px] font-medium text-fg-muted">Chamados</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/pc-care/pcs/new')}
+              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-violet-500">
+                <icons.ui.plus size={18} />
+              </div>
+              <span className="text-[10px] font-medium text-fg-muted">Novo Ativo</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/admin/logs')}
+              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
+                <icons.ui.fileBarChart size={18} />
+              </div>
+              <span className="text-[10px] font-medium text-fg-muted">Logs</span>
+            </button>
+          </div>
+        </div>
 
-        <div className="mt-6">
-          <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Aplicativos</p>
-          <div className="grid grid-cols-2 gap-3">
+        {/* Apps */}
+        <div className="mb-6">
+          <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Módulos</p>
+          <div className="space-y-2">
             {appRegistry.map((app) => (
               <button
                 key={app.id}
                 type="button"
                 onClick={() => navigate(app.route)}
-                className="group flex flex-col items-center gap-3 rounded-2xl bg-card p-5 text-center shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
+                className="flex w-full items-center gap-4 rounded-xl bg-card p-4 text-left shadow-sm transition-all active:scale-[0.98]"
               >
-                <span
-                  className="flex h-12 w-12 items-center justify-center rounded-xl transition-all duration-300"
+                <div
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
                   style={{ backgroundColor: app.color + '15', color: app.color }}
                 >
-                  <app.icon size={24} />
-                </span>
-                <div>
-                  <h2 className="text-sm font-semibold text-fg">{app.name}</h2>
-                  <p className="mt-0.5 text-[10px] text-fg-muted leading-relaxed">{app.description}</p>
+                  <app.icon size={22} />
                 </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-semibold text-fg">{app.name}</h2>
+                  <p className="mt-0.5 text-[11px] text-fg-muted leading-snug truncate">{app.description}</p>
+                </div>
+                <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
               </button>
             ))}
           </div>
         </div>
 
-        <footer className="mt-8 text-center">
+        {/* Footer */}
+        <footer className="text-center">
           <button
             type="button"
             onClick={() => navigate('/roadmap')}
