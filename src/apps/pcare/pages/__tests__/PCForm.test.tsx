@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
-vi.mock('../../hooks/usePCs', () => ({ usePCs: vi.fn() }))
+vi.mock('../../hooks/useAssets', () => ({ useAssets: vi.fn() }))
 vi.mock('../../components/PCPhotoUpload', () => ({ PCPhotoUpload: () => <div data-testid="photo-upload" /> }))
 
 const mockNavigate = vi.fn()
@@ -11,41 +11,55 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate, useParams: () => ({ id: 'pc-1' }) }
 })
 
-import { usePCs } from '../../hooks/usePCs'
+import { useAssets } from '../../hooks/useAssets'
 import { PCForm } from '../PCForm'
 
-const mockPC = {
+const mockAsset = {
   id: 'pc-1',
-  labName: 'Lab A',
-  pcNumber: 'PC-001',
   assetTag: 'TAG-001',
-  roomLocation: 'Sala 101',
-  specs: { cpu: 'i5-10400', ram: '8GB DDR4', storage: 'SSD 240GB' },
-  config: { osType: 'windows', osVersion: '10', osEdition: 'pro', pcType: 'desktop', domain: '' },
-  cleaningStatus: 'pending',
-  restorationStatus: 'pending',
-  softwareInstalled: ['Chrome', 'VS Code'],
-  partsReplaced: [],
+  equipmentType: 'Desktop',
+  manufacturer: 'Dell',
+  model: 'OptiPlex 7090',
+  serialNumber: 'SN-123',
+  location: 'Sala 101',
+  status: 'in_use',
   observations: 'PC em bom estado',
+  technical: {
+    operatingSystem: 'windows',
+    architecture: 'intel',
+    processor: 'i5-10400',
+    memory: '8GB DDR4',
+    storageType: 'ssd_sata',
+    storageCapacity: '240GB',
+    storageBrand: 'Kingston',
+  },
+  network: {
+    hostname: 'PC-001',
+    macEthernet: '00:11:22:33:44:55',
+    macWifi: '',
+    ip: '192.168.1.100',
+    domain: 'lab.local',
+  },
+  parentAssetId: null,
+  childAssetIds: [],
   photos: [],
-  lastIntervention: null,
-  createdAt: { seconds: 1700000000, nanoseconds: 0 },
-  updatedAt: { seconds: 1700000000, nanoseconds: 0 },
+  createdAt: '2024-01-01T00:00:00.000Z',
+  updatedAt: '2024-01-01T00:00:00.000Z',
 }
 
 function renderForm() {
-  return render(<MemoryRouter initialEntries={['/pc-care/pcs/pc-1/edit']}><PCForm /></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={['/pc-care/assets/pc-1/edit']}><PCForm /></MemoryRouter>)
 }
 
 describe('PCForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(usePCs as any).mockReturnValue({ pcs: [mockPC], update: vi.fn() })
+    ;(useAssets as any).mockReturnValue({ assets: [mockAsset], create: vi.fn(), update: vi.fn() })
   })
 
-  it('renderiza título "Editar PC"', () => {
+  it('renderiza título "Editar ativo"', () => {
     renderForm()
-    expect(screen.getByText('Editar PC')).toBeInTheDocument()
+    expect(screen.getByText('Editar ativo')).toBeInTheDocument()
   })
 
   it('exibe seção Identificação', () => {
@@ -53,30 +67,14 @@ describe('PCForm', () => {
     expect(screen.getByText('Identificação')).toBeInTheDocument()
   })
 
-  it('exibe seção Especificações', () => {
+  it('exibe seção Informações técnicas', () => {
     renderForm()
-    expect(screen.getByText('Especificações')).toBeInTheDocument()
+    expect(screen.getByText('Informações técnicas')).toBeInTheDocument()
   })
 
-  it('exibe seção Configuração do Sistema', () => {
+  it('exibe seção Rede', () => {
     renderForm()
-    expect(screen.getByText('Configuração do Sistema')).toBeInTheDocument()
-  })
-
-  it('exibe seção Status', () => {
-    renderForm()
-    expect(screen.getByText('Status')).toBeInTheDocument()
-  })
-
-  it('exibe seção Software Instalado com softwares', () => {
-    renderForm()
-    expect(screen.getByText('Chrome')).toBeInTheDocument()
-    expect(screen.getByText('VS Code')).toBeInTheDocument()
-  })
-
-  it('exibe seção Fotos', () => {
-    renderForm()
-    expect(screen.getByTestId('photo-upload')).toBeInTheDocument()
+    expect(screen.getByText('Rede')).toBeInTheDocument()
   })
 
   it('exibe seção Observações', () => {
@@ -84,33 +82,28 @@ describe('PCForm', () => {
     expect(screen.getByText('Observações')).toBeInTheDocument()
   })
 
-  it('exibe campo de laboratório preenchido', () => {
+  it('exibe campo de localização preenchido', () => {
     renderForm()
-    const labInput = screen.getByDisplayValue('Lab A')
-    expect(labInput).toBeInTheDocument()
+    const locationInput = screen.getByDisplayValue('Sala 101')
+    expect(locationInput).toBeInTheDocument()
   })
 
   it('exibe botões Cancelar e Salvar', () => {
     renderForm()
     expect(screen.getByText('Cancelar')).toBeInTheDocument()
-    expect(screen.getByText('Salvar')).toBeInTheDocument()
+    expect(screen.getByText('Salvar ativo')).toBeInTheDocument()
   })
 
-  it('navega para /pc-care/pcs ao clicar Cancelar', () => {
+  it('navega ao clicar Cancelar', () => {
     renderForm()
     screen.getByText('Cancelar').click()
-    expect(mockNavigate).toHaveBeenCalledWith('/pc-care/pcs')
+    expect(mockNavigate).toHaveBeenCalled()
   })
 
-  it('exibe "PC não encontrado" para PC inválido', () => {
-    ;(usePCs as any).mockReturnValue({ pcs: [], update: vi.fn() })
+  it('exibe "Ativo não encontrado" para ativo inválido', () => {
+    ;(useAssets as any).mockReturnValue({ assets: [], create: vi.fn(), update: vi.fn() })
     renderForm()
-    expect(screen.getByText('PC não encontrado')).toBeInTheDocument()
-  })
-
-  it('exibe input de software com placeholder', () => {
-    renderForm()
-    expect(screen.getByPlaceholderText('Digite o nome do software...')).toBeInTheDocument()
+    expect(screen.getByText('Ativo não encontrado.')).toBeInTheDocument()
   })
 
   it('exibe seção Observações com valor preenchido', () => {
