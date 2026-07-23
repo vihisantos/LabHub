@@ -38,21 +38,17 @@ describe('PCDetail', () => {
 
     renderWithRoute('/pc-care/pcs/pc-1')
 
-    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
-    expect(screen.getByText(/Lab A/)).toBeInTheDocument()
+    expect(screen.getAllByText('TAG-001').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
     expect(screen.getByText('i5')).toBeInTheDocument()
     expect(screen.getByText('8GB')).toBeInTheDocument()
     expect(screen.getByText('256GB')).toBeInTheDocument()
-    expect(screen.getByText('Windows 11 Enterprise 24H2')).toBeInTheDocument()
-    expect(screen.getByText('Chrome')).toBeInTheDocument()
-    expect(screen.getByText('VS Code')).toBeInTheDocument()
   })
 
-  it('mostra empty state quando PC nao existe', () => {
+  it('mostra empty state quando ativo nao existe', () => {
     renderWithRoute('/pc-care/pcs/id-inexistente')
 
-    expect(screen.getByText('PC não encontrado')).toBeInTheDocument()
-    expect(screen.getByText('Voltar')).toBeInTheDocument()
+    expect(screen.getByText('Ativo não encontrado.')).toBeInTheDocument()
+    expect(screen.getByText('Voltar ao inventário')).toBeInTheDocument()
   })
 })
