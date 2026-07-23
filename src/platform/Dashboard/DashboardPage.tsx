@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
+import { useAuth } from '../../core/auth/AuthContext'
 import { MetricCard } from './MetricCard'
 import { ModuleStats } from './ModuleStats'
 import { QuickActions } from './QuickActions'
@@ -20,6 +21,9 @@ export function DashboardPage() {
   const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
   const { workspace } = useWorkspace()
+  const { user, signOut } = useAuth()
+
+  const userName = user?.name?.split(' ')[0] || ''
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
@@ -27,7 +31,9 @@ export function DashboardPage() {
         <header className="mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-fg">{getGreeting()}</h1>
+              <h1 className="text-2xl font-bold text-fg">
+                {getGreeting()}{userName ? `, ${userName}` : ''}
+              </h1>
               <p className="text-sm text-fg-muted">{workspace?.name || 'LabHub'}</p>
             </div>
             <div className="flex items-center gap-2">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { appRegistry } from '../../appRegistry'
 import { useNotifications } from '../../core/notifications/useNotifications'
+import { useAuth } from '../../core/auth/AuthContext'
 import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { icons } from '../../lib/icons'
 
@@ -15,7 +16,10 @@ function getGreeting(): string {
 export function Launcher() {
   const navigate = useNavigate()
   const { unreadCount } = useNotifications()
+  const { user, signOut } = useAuth()
   const [greeting, setGreeting] = useState('')
+
+  const userName = user?.name?.split(' ')[0] || ''
 
   useEffect(() => {
     setGreeting(getGreeting())
@@ -34,7 +38,9 @@ export function Launcher() {
         <header className="mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-fg">{greeting}</h1>
+              <h1 className="text-2xl font-bold text-fg">
+                {greeting}{userName ? `, ${userName}` : ''}
+              </h1>
               <WorkspaceSelector />
             </div>
             <div className="flex items-center gap-2">
@@ -59,6 +65,14 @@ export function Launcher() {
                 className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg"
               >
                 <icons.ui.search size={20} />
+              </button>
+              <button
+                type="button"
+                onClick={signOut}
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-red-500/10 hover:text-red-500"
+                title="Sair"
+              >
+                <icons.ui.close size={20} />
               </button>
             </div>
           </div>

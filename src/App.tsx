@@ -1,10 +1,11 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
-import { LoginPage } from './platform/Login/LoginPage'
+import { AuthProvider, useAuth } from './core/auth/AuthContext'
 
+const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('./platform/Dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })))
 const Launcher = lazy(() => import('./platform/Launcher/Launcher').then(m => ({ default: m.Launcher })))
 const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
@@ -28,32 +29,105 @@ function RouteFallback() {
   )
 }
 
+function AuthGuard({ children }: { children: ReactNode }) {
+  const { user, loading, isConfigured } = useAuth()
+
+  if (!isConfigured) return <>{children}</>
+
+  if (loading) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-surface">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          <p className="text-xs text-fg-muted">Verificando acesso...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+
+  return <>{children}</>
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="login" element={<LoginPage />} />
+      <Route index element={
+        <AuthGuard>
+          <DashboardPage />
+        </AuthGuard>
+      } />
+      <Route path="launcher" element={
+        <AuthGuard>
+          <Launcher />
+        </AuthGuard>
+      } />
+      <Route path="roadmap" element={
+        <AuthGuard>
+          <Roadmap />
+        </AuthGuard>
+      } />
+      <Route path="pc-care/*" element={
+        <AuthGuard>
+          <PCCareApp />
+        </AuthGuard>
+      } />
+      <Route path="stock/*" element={
+        <AuthGuard>
+          <StockApp />
+        </AuthGuard>
+      } />
+      <Route path="general-stock/*" element={
+        <AuthGuard>
+          <StockApp />
+        </AuthGuard>
+      } />
+      <Route path="reservalab/*" element={
+        <AuthGuard>
+          <ReservaLabApp />
+        </AuthGuard>
+      } />
+      <Route path="tv/*" element={
+        <AuthGuard>
+          <TvApp />
+        </AuthGuard>
+      } />
+      <Route path="chamados/*" element={
+        <AuthGuard>
+          <ChamadosApp />
+        </AuthGuard>
+      } />
+      <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
+      <Route path="admin/notifications" element={
+        <AuthGuard>
+          <NotificationsPage />
+        </AuthGuard>
+      } />
+      <Route path="admin/logs" element={
+        <AuthGuard>
+          <LogsPage />
+        </AuthGuard>
+      } />
+    </Routes>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <WorkspaceProvider>
-        <Suspense fallback={<RouteFallback />}>
-          <Routes>
-            <Route path="login" element={<LoginPage />} />
-            <Route index element={<DashboardPage />} />
-            <Route path="launcher" element={<Launcher />} />
-            <Route path="roadmap" element={<Roadmap />} />
-            <Route path="pc-care/*" element={<PCCareApp />} />
-            <Route path="stock/*" element={<StockApp />} />
-            <Route path="general-stock/*" element={<StockApp />} />
-            <Route path="reservalab/*" element={<ReservaLabApp />} />
-            <Route path="tv/*" element={<TvApp />} />
-            <Route path="chamados/*" element={<ChamadosApp />} />
-            <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
-            <Route path="admin/notifications" element={<NotificationsPage />} />
-            <Route path="admin/logs" element={<LogsPage />} />
-          </Routes>
-        </Suspense>
-        {/* ── Global command palette (Ctrl+K) ── */}
-        <CommandPalette />
-        {/* ── Global presence indicator (floating badge) ── */}
-        <GlobalPresenceIndicator />
-      </WorkspaceProvider>
+      <AuthProvider>
+        <WorkspaceProvider>
+          <Suspense fallback={<RouteFallback />}>
+            <AppRoutes />
+          </Suspense>
+          <CommandPalette />
+          <GlobalPresenceIndicator />
+        </WorkspaceProvider>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

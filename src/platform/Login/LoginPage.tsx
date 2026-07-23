@@ -1,12 +1,20 @@
-import { useState } from 'react'
-import { useAuth } from '../../core/auth/useAuth'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../core/auth/AuthContext'
 
 export function LoginPage() {
-  const { signIn, signUp, error, loading } = useAuth()
+  const navigate = useNavigate()
+  const { signIn, signUp, error, loading, isAuthenticated } = useAuth()
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/', { replace: true })
+    }
+  }, [isAuthenticated, navigate])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -16,6 +24,7 @@ export function LoginPage() {
       } else {
         await signUp({ email, password, name })
       }
+      navigate('/', { replace: true })
     } catch {
       // error is handled by useAuth
     }
