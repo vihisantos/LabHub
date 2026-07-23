@@ -3,6 +3,7 @@ import type { User, AuthCredentials, SignUpData } from './types'
 
 let currentUser: User | null = null
 let authListeners: Array<(user: User | null) => void> = []
+let initialized = false
 
 function notifyListeners() {
   for (const listener of authListeners) {
@@ -17,26 +18,36 @@ function requireDb() {
 export const authService = {
   init: async (): Promise<User | null> => {
     if (!defaultDb) return null
+    if (initialized) return currentUser
+    initialized = true
 
-    try {
-      const { data: { session } } = await defaultDb.auth.getSession()
+    // 1. Set up auth state listener FIRST (before getSession)
+    defaultDb.auth.onAuthStateChange(async (event, session) => {
+      console.log('[Auth] State change:', event)
       if (session?.user) {
+        const profile = await authService.fetchUserProfile(session.user.id)
+        currentUser = profile
+      } else {
+        currentUser = null
+      }
+      notifyListeners()
+    })
+
+    // 2. Then restore existing session
+    try {
+      const { data: { session }, error } = await defaultDb.auth.getSession()
+      if (error) {
+        console.warn('[Auth] getSession error:', error.message)
+      }
+      if (session?.user) {
+        console.log('[Auth] Session restored for:', session.user.email)
         currentUser = await authService.fetchUserProfile(session.user.id)
         notifyListeners()
+      } else {
+        console.log('[Auth] No active session')
       }
     } catch (e) {
       console.warn('[Auth] Failed to init:', e)
-    }
-
-    if (defaultDb) {
-      defaultDb.auth.onAuthStateChange(async (_event, session) => {
-        if (session?.user) {
-          currentUser = await authService.fetchUserProfile(session.user.id)
-        } else {
-          currentUser = null
-        }
-        notifyListeners()
-      })
     }
 
     return currentUser
@@ -53,6 +64,7 @@ export const authService = {
     if (error) throw error
     if (!data.user) throw new Error('Usuário não retornado')
 
+    // Session is automatically stored in localStorage by Supabase
     const profile = await authService.fetchUserProfile(data.user.id)
     if (!profile) throw new Error('Perfil do usuário não encontrado. Contate o administrador.')
 
@@ -75,7 +87,6 @@ export const authService = {
     if (error) throw error
     if (!authData.user) throw new Error('Usuário não retornado')
 
-    // Profile is created by the trigger, just fetch it
     const profile = await authService.fetchUserProfile(authData.user.id)
     if (!profile) throw new Error('Perfil não criado automaticamente')
 
@@ -88,6 +99,7 @@ export const authService = {
     if (!defaultDb) return
     await defaultDb.auth.signOut()
     currentUser = null
+    initialized = false
     notifyListeners()
   },
 

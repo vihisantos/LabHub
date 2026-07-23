@@ -9,7 +9,14 @@ let stockDb: any = null
 
 if (url && anonKey) {
   try {
-    const client = createClient(url, anonKey)
+    const client = createClient(url, anonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        flowType: 'pkce',
+      },
+    })
     defaultDb = client
     pcareDb = client.schema('pcare')
     stockDb = client.schema('stock')
