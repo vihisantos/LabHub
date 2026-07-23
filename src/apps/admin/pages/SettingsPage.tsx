@@ -41,7 +41,7 @@ export function SettingsPage() {
             rel="noopener noreferrer"
             className="flex items-center gap-3 rounded-lg p-2 text-sm text-fg transition-colors hover:bg-input"
           >
-            <icons.ui.external size={16} className="text-fg-muted" />
+            <icons.ui.link size={16} className="text-fg-muted" />
             Supabase Dashboard
           </a>
           <a
@@ -50,7 +50,7 @@ export function SettingsPage() {
             rel="noopener noreferrer"
             className="flex items-center gap-3 rounded-lg p-2 text-sm text-fg transition-colors hover:bg-input"
           >
-            <icons.ui.external size={16} className="text-fg-muted" />
+            <icons.ui.link size={16} className="text-fg-muted" />
             GitHub Repository
           </a>
         </div>

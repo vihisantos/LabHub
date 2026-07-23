@@ -21,7 +21,7 @@ export function DashboardPage() {
   const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
   const { workspace } = useWorkspace()
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
 
   const userName = user?.name?.split(' ')[0] || ''
 

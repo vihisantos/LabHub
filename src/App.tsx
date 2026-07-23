@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
