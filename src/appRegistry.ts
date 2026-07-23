@@ -52,4 +52,12 @@ export const appRegistry: AppModule[] = [
     route: '/chamados',
     color: '#f59e0b',
   },
+  {
+    id: 'admin',
+    name: 'Administração',
+    description: 'Configurações do sistema e gestão de usuários',
+    icon: icons.nav.settings,
+    route: '/admin',
+    color: '#64748b',
+  },
 ]

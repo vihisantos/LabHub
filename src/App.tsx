@@ -15,6 +15,7 @@ const ReservaLabApp = lazy(() => import('./apps/reservalab').then(m => ({ defaul
 const TvApp = lazy(() => import('./apps/tv').then(m => ({ default: m.TvApp })))
 const ChamadosApp = lazy(() => import('./apps/chamados').then(m => ({ default: m.ChamadosApp })))
 const ChamadosPublicApp = lazy(() => import('./apps/chamados-publico').then(m => ({ default: m.ChamadosPublicApp })))
+const AdminApp = lazy(() => import('./apps/admin').then(m => ({ default: m.AdminApp })))
 const NotificationsPage = lazy(() => import('./platform/Admin/NotificationsPage').then(m => ({ default: m.NotificationsPage })))
 const LogsPage = lazy(() => import('./platform/Admin/LogsPage').then(m => ({ default: m.LogsPage })))
 
@@ -30,9 +31,7 @@ function RouteFallback() {
 }
 
 function AuthGuard({ children }: { children: ReactNode }) {
-  const { user, loading, isConfigured } = useAuth()
-
-  if (!isConfigured) return <>{children}</>
+  const { user, loading } = useAuth()
 
   if (loading) {
     return (
@@ -102,6 +101,11 @@ function AppRoutes() {
         </AuthGuard>
       } />
       <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
+      <Route path="admin/*" element={
+        <AuthGuard>
+          <AdminApp />
+        </AuthGuard>
+      } />
       <Route path="admin/notifications" element={
         <AuthGuard>
           <NotificationsPage />

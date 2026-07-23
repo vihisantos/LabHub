@@ -10,11 +10,13 @@ function notifyListeners() {
   }
 }
 
+function requireDb() {
+  if (!defaultDb) throw new Error('Supabase não configurado. Verifique as variáveis de ambiente.')
+}
+
 export const authService = {
   init: async (): Promise<User | null> => {
-    if (!defaultDb) {
-      return null
-    }
+    if (!defaultDb) return null
 
     try {
       const { data: { session } } = await defaultDb.auth.getSession()
@@ -41,18 +43,18 @@ export const authService = {
   },
 
   signIn: async (credentials: AuthCredentials): Promise<User> => {
-    if (!defaultDb) throw new Error('Supabase not configured')
+    requireDb()
 
-    const { data, error } = await defaultDb.auth.signInWithPassword({
+    const { data, error } = await defaultDb!.auth.signInWithPassword({
       email: credentials.email,
       password: credentials.password,
     })
 
     if (error) throw error
-    if (!data.user) throw new Error('No user returned')
+    if (!data.user) throw new Error('Usuário não retornado')
 
     const profile = await authService.fetchUserProfile(data.user.id)
-    if (!profile) throw new Error('User profile not found')
+    if (!profile) throw new Error('Perfil do usuário não encontrado. Contate o administrador.')
 
     currentUser = profile
     notifyListeners()
@@ -60,31 +62,22 @@ export const authService = {
   },
 
   signUp: async (data: SignUpData): Promise<User> => {
-    if (!defaultDb) throw new Error('Supabase not configured')
+    requireDb()
 
-    const { data: authData, error } = await defaultDb.auth.signUp({
+    const { data: authData, error } = await defaultDb!.auth.signUp({
       email: data.email,
       password: data.password,
+      options: {
+        data: { name: data.name },
+      },
     })
 
     if (error) throw error
-    if (!authData.user) throw new Error('No user returned')
+    if (!authData.user) throw new Error('Usuário não retornado')
 
-    const profile: User = {
-      id: authData.user.id,
-      email: data.email,
-      name: data.name,
-      role: 'viewer',
-      workspaceIds: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-
-    const { error: insertError } = await defaultDb
-      .from('profiles')
-      .insert(profile)
-
-    if (insertError) throw insertError
+    // Profile is created by the trigger, just fetch it
+    const profile = await authService.fetchUserProfile(authData.user.id)
+    if (!profile) throw new Error('Perfil não criado automaticamente')
 
     currentUser = profile
     notifyListeners()
@@ -101,10 +94,10 @@ export const authService = {
   getCurrentUser: (): User | null => currentUser,
 
   updateProfile: async (data: Partial<User>): Promise<User> => {
-    if (!currentUser) throw new Error('Not authenticated')
-    if (!defaultDb) throw new Error('Supabase not configured')
+    if (!currentUser) throw new Error('Não autenticado')
+    requireDb()
 
-    const { error } = await defaultDb
+    const { error } = await defaultDb!
       .from('profiles')
       .update({ ...data, updatedAt: new Date().toISOString() })
       .eq('id', currentUser.id)
