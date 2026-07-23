@@ -9,10 +9,10 @@ const actions = [
     color: '#f59e0b',
   },
   {
-    label: 'Novo Chamado',
-    icon: <icons.ui.plus size={18} />,
-    route: '/chamados',
-    color: '#f59e0b',
+    label: 'Reservas',
+    icon: <icons.ui.flaskConical size={18} />,
+    route: '/reservalab',
+    color: '#6366f1',
   },
   {
     label: 'Inventário',

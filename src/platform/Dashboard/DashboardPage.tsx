@@ -27,7 +27,7 @@ export function DashboardPage() {
         <header className="mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-fg">{getGreeting()}, Vitor</h1>
+              <h1 className="text-2xl font-bold text-fg">{getGreeting()}</h1>
               <p className="text-sm text-fg-muted">{workspace?.name || 'LabHub'}</p>
             </div>
             <div className="flex items-center gap-2">

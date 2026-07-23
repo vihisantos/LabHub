@@ -63,6 +63,26 @@ export function ModuleStats() {
           { label: 'Em uso', value: stockItems.filter((i) => i.status === 'emprestado').length },
         ],
       },
+      {
+        id: 'reservalab',
+        name: 'ReservaLab',
+        icon: <icons.ui.flaskConical size={20} />,
+        color: '#6366f1',
+        route: '/reservalab',
+        stats: [
+          { label: 'Laboratórios', value: 'Reservas e tablets' },
+        ],
+      },
+      {
+        id: 'tv',
+        name: 'TV Corporativa',
+        icon: <icons.ui.tv size={20} />,
+        color: '#ef4444',
+        route: '/tv',
+        stats: [
+          { label: 'Display', value: 'Mural digital' },
+        ],
+      },
     ]
   }, [])
 
