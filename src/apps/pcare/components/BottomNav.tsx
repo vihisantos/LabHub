@@ -13,19 +13,19 @@ function useBadges() {
 }
 
 const mainNav = [
-  { to: '/pcare', label: 'Dashboard', icon: icons.nav.dashboard },
-  { to: '/pcare/pcs', label: 'PCs', icon: icons.nav.pcs },
-  { to: '/pcare/parts', label: 'Estoque', icon: icons.nav.parts },
-  { to: '/pcare/maintenance', label: 'Manutenção', icon: icons.nav.maintenance },
+  { to: '/pc-care', label: 'Dashboard', icon: icons.nav.dashboard },
+  { to: '/pc-care/assets', label: 'Ativos', icon: icons.nav.pcs },
+  { to: '/pc-care/parts', label: 'Estoque', icon: icons.nav.parts },
+  { to: '/pc-care/maintenance', label: 'Manutenção', icon: icons.nav.maintenance },
 ]
 
 const moreItems = [
-  { to: '/pcare/scanner',          label: 'Scanner',    icon: icons.ui.scanBarcode },
-  { to: '/pcare/reports',          label: 'Relatórios', icon: icons.nav.reports },
-  { to: '/pcare/checklists',       label: 'Checklist',  icon: icons.nav.checklists },
-  { to: '/pcare/parts/consolidado', label: 'Consolidado', icon: icons.ui.fileBarChart },
-  { to: '/pcare/qr',               label: 'QR Code',    icon: icons.ui.qrCode },
-  { to: '/pcare/settings',         label: 'Config',     icon: icons.nav.settings },
+  { to: '/pc-care/scanner',          label: 'Scanner',    icon: icons.ui.scanBarcode },
+  { to: '/pc-care/reports',          label: 'Relatórios', icon: icons.nav.reports },
+  { to: '/pc-care/checklists',       label: 'Checklist',  icon: icons.nav.checklists },
+  { to: '/pc-care/parts/consolidado', label: 'Consolidado', icon: icons.ui.fileBarChart },
+  { to: '/pc-care/qr',               label: 'QR Code',    icon: icons.ui.qrCode },
+  { to: '/pc-care/settings',         label: 'Config',     icon: icons.nav.settings },
 ]
 
 export function BottomNav() {
@@ -43,7 +43,7 @@ export function BottomNav() {
   const MoreIcon = icons.nav.more
 
   const isActive = (to: string) => {
-    if (to === '/pcare') return location.pathname === '/pcare' || location.pathname === '/pcare/'
+    if (to === '/pc-care') return location.pathname === '/pc-care' || location.pathname === '/pc-care/'
     return location.pathname.startsWith(to + '/') || location.pathname === to
   }
   const activeTab = mainNav.find(n => isActive(n.to))
@@ -120,14 +120,14 @@ export function BottomNav() {
         </button>
         {mainNav.map(({ to, label, icon: Icon }) => {
           const active = (displayTab?.to ?? activeTab?.to) === to
-          const badge = to === '/pcare/maintenance' ? overdue : to === '/pcare/parts' ? lowStock : 0
+          const badge = to === '/pc-care/maintenance' ? overdue : to === '/pc-care/parts' ? lowStock : 0
           return (
             <button
               key={to}
               onClick={() => navigate(to)}
               className="relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors flex-shrink-0"
               style={{
-                color: active ? '#818cf8' : 'rgba(255,255,255,0.7)',
+                color: active ? '#a78bfa' : 'rgba(255,255,255,0.7)',
                 fontWeight: active ? 700 : 500,
                 padding: '6px 10px',
                 minHeight: '36px',
@@ -141,8 +141,10 @@ export function BottomNav() {
                   style={{
                     position: 'absolute',
                     inset: 2,
-                    background: 'rgba(99, 102, 241, 0.2)',
+                    background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(59, 130, 246, 0.15))',
+                    boxShadow: '0 0 20px rgba(139, 92, 246, 0.15), 0 0 40px rgba(139, 92, 246, 0.08)',
                     borderRadius: '9999px',
+                    animation: 'pulse-glow 3s ease-in-out infinite',
                   }}
                 />
               )}
@@ -164,7 +166,7 @@ export function BottomNav() {
             <button
               type="button"
               className={`relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-                isInMore ? 'text-indigo-400' : 'text-white/70 hover:text-white/90'
+                isInMore ? 'text-violet-400' : 'text-white/70 hover:text-white/90'
               }`}
               aria-label="Mais opções"
             >
@@ -186,7 +188,7 @@ export function BottomNav() {
                     onClick={() => { navigate(to); setShowMore(false) }}
                     className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
                       active
-                        ? 'bg-indigo-900/25 text-indigo-400'
+                        ? 'bg-violet-900/25 text-violet-400'
                         : 'text-white/60 hover:bg-white/5 hover:text-white/90'
                     }`}
                   >

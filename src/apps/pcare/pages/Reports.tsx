@@ -86,17 +86,17 @@ export function Reports() {
   if (pcsLoading || partsLoading) return <div className="grid grid-cols-2 gap-3">{[1,2,3,4].map(i => <SkeletonStatCard key={i} />)}</div>
 
   function handleExport() {
-    const filename = `PCare_${dataType}_${new Date().toISOString().split('T')[0]}`
+    const filename = `PC_Care_${dataType}_${new Date().toISOString().split('T')[0]}`
 
     if (dataType === 'pcs') {
       const { headers, rows } = pcToRows(filteredPCsAdvanced)
-      const title = `PCare - Inventário de PCs${labFilter ? ` - ${labFilter}` : ''}`
+      const title = `PC Care - Inventário de PCs${labFilter ? ` - ${labFilter}` : ''}`
       if (format === 'csv') exportCSV(headers, rows, filename)
       else if (format === 'xlsx') exportXLSX(headers, rows, filename, 'PCs')
       else exportPDF(title, headers, rows, filename)
     } else {
       const { headers, rows } = partToRows(filteredParts)
-      const title = 'PCare - Estoque de Peças'
+      const title = 'PC Care - Estoque de Peças'
       if (format === 'csv') exportCSV(headers, rows, filename)
       else if (format === 'xlsx') exportXLSX(headers, rows, filename, 'Peças')
       else exportPDF(title, headers, rows, filename)
@@ -173,7 +173,7 @@ export function Reports() {
           onClick={() => setImportMode(!importMode)}
           className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
             importMode
-              ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+              ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
               : 'border-line text-fg-dim hover:border-line'
           }`}
         >
@@ -202,7 +202,7 @@ export function Reports() {
                       onClick={() => setImportDataType('pcs')}
                       className={`rounded-lg border px-4 py-2 text-sm transition-all ${
                         importDataType === 'pcs'
-                          ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                          ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
                           : 'border-line text-fg-dim hover:border-line'
                       }`}
                     >
@@ -213,7 +213,7 @@ export function Reports() {
                       onClick={() => setImportDataType('parts')}
                       className={`rounded-lg border px-4 py-2 text-sm transition-all ${
                         importDataType === 'parts'
-                          ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                          ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
                           : 'border-line text-fg-dim hover:border-line'
                       }`}
                     >
@@ -314,7 +314,7 @@ export function Reports() {
                       onClick={() => setDataType('pcs')}
                       className={`rounded-lg border px-4 py-3 text-sm flex items-center gap-2 transition-all ${
                         dataType === 'pcs'
-                          ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                          ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
                           : 'border-line text-fg-dim hover:border-line'
                       }`}
                     >
@@ -325,7 +325,7 @@ export function Reports() {
                       onClick={() => setDataType('parts')}
                       className={`rounded-lg border px-4 py-3 text-sm flex items-center gap-2 transition-all ${
                         dataType === 'parts'
-                          ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                          ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
                           : 'border-line text-fg-dim hover:border-line'
                       }`}
                     >
@@ -432,7 +432,7 @@ export function Reports() {
                         onClick={() => setFormat(f)}
                         className={`rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
                           format === f
-                            ? 'border-cyan-500 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                            ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
                             : 'border-line text-fg-dim hover:border-line'
                         }`}
                       >

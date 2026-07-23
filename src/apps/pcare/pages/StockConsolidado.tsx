@@ -72,8 +72,8 @@ export function StockConsolidado() {
         <h2 className="text-xl font-semibold">Consolidado de Estoque</h2>
         <button
           type="button"
-          onClick={() => navigate('/pcare/parts')}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          onClick={() => navigate('/pc-care/parts')}
+          className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           Ver Peças
         </button>
@@ -85,7 +85,7 @@ export function StockConsolidado() {
           type="button"
           onClick={() => setSelectedLab(null)}
           className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-            !selectedLab ? 'bg-cyan-600 text-white shadow-sm' : 'bg-input text-fg-muted hover:text-fg'
+            !selectedLab ? 'bg-violet-600 text-white shadow-sm' : 'bg-input text-fg-muted hover:text-fg'
           }`}
         >
           Todas
@@ -96,7 +96,7 @@ export function StockConsolidado() {
             type="button"
             onClick={() => setSelectedLab(lab)}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-              selectedLab === lab ? 'bg-cyan-600 text-white shadow-sm' : 'bg-input text-fg-muted hover:text-fg'
+              selectedLab === lab ? 'bg-violet-600 text-white shadow-sm' : 'bg-input text-fg-muted hover:text-fg'
             }`}
           >
             {lab}
@@ -133,7 +133,7 @@ export function StockConsolidado() {
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-input">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all"
+                    className="h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-all"
                     style={{ width: `${(data.count / max) * 100}%` }}
                   />
                 </div>
@@ -204,7 +204,7 @@ function StatBox({ label, value, icon: Icon, alert }: { label: string; value: nu
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs text-fg-muted">{label}</span>
         <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${
-          alert ? 'bg-red-500/10 text-red-500' : 'bg-cyan-500/10 text-cyan-500'
+          alert ? 'bg-red-500/10 text-red-500' : 'bg-violet-500/10 text-violet-500'
         }`}>
           <Icon size={14} />
         </div>

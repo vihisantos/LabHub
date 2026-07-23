@@ -55,7 +55,7 @@ export function ChecklistExecute() {
       <div className="flex flex-col items-center justify-center gap-3 px-6 py-20">
         <icons.nav.checklists size={40} />
         <p className="text-sm text-fg-dim">Template não encontrado</p>
-        <button type="button" onClick={() => navigate('/pcare/checklists')} className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg">Voltar</button>
+        <button type="button" onClick={() => navigate('/pc-care/checklists')} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg">Voltar</button>
       </div>
     )
   }
@@ -65,7 +65,7 @@ export function ChecklistExecute() {
       <div className="flex flex-col gap-6 py-6">
         <button
           type="button"
-          onClick={() => navigate('/pcare/checklists')}
+          onClick={() => navigate('/pc-care/checklists')}
           className="self-start text-sm text-fg-dim hover:text-fg"
         >
           ← Voltar
@@ -112,7 +112,7 @@ export function ChecklistExecute() {
           type="button"
           onClick={startChecklist}
           disabled={!selectedPcId}
-          className="w-full rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 py-4 text-lg font-bold text-fg shadow-lg shadow-cyan-500/25 transition-all hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 py-4 text-lg font-bold text-fg shadow-lg shadow-cyan-500/25 transition-all hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Iniciar Checklist
         </button>
@@ -143,7 +143,7 @@ export function ChecklistExecute() {
 
       <div className="h-3 overflow-hidden rounded-full bg-input">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500"
+          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-all duration-500"
           style={{ width: `${progress}%` }}
         />
       </div>
@@ -182,7 +182,7 @@ export function ChecklistExecute() {
       <button
         type="button"
         disabled={!allDone}
-        onClick={() => navigate('/pcare/checklists')}
+        onClick={() => navigate('/pc-care/checklists')}
         className={`w-full rounded-xl py-4 text-lg font-bold text-fg shadow-lg transition-all ${
           allDone
             ? 'bg-gradient-to-r from-emerald-600 to-green-600 shadow-emerald-500/25 hover:shadow-xl'

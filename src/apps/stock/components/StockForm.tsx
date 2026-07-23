@@ -3,7 +3,7 @@ import type { StockItemFormData, StockSection } from '../types'
 import { stockSections, sectionSubcategories, stockConditions, DEFAULT_PC_PARTS } from '../types'
 import { pcService } from '../../pcare/services/pcService'
 import { stockService } from '../services/stockService'
-import { stockPhotoService, compressImage } from '../services/stockPhotoService'
+import { stockPhotoService, uploadFiles } from '../services/stockPhotoService'
 import { icons } from '../../../lib/icons'
 import { Popover, PopoverTrigger, PopoverContent } from '../../../lib/components/ui'
 
@@ -36,7 +36,7 @@ function PhotoUploadButton({ uploading, onSelect }: PhotoUploadButtonProps) {
         className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-line bg-input/50 text-fg-muted transition-colors hover:bg-input disabled:opacity-50"
       >
         {uploading ? (
-          <span className="text-[10px] font-medium">Comprimindo...</span>
+          <span className="text-[10px] font-medium">Enviando...</span>
         ) : (
           <>
             <icons.ui.camera size={18} />
@@ -334,10 +334,13 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
               uploading={uploading}
               onSelect={async (files) => {
                 setUploading(true)
-                const compressed = await Promise.all(
-                  Array.from(files).map((f) => compressImage(f)),
-                )
-                setLocalPhotos((prev) => [...prev, ...compressed])
+                try {
+                  const urls = await uploadFiles(files)
+                  setLocalPhotos((prev) => [...prev, ...urls])
+                } catch (e) {
+                  console.error('Erro ao enviar fotos:', e)
+                  alert('Erro ao enviar fotos. Tente novamente.')
+                }
                 setUploading(false)
               }}
             />
@@ -347,16 +350,19 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             uploading={uploading}
             onSelect={async (files) => {
               setUploading(true)
-              const compressed = await Promise.all(
-                Array.from(files).map((f) => compressImage(f)),
-              )
-              setLocalPhotos(compressed)
+              try {
+                const urls = await uploadFiles(files)
+                setLocalPhotos(urls)
+              } catch (e) {
+                console.error('Erro ao enviar fotos:', e)
+                alert('Erro ao enviar fotos. Tente novamente.')
+              }
               setUploading(false)
             }}
           />
         )}
   
-        <p className="mt-1 text-[10px] text-fg-muted">Fotos armazenadas apenas localmente (não sobem pro servidor) — JPEG comprimido até 800px</p>
+        <p className="mt-1 text-[10px] text-fg-muted">Fotos armazenadas no Cloudinary (hospedagem externa) — upload em até 10MB</p>
       </div>
 
       {form.section === 'cabos' && (

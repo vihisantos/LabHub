@@ -134,7 +134,7 @@ export function StockBottomNav() {
               onClick={() => navigate(to)}
               className="relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors flex-shrink-0"
               style={{
-                color: active ? '#818cf8' : 'rgba(255,255,255,0.7)',
+                color: active ? '#34d399' : 'rgba(255,255,255,0.7)',
                 fontWeight: active ? 700 : 500,
                 padding: '6px 10px',
                 minHeight: '36px',
@@ -148,8 +148,10 @@ export function StockBottomNav() {
                   style={{
                     position: 'absolute',
                     inset: 2,
-                    background: 'rgba(99, 102, 241, 0.2)',
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.15))',
+                    boxShadow: '0 0 20px rgba(16, 185, 129, 0.15), 0 0 40px rgba(16, 185, 129, 0.08)',
                     borderRadius: '9999px',
+                    animation: 'pulse-glow 3s ease-in-out infinite',
                   }}
                 />
               )}
@@ -173,7 +175,7 @@ export function StockBottomNav() {
             <button
               type="button"
               className={`relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors ${
-                isInMore ? 'text-indigo-400' : 'text-white/70 hover:text-white/90'
+                isInMore ? 'text-emerald-400' : 'text-white/70 hover:text-white/90'
               }`}
               aria-label="Mais opções"
             >
@@ -200,7 +202,7 @@ export function StockBottomNav() {
                     onClick={() => { navigate(to); setShowMore(false) }}
                     className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
                       active
-                        ? 'bg-indigo-900/25 text-indigo-400'
+                        ? 'bg-emerald-900/25 text-emerald-400'
                         : 'text-white/60 hover:bg-white/5 hover:text-white/90'
                     }`}
                   >

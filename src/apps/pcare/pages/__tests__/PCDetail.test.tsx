@@ -9,7 +9,7 @@ function renderWithRoute(initialEntry: string) {
     <ThemeProvider>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
-          <Route path="/pcare/pcs/:id" element={<PCDetail />} />
+          <Route path="/pc-care/pcs/:id" element={<PCDetail />} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -36,7 +36,7 @@ describe('PCDetail', () => {
       makePart({ id: 'part-1', name: 'Teclado', category: 'periferico', quantity: 5, minQuantity: 2 }),
     ])
 
-    renderWithRoute('/pcare/pcs/pc-1')
+    renderWithRoute('/pc-care/pcs/pc-1')
 
     expect(screen.getByText(/PC-001/)).toBeInTheDocument()
     expect(screen.getByText(/Lab A/)).toBeInTheDocument()
@@ -50,7 +50,7 @@ describe('PCDetail', () => {
   })
 
   it('mostra empty state quando PC nao existe', () => {
-    renderWithRoute('/pcare/pcs/id-inexistente')
+    renderWithRoute('/pc-care/pcs/id-inexistente')
 
     expect(screen.getByText('PC não encontrado')).toBeInTheDocument()
     expect(screen.getByText('Voltar')).toBeInTheDocument()

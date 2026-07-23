@@ -61,6 +61,9 @@ import {
   Tv,
   Volume2,
   VolumeX,
+  MessageSquareWarning,
+  CircleAlert,
+  CircleCheck,
 } from 'lucide-react'
 
 export const icons = {
@@ -133,6 +136,9 @@ export const icons = {
     tv: Tv,
     volume2: Volume2,
     volumeX: VolumeX,
+    messageSquareWarning: MessageSquareWarning,
+    circleAlert: CircleAlert,
+    circleCheck: CircleCheck,
   },
 } as const
 

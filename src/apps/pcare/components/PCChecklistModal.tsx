@@ -44,7 +44,7 @@ export function PCChecklistModal({
                 <div className="flex flex-col gap-1">
                   {cl.items.map((item) => (
                     <button
-                      key={item.itemId}
+                      key={`${item.itemId}-${item.done}`}
                       type="button"
                       onClick={() => onToggleItem(cl.id, item.itemId)}
                       className={`flex items-center gap-2 rounded px-2 py-1 text-left text-xs transition-colors ${
@@ -52,7 +52,7 @@ export function PCChecklistModal({
                       }`}
                     >
                       <span className={`flex h-4 w-4 items-center justify-center rounded border ${
-                        item.done ? 'border-emerald-600 bg-emerald-600 dark:border-emerald-500 dark:bg-emerald-500' : 'border-line'
+                        item.done ? 'border-emerald-600 bg-emerald-600 dark:border-emerald-500 dark:bg-emerald-500 checkbox-animated' : 'border-line'
                       }`}>
                         {item.done && <icons.ui.check size={12} className="text-fg" />}
                       </span>
@@ -86,7 +86,7 @@ export function PCChecklistModal({
                 type="button"
                 onClick={handleApply}
                 disabled={!selectedTemplate}
-                className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:opacity-50"
+                className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-2 text-sm font-medium text-fg shadow-sm shadow-violet-500/20 transition-all hover:shadow-md disabled:opacity-50"
               >
                 Aplicar
               </button>

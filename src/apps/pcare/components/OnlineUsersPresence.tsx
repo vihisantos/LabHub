@@ -24,21 +24,21 @@ const TAB_ID = getTabId()
 
 /** Human-readable page name derived from the current path */
 function getPageLabel(pathname: string): string {
-  if (pathname === '/pcare') return 'Dashboard'
-  if (pathname.startsWith('/pcare/pcs')) {
+  if (pathname === '/pc-care') return 'Dashboard'
+  if (pathname.startsWith('/pc-care/pcs')) {
     if (pathname.includes('/edit')) return 'Editando PC'
-    if (pathname.match(/\/pcare\/pcs\/[\w-]+$/)) return 'Detalhes do PC'
+    if (pathname.match(/\/pc-care\/pcs\/[\w-]+$/)) return 'Detalhes do PC'
     return 'Lista de PCs'
   }
-  if (pathname.startsWith('/pcare/parts/consolidado')) return 'Consolidado'
-  if (pathname.startsWith('/pcare/parts')) return 'Estoque'
-  if (pathname.startsWith('/pcare/maintenance')) return 'Manutenção'
-  if (pathname.startsWith('/pcare/reports')) return 'Relatórios'
-  if (pathname.startsWith('/pcare/checklists')) return 'Checklists'
-  if (pathname.startsWith('/pcare/qr')) return 'QR Code'
-  if (pathname.startsWith('/pcare/scanner')) return 'Scanner'
-  if (pathname.startsWith('/pcare/settings')) return 'Configurações'
-  return 'PCare'
+  if (pathname.startsWith('/pc-care/parts/consolidado')) return 'Consolidado'
+  if (pathname.startsWith('/pc-care/parts')) return 'Estoque'
+  if (pathname.startsWith('/pc-care/maintenance')) return 'Manutenção'
+  if (pathname.startsWith('/pc-care/reports')) return 'Relatórios'
+  if (pathname.startsWith('/pc-care/checklists')) return 'Checklists'
+  if (pathname.startsWith('/pc-care/qr')) return 'QR Code'
+  if (pathname.startsWith('/pc-care/scanner')) return 'Scanner'
+  if (pathname.startsWith('/pc-care/settings')) return 'Configurações'
+  return 'PC Care'
 }
 
 export function OnlineUsersPresence() {
@@ -52,7 +52,7 @@ export function OnlineUsersPresence() {
   const { onlineUsers } = useRealtimePresence('labhub-pcare-online', {
     key: TAB_ID,
     metadata: {
-      app: 'pcare',
+      app: 'pc-care',
       page: pageLabel,
     },
   })
@@ -102,7 +102,7 @@ export function OnlineUsersPresence() {
         <div className="border-b border-line px-4 py-3">
           <p className="text-xs font-semibold text-fg">Online agora</p>
           <p className="text-[10px] text-fg-muted mt-0.5">
-            {otherUsers.length} {otherUsers.length === 1 ? 'pessoa' : 'pessoas'} no PCare
+            {otherUsers.length} {otherUsers.length === 1 ? 'pessoa' : 'pessoas'} no PC Care
           </p>
         </div>
         <div className="max-h-48 overflow-y-auto px-3 py-2">
@@ -116,7 +116,7 @@ export function OnlineUsersPresence() {
               </span>
               <div className="min-w-0">
                 <p className="text-[11px] font-medium text-fg truncate">
-                  {user.metadata?.page ?? 'PCare'}
+                  {user.metadata?.page ?? 'PC Care'}
                 </p>
                 <p className="text-[9px] text-fg-muted">
                   {user.metadata?.app ?? 'desconhecido'}

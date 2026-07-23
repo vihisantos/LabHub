@@ -640,7 +640,7 @@ export function StockSectionPage() {
                 <div key={group.pcId}>
                   <button
                     type="button"
-                    onClick={() => navigate(`/pcare/pcs/${group.pcId}`)}
+                    onClick={() => navigate(`/pc-care/pcs/${group.pcId}`)}
                     className="mb-1.5 flex w-full items-center gap-2 rounded-xl bg-violet-50 dark:bg-violet-950/20 px-4 py-2 text-left transition-colors hover:bg-violet-100 dark:hover:bg-violet-950/40"
                   >
                     <icons.nav.pcs size={15} className="shrink-0 text-violet-500" />

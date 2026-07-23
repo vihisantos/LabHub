@@ -26,7 +26,7 @@ export function KitCard({ kit, onDelete }: KitCardProps) {
     <button
       type="button"
       onClick={() => navigate(`/stock/kits/${kit.id}`)}
-      className="group w-full rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)]"
+      className="card-gradient-bg-stock relative group w-full rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)]"
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">

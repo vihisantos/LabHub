@@ -32,10 +32,14 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
     <button
       type="button"
       onClick={handleClick}
-      className={`group w-full rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-[var(--shadow-elevated)] ${
-        selected ? 'ring-2 ring-emerald-500' : ''
+      className={`group relative w-full overflow-hidden rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-lg hover:shadow-black/10 hover:-translate-y-0.5 active:scale-[0.98] ${
+        selected ? 'ring-2 ring-emerald-500' : 'ring-1 ring-line/50 hover:ring-emerald-500/30 card-gradient-bg-stock'
       }`}
     >
+      {/* Glow sutil no hover */}
+      <div className="absolute -inset-4 opacity-0 transition-opacity duration-500 group-hover:opacity-100 pointer-events-none"
+        style={{ background: 'radial-gradient(400px circle at 50% 0%, rgba(16,185,129,0.06), transparent 60%)' }}
+      />
       <div className="flex gap-3">
         {(() => {
           const firstPhoto = stockPhotoService.get(item.id)[0]

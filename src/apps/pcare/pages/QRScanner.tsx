@@ -25,7 +25,7 @@ export function QRScanner() {
     if (pc) {
       setFeedback('success')
       controlsRef.current?.stop?.()
-      setTimeout(() => navigate(`/pcare/pcs/${pc.id}`), 300)
+      setTimeout(() => navigate(`/pc-care/pcs/${pc.id}`), 300)
     } else {
       setFeedback('error')
     }

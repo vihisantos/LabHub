@@ -127,7 +127,7 @@ export function Maintenance() {
         <button
           type="button"
           onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           {showForm ? 'Cancelar' : '+ Agendar'}
         </button>
@@ -191,7 +191,7 @@ export function Maintenance() {
                 type="date"
                 value={form.scheduledDate}
                 onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })}
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
                 required
               />
             </div>
@@ -202,10 +202,10 @@ export function Maintenance() {
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Motivo, peças necessárias, etc."
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
               />
             </div>
-            <button type="submit" className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">
+            <button type="submit" className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">
               Agendar
             </button>
           </div>
@@ -251,7 +251,7 @@ export function Maintenance() {
                   onClick={() => setSelectedDay(selectedDay === d.date ? null : d.date)}
                   className={`relative flex flex-col items-center rounded-lg py-2 text-xs font-medium transition-all ${
                     selectedDay === d.date
-                      ? 'bg-cyan-600 text-white shadow-sm'
+                      ? 'bg-violet-600 text-white shadow-sm'
                       : d.isToday
                         ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
                         : 'text-fg hover:bg-input'
@@ -288,7 +288,7 @@ export function Maintenance() {
                   <button
                     key={m.id}
                     type="button"
-                    onClick={() => navigate(`/pcare/pcs/${m.pcId}`)}
+                    onClick={() => navigate(`/pc-care/pcs/${m.pcId}`)}
                     className={`w-full rounded-xl border p-3 text-left transition-all hover:shadow-md ${
                       m.completed
                         ? 'border-emerald-500/30 bg-emerald-50 dark:bg-emerald-900/10'
@@ -322,7 +322,7 @@ export function Maintenance() {
               <h3 className="mb-2 text-sm font-medium text-red-600 dark:text-red-400"><icons.ui.alertTriangle size={14} className="inline" /> Atrasadas ({overdue.length})</h3>
               <div className="flex flex-col gap-2">
                 {overdue.map((m) => (
-                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pcare/pcs/${m.pcId}`)} />
+                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
                 ))}
               </div>
             </section>
@@ -332,7 +332,7 @@ export function Maintenance() {
               <h3 className="mb-2 text-sm font-medium text-fg-dim">Próximas ({future.length})</h3>
               <div className="flex flex-col gap-2">
                 {future.map((m) => (
-                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pcare/pcs/${m.pcId}`)} />
+                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
                 ))}
               </div>
             </section>
@@ -342,7 +342,7 @@ export function Maintenance() {
               <h3 className="mb-2 text-sm font-medium text-fg-muted">Concluídas</h3>
               <div className="flex flex-col gap-2">
                 {all.filter((m) => m.completed).map((m) => (
-                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pcare/pcs/${m.pcId}`)} />
+                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
                 ))}
               </div>
             </section>

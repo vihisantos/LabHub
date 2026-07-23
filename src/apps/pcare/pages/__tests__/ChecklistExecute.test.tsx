@@ -33,7 +33,7 @@ const mockPCs = [
 ]
 
 function renderExecute() {
-  return render(<MemoryRouter initialEntries={['/pcare/checklists/tpl-1/execute']}><ChecklistExecute /></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={['/pc-care/checklists/tpl-1/execute']}><ChecklistExecute /></MemoryRouter>)
 }
 
 describe('ChecklistExecute', () => {
@@ -81,11 +81,11 @@ describe('ChecklistExecute', () => {
     expect(screen.getByText('Template não encontrado')).toBeInTheDocument()
   })
 
-  it('navega para /pcare/checklists ao clicar Voltar no template não encontrado', () => {
+  it('navega para /pc-care/checklists ao clicar Voltar no template não encontrado', () => {
     ;(useChecklistTemplates as any).mockReturnValue({ templates: [] })
     renderExecute()
     screen.getByText('Voltar').click()
-    expect(mockNavigate).toHaveBeenCalledWith('/pcare/checklists')
+    expect(mockNavigate).toHaveBeenCalledWith('/pc-care/checklists')
   })
 
   it('exibe "Nenhum PC encontrado" quando não há PCs do lab', () => {

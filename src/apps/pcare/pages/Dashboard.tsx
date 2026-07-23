@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType } from 'react'
+import { useEffect, useMemo, useState, type ComponentType } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
@@ -31,7 +31,7 @@ function formatTime(iso: string) {
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
-const iconMap: Record<string, ComponentType<{ size?: number }>> = {
+const iconMap: Record<string, ComponentType<{ size?: number; className?: string }>> = {
   pc_created: icons.ui.plusCircle,
   status_changed: icons.ui.refresh,
   part_added: icons.nav.parts,
@@ -40,11 +40,11 @@ const iconMap: Record<string, ComponentType<{ size?: number }>> = {
   software_added: icons.ui.hardDrive,
 }
 
-const quickActions: { to: string; label: string; icon: ComponentType<{ size?: number }>; color: string }[] = [
-  { to: '/pcare/pcs/new', label: 'Novo PC', icon: icons.nav.pcs, color: 'from-cyan-600 to-cyan-500' },
-  { to: '/pcare/reports', label: 'Relatórios', icon: icons.nav.reports, color: 'from-amber-600 to-amber-500' },
-  { to: '/pcare/checklists', label: 'Checklists', icon: icons.nav.checklists, color: 'from-rose-600 to-rose-500' },
-  { to: '/pcare/scanner', label: 'Scanner', icon: icons.ui.scanBarcode, color: 'from-violet-600 to-violet-500' },
+const quickActions: { to: string; label: string; icon: ComponentType<{ size?: number; className?: string }>; color: string }[] = [
+  { to: '/pc-care/assets/new', label: 'Novo ativo', icon: icons.nav.pcs, color: 'from-violet-600 to-blue-600' },
+  { to: '/pc-care/reports', label: 'Relatórios', icon: icons.nav.reports, color: 'from-amber-600 to-orange-500' },
+  { to: '/pc-care/checklists', label: 'Checklists', icon: icons.nav.checklists, color: 'from-rose-600 to-pink-500' },
+  { to: '/pc-care/scanner', label: 'Scanner', icon: icons.ui.scanBarcode, color: 'from-violet-600 to-purple-500' },
 ]
 
 export function Dashboard() {
@@ -132,14 +132,46 @@ export function Dashboard() {
   const lowStockParts = parts.filter((p) => p.quantity <= p.minQuantity)
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
+    <div className="relative space-y-5">
+      {/* ── Wallpaper blobs animados ── */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+        <div
+          className="wallpaper-blob"
+          style={{
+            width: '500px', height: '500px',
+            top: '-10%', right: '-15%',
+            background: 'radial-gradient(circle, rgba(139, 92, 246, 0.15), transparent 70%)',
+            animation: 'blob-float-slow 8s ease-in-out infinite',
+          }}
+        />
+        <div
+          className="wallpaper-blob"
+          style={{
+            width: '400px', height: '400px',
+            bottom: '-5%', left: '-10%',
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.12), transparent 70%)',
+            animation: 'blob-float-slow-2 10s ease-in-out infinite',
+          }}
+        />
+        <div
+          className="wallpaper-blob"
+          style={{
+            width: '300px', height: '300px',
+            top: '40%', left: '50%',
+            background: 'radial-gradient(circle, rgba(168, 85, 247, 0.08), transparent 70%)',
+            animation: 'blob-float-slow 12s ease-in-out infinite',
+          }}
+        />
+      </div>
+
+      <div className="relative z-10 grid grid-cols-2 gap-3">
         <StatCard
           label="Total de PCs"
           value={totalPCs}
           icon={icons.nav.pcs}
-          gradient="from-cyan-600 to-blue-600"
-          onClick={() => navigate('/pcare/pcs')}
+          gradient="from-violet-600 to-blue-600"
+          glowColor="rgba(139, 92, 246, 0.15)"
+          onClick={() => navigate('/pc-care/pcs')}
         />
         <StatCard
           label="Limpos"
@@ -147,36 +179,40 @@ export function Dashboard() {
           icon={icons.ui.check}
           sub={`${totalPCs > 0 ? Math.round((cleaned / totalPCs) * 100) : 0}%`}
           gradient="from-emerald-600 to-green-600"
-          onClick={() => navigate('/pcare/pcs')}
+          glowColor="rgba(16, 185, 129, 0.15)"
+          onClick={() => navigate('/pc-care/pcs')}
         />
         <StatCard
           label="Em andamento"
           value={inProgress}
           icon={icons.ui.refresh}
           gradient="from-amber-600 to-orange-600"
-          onClick={() => navigate('/pcare/pcs')}
+          glowColor="rgba(245, 158, 11, 0.15)"
+          onClick={() => navigate('/pc-care/pcs')}
         />
         <StatCard
           label="Pendentes"
           value={pending}
           icon={icons.ui.clock}
           gradient="from-slate-600 to-slate-500"
-          onClick={() => navigate('/pcare/pcs')}
+          glowColor="rgba(148, 163, 184, 0.12)"
+          onClick={() => navigate('/pc-care/pcs')}
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        {quickActions.map(({ to, label, icon: Icon, color }) => (
+      <div className="relative z-10 grid grid-cols-3 gap-2">
+        {quickActions.map(({ to, label, icon: Icon, color }, i) => (
           <button
             key={to}
             type="button"
             onClick={() => navigate(to)}
-            className="flex flex-col items-center gap-1 rounded-xl bg-input/50 py-3 text-center transition-all duration-200 hover:-translate-y-0.5 hover:bg-input hover:shadow-md hover:shadow-black/20"
+            className="stagger-item group flex flex-col items-center gap-1.5 rounded-xl bg-card/80 py-3.5 text-center ring-1 ring-line/50 transition-all duration-300 hover:-translate-y-1 hover:bg-card hover:shadow-lg hover:shadow-black/15 hover:ring-violet-500/30 active:scale-95"
+            style={{ animationDelay: `${i * 0.06}s` }}
           >
-            <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br ${color} shadow-sm`}>
-              <Icon size={16} />
+            <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br ${color} shadow-sm shadow-black/10 transition-all duration-300 group-hover:shadow-md group-hover:scale-110 group-hover:-translate-y-0.5`}>
+              <Icon size={16} className="text-white" />
             </div>
-            <span className="text-[10px] font-medium text-fg-dim leading-tight">{label}</span>
+            <span className="text-[10px] font-medium text-fg-dim leading-tight group-hover:text-fg transition-colors">{label}</span>
           </button>
         ))}
       </div>
@@ -223,7 +259,7 @@ export function Dashboard() {
         <div className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Manutenções Agendadas</h3>
-            <button type="button" onClick={() => navigate('/pcare/maintenance')} className="text-[10px] font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">
+            <button type="button" onClick={() => navigate('/pc-care/maintenance')} className="text-[10px] font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">
               Ver todas
             </button>
           </div>
@@ -232,7 +268,7 @@ export function Dashboard() {
               <button
                 key={m.id}
                 type="button"
-                onClick={() => navigate(`/pcare/pcs/${m.pcId}`)}
+                onClick={() => navigate(`/pc-care/pcs/${m.pcId}`)}
                 className="flex items-center justify-between rounded-lg bg-input/50 px-3 py-2.5 text-left transition-all hover:bg-input hover:shadow-sm"
               >
                 <div>
@@ -262,7 +298,7 @@ export function Dashboard() {
             </div>
             <button
               type="button"
-              onClick={() => navigate('/pcare/parts')}
+              onClick={() => navigate('/pc-care/parts')}
               className="ml-auto shrink-0 rounded-lg bg-red-100 dark:bg-red-900/40 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-300 transition-colors hover:bg-red-200 dark:hover:bg-red-900/60"
             >
               Ver
@@ -275,7 +311,7 @@ export function Dashboard() {
         <div className="rounded-xl border border-line bg-card/50 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Atividade Recente</h3>
-            <button type="button" onClick={() => navigate('/pcare/pcs')} className="text-[10px] font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">
+            <button type="button" onClick={() => navigate('/pc-care/pcs')} className="text-[10px] font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">
               Ver PCs
             </button>
           </div>
@@ -286,7 +322,7 @@ export function Dashboard() {
                 <button
                   key={log.id}
                   type="button"
-                  onClick={() => navigate(`/pcare/pcs/${log.pcId}`)}
+                  onClick={() => navigate(`/pc-care/pcs/${log.pcId}`)}
                   className="flex items-start gap-3 rounded-lg bg-input/50 px-3 py-2.5 text-left transition-all hover:bg-input"
                 >
                   <span className="mt-0.5">
@@ -318,7 +354,7 @@ export function Dashboard() {
           <button
             type="button"
             onClick={() => navigate('/stock/items')}
-            className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md hover:shadow-cyan-500/30"
+            className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md hover:shadow-cyan-500/30"
           >
             Ir para Estoque
           </button>
@@ -328,36 +364,80 @@ export function Dashboard() {
   )
 }
 
+function AnimatedCounter({ value, suffix }: { value: number; suffix?: string }) {
+  const [display, setDisplay] = useState(0)
+
+  useEffect(() => {
+    setDisplay(0)
+    const duration = 600
+    const start = performance.now()
+    const to = value
+
+    function animate(now: number) {
+      const elapsed = now - start
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setDisplay(Math.round(to * eased))
+      if (progress < 1) {
+        requestAnimationFrame(animate)
+      }
+    }
+    requestAnimationFrame(animate)
+  }, [value])
+
+  return (
+    <span className="count-up-item text-3xl font-bold tracking-tight text-fg transition-all duration-300 group-hover:tracking-normal">
+      {display}{suffix || ''}
+    </span>
+  )
+}
+
 function StatCard({
   label,
   value,
   icon: Icon,
   sub,
   gradient,
+  glowColor,
   onClick,
 }: {
   label: string
   value: number
-  icon: ComponentType<{ size?: number }>
+  icon: ComponentType<{ size?: number; className?: string }>
   sub?: string
   gradient: string
+  glowColor: string
   onClick: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group relative overflow-hidden rounded-xl bg-card p-4 text-left ring-1 ring-line transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20"
+      className="group relative overflow-hidden rounded-xl bg-card p-4 text-left ring-1 ring-line/50 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/20 active:scale-[0.98] btn-press-light card-gradient-bg"
     >
-      <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${gradient}`} />
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs text-fg-muted">{label}</span>
-        <div className={`flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ${gradient} shadow-sm`}>
-          <Icon size={14} />
+      {/* Glow effect no hover */}
+      <div
+        className="absolute -inset-4 opacity-0 transition-opacity duration-500 group-hover:opacity-100 pointer-events-none"
+        style={{
+          background: `radial-gradient(600px circle at 50% 0%, ${glowColor}, transparent 60%)`,
+        }}
+      />
+      {/* Gradient top border animado */}
+      <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${gradient} transition-all duration-500 group-hover:h-[3px] group-hover:shadow-lg`}
+        style={{ boxShadow: `0 0 12px ${glowColor.replace('0.15', '0.3')}` }}
+      />
+      <div className="relative z-10">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-xs font-medium text-fg-muted group-hover:text-fg-dim transition-colors">{label}</span>
+          <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br ${gradient} shadow-sm shadow-black/10 transition-all duration-300 group-hover:shadow-md group-hover:scale-110 group-hover:-rotate-3`}>
+            <Icon size={15} className="text-white" />
+          </div>
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <AnimatedCounter value={value} />
+          {sub && <span className="text-xs font-medium text-fg-muted">{sub}</span>}
         </div>
       </div>
-      <span className="text-2xl font-bold text-fg">{value}</span>
-      {sub && <span className="ml-1.5 text-xs text-fg-muted">{sub}</span>}
     </button>
   )
 }

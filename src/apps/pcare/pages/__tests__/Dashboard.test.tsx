@@ -24,7 +24,7 @@ function seedAll() {
 describe('Dashboard', () => {
   it('renderiza stat cards com valores corretos', () => {
     seedAll()
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Total de PCs')).toBeInTheDocument()
     expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(2)
@@ -37,7 +37,7 @@ describe('Dashboard', () => {
 
   it('renderiza acoes rapidas', () => {
     seedAll()
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Novo PC')).toBeInTheDocument()
     expect(screen.getByText('Relatórios')).toBeInTheDocument()
@@ -47,7 +47,7 @@ describe('Dashboard', () => {
 
   it('mostra seção de manutenção agendada', () => {
     seedAll()
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Manutenções Agendadas')).toBeInTheDocument()
     expect(screen.getByText('Lab A — PC-001')).toBeInTheDocument()
@@ -55,7 +55,7 @@ describe('Dashboard', () => {
 
   it('mostra alerta de estoque baixo', () => {
     seedAll()
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Estoque baixo')).toBeInTheDocument()
     expect(screen.getByText(/1 item precisa/)).toBeInTheDocument()
@@ -63,7 +63,7 @@ describe('Dashboard', () => {
 
   it('mostra atividade recente', () => {
     seedAll()
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Atividade Recente')).toBeInTheDocument()
     expect(screen.getByText('Status alterado para concluído')).toBeInTheDocument()
@@ -72,7 +72,7 @@ describe('Dashboard', () => {
 
   it('mostra seção de gráficos', () => {
     seedAll()
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Status de Limpeza')).toBeInTheDocument()
     expect(screen.getByText('PCs por Laboratório')).toBeInTheDocument()
@@ -81,13 +81,13 @@ describe('Dashboard', () => {
 
   it('mostra seção de laboratórios quando há múltiplos', () => {
     seedAll()
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('PCs por Laboratório')).toBeInTheDocument()
   })
 
   it('mostra empty state quando nao ha PCs', () => {
-    renderWithProviders(<Dashboard />, { initialEntries: ['/pcare'] })
+    renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Nenhum PC cadastrado ainda')).toBeInTheDocument()
     expect(screen.getByText('Ir para Estoque')).toBeInTheDocument()

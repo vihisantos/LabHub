@@ -42,22 +42,22 @@ function getAppInfo(pathname: string): { app: string; page: string } {
   if (pathname === '/' || pathname === '') return { app: 'launcher', page: 'Início' }
   if (pathname.startsWith('/roadmap')) return { app: 'roadmap', page: 'Roadmap' }
 
-  if (pathname.startsWith('/pcare')) {
-    if (pathname === '/pcare') return { app: 'pcare', page: 'Dashboard' }
+  if (pathname.startsWith('/pc-care')) {
+    if (pathname === '/pc-care') return { app: 'pc-care', page: 'Dashboard' }
     if (pathname.includes('/pcs')) {
-      if (pathname.includes('/edit')) return { app: 'pcare', page: 'Editando PC' }
-      if (pathname.match(/\/pcare\/pcs\/[\w-]+$/)) return { app: 'pcare', page: 'Detalhes do PC' }
-      return { app: 'pcare', page: 'Lista de PCs' }
+      if (pathname.includes('/edit')) return { app: 'pc-care', page: 'Editando PC' }
+      if (pathname.match(/\/pc-care\/pcs\/[\w-]+$/)) return { app: 'pc-care', page: 'Detalhes do PC' }
+      return { app: 'pc-care', page: 'Lista de PCs' }
     }
-    if (pathname.includes('/parts/consolidado')) return { app: 'pcare', page: 'Consolidado' }
-    if (pathname.includes('/parts')) return { app: 'pcare', page: 'Estoque' }
-    if (pathname.includes('/maintenance')) return { app: 'pcare', page: 'Manutenção' }
-    if (pathname.includes('/reports')) return { app: 'pcare', page: 'Relatórios' }
-    if (pathname.includes('/checklists')) return { app: 'pcare', page: 'Checklists' }
-    if (pathname.includes('/qr')) return { app: 'pcare', page: 'QR Code' }
-    if (pathname.includes('/scanner')) return { app: 'pcare', page: 'Scanner' }
-    if (pathname.includes('/settings')) return { app: 'pcare', page: 'Configurações' }
-    return { app: 'pcare', page: 'PCare' }
+    if (pathname.includes('/parts/consolidado')) return { app: 'pc-care', page: 'Consolidado' }
+    if (pathname.includes('/parts')) return { app: 'pc-care', page: 'Estoque' }
+    if (pathname.includes('/maintenance')) return { app: 'pc-care', page: 'Manutenção' }
+    if (pathname.includes('/reports')) return { app: 'pc-care', page: 'Relatórios' }
+    if (pathname.includes('/checklists')) return { app: 'pc-care', page: 'Checklists' }
+    if (pathname.includes('/qr')) return { app: 'pc-care', page: 'QR Code' }
+    if (pathname.includes('/scanner')) return { app: 'pc-care', page: 'Scanner' }
+    if (pathname.includes('/settings')) return { app: 'pc-care', page: 'Configurações' }
+    return { app: 'pc-care', page: 'PC Care' }
   }
 
   if (pathname.startsWith('/stock') || pathname.startsWith('/general-stock')) {
@@ -89,7 +89,7 @@ function getAppInfo(pathname: string): { app: string; page: string } {
 }
 
 const APP_COLORS: Record<string, string> = {
-  pcare: '#06b6d4',    // cyan
+  'pc-care': '#8b5cf6',    // violet
   stock: '#10b981',    // emerald
   reservalab: '#6366f1', // indigo
   tv: '#a855f7',       // purple
@@ -98,7 +98,7 @@ const APP_COLORS: Record<string, string> = {
 }
 
 const APP_LABELS: Record<string, string> = {
-  pcare: 'PCare',
+  'pc-care': 'PC Care',
   stock: 'Estoque',
   reservalab: 'ReservaLab',
   tv: 'TV',

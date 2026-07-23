@@ -86,7 +86,7 @@ function PipelineCard({ item, onActivate }: { item: PipelineItem; onActivate?: (
   return (
     <button
       type="button"
-      onClick={() => navigate(`/pcare/pcs/${item.id}`)}
+      onClick={() => navigate(`/pc-care/pcs/${item.id}`)}
       className="group w-full rounded-xl bg-card p-3 text-left shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)]"
     >
       <div className="mb-1 flex items-center gap-2">
@@ -211,7 +211,7 @@ export function Pipeline() {
       linkedPcLabel: `${pc.labName} — ${pc.pcNumber}`,
     })
     setRefreshKey(n => n + 1)
-    navigate(`/pcare/pcs/${pc.id}/edit`)
+    navigate(`/pc-care/pcs/${pc.id}/edit`)
   }
 
   const total = columns.reduce((sum, col) => sum + col.items.length, 0)

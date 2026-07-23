@@ -78,7 +78,7 @@ export function PartsList() {
         <button
           type="button"
           onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           {showForm ? 'Cancelar' : '+ Nova Peça'}
         </button>
@@ -101,7 +101,7 @@ export function PartsList() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Fan Cooler 120mm"
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
                   required
                 />
               </div>
@@ -127,7 +127,7 @@ export function PartsList() {
                   value={form.quantity}
                   onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
                   min={0}
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
                   required
                 />
               </div>
@@ -138,7 +138,7 @@ export function PartsList() {
                   value={form.minQuantity}
                   onChange={(e) => setForm({ ...form, minQuantity: Number(e.target.value) })}
                   min={0}
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
                 />
               </div>
             </div>
@@ -149,7 +149,7 @@ export function PartsList() {
                 value={form.serialNumber}
                 onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
                 placeholder="SN-12345"
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
               />
             </div>
             <div>
@@ -159,12 +159,12 @@ export function PartsList() {
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Local onde foi comprada, etc."
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
               />
             </div>
             <button
               type="submit"
-              className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+              className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
             >
               {editingId ? 'Salvar' : 'Adicionar ao Estoque'}
             </button>

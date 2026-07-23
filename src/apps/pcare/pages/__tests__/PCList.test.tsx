@@ -9,7 +9,7 @@ describe('PCList', () => {
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001', cleaningStatus: 'done' }),
       makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002', cleaningStatus: 'pending' }),
     ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
+    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
     expect(screen.getByText(/PC-001/)).toBeInTheDocument()
     expect(screen.getByText(/PC-002/)).toBeInTheDocument()
@@ -21,7 +21,7 @@ describe('PCList', () => {
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
       makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002' }),
     ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
+    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
     const search = screen.getByPlaceholderText('Buscar por laboratório, PC ou sala...')
     fireEvent.change(search, { target: { value: 'PC-002' } })
@@ -34,7 +34,7 @@ describe('PCList', () => {
     seedLocalStorage('pcs', [
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
     ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
+    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
     const search = screen.getByPlaceholderText('Buscar por laboratório, PC ou sala...')
     fireEvent.change(search, { target: { value: 'inexistente' } })
@@ -43,7 +43,7 @@ describe('PCList', () => {
   })
 
   it('mostra empty state quando nao ha PCs', () => {
-    renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
+    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
     expect(screen.getByText('Nenhum PC encontrado')).toBeInTheDocument()
   })
@@ -55,7 +55,7 @@ describe('PCList', () => {
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
       makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002' }),
     ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
+    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
     const [labTrigger] = screen.getAllByRole('combobox')
     await user.click(labTrigger)
@@ -73,7 +73,7 @@ describe('PCList', () => {
       makePC({ id: 'pc-1', cleaningStatus: 'done', pcNumber: 'PC-001' }),
       makePC({ id: 'pc-2', cleaningStatus: 'pending', pcNumber: 'PC-002' }),
     ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
+    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
     const [, statusTrigger] = screen.getAllByRole('combobox')
     await user.click(statusTrigger)
@@ -89,7 +89,7 @@ describe('PCList', () => {
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
       makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002' }),
     ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pcare/pcs'] })
+    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
     fireEvent.click(screen.getByText('Selecionar'))
     expect(screen.getByText('Cancelar')).toBeInTheDocument()

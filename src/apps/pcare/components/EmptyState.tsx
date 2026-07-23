@@ -9,8 +9,9 @@ interface EmptyStateProps {
   accentColor?: string
 }
 
-export function EmptyState({ icon, title, description, action, accentColor = 'cyan' }: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action, accentColor = 'violet' }: EmptyStateProps) {
   const gradients: Record<string, string> = {
+    violet: 'from-violet-600 to-blue-600 shadow-violet-500/20',
     cyan: 'from-cyan-600 to-blue-600 shadow-cyan-500/20',
     emerald: 'from-emerald-600 to-green-600 shadow-emerald-500/20',
     amber: 'from-amber-600 to-orange-600 shadow-amber-500/20',
@@ -29,7 +30,7 @@ export function EmptyState({ icon, title, description, action, accentColor = 'cy
 
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-input/50">
+      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-input/50 empty-state-icon">
         {renderIcon()}
       </div>
       <h3 className="mb-1 text-lg font-medium text-fg-dim">{title}</h3>

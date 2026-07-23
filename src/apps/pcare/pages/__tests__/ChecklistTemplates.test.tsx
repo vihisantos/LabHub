@@ -121,7 +121,7 @@ describe('ChecklistTemplates', () => {
     renderTemplates()
     const execBtns = screen.getAllByText('Executar')
     fireEvent.click(execBtns[0])
-    expect(mockNavigate).toHaveBeenCalledWith('/pcare/checklists/tpl-1/execute')
+    expect(mockNavigate).toHaveBeenCalledWith('/pc-care/checklists/tpl-1/execute')
   })
 
   it('abre confirm dialog ao clicar "Excluir"', () => {

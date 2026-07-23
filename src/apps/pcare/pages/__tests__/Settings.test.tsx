@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom'
 vi.mock('../../hooks/usePCs', () => ({ usePCs: vi.fn() }))
 vi.mock('../../hooks/useParts', () => ({ useParts: vi.fn() }))
 vi.mock('../../hooks/useOnlineSync', () => ({ useOnlineSync: vi.fn() }))
-vi.mock('../../../../lib/useKioskMode', () => ({ useKioskMode: vi.fn() }))
 vi.mock('../../../../lib/ThemeContext', () => ({ useTheme: vi.fn() }))
 
 const mockNavigate = vi.fn()
@@ -15,7 +14,6 @@ vi.mock('react-router-dom', async () => {
 })
 
 import { useTheme } from '../../../../lib/ThemeContext'
-import { useKioskMode } from '../../../../lib/useKioskMode'
 import { useOnlineSync } from '../../hooks/useOnlineSync'
 import { usePCs } from '../../hooks/usePCs'
 import { useParts } from '../../hooks/useParts'
@@ -35,7 +33,6 @@ describe('Settings', () => {
       pendingChanges: 0, triggerSync: vi.fn(), syncLog: [],
     })
     ;(useTheme as any).mockReturnValue({ theme: 'dark', accent: 'cyan', setTheme: vi.fn(), setAccent: vi.fn() })
-    ;(useKioskMode as any).mockReturnValue({ kioskMode: false, enterKiosk: vi.fn(), exitKiosk: vi.fn() })
   })
 
   it('renderiza título', () => {
@@ -61,16 +58,6 @@ describe('Settings', () => {
     expect(screen.getByText('Ciano')).toBeInTheDocument()
     expect(screen.getByText('Azul')).toBeInTheDocument()
     expect(screen.getByText('Roxo')).toBeInTheDocument()
-  })
-
-  it('exibe seção Modo Quiosque', () => {
-    renderSettings()
-    expect(screen.getByText('Modo quiosque')).toBeInTheDocument()
-  })
-
-  it('exibe botão Ativar modo quiosque', () => {
-    renderSettings()
-    expect(screen.getByText('Ativar')).toBeInTheDocument()
   })
 
   it('exibe seção Exportar Dados', () => {

@@ -42,7 +42,7 @@ export default defineConfig({
           { src: '/logo-512.png', sizes: '512x512', type: 'image/png' },
         ],
         shortcuts: [
-          { name: 'PCs', short_name: 'PCs', url: '/pcare/pcs' },
+          { name: 'PCs', short_name: 'PCs', url: '/pc-care/pcs' },
           { name: 'Scanner', short_name: 'Scanner', url: '/pcare/asset-scanner' },
           { name: 'Estoque Geral', short_name: 'Estoque', url: '/general-stock' },
         ],

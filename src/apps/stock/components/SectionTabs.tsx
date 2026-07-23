@@ -57,8 +57,7 @@ export function SectionTabs({ active, onChange, items }: SectionTabsProps) {
           const Icon = tab.icon
           const count = counts[tab.id] ?? 0
           const isActive = active === tab.id
-          return (
-            <button
+          return (                <button
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
@@ -66,7 +65,7 @@ export function SectionTabs({ active, onChange, items }: SectionTabsProps) {
                 flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium
                 transition-all duration-200 shrink-0
                 ${isActive
-                  ? 'bg-card shadow-[var(--shadow-card)] ring-1 ring-line'
+                  ? 'bg-card shadow-[var(--shadow-card)] section-tab-active'
                   : 'text-fg-muted hover:bg-input hover:text-fg'
                 }
               `}
@@ -89,8 +88,7 @@ export function SectionTabs({ active, onChange, items }: SectionTabsProps) {
           const count = counts[s.value] ?? 0
           const isActive = active === s.value
           const color = sectionColors[s.value]
-          return (
-            <button
+          return (                <button
               key={s.value}
               type="button"
               onClick={() => onChange(s.value)}
@@ -98,7 +96,7 @@ export function SectionTabs({ active, onChange, items }: SectionTabsProps) {
                 flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium
                 transition-all duration-200 shrink-0
                 ${isActive
-                  ? 'bg-card shadow-[var(--shadow-card)] ring-1 ring-line'
+                  ? 'bg-card shadow-[var(--shadow-card)] section-tab-active'
                   : 'text-fg-muted hover:bg-input hover:text-fg'
                 }
               `}

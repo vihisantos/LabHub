@@ -77,6 +77,7 @@ function compareTimestamps(a: string | null | undefined, b: string | null | unde
 
 // Todas as coleções gerenciadas pelo sistema
 const ALL_PCARE_COLLECTIONS = [
+  'assets',
   'pcs',
   'parts',
   'part_usage',
@@ -92,6 +93,14 @@ const ALL_STOCK_COLLECTIONS = [
   'stock_maintenance',
   'inventory_cycles',
   'inventory_counts',
+  'rooms',
+  'chamados',
+  'problem_templates',
+  'notifications',
+  'workspaces',
+  'audit_logs',
+  'user_profiles',
+  'roles',
 ]
 
 // Mapeamento: nome da coleção local → nome da tabela no Supabase

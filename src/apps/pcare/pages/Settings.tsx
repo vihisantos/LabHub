@@ -7,7 +7,6 @@ import { partService } from '../services/partService'
 import { usePCs } from '../hooks/usePCs'
 import { useParts } from '../hooks/useParts'
 import { useOnlineSync } from '../hooks/useOnlineSync'
-import { useKioskMode } from '../../../lib/useKioskMode'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 
@@ -113,7 +112,7 @@ function SyncSection() {
           id="settings-sync-now"
           onClick={() => triggerSync()}
           disabled={syncing || !online}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-xs font-medium text-white shadow-sm shadow-violet-500/20 transition-all hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <icons.ui.refresh size={12} className={syncing ? 'animate-spin' : ''} />
           {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
@@ -175,29 +174,6 @@ function SyncSection() {
         )}
       </div>
     </section>
-  )
-}
-
-function KioskToggle() {
-  const { kioskMode, enterKiosk, exitKiosk } = useKioskMode()
-  return (
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-sm text-fg">Modo quiosque</p>
-        <p className="text-xs text-fg-muted">{kioskMode ? 'Ativo' : 'Inativo'}</p>
-      </div>
-      <button
-        type="button"
-        onClick={kioskMode ? exitKiosk : enterKiosk}
-        className={`rounded-lg px-4 py-2 text-sm transition-colors ${
-          kioskMode
-            ? 'bg-red-500/15 text-red-500 hover:bg-red-500/25'
-            : 'border border-line text-fg-dim hover:bg-input'
-        }`}
-      >
-        {kioskMode ? 'Desativar' : 'Ativar'}
-      </button>
-    </div>
   )
 }
 
@@ -377,12 +353,6 @@ export function Settings() {
       </section>
 
       <section className="rounded-xl border border-line bg-card/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Modo Quiosque</h3>
-        <p className="mb-3 text-xs text-fg-muted">O modo quiosque oculta a navegação e o cabeçalho, ideal para exibir painéis em telas públicas.</p>
-        <KioskToggle />
-      </section>
-
-      <section className="rounded-xl border border-line bg-card/50 p-4">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Exportar Dados</h3>
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -403,7 +373,7 @@ export function Settings() {
         <button
           type="button"
           onClick={handleExportAll}
-          className="mt-3 w-full rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="mt-3 w-full rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-violet-500/20 transition-all hover:shadow-md"
         >
           Exportar Tudo (JSON)
         </button>
@@ -473,7 +443,7 @@ export function Settings() {
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="mt-3 text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300"
+          className="mt-3 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300"
         >
           Voltar ao Início
         </button>

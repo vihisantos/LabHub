@@ -6,7 +6,6 @@ import { RootLayout } from './layouts/RootLayout'
 import { Dashboard } from './pages/Dashboard'
 import { PCList } from './pages/PCList'
 import { PCForm } from './pages/PCForm'
-import { RedirectToStock } from './pages/RedirectToStock'
 import { PCDetail } from './pages/PCDetail'
 import { PartsList } from './pages/PartsList'
 import { QRGenerator } from './pages/QRGenerator'
@@ -23,7 +22,7 @@ function EB({ children }: { children: React.ReactNode }) {
   return <ErrorBoundary>{children}</ErrorBoundary>
 }
 
-export function PCareApp() {
+export function PCCareApp() {
   return (
     <ThemeProvider storageKey="pcare_theme" defaultTheme="dark">
       <ToastProvider>
@@ -32,8 +31,12 @@ export function PCareApp() {
             <Route path="scanner" element={<QRScanner />} />
             <Route element={<RootLayout />}>
               <Route index element={<EB><Dashboard /></EB>} />
+              <Route path="assets" element={<EB><PCList /></EB>} />
+              <Route path="assets/new" element={<EB><PCForm /></EB>} />
+              <Route path="assets/:id" element={<EB><PCDetail /></EB>} />
+              <Route path="assets/:id/edit" element={<EB><PCForm /></EB>} />
               <Route path="pcs" element={<EB><PCList /></EB>} />
-              <Route path="pcs/new" element={<RedirectToStock />} />
+              <Route path="pcs/new" element={<EB><PCForm /></EB>} />
               <Route path="pcs/:id" element={<EB><PCDetail /></EB>} />
               <Route path="pcs/:id/edit" element={<EB><PCForm /></EB>} />
               <Route path="parts" element={<EB><PartsList /></EB>} />

@@ -67,7 +67,7 @@ export function StockDetail() {
       linkedPcId: pc.id,
       linkedPcLabel: `${pc.labName} — ${pc.pcNumber}`,
     })
-    navigate(`/pcare/pcs/${pc.id}/edit`)
+    navigate(`/pc-care/pcs/${pc.id}/edit`)
   }
 
   if (!item) {
@@ -240,7 +240,7 @@ export function StockDetail() {
                 {linkedPc ? (
                   <button
                     type="button"
-                    onClick={() => navigate(`/pcare/pcs/${linkedPc.id}`)}
+                    onClick={() => navigate(`/pc-care/pcs/${linkedPc.id}`)}
                     className="inline-flex items-center gap-1 text-sm font-medium text-violet-600 dark:text-violet-400 hover:underline"
                   >
                     <icons.nav.pcs size={14} />
@@ -282,7 +282,7 @@ export function StockDetail() {
 
         {item.section === 'maquinas' && !item.linkedPcId && item.pcParts && item.pcParts.length > 0 && (
           <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Peças do PC</h3>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Peças do PC</h3>
             <div className="space-y-2">
               {item.pcParts.map((part) => (
                 <div key={part.partName} className="flex items-center gap-2">
@@ -312,10 +312,10 @@ export function StockDetail() {
                 <button
                   type="button"
                   onClick={handleActivate}
-                  className="rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:shadow-md btn-interactive"
+                  className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md btn-interactive"
                 >
                   <icons.nav.pcs size={14} className="inline mr-1" />
-                  Ativar e enviar para PCare
+                  Ativar e enviar para PC Care
                 </button>
               ) : (
                 <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">

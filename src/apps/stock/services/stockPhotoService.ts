@@ -1,3 +1,5 @@
+import { uploadMultipleToCloudinary } from '../../../lib/cloudinary'
+
 const PHOTOS_KEY = 'labhub_stock_photos'
 
 function getAll(): Record<string, string[]> {
@@ -44,6 +46,20 @@ export function compressImage(file: File): Promise<string> {
   })
 }
 
+/**
+ * Upload files to Cloudinary and return their URLs.
+ * Keeps backward compat: if Cloudinary is not configured, falls back to base64 compression.
+ */
+export async function uploadFiles(files: FileList | File[]): Promise<string[]> {
+  try {
+    return await uploadMultipleToCloudinary(Array.from(files), 'stock')
+  } catch (e) {
+    // Fallback: compress to base64 if Cloudinary fails
+    console.warn('[stockPhotoService] Cloudinary upload falhou, usando fallback local:', e)
+    return await Promise.all(Array.from(files).map((f) => compressImage(f)))
+  }
+}
+
 export const stockPhotoService = {
   /** Get all photos for an item */
   get(itemId: string): string[] {
@@ -61,11 +77,11 @@ export const stockPhotoService = {
     return getAll()[itemId]?.length || 0
   },
 
-  /** Add a single photo (compressed base64) */
-  add(itemId: string, base64: string): void {
+  /** Add a single photo (Cloudinary URL or base64) */
+  add(itemId: string, photoUrl: string): void {
     const all = getAll()
     if (!all[itemId]) all[itemId] = []
-    all[itemId].push(base64)
+    all[itemId].push(photoUrl)
     saveAll(all)
   },
 

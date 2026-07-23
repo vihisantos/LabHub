@@ -1,3 +1,5 @@
 export type { PC, PCPart, PCConfig, OsType, OsEdition, PcTypeLabel } from './pc'
 export { OS_TYPE_LABELS, OS_VERSIONS, OS_EDITION_LABELS, PC_TYPE_LABELS, PC_TYPE_DOMAIN } from './pc'
+export type { Asset, AssetFormData, AssetTechnicalInfo, AssetNetworkInfo, AssetStatus, EquipmentType, OperatingSystem, Architecture, StorageType } from './asset'
+export { EQUIPMENT_TYPES, ASSET_STATUS_LABELS, OPERATING_SYSTEM_LABELS, ARCHITECTURE_LABELS, STORAGE_TYPE_LABELS, emptyTechnicalInfo, emptyNetworkInfo } from './asset'
 export type { Part, PartFormData } from './part'

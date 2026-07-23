@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { icons } from '../../../lib/icons'
 
 interface PullToRefreshProps {
   onRefresh: () => void
@@ -58,18 +59,15 @@ export function PullToRefresh({ onRefresh, children }: PullToRefreshProps) {
         >
           <div className="flex items-center gap-2 text-xs text-fg-dim">
             <span
-              className="inline-block text-sm transition-transform"
+              className="inline-block transition-transform"
               style={{
                 transform: state === 'refreshing' ? 'rotate(360deg)' : `rotate(${rotation}deg)`,
-                animation: state === 'refreshing' ? 'none' : undefined,
               }}
             >
               {state === 'refreshing' ? (
-                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-              ) : state === 'ready' ? (
-                '↓'
+                <icons.ui.refresh size={14} className="animate-spin text-violet-400" />
               ) : (
-                '↓'
+                <icons.ui.chevronDown size={14} className={state === 'ready' ? 'text-violet-400' : 'text-fg-dim'} />
               )}
             </span>
             {state === 'ready' ? 'Solte para atualizar' : state === 'refreshing' ? 'Atualizando...' : 'Puxe para atualizar'}

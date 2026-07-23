@@ -13,7 +13,7 @@ export function RedirectToStock() {
 
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-20">
-      <div className="h-10 w-10 animate-spin rounded-full border-2 border-cyan-500 border-t-transparent" />
+      <div className="h-10 w-10 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
       <div className="text-center">
         <p className="text-sm font-medium text-fg">Redirecionando para o Estoque...</p>
         <p className="mt-1 text-xs text-fg-muted">Novos PCs devem ser cadastrados pelo app Estoque</p>
@@ -21,7 +21,7 @@ export function RedirectToStock() {
       <button
         type="button"
         onClick={() => navigate('/stock/items', { replace: true })}
-        className="mt-2 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+        className="mt-2 rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg shadow-sm shadow-violet-500/20 transition-all hover:shadow-md"
       >
         Ir agora
       </button>

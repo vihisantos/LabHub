@@ -34,7 +34,7 @@ const mockPC = {
 }
 
 function renderForm() {
-  return render(<MemoryRouter initialEntries={['/pcare/pcs/pc-1/edit']}><PCForm /></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={['/pc-care/pcs/pc-1/edit']}><PCForm /></MemoryRouter>)
 }
 
 describe('PCForm', () => {
@@ -96,10 +96,10 @@ describe('PCForm', () => {
     expect(screen.getByText('Salvar')).toBeInTheDocument()
   })
 
-  it('navega para /pcare/pcs ao clicar Cancelar', () => {
+  it('navega para /pc-care/pcs ao clicar Cancelar', () => {
     renderForm()
     screen.getByText('Cancelar').click()
-    expect(mockNavigate).toHaveBeenCalledWith('/pcare/pcs')
+    expect(mockNavigate).toHaveBeenCalledWith('/pc-care/pcs')
   })
 
   it('exibe "PC não encontrado" para PC inválido', () => {

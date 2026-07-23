@@ -82,7 +82,7 @@ const FEATURES: Feature[] = [
   { id: 63, cat: 'mid', name: 'Testes Unitários do Stock', desc: 'Cobertura de testes para services e páginas do stock', effort: 'high', done: true },
   { id: 64, cat: 'mid', name: 'Editar/Deletar Movimentações', desc: 'Corrigir ou remover movimentações com soft-delete', effort: 'med', done: true },
   { id: 68, cat: 'mid', name: 'Vincular Itens do Stock a PCs', desc: 'Associar periféricos, peças e equipamentos do estoque a PCs específicos com rastreamento', effort: 'med', done: true },
-  { id: 72, cat: 'mid', name: 'Importar Dados (CSV) para Estoque', desc: 'Importar planilhas de itens do estoque (mesma lógica do PCare)', effort: 'med', done: true },
+  { id: 72, cat: 'mid', name: 'Importar Dados (CSV) para Estoque', desc: 'Importar planilhas de itens do estoque (mesma lógica do PC Care)', effort: 'med', done: true },
   { id: 73, cat: 'mid', name: 'Etiquetas para Impressão (Nome/Série/QR)', desc: 'Layout A4 com etiquetas adesivas nome/série/QR para colar nos equipamentos', effort: 'med', done: true },
   { id: 74, cat: 'mid', name: 'Manutenção Preventiva de Equipamentos', desc: 'Calendário de manutenções periódicas para equipamentos do estoque', effort: 'med', done: true },
 
@@ -90,6 +90,25 @@ const FEATURES: Feature[] = [
   { id: 66, cat: 'low', name: 'Corrigir Rota general-stock', desc: 'Generalizar paths no StockLayout para sufixo /general-stock', effort: 'low', done: true },
   { id: 67, cat: 'low', name: 'Sync Inventário p/ Supabase', desc: 'Migrar inventoryService para createSyncService', effort: 'low', done: true },
   { id: 75, cat: 'low', name: 'Configurações Customizáveis do Stock', desc: 'Editar seções, subcategorias, condições e campos personalizados do estoque', effort: 'med', done: false },
+
+  { id: 76, cat: 'high', name: 'Sistema de Chamados (Público)', desc: 'App público para professores: QR Scan → Sala → Ativo → Abrir Chamado', effort: 'high', done: true },
+  { id: 77, cat: 'high', name: 'Gestão de Chamados (Interno)', desc: 'App interno: Dashboard, lista, detalhe, gerenciamento de salas', effort: 'high', done: true },
+  { id: 78, cat: 'mid', name: 'Formulário Adaptativo de Chamados', desc: 'Categorias de problema se adaptam ao tipo de ativo selecionado', effort: 'med', done: true },
+  { id: 79, cat: 'mid', name: 'Problemas Conhecidos e Duplicatas', desc: 'Banner de alerta quando ativo já tem chamado aberto ou problema recorrente', effort: 'med', done: true },
+
+  { id: 80, cat: 'high', name: 'Core — Notificações', desc: 'Sistema centralizado de notificações cross-module', effort: 'med', done: true },
+  { id: 81, cat: 'high', name: 'Core — Health Panel', desc: 'Métricas de infraestrutura na Home (ativos, chamados, sync)', effort: 'med', done: true },
+  { id: 82, cat: 'high', name: 'Core — Busca Global (Ctrl+K)', desc: 'Command palette com busca cross-module em salas, ativos, tickets', effort: 'med', done: true },
+  { id: 83, cat: 'high', name: 'Core — Workspaces', desc: 'Multi-tenant com seleção de workspace e dados isolados', effort: 'high', done: true },
+  { id: 84, cat: 'high', name: 'Core — Logs de Auditoria', desc: 'Timeline de ações com filtro por entidade, usuário e ação', effort: 'med', done: true },
+  { id: 85, cat: 'high', name: 'Core — Asset Registry', desc: 'Registro cruzado de ativos (PC Care + Stock) com busca unificada', effort: 'med', done: true },
+  { id: 86, cat: 'mid', name: 'Launcher Redesign', desc: 'Nova Home com greeting, health card, módulos e workspace selector', effort: 'med', done: true },
+  { id: 87, cat: 'high', name: 'Core — Autenticação', desc: 'Login com Supabase Auth, AuthGuard, página de login', effort: 'high', done: true },
+  { id: 88, cat: 'high', name: 'Core — User Management', desc: 'Perfis de usuários, departamentos, roles', effort: 'med', done: true },
+  { id: 89, cat: 'high', name: 'Core — RBAC (Permissões)', desc: 'Sistema de permissões por role: Admin, Técnico, Visualizador', effort: 'med', done: true },
+  { id: 90, cat: 'high', name: 'Dashboard Completo', desc: 'Métricas, cards de módulos, ações rápidas, feed de atividade', effort: 'high', done: true },
+  { id: 91, cat: 'mid', name: 'Página de Notificações', desc: 'Lista completa com filtros, marcar lida, limpar', effort: 'low', done: true },
+  { id: 92, cat: 'mid', name: 'Página de Logs', desc: 'Timeline de auditoria com busca e filtros por ação', effort: 'med', done: true },
 ]
 
 const CATEGORIES = [

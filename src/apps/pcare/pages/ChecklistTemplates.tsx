@@ -95,7 +95,7 @@ export function ChecklistTemplates() {
         <button
           type="button"
           onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyForm()) }}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
         >
           {showForm ? 'Cancelar' : '+ Novo Template'}
         </button>
@@ -116,7 +116,7 @@ export function ChecklistTemplates() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Limpeza completa"
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
                   required
                 />
               </div>
@@ -127,7 +127,7 @@ export function ChecklistTemplates() {
                   value={form.labName}
                   onChange={(e) => setForm({ ...form, labName: e.target.value })}
                   placeholder="LAB-01"
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-cyan-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
                 />
               </div>
             </div>
@@ -135,7 +135,7 @@ export function ChecklistTemplates() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs text-fg-muted">Itens do Checklist</label>
-                <button type="button" onClick={addItem} className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">
+                <button type="button" onClick={addItem} className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">
                   + Adicionar item
                 </button>
               </div>
@@ -153,7 +153,7 @@ export function ChecklistTemplates() {
                         value={item.label}
                         onChange={(e) => updateItem(index, { label: e.target.value })}
                         placeholder="Descrição do item..."
-                        className="mb-1 w-full rounded border border-line bg-card px-2 py-1 text-xs text-fg outline-none focus:border-cyan-500"
+                        className="mb-1 w-full rounded border border-line bg-card px-2 py-1 text-xs text-fg outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
                       />
                       <div className="flex gap-2">
                         <Select value={item.category} onValueChange={(v) => updateItem(index, { category: v as any })}>
@@ -189,7 +189,7 @@ export function ChecklistTemplates() {
               </div>
             </div>
 
-            <button type="submit" className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">
+            <button type="submit" className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">
               {editingId ? 'Salvar' : 'Criar Template'}
             </button>
           </div>
@@ -213,8 +213,8 @@ export function ChecklistTemplates() {
                   <p className="text-xs text-fg-muted">{t.labName || 'Todos os laboratórios'} · {t.items.length} itens</p>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => navigate(`/pcare/checklists/${t.id}/execute`)} className="rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md">Executar</button>
-                  <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300">Editar</button>
+                  <button type="button" onClick={() => navigate(`/pc-care/checklists/${t.id}/execute`)} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-violet-500/20 transition-all hover:shadow-md">Executar</button>
+                  <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">Editar</button>
                   <button type="button" onClick={() => setConfirmRemove(t.id)} className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
                 </div>
               </div>

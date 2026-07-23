@@ -156,8 +156,30 @@ export function StockDashboard() {
 
   return (
     <PullToRefresh onRefresh={reload}>
-      <div className="space-y-6">
-        <div>
+      <div className="relative space-y-6">
+        {/* ── Wallpaper blobs animados ── */}
+        <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+          <div
+            className="wallpaper-blob"
+            style={{
+              width: '500px', height: '500px',
+              top: '-10%', right: '-15%',
+              background: 'radial-gradient(circle, rgba(16, 185, 129, 0.12), transparent 70%)',
+              animation: 'blob-float-slow 8s ease-in-out infinite',
+            }}
+          />
+          <div
+            className="wallpaper-blob"
+            style={{
+              width: '400px', height: '400px',
+              bottom: '-5%', left: '-10%',
+              background: 'radial-gradient(circle, rgba(5, 150, 105, 0.10), transparent 70%)',
+              animation: 'blob-float-slow-2 10s ease-in-out infinite',
+            }}
+          />
+        </div>
+
+        <div className="relative z-10">
           <h2 className="text-2xl font-bold tracking-tight">Estoque</h2>
           <p className="mt-1 text-sm text-fg-muted">{activeItems.length} itens ativos em {Object.keys(sectionCounts).length} categorias</p>
         </div>
@@ -325,7 +347,7 @@ export function StockDashboard() {
                       key={section}
                       type="button"
                       onClick={() => navigate(`/stock/items?section=${section}`)}
-                      className={`flex flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-all duration-200 btn-interactive ${color.bg}`}
+                      className={`card-gradient-bg-stock relative flex flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-all duration-200 btn-interactive ${color.bg}`}
                     >
                       <Icon size={20} className={color.icon} />
                       <span className={`text-xs font-medium ${color.text}`}>{label}</span>

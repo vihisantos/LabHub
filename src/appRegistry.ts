@@ -13,12 +13,12 @@ import { icons } from './lib/icons'
 
 export const appRegistry: AppModule[] = [
   {
-    id: 'pcare',
-    name: 'PCare',
+    id: 'pc-care',
+    name: 'PC Care',
     description: 'Gestão de limpeza e manutenção de PCs',
     icon: icons.nav.pcs,
-    route: '/pcare',
-    color: '#06b6d4',
+    route: '/pc-care',
+    color: '#8b5cf6',
   },
   {
     id: 'stock',
@@ -43,5 +43,13 @@ export const appRegistry: AppModule[] = [
     icon: icons.ui.tv,
     route: '/tv',
     color: '#ef4444',
+  },
+  {
+    id: 'chamados',
+    name: 'Chamados',
+    description: 'Abertura e gestão de chamados técnicos',
+    icon: icons.ui.alertCircle,
+    route: '/chamados',
+    color: '#f59e0b',
   },
 ]

@@ -19,7 +19,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   const CloseIcon = icons.ui.close
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto modal-content-enhanced" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
         <DialogHeader className="flex-row items-center justify-between sm:flex-row">
           <DialogTitle>{title}</DialogTitle>
           <DialogClose className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-white" aria-label="Fechar">
@@ -45,7 +45,7 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = 'Confirmar', variant = 'danger' }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent>
+      <DialogContent className="modal-content-enhanced">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>

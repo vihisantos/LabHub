@@ -185,13 +185,14 @@ export function StockEntryExit() {
                   }`}
                 >
                   <div
+                    key={`${item.id}-${selected.has(item.id)}`}
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors ${
                       selected.has(item.id)
                         ? mode === 'entrada'
                           ? 'border-emerald-500 bg-emerald-500 text-white'
                           : 'border-red-500 bg-red-500 text-white'
                         : 'border-line'
-                    }`}
+                    } ${selected.has(item.id) ? 'checkbox-animated' : ''}`}
                   >
                     {selected.has(item.id) && (
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="h-3 w-3">

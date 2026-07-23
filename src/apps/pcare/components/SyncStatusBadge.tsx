@@ -120,7 +120,7 @@ export function SyncStatusBadge() {
             id="sync-now-btn"
             onClick={() => { triggerSync(); setOpen(false) }}
             disabled={syncing || !online}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 py-2 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
           >
             <icons.ui.refresh size={12} className={syncing ? 'animate-spin' : ''} />
             {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
