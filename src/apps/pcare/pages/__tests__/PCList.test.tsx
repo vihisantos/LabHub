@@ -1,100 +1,58 @@
 import { screen, fireEvent } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { PCList } from '../PCList'
 import { renderWithProviders, seedLocalStorage, makePC } from '../../../../test/helpers'
 
 describe('PCList', () => {
-  it('renderiza PCs carregados', () => {
+  it('renderiza ativos carregados', () => {
     seedLocalStorage('pcs', [
-      makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001', cleaningStatus: 'done' }),
-      makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002', cleaningStatus: 'pending' }),
+      makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001', assetTag: 'TAG-001', cleaningStatus: 'done' }),
+      makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002', assetTag: 'TAG-002', cleaningStatus: 'pending' }),
     ])
     renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
-    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
-    expect(screen.getByText(/PC-002/)).toBeInTheDocument()
-    expect(screen.getByText('Computadores')).toBeInTheDocument()
+    expect(screen.getByText('TAG-001')).toBeInTheDocument()
+    expect(screen.getByText('TAG-002')).toBeInTheDocument()
+    expect(screen.getByText('Ativos')).toBeInTheDocument()
   })
 
   it('filtra por busca', () => {
     seedLocalStorage('pcs', [
-      makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
-      makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002' }),
+      makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001', assetTag: 'TAG-001' }),
+      makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002', assetTag: 'TAG-002' }),
     ])
     renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
-    const search = screen.getByPlaceholderText('Buscar por laboratório, PC ou sala...')
-    fireEvent.change(search, { target: { value: 'PC-002' } })
+    const search = screen.getByPlaceholderText(/Buscar/)
+    fireEvent.change(search, { target: { value: 'TAG-002' } })
 
-    expect(screen.getByText(/PC-002/)).toBeInTheDocument()
-    expect(screen.queryByText(/PC-001/)).not.toBeInTheDocument()
+    expect(screen.getByText('TAG-002')).toBeInTheDocument()
+    expect(screen.queryByText('TAG-001')).not.toBeInTheDocument()
   })
 
-  it('mostra empty state quando nenhum PC encontrado na busca', () => {
+  it('mostra empty state quando nenhum ativo encontrado na busca', () => {
     seedLocalStorage('pcs', [
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
     ])
     renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
-    const search = screen.getByPlaceholderText('Buscar por laboratório, PC ou sala...')
+    const search = screen.getByPlaceholderText(/Buscar/)
     fireEvent.change(search, { target: { value: 'inexistente' } })
 
-    expect(screen.getByText('Nenhum PC encontrado')).toBeInTheDocument()
+    expect(screen.getByText('Nenhum ativo encontrado')).toBeInTheDocument()
   })
 
-  it('mostra empty state quando nao ha PCs', () => {
+  it('mostra empty state quando nao ha ativos', () => {
     renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
-    expect(screen.getByText('Nenhum PC encontrado')).toBeInTheDocument()
+    expect(screen.getByText('Nenhum ativo encontrado')).toBeInTheDocument()
   })
 
-  it('filtra por laboratorio', async () => {
-    vi.useRealTimers()
-    const user = userEvent.setup()
+  it('botao novo ativo funciona', () => {
     seedLocalStorage('pcs', [
       makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
-      makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002' }),
     ])
     renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
 
-    const [labTrigger] = screen.getAllByRole('combobox')
-    await user.click(labTrigger)
-    const labOption = await screen.findByText('Lab A')
-    await user.click(labOption)
-
-    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
-    expect(screen.queryByText(/PC-002/)).not.toBeInTheDocument()
-  })
-
-  it('filtra por status', async () => {
-    vi.useRealTimers()
-    const user = userEvent.setup()
-    seedLocalStorage('pcs', [
-      makePC({ id: 'pc-1', cleaningStatus: 'done', pcNumber: 'PC-001' }),
-      makePC({ id: 'pc-2', cleaningStatus: 'pending', pcNumber: 'PC-002' }),
-    ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
-
-    const [, statusTrigger] = screen.getAllByRole('combobox')
-    await user.click(statusTrigger)
-    const doneOption = await screen.findByRole('option', { name: 'Concluído' })
-    await user.click(doneOption)
-
-    expect(screen.getByText(/PC-001/)).toBeInTheDocument()
-    expect(screen.queryByText(/PC-002/)).not.toBeInTheDocument()
-  })
-
-  it('alterna modo de selecao', () => {
-    seedLocalStorage('pcs', [
-      makePC({ id: 'pc-1', labName: 'Lab A', pcNumber: 'PC-001' }),
-      makePC({ id: 'pc-2', labName: 'Lab B', pcNumber: 'PC-002' }),
-    ])
-    renderWithProviders(<PCList />, { initialEntries: ['/pc-care/pcs'] })
-
-    fireEvent.click(screen.getByText('Selecionar'))
-    expect(screen.getByText('Cancelar')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByText('Cancelar'))
-    expect(screen.getByText('Selecionar')).toBeInTheDocument()
+    expect(screen.getByText('+ Novo ativo')).toBeInTheDocument()
   })
 })

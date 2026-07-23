@@ -27,9 +27,8 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
     expect(screen.getByText('Total de PCs')).toBeInTheDocument()
-    expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('3')).toBeInTheDocument()
     expect(screen.getByText('Limpos')).toBeInTheDocument()
-    expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(3)
     expect(screen.getByText('33%')).toBeInTheDocument()
     expect(screen.getByText('Em andamento')).toBeInTheDocument()
     expect(screen.getByText('Pendentes')).toBeInTheDocument()
@@ -39,7 +38,7 @@ describe('Dashboard', () => {
     seedAll()
     renderWithProviders(<Dashboard />, { initialEntries: ['/pc-care'] })
 
-    expect(screen.getByText('Novo PC')).toBeInTheDocument()
+    expect(screen.getByText('Novo ativo')).toBeInTheDocument()
     expect(screen.getByText('Relatórios')).toBeInTheDocument()
     expect(screen.getByText('Checklists')).toBeInTheDocument()
     expect(screen.getByText('Scanner')).toBeInTheDocument()

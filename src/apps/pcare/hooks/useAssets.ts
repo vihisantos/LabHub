@@ -7,7 +7,11 @@ export function useAssets() {
   const [loading, setLoading] = useState(true)
   const load = useCallback(() => {
     setLoading(true)
-    setAssets([...assetService.getAll()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+    setAssets([...assetService.getAll()].sort((a, b) => {
+      const aTime = typeof a.createdAt === 'string' ? a.createdAt : (a.createdAt as any)?.seconds || 0
+      const bTime = typeof b.createdAt === 'string' ? b.createdAt : (b.createdAt as any)?.seconds || 0
+      return String(bTime).localeCompare(String(aTime))
+    }))
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
