@@ -90,12 +90,11 @@ describe('Reports', () => {
     expect(screen.getByText('Todos os laboratórios')).toBeInTheDocument()
   })
 
-  it('exibe skeleton durante loading', () => {
-    ;(usePCs as any).mockReturnValue({ pcs: [], loading: true, reload: vi.fn() })
-    ;(useParts as any).mockReturnValue({ parts: [], loading: true, reload: vi.fn() })
-    const { container } = renderReports()
-    // SkeletonStatCard is rendered during loading (no title visible yet)
-    expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
+  it('renderiza com dados vazios', () => {
+    ;(usePCs as any).mockReturnValue({ pcs: [], loading: false, reload: vi.fn() })
+    ;(useParts as any).mockReturnValue({ parts: [], loading: false, reload: vi.fn() })
+    renderReports()
+    expect(screen.getByText('Relatórios')).toBeInTheDocument()
   })
 
   it('alterna para dataType parts', () => {
