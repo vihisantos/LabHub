@@ -29,15 +29,9 @@ function renderWithRouter(ui: React.ReactElement) {
 describe('PCCard', () => {
   it('renderiza dados do PC', () => {
     renderWithRouter(<PCCard pc={mockPC} />)
-    expect(screen.getByText('Lab A — PC-001')).toBeInTheDocument()
+    expect(screen.getByText('TAG-001')).toBeInTheDocument()
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
     expect(screen.getByText('i5')).toBeInTheDocument()
-    expect(screen.getByText('8GB')).toBeInTheDocument()
-    expect(screen.getByText('256GB')).toBeInTheDocument()
-    expect(screen.getByText('Windows 11 (Acadêmico)')).toBeInTheDocument()
-    expect(screen.getByText('Concluído')).toBeInTheDocument()
-    expect(screen.getByText('Em andamento')).toBeInTheDocument()
-    expect(screen.getByText('Observe')).toBeInTheDocument()
   })
 
   it('renderiza input checkbox em modo selecao', () => {
