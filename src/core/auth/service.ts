@@ -56,23 +56,35 @@ export const authService = {
   signIn: async (credentials: AuthCredentials): Promise<User> => {
     requireDb()
 
+    console.log('[Auth] Attempting sign in for:', credentials.email)
+
     const { data, error } = await defaultDb!.auth.signInWithPassword({
       email: credentials.email,
       password: credentials.password,
     })
 
-    if (error) throw error
+    if (error) {
+      console.error('[Auth] Sign in error:', error.message)
+      throw error
+    }
     if (!data.user) throw new Error('Usuário não retornado')
+
+    console.log('[Auth] Sign in successful, user ID:', data.user.id)
 
     // Session is automatically stored in localStorage by Supabase
     let profile = await authService.fetchUserProfile(data.user.id)
+    console.log('[Auth] Profile fetch result:', profile)
 
     // If profile doesn't exist (user created before trigger), create it
     if (!profile) {
+      console.log('[Auth] Profile not found, creating...')
       profile = await authService.createProfile(data.user.id, data.user.email || credentials.email, '')
     }
 
-    if (!profile) throw new Error('Não foi possível criar o perfil do usuário.')
+    if (!profile) {
+      console.error('[Auth] Failed to create or fetch profile')
+      throw new Error('Não foi possível criar o perfil do usuário. Verifique se a tabela profiles existe no Supabase.')
+    }
 
     currentUser = profile
     notifyListeners()
@@ -154,16 +166,21 @@ export const authService = {
       updatedAt: now,
     }
 
-    const { error } = await defaultDb
+    console.log('[Auth] Creating profile:', profile)
+
+    const { data, error } = await defaultDb
       .from('profiles')
       .insert(profile)
+      .select()
+      .single()
 
     if (error) {
-      console.warn('[Auth] Failed to create profile:', error)
+      console.error('[Auth] Failed to create profile:', error.message, error)
       return null
     }
 
-    return profile as User
+    console.log('[Auth] Profile created:', data)
+    return data as User
   },
 
   onAuthChange: (callback: (user: User | null) => void) => {
