@@ -65,8 +65,14 @@ export const authService = {
     if (!data.user) throw new Error('Usuário não retornado')
 
     // Session is automatically stored in localStorage by Supabase
-    const profile = await authService.fetchUserProfile(data.user.id)
-    if (!profile) throw new Error('Perfil do usuário não encontrado. Contate o administrador.')
+    let profile = await authService.fetchUserProfile(data.user.id)
+
+    // If profile doesn't exist (user created before trigger), create it
+    if (!profile) {
+      profile = await authService.createProfile(data.user.id, data.user.email || credentials.email, '')
+    }
+
+    if (!profile) throw new Error('Não foi possível criar o perfil do usuário.')
 
     currentUser = profile
     notifyListeners()
@@ -132,6 +138,32 @@ export const authService = {
 
     if (error || !data) return null
     return data as User
+  },
+
+  createProfile: async (userId: string, email: string, name: string): Promise<User | null> => {
+    if (!defaultDb) return null
+
+    const now = new Date().toISOString()
+    const profile = {
+      id: userId,
+      email,
+      name: name || email.split('@')[0],
+      role: 'viewer',
+      workspaceIds: [],
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const { error } = await defaultDb
+      .from('profiles')
+      .insert(profile)
+
+    if (error) {
+      console.warn('[Auth] Failed to create profile:', error)
+      return null
+    }
+
+    return profile as User
   },
 
   onAuthChange: (callback: (user: User | null) => void) => {
