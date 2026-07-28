@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { LogOut } from 'lucide-react'
 import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
@@ -21,9 +22,14 @@ export function DashboardPage() {
   const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
   const { workspace } = useWorkspace()
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
 
   const userName = user?.name?.split(' ')[0] || ''
+
+  async function handleSignOut() {
+    await signOut()
+    navigate('/login')
+  }
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
@@ -58,6 +64,15 @@ export function DashboardPage() {
                 className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg"
               >
                 <icons.ui.search size={20} />
+              </button>
+              <button
+                id="btn-logout"
+                type="button"
+                onClick={handleSignOut}
+                title="Sair"
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-red-500/10 hover:text-red-400"
+              >
+                <LogOut size={18} />
               </button>
             </div>
           </div>
