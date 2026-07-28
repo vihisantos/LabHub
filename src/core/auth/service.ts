@@ -129,7 +129,7 @@ export const authService = {
 
     const { error } = await defaultDb!
       .from('profiles')
-      .update({ ...data, updatedAt: new Date().toISOString() })
+      .update({ ...data, updated_at: new Date().toISOString() })
       .eq('id', currentUser.id)
 
     if (error) throw error
@@ -161,9 +161,9 @@ export const authService = {
       email,
       name: name || email.split('@')[0],
       role: 'viewer',
-      workspaceIds: [],
-      createdAt: now,
-      updatedAt: now,
+      workspace_ids: [],
+      created_at: now,
+      updated_at: now,
     }
 
     console.log('[Auth] Creating profile:', profile)

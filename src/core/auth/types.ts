@@ -6,9 +6,9 @@ export interface User {
   name: string
   avatar?: string
   role: UserRole
-  workspaceIds: string[]
-  createdAt: string
-  updatedAt: string
+  workspace_ids: string[]
+  created_at: string
+  updated_at: string
 }
 
 export interface AuthState {
