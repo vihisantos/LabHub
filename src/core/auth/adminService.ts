@@ -35,12 +35,15 @@ export const adminService = {
     return (data || []) as User[]
   },
 
-  approveUser: async (userId: string): Promise<boolean> => {
+  approveUser: async (
+    userId: string,
+    extra?: { role?: UserRole; app_access?: User['app_access'] },
+  ): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { error } = await defaultDb
       .from('profiles')
-      .update({ status: 'active', updated_at: new Date().toISOString() })
+      .update({ status: 'active', ...extra, updated_at: new Date().toISOString() })
       .eq('id', userId)
 
     if (error) {
