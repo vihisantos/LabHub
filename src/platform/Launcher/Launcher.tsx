@@ -6,6 +6,7 @@ import { useAuth } from '../../core/auth/AuthContext'
 import { useAppAccess } from '../../core/permissions/usePermissions'
 import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
+import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
 import { icons } from '../../lib/icons'
 
 function getGreeting(): string {
@@ -21,6 +22,7 @@ export function Launcher() {
   const { user, signOut } = useAuth()
   const { canAccessApp } = useAppAccess()
   const [greeting, setGreeting] = useState('')
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const userName = user?.name?.split(' ')[0] || ''
   const accessibleApps = appRegistry.filter((app) => canAccessApp(app.id))
@@ -50,7 +52,7 @@ export function Launcher() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => navigate('/admin/notifications')}
+                onClick={() => setNotificationsOpen(true)}
                 className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg"
               >
                 <icons.ui.inbox size={20} />
@@ -179,6 +181,7 @@ export function Launcher() {
       </div>
 
       <PushNotificationButton />
+      <NotificationsSheet open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </div>
   )
 }
