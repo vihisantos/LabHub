@@ -5,6 +5,7 @@ import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
 import { useAppAccess } from '../../core/permissions/usePermissions'
 import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
+import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
 import { icons } from '../../lib/icons'
 
 function getGreeting(): string {
@@ -176,6 +177,8 @@ export function Launcher() {
           <p className="mt-1 text-[10px] text-fg-dim">LabHub v2.0</p>
         </footer>
       </div>
+
+      <PushNotificationButton />
     </div>
   )
 }

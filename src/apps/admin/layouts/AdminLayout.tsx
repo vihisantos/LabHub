@@ -5,6 +5,7 @@ import { icons } from '../../../lib/icons'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { WorkspaceSelectionPage } from '../pages/WorkspaceSelectionPage'
+import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 
 const NAV_ITEMS = [
   { path: '/admin', label: 'Dashboard', icon: icons.nav.dashboard },
@@ -178,6 +179,8 @@ export function AdminLayout() {
           ))}
         </div>
       </nav>
+
+      <PushNotificationButton />
     </div>
   )
 }
