@@ -1,10 +1,13 @@
 import { motion } from 'framer-motion'
 import { usePushNotifications } from '../../../lib/usePushNotifications'
+import { useAuth } from '../../../core/auth/AuthContext'
 
 export function PushNotificationButton() {
-  const { supported, permission, subscribed, loading, subscribe } = usePushNotifications([
-    { id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' },
-  ])
+  const { user } = useAuth()
+  const { supported, permission, subscribed, loading, subscribe } = usePushNotifications(
+    [{ id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' }],
+    user ? { id: user.id, name: user.name, role: user.role } : null,
+  )
 
   if (!supported || permission === 'granted' || subscribed) return null
 
