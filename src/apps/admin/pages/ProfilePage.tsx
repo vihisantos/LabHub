@@ -5,7 +5,7 @@ import { authService } from '../../../core/auth/service'
 import type { Accent, ThemeVariant } from '../../../core/auth/types'
 import { themeStore } from '../../../core/theme/store'
 import { icons } from '../../../lib/icons'
-import { uploadToCloudinary } from '../../../lib/cloudinary'
+import { uploadAvatarToCloudinary } from '../../../lib/cloudinary'
 
 const ACCENTS: { value: Accent; label: string; color: string }[] = [
   { value: 'emerald', label: 'Esmeralda', color: '#10b981' },
@@ -33,7 +33,7 @@ export function ProfilePage() {
   async function handleAvatarUpload(file: File) {
     setUploading(true)
     try {
-      const url = await uploadToCloudinary(file, 'avatars')
+      const url = await uploadAvatarToCloudinary(file)
       await authService.updateProfile({ avatar: url })
       setFeedback({ type: 'success', message: 'Foto atualizada!' })
     } catch {
