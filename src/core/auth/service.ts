@@ -113,7 +113,10 @@ export const authService = {
     if (error) throw error
     if (!authData.user) throw new Error('Usuário não retornado')
 
-    // Create profile with pending status — admin must approve
+    // O perfil pendente é criado pelo trigger do banco (handle_new_user),
+    // que roda com SECURITY DEFINER e ignora RLS. O insert direto pelo
+    // client falharia com "new row violates row-level security policy"
+    // quando ainda não existe sessão no momento do cadastro.
     const now = new Date().toISOString()
     const profile = {
       id: authData.user.id,
@@ -128,15 +131,6 @@ export const authService = {
       banner: '',
       created_at: now,
       updated_at: now,
-    }
-
-    const { error: insertError } = await defaultDb!
-      .from('profiles')
-      .insert(profile)
-
-    if (insertError) {
-      console.error('[Auth] Failed to create pending profile:', insertError.message)
-      throw new Error('Erro ao criar perfil. Tente novamente.')
     }
 
     // Create a notification that will sync to admin's notification center
