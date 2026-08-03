@@ -6,7 +6,7 @@ import { workspaceService } from '../../../core/workspaces/service'
 import type { Workspace } from '../../../core/workspaces/types'
 import { themeStore } from '../../../core/theme/store'
 import { icons } from '../../../lib/icons'
-import { uploadToCloudinary } from '../../../lib/cloudinary'
+import { uploadAvatarToCloudinary } from '../../../lib/cloudinary'
 
 const ROLES: UserRole[] = ['admin', 'technician', 'viewer']
 
@@ -89,7 +89,7 @@ export function UsersPage() {
   async function handleAvatarUpload(userId: string, file: File) {
     setUploadingAvatar(userId)
     try {
-      const url = await uploadToCloudinary(file, 'avatars')
+      const url = await uploadAvatarToCloudinary(file)
       const success = await adminService.updateUserProfile(userId, { avatar: url })
       if (success) {
         setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, avatar: url } : u))
