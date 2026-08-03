@@ -125,6 +125,7 @@ export const authService = {
       accent: 'emerald' as const,
       theme_variant: 'dark' as const,
       avatar: '',
+      banner: '',
       created_at: now,
       updated_at: now,
     }
@@ -233,6 +234,7 @@ export const authService = {
       accent: 'emerald',
       theme_variant: 'dark',
       avatar: '',
+      banner: '',
       created_at: now,
       updated_at: now,
     }

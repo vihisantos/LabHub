@@ -1,5 +1,5 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut } from 'lucide-react'
 import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
@@ -8,6 +8,9 @@ import { MetricCard } from './MetricCard'
 import { ModuleStats } from './ModuleStats'
 import { QuickActions } from './QuickActions'
 import { ActivityFeed } from './ActivityFeed'
+import { ProfileSheet } from '../Profile/ProfileSheet'
+import { UserAvatar } from '../Profile/UserAvatar'
+import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
 import { icons } from '../../lib/icons'
 
 function getGreeting(): string {
@@ -19,17 +22,14 @@ function getGreeting(): string {
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
   const { workspace } = useWorkspace()
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
 
   const userName = user?.name?.split(' ')[0] || ''
-
-  async function handleSignOut() {
-    await signOut()
-    navigate('/login')
-  }
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
@@ -45,7 +45,7 @@ export function DashboardPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => navigate('/admin/notifications')}
+                onClick={() => setNotificationsOpen(true)}
                 className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg"
               >
                 <icons.ui.inbox size={20} />
@@ -65,25 +65,16 @@ export function DashboardPage() {
               >
                 <icons.ui.search size={20} />
               </button>
-              {user?.role === 'admin' && (
+              {user && (
                 <button
                   type="button"
-                  onClick={() => navigate('/admin')}
-                  title="Administração"
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-slate-500/10 hover:text-slate-400"
+                  onClick={() => setProfileOpen(true)}
+                  title="Meu perfil"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-card p-1 transition-colors hover:bg-input"
                 >
-                  <icons.nav.settings size={18} />
+                  <UserAvatar user={user} size={32} />
                 </button>
               )}
-              <button
-                id="btn-logout"
-                type="button"
-                onClick={handleSignOut}
-                title="Sair"
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-red-500/10 hover:text-red-400"
-              >
-                <LogOut size={18} />
-              </button>
             </div>
           </div>
         </header>
@@ -140,6 +131,9 @@ export function DashboardPage() {
           <p className="mt-1 text-[10px] text-fg-dim">LabHub v2.0</p>
         </footer>
       </div>
+
+      <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <NotificationsSheet open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </div>
   )
 }

@@ -4,21 +4,9 @@ import { useAuth } from '../../../core/auth/AuthContext'
 import { authService } from '../../../core/auth/service'
 import type { Accent, ThemeVariant } from '../../../core/auth/types'
 import { themeStore } from '../../../core/theme/store'
+import { ACCENTS, THEMES, accentColor } from '../../../core/theme/constants'
 import { icons } from '../../../lib/icons'
 import { uploadAvatarToCloudinary } from '../../../lib/cloudinary'
-
-const ACCENTS: { value: Accent; label: string; color: string }[] = [
-  { value: 'emerald', label: 'Esmeralda', color: '#10b981' },
-  { value: 'cyan', label: 'Ciano', color: '#06b6d4' },
-  { value: 'blue', label: 'Azul', color: '#3b82f6' },
-  { value: 'purple', label: 'Roxo', color: '#a855f7' },
-]
-
-const THEMES: { value: ThemeVariant; label: string; icon: typeof icons.ui.sun }[] = [
-  { value: 'dark', label: 'Escuro', icon: icons.ui.moon },
-  { value: 'dim', label: 'Sutil', icon: icons.ui.sun },
-  { value: 'light', label: 'Claro', icon: icons.ui.sun },
-]
 
 export function ProfilePage() {
   const { user } = useAuth()
@@ -72,7 +60,7 @@ export function ProfilePage() {
     setTimeout(() => setFeedback(null), 2000)
   }
 
-  const accentColor = ACCENTS.find((a) => a.value === user.accent)?.color || '#10b981'
+  const accentColorValue = accentColor(user.accent)
 
   return (
     <motion.div
@@ -113,12 +101,12 @@ export function ProfilePage() {
             />
             <div
               className="flex h-20 w-20 items-center justify-center rounded-2xl overflow-hidden"
-              style={{ backgroundColor: accentColor + '15' }}
+              style={{ backgroundColor: accentColorValue + '15' }}
             >
               {user.avatar ? (
                 <img src={user.avatar} alt="" className="h-full w-full object-cover" />
               ) : (
-                <icons.ui.user size={32} style={{ color: accentColor }} />
+                <icons.ui.user size={32} style={{ color: accentColorValue }} />
               )}
             </div>
             <button
