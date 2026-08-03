@@ -17,6 +17,7 @@ export function NotificationsSheet({ open, onClose }: NotificationsSheetProps) {
         title="Notificações"
         subtitle={`${unreadCount} não lida${unreadCount !== 1 ? 's' : ''}`}
         onClose={onClose}
+        hideClose
       >
         <div className="flex gap-2">
           {unreadCount > 0 && (
