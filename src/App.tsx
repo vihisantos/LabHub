@@ -5,6 +5,7 @@ import { CommandPalette } from './platform/CommandPalette/CommandPalette'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
 import { AuthProvider, useAuth } from './core/auth/AuthContext'
 import { AdminGuard } from './core/auth/AdminGuard'
+import { AppGuard } from './core/auth/AppGuard'
 import { ThemeProvider } from './lib/ThemeContext'
 
 const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ default: m.LoginPage })))
@@ -74,53 +75,71 @@ function AppRoutes() {
       } />
       <Route path="pc-care/*" element={
         <AuthGuard>
-          <PCCareApp />
+          <AppGuard appId="pc-care">
+            <PCCareApp />
+          </AppGuard>
         </AuthGuard>
       } />
       <Route path="stock/*" element={
         <AuthGuard>
-          <StockApp />
+          <AppGuard appId="stock">
+            <StockApp />
+          </AppGuard>
         </AuthGuard>
       } />
       <Route path="general-stock/*" element={
         <AuthGuard>
-          <StockApp />
+          <AppGuard appId="stock">
+            <StockApp />
+          </AppGuard>
         </AuthGuard>
       } />
       <Route path="reservalab/*" element={
         <AuthGuard>
-          <ReservaLabApp />
+          <AppGuard appId="reservalab">
+            <ReservaLabApp />
+          </AppGuard>
         </AuthGuard>
       } />
       <Route path="tv/*" element={
         <AuthGuard>
-          <TvApp />
+          <AppGuard appId="tv">
+            <TvApp />
+          </AppGuard>
         </AuthGuard>
       } />
       <Route path="chamados/*" element={
         <AuthGuard>
-          <ChamadosApp />
+          <AppGuard appId="chamados">
+            <ChamadosApp />
+          </AppGuard>
         </AuthGuard>
       } />
       <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
       <Route path="admin/*" element={
         <AuthGuard>
           <AdminGuard>
-            <AdminApp />
+            <AppGuard appId="admin">
+              <AdminApp />
+            </AppGuard>
           </AdminGuard>
         </AuthGuard>
       } />
       <Route path="admin/notifications" element={
         <AuthGuard>
           <AdminGuard>
-            <NotificationsPage />
+            <AppGuard appId="admin">
+              <NotificationsPage />
+            </AppGuard>
           </AdminGuard>
         </AuthGuard>
       } />
       <Route path="admin/logs" element={
         <AuthGuard>
           <AdminGuard>
-            <LogsPage />
+            <AppGuard appId="admin">
+              <LogsPage />
+            </AppGuard>
           </AdminGuard>
         </AuthGuard>
       } />

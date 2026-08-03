@@ -15,6 +15,16 @@ vi.mock('../../hooks/useIsMobile', () => ({
   useIsMobile: vi.fn(() => false),
 }))
 
+// Mock useAppAccess — teste assume cargo com acesso total
+vi.mock('../../../../core/permissions/usePermissions', () => ({
+  useAppAccess: () => ({
+    getLevel: () => 'full',
+    canAccessApp: () => true,
+    isFullAccess: () => true,
+    role: undefined,
+  }),
+}))
+
 // Mock TimeInput
 vi.mock('../../components/TimeInput', () => ({
   TimeInput: ({ label, value, onChange, placeholder }: any) => (

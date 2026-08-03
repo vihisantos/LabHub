@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { icons } from '../../../lib/icons'
 
 interface NavbarProps {
@@ -21,6 +22,12 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const tabPositionsRef = useRef<{ left: number, width: number }[]>([])
   const [hoveredTab, setHoveredTab] = useState<string | null>(null)
+  const { getLevel } = useAppAccess()
+
+  // Cargo com acesso 'dash' vê somente o dashboard
+  const visibleTabs = getLevel('reservalab') === 'dash'
+    ? tabs.filter((t) => t.id === 'dashboard')
+    : tabs
 
   const currentPath = location.pathname
   const isRoot = currentPath === '/reservalab' || currentPath === '/reservalab/'
@@ -40,7 +47,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
     const children = containerRef.current.children
     const positions: { left: number, width: number }[] = []
     const containerRect = containerRef.current.getBoundingClientRect()
-    for (let i = 0; i < tabs.length; i++) {
+    for (let i = 0; i < visibleTabs.length; i++) {
       const btn = children[i + 1]
       if (!btn) continue
       const rect = btn.getBoundingClientRect()
@@ -58,14 +65,14 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
     const containerRect = containerRef.current.getBoundingClientRect()
     const relX = e.touches[0].clientX - containerRect.left
     const firstPos = tabPositionsRef.current[0]
-    const lastPos = tabPositionsRef.current[tabs.length - 1]
+    const lastPos = tabPositionsRef.current[visibleTabs.length - 1]
     if (!firstPos || !lastPos) return
     const areaStart = firstPos.left
     const areaWidth = (lastPos.left + lastPos.width) - areaStart
     if (areaWidth <= 0) return
     const proportion = Math.max(0, Math.min(1, (relX - areaStart) / areaWidth))
-    const index = Math.min(Math.floor(proportion * tabs.length), tabs.length - 1)
-    setHoveredTab(tabs[index].id)
+    const index = Math.min(Math.floor(proportion * visibleTabs.length), visibleTabs.length - 1)
+    setHoveredTab(visibleTabs[index].id)
   }
 
   const handleTouchEnd = () => {
@@ -128,7 +135,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
               <icons.ui.home size={16} />
           <span>Início</span>
         </button>
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const isActive = displayTab === tab.id
           return (
             <button
@@ -239,7 +246,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
 
       <div className="nav-separator" style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)' }} />
 
-      {tabs.map((tab) => {
+      {visibleTabs.map((tab) => {
         const isActive = activeTab === tab.id
         return (
           <button

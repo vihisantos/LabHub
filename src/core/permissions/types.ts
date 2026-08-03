@@ -1,92 +1,78 @@
-export type Permission =
-  | 'assets.view' | 'assets.create' | 'assets.edit' | 'assets.delete'
-  | 'tickets.view' | 'tickets.create' | 'tickets.edit' | 'tickets.assign'
-  | 'stock.view' | 'stock.create' | 'stock.edit' | 'stock.delete'
-  | 'rooms.view' | 'rooms.create' | 'rooms.edit' | 'rooms.delete'
-  | 'users.view' | 'users.manage'
-  | 'logs.view'
-  | 'settings.manage'
-  | 'workspaces.manage'
+export type RoleKey = 'admin' | 'technician' | 'viewer'
+
+export type AppAccessLevel = 'dash' | 'read' | 'full'
+
+/** Valor possível no override individual por usuário (permite bloquear explicitamente) */
+export type AppAccessOverride = AppAccessLevel | 'none'
 
 export interface Role {
   id: string
+  key: RoleKey
   name: string
   description: string
-  permissions: Permission[]
+  /** Nível de acesso por aplicativo (id do appRegistry) — ausente = sem acesso */
+  appAccess: Partial<Record<string, AppAccessLevel>>
   isDefault: boolean
+}
+
+export const APP_ACCESS_LEVELS: AppAccessLevel[] = ['dash', 'read', 'full']
+
+export const APP_ACCESS_LABELS: Record<AppAccessLevel, string> = {
+  dash: 'Dashboard',
+  read: 'Só leitura',
+  full: 'Acesso total',
+}
+
+export const APP_ACCESS_DESCRIPTIONS: Record<AppAccessLevel, string> = {
+  dash: 'Somente o dashboard para verificação de quantidades',
+  read: 'Visualização dos dados, sem criar ou editar',
+  full: 'Pode visualizar, criar, editar e excluir',
+}
+
+/** Acesso padrão por cargo — ids precisam bater com o appRegistry */
+export const DEFAULT_ROLE_APPS: Record<RoleKey, Partial<Record<string, AppAccessLevel>>> = {
+  admin: {
+    'pc-care': 'full',
+    stock: 'full',
+    reservalab: 'full',
+    tv: 'full',
+    chamados: 'full',
+    admin: 'full',
+  },
+  technician: {
+    'pc-care': 'full',
+    stock: 'full',
+    reservalab: 'read',
+    chamados: 'full',
+  },
+  viewer: {
+    'pc-care': 'read',
+    stock: 'read',
+    reservalab: 'dash',
+    chamados: 'read',
+  },
 }
 
 export const DEFAULT_ROLES: Omit<Role, 'id'>[] = [
   {
+    key: 'admin',
     name: 'Administrador',
-    description: 'Acesso total ao sistema',
-    permissions: [
-      'assets.view', 'assets.create', 'assets.edit', 'assets.delete',
-      'tickets.view', 'tickets.create', 'tickets.edit', 'tickets.assign',
-      'stock.view', 'stock.create', 'stock.edit', 'stock.delete',
-      'rooms.view', 'rooms.create', 'rooms.edit', 'rooms.delete',
-      'users.view', 'users.manage',
-      'logs.view',
-      'settings.manage',
-      'workspaces.manage',
-    ],
+    description: 'Acesso total a todos os aplicativos',
+    appAccess: { ...DEFAULT_ROLE_APPS.admin },
     isDefault: false,
   },
   {
+    key: 'technician',
     name: 'Técnico',
-    description: 'Pode gerenciar chamados e ativos',
-    permissions: [
-      'assets.view', 'assets.create', 'assets.edit',
-      'tickets.view', 'tickets.create', 'tickets.edit', 'tickets.assign',
-      'stock.view', 'stock.create', 'stock.edit',
-      'rooms.view', 'rooms.create', 'rooms.edit',
-      'users.view',
-      'logs.view',
-    ],
+    description: 'Acesso aos aplicativos de operação',
+    appAccess: { ...DEFAULT_ROLE_APPS.technician },
     isDefault: false,
   },
   {
+    key: 'viewer',
     name: 'Visualizador',
-    description: 'Somente visualização',
-    permissions: [
-      'assets.view',
-      'tickets.view', 'tickets.create',
-      'stock.view',
-      'rooms.view',
-    ],
+    description: 'Acesso somente leitura aos aplicativos liberados',
+    appAccess: { ...DEFAULT_ROLE_APPS.viewer },
     isDefault: true,
   },
-]
-
-export const PERMISSION_LABELS: Record<Permission, string> = {
-  'assets.view': 'Ver ativos',
-  'assets.create': 'Criar ativos',
-  'assets.edit': 'Editar ativos',
-  'assets.delete': 'Excluir ativos',
-  'tickets.view': 'Ver chamados',
-  'tickets.create': 'Criar chamados',
-  'tickets.edit': 'Editar chamados',
-  'tickets.assign': 'Atribuir chamados',
-  'stock.view': 'Ver estoque',
-  'stock.create': 'Criar itens',
-  'stock.edit': 'Editar itens',
-  'stock.delete': 'Excluir itens',
-  'rooms.view': 'Ver salas',
-  'rooms.create': 'Criar salas',
-  'rooms.edit': 'Editar salas',
-  'rooms.delete': 'Excluir salas',
-  'users.view': 'Ver usuários',
-  'users.manage': 'Gerenciar usuários',
-  'logs.view': 'Ver logs',
-  'settings.manage': 'Gerenciar configurações',
-  'workspaces.manage': 'Gerenciar workspaces',
-}
-
-export const PERMISSION_GROUPS = [
-  { name: 'Ativos', permissions: ['assets.view', 'assets.create', 'assets.edit', 'assets.delete'] as Permission[] },
-  { name: 'Chamados', permissions: ['tickets.view', 'tickets.create', 'tickets.edit', 'tickets.assign'] as Permission[] },
-  { name: 'Estoque', permissions: ['stock.view', 'stock.create', 'stock.edit', 'stock.delete'] as Permission[] },
-  { name: 'Salas', permissions: ['rooms.view', 'rooms.create', 'rooms.edit', 'rooms.delete'] as Permission[] },
-  { name: 'Usuários', permissions: ['users.view', 'users.manage'] as Permission[] },
-  { name: 'Sistema', permissions: ['logs.view', 'settings.manage', 'workspaces.manage'] as Permission[] },
 ]

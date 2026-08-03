@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Role, Permission } from './types'
+import type { Role, AppAccessLevel } from './types'
 import { permissionService } from './service'
-import { useAuth } from '../auth/useAuth'
+import { useAuth } from '../auth/AuthContext'
 
 export function useRoles() {
   const [roles, setRoles] = useState<Role[]>([])
@@ -10,6 +10,7 @@ export function useRoles() {
   const load = useCallback(() => {
     setLoading(true)
     permissionService.initDefaults()
+    permissionService.migrate()
     const data = permissionService.getAll()
     setRoles(data)
     setLoading(false)
@@ -41,24 +42,36 @@ export function useRoles() {
   return { roles, loading, create, update, remove, reload: load }
 }
 
-export function usePermissions() {
+/** Nível de acesso do usuário atual por aplicativo (cargo + override individual) */
+export function useAppAccess() {
   const { user } = useAuth()
+  const [role, setRole] = useState<Role | undefined>(() =>
+    user ? permissionService.getRoleForUser(user.role) : undefined,
+  )
 
-  const role = user ? permissionService.getRoleForUser(user.role) : undefined
+  useEffect(() => {
+    if (!user) {
+      setRole(undefined)
+      return
+    }
+    permissionService.initDefaults()
+    permissionService.migrate()
+    setRole(permissionService.getRoleForUser(user.role))
+  }, [user])
 
-  const hasPermission = useCallback((permission: Permission): boolean => {
-    if (!user) return false
-    if (user.role === 'admin') return true
-    return permissionService.hasPermission(role, permission)
+  const getLevel = useCallback((appId: string): AppAccessLevel | null => {
+    if (!user) return null
+    if (user.role === 'admin') return 'full'
+    return permissionService.resolveAppAccess(role, user, appId)
   }, [user, role])
 
-  const hasAnyPermission = useCallback((permissions: Permission[]): boolean => {
-    return permissions.some((p) => hasPermission(p))
-  }, [hasPermission])
+  const canAccessApp = useCallback((appId: string): boolean => {
+    return getLevel(appId) !== null
+  }, [getLevel])
 
-  const hasAllPermissions = useCallback((permissions: Permission[]): boolean => {
-    return permissions.every((p) => hasPermission(p))
-  }, [hasPermission])
+  const isFullAccess = useCallback((appId: string): boolean => {
+    return getLevel(appId) === 'full'
+  }, [getLevel])
 
-  return { role, hasPermission, hasAnyPermission, hasAllPermissions }
+  return { role, canAccessApp, getLevel, isFullAccess }
 }
