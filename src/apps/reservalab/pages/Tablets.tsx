@@ -3,6 +3,7 @@ import { Tablet as TabletIcon, Plus, X, User } from 'lucide-react'
 import { TimeInput } from '../components/TimeInput'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../../../core/auth/AuthContext'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { fetchTabletReservas, createTabletReserva, deleteTabletReserva } from '../services/supabase'
 import type { TabletReserva } from '../types'
@@ -44,7 +45,9 @@ export function TabletsView() {
   const [showSalaDropdown, setShowSalaDropdown] = useState(false)
   const [mostrarTodas, setMostrarTodas] = useState(false)
   const { user } = useAuth()
+  const { getLevel } = useAppAccess()
   const { workspace } = useWorkspace()
+  const canEdit = getLevel('reservalab') === 'full'
 
   // Auto-fill reservado_por with logged-in user whenever form opens
   useEffect(() => {
@@ -199,18 +202,20 @@ export function TabletsView() {
               {mostrarTodas ? 'Só hoje' : 'Todas'}
             </button>
           )}
-          <button
-            onClick={() => setShowForm(!showForm)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              padding: '10px 20px', borderRadius: '9999px', border: 'none',
-              background: showForm ? '#dc2626' : '#6366f1',
-              color: '#ffffff', cursor: 'pointer', fontSize: '14px', fontWeight: 600, minHeight: '44px',
-            }}
-          >
-            {showForm ? <X size={16} /> : <Plus size={16} />}
-            {showForm ? 'Fechar' : 'Nova reserva'}
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setShowForm(!showForm)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '10px 20px', borderRadius: '9999px', border: 'none',
+                background: showForm ? '#dc2626' : '#6366f1',
+                color: '#ffffff', cursor: 'pointer', fontSize: '14px', fontWeight: 600, minHeight: '44px',
+              }}
+            >
+              {showForm ? <X size={16} /> : <Plus size={16} />}
+              {showForm ? 'Fechar' : 'Nova reserva'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -342,13 +347,13 @@ export function TabletsView() {
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {items.map((r) => (
-                    <ReservationRow key={r.id} reservation={r} onCancel={handleCancel} formatTime={formatTimeDisplay} />
+                    <ReservationRow key={r.id} reservation={r} onCancel={handleCancel} formatTime={formatTimeDisplay} canCancel={canEdit} />
                   ))}
                 </div>
               </div>
             ))
           : reservasHoje.map((r) => (
-              <ReservationRow key={r.id} reservation={r} onCancel={handleCancel} formatTime={formatTimeDisplay} />
+              <ReservationRow key={r.id} reservation={r} onCancel={handleCancel} formatTime={formatTimeDisplay} canCancel={canEdit} />
             ))}
         {reservas.length === 0 && (
           <div style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
@@ -387,10 +392,12 @@ function ReservationRow({
   reservation,
   onCancel,
   formatTime,
+  canCancel,
 }: {
   reservation: TabletReserva
   onCancel: (id: number) => void
   formatTime: (iso: string) => string
+  canCancel: boolean
 }) {
   return (
     <div
@@ -423,16 +430,18 @@ function ReservationRow({
           </p>
         </div>
       </div>
-      <button
-        onClick={() => onCancel(reservation.id)}
-        style={{
-          padding: '8px 16px', borderRadius: '9999px', border: '1px solid #fecaca',
-          background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
-          fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', minHeight: '36px',
-        }}
-      >
-        Cancelar
-      </button>
+      {canCancel && (
+        <button
+          onClick={() => onCancel(reservation.id)}
+          style={{
+            padding: '8px 16px', borderRadius: '9999px', border: '1px solid #fecaca',
+            background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
+            fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', minHeight: '36px',
+          }}
+        >
+          Cancelar
+        </button>
+      )}
     </div>
   )
 }

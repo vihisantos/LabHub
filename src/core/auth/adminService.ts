@@ -101,7 +101,7 @@ export const adminService = {
     return true
   },
 
-  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'role' | 'accent' | 'theme_variant' | 'workspace_ids' | 'avatar'>>): Promise<boolean> => {
+  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'role' | 'accent' | 'theme_variant' | 'workspace_ids' | 'avatar' | 'app_access'>>): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { error } = await defaultDb

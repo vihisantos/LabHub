@@ -1,3 +1,5 @@
+import type { AppAccessOverride } from '../permissions/types'
+
 export type UserRole = 'admin' | 'technician' | 'viewer'
 export type Accent = 'emerald' | 'cyan' | 'blue' | 'purple'
 export type ThemeVariant = 'dark' | 'dim' | 'light'
@@ -14,6 +16,8 @@ export interface User {
   workspace_ids: string[]
   accent: Accent
   theme_variant: ThemeVariant
+  /** Override individual de acesso por aplicativo — sobrescreve o cargo */
+  app_access?: Partial<Record<string, AppAccessOverride>>
   created_at: string
   updated_at: string
 }

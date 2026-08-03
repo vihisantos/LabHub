@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { appRegistry } from '../../appRegistry'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
+import { useAppAccess } from '../../core/permissions/usePermissions'
 import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { icons } from '../../lib/icons'
 
@@ -17,9 +18,11 @@ export function Launcher() {
   const navigate = useNavigate()
   const { unreadCount } = useNotifications()
   const { user, signOut } = useAuth()
+  const { canAccessApp } = useAppAccess()
   const [greeting, setGreeting] = useState('')
 
   const userName = user?.name?.split(' ')[0] || ''
+  const accessibleApps = appRegistry.filter((app) => canAccessApp(app.id))
 
   useEffect(() => {
     setGreeting(getGreeting())
@@ -66,7 +69,7 @@ export function Launcher() {
               >
                 <icons.ui.search size={20} />
               </button>
-              {user?.role === 'admin' && (
+              {canAccessApp('admin') && (
                 <button
                   type="button"
                   onClick={() => navigate('/admin')}
@@ -138,7 +141,7 @@ export function Launcher() {
         <div className="mb-6">
           <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Módulos</p>
           <div className="space-y-2">
-            {appRegistry.map((app) => (
+            {accessibleApps.map((app) => (
               <button
                 key={app.id}
                 type="button"

@@ -5,6 +5,10 @@ import { ROLE_LABELS, ROLE_COLORS } from '../../../core/auth/types'
 import { workspaceService } from '../../../core/workspaces/service'
 import type { Workspace } from '../../../core/workspaces/types'
 import { themeStore } from '../../../core/theme/store'
+import { useRoles } from '../../../core/permissions/usePermissions'
+import { APP_ACCESS_LABELS } from '../../../core/permissions/types'
+import type { AppAccessOverride } from '../../../core/permissions/types'
+import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
 import { uploadToCloudinary } from '../../../lib/cloudinary'
 
@@ -33,6 +37,8 @@ export function UsersPage() {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState<string | null>(null)
+  const { roles: roleList } = useRoles()
+  const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -152,6 +158,33 @@ export function UsersPage() {
 
   function previewAccent(accent: Accent) {
     themeStore.previewAccent(accent)
+  }
+
+  async function handleAppAccessChange(userId: string, appId: string, override: AppAccessOverride | null) {
+    setSaving(true)
+    const user = users.find((u) => u.id === userId)
+    if (!user) {
+      setSaving(false)
+      return
+    }
+    const current = { ...(user.app_access || {}) }
+    if (override === null) {
+      delete current[appId]
+    } else {
+      current[appId] = override
+    }
+    const success = await adminService.updateUserProfile(userId, { app_access: current })
+    if (success) {
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, app_access: current } : u))
+      setFeedback({
+        type: 'success',
+        message: override === null ? 'Acesso restaurado para o padrão do cargo' : 'Acesso individual atualizado',
+      })
+    } else {
+      setFeedback({ type: 'error', message: 'Erro ao atualizar acesso' })
+    }
+    setSaving(false)
+    setTimeout(() => setFeedback(null), 3000)
   }
 
   const userCounts = {
@@ -457,6 +490,53 @@ export function UsersPage() {
                                   <><icons.ui.plus size={10} className="inline mr-1" />{ws.name}</>
                                 )}
                               </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Per-app access override - only for non-admin users */}
+                    {!isAdminUser && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
+                          Acesso por aplicativo (sobrescreve o cargo)
+                        </p>
+                        <div className="space-y-1.5">
+                          {editableApps.map((app) => {
+                            const current = u.app_access?.[app.id] ?? null
+                            const roleForUser = roleList.find((r) => r.key === u.role)
+                            const roleLevel = roleForUser?.appAccess?.[app.id]
+                            return (
+                              <div key={app.id} className="flex items-center gap-3 rounded-lg border border-line px-2.5 py-2">
+                                <div
+                                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${current === 'none' ? 'opacity-40 grayscale' : ''}`}
+                                  style={{ backgroundColor: app.color + '15', color: app.color }}
+                                >
+                                  <app.icon size={15} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-fg">{app.name}</p>
+                                  <p className="text-[10px] text-fg-dim">
+                                    Cargo: {roleLevel ? APP_ACCESS_LABELS[roleLevel] : 'Sem acesso'}
+                                  </p>
+                                </div>
+                                <select
+                                  value={current ?? 'inherit'}
+                                  onChange={(e) => {
+                                    const v = e.target.value
+                                    handleAppAccessChange(u.id, app.id, v === 'inherit' ? null : (v as AppAccessOverride))
+                                  }}
+                                  disabled={saving}
+                                  className="rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-fg focus:outline-none disabled:opacity-50"
+                                >
+                                  <option value="inherit">Padrão do cargo</option>
+                                  <option value="none">Sem acesso</option>
+                                  <option value="dash">Dashboard</option>
+                                  <option value="read">Só leitura</option>
+                                  <option value="full">Acesso total</option>
+                                </select>
+                              </div>
                             )
                           })}
                         </div>
