@@ -73,15 +73,88 @@ Inscreve um dispositivo para receber notificacoes push.
   "keys": {
     "p256dh": "...",
     "auth": "..."
+  },
+  "user": {
+    "id": "uuid-do-usuario",
+    "name": "Nome",
+    "role": "admin"
   }
 }
 ```
+
+O campo `user` identifica o dono do dispositivo e permite envio direcionado por cargo. Inscricoes com o mesmo `endpoint` sao deduplicadas.
 
 **Resposta:**
 
 ```json
 {
   "status": "ok"
+}
+```
+
+---
+
+### POST /api/push/send
+
+Envia uma notificacao para os subscribers, opcionalmente filtrando por cargo.
+
+**Body:**
+
+```json
+{
+  "title": "Novo usuário pendente",
+  "body": "Maria (maria@x.com) aguarda aprovação",
+  "url": "/admin/users",
+  "role": "admin",
+  "userId": "uuid-do-usuario-pendente",
+  "actions": [
+    { "action": "approve", "title": "Aprovar" },
+    { "action": "reject", "title": "Recusar" }
+  ]
+}
+```
+
+- `role`: envia apenas para subscribers com esse cargo (se omitido, envia para todos).
+- `actions`: botoes exibidos na notificacao (Web Push suporta max. 2; apenas Android Chrome/desktop).
+- `userId`: usado pelo service worker no handler da acao.
+
+**Resposta:**
+
+```json
+{
+  "sent": 2,
+  "total": 3
+}
+```
+
+---
+
+### POST /api/push/action
+
+Aprova ou rejeita um usuario pendente a partir da acao da notificacao.
+
+**Body:**
+
+```json
+{
+  "action": "approve",
+  "userId": "uuid-do-usuario-pendente",
+  "role": "viewer",
+  "app_access": {}
+}
+```
+
+- `action`: `approve` ou `reject`.
+- `role` e `app_access` (opcionais, so no approve) definem o cargo e os overrides por app; padrao: `viewer` e `{}`.
+
+Requer `SUPABASE_URL` e `SUPABASE_SERVICE_KEY` no backend (retorna 503 sem elas).
+
+**Resposta:**
+
+```json
+{
+  "status": "approved",
+  "role": "viewer"
 }
 ```
 
