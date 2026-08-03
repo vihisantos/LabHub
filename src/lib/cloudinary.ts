@@ -1,6 +1,7 @@
 const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
 const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
 const UPLOAD_PRESET_AVATARS = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET_AVATARS
+const UPLOAD_PRESET_BANNERS = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET_BANNERS
 
 async function doUpload(file: File, folder: string, preset: string): Promise<string> {
   if (!CLOUD_NAME || !preset) {
@@ -44,6 +45,15 @@ export async function uploadToCloudinary(file: File, folder = 'stock'): Promise<
  */
 export async function uploadAvatarToCloudinary(file: File): Promise<string> {
   return doUpload(file, 'avatars', UPLOAD_PRESET_AVATARS || UPLOAD_PRESET)
+}
+
+/**
+ * Upload de banner de perfil usando um preset dedicado (pasta própria).
+ * Uploads unsigned ignoram o parâmetro folder — por isso banners usam um
+ * preset separado configurado no Cloudinary com a pasta "banners".
+ */
+export async function uploadBannerToCloudinary(file: File): Promise<string> {
+  return doUpload(file, 'banners', UPLOAD_PRESET_BANNERS || UPLOAD_PRESET)
 }
 
 /**

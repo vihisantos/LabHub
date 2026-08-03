@@ -7,10 +7,10 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
 }))
 
-import { NotificationsPage } from '../NotificationsPage'
+import { NotificationsSheet } from '../NotificationsSheet'
 import { notificationService } from '../../../core/notifications/service'
 
-describe('NotificationsPage', () => {
+describe('NotificationsSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     notificationService.clearAll()
@@ -26,7 +26,7 @@ describe('NotificationsPage', () => {
       actionUrl: '/admin/users?pending=abc',
     })
 
-    render(<NotificationsPage />)
+    render(<NotificationsSheet open onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByText('Novo usuário pendente'))
 
@@ -43,7 +43,7 @@ describe('NotificationsPage', () => {
       actionUrl: '/admin/users?pending=abc',
     })
 
-    render(<NotificationsPage />)
+    render(<NotificationsSheet open onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByText('Novo usuário pendente'))
 
@@ -59,7 +59,7 @@ describe('NotificationsPage', () => {
       module: 'admin',
     })
 
-    render(<NotificationsPage />)
+    render(<NotificationsSheet open onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByText('Sem ação'))
 

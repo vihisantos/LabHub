@@ -11,6 +11,7 @@ export interface User {
   email: string
   name: string
   avatar?: string
+  banner?: string
   role: UserRole
   status: UserStatus
   workspace_ids: string[]
