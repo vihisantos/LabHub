@@ -322,20 +322,49 @@ def push_subscribe():
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
-        sub = request.get_json()
-        sub_key = hashlib.sha256(json.dumps(sub, sort_keys=True).encode()).hexdigest()
-        redis.sadd('push:subscribers', json.dumps({'key': sub_key, **sub}))
-        logger.info(f"Push subscriber added: {sub_key[:8]}...")
+        body = request.get_json() or {}
+        endpoint = body.get('endpoint', '')
+        if not endpoint:
+            return jsonify({'error': 'Missing endpoint'}), 400
+
+        user = body.get('user') or {}
+        sub = {
+            'key': hashlib.sha256(endpoint.encode()).hexdigest(),
+            'endpoint': endpoint,
+            'expirationTime': body.get('expirationTime'),
+            'keys': body.get('keys') or {},
+            'user': {
+                'id': str(user.get('id', '') or ''),
+                'name': str(user.get('name', '') or ''),
+                'role': str(user.get('role', '') or ''),
+            },
+        }
+
+        # Remove qualquer inscrição anterior com o mesmo endpoint (dedupe por dispositivo)
+        subs = _get_subs()
+        others = [s for s in subs if s.get('endpoint') != endpoint]
+        if len(others) != len(subs):
+            redis.delete('push:subscribers')
+            for s in others:
+                redis.sadd('push:subscribers', json.dumps(s, ensure_ascii=False))
+
+        redis.sadd('push:subscribers', json.dumps(sub, ensure_ascii=False))
+        logger.info(f"Push subscriber added: {sub['key'][:8]}... role={sub['user']['role']}")
         return jsonify({'status': 'ok'})
     except Exception as e:
         logger.error(f"Push subscribe error: {e}")
         return jsonify({'error': str(e)}), 500
 
-def push_notify(sub, title, body, url='/'):
+def push_notify(sub, title, body, url='/', actions=None, user_id=None):
     try:
+        data = {'title': title, 'body': body, 'url': url}
+        if actions:
+            data['actions'] = actions
+        if user_id:
+            data['userId'] = user_id
         webpush(
             subscription_info=sub,
-            data=json.dumps({'title': title, 'body': body, 'url': url}),
+            data=json.dumps(data),
             vapid_private_key=VAPID_PRIVATE_KEY,
             vapid_claims=VAPID_CLAIMS,
             ttl=86400
@@ -359,6 +388,98 @@ def push_test():
         if ok:
             count += 1
     return jsonify({'sent': count, 'total': len(subs)})
+
+
+@app.route('/api/push/send', methods=['POST'])
+def push_send():
+    """Envia um push para os subscribers (opcionalmente filtrando por cargo)."""
+    if not redis:
+        return jsonify({'error': 'Redis not configured'}), 500
+    try:
+        body = request.get_json() or {}
+        title = body.get('title', 'LabHub')
+        msg = body.get('body', '')
+        url = body.get('url', '/')
+        actions = body.get('actions') or None
+        user_id = body.get('userId') or None
+        role = body.get('role') or None
+
+        subs = _get_subs()
+        if role:
+            subs = [s for s in subs if (s.get('user') or {}).get('role') == role]
+
+        if not subs:
+            return jsonify({'sent': 0, 'total': 0})
+
+        count = 0
+        for sub in subs:
+            ok = push_notify(sub, title, msg, url=url, actions=actions, user_id=user_id)
+            if ok:
+                count += 1
+        return jsonify({'sent': count, 'total': len(subs)})
+    except Exception as e:
+        logger.error(f"Push send error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+def _supabase_headers():
+    return {
+        'apikey': _SUPABASE_SERVICE_KEY,
+        'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
+        'Content-Type': 'application/json',
+    }
+
+
+@app.route('/api/push/action', methods=['POST'])
+def push_action():
+    """Aprova ou rejeita um usuário pendente diretamente da notificação push."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return jsonify({'error': 'Supabase not configured'}), 503
+    try:
+        body = request.get_json() or {}
+        action = body.get('action')
+        user_id = body.get('userId') or ''
+        if action not in ('approve', 'reject') or not user_id:
+            return jsonify({'error': 'action (approve|reject) e userId são obrigatórios'}), 400
+
+        if action == 'approve':
+            role = body.get('role', 'viewer')
+            if role not in ('viewer', 'technician', 'admin'):
+                role = 'viewer'
+            app_access = body.get('app_access')
+            if not isinstance(app_access, dict):
+                app_access = {}
+            payload = {
+                'status': 'active',
+                'role': role,
+                'app_access': app_access,
+                'updated_at': datetime.now().isoformat(),
+            }
+            resp = requests.patch(
+                f"{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}",
+                headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+                json=payload,
+                timeout=10,
+            )
+            if not resp.ok:
+                logger.error(f"Approve profile error: {resp.status_code} {resp.text}")
+                return jsonify({'error': f'Erro ao aprovar: {resp.status_code}'}), resp.status_code
+            logger.info(f"Push action: approved user {user_id[:8]} role={role}")
+            return jsonify({'status': 'approved', 'role': role})
+        else:
+            resp = requests.delete(
+                f"{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}",
+                headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+                timeout=10,
+            )
+            if not resp.ok:
+                logger.error(f"Reject profile error: {resp.status_code} {resp.text}")
+                return jsonify({'error': f'Erro ao rejeitar: {resp.status_code}'}), resp.status_code
+            logger.info(f"Push action: rejected user {user_id[:8]}")
+            return jsonify({'status': 'rejected'})
+    except Exception as e:
+        logger.error(f"Push action error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/push/check', methods=['GET'])
