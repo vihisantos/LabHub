@@ -146,10 +146,32 @@ export const authService = {
         type: 'approval',
         severity: 'info',
         module: 'auth',
-        actionUrl: '/admin/users',
+        actionUrl: `/admin/users?pending=${profile.id}`,
       })
     } catch (e) {
       console.warn('[Auth] Failed to create notification:', e)
+    }
+
+    // Notify admins via push (Fire-and-forget — não bloqueia o cadastro)
+    try {
+      const pushBase = (import.meta.env.VITE_PUSH_API_URL as string) || ''
+      fetch(`${pushBase}/api/push/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Novo usuário pendente',
+          body: `${data.name} (${data.email}) aguarda aprovação`,
+          url: `/admin/users?pending=${profile.id}`,
+          role: 'admin',
+          userId: profile.id,
+          actions: [
+            { action: 'approve', title: 'Aprovar' },
+            { action: 'reject', title: 'Recusar' },
+          ],
+        }),
+      }).catch(() => {})
+    } catch (e) {
+      console.warn('[Auth] Failed to notify admins by push:', e)
     }
 
     // Don't set currentUser — user is not approved yet

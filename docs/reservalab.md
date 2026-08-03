@@ -44,7 +44,9 @@ O ReservaLab e o unico sub-app com backend proprio (Flask/Python).
 |--------|------|-----------|
 | `GET` | `/api/reservas` | Reservas de hoje e da semana |
 | `GET` | `/api/health` | Status do servidor e cache |
-| `POST` | `/api/push/subscribe` | Inscrever para push |
+| `POST` | `/api/push/subscribe` | Inscrever para push (com `user`) |
+| `POST` | `/api/push/send` | Enviar push (filtro por cargo, com acoes) |
+| `POST` | `/api/push/action` | Aprovar/rejeitar usuario pela notificacao |
 | `GET` | `/api/push/test` | Enviar notificacao de teste |
 | `GET` | `/api/push/check` | Verificar e enviar push de reservas pendentes |
 | `GET` | `/api/push/check-overdue` | Verificar emprestimos com prazo proximo |
@@ -145,8 +147,8 @@ interface WeekDayData {
 | `SHAREPOINT_URL` | Sim | URL da planilha de reservas |
 | `UPSTASH_REDIS_REST_URL` | Nao | URL do Redis (push) |
 | `UPSTASH_REDIS_REST_TOKEN` | Nao | Token do Redis |
-| `SUPABASE_URL` | Nao | URL do Supabase (tablets) |
-| `SUPABASE_SERVICE_KEY` | Nao | Service key do Supabase |
+| `SUPABASE_URL` | Sim (push de acao) | URL do Supabase (tablets + aprovacao) |
+| `SUPABASE_SERVICE_KEY` | Sim (push de acao) | Service key do Supabase |
 
 ---
 

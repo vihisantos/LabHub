@@ -7,6 +7,12 @@ export interface PushAppConfig {
   icon: string
 }
 
+export interface PushUserInfo {
+  id: string
+  name: string
+  role: string
+}
+
 interface PushState {
   supported: boolean | null
   permission: NotificationPermission | null
@@ -31,7 +37,7 @@ async function ensureSw(): Promise<ServiceWorkerRegistration> {
   return swRegistration
 }
 
-export function usePushNotifications(apps: PushAppConfig[] = []) {
+export function usePushNotifications(apps: PushAppConfig[] = [], user?: PushUserInfo | null) {
   const [state, setState] = useState<PushState>({
     supported: null,
     permission: null,
@@ -80,12 +86,15 @@ export function usePushNotifications(apps: PushAppConfig[] = []) {
 
       const subJson = subscription.toJSON()
 
+      const payload: Record<string, unknown> = { ...subJson }
+      if (user) payload.user = user
+
       for (const app of apps) {
         try {
           await fetch(app.subscribeUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(subJson),
+            body: JSON.stringify(payload),
           })
         } catch {
           console.warn(`Push subscribe failed for ${app.id}:`, app.subscribeUrl)
@@ -106,7 +115,7 @@ export function usePushNotifications(apps: PushAppConfig[] = []) {
         error: err instanceof Error ? err.message : 'Erro ao ativar notificações',
       }))
     }
-  }, [apps, state.supported])
+  }, [apps, user, state.supported])
 
   return { ...state, subscribe }
 }
