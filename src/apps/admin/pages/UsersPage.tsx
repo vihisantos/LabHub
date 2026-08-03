@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { adminService } from '../../../core/auth/adminService'
 import type { User, UserRole, Accent, ThemeVariant } from '../../../core/auth/types'
 import { ROLE_LABELS, ROLE_COLORS } from '../../../core/auth/types'
@@ -11,6 +12,7 @@ import type { AppAccessOverride } from '../../../core/permissions/types'
 import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
 import { uploadAvatarToCloudinary } from '../../../lib/cloudinary'
+import { ApproveUserModal } from '../components/ApproveUserModal'
 
 const ROLES: UserRole[] = ['admin', 'technician', 'viewer']
 
@@ -34,9 +36,11 @@ export function UsersPage() {
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
   const [editingUser, setEditingUser] = useState<string | null>(null)
+  const [approvingUser, setApprovingUser] = useState<User | null>(null)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
   const { roles: roleList } = useRoles()
   const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
@@ -55,6 +59,16 @@ export function UsersPage() {
     load()
   }, [load])
 
+  useEffect(() => {
+    const pendingId = searchParams.get('pending')
+    if (!pendingId) return
+    const target = users.find((u) => u.id === pendingId && u.status === 'pending')
+    if (target) {
+      setApprovingUser(target)
+      setSearchParams({}, { replace: true })
+    }
+  }, [users, searchParams, setSearchParams])
+
   const pendingUsers = users.filter((u) => u.status === 'pending')
   const activeUsers = users.filter((u) => u.status !== 'pending')
 
@@ -66,17 +80,25 @@ export function UsersPage() {
     return matchesSearch && matchesRole
   })
 
-  async function handleApprove(userId: string) {
+  async function handleApprove(
+    userId: string,
+    role: UserRole,
+    appAccess: Record<string, AppAccessOverride>,
+  ): Promise<boolean> {
     setSaving(true)
-    const success = await adminService.approveUser(userId)
+    const success = await adminService.approveUser(userId, { role, app_access: appAccess })
     if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, status: 'active' } : u))
-      setFeedback({ type: 'success', message: 'Usuário aprovado!' })
+      setUsers((prev) => prev.map((u) => u.id === userId
+        ? { ...u, status: 'active', role, app_access: { ...(u.app_access || {}), ...appAccess } }
+        : u))
+      setApprovingUser(null)
+      setFeedback({ type: 'success', message: `Usuário aprovado como ${ROLE_LABELS[role]}!` })
     } else {
       setFeedback({ type: 'error', message: 'Erro ao aprovar usuário' })
     }
     setSaving(false)
     setTimeout(() => setFeedback(null), 3000)
+    return success
   }
 
   async function handleReject(userId: string) {
@@ -270,7 +292,7 @@ export function UsersPage() {
                 <div className="flex gap-1.5">
                   <button
                     type="button"
-                    onClick={() => handleApprove(u.id)}
+                    onClick={() => setApprovingUser(u)}
                     disabled={saving}
                     className="rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
                   >
@@ -558,6 +580,14 @@ export function UsersPage() {
           })
         )}
       </div>
+
+      {approvingUser && (
+        <ApproveUserModal
+          user={approvingUser}
+          onClose={() => setApprovingUser(null)}
+          onConfirm={(role, appAccess) => handleApprove(approvingUser.id, role, appAccess)}
+        />
+      )}
     </div>
   )
 }

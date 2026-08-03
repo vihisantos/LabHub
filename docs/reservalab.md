@@ -167,3 +167,20 @@ app.py (Flask)
 3. Nunca levante excecao — sempre retorne dict com `error`
 4. Use `DateEncoder` para serializar datas
 5. Cache em arquivo com TTL
+
+---
+
+## Fluxo de Aprovacao de Cadastro
+
+Quando um novo usuario se cadastra (`signUp`), o backend recebe uma notificacao de aprovação via push com ações Aprovar/Recusar. O fluxo completo:
+
+1. **Cadastro** → `authService.signUp` grava o perfil como `pending` e dispara um push para a role `admin` (`POST /api/push/send` com `role: 'admin'`, `actions` e `url: /admin/users?pending=<id>`).
+2. **Notificacao push** → no service worker, os botoes `Aprovar`/`Recusar` chamam `POST /api/push/action` diretamente (approve = `PATCH profiles` com `status: active`, reject = `DELETE`).
+3. **Clique no corpo da notificacao** → abre `/admin/users?pending=<id>` no frontend.
+4. **Deep link** → o `UsersPage` detecta o parametro `?pending=<id>`, localiza o usuario pendente e abre o `ApproveUserModal` pre-preenchido.
+5. **Modal de aprovacao** → permite escolher o cargo (`viewer` | `technician` | `admin`) e, opcionalmente, sobrescrever o acesso por aplicativo (por app: sem acesso / dashboard / so leitura / acesso total). Confirma via `adminService.approveUser(userId, { role, app_access })` (`PATCH profiles`).
+6. **Notificacoes locais** → ao clicar em uma notificacao do centro de notificacoes, o app navega para `notification.actionUrl` (quando presente) e marca como lida.
+
+**Limitação Web Push:** os botoes de ação só aparecem em Android Chrome e desktop. No iOS/Safari a notificacao apenas abre a URL definida — o admin chega direto no modal de aprovacao via deep link.
+
+**Observação:** `/api/push/action` nao possui autenticacao propria (uso escolar); requer `SUPABASE_URL` e `SUPABASE_SERVICE_KEY` configurados no backend, caso contrario responde 503.

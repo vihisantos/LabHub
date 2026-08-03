@@ -1,4 +1,5 @@
 import { useNotifications } from '../../core/notifications/useNotifications'
+import { useNavigate } from 'react-router-dom'
 import { icons } from '../../lib/icons'
 import type { AppNotification } from '../../core/notifications/types'
 
@@ -7,6 +8,8 @@ function NotificationItem({ notification, onRead, onRemove }: {
   onRead: (id: string) => void
   onRemove: (id: string) => void
 }) {
+  const navigate = useNavigate()
+
   const severityColors = {
     info: 'bg-blue-500/15 text-blue-500',
     warning: 'bg-amber-500/15 text-amber-500',
@@ -22,11 +25,19 @@ function NotificationItem({ notification, onRead, onRemove }: {
     approval: <icons.ui.inbox size={16} />,
   }
 
+  function handleClick() {
+    if (!notification.read) onRead(notification.id)
+    if (notification.actionUrl) {
+      navigate(notification.actionUrl)
+    }
+  }
+
   return (
     <div
-      className={`flex items-start gap-3 rounded-xl p-4 transition-colors hover:bg-input ${
+      className={`flex items-start gap-3 rounded-xl p-4 transition-colors hover:bg-input cursor-pointer ${
         !notification.read ? 'bg-amber-500/5' : ''
       }`}
+      onClick={handleClick}
     >
       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${severityColors[notification.severity]}`}>
         {typeIcons[notification.type] || <icons.ui.inbox size={16} />}
@@ -54,7 +65,7 @@ function NotificationItem({ notification, onRead, onRemove }: {
         {!notification.read && (
           <button
             type="button"
-            onClick={() => onRead(notification.id)}
+            onClick={(e) => { e.stopPropagation(); onRead(notification.id) }}
             className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-input hover:text-fg"
             title="Marcar como lida"
           >
@@ -63,7 +74,7 @@ function NotificationItem({ notification, onRead, onRemove }: {
         )}
         <button
           type="button"
-          onClick={() => onRemove(notification.id)}
+          onClick={(e) => { e.stopPropagation(); onRemove(notification.id) }}
           className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500"
           title="Remover"
         >
