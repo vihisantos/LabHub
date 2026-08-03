@@ -21,6 +21,7 @@ export interface TabletReserva {
   finalidade: string
   reservado_por: string
   status: string
+  workspace_id?: string
 }
 
 export interface ReservasAPIResponse {

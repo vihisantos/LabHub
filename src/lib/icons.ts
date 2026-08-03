@@ -64,6 +64,8 @@ import {
   MessageSquareWarning,
   CircleAlert,
   CircleCheck,
+  MapPin,
+  ShieldCheck,
 } from 'lucide-react'
 
 export const icons = {
@@ -139,6 +141,8 @@ export const icons = {
     messageSquareWarning: MessageSquareWarning,
     circleAlert: CircleAlert,
     circleCheck: CircleCheck,
+    mapPin: MapPin,
+    shield: ShieldCheck,
   },
 } as const
 

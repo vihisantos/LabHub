@@ -107,106 +107,133 @@ redis = Redis(url=_upstash_url, token=_upstash_token) if _upstash_url and _upsta
 
 ARQUIVO_URL = os.environ.get('SHAREPOINT_URL', '')
 if not ARQUIVO_URL:
-    logger.error("URL da planilha nao configurada no .env!")
-    ARQUIVO_URL = None
+    logger.warning("URL da planilha no .env nao configurada — usando URLs por workspace")
 
-def get_reservas():
+_SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+_SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
+
+def _get_workspace_spreadsheet_url(workspace_slug):
+    """Busca a spreadsheet_url de um workspace no Supabase."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
+        url = (
+            f"{_SUPABASE_URL}/rest/v1/workspaces"
+            f"?select=spreadsheet_url"
+            f"&slug=eq.{quote(workspace_slug)}"
+        )
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.ok and resp.json():
+            return resp.json()[0].get('spreadsheet_url') or None
+    except Exception as e:
+        logger.error(f"Erro ao buscar URL do workspace '{workspace_slug}': {e}")
+    return None
+
+def _parse_spreadsheet(spreadsheet_url):
+    """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
+    reservas_hoje = []
+    reservas_semana = []
+    if not spreadsheet_url:
+        return reservas_hoje, reservas_semana
+    try:
+        logger.info(f"Baixando planilha...")
+        response = requests.get(spreadsheet_url, timeout=30)
+        response.raise_for_status()
+        try:
+            wb = load_workbook(BytesIO(response.content))
+            logger.info("Planilha carregada!")
+        except Exception as e:
+            logger.error(f"Erro ao carregar planilha: {e}")
+            return reservas_hoje, reservas_semana
+        try:
+            ws = wb['RESERVA LAB. INFORMÁTICA']
+        except KeyError:
+            logger.error("Aba 'RESERVA LAB. INFORMÁTICA' não encontrada")
+            return reservas_hoje, reservas_semana
+        hoje = get_today_sp()
+        fim_semana = hoje + timedelta(days=7)
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            try:
+                reserva_feita_por = row[0]
+                professor_resp = row[1]
+                email = row[2]
+                data_reserva = row[3]
+                horario = row[4]
+                alunos = row[5]
+                obs = row[6]
+                lab = row[8]
+                if data_reserva is None:
+                    continue
+                data = None
+                if hasattr(data_reserva, 'date'):
+                    try:
+                        data = data_reserva.date()
+                    except:
+                        pass
+                if data is None and isinstance(data_reserva, str):
+                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y']:
+                        try:
+                            data = datetime.strptime(data_reserva, fmt).date()
+                            break
+                        except:
+                            continue
+                if data is None:
+                    continue
+                lab_normalizado = re.sub(r'\s+', ' ', str(lab)).strip() if lab else ''
+                lab_list = []
+                # Divide "Lab 01 e 02" → ["Lab 01", "02"] pra detectar ambos
+                partes = re.split(r'\s*(?:e|,|&|\+|/| ou | - )\s*', lab_normalizado, flags=re.IGNORECASE)
+                for parte in partes:
+                    p = parte.strip()
+                    if re.search(r'lab\s*0?\s*1', p, re.IGNORECASE) or re.match(r'0?1$', p.strip()):
+                        if 'LAB01' not in lab_list: lab_list.append('LAB01')
+                    if re.search(r'lab\s*0?\s*2', p, re.IGNORECASE) or re.match(r'0?2$', p.strip()):
+                        if 'LAB02' not in lab_list: lab_list.append('LAB02')
+                reserva = {
+                    'responsavel': professor_resp,
+                    'email': email,
+                    'horario': horario,
+                    'alunos': alunos,
+                    'observacao': obs,
+                    'lab': lab,
+                    'labs': lab_list,
+                    'data': data,
+                    'reserva_feita_por': reserva_feita_por,
+                    'origem': 'planilha'
+                }
+                if data == hoje:
+                    reservas_hoje.append(reserva)
+                elif hoje < data <= fim_semana:
+                    reservas_semana.append(reserva)
+            except Exception as e:
+                logger.warning(f"Erro processando linha: {e}")
+                continue
+    except Exception as e:
+        logger.error(f"Erro ao processar planilha: {e}")
+    return reservas_hoje, reservas_semana
+
+def get_reservas(workspace_slug=None):
+    cache_key = f"reservas_{workspace_slug or 'default'}"
+    # Cache simples por workspace
     cached = get_cached_reservas()
     if cached:
         return cached
     
-    reservas_hoje = []
-    reservas_semana = []
+    spreadsheet_url = None
+    if workspace_slug:
+        spreadsheet_url = _get_workspace_spreadsheet_url(workspace_slug)
+        if spreadsheet_url:
+            logger.info(f"Usando URL do workspace '{workspace_slug}'")
+        else:
+            logger.info(f"Workspace '{workspace_slug}' sem URL própria, usando fallback")
     
-    if ARQUIVO_URL:
-        try:
-            logger.info("Baixando planilha do SharePoint...")
-            response = requests.get(ARQUIVO_URL, timeout=30)
-            response.raise_for_status()
-            
-            try:
-                wb = load_workbook(BytesIO(response.content))
-                logger.info("Planilha carregada!")
-            except Exception as e:
-                logger.error(f"Erro ao carregar planilha: {e}")
-                wb = None
-            
-            if wb:
-                try:
-                    ws = wb['RESERVA LAB. INFORMÁTICA']
-                except KeyError:
-                    logger.error("Aba 'RESERVA LAB. INFORMÁTICA' não encontrada")
-                    ws = None
-                
-                if ws:
-                    hoje = get_today_sp()
-                    fim_semana = hoje + timedelta(days=7)
-                    
-                    for row in ws.iter_rows(min_row=2, values_only=True):
-                        try:
-                            reserva_feita_por = row[0]
-                            professor_resp = row[1]
-                            email = row[2]
-                            data_reserva = row[3]
-                            horario = row[4]
-                            alunos = row[5]
-                            obs = row[6]
-                            lab = row[8]
-                            
-                            if data_reserva is None:
-                                continue
-                            
-                            data = None
-                            if hasattr(data_reserva, 'date'):
-                                try:
-                                    data = data_reserva.date()
-                                except:
-                                    pass
-                            
-                            if data is None and isinstance(data_reserva, str):
-                                for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y']:
-                                    try:
-                                        data = datetime.strptime(data_reserva, fmt).date()
-                                        break
-                                    except:
-                                        continue
-                            
-                            if data is None:
-                                continue
-                            
-                            lab_normalizado = re.sub(r'\s+', ' ', str(lab)).strip() if lab else ''
-                            lab_list = []
-                            
-                            if re.search(r'lab\s*0?\s*1', lab_normalizado, re.IGNORECASE):
-                                lab_list.append('LAB01')
-                            if re.search(r'lab\s*0?\s*2', lab_normalizado, re.IGNORECASE):
-                                lab_list.append('LAB02')
-                            
-                            reserva = {
-                                'responsavel': professor_resp,
-                                'email': email,
-                                'horario': horario,
-                                'alunos': alunos,
-                                'observacao': obs,
-                                'lab': lab,
-                                'labs': lab_list,
-                                'data': data,
-                                'reserva_feita_por': reserva_feita_por,
-                                'origem': 'planilha'
-                            }
-                            
-                            if data == hoje:
-                                reservas_hoje.append(reserva)
-                            elif hoje < data <= fim_semana:
-                                reservas_semana.append(reserva)
-                        except Exception as e:
-                            logger.warning(f"Erro processando linha: {e}")
-                            continue
-        except Exception as e:
-            logger.error(f"Erro geral ao processar planilha: {e}")
+    if not spreadsheet_url:
+        spreadsheet_url = ARQUIVO_URL
+    
+    reservas_hoje, reservas_semana = _parse_spreadsheet(spreadsheet_url)
     
     logger.info(f"Planilha: {len(reservas_hoje)} hoje, {len(reservas_semana)} semana")
-    
     result = (reservas_hoje, reservas_semana)
     set_cached_reservas(result)
     return result
@@ -214,7 +241,8 @@ def get_reservas():
 @app.route('/api/reservas', methods=['GET'])
 def api_reservas():
     try:
-        reservas_hoje, reservas_semana = get_reservas()
+        workspace_slug = request.args.get('workspace')
+        reservas_hoje, reservas_semana = get_reservas(workspace_slug)
         
         for r in reservas_hoje:
             if isinstance(r.get('data'), (date, datetime)):

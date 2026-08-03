@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Tablet as TabletIcon, Plus, X } from 'lucide-react'
+import { Tablet as TabletIcon, Plus, X, User } from 'lucide-react'
 import { TimeInput } from '../components/TimeInput'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { useAuth } from '../../../core/auth/AuthContext'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { fetchTabletReservas, createTabletReserva, deleteTabletReserva } from '../services/supabase'
 import type { TabletReserva } from '../types'
 
@@ -41,6 +43,15 @@ export function TabletsView() {
   const [submitting, setSubmitting] = useState(false)
   const [showSalaDropdown, setShowSalaDropdown] = useState(false)
   const [mostrarTodas, setMostrarTodas] = useState(false)
+  const { user } = useAuth()
+  const { workspace } = useWorkspace()
+
+  // Auto-fill reservado_por with logged-in user whenever form opens
+  useEffect(() => {
+    if (showForm && user?.name) {
+      setForm((prev) => ({ ...prev, reservado_por: user.name }))
+    }
+  }, [showForm, user?.name])
 
   useEffect(() => {
     let mounted = true
@@ -48,7 +59,7 @@ export function TabletsView() {
       try {
         const hoje = new Date()
         hoje.setHours(0, 0, 0, 0)
-        const rows = await fetchTabletReservas(hoje)
+        const rows = await fetchTabletReservas(hoje, undefined, workspace?.id)
         if (mounted) setReservas(rows)
       } catch {
         // ignore
@@ -115,11 +126,11 @@ export function TabletsView() {
         finalidade: form.finalidade || '',
         reservado_por: form.reservado_por || '',
         status: 'ativa',
-      })
+      }, workspace?.id)
       setForm(initialForm)
       setShowForm(false)
       const hoje2 = new Date(); hoje2.setHours(0, 0, 0, 0)
-      const rows = await fetchTabletReservas(hoje2)
+      const rows = await fetchTabletReservas(hoje2, undefined, workspace?.id)
       setReservas(rows)
     } catch (err) {
       console.error('Erro ao criar reserva:', err)
@@ -261,14 +272,18 @@ export function TabletsView() {
                 />
               </FormField>
 
-              <FormField label="Reservado por">
-                <input
-                  type="text" placeholder="Seu nome"
-                  value={form.reservado_por}
-                  onChange={(e) => setForm((f) => ({ ...f, reservado_por: e.target.value }))}
-                  style={inputStyle}
-                />
-              </FormField>
+              <div style={{ position: 'relative' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#52525b', marginBottom: '4px' }}>Reservado por</label>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  width: '100%', padding: '10px 12px', borderRadius: '8px',
+                  border: '1px solid #e4e4e7', background: '#f8fafc', fontSize: '14px',
+                  color: '#1e293b', boxSizing: 'border-box', opacity: 0.7,
+                }}>
+                  <User size={14} style={{ color: '#6366f1', flexShrink: 0 }} />
+                  <span>{form.reservado_por || <span style={{ color: '#94a3b8' }}>Você (logado)</span>}</span>
+                </div>
+              </div>
 
               <FormField label="Data">
                 <input
@@ -402,6 +417,10 @@ function ReservationRow({
             <span style={{ marginLeft: '8px' }}>{new Date(reservation.horario_inicio).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</span>
           </p>
           <p style={{ fontSize: '0.8rem', color: '#64748b' }}>{reservation.professor}</p>
+          <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>
+            <User size={10} style={{ display: 'inline', marginRight: '3px', verticalAlign: 'middle' }} />
+            {reservation.reservado_por}
+          </p>
         </div>
       </div>
       <button

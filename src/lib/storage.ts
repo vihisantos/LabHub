@@ -1,8 +1,11 @@
 import { getCol, setCol } from './db'
+import { workspaceStore } from '../core/workspaces/store'
 
-export function createLocalService<T extends { id: string }>(collection: string) {
-  function getAll(): T[] {
-    return getCol<T>(collection)
+export function createLocalService<T extends { id: string; workspace_id?: string }>(collection: string, enableWorkspaceFilter = true) {
+  function getAll(noFilter?: boolean): T[] {
+    const items = getCol<T>(collection)
+    if (noFilter || !enableWorkspaceFilter) return items
+    return workspaceStore.filter(items)
   }
 
   function getById(id: string): T | undefined {
@@ -10,18 +13,22 @@ export function createLocalService<T extends { id: string }>(collection: string)
   }
 
   function create(data: Omit<T, 'id'>): T {
-    const items = getAll()
+    const items = getCol<T>(collection)
+    const wsId = enableWorkspaceFilter && !(data as any).workspace_id
+      ? workspaceStore.activeWorkspaceId
+      : undefined
     const newItem = {
       ...data,
       id: crypto.randomUUID(),
-    } as unknown as T
+      ...(wsId ? { workspace_id: wsId } : {}),
+    } as T
     items.push(newItem)
     setCol(collection, items)
     return newItem
   }
 
   function update(id: string, data: Partial<T>): T | undefined {
-    const items = getAll()
+    const items = getCol<T>(collection)
     const index = items.findIndex((item) => item.id === id)
     if (index === -1) return undefined
     items[index] = { ...items[index], ...data }
@@ -30,7 +37,7 @@ export function createLocalService<T extends { id: string }>(collection: string)
   }
 
   function remove(id: string): boolean {
-    const items = getAll()
+    const items = getCol<T>(collection)
     const filtered = items.filter((item) => item.id !== id)
     if (filtered.length === items.length) return false
     setCol(collection, filtered)

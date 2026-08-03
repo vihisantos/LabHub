@@ -12,7 +12,7 @@ if (supabaseUrl && supabaseAnonKey) {
 
 export const supabase = client
 
-export async function fetchTabletReservas(desde?: Date, ate?: Date): Promise<TabletReserva[]> {
+export async function fetchTabletReservas(desde?: Date, ate?: Date, workspaceId?: string): Promise<TabletReserva[]> {
   if (!supabase) return []
 
   const hoje = desde || new Date()
@@ -20,20 +20,26 @@ export async function fetchTabletReservas(desde?: Date, ate?: Date): Promise<Tab
   const limite = ate || new Date(hoje)
   if (!ate) limite.setDate(limite.getDate() + 7)
 
-  const { data } = await supabase
+  let query = supabase
     .from('tablet_reservations')
     .select('*')
     .gte('horario_inicio', hoje.toISOString())
     .lt('horario_inicio', limite.toISOString())
     .eq('status', 'ativa')
-    .order('horario_inicio', { ascending: true })
+
+  if (workspaceId) {
+    query = query.eq('workspace_id', workspaceId)
+  }
+
+  const { data } = await query.order('horario_inicio', { ascending: true })
 
   return (data as TabletReserva[]) || []
 }
 
-export async function createTabletReserva(values: Record<string, unknown>): Promise<void> {
+export async function createTabletReserva(values: Record<string, unknown>, workspaceId?: string): Promise<void> {
   if (!supabase) return
-  await supabase.from('tablet_reservations').insert(values as never)
+  const payload = workspaceId ? { ...values, workspace_id: workspaceId } : values
+  await supabase.from('tablet_reservations').insert(payload as never)
 }
 
 export async function updateTabletReserva(id: number, values: Record<string, unknown>): Promise<void> {

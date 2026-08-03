@@ -1,4 +1,4 @@
-export type NotificationType = 'ticket' | 'asset' | 'maintenance' | 'system' | 'sync'
+export type NotificationType = 'ticket' | 'asset' | 'maintenance' | 'system' | 'sync' | 'approval'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 export interface AppNotification {

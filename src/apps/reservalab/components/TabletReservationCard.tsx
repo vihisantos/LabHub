@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { User } from 'lucide-react'
 import type { TabletReserva } from '../types'
 
 interface TabletReservationCardProps {
@@ -56,6 +57,12 @@ export function TabletReservationCard({ reservation, onClick }: TabletReservatio
       {reservation.finalidade && (
         <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
           {reservation.finalidade}
+        </p>
+      )}
+      {reservation.reservado_por && (
+        <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.4rem' }}>
+          <User size={10} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+          Reservado por <strong>{reservation.reservado_por}</strong>
         </p>
       )}
     </motion.div>

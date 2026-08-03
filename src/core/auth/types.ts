@@ -1,4 +1,8 @@
 export type UserRole = 'admin' | 'technician' | 'viewer'
+export type Accent = 'emerald' | 'cyan' | 'blue' | 'purple'
+export type ThemeVariant = 'dark' | 'dim' | 'light'
+
+export type UserStatus = 'active' | 'pending'
 
 export interface User {
   id: string
@@ -6,7 +10,10 @@ export interface User {
   name: string
   avatar?: string
   role: UserRole
+  status: UserStatus
   workspace_ids: string[]
+  accent: Accent
+  theme_variant: ThemeVariant
   created_at: string
   updated_at: string
 }

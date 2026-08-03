@@ -1,5 +1,4 @@
 import { Routes, Route } from 'react-router-dom'
-import { ThemeProvider } from '../../lib/ThemeContext'
 import { StockLayout } from './layouts/StockLayout'
 import { StockDashboard } from './pages/StockDashboard'
 import { StockSectionPage } from './pages/StockSection'
@@ -17,24 +16,22 @@ import { Pipeline } from './pages/Pipeline'
 
 export function StockApp() {
   return (
-    <ThemeProvider storageKey="stock_theme" defaultTheme="dark">
-      <Routes>
-        <Route element={<StockLayout />}>
-          <Route index element={<StockDashboard />} />
-          <Route path="items" element={<StockSectionPage />} />
-          <Route path="items/:id" element={<StockDetail />} />
-          <Route path="movements" element={<MovementsPage />} />
-          <Route path="kits" element={<KitList />} />
-          <Route path="kits/:id" element={<KitDetail />} />
-          <Route path="inventory" element={<InventoryList />} />
-          <Route path="inventory/:id" element={<InventoryDetail />} />
-          <Route path="qr" element={<QRGenerator />} />
-          <Route path="qr-scan" element={<StockQRScanner />} />
-          <Route path="entry-exit" element={<StockEntryExit />} />
-          <Route path="maintenance" element={<StockMaintenance />} />
-          <Route path="pipeline" element={<Pipeline />} />
-        </Route>
-      </Routes>
-    </ThemeProvider>
+    <Routes>
+      <Route element={<StockLayout />}>
+        <Route index element={<StockDashboard />} />
+        <Route path="items" element={<StockSectionPage />} />
+        <Route path="items/:id" element={<StockDetail />} />
+        <Route path="movements" element={<MovementsPage />} />
+        <Route path="kits" element={<KitList />} />
+        <Route path="kits/:id" element={<KitDetail />} />
+        <Route path="inventory" element={<InventoryList />} />
+        <Route path="inventory/:id" element={<InventoryDetail />} />
+        <Route path="qr" element={<QRGenerator />} />
+        <Route path="qr-scan" element={<StockQRScanner />} />
+        <Route path="entry-exit" element={<StockEntryExit />} />
+        <Route path="maintenance" element={<StockMaintenance />} />
+        <Route path="pipeline" element={<Pipeline />} />
+      </Route>
+    </Routes>
   )
 }

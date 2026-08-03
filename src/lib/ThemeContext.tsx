@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import type { Accent, ThemeVariant } from '../core/auth/types'
+import { authService } from '../core/auth/service'
+import { themeStore, type ThemeState } from '../core/theme/store'
 
-export type ThemeVariant = 'dark' | 'dim' | 'light'
-export type Accent = 'emerald' | 'cyan' | 'blue' | 'purple'
+export type { Accent, ThemeVariant }
 
 interface ThemeContextValue {
   theme: ThemeVariant
@@ -19,62 +21,45 @@ const ThemeContext = createContext<ThemeContextValue>({
   toggle: () => {},
 })
 
-interface ThemeProviderProps {
-  children: ReactNode
-  storageKey?: string
-  defaultTheme?: ThemeVariant
-  defaultAccent?: Accent
-}
-
-function applyTheme(variant: ThemeVariant, accent: Accent) {
-  const root = document.documentElement
-  root.classList.toggle('dark', variant === 'dark')
-  root.classList.toggle('dim', variant === 'dim')
-  root.classList.toggle('light', variant === 'light')
-  root.setAttribute('data-accent', accent)
-}
-
-export function ThemeProvider({
-  children,
-  storageKey = 'labhub_theme',
-  defaultTheme = 'dark',
-  defaultAccent = 'emerald',
-}: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<ThemeVariant>(() => {
-    if (typeof window === 'undefined') return defaultTheme
-    return (localStorage.getItem(`${storageKey}_variant`) as ThemeVariant) || defaultTheme
+// eslint-disable-next-line react/only-export-components
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [themeState, setThemeState] = useState<ThemeState>(() => {
+    return themeStore.getState()
   })
 
-  const [accent, setAccentState] = useState<Accent>(() => {
-    if (typeof window === 'undefined') return defaultAccent
-    return (localStorage.getItem(`${storageKey}_accent`) as Accent) || defaultAccent
-  })
-
-  const setTheme = useCallback((t: ThemeVariant) => {
-    setThemeState(t)
-    localStorage.setItem(`${storageKey}_variant`, t)
-  }, [storageKey])
-
-  const setAccent = useCallback((a: Accent) => {
-    setAccentState(a)
-    localStorage.setItem(`${storageKey}_accent`, a)
-  }, [storageKey])
-
-  function toggle() {
-    const next = theme === 'dark' ? 'dim' : theme === 'dim' ? 'light' : 'dark'
-    setTheme(next)
-  }
-
+  // Subscribe to theme store changes (e.g. from applyUserPreferences)
   useEffect(() => {
-    applyTheme(theme, accent)
-    return () => {
-      document.documentElement.classList.remove('dark', 'dim', 'light')
-      document.documentElement.removeAttribute('data-accent')
+    const unsub = themeStore.subscribe((newState) => {
+      setThemeState(newState)
+    })
+    return unsub
+  }, [])
+
+  const setAccent = useCallback(async (accent: Accent) => {
+    themeStore.apply(themeState.theme, accent)
+    try {
+      await authService.updateProfile({ accent })
+    } catch (e) {
+      console.warn('[Theme] Failed to persist accent:', e)
     }
-  }, [theme, accent])
+  }, [themeState.theme])
+
+  const setTheme = useCallback(async (theme: ThemeVariant) => {
+    themeStore.apply(theme, themeState.accent)
+    try {
+      await authService.updateProfile({ theme_variant: theme })
+    } catch (e) {
+      console.warn('[Theme] Failed to persist theme:', e)
+    }
+  }, [themeState.accent])
+
+  const toggle = useCallback(() => {
+    const next = themeState.theme === 'dark' ? 'dim' : themeState.theme === 'dim' ? 'light' : 'dark'
+    setTheme(next)
+  }, [themeState.theme, setTheme])
 
   return (
-    <ThemeContext.Provider value={{ theme, accent, setTheme, setAccent, toggle }}>
+    <ThemeContext.Provider value={{ theme: themeState.theme, accent: themeState.accent, setTheme, setAccent, toggle }}>
       {children}
     </ThemeContext.Provider>
   )

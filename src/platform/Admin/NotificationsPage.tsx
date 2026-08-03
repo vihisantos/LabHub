@@ -19,6 +19,7 @@ function NotificationItem({ notification, onRead, onRemove }: {
     maintenance: <icons.nav.maintenance size={16} />,
     system: <icons.nav.settings size={16} />,
     sync: <icons.ui.refresh size={16} />,
+    approval: <icons.ui.inbox size={16} />,
   }
 
   return (

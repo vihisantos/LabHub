@@ -3,7 +3,7 @@ import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { icons } from '../../lib/icons'
 
 export function WorkspaceSelector() {
-  const { workspace, workspaces, setWorkspace } = useWorkspace()
+  const { workspace, assignedWorkspaces, setWorkspace } = useWorkspace()
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -38,7 +38,7 @@ export function WorkspaceSelector() {
           </div>
 
           <div className="max-h-60 overflow-y-auto p-2">
-            {workspaces.map((ws) => (
+            {assignedWorkspaces.map((ws) => (
               <button
                 key={ws.id}
                 type="button"

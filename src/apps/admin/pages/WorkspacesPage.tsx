@@ -7,22 +7,24 @@ export function WorkspacesPage() {
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [location, setLocation] = useState('')
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
 
     const slug = name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 
     if (editingId) {
-      update(editingId, { name: name.trim(), slug, location: location.trim() })
+      await update(editingId, { name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
     } else {
-      create({ name: name.trim(), slug, location: location.trim() })
+      await create({ name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
     }
 
     setName('')
     setLocation('')
+    setSpreadsheetUrl('')
     setEditingId(null)
     setShowForm(false)
   }
@@ -32,6 +34,7 @@ export function WorkspacesPage() {
     if (ws) {
       setName(ws.name)
       setLocation(ws.location)
+      setSpreadsheetUrl(ws.spreadsheet_url || '')
       setEditingId(id)
       setShowForm(true)
     }
@@ -46,7 +49,7 @@ export function WorkspacesPage() {
         </div>
         <button
           type="button"
-          onClick={() => { setShowForm(!showForm); setEditingId(null); setName(''); setLocation('') }}
+          onClick={() => { setShowForm(!showForm); setEditingId(null); setName(''); setLocation(''); setSpreadsheetUrl('') }}
           className="flex items-center gap-1.5 rounded-lg bg-slate-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-400"
         >
           <icons.ui.plus size={14} />
@@ -77,6 +80,16 @@ export function WorkspacesPage() {
               className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg focus:border-slate-500 focus:outline-none"
             />
           </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-fg-muted">Link da Planilha (ReservaLab)</label>
+            <input
+              type="url"
+              value={spreadsheetUrl}
+              onChange={(e) => setSpreadsheetUrl(e.target.value)}
+              placeholder="https://anhembi.sharepoint.com/.../planilha.xlsx"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg focus:border-slate-500 focus:outline-none"
+            />
+          </div>
           <div className="flex gap-2">
             <button
               type="button"
@@ -104,6 +117,9 @@ export function WorkspacesPage() {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-fg">{ws.name}</p>
               <p className="text-[11px] text-fg-muted">{ws.location || 'Sem localização'}</p>
+              {ws.spreadsheet_url && (
+                <p className="mt-0.5 truncate text-[10px] text-indigo-500">{ws.spreadsheet_url}</p>
+              )}
             </div>
             <div className="flex gap-1">
               <button
@@ -115,7 +131,7 @@ export function WorkspacesPage() {
               </button>
               <button
                 type="button"
-                onClick={() => remove(ws.id)}
+                onClick={async () => { await remove(ws.id) }}
                 className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500"
               >
                 <icons.ui.trash size={14} />

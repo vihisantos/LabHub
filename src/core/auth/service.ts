@@ -1,9 +1,15 @@
 import { defaultDb } from '../../lib/supabase'
 import type { User, AuthCredentials, SignUpData } from './types'
+import { notificationService } from '../notifications/service'
+import { themeStore } from '../theme/store'
 
 let currentUser: User | null = null
 let authListeners: Array<(user: User | null) => void> = []
 let initialized = false
+
+export function applyUserPreferences(user: User) {
+  themeStore.apply(user.theme_variant, user.accent)
+}
 
 function notifyListeners() {
   for (const listener of authListeners) {
@@ -27,6 +33,7 @@ export const authService = {
       if (session?.user) {
         const profile = await authService.fetchUserProfile(session.user.id)
         currentUser = profile
+        if (profile) applyUserPreferences(profile)
       } else {
         currentUser = null
       }
@@ -42,6 +49,7 @@ export const authService = {
       if (session?.user) {
         console.log('[Auth] Session restored for:', session.user.email)
         currentUser = await authService.fetchUserProfile(session.user.id)
+        if (currentUser) applyUserPreferences(currentUser)
         notifyListeners()
       } else {
         console.log('[Auth] No active session')
@@ -71,7 +79,6 @@ export const authService = {
 
     console.log('[Auth] Sign in successful, user ID:', data.user.id)
 
-    // Session is automatically stored in localStorage by Supabase
     let profile = await authService.fetchUserProfile(data.user.id)
     console.log('[Auth] Profile fetch result:', profile)
 
@@ -87,6 +94,7 @@ export const authService = {
     }
 
     currentUser = profile
+    applyUserPreferences(profile)
     notifyListeners()
     return profile
   },
@@ -105,12 +113,49 @@ export const authService = {
     if (error) throw error
     if (!authData.user) throw new Error('Usuário não retornado')
 
-    const profile = await authService.fetchUserProfile(authData.user.id)
-    if (!profile) throw new Error('Perfil não criado automaticamente')
+    // Create profile with pending status — admin must approve
+    const now = new Date().toISOString()
+    const profile = {
+      id: authData.user.id,
+      email: data.email,
+      name: data.name,
+      role: 'viewer' as const,
+      status: 'pending' as const,
+      workspace_ids: [] as string[],
+      accent: 'emerald' as const,
+      theme_variant: 'dark' as const,
+      avatar: '',
+      created_at: now,
+      updated_at: now,
+    }
 
-    currentUser = profile
+    const { error: insertError } = await defaultDb!
+      .from('profiles')
+      .insert(profile)
+
+    if (insertError) {
+      console.error('[Auth] Failed to create pending profile:', insertError.message)
+      throw new Error('Erro ao criar perfil. Tente novamente.')
+    }
+
+    // Create a notification that will sync to admin's notification center
+    try {
+      notificationService.create({
+        title: 'Novo usuário pendente',
+        body: `${data.name} (${data.email}) aguarda aprovação`,
+        type: 'approval',
+        severity: 'info',
+        module: 'auth',
+        actionUrl: '/admin/users',
+      })
+    } catch (e) {
+      console.warn('[Auth] Failed to create notification:', e)
+    }
+
+    // Don't set currentUser — user is not approved yet
+    // But return the profile so the UI can show the pending screen
     notifyListeners()
-    return profile
+    return { ...profile, status: 'pending' }
   },
 
   signOut: async (): Promise<void> => {
@@ -161,7 +206,11 @@ export const authService = {
       email,
       name: name || email.split('@')[0],
       role: 'viewer',
+      status: 'active',
       workspace_ids: [],
+      accent: 'emerald',
+      theme_variant: 'dark',
+      avatar: '',
       created_at: now,
       updated_at: now,
     }
@@ -188,6 +237,23 @@ export const authService = {
     return () => {
       authListeners = authListeners.filter((l) => l !== callback)
     }
+  },
+
+  /** Re-fetch the user profile from Supabase and notify listeners if changed */
+  refreshProfile: async (): Promise<User | null> => {
+    if (!currentUser || !defaultDb) return currentUser
+
+    const profile = await authService.fetchUserProfile(currentUser.id)
+    if (!profile) return currentUser
+
+    // Only update and notify if something actually changed
+    if (profile.status !== currentUser.status || profile.role !== currentUser.role) {
+      currentUser = profile
+      applyUserPreferences(profile)
+      notifyListeners()
+    }
+
+    return currentUser
   },
 
   isConfigured: (): boolean => {

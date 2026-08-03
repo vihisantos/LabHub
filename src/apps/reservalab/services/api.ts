@@ -1,6 +1,6 @@
-const API_BASE = import.meta.env.VITE_RESERVALAB_API_URL || ''
-
 import type { ReservasAPIResponse, HealthResponse } from '../types'
+
+const API_BASE = import.meta.env.VITE_RESERVALAB_API_URL || ''
 
 async function fetchAPI<T>(path: string): Promise<T> {
   const url = API_BASE ? `${API_BASE}${path}` : path
@@ -9,8 +9,9 @@ async function fetchAPI<T>(path: string): Promise<T> {
   return res.json()
 }
 
-export function fetchReservas(): Promise<ReservasAPIResponse> {
-  return fetchAPI<ReservasAPIResponse>('/api/reservas')
+export function fetchReservas(workspaceSlug?: string): Promise<ReservasAPIResponse> {
+  const query = workspaceSlug ? `?workspace=${encodeURIComponent(workspaceSlug)}` : ''
+  return fetchAPI<ReservasAPIResponse>(`/api/reservas${query}`)
 }
 
 export function fetchHealth(): Promise<HealthResponse> {

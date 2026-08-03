@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Tablet as TabletIcon } from 'lucide-react'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { ReservationCard } from '../components/ReservationCard'
 import { ReservationModal } from '../components/ReservationModal'
 import { TabletReservationCard } from '../components/TabletReservationCard'
@@ -144,6 +145,7 @@ function FigmaLabSection({
 }
 
 export function ReservasView() {
+  const { workspace } = useWorkspace()
   const [data, setData] = useState<ReservasAPIResponse>({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })
   const [tabletReservas, setTabletReservas] = useState<TabletReserva[]>([])
   const [tabletWeekData, setTabletWeekData] = useState<WeekDayData[]>([])
@@ -157,7 +159,7 @@ export function ReservasView() {
       const daqui7 = new Date(hoje)
       daqui7.setDate(daqui7.getDate() + 7)
 
-      const rows = await fetchTabletReservas(hoje, daqui7)
+      const rows = await fetchTabletReservas(hoje, daqui7, workspace?.id)
 
       if (rows.length > 0) {
         const ativas = rows
@@ -209,7 +211,7 @@ export function ReservasView() {
   }
 
   useEffect(() => {
-    fetchReservas().then((res) => { if (res) setData(res as ReservasAPIResponse) }).catch(() => {})
+    fetchReservas(workspace?.slug).then((res) => { if (res) setData(res as ReservasAPIResponse) }).catch(() => {})
     buscarTablets()
   }, [])
 

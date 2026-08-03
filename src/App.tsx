@@ -4,6 +4,8 @@ import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceI
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
 import { AuthProvider, useAuth } from './core/auth/AuthContext'
+import { AdminGuard } from './core/auth/AdminGuard'
+import { ThemeProvider } from './lib/ThemeContext'
 
 const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('./platform/Dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })))
@@ -103,17 +105,23 @@ function AppRoutes() {
       <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
       <Route path="admin/*" element={
         <AuthGuard>
-          <AdminApp />
+          <AdminGuard>
+            <AdminApp />
+          </AdminGuard>
         </AuthGuard>
       } />
       <Route path="admin/notifications" element={
         <AuthGuard>
-          <NotificationsPage />
+          <AdminGuard>
+            <NotificationsPage />
+          </AdminGuard>
         </AuthGuard>
       } />
       <Route path="admin/logs" element={
         <AuthGuard>
-          <LogsPage />
+          <AdminGuard>
+            <LogsPage />
+          </AdminGuard>
         </AuthGuard>
       } />
     </Routes>
@@ -124,13 +132,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <WorkspaceProvider>
-          <Suspense fallback={<RouteFallback />}>
-            <AppRoutes />
-          </Suspense>
-          <CommandPalette />
-          <GlobalPresenceIndicator />
-        </WorkspaceProvider>
+        <ThemeProvider>
+          <WorkspaceProvider>
+            <Suspense fallback={<RouteFallback />}>
+              <AppRoutes />
+            </Suspense>
+            <CommandPalette />
+            <GlobalPresenceIndicator />
+          </WorkspaceProvider>
+        </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>
   )

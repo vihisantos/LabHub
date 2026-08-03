@@ -1,22 +1,23 @@
 import { Routes, Route } from 'react-router-dom'
-import { ThemeProvider } from '../../lib/ThemeContext'
 import { AdminLayout } from './layouts/AdminLayout'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { UsersPage } from './pages/UsersPage'
+import { RolesPage } from './pages/RolesPage'
 import { WorkspacesPage } from './pages/WorkspacesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ProfilePage } from './pages/ProfilePage'
 
 export function AdminApp() {
   return (
-    <ThemeProvider storageKey="admin_theme" defaultTheme="dark">
-      <Routes>
-        <Route element={<AdminLayout />}>
-          <Route index element={<AdminDashboard />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="workspaces" element={<WorkspacesPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
-      </Routes>
-    </ThemeProvider>
+    <Routes>
+      <Route element={<AdminLayout />}>
+        <Route index element={<AdminDashboard />} />
+        <Route path="users" element={<UsersPage />} />
+        <Route path="roles" element={<RolesPage />} />
+        <Route path="workspaces" element={<WorkspacesPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="profile" element={<ProfilePage />} />
+      </Route>
+    </Routes>
   )
 }

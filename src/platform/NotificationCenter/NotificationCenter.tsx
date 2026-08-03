@@ -17,12 +17,13 @@ function NotificationItem({ notification, onRead, onRemove }: {
     critical: 'bg-red-500/15 text-red-500',
   }
 
-  const typeIcons = {
+  const typeIcons: Record<string, React.ComponentType<{ size?: number }>> = {
     ticket: icons.ui.alertCircle,
     asset: icons.ui.package,
     maintenance: icons.nav.maintenance,
     system: icons.nav.settings,
     sync: icons.ui.refresh,
+    approval: icons.ui.inbox,
   }
 
   const Icon = typeIcons[notification.type] || icons.ui.inbox

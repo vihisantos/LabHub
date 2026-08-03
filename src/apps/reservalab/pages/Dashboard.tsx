@@ -5,7 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, AreaChart, Area,
 } from 'recharts'
-import { Users, BookOpen, Clock, Activity, ArrowUpRight, BarChart3, Package, Monitor, Zap } from 'lucide-react'
+import { Users, BookOpen, Clock, Activity, ArrowUpRight, BarChart3, Package, Monitor, Zap, User } from 'lucide-react'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { StatsCard } from '../components/StatsCard'
 import { ChartContainer } from '../components/ChartContainer'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -18,6 +19,7 @@ import type { ReservasAPIResponse, TabletReserva } from '../types'
 export function DashboardView() {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
+  const { workspace } = useWorkspace()
   const today = new Date().toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })
 
   const [data, setData] = useState<ReservasAPIResponse>({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })
@@ -30,8 +32,8 @@ export function DashboardView() {
     const fetchAll = async () => {
       try {
         const [res, rows] = await Promise.all([
-          fetchReservas().catch(() => ({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })),
-          fetchTabletReservas(new Date(), new Date(Date.now() + 7 * 86400000)).catch(() => [] as TabletReserva[]),
+          fetchReservas(workspace?.slug).catch(() => ({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })),
+          fetchTabletReservas(new Date(), new Date(Date.now() + 7 * 86400000), workspace?.id).catch(() => [] as TabletReserva[]),
         ])
         if (!mounted) return
         setData(res as ReservasAPIResponse)
@@ -380,6 +382,10 @@ export function DashboardView() {
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#1e293b' }}>{r.sala}</span>
                           {r.finalidade && <span style={{ fontSize: '0.65rem', color: '#94a3b8', marginLeft: '6px' }}>{r.finalidade}</span>}
+                          <div style={{ fontSize: '0.6rem', color: '#94a3b8', marginTop: '1px' }}>
+                            <User size={8} style={{ display: 'inline', marginRight: '2px', verticalAlign: 'middle' }} />
+                            {r.reservado_por}
+                          </div>
                         </div>
                       </div>
                       <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#10b981', flexShrink: 0, marginLeft: '8px' }}>
