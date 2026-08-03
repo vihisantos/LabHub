@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { adminService } from '../../../core/auth/adminService'
 import type { User, UserRole, Accent, ThemeVariant } from '../../../core/auth/types'
 import { ROLE_LABELS, ROLE_COLORS } from '../../../core/auth/types'
@@ -39,6 +40,7 @@ export function UsersPage() {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
   const { roles: roleList } = useRoles()
   const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
@@ -56,6 +58,16 @@ export function UsersPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    const pendingId = searchParams.get('pending')
+    if (!pendingId) return
+    const target = users.find((u) => u.id === pendingId && u.status === 'pending')
+    if (target) {
+      setApprovingUser(target)
+      setSearchParams({}, { replace: true })
+    }
+  }, [users, searchParams, setSearchParams])
 
   const pendingUsers = users.filter((u) => u.status === 'pending')
   const activeUsers = users.filter((u) => u.status !== 'pending')
