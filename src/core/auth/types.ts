@@ -14,6 +14,8 @@ export interface User {
   banner?: string
   role: UserRole
   status: UserStatus
+  /** Admin absoluto — vê todos os workspaces e administra usuários */
+  is_super_admin?: boolean
   workspace_ids: string[]
   accent: Accent
   theme_variant: ThemeVariant
