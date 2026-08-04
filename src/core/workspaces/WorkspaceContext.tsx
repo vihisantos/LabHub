@@ -1,26 +1,35 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import type { Workspace } from './types'
 import { workspaceService } from './service'
 import { workspaceStore } from './store'
+import { WorkspaceGate } from '../../platform/WorkspaceGate/WorkspaceGate'
 
 interface WorkspaceContextValue {
   workspace: Workspace | null
   workspaces: Workspace[]
   assignedWorkspaces: Workspace[]
   loading: boolean
-  setWorkspace: (workspace: Workspace) => void
+  pendingSelection: boolean
+  setWorkspace: (workspace: Workspace, opts?: { persist?: boolean }) => void
+  clearPreference: () => void
   reload: () => void
 }
 
 const STORAGE_KEY = 'labhub_active_workspace'
+
+function getPreferenceKey(userId: string) {
+  return `labhub_workspace_preference_${userId}`
+}
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
   workspace: null,
   workspaces: [],
   assignedWorkspaces: [],
   loading: true,
+  pendingSelection: false,
   setWorkspace: () => {},
+  clearPreference: () => {},
   reload: () => {},
 })
 
@@ -29,12 +38,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [workspace, setWorkspaceState] = useState<Workspace | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingSelection, setPendingSelection] = useState(false)
 
-  const assignedWorkspaces = workspaces.filter((w) => {
-    if (!user) return true
-    if (user.role === 'admin') return true
-    return user.workspace_ids.length === 0 || user.workspace_ids.includes(w.id)
-  })
+  const assignedWorkspaces = useMemo(
+    () =>
+      workspaces.filter((w) => {
+        if (!user) return true
+        if (user.is_super_admin) return true
+        return user.workspace_ids.length === 0 || user.workspace_ids.includes(w.id)
+      }),
+    [workspaces, user],
+  )
+
+  const applySelection = useCallback((ws: Workspace, persist: boolean) => {
+    setWorkspaceState(ws)
+    localStorage.setItem(STORAGE_KEY, ws.slug)
+    if (persist && user?.id) {
+      localStorage.setItem(getPreferenceKey(user.id), ws.id)
+    }
+    setPendingSelection(false)
+  }, [user])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,15 +65,41 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const all = workspaceService.getAll()
     setWorkspaces(all)
 
-    // Restore previously selected workspace from localStorage
-    const savedSlug = localStorage.getItem(STORAGE_KEY)
-    if (savedSlug) {
-      const found = all.find((w) => w.slug === savedSlug)
-      if (found && (user?.role === 'admin' || user?.workspace_ids.includes(found.id))) {
-        setWorkspaceState(found)
+    const assigned = all.filter((w) => {
+      if (!user) return true
+      if (user.is_super_admin) return true
+      return user.workspace_ids.length === 0 || user.workspace_ids.includes(w.id)
+    })
+
+    if (user) {
+      const prefId = localStorage.getItem(getPreferenceKey(user.id))
+      const pref = prefId ? assigned.find((w) => w.id === prefId) : undefined
+      if (pref) {
+        setWorkspaceState(pref)
+        setPendingSelection(false)
+      } else if (assigned.length === 1) {
+        setWorkspaceState(assigned[0])
+        localStorage.setItem(STORAGE_KEY, assigned[0].slug)
+        setPendingSelection(false)
+      } else if (assigned.length > 1) {
+        // Restore session selection if still valid, otherwise force the gate
+        const savedSlug = localStorage.getItem(STORAGE_KEY)
+        const saved = savedSlug ? assigned.find((w) => w.slug === savedSlug) : undefined
+        if (saved) {
+          setWorkspaceState(saved)
+          setPendingSelection(false)
+        } else {
+          setWorkspaceState(null)
+          setPendingSelection(true)
+        }
+      } else {
+        setWorkspaceState(null)
+        setPendingSelection(false)
       }
+    } else {
+      setWorkspaceState(null)
+      setPendingSelection(false)
     }
-    // No auto-selection — user must choose via workspace selector/admin screen
 
     setLoading(false)
   }, [user])
@@ -63,18 +112,41 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     workspaceStore.set(
       workspace,
-      user?.role === 'admin' || false,
+      user?.is_super_admin || false,
       user?.workspace_ids || [],
     )
   }, [workspace, user])
 
-  const setWorkspace = useCallback((ws: Workspace) => {
-    setWorkspaceState(ws)
-    localStorage.setItem(STORAGE_KEY, ws.slug)
-  }, [])
+  const setWorkspace = useCallback((ws: Workspace, opts?: { persist?: boolean }) => {
+    applySelection(ws, opts?.persist ?? false)
+  }, [applySelection])
+
+  const clearPreference = useCallback(() => {
+    if (!user?.id) return
+    localStorage.removeItem(getPreferenceKey(user.id))
+  }, [user])
+
+  const value: WorkspaceContextValue = {
+    workspace,
+    workspaces,
+    assignedWorkspaces,
+    loading,
+    pendingSelection,
+    setWorkspace,
+    clearPreference,
+    reload: load,
+  }
+
+  if (pendingSelection && !loading) {
+    return (
+      <WorkspaceContext.Provider value={value}>
+        <WorkspaceGate workspaces={assignedWorkspaces} onSelect={(ws, persist) => applySelection(ws, persist)} />
+      </WorkspaceContext.Provider>
+    )
+  }
 
   return (
-    <WorkspaceContext.Provider value={{ workspace, workspaces, assignedWorkspaces, loading, setWorkspace, reload: load }}>
+    <WorkspaceContext.Provider value={value}>
       {children}
     </WorkspaceContext.Provider>
   )

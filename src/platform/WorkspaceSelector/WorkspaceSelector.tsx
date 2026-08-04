@@ -3,7 +3,7 @@ import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { icons } from '../../lib/icons'
 
 export function WorkspaceSelector() {
-  const { workspace, assignedWorkspaces, setWorkspace } = useWorkspace()
+  const { workspace, assignedWorkspaces, setWorkspace, clearPreference } = useWorkspace()
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -61,6 +61,25 @@ export function WorkspaceSelector() {
                 )}
               </button>
             ))}
+          </div>
+
+          <div className="border-t border-line p-2">
+            <button
+              type="button"
+              onClick={() => { setWorkspace(workspace, { persist: true }); setOpen(false) }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400 transition-colors hover:bg-input"
+            >
+              <icons.ui.check size={13} />
+              Definir como padrão
+            </button>
+            <button
+              type="button"
+              onClick={() => { clearPreference(); setOpen(false) }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-input hover:text-fg"
+            >
+              <icons.ui.refresh size={13} />
+              Limpar preferência
+            </button>
           </div>
         </div>
       )}
