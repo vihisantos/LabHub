@@ -10,7 +10,6 @@ import { QuickActions } from './QuickActions'
 import { ActivityFeed } from './ActivityFeed'
 import { ProfileSheet } from '../Profile/ProfileSheet'
 import { UserAvatar } from '../Profile/UserAvatar'
-import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
 import { icons } from '../../lib/icons'
 
@@ -42,7 +41,6 @@ export function DashboardPage() {
               <h1 className="text-2xl font-bold text-fg">
                 {getGreeting()}{userName ? `, ${userName}` : ''}
               </h1>
-              <WorkspaceSelector />
             </div>
             <div className="flex items-center gap-2">
               <button
