@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppNotification, NotificationFormData } from './types'
 import { notificationService } from './service'
+import { authService } from '../auth/service'
+import { workspaceStore } from '../workspaces/store'
+import { notificationAppliesTo } from './visibility'
+import type { User } from '../auth/types'
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [user, setUser] = useState<User | null>(() => authService.getCurrentUser())
+  const [storeVersion, setStoreVersion] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback((silent = false) => {
@@ -19,7 +25,20 @@ export function useNotifications() {
     return () => clearInterval(timer)
   }, [load])
 
-  const unreadCount = notifications.filter((n) => !n.read).length
+  // Segue o usuário logado e o workspace ativo para re-aplicar o filtro
+  useEffect(() => {
+    const unsubAuth = authService.onAuthChange((u) => setUser(u))
+    const unsubWs = workspaceStore.subscribe(() => setStoreVersion((v) => v + 1))
+    return () => {
+      unsubAuth()
+      unsubWs()
+    }
+  }, [])
+
+  void storeVersion
+
+  const visibleNotifications = notifications.filter((n) => notificationAppliesTo(n, user))
+  const unreadCount = visibleNotifications.filter((n) => !n.read).length
 
   const create = useCallback((data: NotificationFormData) => {
     const notification = notificationService.create(data)
@@ -48,7 +67,7 @@ export function useNotifications() {
   }, [])
 
   return {
-    notifications,
+    notifications: visibleNotifications,
     unreadCount,
     loading,
     create,
