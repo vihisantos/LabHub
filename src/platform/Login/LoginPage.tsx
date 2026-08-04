@@ -6,6 +6,10 @@ import { authService } from '../../core/auth/service'
 import { defaultDb } from '../../lib/supabase'
 import { SignupStatusScreen } from './SignupStatusScreen'
 
+export function buildUserEmail(username: string): string {
+  return `${username.toLowerCase().replace(/[^a-z0-9.-]/g, '')}@labhub.com`
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
   const { signIn, signUp, error, loading, isAuthenticated, user } = useAuth()
@@ -87,7 +91,7 @@ export function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     try {
-      const userEmail = `${username.toLowerCase().replace(/[^a-z0-9]/g, '')}@labhub.com`
+      const userEmail = buildUserEmail(username)
       if (mode === 'signin') {
         await signIn({ email: userEmail, password })
         navigate('/', { replace: true })
