@@ -13,6 +13,14 @@ import { icons } from './lib/icons'
 
 export const appRegistry: AppModule[] = [
   {
+    id: 'dashboard',
+    name: 'Dashboard',
+    description: 'Métricas e atividade da plataforma',
+    icon: icons.nav.dashboard,
+    route: '/dashboard',
+    color: '#10b981',
+  },
+  {
     id: 'pc-care',
     name: 'PC Care',
     description: 'Gestão de limpeza e manutenção de PCs',

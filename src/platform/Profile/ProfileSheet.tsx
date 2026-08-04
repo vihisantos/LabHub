@@ -8,6 +8,7 @@ import { themeStore } from '../../core/theme/store'
 import { ACCENTS, THEMES, accentColor } from '../../core/theme/constants'
 import { uploadAvatarToCloudinary, uploadBannerToCloudinary } from '../../lib/cloudinary'
 import { icons } from '../../lib/icons'
+import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { BottomSheet, SheetHeader } from '../ui/BottomSheet'
 import { AvatarIcon } from './UserAvatar'
 
@@ -271,6 +272,12 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                     <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
                   </button>
                 )}
+
+                {/* Workspace switch */}
+                <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+                  <p className="mb-2 text-xs font-semibold text-fg-muted">Workspace</p>
+                  <WorkspaceSelector />
+                </div>
 
                 {/* Logout */}
                 <button

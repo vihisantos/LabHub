@@ -32,6 +32,7 @@ export const APP_ACCESS_DESCRIPTIONS: Record<AppAccessLevel, string> = {
 /** Acesso padrão por cargo — ids precisam bater com o appRegistry */
 export const DEFAULT_ROLE_APPS: Record<RoleKey, Partial<Record<string, AppAccessLevel>>> = {
   admin: {
+    dashboard: 'full',
     'pc-care': 'full',
     stock: 'full',
     reservalab: 'full',
