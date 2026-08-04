@@ -1,6 +1,5 @@
 import { defaultDb } from '../../lib/supabase'
 import type { User, AuthCredentials, SignUpData } from './types'
-import { notificationService } from '../notifications/service'
 import { themeStore } from '../theme/store'
 
 let currentUser: User | null = null
@@ -124,6 +123,7 @@ export const authService = {
       name: data.name,
       role: 'viewer' as const,
       status: 'pending' as const,
+      is_super_admin: false,
       workspace_ids: [] as string[],
       accent: 'emerald' as const,
       theme_variant: 'dark' as const,
@@ -133,18 +133,27 @@ export const authService = {
       updated_at: now,
     }
 
-    // Create a notification that will sync to admin's notification center
+    // Create a notification DIRECTLY on Supabase so admins receive it
+    // regardless of this device's sync (pendente não roda sync)
     try {
-      notificationService.create({
-        title: 'Novo usuário pendente',
-        body: `${data.name} (${data.email}) aguarda aprovação`,
-        type: 'approval',
-        severity: 'info',
-        module: 'auth',
-        actionUrl: `/admin/users?pending=${profile.id}`,
-      })
+      if (defaultDb) {
+        await defaultDb.from('notifications').insert({
+          id: crypto.randomUUID(),
+          title: 'Novo usuário pendente',
+          body: `${data.name} (${data.email}) aguarda aprovação`,
+          type: 'approval',
+          severity: 'info',
+          module: 'auth',
+          actionUrl: `/admin/users?pending=${profile.id}`,
+          read: false,
+          createdAt: new Date().toISOString(),
+          audience: 'role',
+          targetRole: 'admin',
+          targetSuperAdmin: true,
+        })
+      }
     } catch (e) {
-      console.warn('[Auth] Failed to create notification:', e)
+      console.warn('[Auth] Failed to create approval notification:', e)
     }
 
     // Notify admins via push (Fire-and-forget — não bloqueia o cadastro)
@@ -224,6 +233,7 @@ export const authService = {
       name: name || email.split('@')[0],
       role: 'viewer',
       status: 'active',
+      is_super_admin: false,
       workspace_ids: [],
       accent: 'emerald',
       theme_variant: 'dark',
@@ -268,6 +278,7 @@ export const authService = {
     const changed =
       profile.status !== currentUser.status ||
       profile.role !== currentUser.role ||
+      profile.is_super_admin !== currentUser.is_super_admin ||
       profile.theme_variant !== currentUser.theme_variant ||
       profile.accent !== currentUser.accent
 
