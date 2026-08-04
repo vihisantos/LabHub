@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { workspaceService } from '../../../core/workspaces/service'
 import type { Workspace } from '../../../core/workspaces/types'
+import { useAuth } from '../../../core/auth/AuthContext'
 import { CreateWorkspaceModal } from '../components/CreateWorkspaceModal'
 import { icons } from '../../../lib/icons'
 
@@ -22,21 +22,9 @@ interface WorkspaceSelectionPageProps {
 
 export function WorkspaceSelectionPage({ onSelect }: WorkspaceSelectionPageProps) {
   const navigate = useNavigate()
-  const { workspace, setWorkspace } = useWorkspace()
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [loading, setLoading] = useState(true)
+  const { user } = useAuth()
+  const { workspace, assignedWorkspaces, loading, setWorkspace, reload } = useWorkspace()
   const [showCreate, setShowCreate] = useState(false)
-
-  const loadWorkspaces = useCallback(async () => {
-    setLoading(true)
-    const all = await workspaceService.syncFromSupabase()
-    setWorkspaces(all)
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    loadWorkspaces()
-  }, [loadWorkspaces])
 
   function handleSelect(ws: Workspace) {
     setWorkspace(ws)
@@ -53,6 +41,9 @@ export function WorkspaceSelectionPage({ onSelect }: WorkspaceSelectionPageProps
       </div>
     )
   }
+
+  const workspaces = assignedWorkspaces
+  const canCreate = !!user?.is_super_admin
 
   return (
     <>
@@ -79,22 +70,22 @@ export function WorkspaceSelectionPage({ onSelect }: WorkspaceSelectionPageProps
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="text-center mb-12"
+            className="mb-12 text-center"
           >
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs font-medium mb-4">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-500">
               <icons.ui.shield size={12} />
               Administrador
             </div>
-            <h1 className="text-4xl md:text-5xl font-black text-fg tracking-tight">
+            <h1 className="text-4xl font-black tracking-tight text-fg md:text-5xl">
               Bem-vindo ao<span className="bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent"> Admin</span>
             </h1>
-            <p className="mt-3 text-sm text-fg-muted max-w-md mx-auto">
-              Selecione um workspace para gerenciar ou crie um novo
+            <p className="mx-auto mt-3 max-w-md text-sm text-fg-muted">
+              Selecione um workspace para gerenciar
             </p>
           </motion.div>
 
           {/* Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
             {workspaces.map((ws, i) => {
               const color = WS_COLORS[i % WS_COLORS.length]
               const isSelected = ws.id === workspace?.id
@@ -128,31 +119,33 @@ export function WorkspaceSelectionPage({ onSelect }: WorkspaceSelectionPageProps
                   <div className="text-center">
                     <p className="text-sm font-bold text-fg">{ws.name}</p>
                     {ws.location && (
-                      <p className="text-[10px] text-fg-dim mt-0.5">{ws.location}</p>
+                      <p className="mt-0.5 text-[10px] text-fg-dim">{ws.location}</p>
                     )}
                   </div>
                 </motion.button>
               )
             })}
 
-            {/* Create card */}
-            <motion.button
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: workspaces.length * 0.06 + 0.1, duration: 0.4 }}
-              whileHover={{ y: -6, scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => setShowCreate(true)}
-              className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-line bg-transparent p-6 transition-all min-h-[160px] hover:border-indigo-500/30 hover:bg-indigo-500/5"
-            >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-dim">
-                <icons.ui.plus size={24} />
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-bold text-fg-muted">Novo Workspace</p>
-                <p className="text-[10px] text-fg-dim mt-0.5">Criar espaço</p>
-              </div>
-            </motion.button>
+            {/* Create card — only for the absolute admin */}
+            {canCreate && (
+              <motion.button
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: workspaces.length * 0.06 + 0.1, duration: 0.4 }}
+                whileHover={{ y: -6, scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setShowCreate(true)}
+                className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-line bg-transparent p-6 transition-all min-h-[160px] hover:border-indigo-500/30 hover:bg-indigo-500/5"
+              >
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-dim">
+                  <icons.ui.plus size={24} />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-bold text-fg-muted">Novo Workspace</p>
+                  <p className="mt-0.5 text-[10px] text-fg-dim">Criar espaço</p>
+                </div>
+              </motion.button>
+            )}
           </div>
 
           {/* Footer */}
@@ -169,7 +162,7 @@ export function WorkspaceSelectionPage({ onSelect }: WorkspaceSelectionPageProps
 
       <CreateWorkspaceModal
         open={showCreate}
-        onClose={() => { setShowCreate(false); loadWorkspaces() }}
+        onClose={() => { setShowCreate(false); reload() }}
       />
     </>
   )
