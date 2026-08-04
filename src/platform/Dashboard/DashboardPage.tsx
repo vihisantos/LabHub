@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
-import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { useAuth } from '../../core/auth/AuthContext'
 import { useFastSync } from '../../lib/useFastSync'
 import { MetricCard } from './MetricCard'
@@ -11,6 +10,7 @@ import { QuickActions } from './QuickActions'
 import { ActivityFeed } from './ActivityFeed'
 import { ProfileSheet } from '../Profile/ProfileSheet'
 import { UserAvatar } from '../Profile/UserAvatar'
+import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
 import { icons } from '../../lib/icons'
 
@@ -27,7 +27,6 @@ export function DashboardPage() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
-  const { workspace } = useWorkspace()
   const { user } = useAuth()
 
   useFastSync(['notifications'], 10000)
@@ -43,7 +42,7 @@ export function DashboardPage() {
               <h1 className="text-2xl font-bold text-fg">
                 {getGreeting()}{userName ? `, ${userName}` : ''}
               </h1>
-              <p className="text-sm text-fg-muted">{workspace?.name || 'LabHub'}</p>
+              <WorkspaceSelector />
             </div>
             <div className="flex items-center gap-2">
               <button
