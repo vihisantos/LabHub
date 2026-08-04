@@ -1,7 +1,8 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
+import { SplashScreen } from './platform/Splash/SplashScreen'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
 import { AuthProvider, useAuth } from './core/auth/AuthContext'
 import { AdminGuard } from './core/auth/AdminGuard'
@@ -34,16 +35,10 @@ function RouteFallback() {
 
 function AuthGuard({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
+  const [booted, setBooted] = useState(false)
 
-  if (loading) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-surface">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-          <p className="text-xs text-fg-muted">Verificando acesso...</p>
-        </div>
-      </div>
-    )
+  if (loading || !booted) {
+    return <SplashScreen ready={!loading} onDone={() => setBooted(true)} />
   }
 
   if (!user) {
