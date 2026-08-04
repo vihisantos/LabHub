@@ -5,9 +5,10 @@ import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
 import { useAppAccess } from '../../core/permissions/usePermissions'
 import { useFastSync } from '../../lib/useFastSync'
-import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
 import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
+import { ProfileSheet } from '../Profile/ProfileSheet'
+import { UserAvatar } from '../Profile/UserAvatar'
 import { icons } from '../../lib/icons'
 
 function getGreeting(): string {
@@ -24,6 +25,7 @@ export function Launcher() {
   const { canAccessApp } = useAppAccess()
   const [greeting, setGreeting] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
 
   useFastSync(['notifications'], 10000)
 
@@ -50,7 +52,6 @@ export function Launcher() {
               <h1 className="text-2xl font-bold text-fg">
                 {greeting}{userName ? `, ${userName}` : ''}
               </h1>
-              <WorkspaceSelector />
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -75,6 +76,16 @@ export function Launcher() {
               >
                 <icons.ui.search size={20} />
               </button>
+              {user && (
+                <button
+                  type="button"
+                  onClick={() => setProfileOpen(true)}
+                  title="Meu perfil"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-card p-1 transition-colors hover:bg-input"
+                >
+                  <UserAvatar user={user} size={32} />
+                </button>
+              )}
               {canAccessApp('admin') && (
                 <button
                   type="button"
@@ -97,7 +108,8 @@ export function Launcher() {
           </div>
         </header>
 
-        {/* Quick Actions */}
+        {/* Quick Actions — só para quem tem acesso ao app correspondente */}
+        {canAccessApp('chamados') && (
         <div className="mb-6">
           <div className="grid grid-cols-4 gap-2">
             <button
@@ -120,6 +132,7 @@ export function Launcher() {
               </div>
               <span className="text-[10px] font-medium text-fg-muted">Chamados</span>
             </button>
+            {canAccessApp('pc-care') && (
             <button
               type="button"
               onClick={() => navigate('/pc-care/pcs/new')}
@@ -130,6 +143,8 @@ export function Launcher() {
               </div>
               <span className="text-[10px] font-medium text-fg-muted">Novo Ativo</span>
             </button>
+            )}
+            {canAccessApp('admin') && (
             <button
               type="button"
               onClick={() => navigate('/admin/logs')}
@@ -140,31 +155,32 @@ export function Launcher() {
               </div>
               <span className="text-[10px] font-medium text-fg-muted">Logs</span>
             </button>
+            )}
           </div>
         </div>
+        )}
 
         {/* Apps */}
         <div className="mb-6">
           <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Módulos</p>
-          <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-3">
             {accessibleApps.map((app) => (
               <button
                 key={app.id}
                 type="button"
                 onClick={() => navigate(app.route)}
-                className="flex w-full items-center gap-4 rounded-xl bg-card p-4 text-left shadow-sm transition-all active:scale-[0.98]"
+                className="flex flex-col items-start gap-3 rounded-2xl bg-card p-4 text-left shadow-sm transition-all active:scale-[0.98]"
               >
                 <div
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+                  className="flex h-14 w-14 items-center justify-center rounded-2xl"
                   style={{ backgroundColor: app.color + '15', color: app.color }}
                 >
-                  <app.icon size={22} />
+                  <app.icon size={26} />
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0">
                   <h2 className="text-sm font-semibold text-fg">{app.name}</h2>
                   <p className="mt-0.5 text-[11px] text-fg-muted leading-snug truncate">{app.description}</p>
                 </div>
-                <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
               </button>
             ))}
           </div>
@@ -185,6 +201,7 @@ export function Launcher() {
 
       <PushNotificationButton />
       <NotificationsSheet open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+      <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   )
 }

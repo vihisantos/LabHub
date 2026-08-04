@@ -54,7 +54,14 @@ function AppRoutes() {
       <Route path="login" element={<LoginPage />} />
       <Route index element={
         <AuthGuard>
-          <DashboardPage />
+          <Launcher />
+        </AuthGuard>
+      } />
+      <Route path="dashboard" element={
+        <AuthGuard>
+          <AppGuard appId="dashboard">
+            <DashboardPage />
+          </AppGuard>
         </AuthGuard>
       } />
       <Route path="launcher" element={
