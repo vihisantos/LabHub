@@ -4,6 +4,8 @@ import { motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
+import { useNotifications } from '../../../core/notifications/useNotifications'
+import { useFastSync } from '../../../lib/useFastSync'
 import { WorkspaceSelectionPage } from '../pages/WorkspaceSelectionPage'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 
@@ -11,7 +13,7 @@ const NAV_ITEMS = [
   { path: '/admin', label: 'Dashboard', icon: icons.nav.dashboard },
   { path: '/admin/users', label: 'Usuários', icon: icons.ui.user },
   { path: '/admin/roles', label: 'Permissões', icon: icons.ui.sliders },
-  { path: '/admin/workspaces', label: 'Workspaces', icon: icons.ui.home },
+  { path: '/admin/notifications', label: 'Notificações', icon: icons.ui.inbox },
   { path: '/admin/settings', label: 'Configurações', icon: icons.nav.settings },
 ]
 
@@ -29,8 +31,10 @@ export function AdminLayout() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const { workspace, workspaces } = useWorkspace()
-  // Always start with workspace selection — user MUST choose
-  const [showSelector, setShowSelector] = useState(true)
+  const { unreadCount } = useNotifications()
+  useFastSync(['notifications'], 10000)
+  // O gate global já garante um workspace — seletor só aparece ao trocar de ambiente
+  const [showSelector, setShowSelector] = useState(false)
 
   const isActive = (path: string) => {
     if (path === '/admin') return location.pathname === '/admin'
@@ -51,7 +55,7 @@ export function AdminLayout() {
   }, [workspace, workspaces])
 
   // Show workspace selection page until user picks one
-  if (showSelector) {
+  if (showSelector || !workspace) {
     return <WorkspaceSelectionPage onSelect={handleSelect} />
   }
 
@@ -173,7 +177,14 @@ export function AdminLayout() {
                 isActive(item.path) ? 'text-indigo-500' : 'text-fg-muted hover:text-fg'
               }`}
             >
-              <item.icon size={20} />
+              <span className="relative">
+                <item.icon size={20} />
+                {item.path === '/admin/notifications' && unreadCount > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </span>
               <span className="text-[10px] font-medium">{item.label}</span>
             </button>
           ))}
