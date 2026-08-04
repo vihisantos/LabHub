@@ -1,9 +1,11 @@
 import { useAuth } from '../../../core/auth/AuthContext'
+import { useNavigate } from 'react-router-dom'
 import { ROLE_LABELS, ROLE_COLORS } from '../types'
 import { icons } from '../../../lib/icons'
 
 export function SettingsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
 
   return (
     <div className="space-y-4">
@@ -29,6 +31,32 @@ export function SettingsPage() {
               {ROLE_LABELS[user?.role || 'viewer']}
             </span>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+        <h3 className="mb-3 text-xs font-semibold text-fg-muted">Gerenciamento</h3>
+        <div className="space-y-2">
+          {user?.is_super_admin && (
+            <button
+              type="button"
+              onClick={() => navigate('/admin/workspaces')}
+              className="flex w-full items-center gap-3 rounded-lg p-2 text-sm text-fg transition-colors hover:bg-input"
+            >
+              <icons.ui.home size={16} className="text-fg-muted" />
+              Workspaces
+              <icons.ui.chevronRight size={14} className="ml-auto text-fg-muted" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => navigate('/admin/roles')}
+            className="flex w-full items-center gap-3 rounded-lg p-2 text-sm text-fg transition-colors hover:bg-input"
+          >
+            <icons.ui.sliders size={16} className="text-fg-muted" />
+            Permissões
+            <icons.ui.chevronRight size={14} className="ml-auto text-fg-muted" />
+          </button>
         </div>
       </div>
 
