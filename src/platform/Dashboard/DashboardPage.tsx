@@ -4,6 +4,7 @@ import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { useAuth } from '../../core/auth/AuthContext'
+import { useFastSync } from '../../lib/useFastSync'
 import { MetricCard } from './MetricCard'
 import { ModuleStats } from './ModuleStats'
 import { QuickActions } from './QuickActions'
@@ -28,6 +29,8 @@ export function DashboardPage() {
   const { unreadCount } = useNotifications()
   const { workspace } = useWorkspace()
   const { user } = useAuth()
+
+  useFastSync(['notifications'], 10000)
 
   const userName = user?.name?.split(' ')[0] || ''
 

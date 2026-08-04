@@ -119,6 +119,22 @@ export interface SyncResult {
   failed: string[]
 }
 
+/**
+ * Sincroniza UMA coleção isolada (push + pull) — usada por hooks de polling
+ * rápido em módulos prioritários (chamados, notificações) sem rodar o syncAll completo.
+ */
+export async function syncSingle(collection: string): Promise<void> {
+  const dirty = getDirtySet()
+  const isPcare = ALL_PCARE_COLLECTIONS.includes(collection)
+  const db = isPcare ? pcareDb : stockDb
+
+  if (db) {
+    await syncCollection(collection, db, dirty)
+    logSync(collection, getCol(collection).length, 'ok')
+  }
+  clearDirty(collection)
+}
+
 async function syncCollection(
   collection: string,
   db: NonNullable<typeof pcareDb>,

@@ -3,6 +3,7 @@ import { useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
+import { useFastSync } from '../../../lib/useFastSync'
 import { icons } from '../../../lib/icons'
 
 function getPageTitle(pathname: string): string {
@@ -48,6 +49,7 @@ export function ChamadosLayout() {
   const { theme, toggle } = useTheme()
 
   useOnlineSync()
+  useFastSync(['chamados', 'rooms', 'problem_templates'], 10000)
 
   const activeTab = TABS.findIndex((t) => {
     if (t.path === '/chamados') return location.pathname === '/chamados'

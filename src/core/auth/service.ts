@@ -265,7 +265,13 @@ export const authService = {
     if (!profile) return currentUser
 
     // Only update and notify if something actually changed
-    if (profile.status !== currentUser.status || profile.role !== currentUser.role) {
+    const changed =
+      profile.status !== currentUser.status ||
+      profile.role !== currentUser.role ||
+      profile.theme_variant !== currentUser.theme_variant ||
+      profile.accent !== currentUser.accent
+
+    if (changed) {
       currentUser = profile
       applyUserPreferences(profile)
       notifyListeners()
