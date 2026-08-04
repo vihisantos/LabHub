@@ -6,15 +6,17 @@ export function useNotifications() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    const data = notificationService.getAll()
-    setNotifications(data)
-    setLoading(false)
+  const load = useCallback((silent = false) => {
+    if (!silent) setLoading(true)
+    setNotifications(notificationService.getAll())
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => {
     load()
+    // Reload silencioso periódico — reflete notificações vindas do sync
+    const timer = setInterval(() => load(true), 10000)
+    return () => clearInterval(timer)
   }, [load])
 
   const unreadCount = notifications.filter((n) => !n.read).length

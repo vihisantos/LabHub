@@ -6,15 +6,19 @@ export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(() => {
-    setLoading(true)
+  const load = useCallback((silent = false) => {
+    if (!silent) setLoading(true)
     const data = ticketService.getAll()
     setTickets(data.sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => {
     load()
+    // Reload silencioso periódico — reflete mudanças trazidas pelo sync
+    // (o layout roda o useFastSync que puxa do Supabase a cada 10s)
+    const timer = setInterval(() => load(true), 10000)
+    return () => clearInterval(timer)
   }, [load])
 
   const create = useCallback((data: TicketFormData) => {

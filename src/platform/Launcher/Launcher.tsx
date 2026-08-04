@@ -4,6 +4,7 @@ import { appRegistry } from '../../appRegistry'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
 import { useAppAccess } from '../../core/permissions/usePermissions'
+import { useFastSync } from '../../lib/useFastSync'
 import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
 import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
@@ -23,6 +24,8 @@ export function Launcher() {
   const { canAccessApp } = useAppAccess()
   const [greeting, setGreeting] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+
+  useFastSync(['notifications'], 10000)
 
   const userName = user?.name?.split(' ')[0] || ''
   const accessibleApps = appRegistry.filter((app) => canAccessApp(app.id))
