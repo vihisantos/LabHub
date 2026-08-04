@@ -77,6 +77,19 @@ describe('PCForm', () => {
     expect(screen.getByText('Rede')).toBeInTheDocument()
   })
 
+  it('exibe seção Garantia', () => {
+    renderForm()
+    expect(screen.getByText('Garantia')).toBeInTheDocument()
+    expect(screen.getByText('Fornecedor')).toBeInTheDocument()
+    expect(screen.getByText('Vencimento da garantia')).toBeInTheDocument()
+  })
+
+  it('exibe seção Licenças de software', () => {
+    renderForm()
+    expect(screen.getByText('Licenças de software')).toBeInTheDocument()
+    expect(screen.getByText('+ Adicionar licença')).toBeInTheDocument()
+  })
+
   it('exibe seção Observações', () => {
     renderForm()
     expect(screen.getByText('Observações')).toBeInTheDocument()

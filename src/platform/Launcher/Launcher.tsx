@@ -8,6 +8,7 @@ import { useFastSync } from '../../lib/useFastSync'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
 import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
 import { ProfileSheet } from '../Profile/ProfileSheet'
+import { OnboardingOverlay, completeOnboarding, hasCompletedOnboarding } from '../Onboarding/OnboardingOverlay'
 import { UserAvatar } from '../Profile/UserAvatar'
 import { icons } from '../../lib/icons'
 
@@ -26,6 +27,7 @@ export function Launcher() {
   const [greeting, setGreeting] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
 
   useFastSync(['notifications'], 10000)
 
@@ -41,6 +43,12 @@ export function Launcher() {
       document.documentElement.classList.remove('dark')
     }
   }, [])
+
+  useEffect(() => {
+    if (user && !hasCompletedOnboarding(user.id)) {
+      setOnboardingOpen(true)
+    }
+  }, [user])
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
@@ -202,6 +210,14 @@ export function Launcher() {
       <PushNotificationButton />
       <NotificationsSheet open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
       <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <OnboardingOverlay
+        open={onboardingOpen}
+        userName={user?.name || ''}
+        onFinish={() => {
+          if (user) completeOnboarding(user.id)
+          setOnboardingOpen(false)
+        }}
+      />
     </div>
   )
 }

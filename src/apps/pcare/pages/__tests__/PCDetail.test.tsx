@@ -51,4 +51,21 @@ describe('PCDetail', () => {
     expect(screen.getByText('Ativo não encontrado.')).toBeInTheDocument()
     expect(screen.getByText('Voltar ao inventário')).toBeInTheDocument()
   })
+
+  it('exibe garantia e licenças com status de vencimento', () => {
+    seedLocalStorage('assets', [
+      {
+        id: 'a-1', assetTag: 'TAG-W', equipmentType: 'Desktop', manufacturer: 'Dell', model: 'OptiPlex', serialNumber: 'SN-1', location: 'Sala 1', status: 'in_use', observations: '', technical: { operatingSystem: '', architecture: '', processor: '', memory: '', storageType: '', storageCapacity: '', storageBrand: '' }, network: { hostname: '', macEthernet: '', macWifi: '', ip: '', domain: '' }, parentAssetId: null, childAssetIds: [], photos: [],
+        warranty: { vendor: 'Dell Brasil', expiresAt: '2020-01-01' },
+        licenses: [{ id: 'lic-1', name: 'Windows 11 Pro', key: 'XXXX', expiresAt: '2026-01-01' }],
+        createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ])
+
+    renderWithRoute('/pc-care/pcs/a-1')
+
+    expect(screen.getByText('Dell Brasil')).toBeInTheDocument()
+    expect(screen.getByText('Windows 11 Pro')).toBeInTheDocument()
+    expect(screen.getAllByText('Venceu').length).toBeGreaterThanOrEqual(1)
+  })
 })
