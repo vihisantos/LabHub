@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../../core/auth/AuthContext'
+import { authService } from '../../core/auth/service'
+import { defaultDb } from '../../lib/supabase'
+import { SignupStatusScreen } from './SignupStatusScreen'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -10,13 +13,77 @@ export function LoginPage() {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [signupSuccess, setSignupSuccess] = useState(false)
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null)
+  const [pendingStatus, setPendingStatus] = useState<'waiting' | 'approved' | 'rejected'>('waiting')
+  const [secondsLeft, setSecondsLeft] = useState(60)
+
+  const isPendingUser = signupSuccess || (!!user && user.status === 'pending')
 
   useEffect(() => {
     if (isAuthenticated && user?.status === 'active') {
       navigate('/', { replace: true })
     }
   }, [isAuthenticated, user, navigate])
+
+  useEffect(() => {
+    if (isPendingUser && user?.id) {
+      setPendingUserId((cur) => cur ?? user.id)
+    }
+  }, [isPendingUser, user])
+
+  useEffect(() => {
+    if (!isPendingUser || !pendingUserId) return
+    let cancelled = false
+
+    const check = async () => {
+      if (!defaultDb) return
+      const { data, error } = await defaultDb
+        .from('profiles')
+        .select('id, status')
+        .eq('id', pendingUserId)
+        .maybeSingle()
+      if (cancelled || error) return
+      if (!data) {
+        setPendingStatus('rejected')
+      } else if (data.status === 'active') {
+        setPendingStatus('approved')
+      }
+    }
+
+    check()
+    const timer = setInterval(check, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [isPendingUser, pendingUserId])
+
+  useEffect(() => {
+    if (pendingStatus !== 'approved') return
+    const timer = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000)
+    return () => clearInterval(timer)
+  }, [pendingStatus])
+
+  function handleEnterApp() {
+    authService.refreshProfile().finally(() => navigate('/', { replace: true }))
+  }
+
+  useEffect(() => {
+    if (pendingStatus === 'approved' && secondsLeft === 0) {
+      handleEnterApp()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingStatus, secondsLeft])
+
+  function handleRetry() {
+    setSignupSuccess(false)
+    setPendingStatus('waiting')
+    setPendingUserId(null)
+    setSecondsLeft(60)
+    setMode('signup')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -34,160 +101,15 @@ export function LoginPage() {
     }
   }
 
-  // Signup success screen — animated!
-  if (signupSuccess) {
+  if (isPendingUser) {
     return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="relative flex min-h-dvh flex-col items-center justify-center bg-surface overflow-hidden px-5"
-      >
-        {/* Floating dots background */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute h-1.5 w-1.5 rounded-full bg-emerald-500/20"
-              style={{
-                left: `${15 + (i * 15) % 70}%`,
-                top: `${20 + (i * 12) % 60}%`,
-              }}
-              animate={{
-                y: [0, -25, 0],
-                opacity: [0, 0.5, 0],
-              }}
-              transition={{
-                duration: 3 + (i % 3),
-                repeat: Infinity,
-                delay: i * 0.5,
-                ease: 'easeInOut',
-              }}
-            />
-          ))}
-        </div>
-
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
-          className="relative z-10 mb-8 text-center max-w-sm"
-        >
-          {/* Animated checkmark circle */}
-          <motion.div
-            className="mx-auto mb-6"
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.2 }}
-          >
-            <div className="relative">
-              <svg width="72" height="72" viewBox="0 0 72 72" fill="none">
-                {/* Outer ring */}
-                <motion.circle
-                  cx="36" cy="36" r="34"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="text-emerald-500/30"
-                  fill="none"
-                  initial={{ pathLength: 0 }}
-                  animate={{ pathLength: 1 }}
-                  transition={{ duration: 0.8, delay: 0.3 }}
-                />
-                {/* Inner bg */}
-                <circle cx="36" cy="36" r="28" className="fill-emerald-500/10" />
-                {/* Checkmark */}
-                <motion.path
-                  d="M24 36l8 8 16-16"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-emerald-500"
-                  fill="none"
-                  initial={{ pathLength: 0 }}
-                  animate={{ pathLength: 1 }}
-                  transition={{ duration: 0.6, delay: 0.6, ease: 'easeOut' }}
-                />
-                {/* Pulsing dot at center */}
-                <motion.circle
-                  cx="36" cy="36" r="2"
-                  className="fill-emerald-500"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: [0, 0.6, 0] }}
-                  transition={{ duration: 2, repeat: Infinity, delay: 1.5, ease: 'easeInOut' }}
-                />
-              </svg>
-              {/* Glow ring */}
-              <motion.div
-                className="absolute inset-0 rounded-full"
-                style={{
-                  boxShadow: '0 0 30px rgba(16, 185, 129, 0.15)',
-                }}
-                animate={{ opacity: [0.3, 0.8, 0.3] }}
-                transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-              />
-            </div>
-          </motion.div>
-
-          {/* Title */}
-          <motion.h1
-            className="text-2xl font-bold text-fg"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.8 }}
-          >
-            Conta Criada!
-          </motion.h1>
-
-          {/* Description */}
-          <motion.p
-            className="mt-3 text-sm text-fg-muted leading-relaxed"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 1 }}
-          >
-            Sua conta foi criada e está aguardando aprovação do administrador.
-            Você receberá acesso automaticamente quando for aprovado.
-          </motion.p>
-
-          {/* Waiting indicator */}
-          <motion.div
-            className="mt-6 flex items-center justify-center gap-2.5 rounded-2xl border border-emerald-500/15 bg-emerald-500/5 px-5 py-3"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 1.2 }}
-          >
-            <div className="relative flex h-4 w-4 items-center justify-center">
-              <div className="absolute inset-0 animate-spin rounded-full border-2 border-emerald-500/30 border-t-emerald-500" />
-              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-            </div>
-            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-              Aguardando aprovação
-            </span>
-          </motion.div>
-
-          {/* Back button */}
-          <motion.button
-            type="button"
-            onClick={() => { setMode('signin'); setSignupSuccess(false) }}
-            className="mt-8 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.97]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.5 }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-          >
-            Voltar para Login
-          </motion.button>
-
-          {/* Bottom line */}
-          <motion.div
-            className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent"
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={{ delay: 1.8, duration: 0.6 }}
-          />
-        </motion.div>
-      </motion.div>
+      <SignupStatusScreen
+        status={pendingStatus}
+        secondsLeft={secondsLeft}
+        totalSeconds={60}
+        onEnter={handleEnterApp}
+        onRetry={handleRetry}
+      />
     )
   }
 
@@ -226,16 +148,19 @@ export function LoginPage() {
             <>
               <div>
                 <label className="mb-1 block text-xs font-medium text-fg-muted">Usuário</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  minLength={3}
-                  pattern="[a-zA-Z0-9._-]+"
-                  className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder="meu.usuario"
-                />
+                <div className="flex items-center overflow-hidden rounded-xl border border-line bg-card focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                    minLength={3}
+                    pattern="[a-zA-Z0-9._-]+"
+                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none"
+                    placeholder="nome.escolhido"
+                  />
+                  <span className="shrink-0 pr-4 text-sm text-fg-muted">@labhub.com</span>
+                </div>
                 <p className="mt-1 text-[10px] text-fg-dim">
                   Email gerado: <span className="font-mono text-fg-muted">{username || 'usuario'}@labhub.com</span>
                 </p>
@@ -243,15 +168,25 @@ export function LoginPage() {
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-fg-muted">Senha</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder="••••••••"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="w-full rounded-xl border border-line bg-card px-4 py-3 pr-11 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-dim transition-colors hover:text-fg"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
             </>
           ) : (
@@ -270,15 +205,24 @@ export function LoginPage() {
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-fg-muted">Senha</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder="••••••••"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="w-full rounded-xl border border-line bg-card px-4 py-3 pr-11 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-dim transition-colors hover:text-fg"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
             </>
           )}
