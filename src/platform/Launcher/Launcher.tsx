@@ -94,16 +94,6 @@ export function Launcher() {
                   <UserAvatar user={user} size={32} />
                 </button>
               )}
-              {canAccessApp('admin') && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/admin')}
-                  title="Administração"
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-slate-500/10 hover:text-slate-400"
-                >
-                  <icons.nav.settings size={20} />
-                </button>
-              )}
               <button
                 type="button"
                 onClick={signOut}
