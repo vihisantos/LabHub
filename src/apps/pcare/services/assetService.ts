@@ -1,5 +1,5 @@
 import type { Asset } from '../types/asset'
-import { emptyNetworkInfo, emptyTechnicalInfo } from '../types/asset'
+import { emptyNetworkInfo, emptyTechnicalInfo, emptyWarrantyInfo } from '../types/asset'
 import type { PC } from '../types/pc'
 import { getCol, setCol } from '../../../lib/db'
 import { createSyncService } from '../../../lib/sync'
@@ -22,6 +22,7 @@ function fromLegacyPC(pc: PC): Asset {
     },
     network: { ...emptyNetworkInfo(), domain: pc.config?.domain || '' },
     parentAssetId: null, childAssetIds: [], photos: pc.photos || [],
+    warranty: emptyWarrantyInfo(), licenses: [],
     createdAt: pc.createdAt, updatedAt: pc.updatedAt,
   }
 }

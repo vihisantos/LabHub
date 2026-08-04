@@ -41,6 +41,18 @@ export interface AssetNetworkInfo {
   domain: string
 }
 
+export interface AssetWarranty {
+  vendor: string
+  expiresAt: string | null
+}
+
+export interface AssetLicense {
+  id: string
+  name: string
+  key: string
+  expiresAt: string | null
+}
+
 export interface Asset {
   id: string
   assetTag: string
@@ -57,6 +69,8 @@ export interface Asset {
   parentAssetId: string | null
   childAssetIds: string[]
   photos: string[]
+  warranty: AssetWarranty
+  licenses: AssetLicense[]
   createdAt: string
   updatedAt: string
 }
@@ -67,3 +81,5 @@ export const emptyTechnicalInfo = (): AssetTechnicalInfo => ({
   operatingSystem: '', architecture: '', processor: '', memory: '', storageType: '', storageCapacity: '', storageBrand: '',
 })
 export const emptyNetworkInfo = (): AssetNetworkInfo => ({ hostname: '', macEthernet: '', macWifi: '', ip: '', domain: '' })
+export const emptyWarrantyInfo = (): AssetWarranty => ({ vendor: '', expiresAt: null })
+export const emptyLicense = (): AssetLicense => ({ id: crypto.randomUUID(), name: '', key: '', expiresAt: null })
