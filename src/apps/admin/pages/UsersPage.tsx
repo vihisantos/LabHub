@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { adminService } from '../../../core/auth/adminService'
 import type { User, UserRole, Accent, ThemeVariant } from '../../../core/auth/types'
 import { ROLE_LABELS, ROLE_COLORS } from '../../../core/auth/types'
+import { useAuth } from '../../../core/auth/AuthContext'
 import { workspaceService } from '../../../core/workspaces/service'
 import type { Workspace } from '../../../core/workspaces/types'
 import { themeStore } from '../../../core/theme/store'
@@ -30,6 +31,8 @@ const THEMES: { value: ThemeVariant; label: string }[] = [
 ]
 
 export function UsersPage() {
+  const { user: currentUser } = useAuth()
+  const isSuperAdmin = !!currentUser?.is_super_admin
   const [users, setUsers] = useState<User[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,13 +64,13 @@ export function UsersPage() {
 
   useEffect(() => {
     const pendingId = searchParams.get('pending')
-    if (!pendingId) return
+    if (!pendingId || !isSuperAdmin) return
     const target = users.find((u) => u.id === pendingId && u.status === 'pending')
     if (target) {
       setApprovingUser(target)
       setSearchParams({}, { replace: true })
     }
-  }, [users, searchParams, setSearchParams])
+  }, [users, searchParams, setSearchParams, isSuperAdmin])
 
   const pendingUsers = users.filter((u) => u.status === 'pending')
   const activeUsers = users.filter((u) => u.status !== 'pending')
@@ -149,6 +152,24 @@ export function UsersPage() {
     if (success) {
       setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, accent } : u))
     }
+  }
+
+  async function handleSuperAdminChange(userId: string, isSuperAdmin: boolean) {
+    if (userId === currentUser?.id && !isSuperAdmin) {
+      setFeedback({ type: 'error', message: 'Você não pode remover seu próprio acesso de admin absoluto' })
+      setTimeout(() => setFeedback(null), 3000)
+      return
+    }
+    setSaving(true)
+    const success = await adminService.updateUserProfile(userId, { is_super_admin: isSuperAdmin })
+    if (success) {
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, is_super_admin: isSuperAdmin } : u))
+      setFeedback({ type: 'success', message: isSuperAdmin ? 'Admin absoluto definido' : 'Admin absoluto removido' })
+    } else {
+      setFeedback({ type: 'error', message: 'Erro ao atualizar admin absoluto' })
+    }
+    setSaving(false)
+    setTimeout(() => setFeedback(null), 3000)
   }
 
   async function handleThemeChange(userId: string, theme_variant: ThemeVariant) {
@@ -270,8 +291,8 @@ export function UsersPage() {
         </div>
       )}
 
-      {/* Pending Users Section */}
-      {pendingUsers.length > 0 && (
+      {/* Pending Users Section — apenas o admin absoluto aprova */}
+      {isSuperAdmin && pendingUsers.length > 0 && (
         <div className="rounded-xl bg-card shadow-[var(--shadow-card)] overflow-hidden">
           <div className="border-b border-line px-4 py-3 flex items-center gap-2">
             <icons.ui.inbox size={14} className="text-amber-500" />
@@ -349,6 +370,7 @@ export function UsersPage() {
               .map((id) => workspaces.find((w) => w.id === id))
               .filter(Boolean) as Workspace[]
             const isAdminUser = u.role === 'admin'
+            const isAbsUser = !!u.is_super_admin
 
             return (
               <div key={u.id} className="rounded-xl bg-card shadow-[var(--shadow-card)] overflow-hidden transition-all">
@@ -398,7 +420,7 @@ export function UsersPage() {
                       <p className="text-sm font-medium text-fg truncate">{u.name}</p>
                       {isAdminUser && (
                         <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-purple-500">
-                          ADMIN
+                          {isAbsUser ? 'ADMIN ABS' : 'ADMIN'}
                         </span>
                       )}
                     </div>
@@ -417,26 +439,47 @@ export function UsersPage() {
 
                 {isOpen && (
                   <div className="border-t border-line px-4 py-3 space-y-3">
-                    <div>
-                      <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Role</p>
-                      <div className="flex gap-1.5">
-                        {ROLES.map((role) => (
-                          <button
-                            key={role}
-                            type="button"
-                            onClick={() => handleRoleChange(u.id, role)}
-                            disabled={saving || role === u.role}
-                            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
-                              role === u.role
-                                ? `${ROLE_COLORS[role]} ring-1 ring-slate-500/30`
-                                : 'bg-input text-fg-muted hover:text-fg'
-                            } disabled:opacity-50`}
-                          >
-                            {saving && role !== u.role ? '...' : ROLE_LABELS[role]}
-                          </button>
-                        ))}
+                    {isSuperAdmin && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Role</p>
+                        <div className="flex gap-1.5">
+                          {ROLES.map((role) => (
+                            <button
+                              key={role}
+                              type="button"
+                              onClick={() => handleRoleChange(u.id, role)}
+                              disabled={saving || role === u.role}
+                              className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
+                                role === u.role
+                                  ? `${ROLE_COLORS[role]} ring-1 ring-slate-500/30`
+                                  : 'bg-input text-fg-muted hover:text-fg'
+                              } disabled:opacity-50`}
+                            >
+                              {saving && role !== u.role ? '...' : ROLE_LABELS[role]}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
+
+                    {isSuperAdmin && u.id !== currentUser?.id && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Admin absoluto</p>
+                        <button
+                          type="button"
+                          onClick={() => handleSuperAdminChange(u.id, !isAbsUser)}
+                          disabled={saving}
+                          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all ${
+                            isAbsUser
+                              ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/30'
+                              : 'bg-input text-fg-muted hover:text-fg'
+                          } disabled:opacity-50`}
+                        >
+                          <icons.ui.shield size={12} />
+                          {isAbsUser ? 'Remover admin absoluto' : 'Conceder admin absoluto'}
+                        </button>
+                      </div>
+                    )}
 
                     <div>
                       <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Cor do app</p>
@@ -485,8 +528,8 @@ export function UsersPage() {
                       </div>
                     </div>
 
-                    {/* Workspace section - only show for non-admin users */}
-                    {!isAdminUser && (
+                    {/* Workspace section - only for non-absolute users */}
+                    {!isAbsUser && (
                       <div>
                         <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
                           Workspaces ({userWsNames.length} de {workspaces.length})
@@ -499,7 +542,7 @@ export function UsersPage() {
                                 key={ws.id}
                                 type="button"
                                 onClick={() => toggleWorkspace(u.id, ws.id)}
-                                disabled={saving}
+                                disabled={saving || !isSuperAdmin}
                                 className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
                                   hasAccess
                                     ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/30'
@@ -518,8 +561,8 @@ export function UsersPage() {
                       </div>
                     )}
 
-                    {/* Per-app access override - only for non-admin users */}
-                    {!isAdminUser && (
+                    {/* Per-app access override - only for non-absolute users */}
+                    {!isAbsUser && (
                       <div>
                         <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
                           Acesso por aplicativo (sobrescreve o cargo)
@@ -549,7 +592,7 @@ export function UsersPage() {
                                     const v = e.target.value
                                     handleAppAccessChange(u.id, app.id, v === 'inherit' ? null : (v as AppAccessOverride))
                                   }}
-                                  disabled={saving}
+                                  disabled={saving || !isSuperAdmin}
                                   className="rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-fg focus:outline-none disabled:opacity-50"
                                 >
                                   <option value="inherit">Padrão do cargo</option>
@@ -565,11 +608,11 @@ export function UsersPage() {
                       </div>
                     )}
 
-                    {isAdminUser && (
+                    {isAbsUser && (
                       <div className="rounded-lg bg-purple-500/5 px-3 py-2">
                         <p className="text-[10px] font-medium text-purple-500">
                           <icons.ui.shield size={10} className="inline mr-1" />
-                          Administrador — acesso total a todos os workspaces e dados
+                          Admin absoluto — acesso total a todos os workspaces e usuários
                         </p>
                       </div>
                     )}

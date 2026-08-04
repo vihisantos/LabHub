@@ -30,6 +30,24 @@ vi.mock('../../../../core/auth/adminService', () => ({
   adminService: mockAdminService,
 }))
 
+vi.mock('../../../../core/auth/AuthContext', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'me',
+      name: 'Admin',
+      email: 'admin@labhub.com',
+      role: 'admin',
+      is_super_admin: true,
+      status: 'active',
+      workspace_ids: [],
+      accent: 'emerald',
+      theme_variant: 'dark',
+      created_at: '',
+      updated_at: '',
+    },
+  }),
+}))
+
 vi.mock('../../../../core/workspaces/service', () => ({
   workspaceService: {
     syncFromSupabase: vi.fn(() => Promise.resolve([])),

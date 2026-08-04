@@ -1,6 +1,27 @@
 import { defaultDb } from '../../lib/supabase'
 import type { User, UserRole } from './types'
 
+async function notifyUser(userId: string, title: string, body: string): Promise<void> {
+  if (!defaultDb) return
+  try {
+    await defaultDb.from('notifications').insert({
+      id: crypto.randomUUID(),
+      title,
+      body,
+      type: 'system',
+      severity: 'info',
+      module: 'auth',
+      actionUrl: '/',
+      read: false,
+      createdAt: new Date().toISOString(),
+      audience: 'user',
+      targetUserId: userId,
+    })
+  } catch (e) {
+    console.warn('[Admin] Failed to notify user:', e)
+  }
+}
+
 export const adminService = {
   listAllProfiles: async (): Promise<User[]> => {
     if (!defaultDb) return []
@@ -51,6 +72,8 @@ export const adminService = {
       return false
     }
 
+    await notifyUser(userId, 'Conta aprovada', 'Sua conta foi aprovada pelo administrador.')
+
     return true
   },
 
@@ -68,6 +91,8 @@ export const adminService = {
       console.error('[Admin] Failed to reject user:', error.message)
       return false
     }
+
+    await notifyUser(userId, 'Conta negada', 'Sua conta foi recusada pelo administrador.')
 
     return true
   },
@@ -104,7 +129,7 @@ export const adminService = {
     return true
   },
 
-  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'role' | 'accent' | 'theme_variant' | 'workspace_ids' | 'avatar' | 'app_access'>>): Promise<boolean> => {
+  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'role' | 'accent' | 'theme_variant' | 'workspace_ids' | 'avatar' | 'app_access' | 'is_super_admin'>>): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { error } = await defaultDb
