@@ -44,6 +44,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     'profiles',
     'UPDATE',
     async (payload) => {
+      if (payload.eventType !== 'UPDATE') return
       if (payload.new.id !== userId) return
       await authService.refreshProfile()
     },
