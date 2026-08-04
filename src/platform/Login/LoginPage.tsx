@@ -11,7 +11,6 @@ export function LoginPage() {
   const { signIn, signUp, error, loading, isAuthenticated, user } = useAuth()
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [signupSuccess, setSignupSuccess] = useState(false)
@@ -88,11 +87,11 @@ export function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     try {
+      const userEmail = `${username.toLowerCase().replace(/[^a-z0-9]/g, '')}@labhub.com`
       if (mode === 'signin') {
-        await signIn({ email, password })
+        await signIn({ email: userEmail, password })
         navigate('/', { replace: true })
       } else {
-        const userEmail = `${username.toLowerCase().replace(/[^a-z0-9]/g, '')}@labhub.com`
         await signUp({ email: userEmail, password, name: username })
         setSignupSuccess(true)
       }
@@ -144,88 +143,48 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
-          {mode === 'signup' ? (
-            <>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-fg-muted">Usuário</label>
-                <div className="flex items-center overflow-hidden rounded-xl border border-line bg-card focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    required
-                    minLength={3}
-                    pattern="[a-zA-Z0-9._-]+"
-                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none"
-                    placeholder="nome.escolhido"
-                  />
-                  <span className="shrink-0 pr-4 text-sm text-fg-muted">@labhub.com</span>
-                </div>
-                <p className="mt-1 text-[10px] text-fg-dim">
-                  Email gerado: <span className="font-mono text-fg-muted">{username || 'usuario'}@labhub.com</span>
-                </p>
-              </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-fg-muted">Usuário</label>
+            <div className="flex items-center overflow-hidden rounded-xl border border-line bg-card focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                minLength={3}
+                pattern="[a-zA-Z0-9._-]+"
+                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none"
+                placeholder="nome.escolhido"
+              />
+              <span className="shrink-0 pr-4 text-sm text-fg-muted">@labhub.com</span>
+            </div>
+            <p className="mt-1 text-[10px] text-fg-dim">
+              Email: <span className="font-mono text-fg-muted">{username || 'usuario'}@labhub.com</span>
+            </p>
+          </div>
 
-              <div>
-                <label className="mb-1 block text-xs font-medium text-fg-muted">Senha</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    className="w-full rounded-xl border border-line bg-card px-4 py-3 pr-11 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    placeholder="••••••••"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-dim transition-colors hover:text-fg"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-fg-muted">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder="seu@email.com"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-fg-muted">Senha</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="w-full rounded-xl border border-line bg-card px-4 py-3 pr-11 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    placeholder="••••••••"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-dim transition-colors hover:text-fg"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-fg-muted">Senha</label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                className="w-full rounded-xl border border-line bg-card px-4 py-3 pr-11 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-dim transition-colors hover:text-fg"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
 
           {error && (
             <p className="text-xs text-red-500">{error}</p>
