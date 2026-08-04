@@ -82,16 +82,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(STORAGE_KEY, assigned[0].slug)
         setPendingSelection(false)
       } else if (assigned.length > 1) {
-        // Restore session selection if still valid, otherwise force the gate
-        const savedSlug = localStorage.getItem(STORAGE_KEY)
-        const saved = savedSlug ? assigned.find((w) => w.slug === savedSlug) : undefined
-        if (saved) {
-          setWorkspaceState(saved)
-          setPendingSelection(false)
-        } else {
-          setWorkspaceState(null)
-          setPendingSelection(true)
-        }
+        // Sem preferência persistida: força o gate de seleção
+        setWorkspaceState(null)
+        setPendingSelection(true)
       } else {
         setWorkspaceState(null)
         setPendingSelection(false)
