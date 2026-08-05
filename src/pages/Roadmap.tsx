@@ -57,7 +57,7 @@ const FEATURES: Feature[] = [
   { id: 120, cat: 'mid', name: 'Atalhos de Teclado Configuráveis', desc: 'Personalizar atalhos globais e por app', effort: 'low', done: false },
   { id: 121, cat: 'mid', name: 'Tema por Workspace', desc: 'Cor de destaque e tema independentes por ambiente', effort: 'low', done: false },
   { id: 122, cat: 'mid', name: 'Mapa da Sala com Localização de Itens', desc: 'Posicionar PCs e itens no mapa com busca visual', effort: 'high', done: false },
-  { id: 123, cat: 'mid', name: 'Alertas de Validade de Itens', desc: 'Notificar itens com data de validade próxima ou vencida', effort: 'low', done: false },
+  { id: 123, cat: 'mid', name: 'Alertas de Validade de Itens', desc: 'Notificar itens com data de validade próxima ou vencida', effort: 'low', done: true },
   { id: 124, cat: 'mid', name: 'Notificações por Email', desc: 'Reservas, chamados e aprovações também por email', effort: 'med', done: false },
   { id: 125, cat: 'mid', name: 'Webhooks de Eventos', desc: 'Disparar integrações externas em eventos do sistema', effort: 'med', done: false },
   { id: 126, cat: 'mid', name: 'Integração com Google Calendar', desc: 'Sincronizar reservas com o calendário institucional', effort: 'med', done: false },

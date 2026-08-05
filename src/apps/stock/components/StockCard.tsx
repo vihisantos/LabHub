@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import type { StockItem } from '../types'
 import { StatusBadge } from './StatusBadge'
+import { ExpiryBadge } from './ExpiryBadge'
 import { stockPhotoService } from '../services/stockPhotoService'
 import { icons } from '../../../lib/icons'
 
@@ -83,6 +84,12 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
         <p className="mb-1.5 flex items-center gap-1 text-[10px] text-violet-600 dark:text-violet-400 font-medium">
           <icons.nav.pcs size={10} />
           Vinculado a {item.linkedPcLabel}
+        </p>
+      )}
+
+      {item.expiresAt && (
+        <p className="mb-1.5">
+          <ExpiryBadge date={item.expiresAt} />
         </p>
       )}
 

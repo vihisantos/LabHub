@@ -5,6 +5,7 @@ import { StockBottomNav } from '../components/StockBottomNav'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
+import { useExpiryAlerts } from '../hooks/useExpiryAlerts'
 import { icons } from '../../../lib/icons'
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
@@ -114,6 +115,7 @@ export function StockLayout() {
 
   useSwipeBack()
   useOnlineSync()
+  useExpiryAlerts()
 
   function scrollToTop() {
     if (mainRef.current && mainRef.current.scrollTop > 0) {
