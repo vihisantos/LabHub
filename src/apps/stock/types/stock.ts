@@ -48,6 +48,10 @@ export interface StockItem {
   linkedPcId?: string
   linkedPcLabel?: string
   pcParts?: PcPartRequirement[]
+  /** Data de validade (YYYY-MM-DD) — itens perecíveis/consumíveis */
+  expiresAt?: string
+  /** Workspace de origem (estampado automaticamente pelo storage) */
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }

@@ -5,6 +5,7 @@ import { useMovements } from '../hooks/useMovements'
 import { pcService } from '../../pcare/services/pcService'
 import { stockPhotoService } from '../services/stockPhotoService'
 import { StatusBadge } from '../components/StatusBadge'
+import { ExpiryBadge } from '../components/ExpiryBadge'
 import { StockForm } from '../components/StockForm'
 import { MovementTimeline } from '../components/MovementTimeline'
 import { EmptyState } from '../../pcare/components/EmptyState'
@@ -234,6 +235,15 @@ export function StockDetail() {
             <div><span className="text-fg-muted font-medium">Sala:</span> <span className="text-fg">{item.room || '-'}</span></div>
             <div><span className="text-fg-muted font-medium">Nº Série:</span> <span className="text-fg">{item.serialNumber || '-'}</span></div>
             <div><span className="text-fg-muted font-medium">Condição:</span> <span className="text-fg">{item.condition || '-'}</span></div>
+            {item.expiresAt && (
+              <div>
+                <span className="text-fg-muted font-medium">Validade:</span>{' '}
+                <span className="text-fg">{new Date(item.expiresAt).toLocaleDateString('pt-BR')}</span>
+                <div className="mt-1.5">
+                  <ExpiryBadge date={item.expiresAt} />
+                </div>
+              </div>
+            )}
             {item.linkedPcLabel && (
               <div className="col-span-2">
                 <span className="text-fg-muted font-medium">Vinculado ao PC:</span>{' '}

@@ -69,6 +69,7 @@ const emptyForm = (): StockItemFormData => ({
   outletCount: undefined,
   linkedPcId: undefined,
   linkedPcLabel: undefined,
+  expiresAt: '',
   pcParts: DEFAULT_PC_PARTS.map(name => ({ partName: name, present: false })),
 })
 
@@ -234,6 +235,17 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
           />
         </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-fg-muted">Validade</label>
+        <input
+          type="date"
+          value={form.expiresAt || ''}
+          onChange={(e) => set('expiresAt', e.target.value || undefined)}
+          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+        />
+        <p className="mt-1 text-[10px] text-fg-muted">Itens vencendo em até 30 dias geram alerta</p>
       </div>
 
       <div>
