@@ -80,4 +80,62 @@ describe('notificationAppliesTo', () => {
     workspaceStore.set(null, true, [])
     expect(notificationAppliesTo(n, makeUser({ is_super_admin: true, workspace_ids: [] }))).toBe(true)
   })
+
+  it('sem acesso ao app (módulo do appRegistry) → não vê', () => {
+    const n = makeNotification({ module: 'tv' })
+    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(false)
+  })
+
+  it('com acesso ao app (módulo do appRegistry) → vê', () => {
+    const n = makeNotification({ module: 'pc-care' })
+    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(true)
+  })
+
+  it('admin vê de qualquer app', () => {
+    const n = makeNotification({ module: 'tv' })
+    expect(notificationAppliesTo(n, makeUser({ role: 'admin' }))).toBe(true)
+  })
+
+  it('módulo fora do appRegistry (auth) mantém regra por audience', () => {
+    const n = makeNotification({ module: 'auth', audience: 'role', targetRole: 'admin' })
+    expect(notificationAppliesTo(n, makeUser({ role: 'admin' }))).toBe(true)
+    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(false)
+  })
+
+  it('notify_settings.muted → ninguém vê', () => {
+    const n = makeNotification({ module: 'pc-care' })
+    const user = makeUser({ role: 'viewer', notify_settings: { muted: true, apps: {} } })
+    expect(notificationAppliesTo(n, user)).toBe(false)
+  })
+
+  it('notify_settings: canal in-app desligado por app → não vê daquele app', () => {
+    const n = makeNotification({ module: 'pc-care' })
+    const user = makeUser({
+      role: 'viewer',
+      notify_settings: { muted: false, apps: { 'pc-care': { inapp: false, push: true } } },
+    })
+    expect(notificationAppliesTo(n, user)).toBe(false)
+  })
+
+  it('notify_settings: canal in-app ligado por app → vê', () => {
+    const n = makeNotification({ module: 'pc-care' })
+    const user = makeUser({
+      role: 'viewer',
+      notify_settings: { muted: false, apps: { 'pc-care': { inapp: true, push: false } } },
+    })
+    expect(notificationAppliesTo(n, user)).toBe(true)
+  })
+
+  it('workspace_id fora do ativo → não vê (mesmo com audience role)', () => {
+    const n = makeNotification({
+      module: 'pc-care',
+      audience: 'role',
+      targetRole: 'viewer',
+      workspace_id: 'ws-1',
+    })
+    workspaceStore.set(null, false, ['ws-2'])
+    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(false)
+    workspaceStore.set(null, false, ['ws-1'])
+    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(true)
+  })
 })

@@ -165,16 +165,28 @@ export function AdminLayout() {
         </div>
       </main>
 
-      {/* Bottom Nav */}
-      <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        <div className="mx-auto flex max-w-lg items-center justify-around py-2">
+      {/* Bottom Nav — flutuante, redonda, blur, liquid glass */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.875rem)' }}
+      >
+        <div className="liquid-glass flex max-w-lg flex-1 items-center justify-around rounded-full border border-white/15 bg-surface/60 px-1.5 py-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.35)] backdrop-blur-2xl">
+          {/* Glass top highlight */}
+          <span className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-white/5 to-transparent" />
+          {/* Liquid sheen */}
+          <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+            <span className="absolute -inset-y-1/4 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/15 to-transparent animate-[liquid-sheen_6s_ease-in-out_infinite]" />
+          </span>
+
           {NAV_ITEMS.map((item) => (
             <button
               key={item.path}
               type="button"
               onClick={() => navigate(item.path)}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1 transition-colors ${
-                isActive(item.path) ? 'text-indigo-500' : 'text-fg-muted hover:text-fg'
+              className={`relative flex flex-col items-center gap-0.5 rounded-full px-3 py-1 transition-all ${
+                isActive(item.path)
+                  ? 'bg-white/10 text-indigo-500 shadow-inner'
+                  : 'text-fg-muted hover:text-fg'
               }`}
             >
               <span className="relative">
