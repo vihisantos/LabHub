@@ -6,6 +6,21 @@ export type ThemeVariant = 'dark' | 'dim' | 'light'
 
 export type UserStatus = 'active' | 'pending'
 
+/** Preferências de notificação do usuário — override manual sobre a regra automática por acesso */
+export interface NotifyChannelSettings {
+  inapp: boolean
+  push: boolean
+}
+
+export interface UserNotifySettings {
+  /** Silencia todas as notificações do usuário */
+  muted: boolean
+  /** Canais por aplicativo (ausente = ambos ativos, segue a regra por acesso) */
+  apps: Partial<Record<string, NotifyChannelSettings>>
+}
+
+export const DEFAULT_NOTIFY_SETTINGS: UserNotifySettings = { muted: false, apps: {} }
+
 export interface User {
   id: string
   email: string
@@ -21,6 +36,8 @@ export interface User {
   theme_variant: ThemeVariant
   /** Override individual de acesso por aplicativo — sobrescreve o cargo */
   app_access?: Partial<Record<string, AppAccessOverride>>
+  /** Preferências de notificação (canais por app, mudo) */
+  notify_settings?: UserNotifySettings
   created_at: string
   updated_at: string
 }

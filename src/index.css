@@ -247,6 +247,20 @@
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
+/* ── Liquid glass sheen ── */
+@keyframes liquid-sheen {
+  0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
+  12% { opacity: 0.9; }
+  42% { transform: translateX(360%) skewX(-20deg); opacity: 0; }
+  100% { transform: translateX(360%) skewX(-20deg); opacity: 0; }
+}
+
+.liquid-glass {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
 /* ── Card glow effect ── */
 @keyframes card-glow {
   0%, 100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.1), 0 0 60px rgba(59, 130, 246, 0.05); }

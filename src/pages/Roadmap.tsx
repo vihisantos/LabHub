@@ -109,6 +109,8 @@ const FEATURES: Feature[] = [
   { id: 90, cat: 'high', name: 'Dashboard Completo', desc: 'Métricas, cards de módulos, ações rápidas, feed de atividade', effort: 'high', done: true },
   { id: 91, cat: 'mid', name: 'Página de Notificações', desc: 'Lista completa com filtros, marcar lida, limpar', effort: 'low', done: true },
   { id: 92, cat: 'mid', name: 'Página de Logs', desc: 'Timeline de auditoria com busca e filtros por ação', effort: 'med', done: true },
+  { id: 93, cat: 'mid', name: 'Gestão de Notificações (Painel Admin)', desc: 'Abas Entrada/Regras/Enviar, regras de entrega por app e workspace, override por usuário', effort: 'high', done: true },
+  { id: 94, cat: 'low', name: 'Push Segmentado por App/Workspace', desc: 'Inscrição com workspace e apps; envio filtrado no backend', effort: 'med', done: false },
 ]
 
 const CATEGORIES = [

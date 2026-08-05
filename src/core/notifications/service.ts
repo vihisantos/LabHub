@@ -1,5 +1,6 @@
 import type { AppNotification, NotificationFormData } from './types'
-import { createSyncService } from '../../lib/sync'
+import { createSyncService, markDirty } from '../../lib/sync'
+import { getCol, setCol } from '../../lib/db'
 
 const service = createSyncService<AppNotification>('notifications')
 
@@ -22,7 +23,17 @@ export const notificationService = {
   getUnreadCount: () => service.query((n) => !n.read).length,
 
   create: (data: NotificationFormData) => {
-    return service.create(serialize(data))
+    const item = serialize(data)
+    // Sem workspace_id explícito = notificação global (todos os workspaces).
+    // Inserção direta para evitar o stamping automático do workspace ativo.
+    if (!data.workspace_id) {
+      const items = getCol<AppNotification>('notifications')
+      items.push(item)
+      setCol('notifications', items)
+      markDirty('notifications')
+      return item
+    }
+    return service.create(item)
   },
 
   markAsRead: (id: string) => {
