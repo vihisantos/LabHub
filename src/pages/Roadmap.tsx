@@ -10,7 +10,6 @@ interface Feature {
 }
 
 const FEATURES: Feature[] = [
-  { id: 1, cat: 'high', name: 'Autenticação (Supabase Auth)', desc: 'Login com email/senha, rastreabilidade de quem fez o quê', effort: 'med', done: false },
   { id: 15, cat: 'mid', name: 'Testes E2E (Playwright)', desc: 'Testes de fluxo completo: criar → listar → editar', effort: 'high', done: false },
   { id: 18, cat: 'mid', name: 'Mapa do Laboratório', desc: 'Editor visual de mapa da sala com grid de posições', effort: 'high', done: false },
   { id: 20, cat: 'mid', name: 'Checklist com Foto', desc: 'Capturar foto durante execução de checklist', effort: 'med', done: false },
