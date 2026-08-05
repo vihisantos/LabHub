@@ -96,7 +96,7 @@ O campo `user` identifica o dono do dispositivo e permite envio direcionado por 
 
 ### POST /api/push/send
 
-Envia uma notificacao para os subscribers, opcionalmente filtrando por cargo.
+Envia uma notificacao para os subscribers, filtrando por modulo, workspace, cargo e usuario.
 
 **Body:**
 
@@ -107,6 +107,8 @@ Envia uma notificacao para os subscribers, opcionalmente filtrando por cargo.
   "url": "/admin/users",
   "role": "admin",
   "userId": "uuid-do-usuario-pendente",
+  "module": "stock",
+  "workspace_id": "uuid-do-workspace",
   "actions": [
     { "action": "approve", "title": "Aprovar" },
     { "action": "reject", "title": "Recusar" }
@@ -114,7 +116,10 @@ Envia uma notificacao para os subscribers, opcionalmente filtrando por cargo.
 }
 ```
 
+- `module`: envia apenas para subscribers com acesso ao app (campo `apps` da inscricao). Inscricoes legadas (sem `apps`) continuam recebendo de todos os modulos.
+- `workspace_id`: envia apenas para subscribers do workspace (super admins recebem de todos). Omita para enviar a todos os workspaces.
 - `role`: envia apenas para subscribers com esse cargo (se omitido, envia para todos).
+- `notify_settings` do subscriber e respeitada: `muted` bloqueia tudo; canal `push` desligado por app bloqueia aquele modulo.
 - `actions`: botoes exibidos na notificacao (Web Push suporta max. 2; apenas Android Chrome/desktop).
 - `userId`: usado pelo service worker no handler da acao.
 

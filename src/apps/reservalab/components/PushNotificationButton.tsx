@@ -1,12 +1,35 @@
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { usePushNotifications } from '../../../lib/usePushNotifications'
 import { useAuth } from '../../../core/auth/AuthContext'
+import { permissionService } from '../../../core/permissions/service'
+import { appRegistry } from '../../../appRegistry'
 
 export function PushNotificationButton() {
   const { user } = useAuth()
   const { supported, permission, subscribed, loading, subscribe } = usePushNotifications(
     [{ id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' }],
-    user ? { id: user.id, name: user.name, role: user.role } : null,
+    useMemo(() => {
+      if (!user) return null
+      const apps: Record<string, boolean> = {}
+      if (user.role === 'admin') {
+        for (const app of appRegistry) apps[app.id] = true
+      } else {
+        const role = permissionService.getRoleForUser(user.role)
+        for (const app of appRegistry) {
+          apps[app.id] = permissionService.resolveAppAccess(role, user, app.id) !== null
+        }
+      }
+      return {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        is_super_admin: user.is_super_admin,
+        workspace_ids: user.workspace_ids,
+        apps,
+        notify_settings: user.notify_settings,
+      }
+    }, [user]),
   )
 
   if (!supported || permission === 'granted' || subscribed) return null

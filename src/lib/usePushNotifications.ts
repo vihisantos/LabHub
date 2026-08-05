@@ -7,10 +7,26 @@ export interface PushAppConfig {
   icon: string
 }
 
+export interface PushNotifyChannelSettings {
+  inapp?: boolean
+  push?: boolean
+}
+
 export interface PushUserInfo {
   id: string
   name: string
   role: string
+  /** Admin absoluto — recebe de todos os workspaces/apps */
+  is_super_admin?: boolean
+  /** Workspaces do usuário — usado para filtrar por workspace no backend */
+  workspace_ids?: string[]
+  /** Acesso resolvido por aplicativo (cargo + override) — usado para segmentar por módulo */
+  apps?: Record<string, boolean>
+  /** Preferências manuais (mudo / canais por app) — respeitadas no envio */
+  notify_settings?: {
+    muted?: boolean
+    apps?: Record<string, PushNotifyChannelSettings>
+  }
 }
 
 interface PushState {

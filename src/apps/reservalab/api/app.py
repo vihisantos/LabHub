@@ -337,6 +337,10 @@ def push_subscribe():
                 'id': str(user.get('id', '') or ''),
                 'name': str(user.get('name', '') or ''),
                 'role': str(user.get('role', '') or ''),
+                'is_super_admin': bool(user.get('is_super_admin', False)),
+                'workspace_ids': list(user.get('workspace_ids') or []),
+                'apps': user.get('apps') or {},
+                'notify_settings': user.get('notify_settings') or {},
             },
         }
 
@@ -392,7 +396,7 @@ def push_test():
 
 @app.route('/api/push/send', methods=['POST'])
 def push_send():
-    """Envia um push para os subscribers (opcionalmente filtrando por cargo)."""
+    """Envia um push para os subscribers (filtrando por módulo, workspace, cargo e usuário)."""
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
@@ -403,10 +407,10 @@ def push_send():
         actions = body.get('actions') or None
         user_id = body.get('userId') or None
         role = body.get('role') or None
+        module = body.get('module') or None
+        workspace_id = body.get('workspace_id') or None
 
-        subs = _get_subs()
-        if role:
-            subs = [s for s in subs if (s.get('user') or {}).get('role') == role]
+        subs = _target_subs(module=module, workspace_id=workspace_id, user_id=user_id, role=role)
 
         if not subs:
             return jsonify({'sent': 0, 'total': 0})
@@ -420,6 +424,40 @@ def push_send():
     except Exception as e:
         logger.error(f"Push send error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+def _target_subs(module=None, workspace_id=None, user_id=None, role=None):
+    """Filtra os subscribers pela segmentação de notificações.
+
+    - módulo: usuário precisa ter acesso resolvido ao app (campo `apps` da inscrição).
+      Inscrições legadas (sem `apps`) continuam recebendo de todos os módulos.
+    - workspace: super admin vê todos; demais precisam ter o workspace na lista.
+    - notify_settings: mudo global e canal `push` por app são respeitados.
+    """
+    subs = _get_subs()
+    out = []
+    for s in subs:
+        u = s.get('user') or {}
+        if user_id and u.get('id') != user_id:
+            continue
+        if role and u.get('role') != role:
+            continue
+        if module:
+            if u.get('role') != 'admin':
+                apps = u.get('apps')
+                if apps is not None and not apps.get(module):
+                    continue
+            ns = u.get('notify_settings') or {}
+            if ns.get('muted'):
+                continue
+            ch = (ns.get('apps') or {}).get(module)
+            if ch is not None and not ch.get('push', True):
+                continue
+        if workspace_id:
+            if not u.get('is_super_admin') and workspace_id not in (u.get('workspace_ids') or []):
+                continue
+        out.append(s)
+    return out
 
 
 def _supabase_headers():
@@ -497,8 +535,8 @@ def push_check():
         subs_raw = redis.smembers('push:subscribers')
         if not subs_raw:
             return jsonify({'message': 'No subscribers', 'sent': 0})
-        
-        subs = [json.loads(s) if isinstance(s, str) else s for s in subs_raw]
+
+        subs = _target_subs(module='reservalab')
         sent = 0
         
         for r in reservas_hoje:
@@ -626,7 +664,7 @@ def push_notify_loan():
         if expected_return:
             msg += f" — Devolução até {expected_return[:10]}"
 
-        subs = _get_subs()
+        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
         for sub in subs:
             push_notify(sub, title, msg)
 
@@ -649,7 +687,7 @@ def push_notify_return():
         title = f"✅ Devolução: {item_name}"
         msg = f"Devolvido por {returned_by}"
 
-        subs = _get_subs()
+        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
         for sub in subs:
             push_notify(sub, title, msg)
 
@@ -738,7 +776,7 @@ def push_check_overdue():
             return jsonify({'error': 'Supabase query failed', 'detail': resp.text[:500]}), 500
 
         all_loans = resp.json()
-        subs = _get_subs()
+        subs = _target_subs(module='stock')
         sent = 0
         found = 0
 
@@ -801,7 +839,7 @@ def push_check_pcare():
         amanha_str = (agora + timedelta(days=1)).strftime('%Y-%m-%d')
 
         base_headers = {'apikey': supabase_key, 'Authorization': f'Bearer {supabase_key}'}
-        subs = _get_subs()
+        subs = _target_subs(module='pc-care')
         sent = 0
 
         # ── Estoque baixo de peças ──
