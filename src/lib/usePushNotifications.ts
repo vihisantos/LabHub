@@ -25,7 +25,7 @@ export interface PushUserInfo {
   /** Preferências manuais (mudo / canais por app) — respeitadas no envio */
   notify_settings?: {
     muted?: boolean
-    apps?: Record<string, PushNotifyChannelSettings>
+    apps?: Partial<Record<string, PushNotifyChannelSettings>>
   }
 }
 
