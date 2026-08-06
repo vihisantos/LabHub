@@ -45,7 +45,7 @@ O ReservaLab e o unico sub-app com backend proprio (Flask/Python).
 | `GET` | `/api/reservas` | Reservas de hoje e da semana |
 | `GET` | `/api/health` | Status do servidor e cache |
 | `POST` | `/api/push/subscribe` | Inscrever para push (com `user`) |
-| `POST` | `/api/push/send` | Enviar push (filtro por cargo, com acoes) |
+| `POST` | `/api/push/send` | Enviar push (filtro por modulo, workspace, cargo e usuario) |
 | `POST` | `/api/push/action` | Aprovar/rejeitar usuario pela notificacao |
 | `GET` | `/api/push/test` | Enviar notificacao de teste |
 | `GET` | `/api/push/check` | Verificar e enviar push de reservas pendentes |
