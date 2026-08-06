@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   markDirty,
   clearDirty,
@@ -7,8 +7,16 @@ import {
   getSyncLog,
   getLastSyncedAt,
   createSyncService,
+  syncAll,
+  syncSingle,
 } from '../sync'
 import { resetCache } from '../db'
+
+vi.mock('../supabase', () => ({
+  defaultDb: null,
+  pcareDb: null,
+  stockDb: null,
+}))
 
 beforeEach(() => {
   resetCache()
@@ -189,5 +197,33 @@ describe('createSyncService', () => {
     expect(serviceB.getAll()).toHaveLength(1)
     expect(serviceA.getAll()[0].name).toBe('from-a')
     expect(serviceB.getAll()[0].name).toBe('from-b')
+  })
+})
+
+describe('syncAll / syncSingle com coleções locais (sem rede)', () => {
+  it('syncSingle de coleção local não lança erro e limpa dirty', async () => {
+    vi.useRealTimers()
+    markDirty('chamados')
+    await expect(syncSingle('chamados')).resolves.toBeUndefined()
+    expect(getDirtyCollections()).not.toContain('chamados')
+  })
+
+  it('syncAll não falha com coleções locais e limpa o conjunto sujo', async () => {
+    vi.useRealTimers()
+    markDirty('chamados')
+    markDirty('rooms')
+    markDirty('assets')
+    const result = await syncAll()
+    expect(result.failed).toEqual([])
+    expect(result.synced).toBeGreaterThan(0)
+    expect(getDirtyCollections()).toEqual([])
+    expect(getPendingChanges()).toBe(0)
+  })
+
+  it('syncSingle de coleção remota (notifications) também limpa dirty sem rede', async () => {
+    vi.useRealTimers()
+    markDirty('notifications')
+    await expect(syncSingle('notifications')).resolves.toBeUndefined()
+    expect(getDirtyCollections()).not.toContain('notifications')
   })
 })

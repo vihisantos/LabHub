@@ -1,4 +1,4 @@
-import { pcareDb, stockDb } from './supabase'
+import { defaultDb, pcareDb, stockDb } from './supabase'
 import { createLocalService } from './storage'
 import { getCol, setCol } from './db'
 
@@ -75,33 +75,47 @@ function compareTimestamps(a: string | null | undefined, b: string | null | unde
   return a.localeCompare(b)
 }
 
-// Todas as coleções gerenciadas pelo sistema
-const ALL_PCARE_COLLECTIONS = [
+// Coleções locais (apenas storage local, sem tabela remota no Supabase)
+const LOCAL_ONLY_COLLECTIONS = [
   'assets',
-  'pcs',
-  'parts',
-  'part_usage',
-  'maintenance',
-  'checklist_templates',
-  'pc_checklists',
-  'action_logs',
-]
-const ALL_STOCK_COLLECTIONS = [
-  'stock_items',
-  'stock_movements',
-  'stock_kits',
-  'stock_maintenance',
-  'inventory_cycles',
-  'inventory_counts',
-  'rooms',
   'chamados',
+  'rooms',
   'problem_templates',
-  'notifications',
-  'workspaces',
   'audit_logs',
   'user_profiles',
   'roles',
 ]
+
+// Coleções com tabela remota → schema no Supabase.
+// Só o que existe aqui deve ser puxado/empurrado do remoto.
+const REMOTE_DB: Record<string, 'pcare' | 'stock' | 'public'> = {
+  // schema pcare
+  pcs: 'pcare',
+  parts: 'pcare',
+  part_usage: 'pcare',
+  maintenance: 'pcare',
+  checklist_templates: 'pcare',
+  pc_checklists: 'pcare',
+  action_logs: 'pcare',
+  // schema stock
+  stock_items: 'stock',
+  stock_movements: 'stock',
+  stock_kits: 'stock',
+  stock_maintenance: 'stock',
+  inventory_cycles: 'stock',
+  inventory_counts: 'stock',
+  notifications: 'stock',
+  // schema public
+  workspaces: 'public',
+}
+
+function getDbFor(collection: string): NonNullable<typeof pcareDb> | null {
+  const which = REMOTE_DB[collection]
+  if (which === 'pcare') return pcareDb
+  if (which === 'stock') return stockDb
+  if (which === 'public') return defaultDb
+  return null
+}
 
 // Mapeamento: nome da coleção local → nome da tabela no Supabase
 // (necessário quando o nome local difere do nome da tabela remota)
@@ -125,12 +139,14 @@ export interface SyncResult {
  */
 export async function syncSingle(collection: string): Promise<void> {
   const dirty = getDirtySet()
-  const isPcare = ALL_PCARE_COLLECTIONS.includes(collection)
-  const db = isPcare ? pcareDb : stockDb
+  const db = getDbFor(collection)
 
   if (db) {
     await syncCollection(collection, db, dirty)
     logSync(collection, getCol(collection).length, 'ok')
+  } else {
+    // Coleção local (sem tabela remota): nada a puxar/empurrar.
+    logSync(collection, getCol(collection).length, 'simulated')
   }
   clearDirty(collection)
 }
@@ -185,8 +201,9 @@ async function syncCollection(
 
 export async function syncAll(onItem?: (collection: string, current: number, total: number) => void): Promise<SyncResult> {
   const dirty = getDirtySet()
-  // Sincroniza TODAS as coleções (não só as sujas) para puxar mudanças de outros dispositivos
-  const allCollections = [...ALL_PCARE_COLLECTIONS, ...ALL_STOCK_COLLECTIONS]
+  // Sincroniza TODAS as coleções (não só as sujas) para puxar mudanças de outros dispositivos.
+  // Coleções locais (sem tabela remota) são apenas limpas do conjunto sujo, sem rede.
+  const allCollections = [...LOCAL_ONLY_COLLECTIONS, ...Object.keys(REMOTE_DB)]
 
   let synced = 0
   const failed: string[] = []
@@ -194,10 +211,8 @@ export async function syncAll(onItem?: (collection: string, current: number, tot
 
   for (const collection of allCollections) {
     current++
+    const db = getDbFor(collection)
     try {
-      const isPcare = ALL_PCARE_COLLECTIONS.includes(collection)
-      const db = isPcare ? pcareDb : stockDb
-
       if (db) {
         await syncCollection(collection, db, dirty)
         logSync(collection, getCol(collection).length, 'ok')
