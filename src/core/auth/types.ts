@@ -6,6 +6,9 @@ export type ThemeVariant = 'dark' | 'dim' | 'light'
 
 export type UserStatus = 'active' | 'pending'
 
+/** Modo de exibição da tela inicial (Launcher) */
+export type HomeMode = 'compact' | 'dynamic'
+
 /** Preferências de notificação do usuário — override manual sobre a regra automática por acesso */
 export interface NotifyChannelSettings {
   inapp: boolean
@@ -38,6 +41,8 @@ export interface User {
   app_access?: Partial<Record<string, AppAccessOverride>>
   /** Preferências de notificação (canais por app, mudo) */
   notify_settings?: UserNotifySettings
+  /** Modo da tela inicial: compacto (cards grandes) ou dinâmico (módulos + ações rápidas) */
+  home_mode?: HomeMode
   created_at: string
   updated_at: string
 }

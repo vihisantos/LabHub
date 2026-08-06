@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { appRegistry } from '../../appRegistry'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
+import { authService } from '../../core/auth/service'
+import type { HomeMode } from '../../core/auth/types'
 import { useAppAccess } from '../../core/permissions/usePermissions'
 import { useFastSync } from '../../lib/useFastSync'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
@@ -11,12 +13,17 @@ import { ProfileSheet } from '../Profile/ProfileSheet'
 import { OnboardingOverlay, completeOnboarding, hasCompletedOnboarding } from '../Onboarding/OnboardingOverlay'
 import { UserAvatar } from '../Profile/UserAvatar'
 import { icons } from '../../lib/icons'
+import { LAUNCHER_MODES, getQuickActions, type LauncherMode } from './launcherModes'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
   if (hour < 12) return 'Bom dia'
   if (hour < 18) return 'Boa tarde'
   return 'Boa noite'
+}
+
+function asHomeMode(value: HomeMode | undefined): LauncherMode {
+  return value === 'compact' ? 'compact' : 'dynamic'
 }
 
 export function Launcher() {
@@ -28,6 +35,7 @@ export function Launcher() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [mode, setMode] = useState<LauncherMode>(() => asHomeMode(user?.home_mode))
 
   useFastSync(['notifications'], 10000)
 
@@ -49,6 +57,13 @@ export function Launcher() {
       setOnboardingOpen(true)
     }
   }, [user])
+
+  function changeMode(next: LauncherMode) {
+    setMode(next)
+    if (user) {
+      authService.updateProfile({ home_mode: next }).catch(() => {})
+    }
+  }
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
@@ -106,83 +121,119 @@ export function Launcher() {
           </div>
         </header>
 
-        {/* Quick Actions — só para quem tem acesso ao app correspondente */}
-        {canAccessApp('chamados') && (
+        {/* Modo da tela inicial */}
         <div className="mb-6">
-          <div className="grid grid-cols-4 gap-2">
-            <button
-              type="button"
-              onClick={() => navigate('/chamados-publico')}
-              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">
-                <icons.ui.scanBarcode size={18} />
-              </div>
-              <span className="text-[10px] font-medium text-fg-muted">Escanear</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/chamados')}
-              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">
-                <icons.ui.alertCircle size={18} />
-              </div>
-              <span className="text-[10px] font-medium text-fg-muted">Chamados</span>
-            </button>
-            {canAccessApp('pc-care') && (
-            <button
-              type="button"
-              onClick={() => navigate('/pc-care/pcs/new')}
-              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-violet-500">
-                <icons.ui.plus size={18} />
-              </div>
-              <span className="text-[10px] font-medium text-fg-muted">Novo Ativo</span>
-            </button>
-            )}
-            {canAccessApp('admin') && (
-            <button
-              type="button"
-              onClick={() => navigate('/admin/logs')}
-              className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
-                <icons.ui.fileBarChart size={18} />
-              </div>
-              <span className="text-[10px] font-medium text-fg-muted">Logs</span>
-            </button>
-            )}
-          </div>
-        </div>
-        )}
-
-        {/* Apps */}
-        <div className="mb-6">
-          <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Módulos</p>
-          <div className="grid grid-cols-2 gap-3">
-            {accessibleApps.map((app) => (
+          <div className="flex rounded-xl bg-card p-1">
+            {LAUNCHER_MODES.map((m) => (
               <button
-                key={app.id}
+                key={m.value}
                 type="button"
-                onClick={() => navigate(app.route)}
-                className="flex flex-col items-start gap-3 rounded-2xl bg-card p-4 text-left shadow-sm transition-all active:scale-[0.98]"
+                onClick={() => changeMode(m.value)}
+                className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                  mode === m.value ? 'bg-emerald-500 text-white' : 'text-fg-muted hover:text-fg'
+                }`}
               >
-                <div
-                  className="flex h-14 w-14 items-center justify-center rounded-2xl"
-                  style={{ backgroundColor: app.color + '15', color: app.color }}
-                >
-                  <app.icon size={26} />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="text-sm font-semibold text-fg">{app.name}</h2>
-                  <p className="mt-0.5 text-[11px] text-fg-muted leading-snug truncate">{app.description}</p>
-                </div>
+                {m.label}
               </button>
             ))}
           </div>
         </div>
+
+        {mode === 'compact' ? (
+          /* ─── Modo compacto: só os apps acessíveis, em cards grandes ─── */
+          <div className="mb-6">
+            <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Seus Apps</p>
+            <div className="grid grid-cols-2 gap-3">
+              {accessibleApps.map((app) => (
+                <button
+                  key={app.id}
+                  type="button"
+                  onClick={() => navigate(app.route)}
+                  className="flex flex-col items-center gap-3 rounded-2xl bg-card p-6 text-center shadow-sm transition-all active:scale-[0.98]"
+                >
+                  <span
+                    className="flex h-16 w-16 items-center justify-center rounded-2xl"
+                    style={{ backgroundColor: app.color + '15', color: app.color }}
+                  >
+                    <app.icon size={30} />
+                  </span>
+                  <span className="text-sm font-semibold text-fg">{app.name}</span>
+                  <span className="text-[11px] leading-snug text-fg-muted">{app.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* ─── Modo dinâmico: módulos + ações rápidas por app ─── */
+          <>
+            {accessibleApps.some((app) => getQuickActions(app.id).length > 0) && (
+              <div className="mb-6">
+                <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Ações Rápidas</p>
+                {accessibleApps.map((app) => {
+                  const actions = getQuickActions(app.id)
+                  if (actions.length === 0) return null
+                  return (
+                    <div key={app.id} className="mb-4">
+                      <div className="mb-2 flex items-center gap-2 px-1">
+                        <span
+                          className="flex h-7 w-7 items-center justify-center rounded-lg"
+                          style={{ backgroundColor: app.color + '15', color: app.color }}
+                        >
+                          <app.icon size={14} />
+                        </span>
+                        <span className="text-xs font-semibold text-fg-muted">{app.name}</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2">
+                        {actions.map((action) => (
+                          <button
+                            key={action.label}
+                            type="button"
+                            onClick={() => navigate(action.route)}
+                            className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all active:scale-95"
+                          >
+                            <span
+                              className="flex h-10 w-10 items-center justify-center rounded-xl"
+                              style={{ backgroundColor: action.color + '15', color: action.color }}
+                            >
+                              {action.icon}
+                            </span>
+                            <span className="text-[10px] font-medium text-fg-muted">{action.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="mb-6">
+              <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Módulos</p>
+              <div className="divide-y divide-line overflow-hidden rounded-2xl bg-card shadow-sm">
+                {accessibleApps.map((app) => (
+                  <button
+                    key={app.id}
+                    type="button"
+                    onClick={() => navigate(app.route)}
+                    className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-input"
+                  >
+                    <span
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                      style={{ backgroundColor: app.color + '15', color: app.color }}
+                    >
+                      <app.icon size={20} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium text-fg">{app.name}</span>
+                      <span className="mt-0.5 block truncate text-[11px] text-fg-muted">{app.description}</span>
+                    </span>
+                    <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Footer */}
         <footer className="text-center">
