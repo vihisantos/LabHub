@@ -649,6 +649,20 @@ def _get_subs():
     return [json.loads(s) if isinstance(s, str) else s for s in raw]
 
 
+def _get_key(obj, *keys):
+    """Busca valor em dict ignorando casing das chaves (PostgREST varia conforme o schema)."""
+    if not isinstance(obj, dict):
+        return None
+    for k in keys:
+        if k in obj:
+            return obj.get(k)
+    lower = {str(k).lower(): v for k, v in obj.items()}
+    for k in keys:
+        if k.lower() in lower:
+            return lower[k.lower()]
+    return None
+
+
 @app.route('/api/push/notify-loan', methods=['POST'])
 def push_notify_loan():
     if not redis:
@@ -896,6 +910,143 @@ def push_check_pcare():
     except Exception as e:
         logger.error(f"check-pcare error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+def _check_pending_users():
+    """Push para admins quando existem usuários aguardando aprovação."""
+    if not redis:
+        return {'error': 'Redis not configured'}
+    supabase_url = os.environ.get('SUPABASE_URL', '')
+    supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+    if not supabase_url or not supabase_key:
+        return {'error': 'Supabase not configured'}
+    try:
+        headers = {'apikey': supabase_key, 'Authorization': f'Bearer {supabase_key}'}
+        url = f"{supabase_url}/rest/v1/profiles?select=id,email,name,created_at&status=eq.{quote('pending')}"
+        resp = requests.get(url, headers=headers, timeout=10)
+        if not resp.ok:
+            logger.error(f"check-pending error: {resp.status_code} {resp.text[:300]}")
+            return {'error': f'Supabase query failed: {resp.status_code}'}
+
+        pending = resp.json() or []
+        subs = _target_subs(module='auth', role='admin')
+        sent = 0
+        for u in pending:
+            nid = hashlib.md5(f"pending|{u.get('id')}".encode()).hexdigest()
+            if redis.get(f'push:sent:{nid}'):
+                continue
+            nome = u.get('name') or u.get('email') or 'Usuário'
+            title = 'Novo usuário pendente'
+            body = f"{nome} ({u.get('email') or ''}) aguarda aprovação"
+            for sub in subs:
+                push_notify(
+                    sub, title, body,
+                    url=f"/admin/users?pending={u.get('id')}",
+                    actions=[
+                        {'action': 'approve', 'title': 'Aprovar'},
+                        {'action': 'reject', 'title': 'Recusar'},
+                    ],
+                    user_id=u.get('id'),
+                )
+            redis.setex(f'push:sent:{nid}', 604800, '1')
+            sent += 1
+            logger.info(f"Pending user notify: {(u.get('id') or '')[:8]}")
+        return {'checked': True, 'found': len(pending), 'sent': sent, 'subscribers': len(subs)}
+    except Exception as e:
+        logger.error(f"check-pending error: {e}")
+        return {'error': str(e)}
+
+
+def _check_stock_expiry():
+    """Push para itens de stock vencidos ou com validade próxima (janela de 30 dias)."""
+    if not redis:
+        return {'error': 'Redis not configured'}
+    supabase_url = os.environ.get('SUPABASE_URL', '')
+    supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+    if not supabase_url or not supabase_key:
+        return {'error': 'Supabase not configured'}
+    try:
+        _ensure_stock_schema(supabase_url, supabase_key)
+
+        headers = {
+            'apikey': supabase_key,
+            'Authorization': f'Bearer {supabase_key}',
+            'Accept-Profile': 'stock',
+        }
+        resp = requests.get(f"{supabase_url}/rest/v1/stock_items?select=*", headers=headers, timeout=10)
+        if not resp.ok:
+            logger.error(f"check-expiry error: {resp.status_code} {resp.text[:300]}")
+            return {'error': f'Supabase query failed: {resp.status_code}'}
+
+        items = resp.json() or []
+        hoje = get_today_sp()
+        sent = 0
+        for item in items:
+            status = str(_get_key(item, 'status') or '').lower()
+            if status == 'descartado':
+                continue
+            expires_raw = _get_key(item, 'expiresAt', 'expires_at')
+            if not expires_raw:
+                continue
+            try:
+                venc = datetime.strptime(str(expires_raw)[:10], '%Y-%m-%d').date()
+            except Exception:
+                continue
+            dias = (venc - hoje).days
+            if dias > 30:
+                continue
+
+            nid = hashlib.md5(f"expiry|{item.get('id')}".encode()).hexdigest()
+            if redis.get(f'push:sent:{nid}'):
+                continue
+
+            nome = item.get('name') or 'Item'
+            if dias < 0:
+                title = 'Item vencido'
+                msg = f"{nome} venceu em {venc.strftime('%d/%m/%Y')}"
+            elif dias == 0:
+                title = 'Validade próxima'
+                msg = f"{nome} vence hoje"
+            else:
+                title = 'Validade próxima'
+                msg = f"{nome} vence em {dias} {'dia' if dias == 1 else 'dias'} ({venc.strftime('%d/%m/%Y')})"
+
+            ws = _get_key(item, 'workspace_id', 'workspaceId')
+            subs = _target_subs(module='stock', workspace_id=ws)
+            for sub in subs:
+                push_notify(sub, title, msg, url=f"/stock/items/{item.get('id')}")
+
+            redis.setex(f'push:sent:{nid}', 86400, '1')
+            sent += 1
+            logger.info(f"Stock expiry: {nome} ({dias}d)")
+        return {'checked': True, 'sent': sent, 'subscribers': len(_target_subs(module='stock'))}
+    except Exception as e:
+        logger.error(f"check-expiry error: {e}")
+        return {'error': str(e)}
+
+
+@app.route('/api/push/check-all', methods=['GET'])
+def push_check_all():
+    """Roda todos os checks de cron em uma única chamada (para cron-jobs.org)."""
+    results = {}
+    for name, fn in [
+        ('reservas', push_check),
+        ('overdue', push_check_overdue),
+        ('pcare', push_check_pcare),
+        ('pendentes', _check_pending_users),
+        ('validade', _check_stock_expiry),
+    ]:
+        try:
+            out = fn()
+            if isinstance(out, tuple):
+                out = out[0]
+            if hasattr(out, 'get_json'):
+                out = out.get_json()
+            results[name] = out
+        except Exception as e:
+            logger.error(f"check-all: {name} error: {e}")
+            results[name] = {'error': str(e)}
+    return jsonify({'checked': True, 'results': results})
 
 
 if __name__ == '__main__':

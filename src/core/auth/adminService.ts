@@ -1,10 +1,10 @@
-import { defaultDb } from '../../lib/supabase'
+import { defaultDb, stockDb } from '../../lib/supabase'
 import type { User, UserRole } from './types'
 
 async function notifyUser(userId: string, title: string, body: string): Promise<void> {
-  if (!defaultDb) return
+  if (!stockDb) return
   try {
-    await defaultDb.from('notifications').insert({
+    await stockDb.from('notifications').insert({
       id: crypto.randomUUID(),
       title,
       body,

@@ -1,4 +1,4 @@
-import { defaultDb } from '../../lib/supabase'
+import { defaultDb, stockDb } from '../../lib/supabase'
 import type { User, AuthCredentials, SignUpData } from './types'
 import { themeStore } from '../theme/store'
 
@@ -136,8 +136,8 @@ export const authService = {
     // Create a notification DIRECTLY on Supabase so admins receive it
     // regardless of this device's sync (pendente não roda sync)
     try {
-      if (defaultDb) {
-        await defaultDb.from('notifications').insert({
+      if (stockDb) {
+        await stockDb.from('notifications').insert({
           id: crypto.randomUUID(),
           title: 'Novo usuário pendente',
           body: `${data.name} (${data.email}) aguarda aprovação`,
@@ -154,28 +154,6 @@ export const authService = {
       }
     } catch (e) {
       console.warn('[Auth] Failed to create approval notification:', e)
-    }
-
-    // Notify admins via push (Fire-and-forget — não bloqueia o cadastro)
-    try {
-      const pushBase = (import.meta.env.VITE_PUSH_API_URL as string) || ''
-      fetch(`${pushBase}/api/push/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: 'Novo usuário pendente',
-          body: `${data.name} (${data.email}) aguarda aprovação`,
-          url: `/admin/users?pending=${profile.id}`,
-          role: 'admin',
-          userId: profile.id,
-          actions: [
-            { action: 'approve', title: 'Aprovar' },
-            { action: 'reject', title: 'Recusar' },
-          ],
-        }),
-      }).catch(() => {})
-    } catch (e) {
-      console.warn('[Auth] Failed to notify admins by push:', e)
     }
 
     // Don't set currentUser — user is not approved yet
@@ -269,18 +247,34 @@ export const authService = {
 
   /** Re-fetch the user profile from Supabase and notify listeners if changed */
   refreshProfile: async (): Promise<User | null> => {
-    if (!currentUser || !defaultDb) return currentUser
+    if (!defaultDb) return currentUser
 
-    const profile = await authService.fetchUserProfile(currentUser.id)
+    const prev = currentUser
+
+    // No in-memory user (e.g., right after signUp) — bootstrap from the session
+    if (!prev) {
+      const { data: { session }, error } = await defaultDb.auth.getSession()
+      if (error || !session?.user) return currentUser
+
+      const profile = await authService.fetchUserProfile(session.user.id)
+      if (!profile) return currentUser
+
+      currentUser = profile
+      applyUserPreferences(profile)
+      notifyListeners()
+      return currentUser
+    }
+
+    const profile = await authService.fetchUserProfile(prev.id)
     if (!profile) return currentUser
 
     // Only update and notify if something actually changed
     const changed =
-      profile.status !== currentUser.status ||
-      profile.role !== currentUser.role ||
-      profile.is_super_admin !== currentUser.is_super_admin ||
-      profile.theme_variant !== currentUser.theme_variant ||
-      profile.accent !== currentUser.accent
+      profile.status !== prev.status ||
+      profile.role !== prev.role ||
+      profile.is_super_admin !== prev.is_super_admin ||
+      profile.theme_variant !== prev.theme_variant ||
+      profile.accent !== prev.accent
 
     if (changed) {
       currentUser = profile

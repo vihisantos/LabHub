@@ -156,7 +156,7 @@ export function LoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 minLength={3}
-                pattern="[a-zA-Z0-9._-]+"
+                pattern="[-a-zA-Z0-9._]+"
                 className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none"
                 placeholder="nome.escolhido"
               />
