@@ -1,0 +1,16 @@
+# Instalador/build do Electron (desktop) — fora do deploy web
+desktop/dist
+desktop/renderer
+desktop/node_modules
+
+# Dependências (o build do Vercel instala sozinho)
+node_modules
+
+# Artefatos locais
+dist
+coverage
+.vercel
+
+# Python cache
+__pycache__
+*.pyc

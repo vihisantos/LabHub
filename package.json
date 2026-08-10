@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint --ignore-pattern src/apps/reservalab/api/frontend",
+    "lint": "oxlint --ignore-pattern src/apps/reservalab/api/frontend --ignore-pattern desktop",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
@@ -15,7 +15,11 @@
     "analyze": "ANALYZE=true npm run build",
     "release": "standard-version",
     "release:minor": "standard-version --release-as minor",
-    "release:major": "standard-version --release-as major"
+    "release:major": "standard-version --release-as major",
+    "desktop:dev": "npm run build:desktop:renderer && npm --prefix desktop run dev",
+    "desktop:build": "npm run build:desktop:renderer",
+    "desktop:dist": "npm --prefix desktop run dist",
+    "build:desktop:renderer": "vite build --config vite.desktop.config.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.18",

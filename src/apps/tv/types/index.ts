@@ -10,6 +10,7 @@ export interface TvEvent {
   sort_order: number
   show_countdown?: boolean
   has_welcome?: boolean
+  workspace_id?: string | null
   created_at: string
 }
 
@@ -22,6 +23,7 @@ export interface TvPlaylist {
   youtube_url: string
   is_active: boolean
   sort_order: number
+  workspace_id?: string | null
   created_at: string
 }
 
@@ -31,6 +33,7 @@ export interface TvMusicQueue {
   id: string
   name: string
   shuffle: boolean
+  workspace_id?: string | null
   created_at: string
 }
 
@@ -49,6 +52,7 @@ export interface TvAnnouncement {
   text: string
   is_active: boolean
   sort_order: number
+  workspace_id?: string | null
   created_at: string
 }
 
@@ -63,6 +67,7 @@ export interface TvGallery {
   title: string
   is_active: boolean
   sort_order: number
+  workspace_id?: string | null
   created_at: string
 }
 
@@ -71,5 +76,14 @@ export interface TvGalleryPhoto {
   gallery_id: string
   image_url: string
   sort_order: number
+  created_at: string
+}
+
+export interface TvDevice {
+  id: string
+  name: string
+  workspace_id: string | null
+  user_id: string | null
+  last_seen: string | null
   created_at: string
 }

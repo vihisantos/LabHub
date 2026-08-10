@@ -3,6 +3,7 @@ import YouTube, { type YouTubeProps } from 'react-youtube'
 import type { TvMusicTrack } from '../types'
 import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 import { useNowPlaying } from '../hooks/useNowPlaying'
+import { isDesktopEnv, localStoreGet, localStoreSet } from '../../../lib/localStore'
 
 const STORAGE_KEY = 'tv-music-player'
 
@@ -12,20 +13,20 @@ interface SavedState {
   playOrder: number[]
 }
 
-function loadSaved(): SavedState | null {
+async function loadSaved(): Promise<SavedState | null> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = await localStoreGet(STORAGE_KEY)
     return raw ? (JSON.parse(raw) as SavedState) : null
   } catch {
     return null
   }
 }
 
-function saveToDisk(state: SavedState) {
+async function saveToDisk(state: SavedState) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    await localStoreSet(STORAGE_KEY, JSON.stringify(state))
   } catch {
-    /* quota exceeded */
+    /* quota exceeded / IPC indisponível */
   }
 }
 
@@ -66,32 +67,52 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const { broadcast } = useNowPlaying()
   const initialized = useRef(false)
 
+  // Electron permite autoplay sem gesto: música começa desmutada e mais rápida
+  const desktopEnv = isDesktopEnv()
+
+  /* Pré-carrega o IFrame API do YouTube no mount (paralelo ao fetch das tracks) */
+  useEffect(() => {
+    const w = window as any
+    if (w.YT && w.YT.Player) return
+    if (document.getElementById('youtube-iframe-api')) return
+    const tag = document.createElement('script')
+    tag.id = 'youtube-iframe-api'
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+  }, [])
+
   const [currentTrackIdx, setCurrentTrackIdx] = useState(0)
   const [playOrder, setPlayOrder] = useState<number[]>([])
   const [isPlaying, setIsPlaying] = useState(true)
 
-  /* One-time init from localStorage when tracks arrive */
+  /* One-time init from storage when tracks arrive */
   useEffect(() => {
     if (allTracks.length === 0 || initialized.current) return
     initialized.current = true
 
-    const saved = loadSaved()
-    const len = allTracks.length
+    let active = true
+    loadSaved().then((saved) => {
+      if (!active) return
+      const len = allTracks.length
 
-    if (saved && saved.playOrder.length === len) {
-      const idx = Math.min(saved.trackIndex, len - 1)
-      setCurrentTrackIdx(idx)
-      setPlayOrder(saved.playOrder)
-    } else {
-      setPlayOrder(queueShuffle ? shuffleIndices(len) : allTracks.map((_, i) => i))
-      setCurrentTrackIdx(0)
+      if (saved && saved.playOrder.length === len) {
+        const idx = Math.min(saved.trackIndex, len - 1)
+        setCurrentTrackIdx(idx)
+        setPlayOrder(saved.playOrder)
+      } else {
+        setPlayOrder(queueShuffle ? shuffleIndices(len) : allTracks.map((_, i) => i))
+        setCurrentTrackIdx(0)
+      }
+    })
+    return () => {
+      active = false
     }
   }, [allTracks.length, queueShuffle])
 
   /* Persist state on change */
   useEffect(() => {
     if (playOrder.length > 0) {
-      saveToDisk({ trackIndex: currentTrackIdx, shuffle: queueShuffle, playOrder })
+      void saveToDisk({ trackIndex: currentTrackIdx, shuffle: queueShuffle, playOrder })
     }
   }, [currentTrackIdx, queueShuffle, playOrder])
 
@@ -155,8 +176,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       disablekb: 1,
       rel: 0,
       loop: 0,
-      mute: 1,
-      origin: window.location.origin,
+      // Electron libera autoplay desmutado; no browser começa mudo até state=1
+      mute: desktopEnv ? 0 : 1,
+      // origin só em https (web): em http://127.0.0.1 (desktop) causa
+      // "postMessage target origin mismatch" e o player trava no unstarted
+      ...(window.location.protocol === 'https:' ? { origin: window.location.origin } : {}),
     },
   }
 
@@ -186,7 +210,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             opts={opts}
             onReady={(e) => {
               playerRef.current = e.target
-              e.target.mute()
+              if (!desktopEnv) e.target.mute()
               if (isPlaying) {
                 e.target.playVideo()
               } else {
@@ -194,12 +218,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               }
             }}
             onStateChange={(e) => {
-              // Unmute only when actually playing (state=1)
-              if (e.data === 1 && e.target.isMuted() && isPlaying) {
-                e.target.unMute()
+              if (e.data === 1) {
+                console.log('[Music] tocando:', currentTrack?.title)
+                if (e.target.isMuted() && isPlaying) e.target.unMute()
               }
             }}
-            onEnd={advance}
+            onError={(e) => {
+              console.error('[Music] erro no player (YouTube), code:', e.data, '- track:', currentTrack?.title)
+            }}
+            onEnd={() => {
+              advance()
+            }}
           />
         </div>
       )}

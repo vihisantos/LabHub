@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../../../lib/ToastContext'
+import { tvApi } from '../utils/apiBase'
+import { localStoreGet, localStoreSet } from '../../../lib/localStore'
 
 const STORAGE_KEY = 'tv_youtube_live_cache'
 const POLL_INTERVAL = 60_000 // 1 minuto
@@ -14,41 +16,48 @@ interface LiveStreamData {
   lastChecked: string | null
 }
 
+const DEFAULT_LIVE: LiveStreamData = {
+  isLive: false,
+  channelTitle: '',
+  videoId: null,
+  title: null,
+  thumbnailUrl: null,
+  viewerCount: null,
+  lastChecked: null,
+}
+
 /**
  * Hook que verifica periodicamente se o canal da faculdade tem uma live no YouTube.
- * Usa a API de backend (/api/tv/youtube/live) para não expor a chave da API no cliente.
+ * Usa a API de backend (/api/tv/youtube/live) para nǜo expor a chave da API no cliente.
  */
 export function useYouTubeLive() {
-  const [liveData, setLiveData] = useState<LiveStreamData>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const parsed: LiveStreamData = JSON.parse(saved)
-        // Usar cache com no máximo 2 minutos de idade
-        if (parsed.lastChecked && Date.now() - new Date(parsed.lastChecked).getTime() < 120_000) {
-          return parsed
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return {
-      isLive: false,
-      channelTitle: '',
-      videoId: null,
-      title: null,
-      thumbnailUrl: null,
-      viewerCount: null,
-      lastChecked: null,
-    }
-  })
+  const [liveData, setLiveData] = useState<LiveStreamData>(DEFAULT_LIVE)
   const [loading, setLoading] = useState(false)
   const { addToast } = useToast()
+
+  /* Restaura cache (máximo 2 minutos de idade) do store local */
+  useEffect(() => {
+    let active = true
+    localStoreGet(STORAGE_KEY).then((saved) => {
+      if (!saved || !active) return
+      try {
+        const parsed: LiveStreamData = JSON.parse(saved)
+        if (parsed.lastChecked && Date.now() - new Date(parsed.lastChecked).getTime() < 120_000) {
+          setLiveData(parsed)
+        }
+      } catch {
+        // ignore
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const checkLive = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/tv/youtube/live', {
+      const res = await fetch(tvApi('/api/tv/youtube/live'), {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -70,7 +79,7 @@ export function useYouTubeLive() {
       }
 
       setLiveData(result)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(result))
+      void localStoreSet(STORAGE_KEY, JSON.stringify(result))
 
       if (result.isLive) {
         addToast('info', `🔴 ${result.channelTitle} está AO VIVO: ${result.title}`)

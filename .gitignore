@@ -12,6 +12,9 @@ dist
 dist-ssr
 coverage
 
+# Build do renderer desktop (gerado por vite.desktop.config.ts)
+desktop/renderer
+
 # Environment files
 .env
 **/.env

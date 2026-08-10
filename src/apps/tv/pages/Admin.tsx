@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen } from 'lucide-react'
+import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen, Download } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
@@ -8,15 +8,19 @@ import { useNowPlaying } from '../hooks/useNowPlaying'
 import { useAnnouncements } from '../hooks/useAnnouncements'
 import { useGalleries } from '../hooks/useGallery'
 import { useUrgentAnnouncements } from '../hooks/useUrgentAnnouncements'
+import { useDevices } from '../hooks/useDevices'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { EventManager } from '../components/EventManager'
 import { PlaylistManager } from '../components/PlaylistManager'
 import { QueueManager } from '../components/QueueManager'
 import { AnnouncementManager } from '../components/AnnouncementManager'
 import { GalleryManager } from '../components/GalleryManager'
+import { DeviceManager } from '../components/DeviceManager'
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../../../lib/components/ui'
 import { CalendarManager } from '../components/CalendarManager'
+import { TvDesktopInstall } from '../components/TvDesktopInstall'
 
-type TabId = 'events' | 'playlists' | 'music' | 'gallery' | 'announcements' | 'calendar' | 'help'
+type TabId = 'events' | 'playlists' | 'music' | 'gallery' | 'announcements' | 'devices' | 'calendar' | 'install' | 'help'
 
 const tabs: { id: TabId; label: string; icon: typeof Calendar }[] = [
   { id: 'events', label: 'Eventos', icon: Calendar },
@@ -24,7 +28,9 @@ const tabs: { id: TabId; label: string; icon: typeof Calendar }[] = [
   { id: 'music', label: 'Filas de Música', icon: ListMusic },
   { id: 'gallery', label: 'Galeria', icon: Images },
   { id: 'announcements', label: 'Avisos', icon: Megaphone },
+  { id: 'devices', label: 'Dispositivos', icon: Tv },
   { id: 'calendar', label: 'Calendário', icon: BookOpen },
+  { id: 'install', label: 'Instalar App', icon: Download },
   { id: 'help', label: 'Ajuda', icon: HelpCircle },
 ]
 
@@ -37,6 +43,8 @@ export function AdminView() {
   const { announcements, add: addAnnouncement, edit: editAnnouncement, remove: removeAnnouncement, moveUp, moveDown } = useAnnouncements()
   const { galleries, loading: galleriesLoading, create: createGallery, remove: removeGallery, toggleActive: toggleGalleryActive } = useGalleries()
   const { activeAnnouncement, createUrgent, dismissUrgent } = useUrgentAnnouncements()
+  const { devices, loading: devicesLoading, rename: renameDevice, moveWorkspace: moveDeviceWorkspace, remove: removeDevice } = useDevices()
+  const { workspaces } = useWorkspace()
 
   const [showUrgentModal, setShowUrgentModal] = useState(false)
   const [urgentText, setUrgentText] = useState('')
@@ -138,13 +146,6 @@ export function AdminView() {
               >
                 <AlertTriangle size={14} className="text-amber-500" />
                 {activeAnnouncement ? 'Aviso Ativo' : 'Aviso Urgente'}
-              </button>
-              <button
-                onClick={() => navigate('/tv/display')}
-                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:bg-slate-200 hover:text-slate-900 active:scale-[0.97]"
-              >
-                <Monitor size={14} />
-                Modo TV
               </button>
             </div>
           </div>
@@ -334,11 +335,11 @@ export function AdminView() {
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-600">4</span>
-                      <span>Abra <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-violet-600">/tv/display</code> em um PC conectado à TV ou projetor</span>
+                      <span>Instale o <strong className="text-slate-700">Lab Hub TV Desktop</strong> no PC conectado à TV e faça o login com o usuário da TV</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-semibold text-rose-600">5</span>
-                      <span>O conteúdo vai rodar em loop automaticamente — vídeos, eventos e música se alternam</span>
+                      <span>O app roda em tela cheia automaticamente — vídeos, eventos e música se alternam em loop</span>
                     </li>
                   </ol>
                 </div>
@@ -388,8 +389,28 @@ export function AdminView() {
                       onMoveDown={moveDown}
                     />
                   )}
+                  {activeTab === 'devices' && (
+                    devicesLoading ? (
+                      <div className="space-y-3">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="h-14 animate-pulse rounded-xl bg-slate-200" />
+                        ))}
+                      </div>
+                    ) : (
+                      <DeviceManager
+                        devices={devices}
+                        workspaces={workspaces}
+                        onRename={renameDevice}
+                        onMoveWorkspace={moveDeviceWorkspace}
+                        onRemove={removeDevice}
+                      />
+                    )
+                  )}
                   {activeTab === 'calendar' && (
                     <CalendarManager />
+                  )}
+                  {activeTab === 'install' && (
+                    <TvDesktopInstall />
                   )}
                 </>
               )}

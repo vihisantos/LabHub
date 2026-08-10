@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
+import { workspaceStore } from '../../../core/workspaces/store'
+import { localStoreGet, localStoreSet } from '../../../lib/localStore'
 
 export interface UrgentAnnouncement {
   id: string
@@ -7,20 +9,14 @@ export interface UrgentAnnouncement {
   severity: 'info' | 'warning' | 'danger'
   expires_at: string | null
   is_active: boolean
+  workspace_id?: string | null
   created_at: string
 }
 
 const STORAGE_KEY = 'tv_urgent_announcements_local'
 
 export function useUrgentAnnouncements() {
-  const [announcements, setAnnouncements] = useState<UrgentAnnouncement[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })
+  const [announcements, setAnnouncements] = useState<UrgentAnnouncement[]>([])
 
   const loadAnnouncements = useCallback(async () => {
     const nowIso = new Date().toISOString()
@@ -34,8 +30,9 @@ export function useUrgentAnnouncements() {
           .order('created_at', { ascending: false })
 
         if (!error && data) {
-          setAnnouncements(data as UrgentAnnouncement[])
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+          const scoped = workspaceStore.filter((data as UrgentAnnouncement[]))
+          setAnnouncements(scoped)
+          void localStoreSet(STORAGE_KEY, JSON.stringify(scoped))
           return
         }
       } catch (err) {
@@ -45,7 +42,7 @@ export function useUrgentAnnouncements() {
 
     // Local fallback filter
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
+      const saved = await localStoreGet(STORAGE_KEY)
       if (saved) {
         const parsed: UrgentAnnouncement[] = JSON.parse(saved)
         const active = parsed.filter(a => a.is_active && (!a.expires_at || new Date(a.expires_at) > new Date()))
@@ -82,6 +79,7 @@ export function useUrgentAnnouncements() {
       severity,
       expires_at: expiresAt,
       is_active: true,
+      workspace_id: workspaceStore.activeWorkspaceId,
     }
 
     if (supabase) {
@@ -104,7 +102,7 @@ export function useUrgentAnnouncements() {
     }
     const updated = [localItem, ...announcements]
     setAnnouncements(updated)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+    void localStoreSet(STORAGE_KEY, JSON.stringify(updated))
   }
 
   const dismissUrgent = async (id: string) => {
@@ -117,7 +115,7 @@ export function useUrgentAnnouncements() {
     }
     const updated = announcements.filter(a => a.id !== id)
     setAnnouncements(updated)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+    void localStoreSet(STORAGE_KEY, JSON.stringify(updated))
   }
 
   const activeAnnouncement = announcements.length > 0 ? announcements[0] : null

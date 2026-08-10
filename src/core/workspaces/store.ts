@@ -31,7 +31,7 @@ export const workspaceStore = {
     return () => listeners.delete(fn)
   },
 
-  matches(item: { workspace_id?: string }): boolean {
+  matches(item: { workspace_id?: string | null }): boolean {
     if (_isAdmin && !_activeWorkspaceId) return true
     if (_isAdmin && _activeWorkspaceId) return item.workspace_id === _activeWorkspaceId || !item.workspace_id
     if (_activeWorkspaceId) return !item.workspace_id || item.workspace_id === _activeWorkspaceId
@@ -39,7 +39,7 @@ export const workspaceStore = {
     return true
   },
 
-  filter<T extends { workspace_id?: string }>(items: T[]): T[] {
+  filter<T extends { workspace_id?: string | null }>(items: T[]): T[] {
     return items.filter((item) => workspaceStore.matches(item))
   },
 }

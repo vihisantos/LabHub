@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- YouTube (erro 153) exige header Referer: envia mesmo em http://127.0.0.1 -> https -->
+    <meta name="referrer" content="no-referrer-when-downgrade" />
+    <meta http-equiv="Content-Security-Policy" content="default-src *; img-src * data: blob:; media-src *; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; connect-src *; frame-src *;" />
+    <title>Lab Hub TV</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/tv-desktop/main.tsx"></script>
+  </body>
+</html>

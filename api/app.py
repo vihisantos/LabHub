@@ -1,8 +1,9 @@
-import sys, os, re
-from urllib.parse import urlparse, parse_qs
+import sys, os, re, secrets
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse, parse_qs, quote
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api'))
-from app import app
+from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers
 
 import requests
 from flask import jsonify, request
@@ -367,4 +368,184 @@ def tv_health():
         'youtube_api_key_configured': api_key_configured,
         'youtube_channel_configured': channel_configured,
     })
+
+
+# ── TV: Código de ativação do app desktop ──
+
+def _generate_activation_code():
+    """Código de 6 caracteres sem caracteres ambíguos (0/O, 1/I)."""
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    return ''.join(secrets.choice(alphabet) for _ in range(6))
+
+
+def _require_supabase():
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return None
+    return True
+
+
+@app.route('/api/tv/activation/create', methods=['POST'])
+def tv_activation_create():
+    """
+    Gera um código de ativação para o app desktop da TV.
+    Requer o token de acesso do usuário logado (Supabase) via Bearer.
+    O código é vinculado ao primeiro workspace do usuário (ou ao escolhido,
+    se super admin), tem validade de 24h e uso único.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
+        if not token:
+            return jsonify({'error': 'Token de autenticação ausente'}), 401
+
+        # 1. Valida o JWT do usuário via Supabase Auth
+        auth_resp = requests.get(
+            f'{_SUPABASE_URL}/auth/v1/user',
+            headers={'Authorization': f'Bearer {token}'},
+            timeout=10,
+        )
+        if not auth_resp.ok:
+            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
+        auth_user = auth_resp.json()
+        user_id = auth_user.get('id')
+        if not user_id:
+            return jsonify({'error': 'Usuário não identificado'}), 401
+
+        # 2. Perfil do usuário (workspaces atribuídos)
+        prof_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not prof_resp.ok or not prof_resp.json():
+            return jsonify({'error': 'Perfil não encontrado'}), 404
+        profile = prof_resp.json()[0]
+        workspace_ids = profile.get('workspace_ids') or []
+        is_super_admin = bool(profile.get('is_super_admin'))
+
+        # 3. Workspace alvo
+        body = request.get_json() or {}
+        workspace_id = None
+        if is_super_admin and body.get('workspace_id'):
+            workspace_id = body.get('workspace_id')
+        elif workspace_ids:
+            workspace_id = workspace_ids[0]
+        if not workspace_id:
+            return jsonify({'error': 'Este usuário não tem workspace atribuído'}), 400
+
+        ws_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not ws_resp.ok or not ws_resp.json():
+            return jsonify({'error': 'Workspace não encontrado'}), 400
+
+        device_name = str(body.get('device_name') or '').strip()[:60] or None
+
+        # 4. Gera código único (tentativas em caso de colisão)
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        inserted = None
+        for _ in range(5):
+            code = _generate_activation_code()
+            ins_resp = requests.post(
+                f'{_SUPABASE_URL}/rest/v1/tv_activation_codes',
+                headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+                json={
+                    'code': code,
+                    'workspace_id': workspace_id,
+                    'user_id': user_id,
+                    'device_name': device_name,
+                    'status': 'pending',
+                    'expires_at': expires_at,
+                },
+                timeout=10,
+            )
+            if ins_resp.ok:
+                inserted = ins_resp.json()[0]
+                break
+            # PostgREST devolve 409 em violação de unique (colisão de código)
+            if ins_resp.status_code != 409:
+                return jsonify({'error': f'Erro ao criar o código: {ins_resp.status_code}'}), 500
+        if not inserted:
+            return jsonify({'error': 'Não foi possível gerar um código único'}), 500
+
+        return jsonify({
+            'success': True,
+            'code': inserted.get('code'),
+            'expires_at': inserted.get('expires_at'),
+            'workspace_id': workspace_id,
+            'device_name': device_name,
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tv/activation/redeem', methods=['POST'])
+def tv_activation_redeem():
+    """
+    Valida e consome um código de ativação (chamado pelo app desktop, anon).
+    Retorna o workspace, o usuário dono e o nome sugerido da TV.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        body = request.get_json() or {}
+        code = str(body.get('code') or '').strip().upper()
+        if not code:
+            return jsonify({'error': 'Informe o código de ativação'}), 400
+
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_activation_codes?code=eq.{quote(code)}&select=*',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao validar o código'}), 502
+        rows = resp.json()
+        if not rows:
+            return jsonify({'error': 'Código inválido. Verifique e tente novamente.'}), 404
+
+        row = rows[0]
+        if row.get('status') != 'pending':
+            return jsonify({'error': 'Código já utilizado'}), 400
+
+        expires_at = row.get('expires_at')
+        if expires_at:
+            try:
+                exp = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if exp < datetime.now(timezone.utc):
+                    return jsonify({'error': 'Código expirado. Gere um novo no painel.'}), 400
+            except Exception:
+                pass
+
+        # Consome o código (uso único)
+        requests.patch(
+            f"{_SUPABASE_URL}/rest/v1/tv_activation_codes?id=eq.{quote(row['id'])}",
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json={'status': 'used', 'used_at': datetime.now(timezone.utc).isoformat()},
+            timeout=10,
+        )
+
+        ws_resp = requests.get(
+            f"{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(row['workspace_id'])}",
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        workspace = ws_resp.json()[0] if ws_resp.ok and ws_resp.json() else None
+        if not workspace:
+            return jsonify({'error': 'Workspace do código não encontrado'}), 500
+
+        return jsonify({
+            'success': True,
+            'code': code,
+            'workspace': workspace,
+            'user_id': row.get('user_id'),
+            'device_name': row.get('device_name'),
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 

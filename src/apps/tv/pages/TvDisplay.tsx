@@ -31,7 +31,7 @@ type Phase =
   | { type: 'countdown'; eventId: string }
   | { type: 'welcome'; eventId?: string }
 
-export function TvDisplay() {
+export function TvDisplay({ deviceName }: { deviceName?: string }) {
   const { events, loading: eventsLoading } = useEvents()
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
   const { galleries: activeGalleries, photosMap, loading: galleryLoading } = useActiveGalleries()
@@ -407,7 +407,13 @@ export function TvDisplay() {
 
       {/* Admin button */}
       <button
-        onClick={() => navigate('/tv')}
+        onClick={() => {
+          if (window.desktop?.openAdmin) {
+            window.desktop.openAdmin()
+          } else {
+            navigate('/tv')
+          }
+        }}
         style={{
           position: 'fixed', top: '1rem', right: '1rem', zIndex: 50,
           width: '40px', height: '40px', borderRadius: '50%',
@@ -416,7 +422,7 @@ export function TvDisplay() {
           color: 'rgba(255,255,255,0.3)', cursor: 'pointer',
           textDecoration: 'none', transition: 'all 0.2s',
         }}
-        title="Admin"
+        title="Painel"
       >
         <Settings size={18} />
       </button>
@@ -470,7 +476,9 @@ export function TvDisplay() {
         display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#334155',
       }}>
         <Tv size={16} />
-        <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>Lab Hub TV</span>
+        <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>
+          {deviceName ? `Lab Hub TV · ${deviceName}` : 'Lab Hub TV'}
+        </span>
       </div>
 
       {/* Seasonal particle effects (confetes, snow, leaves) */}
