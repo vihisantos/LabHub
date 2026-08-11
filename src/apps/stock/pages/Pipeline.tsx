@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { stockService } from '../services/stockService'
 import { pcService } from '../../pcare/services/pcService'
 import { icons } from '../../../lib/icons'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { StockItem } from '../types'
 import type { PC } from '../../pcare/types/pc'
 
@@ -117,6 +118,8 @@ function PipelineCard({ item, onActivate }: { item: PipelineItem; onActivate?: (
 
 export function Pipeline() {
   const navigate = useNavigate()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -258,7 +261,7 @@ export function Pipeline() {
                     <PipelineCard
                       key={item.id}
                       item={item}
-                      onActivate={col.id === 'ready_to_activate' ? handleActivate : undefined}
+                      onActivate={col.id === 'ready_to_activate' && canWrite ? handleActivate : undefined}
                     />
                   ))
                 )}
