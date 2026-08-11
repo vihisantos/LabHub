@@ -9,15 +9,14 @@ import { useExpiryAlerts } from '../hooks/useExpiryAlerts'
 import { icons } from '../../../lib/icons'
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
-
-const PREFIXES = ['/stock', '/general-stock'] as const
+import { STOCK_PREFIXES, stockPrefix, stockNavPath, normalizeStockPath } from '../utils/stockPath'
 
 function p(pathname: string, suffix: string) {
-  return PREFIXES.some((pre) => pathname === pre + suffix || pathname.startsWith(pre + suffix + '/'))
+  return STOCK_PREFIXES.some((pre) => pathname === pre + suffix || pathname.startsWith(pre + suffix + '/'))
 }
 
 function m(pathname: string) {
-  return PREFIXES.some((pre) => pathname === pre)
+  return STOCK_PREFIXES.some((pre) => pathname === pre)
 }
 
 function mainRoute(pathname: string) {
@@ -26,10 +25,6 @@ function mainRoute(pathname: string) {
 
 function isDetailPage(pathname: string) {
   return !mainRoute(pathname)
-}
-
-function prefix(pathname: string) {
-  return PREFIXES.find((pre) => pathname.startsWith(pre)) || '/stock'
 }
 
 function StockPageTransition({ direction, children }: { direction: 'left' | 'right'; children: React.ReactNode }) {
@@ -57,19 +52,15 @@ function getPageTitle(pathname: string): string {
 }
 
 function getBackPath(pathname: string): string {
-  const pre = prefix(pathname)
+  const pre = stockPrefix(pathname)
   if (p(pathname, '/items')) return pre + '/items'
   if (p(pathname, '/kits')) return pre + '/kits'
+  if (p(pathname, '/inventory')) return pre + '/inventory'
   return pre
 }
 
 function normalizeRoute(pathname: string): string {
-  for (const pre of PREFIXES) {
-    if (pathname.startsWith(pre)) {
-      return '/stock' + pathname.slice(pre.length)
-    }
-  }
-  return pathname
+  return normalizeStockPath(pathname)
 }
 
 const ROUTE_ORDER: Record<string, number> = {
@@ -181,9 +172,9 @@ function StockLayoutInner({
     const currentIndex = STOCK_TABS.indexOf(currentBase)
     if (currentIndex === -1) return
     if (dx < 0 && currentIndex < STOCK_TABS.length - 1) {
-      navigate(STOCK_TABS[currentIndex + 1])
+      navigate(stockNavPath(location.pathname, STOCK_TABS[currentIndex + 1]))
     } else if (dx > 0 && currentIndex > 0) {
-      navigate(STOCK_TABS[currentIndex - 1])
+      navigate(stockNavPath(location.pathname, STOCK_TABS[currentIndex - 1]))
     }
   }
 

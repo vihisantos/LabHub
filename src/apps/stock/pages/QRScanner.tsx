@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { BrowserQRCodeReader } from '@zxing/browser'
 import { useStock } from '../hooks/useStock'
 import { findStockItemByQrCode } from '../utils/qrScanner'
+import { stockPath } from '../utils/stockPath'
 import { icons } from '../../../lib/icons'
 
 export function StockQRScanner() {
@@ -12,6 +13,7 @@ export function StockQRScanner() {
   const [manualCode, setManualCode] = useState('')
   const [feedback, setFeedback] = useState<'idle' | 'scanning' | 'success' | 'error'>('idle')
   const navigate = useNavigate()
+  const location = useLocation()
   const { items } = useStock()
 
   const navigateToItem = useCallback((code: string) => {
@@ -20,11 +22,11 @@ export function StockQRScanner() {
     if (item) {
       setFeedback('success')
       controlsRef.current?.stop?.()
-      setTimeout(() => navigate(`/stock/items/${item.id}`), 300)
+      setTimeout(() => navigate(stockPath(location.pathname, `/items/${item.id}`)), 300)
     } else {
       setFeedback('error')
     }
-  }, [items, navigate])
+  }, [items, navigate, location.pathname])
 
   function stopStream() {
     if (videoRef.current?.srcObject) {
