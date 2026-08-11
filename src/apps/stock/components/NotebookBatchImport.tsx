@@ -3,11 +3,14 @@ import type { StockItemFormData } from '../types'
 import { stockConditions } from '../types'
 import { Modal } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
+import { createMany } from '../utils/batchCreate'
 
 interface NotebookBatchImportProps {
   open: boolean
   onClose: () => void
-  onCreate: (items: StockItemFormData[]) => void
+  create: (data: StockItemFormData) => void
+  reload?: () => void
+  onCreated?: (count: number) => void
 }
 
 interface NotebookRow {
@@ -194,7 +197,7 @@ function chargerToItem(row: NotebookRow): StockItemFormData | null {
   }
 }
 
-export function NotebookBatchImport({ open, onClose, onCreate }: NotebookBatchImportProps) {
+export function NotebookBatchImport({ open, onClose, create, reload, onCreated }: NotebookBatchImportProps) {
   const [rows, setRows] = useState<NotebookRow[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editField, setEditField] = useState<string>('')
@@ -310,7 +313,8 @@ export function NotebookBatchImport({ open, onClose, onCreate }: NotebookBatchIm
       if (charger) items.push(charger)
     }
     if (items.length > 0) {
-      onCreate(items)
+      const created = createMany(items, { create, reload })
+      onCreated?.(created)
     }
     handleClose()
   }

@@ -4,6 +4,7 @@ import { stockService } from '../services/stockService'
 import { pcService } from '../../pcare/services/pcService'
 import { icons } from '../../../lib/icons'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { activateItemAsPC } from '../utils/activateAsPC'
 import type { StockItem } from '../types'
 import type { PC } from '../../pcare/types/pc'
 
@@ -191,30 +192,9 @@ export function Pipeline() {
   function handleActivate(stockItemId: string) {
     const item = stockService.getAll().find(i => i.id === stockItemId)
     if (!item) return
-    const now = new Date().toISOString()
-    const pc = pcService.create({
-      labName: item.room || 'Laboratório',
-      pcNumber: item.serialNumber || item.name,
-      assetTag: item.serialNumber || '',
-      roomLocation: item.room || '',
-      specs: { cpu: '', ram: '', storage: '' },
-      config: { osType: '', osVersion: '', osEdition: '', pcType: '', domain: '' },
-      cleaningStatus: 'pending',
-      restorationStatus: 'pending',
-      softwareInstalled: [],
-      partsReplaced: [],
-      observations: item.notes || '',
-      photos: [],
-      lastIntervention: null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    stockService.update(item.id, {
-      linkedPcId: pc.id,
-      linkedPcLabel: `${pc.labName} — ${pc.pcNumber}`,
-    })
+    const pcId = activateItemAsPC(item, { updateItem: (id, patch) => stockService.update(id, patch) })
     setRefreshKey(n => n + 1)
-    navigate(`/pc-care/pcs/${pc.id}/edit`)
+    navigate(`/pc-care/pcs/${pcId}/edit`)
   }
 
   const total = columns.reduce((sum, col) => sum + col.items.length, 0)

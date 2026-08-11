@@ -12,6 +12,7 @@ import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockPath } from '../utils/stockPath'
+import { activateItemAsPC } from '../utils/activateAsPC'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { StockItemFormData } from '../types'
 
@@ -51,29 +52,8 @@ export function StockDetail() {
 
   function handleActivate() {
     if (!item) return
-    const now = new Date().toISOString()
-    const pc = pcService.create({
-      labName: item.room || 'Laboratório',
-      pcNumber: item.serialNumber || item.name,
-      assetTag: item.serialNumber || '',
-      roomLocation: item.room || '',
-      specs: { cpu: '', ram: '', storage: '' },
-      config: { osType: '', osVersion: '', osEdition: '', pcType: '', domain: '' },
-      cleaningStatus: 'pending',
-      restorationStatus: 'pending',
-      softwareInstalled: [],
-      partsReplaced: [],
-      observations: item.notes || '',
-      photos: [],
-      lastIntervention: null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    update(item.id, {
-      linkedPcId: pc.id,
-      linkedPcLabel: `${pc.labName} — ${pc.pcNumber}`,
-    })
-    navigate(`/pc-care/pcs/${pc.id}/edit`)
+    const pcId = activateItemAsPC(item, { updateItem: update })
+    navigate(`/pc-care/pcs/${pcId}/edit`)
   }
 
   if (!item) {

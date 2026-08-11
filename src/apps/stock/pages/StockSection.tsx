@@ -18,6 +18,8 @@ import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { exportStockItemsCSV } from '../utils/export'
 import { parseFile, mapStockRow, validateRows } from '../utils/import'
+import { applyMovementEffects } from '../utils/movementEffects'
+import { createMany } from '../utils/batchCreate'
 import { BatchCreateModal } from '../components/BatchCreateModal'
 import { DesktopSetupModal } from '../components/DesktopSetupModal'
 import { NotebookSetupModal } from '../components/NotebookSetupModal'
@@ -75,6 +77,7 @@ export function StockSectionPage() {
   const [batchSuccess, setBatchSuccess] = useState(0)
   const [cleanupMessage, setCleanupMessage] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const batchSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Auto-cleanup orphaned photos when items load
   useEffect(() => {
@@ -214,7 +217,7 @@ export function StockSectionPage() {
 
   function confirmDiscard() {
     if (!discardTarget) return
-    createMovement({
+    applyMovementEffects(discardTarget, {
       itemId: discardTarget.id,
       itemName: discardTarget.name,
       type: 'descarte',
@@ -224,56 +227,20 @@ export function StockSectionPage() {
       replacedPart: '',
       newPart: '',
       performedBy: '',
-    })
-    update(discardTarget.id, { status: 'descartado' })
+    }, { createMovement, updateItem: (id, patch) => update(id, patch) })
     setDiscardTarget(null)
   }
 
   function handleMovementSave(data: StockMovementFormData) {
-    createMovement(data)
-    if (movementTarget) {
-      if (data.type === 'mudanca_sala') {
-        update(movementTarget.id, { room: data.toRoom })
-      } else if (data.type === 'conserto') {
-        update(movementTarget.id, { status: 'em_conserto' })
-      } else if (data.type === 'emprestimo') {
-        update(movementTarget.id, { status: 'emprestado', room: data.destinationRoom || movementTarget.room })
-        fetch('/api/push/notify-loan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            itemName: movementTarget.name,
-            borrowedBy: data.borrowedBy || 'Alguém',
-            expectedReturnAt: data.expectedReturnAt || '',
-          }),
-        }).catch(() => {})
-      } else if (data.type === 'devolucao') {
-        update(movementTarget.id, { status: 'ativo' })
-        fetch('/api/push/notify-return', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            itemName: movementTarget.name,
-            returnedBy: data.performedBy || 'Alguém',
-          }),
-        }).catch(() => {})
-      }
-    }
+    if (!movementTarget) return
+    applyMovementEffects(movementTarget, data, { createMovement, updateItem: (id, patch) => update(id, patch) })
     setMovementTarget(null)
   }
 
-  function handleBatchUpdate(ids: string[], data: Partial<StockItem>) {
-    for (const id of ids) update(id, data)
-    reload()
-  }
-
-  function handleBatchCreate(items: StockItemFormData[]) {
-    for (const data of items) {
-      create(data)
-    }
-    setBatchSuccess(items.length)
-    reload()
-    setTimeout(() => setBatchSuccess(0), 5000)
+  function showBatchSuccess(count: number) {
+    clearTimeout(batchSuccessTimerRef.current)
+    setBatchSuccess(count)
+    batchSuccessTimerRef.current = setTimeout(() => setBatchSuccess(0), 5000)
   }
 
   function handleBatchDelete(ids: string[]) {
@@ -281,6 +248,11 @@ export function StockSectionPage() {
       stockPhotoService.deleteAll(id)
       remove(id)
     }
+    reload()
+  }
+
+  function handleBatchUpdate(ids: string[], data: Partial<StockItem>) {
+    for (const id of ids) update(id, data)
     reload()
   }
 
@@ -587,20 +559,15 @@ export function StockSectionPage() {
                     if (!importResult) return
                     setImporting(true)
                     setImportError('')
-                    let success = 0
                     try {
                       const err = validateRows(importResult.rows, 3)
                       if (err) { setImportError(err); setImporting(false); return }
-                      for (const row of importResult.rows) {
-                        const data = mapStockRow(importResult.headers, row)
-                        if (data.name) {
-                          create(data)
-                          success++
-                        }
-                      }
+                      const mapped = importResult.rows
+                        .map((row) => mapStockRow(importResult.headers, row))
+                        .filter((d) => d.name)
+                      const success = createMany(mapped, { create, reload })
                       setImportSuccess(success)
                       setImportResult(null)
-                      reload()
                     } catch {
                       setImportError('Erro ao importar dados.')
                     }
@@ -783,10 +750,16 @@ export function StockSectionPage() {
         confirmLabel="Descartar" variant="danger"
       />
 
-      <BatchCreateModal open={showBatch} onClose={() => setShowBatch(false)} onCreate={handleBatchCreate} />
-      <DesktopSetupModal open={showDesktopSetup} onClose={() => setShowDesktopSetup(false)} onCreate={handleBatchCreate} />
-      <NotebookSetupModal open={showNotebookSetup} onClose={() => setShowNotebookSetup(false)} onCreate={handleBatchCreate} />
-      <NotebookBatchImport open={showNotebookBatchImport} onClose={() => setShowNotebookBatchImport(false)} onCreate={handleBatchCreate} />
+      <BatchCreateModal open={showBatch} onClose={() => setShowBatch(false)} create={create} reload={reload} onCreated={showBatchSuccess} />
+      <DesktopSetupModal open={showDesktopSetup} onClose={() => setShowDesktopSetup(false)} create={create} reload={reload} onCreated={showBatchSuccess} />
+      <NotebookSetupModal open={showNotebookSetup} onClose={() => setShowNotebookSetup(false)} create={create} reload={reload} onCreated={showBatchSuccess} />
+      <NotebookBatchImport
+        open={showNotebookBatchImport}
+        onClose={() => setShowNotebookBatchImport(false)}
+        create={create}
+        reload={reload}
+        onCreated={showBatchSuccess}
+      />
 
       {selection.selectMode && selection.selected.size > 0 && (
         <StockBatchBar

@@ -2,11 +2,14 @@ import { useState } from 'react'
 import type { StockItemFormData } from '../types'
 import { stockConditions } from '../types'
 import { Modal } from '../../pcare/components/Modal'
+import { createMany } from '../utils/batchCreate'
 
 interface NotebookSetupModalProps {
   open: boolean
   onClose: () => void
-  onCreate: (items: StockItemFormData[]) => void
+  create: (data: StockItemFormData) => void
+  reload?: () => void
+  onCreated?: (count: number) => void
 }
 
 type SetupMode = 'full' | 'monitor' | 'mouse' | 'keyboard'
@@ -80,7 +83,7 @@ interface KeyboardData {
   notes: string
 }
 
-export function NotebookSetupModal({ open, onClose, onCreate }: NotebookSetupModalProps) {
+export function NotebookSetupModal({ open, onClose, create, reload, onCreated }: NotebookSetupModalProps) {
   const [mode, setMode] = useState<SetupMode | null>(null)
   const [step, setStep] = useState<'notebook' | 'charger' | 'monitor' | 'mouse' | 'keyboard' | 'confirm'>('notebook')
   const [notebook, setNotebook] = useState<NotebookData>({
@@ -322,7 +325,7 @@ export function NotebookSetupModal({ open, onClose, onCreate }: NotebookSetupMod
     }
 
     if (items.length > 0) {
-      onCreate(items)
+      onCreated?.(createMany(items, { create, reload }))
     }
     handleClose()
   }
