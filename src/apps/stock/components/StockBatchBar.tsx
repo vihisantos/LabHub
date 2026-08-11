@@ -3,6 +3,7 @@ import type { StockItem, StockMovementFormData } from '../types'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { exportStockItemsCSV } from '../utils/export'
+import { applyMovementEffects } from '../utils/movementEffects'
 
 interface StockBatchBarProps {
   selected: Set<string>
@@ -31,7 +32,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
   function handleMove() {
     if (!toRoom.trim()) return
     for (const item of selectedItems) {
-      onCreateMovement({
+      applyMovementEffects(item, {
         itemId: item.id,
         itemName: item.name,
         type: 'mudanca_sala',
@@ -41,9 +42,8 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
         replacedPart: '',
         newPart: '',
         performedBy: '',
-      })
+      }, { createMovement: onCreateMovement, updateItem: (id, patch) => onUpdate([id], patch) })
     }
-    onUpdate(ids, { room: toRoom.trim() })
     setToRoom('')
     setShowMoveModal(false)
     onClear()
@@ -51,7 +51,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
 
   function handleRepair() {
     for (const item of selectedItems) {
-      onCreateMovement({
+      applyMovementEffects(item, {
         itemId: item.id,
         itemName: item.name,
         type: 'conserto',
@@ -61,15 +61,14 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
         replacedPart: '',
         newPart: '',
         performedBy: '',
-      })
+      }, { createMovement: onCreateMovement, updateItem: (id, patch) => onUpdate([id], patch) })
     }
-    onUpdate(ids, { status: 'em_conserto' })
     onClear()
   }
 
   function handleDiscard() {
     for (const item of selectedItems) {
-      onCreateMovement({
+      applyMovementEffects(item, {
         itemId: item.id,
         itemName: item.name,
         type: 'descarte',
@@ -79,9 +78,8 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
         replacedPart: '',
         newPart: '',
         performedBy: '',
-      })
+      }, { createMovement: onCreateMovement, updateItem: (id, patch) => onUpdate([id], patch) })
     }
-    onUpdate(ids, { status: 'descartado' })
     setShowDiscardConfirm(false)
     onClear()
   }
@@ -94,9 +92,8 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
 
   function handleLoan() {
     if (!loanBorrowedBy.trim()) return
-    const names = selectedItems.map((i) => i.name)
     for (const item of selectedItems) {
-      onCreateMovement({
+      applyMovementEffects(item, {
         itemId: item.id,
         itemName: item.name,
         type: 'emprestimo',
@@ -111,21 +108,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
         expectedReturnAt: loanExpectedReturn,
         returnedAt: '',
         destinationRoom: loanDestinationRoom.trim(),
-      })
-    }
-    onUpdate(ids, { status: 'emprestado', room: loanDestinationRoom.trim() || undefined })
-
-    // Notificar empréstimo
-    for (const name of names) {
-      fetch('/api/push/notify-loan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itemName: name,
-          borrowedBy: loanBorrowedBy.trim(),
-          expectedReturnAt: loanExpectedReturn,
-        }),
-      }).catch(() => {})
+      }, { createMovement: onCreateMovement, updateItem: (id, patch) => onUpdate([id], patch) })
     }
 
     setLoanBorrowedBy('')
