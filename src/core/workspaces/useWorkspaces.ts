@@ -8,7 +8,7 @@ export function useWorkspaces() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    await workspaceService.initDefault()
+    await workspaceService.syncFromSupabase()
     const data = workspaceService.getAll()
     setWorkspaces(data.sort((a, b) => a.name.localeCompare(b.name)))
     setLoading(false)
