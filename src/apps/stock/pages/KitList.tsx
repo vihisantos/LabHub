@@ -6,10 +6,13 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { Kit, KitFormData } from '../types'
 
 export function KitList() {
   const { kits, loading, create, remove, reload } = useKits()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [newKitName, setNewKitName] = useState('')
@@ -53,13 +56,15 @@ export function KitList() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold tracking-tight">Kits</h2>
-          <button
-            type="button"
-            onClick={() => setShowForm(true)}
-            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
-          >
-            + Novo Kit
-          </button>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={() => setShowForm(true)}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+            >
+              + Novo Kit
+            </button>
+          )}
         </div>
 
         <div className="relative">
@@ -78,13 +83,13 @@ export function KitList() {
             icon={icons.ui.package}
             title="Nenhum kit cadastrado"
             description="Crie kits para conferir se todos os itens estão presentes."
-            action={{ label: 'Criar Kit', onClick: () => setShowForm(true) }}
+            action={canWrite ? { label: 'Criar Kit', onClick: () => setShowForm(true) } : undefined}
             accentColor="emerald"
           />
         ) : (
           <div className="space-y-2">
             {filtered.map((kit) => (
-              <KitCard key={kit.id} kit={kit} onDelete={setDeleteTarget} />
+              <KitCard key={kit.id} kit={kit} onDelete={canWrite ? setDeleteTarget : undefined} />
             ))}
           </div>
         )}

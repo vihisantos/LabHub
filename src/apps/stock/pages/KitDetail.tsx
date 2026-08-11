@@ -6,6 +6,7 @@ import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockPath } from '../utils/stockPath'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { KitItem, KitStatus } from '../types'
 
 function formatDate(iso: string) {
@@ -23,6 +24,8 @@ export function KitDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const { kits, update, remove } = useKits()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [checking, setChecking] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
@@ -83,22 +86,26 @@ export function KitDetail() {
     <div>
       <div className="mb-5 flex items-center gap-2">
         <h2 className="text-2xl font-bold tracking-tight flex-1">{kit.name}</h2>
-        <button
-          type="button"
-          onClick={openEdit}
-          className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
-          aria-label="Editar"
-        >
-          <icons.ui.edit size={18} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowDelete(true)}
-          className="rounded-xl bg-card p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shadow-[var(--shadow-card)]"
-          aria-label="Deletar"
-        >
-          <icons.ui.trash size={18} />
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={openEdit}
+            className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
+            aria-label="Editar"
+          >
+            <icons.ui.edit size={18} />
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowDelete(true)}
+            className="rounded-xl bg-card p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shadow-[var(--shadow-card)]"
+            aria-label="Deletar"
+          >
+            <icons.ui.trash size={18} />
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-4">
@@ -132,13 +139,15 @@ export function KitDetail() {
           <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Itens do Kit</h3>
-              <button
-                type="button"
-                onClick={() => setChecking(true)}
-                className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors btn-interactive"
-              >
-                Conferir
-              </button>
+              {canWrite && (
+                <button
+                  type="button"
+                  onClick={() => setChecking(true)}
+                  className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors btn-interactive"
+                >
+                  Conferir
+                </button>
+              )}
             </div>
             <div className="flex flex-col gap-1.5">
               {kit.items.map((item) => (

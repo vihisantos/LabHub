@@ -22,11 +22,14 @@ import { BatchCreateModal } from '../components/BatchCreateModal'
 import { DesktopSetupModal } from '../components/DesktopSetupModal'
 import { NotebookSetupModal } from '../components/NotebookSetupModal'
 import { NotebookBatchImport } from '../components/NotebookBatchImport'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 export function StockSectionPage() {
   const { items, loading, create, update, remove, reload } = useStock()
   const { create: createMovement } = useMovements()
   const selection = useStockSelection()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<TabId>('all')
@@ -300,7 +303,7 @@ export function StockSectionPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold tracking-tight">{tabLabel}</h2>
           <div className="flex gap-1.5">
-            {selection.selectMode ? (
+            {canWrite && (selection.selectMode ? (
               <button
                 type="button"
                 onClick={selection.exit}
@@ -316,46 +319,56 @@ export function StockSectionPage() {
               >
                 Selecionar
               </button>
+            ))}
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => { setEditing(null); setShowForm(true) }}
+                className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+              >
+                + Novo
+              </button>
             )}
-            <button
-              type="button"
-              onClick={() => { setEditing(null); setShowForm(true) }}
-              className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
-            >
-              + Novo
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowBatch(true)}
-              className="flex items-center gap-1 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-violet-700 shadow-sm btn-interactive"
-            >
-              <icons.ui.copy size={13} />
-              Lote
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowDesktopSetup(true)}
-              className="flex items-center gap-1 rounded-xl bg-cyan-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-700 shadow-sm btn-interactive"
-            >
-              <icons.nav.pcs size={13} />
-              Desktop
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNotebookSetup(true)}
-              className="flex items-center gap-1 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 shadow-sm btn-interactive"
-            >
-              <icons.nav.pcs size={13} />
-              Notebook
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNotebookBatchImport(true)}
-              className="flex items-center gap-1 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 shadow-sm btn-interactive"
-            >
-              <icons.ui.upload size={13} />
-              Importar Notebooks
-            </button>
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => setShowBatch(true)}
+                className="flex items-center gap-1 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-violet-700 shadow-sm btn-interactive"
+              >
+                <icons.ui.copy size={13} />
+                Lote
+              </button>
+            )}
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => setShowDesktopSetup(true)}
+                className="flex items-center gap-1 rounded-xl bg-cyan-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-700 shadow-sm btn-interactive"
+              >
+                <icons.nav.pcs size={13} />
+                Desktop
+              </button>
+            )}
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => setShowNotebookSetup(true)}
+                className="flex items-center gap-1 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 shadow-sm btn-interactive"
+              >
+                <icons.nav.pcs size={13} />
+                Notebook
+              </button>
+            )}
+            {canWrite && (
+              <button
+                type="button"
+                onClick={() => setShowNotebookBatchImport(true)}
+                className="flex items-center gap-1 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 shadow-sm btn-interactive"
+              >
+                <icons.ui.upload size={13} />
+                Importar Notebooks
+              </button>
+            )}
           </div>
         </div>
 
@@ -458,18 +471,20 @@ export function StockSectionPage() {
 
         {/* ── Import / Export (compacto) ── */}
         <div className="flex justify-end gap-1.5 -mt-1">
-          <button
-            type="button"
-            onClick={() => setImportMode(!importMode)}
-            className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
-              importMode
-                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                : 'text-fg-muted hover:bg-input'
-            }`}
-          >
-            <icons.ui.upload size={12} />
-            Importar
-          </button>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={() => setImportMode(!importMode)}
+              className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
+                importMode
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                  : 'text-fg-muted hover:bg-input'
+              }`}
+            >
+              <icons.ui.upload size={12} />
+              Importar
+            </button>
+          )}
           <button
             type="button"
             onClick={() => exportStockItemsCSV(filtered)}
@@ -621,7 +636,7 @@ export function StockSectionPage() {
             icon={icons.ui.package}
             title={items.length === 0 ? 'Estoque vazio' : 'Nenhum item encontrado'}
             description={items.length === 0 ? 'Adicione itens para controlar o estoque.' : 'Tente alterar os filtros ou busca.'}
-            action={items.length === 0 ? { label: 'Adicionar Item', onClick: () => { setEditing(null); setShowForm(true) } } : undefined}
+            action={items.length === 0 && canWrite ? { label: 'Adicionar Item', onClick: () => { setEditing(null); setShowForm(true) } } : undefined}
             accentColor="emerald"
           />
         ) : (
@@ -654,6 +669,7 @@ export function StockSectionPage() {
                         onEdit={handleEdit} onMove={handleMove} onRepair={handleRepair}
                         onDiscard={handleDiscard} onLoan={handleLoan} onReturn={handleReturn}
                         selectable={selection.selectMode} selected={selection.selected.has(item.id)} onToggleSelect={selection.toggle}
+                        readOnly={!canWrite}
                       />
                     ))}
                   </div>
@@ -673,6 +689,7 @@ export function StockSectionPage() {
                         onEdit={handleEdit} onMove={handleMove} onRepair={handleRepair}
                         onDiscard={handleDiscard} onLoan={handleLoan} onReturn={handleReturn}
                         selectable={selection.selectMode} selected={selection.selected.has(item.id)} onToggleSelect={selection.toggle}
+                        readOnly={!canWrite}
                       />
                     ))}
                   </div>

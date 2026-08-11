@@ -1,5 +1,6 @@
 import type { StockMaintenance, StockMaintenanceFormData } from '../types/maintenance'
 import { createSyncService } from '../../../lib/sync'
+import { permissionService } from '../../../core/permissions/service'
 
 const store = createSyncService<StockMaintenance>('stock_maintenance')
 
@@ -31,10 +32,18 @@ export const stockMaintenanceService = {
       .query((m) => !m.completed && new Date(m.scheduledDate).getTime() < Date.now())
       .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime()),
 
-  create: (data: StockMaintenanceFormData) => store.create(serialize(data)),
+  create: (data: StockMaintenanceFormData) => {
+    permissionService.requireWrite('stock')
+    return store.create(serialize(data))
+  },
 
-  update: (id: string, data: Partial<StockMaintenance>) =>
-    store.update(id, { ...data, updatedAt: new Date().toISOString() }),
+  update: (id: string, data: Partial<StockMaintenance>) => {
+    permissionService.requireWrite('stock')
+    return store.update(id, { ...data, updatedAt: new Date().toISOString() })
+  },
 
-  remove: (id: string) => store.remove(id),
+  remove: (id: string) => {
+    permissionService.requireWrite('stock')
+    return store.remove(id)
+  },
 }

@@ -8,11 +8,14 @@ import { PullToRefresh } from '../../pcare/components/PullToRefresh'
 import { Modal } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockSections } from '../types'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 export function InventoryList() {
   const navigate = useNavigate()
   const { cycles, loading, createCycle, reload } = useInventory()
   const { items } = useStock()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [showNew, setShowNew] = useState(false)
   const [name, setName] = useState('')
   const [section, setSection] = useState('')
@@ -38,14 +41,16 @@ export function InventoryList() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold tracking-tight">Inventário Cíclico</h2>
-          <button
-            type="button"
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
-          >
-            <icons.ui.plus size={16} />
-            Novo Ciclo
-          </button>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={() => setShowNew(true)}
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+            >
+              <icons.ui.plus size={16} />
+              Novo Ciclo
+            </button>
+          )}
         </div>
 
         <p className="text-sm text-fg-muted">
@@ -57,7 +62,7 @@ export function InventoryList() {
             icon={icons.nav.checklists}
             title="Nenhum ciclo de inventário"
             description="Crie um ciclo para iniciar a contagem física dos itens."
-            action={{ label: 'Iniciar Contagem', onClick: () => setShowNew(true) }}
+            action={canWrite ? { label: 'Iniciar Contagem', onClick: () => setShowNew(true) } : undefined}
             accentColor="emerald"
           />
         ) : (

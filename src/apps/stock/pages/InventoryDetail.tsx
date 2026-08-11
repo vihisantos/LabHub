@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockSections } from '../types'
 import { stockPath } from '../utils/stockPath'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 type Step = 'counting' | 'review' | 'done'
 
@@ -15,6 +16,8 @@ export function InventoryDetail() {
   const location = useLocation()
   const { cycles, completeCycle, removeCycle } = useInventory()
   const { items } = useStock()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const { counts, saveCount } = useInventoryCounts(id || '')
 
   const cycle = cycles.find((c) => c.id === id)
@@ -203,9 +206,11 @@ export function InventoryDetail() {
           <button type="button" onClick={() => { setCurrentIndex(0); setStep('counting') }} className="flex-1 rounded-xl bg-input py-2.5 text-sm font-medium text-fg-dim transition-colors hover:bg-input/80 btn-interactive">
             Voltar à Contagem
           </button>
-          <button type="button" onClick={() => setShowFinish(true)} className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
-            Finalizar Ciclo
-          </button>
+          {canWrite && (
+            <button type="button" onClick={() => setShowFinish(true)} className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+              Finalizar Ciclo
+            </button>
+          )}
         </div>
 
         <ConfirmDialog
@@ -230,9 +235,11 @@ export function InventoryDetail() {
           <h2 className="text-lg font-bold tracking-tight truncate">{cycle.name}</h2>
           <p className="text-xs text-fg-muted">{sectionLabel(cycle.section)} · {allItems.length} itens</p>
         </div>
-        <button type="button" onClick={() => setShowDelete(true)} className="rounded-xl p-1.5 text-fg-dim hover:text-red-500 hover:bg-input transition-colors">
-          <icons.ui.trash size={18} />
-        </button>
+        {canWrite && (
+          <button type="button" onClick={() => setShowDelete(true)} className="rounded-xl p-1.5 text-fg-dim hover:text-red-500 hover:bg-input transition-colors">
+            <icons.ui.trash size={18} />
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
@@ -246,9 +253,11 @@ export function InventoryDetail() {
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <icons.ui.checkCircle size={36} className="mb-2 text-emerald-500" />
           <p className="text-sm font-medium text-fg">Todos os itens foram verificados!</p>
-          <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
-            Revisar e Finalizar
-          </button>
+          {canWrite && (
+            <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+              Revisar e Finalizar
+            </button>
+          )}
         </div>
       ) : currentItem ? (
         <div className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
@@ -265,28 +274,34 @@ export function InventoryDetail() {
             )}
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => handleResult('verified')} className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 py-3 text-sm font-medium text-emerald-700 dark:text-emerald-400 transition-colors hover:bg-emerald-100 dark:hover:bg-emerald-950/50 btn-interactive">
-              <icons.ui.check size={18} />
-              Presente
-            </button>
-            <button type="button" onClick={() => handleResult('missing')} className="flex items-center justify-center gap-1.5 rounded-xl bg-red-50 dark:bg-red-950/30 py-3 text-sm font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-950/50 btn-interactive">
-              <icons.ui.search size={18} />
-              Ausente
-            </button>
-          </div>
-          <button type="button" onClick={() => handleResult('damaged')} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 py-3 text-sm font-medium text-amber-700 dark:text-amber-400 transition-colors hover:bg-amber-100 dark:hover:bg-amber-950/50 btn-interactive">
-            <icons.ui.alertTriangle size={18} />
-            Danificado
-          </button>
+          {canWrite && (
+            <>
+              <div className="mt-5 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => handleResult('verified')} className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 py-3 text-sm font-medium text-emerald-700 dark:text-emerald-400 transition-colors hover:bg-emerald-100 dark:hover:bg-emerald-950/50 btn-interactive">
+                  <icons.ui.check size={18} />
+                  Presente
+                </button>
+                <button type="button" onClick={() => handleResult('missing')} className="flex items-center justify-center gap-1.5 rounded-xl bg-red-50 dark:bg-red-950/30 py-3 text-sm font-medium text-red-700 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-950/50 btn-interactive">
+                  <icons.ui.search size={18} />
+                  Ausente
+                </button>
+              </div>
+              <button type="button" onClick={() => handleResult('damaged')} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 py-3 text-sm font-medium text-amber-700 dark:text-amber-400 transition-colors hover:bg-amber-100 dark:hover:bg-amber-950/50 btn-interactive">
+                <icons.ui.alertTriangle size={18} />
+                Danificado
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <icons.ui.checkCircle size={36} className="mb-2 text-emerald-500" />
           <p className="text-sm font-medium text-fg">Contagem finalizada!</p>
-          <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
-            Revisar Resultados
-          </button>
+          {canWrite && (
+            <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+              Revisar Resultados
+            </button>
+          )}
         </div>
       )}
 
