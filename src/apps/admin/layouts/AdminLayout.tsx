@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo } from 'react'
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
+import { LiquidBottomNav } from '../../../lib/components/LiquidBottomNav'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { useNotifications } from '../../../core/notifications/useNotifications'
@@ -10,11 +11,11 @@ import { WorkspaceSelectionPage } from '../pages/WorkspaceSelectionPage'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 
 const NAV_ITEMS = [
-  { path: '/admin', label: 'Dashboard', icon: icons.nav.dashboard },
-  { path: '/admin/users', label: 'Usuários', icon: icons.ui.user },
-  { path: '/admin/roles', label: 'Permissões', icon: icons.ui.sliders },
-  { path: '/admin/notifications', label: 'Notificações', icon: icons.ui.inbox },
-  { path: '/admin/settings', label: 'Configurações', icon: icons.nav.settings },
+  { to: '/admin', label: 'Dashboard', icon: icons.nav.dashboard },
+  { to: '/admin/users', label: 'Usuários', icon: icons.ui.user },
+  { to: '/admin/roles', label: 'Permissões', icon: icons.ui.sliders },
+  { to: '/admin/notifications', label: 'Notificações', icon: icons.ui.inbox },
+  { to: '/admin/settings', label: 'Configurações', icon: icons.nav.settings },
 ]
 
 const WS_BG_GRADIENTS = [
@@ -27,7 +28,6 @@ const WS_BG_GRADIENTS = [
 ]
 
 export function AdminLayout() {
-  const location = useLocation()
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const { workspace, workspaces } = useWorkspace()
@@ -35,11 +35,6 @@ export function AdminLayout() {
   useFastSync(['notifications'], 10000)
   // O gate global já garante um workspace — seletor só aparece ao trocar de ambiente
   const [showSelector, setShowSelector] = useState(false)
-
-  const isActive = (path: string) => {
-    if (path === '/admin') return location.pathname === '/admin'
-    return location.pathname.startsWith(path)
-  }
 
   const handleSelect = useCallback(() => {
     setShowSelector(false)
@@ -166,42 +161,7 @@ export function AdminLayout() {
       </main>
 
       {/* Bottom Nav — flutuante, redonda, blur, liquid glass */}
-      <nav
-        className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.875rem)' }}
-      >
-        <div className="liquid-glass flex max-w-lg flex-1 items-center justify-around rounded-full border border-white/15 bg-surface/60 px-1.5 py-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.35)] backdrop-blur-2xl">
-          {/* Glass top highlight */}
-          <span className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-white/5 to-transparent" />
-          {/* Liquid sheen */}
-          <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
-            <span className="absolute -inset-y-1/4 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/15 to-transparent animate-[liquid-sheen_6s_ease-in-out_infinite]" />
-          </span>
-
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item.path}
-              type="button"
-              onClick={() => navigate(item.path)}
-              className={`relative flex flex-col items-center gap-0.5 rounded-full px-3 py-1 transition-all ${
-                isActive(item.path)
-                  ? 'bg-white/10 text-indigo-500 shadow-inner'
-                  : 'text-fg-muted hover:text-fg'
-              }`}
-            >
-              <span className="relative">
-                <item.icon size={20} />
-                {item.path === '/admin/notifications' && unreadCount > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </span>
-              <span className="text-[10px] font-medium">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
+      <LiquidBottomNav items={NAV_ITEMS} getBadge={(to) => (to === '/admin/notifications' ? unreadCount : 0)} />
 
       <PushNotificationButton />
     </div>
