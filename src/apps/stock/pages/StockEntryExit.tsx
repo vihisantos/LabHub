@@ -6,6 +6,7 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { Tabs, TabsList, TabsTrigger } from '../../../lib/components/ui'
 import { stockPath } from '../utils/stockPath'
+import { applyMovementEffects } from '../utils/movementEffects'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 
@@ -66,38 +67,17 @@ export function StockEntryExit() {
     setSaving(true)
 
     for (const item of selectedItems) {
-      if (mode === 'entrada') {
-        createMovement({
-          itemId: item.id,
-          itemName: item.name,
-          type: 'entrada',
-          fromRoom: '',
-          toRoom: room || item.room,
-          description: notes || 'Entrada registrada',
-          replacedPart: '',
-          newPart: '',
-          performedBy,
-        })
-        if (room.trim() && room.trim() !== item.room) {
-          update(item.id, { room: room.trim() })
-        }
-        if (item.status !== 'ativo') {
-          update(item.id, { status: 'ativo' })
-        }
-      } else {
-        createMovement({
-          itemId: item.id,
-          itemName: item.name,
-          type: 'saida',
-          fromRoom: item.room,
-          toRoom: room || '',
-          description: notes || 'Saída registrada',
-          replacedPart: '',
-          newPart: '',
-          performedBy,
-        })
-        update(item.id, { status: 'descartado' })
-      }
+      applyMovementEffects(item, {
+        itemId: item.id,
+        itemName: item.name,
+        type: mode === 'entrada' ? 'entrada' : 'saida',
+        fromRoom: mode === 'entrada' ? '' : item.room,
+        toRoom: room || (mode === 'entrada' ? item.room : ''),
+        description: notes || (mode === 'entrada' ? 'Entrada registrada' : 'Saída registrada'),
+        replacedPart: '',
+        newPart: '',
+        performedBy,
+      }, { createMovement, updateItem: (id, patch) => update(id, patch) })
     }
 
     setSaving(false)
