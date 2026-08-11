@@ -1,5 +1,4 @@
 import type { Workspace, WorkspaceFormData } from './types'
-import { DEFAULT_WORKSPACE } from './types'
 import { createLocalService } from '../../lib/storage'
 import { defaultDb } from '../../lib/supabase'
 
@@ -48,6 +47,19 @@ async function removeFromSupabase(id: string): Promise<boolean> {
   return true
 }
 
+// Seed antigo (DEFAULT_WORKSPACE) gravado localmente antes de virar dado do banco.
+function isLegacySeed(w: Workspace): boolean {
+  return w.slug === 'piracicaba' && w.name === 'Anhembi Piracicaba'
+}
+
+function pruneLegacySeed(remoteIds: Set<string>): void {
+  for (const ws of local.getAll()) {
+    if (isLegacySeed(ws) && !remoteIds.has(ws.id)) {
+      local.remove(ws.id)
+    }
+  }
+}
+
 export const workspaceService = {
   getAll: (): Workspace[] => local.getAll(),
 
@@ -80,6 +92,8 @@ export const workspaceService = {
 
   syncFromSupabase: async (): Promise<Workspace[]> => {
     const remote = await fetchFromSupabase()
+    pruneLegacySeed(new Set(remote.map((w) => w.id)))
+
     if (remote.length === 0) return local.getAll()
 
     const localAll = local.getAll()
@@ -93,28 +107,5 @@ export const workspaceService = {
     }
 
     return local.getAll()
-  },
-
-  initDefault: async (): Promise<Workspace | undefined> => {
-    const existing = local.getAll()
-    if (existing.length > 0) return existing[0]
-
-    const remote = await fetchFromSupabase()
-    if (remote.length > 0) {
-      for (const ws of remote) {
-        local.create(ws as any)
-      }
-      return local.getAll()[0]
-    }
-
-    const ws = toSnake({
-      name: DEFAULT_WORKSPACE.name,
-      slug: DEFAULT_WORKSPACE.slug,
-      location: DEFAULT_WORKSPACE.location,
-      spreadsheet_url: DEFAULT_WORKSPACE.spreadsheet_url,
-    })
-    local.create(ws as any)
-    await upsertToSupabase(ws)
-    return ws
   },
 }

@@ -9,10 +9,3 @@ export interface Workspace {
 }
 
 export type WorkspaceFormData = Omit<Workspace, 'id' | 'created_at' | 'updated_at'>
-
-export const DEFAULT_WORKSPACE: WorkspaceFormData = {
-  name: 'Anhembi Piracicaba',
-  slug: 'piracicaba',
-  location: 'Piracicaba, SP',
-  spreadsheet_url: '',
-}

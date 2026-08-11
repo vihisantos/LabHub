@@ -61,7 +61,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    await workspaceService.initDefault()
+    await workspaceService.syncFromSupabase()
     const all = workspaceService.getAll()
     setWorkspaces(all)
 
