@@ -4,6 +4,7 @@ import { useRooms } from '../hooks/useRooms'
 import { useRoomAssets } from '../hooks/useRoomAssets'
 import { ticketService } from '../services/ticketService'
 import { icons } from '../../../lib/icons'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 function RoomCard({ room }: { room: { id: string; name: string; location: string; assetIds: string[] } }) {
   const navigate = useNavigate()
@@ -41,6 +42,8 @@ function RoomCard({ room }: { room: { id: string; name: string; location: string
 export function RoomList() {
   const navigate = useNavigate()
   const { rooms } = useRooms()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('chamados')
 
   const sortedRooms = useMemo(() => {
     return [...rooms].sort((a, b) => a.name.localeCompare(b.name))
@@ -50,14 +53,16 @@ export function RoomList() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-fg-muted">{rooms.length} sala{rooms.length !== 1 ? 's' : ''}</p>
-        <button
-          type="button"
-          onClick={() => navigate('/chamados/rooms/new')}
-          className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-400"
-        >
-          <icons.ui.plus size={14} />
-          Nova Sala
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => navigate('/chamados/rooms/new')}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-400"
+          >
+            <icons.ui.plus size={14} />
+            Nova Sala
+          </button>
+        )}
       </div>
 
       {sortedRooms.length === 0 ? (
