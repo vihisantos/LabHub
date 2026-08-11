@@ -8,6 +8,7 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { ConfirmDialog } from '../../pcare/components/Modal'
 import type { StockMaintenance } from '../types/maintenance'
 import { icons } from '../../../lib/icons'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 type StockMaintenanceType = StockMaintenance['type']
 
@@ -39,6 +40,8 @@ export function StockMaintenance() {
   const navigate = useNavigate()
   const { items } = useStock()
   const { all, upcoming, overdue, loading, create, complete, remove, reload } = useStockMaintenance()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [showForm, setShowForm] = useState(false)
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
@@ -126,13 +129,15 @@ export function StockMaintenance() {
     <PullToRefresh onRefresh={reload}>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Manutenção</h2>
-        <button
-          type="button"
-          onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-amber-500/20 transition-all hover:shadow-md"
-        >
-          {showForm ? 'Cancelar' : '+ Agendar'}
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowForm(!showForm)}
+            className="rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-amber-500/20 transition-all hover:shadow-md"
+          >
+            {showForm ? 'Cancelar' : '+ Agendar'}
+          </button>
+        )}
       </div>
 
       {/* View switcher */}
@@ -242,13 +247,13 @@ export function StockMaintenance() {
       )}
 
       {all.length === 0 && !showForm ? (
-        <EmptyState
-          icon={icons.ui.calendar}
-          title="Nenhuma manutenção agendada"
-          description="Programe a manutenção preventiva dos equipamentos do estoque."
-          action={{ label: 'Agendar', onClick: () => setShowForm(true) }}
-          accentColor="amber"
-        />
+          <EmptyState
+            icon={icons.ui.calendar}
+            title="Nenhuma manutenção agendada"
+            description="Programe a manutenção preventiva dos equipamentos do estoque."
+            action={canWrite ? { label: 'Agendar', onClick: () => setShowForm(true) } : undefined}
+            accentColor="amber"
+          />
       ) : view === 'calendar' ? (
         <div>
           <div className="mb-3 flex items-center justify-between">
@@ -356,8 +361,8 @@ export function StockMaintenance() {
                   <MaintenanceCard
                     key={m.id}
                     maintenance={m}
-                    onComplete={complete}
-                    onRemove={setConfirmRemove}
+                    onComplete={canWrite ? complete : undefined}
+                    onRemove={canWrite ? setConfirmRemove : undefined}
                     onNavigate={() => navigate(`/stock/items/${m.itemId}`)}
                   />
                 ))}
@@ -372,8 +377,8 @@ export function StockMaintenance() {
                   <MaintenanceCard
                     key={m.id}
                     maintenance={m}
-                    onComplete={complete}
-                    onRemove={setConfirmRemove}
+                    onComplete={canWrite ? complete : undefined}
+                    onRemove={canWrite ? setConfirmRemove : undefined}
                     onNavigate={() => navigate(`/stock/items/${m.itemId}`)}
                   />
                 ))}
@@ -388,8 +393,8 @@ export function StockMaintenance() {
                   <MaintenanceCard
                     key={m.id}
                     maintenance={m}
-                    onComplete={complete}
-                    onRemove={setConfirmRemove}
+                    onComplete={canWrite ? complete : undefined}
+                    onRemove={canWrite ? setConfirmRemove : undefined}
                     onNavigate={() => navigate(`/stock/items/${m.itemId}`)}
                   />
                 ))}
@@ -421,8 +426,8 @@ function MaintenanceCard({
   onNavigate,
 }: {
   maintenance: StockMaintenance
-  onComplete: (id: string) => void
-  onRemove: (id: string) => void
+  onComplete?: (id: string) => void
+  onRemove?: (id: string) => void
   onNavigate: () => void
 }) {
   const overdue = !m.completed && isOverdue(m.scheduledDate)
@@ -448,7 +453,7 @@ function MaintenanceCard({
           </p>
         </button>
         <div className="flex gap-2">
-          {!m.completed && (
+          {!m.completed && onComplete && (
             <button
               type="button"
               onClick={() => onComplete(m.id)}
@@ -457,9 +462,11 @@ function MaintenanceCard({
               Concluir
             </button>
           )}
-          <button type="button" onClick={() => onRemove(m.id)} className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
-            Excluir
-          </button>
+          {onRemove && (
+            <button type="button" onClick={() => onRemove(m.id)} className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
+              Excluir
+            </button>
+          )}
         </div>
       </div>
       {m.notes && <p className="mt-1 text-xs text-fg-muted">{m.notes}</p>}

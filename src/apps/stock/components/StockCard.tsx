@@ -16,9 +16,11 @@ interface StockCardProps {
   selectable?: boolean
   selected?: boolean
   onToggleSelect?: (id: string) => void
+  /** Oculta ações de escrita (modo somente leitura) */
+  readOnly?: boolean
 }
 
-export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, onReturn, selectable, selected, onToggleSelect }: StockCardProps) {
+export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, onReturn, selectable, selected, onToggleSelect, readOnly }: StockCardProps) {
   const navigate = useNavigate()
 
   function handleClick() {
@@ -123,7 +125,7 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
         <p className="mb-2 line-clamp-1 text-[10px] text-fg-dim">{item.notes}</p>
       )}
 
-      {!selectable && item.status !== 'descartado' && (
+      {!selectable && !readOnly && item.status !== 'descartado' && (
         <div className="flex flex-wrap gap-1 pt-2" onClick={(e) => e.stopPropagation()}>
           {item.status === 'emprestado' ? (
             <button

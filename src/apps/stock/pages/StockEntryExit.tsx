@@ -6,6 +6,7 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { Tabs, TabsList, TabsTrigger } from '../../../lib/components/ui'
 import { stockPath } from '../utils/stockPath'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 
 export function StockEntryExit() {
@@ -13,6 +14,8 @@ export function StockEntryExit() {
   const location = useLocation()
   const { items, loading, update } = useStock()
   const { create: createMovement } = useMovements()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [mode, setMode] = useState<'entrada' | 'saida'>('entrada')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -103,6 +106,16 @@ export function StockEntryExit() {
   }
 
   if (loading) return <div className="space-y-2">{[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}</div>
+
+  if (!canWrite) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <icons.ui.shield size={32} className="mb-3 text-fg-muted" />
+        <h3 className="mb-1 text-lg font-medium text-fg-dim">Acesso somente leitura</h3>
+        <p className="text-sm text-fg-muted">Seu acesso ao estoque não permite registrar entradas e saídas.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

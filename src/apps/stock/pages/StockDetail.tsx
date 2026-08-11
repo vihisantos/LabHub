@@ -12,6 +12,7 @@ import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockPath } from '../utils/stockPath'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { StockItemFormData } from '../types'
 
 export function StockDetail() {
@@ -20,6 +21,8 @@ export function StockDetail() {
   const location = useLocation()
   const { items, create, update, remove } = useStock()
   const { movements } = useMovements()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [showEdit, setShowEdit] = useState(false)
   const [showDuplicate, setShowDuplicate] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
@@ -111,31 +114,37 @@ export function StockDetail() {
     <div>
       <div className="mb-5 flex items-center gap-2">
         <h2 className="text-2xl font-bold tracking-tight flex-1">{item.name}</h2>
-        <button
-          type="button"
-          onClick={() => setShowEdit(true)}
-          className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
-          aria-label="Editar"
-        >
-          <icons.ui.edit size={18} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowDuplicate(true)}
-          className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
-          aria-label="Duplicar"
-          title="Duplicar"
-        >
-          <icons.ui.copy size={18} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowDelete(true)}
-          className="rounded-xl bg-card p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shadow-[var(--shadow-card)]"
-          aria-label="Deletar"
-        >
-          <icons.ui.trash size={18} />
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowEdit(true)}
+            className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
+            aria-label="Editar"
+          >
+            <icons.ui.edit size={18} />
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowDuplicate(true)}
+            className="rounded-xl bg-card p-2 text-fg-dim hover:text-fg hover:bg-input transition-colors shadow-[var(--shadow-card)]"
+            aria-label="Duplicar"
+            title="Duplicar"
+          >
+            <icons.ui.copy size={18} />
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowDelete(true)}
+            className="rounded-xl bg-card p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors shadow-[var(--shadow-card)]"
+            aria-label="Deletar"
+          >
+            <icons.ui.trash size={18} />
+          </button>
+        )}
         <StatusBadge status={item.status} />
       </div>
 
@@ -290,15 +299,21 @@ export function StockDetail() {
             <div className="space-y-2">
               {item.pcParts.map((part) => (
                 <div key={part.partName} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => togglePart(part.partName)}
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                      part.present ? 'bg-emerald-500' : 'border-2 border-line'
-                    }`}
-                  >
-                    {part.present && <icons.ui.check size={12} className="text-white" />}
-                  </button>
+                  {canWrite ? (
+                    <button
+                      type="button"
+                      onClick={() => togglePart(part.partName)}
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
+                        part.present ? 'bg-emerald-500' : 'border-2 border-line'
+                      }`}
+                    >
+                      {part.present && <icons.ui.check size={12} className="text-white" />}
+                    </button>
+                  ) : (
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${part.present ? 'bg-emerald-500/30' : 'border-2 border-line'}`}>
+                      {part.present && <icons.ui.check size={12} className="text-emerald-600 dark:text-emerald-400" />}
+                    </span>
+                  )}
                   <span className="text-sm text-fg">{part.partName}</span>
                   {part.present ? (
                     <span className="ml-auto text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Presente</span>
@@ -312,7 +327,7 @@ export function StockDetail() {
               <span className="text-xs text-fg-muted">
                 {item.pcParts.filter(p => p.present).length} de {item.pcParts.length} peças
               </span>
-              {item.pcParts.every(p => p.present) ? (
+              {canWrite && item.pcParts.every(p => p.present) ? (
                 <button
                   type="button"
                   onClick={handleActivate}
@@ -322,9 +337,11 @@ export function StockDetail() {
                   Ativar e enviar para PC Care
                 </button>
               ) : (
-                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                  Faltam {item.pcParts.filter(p => !p.present).length} peça(s)
-                </span>
+                !canWrite && item.pcParts.every(p => p.present) ? null : (
+                  <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                    Faltam {item.pcParts.filter(p => !p.present).length} peça(s)
+                  </span>
+                )
               )}
             </div>
           </section>

@@ -8,10 +8,13 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { exportMovementsCSV } from '../utils/export'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { StockMovement, StockMovementFormData } from '../types'
 
 export function MovementsPage() {
   const { movements, loading, update, remove, reload } = useMovements()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('stock')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [editTarget, setEditTarget] = useState<StockMovement | null>(null)
@@ -116,8 +119,8 @@ export function MovementsPage() {
         ) : (
           <MovementTimeline
             movements={filtered}
-            onEdit={setEditTarget}
-            onDelete={setDeleteTarget}
+            onEdit={canWrite ? setEditTarget : undefined}
+            onDelete={canWrite ? setDeleteTarget : undefined}
           />
         )}
       </div>
