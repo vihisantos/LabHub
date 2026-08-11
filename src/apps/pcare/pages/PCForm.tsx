@@ -4,13 +4,15 @@ import { useAssets } from '../hooks/useAssets'
 import type { AssetFormData, AssetStatus, Architecture, EquipmentType, OperatingSystem, StorageType } from '../types'
 import { ARCHITECTURE_LABELS, ASSET_STATUS_LABELS, emptyLicense, emptyNetworkInfo, emptyTechnicalInfo, emptyWarrantyInfo, EQUIPMENT_TYPES, OPERATING_SYSTEM_LABELS, STORAGE_TYPE_LABELS } from '../types'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../lib/components/ui'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { icons } from '../../../lib/icons'
 
 const emptyForm = (): AssetFormData => ({ assetTag: '', equipmentType: 'Desktop', manufacturer: '', model: '', serialNumber: '', location: '', status: 'available', observations: '', technical: emptyTechnicalInfo(), network: emptyNetworkInfo(), parentAssetId: null, childAssetIds: [], photos: [], warranty: emptyWarrantyInfo(), licenses: [] })
 const inputClass = 'w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none focus:border-violet-500'
 export function PCForm() {
   const { id } = useParams(); const navigate = useNavigate(); const { assets, create, update } = useAssets(); const asset = assets.find((item) => item.id === id); const [form, setForm] = useState<AssetFormData>(emptyForm())
   useEffect(() => { if (asset) { const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...data } = asset; setForm((current) => ({ ...current, ...data, warranty: { ...current.warranty, ...data.warranty }, licenses: data.licenses ?? [] })) } }, [asset])
-  const isNew = !id
+  const isNew = !id; const { isFullAccess } = useAppAccess(); const canWrite = isFullAccess('pc-care')
   const set = <K extends keyof AssetFormData>(key: K, value: AssetFormData[K]) => setForm((current) => ({ ...current, [key]: value }))
   const technical = <K extends keyof AssetFormData['technical']>(key: K, value: AssetFormData['technical'][K]) => setForm((current) => ({ ...current, technical: { ...current.technical, [key]: value } }))
   const network = <K extends keyof AssetFormData['network']>(key: K, value: AssetFormData['network'][K]) => setForm((current) => ({ ...current, network: { ...current.network, [key]: value } }))
@@ -19,6 +21,7 @@ export function PCForm() {
   const addLicense = () => setForm((current) => ({ ...current, licenses: [...current.licenses, emptyLicense()] }))
   const removeLicense = (id: string) => setForm((current) => ({ ...current, licenses: current.licenses.filter((license) => license.id !== id) }))
   function submit(event: React.FormEvent) { event.preventDefault(); const now = new Date().toISOString(); if (isNew) { const saved = create({ ...form, createdAt: now, updatedAt: now }); navigate(`/pc-care/assets/${saved.id}`) } else { update(id!, { ...form, updatedAt: now }); navigate(`/pc-care/assets/${id}`) } }
+  if (!canWrite) return <div className="flex flex-col items-center justify-center gap-2 py-16 text-center"><icons.ui.shield size={32} className="mx-auto text-fg-muted" /><p className="text-sm text-fg-muted">Acesso somente leitura</p><p className="text-xs text-fg-dim">Seu acesso ao PC Care não permite criar ou editar ativos.</p></div>
   if (!isNew && !asset) return <p className="py-12 text-center text-sm text-fg-muted">Ativo não encontrado.</p>
   return <div><div className="mb-4 flex items-center justify-between"><div><h2 className="text-xl font-semibold">{isNew ? 'Novo ativo' : 'Editar ativo'}</h2><p className="text-xs text-fg-muted">Campos com * são obrigatórios.</p></div><button type="button" onClick={() => navigate(-1)} className="text-sm text-fg-muted">Voltar</button></div>
     <form onSubmit={submit} className="space-y-4">

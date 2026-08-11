@@ -9,6 +9,7 @@ import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { PartFormData } from '../types'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 const emptyPartForm: PartFormData = {
   name: '',
@@ -27,6 +28,8 @@ const categories = [
 export function PartsList() {
   const { parts, loading, create, update, remove, reload } = useParts()
   const { pcs } = usePCs()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('pc-care')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<PartFormData>(emptyPartForm)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -75,13 +78,15 @@ export function PartsList() {
     <PullToRefresh onRefresh={reload}>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Estoque de Peças</h2>
-        <button
-          type="button"
-          onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
-        >
-          {showForm ? 'Cancelar' : '+ Nova Peça'}
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowForm(!showForm)}
+            className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          >
+            {showForm ? 'Cancelar' : '+ Nova Peça'}
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -177,7 +182,7 @@ export function PartsList() {
           icon={icons.nav.parts}
           title="Estoque vazio"
           description="Adicione peças para controlar o inventário."
-          action={{ label: 'Nova Peça', onClick: () => setShowForm(true) }}
+          action={canWrite ? { label: 'Nova Peça', onClick: () => setShowForm(true) } : undefined}
         />
       ) : (
         <div className="flex flex-col gap-2">
@@ -201,32 +206,36 @@ export function PartsList() {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
+                    {canWrite && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => adjustQuantity(part.id, -1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg"
+                        >
+                          −
+                        </button>
+                        <span className="min-w-[2ch] text-center font-semibold text-fg">
+                          {part.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => adjustQuantity(part.id, 1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg"
+                        >
+                          +
+                        </button>
+                      </div>
+                    )}
+                    {canWrite && (
                       <button
                         type="button"
-                        onClick={() => adjustQuantity(part.id, -1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg"
+                        onClick={() => startEdit(part)}
+                        className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300"
                       >
-                        −
+                        Editar
                       </button>
-                      <span className="min-w-[2ch] text-center font-semibold text-fg">
-                        {part.quantity}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => adjustQuantity(part.id, 1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md bg-input text-sm text-fg-dim ring-1 ring-line transition-colors hover:bg-card hover:text-fg"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => startEdit(part)}
-                      className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300"
-                    >
-                      Editar
-                    </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setUsagePartId(usagePartId === part.id ? null : part.id)}
@@ -234,13 +243,15 @@ export function PartsList() {
                     >
                       {usagePartId === part.id ? 'Ocultar' : 'Uso'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmRemove(part.id)}
-                      className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
-                    >
-                      Excluir
-                    </button>
+                    {canWrite && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemove(part.id)}
+                        className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
+                      >
+                        Excluir
+                      </button>
+                    )}
                   </div>
                 </div>
                 {usagePartId === part.id && (

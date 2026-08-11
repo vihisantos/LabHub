@@ -7,6 +7,7 @@ import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { ChecklistItemDef, ChecklistTemplateForm } from '../types/checklist'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 const emptyForm = (): ChecklistTemplateForm => ({
   name: '',
@@ -23,6 +24,8 @@ const categories = [
 export function ChecklistTemplates() {
   const navigate = useNavigate()
   const { templates, loading, create, update, remove } = useChecklistTemplates()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('pc-care')
   const [showForm, setShowForm] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [form, setForm] = useState<ChecklistTemplateForm>(emptyForm())
@@ -92,13 +95,15 @@ export function ChecklistTemplates() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Checklists</h2>
-        <button
-          type="button"
-          onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyForm()) }}
-          className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
-        >
-          {showForm ? 'Cancelar' : '+ Novo Template'}
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyForm()) }}
+            className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          >
+            {showForm ? 'Cancelar' : '+ Novo Template'}
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -201,7 +206,7 @@ export function ChecklistTemplates() {
           icon={icons.nav.checklists}
           title="Nenhum checklist"
           description="Crie templates de checklist para os laboratórios."
-          action={{ label: 'Criar Template', onClick: () => setShowForm(true) }}
+          action={canWrite ? { label: 'Criar Template', onClick: () => setShowForm(true) } : undefined}
         />
       ) : (
         <div className="flex flex-col gap-3">
@@ -214,8 +219,12 @@ export function ChecklistTemplates() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => navigate(`/pc-care/checklists/${t.id}/execute`)} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-violet-500/20 transition-all hover:shadow-md">Executar</button>
-                  <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">Editar</button>
-                  <button type="button" onClick={() => setConfirmRemove(t.id)} className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
+                  {canWrite && (
+                    <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">Editar</button>
+                  )}
+                  {canWrite && (
+                    <button type="button" onClick={() => setConfirmRemove(t.id)} className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
+                  )}
                 </div>
               </div>
               <div className="flex flex-col gap-1">

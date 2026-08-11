@@ -2,9 +2,11 @@ import { useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAssets } from '../hooks/useAssets'
 import { ARCHITECTURE_LABELS, ASSET_STATUS_LABELS, OPERATING_SYSTEM_LABELS, STORAGE_TYPE_LABELS } from '../types'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 export function PCDetail() {
   const { id } = useParams(); const navigate = useNavigate(); const { assets, loading } = useAssets(); const asset = assets.find((item) => item.id === id)
+  const { isFullAccess } = useAppAccess(); const canWrite = isFullAccess('pc-care')
   const children = useMemo(() => asset ? assets.filter((item) => item.parentAssetId === asset.id || asset.childAssetIds.includes(item.id)) : [], [asset, assets])
   if (loading) return null
   if (!asset) return <div className="py-12 text-center"><p className="text-sm text-fg-muted">Ativo não encontrado.</p><button type="button" onClick={() => navigate('/pc-care/assets')} className="mt-3 text-sm text-violet-500">Voltar ao inventário</button></div>
@@ -17,7 +19,7 @@ export function PCDetail() {
       <Section title="Licenças de software">{(asset.licenses?.length ?? 0) ? <div className="space-y-2">{asset.licenses.map((license) => <div key={license.id} className="flex items-center justify-between gap-3 rounded-lg bg-input p-3"><div className="min-w-0"><p className="truncate text-sm font-medium text-fg">{license.name}</p><p className="truncate text-xs text-fg-muted">{license.key || 'Sem chave registrada'}</p></div>{license.expiresAt && <ExpiryBadge date={license.expiresAt} />}</div>)}</div> : <p className="text-sm text-fg-muted">Nenhuma licença registrada.</p>}</Section>
       <Section title="Ativos vinculados">{children.length ? <div className="space-y-2">{children.map((child) => <button key={child.id} type="button" onClick={() => navigate(`/pc-care/assets/${child.id}`)} className="flex w-full items-center justify-between rounded-lg bg-input p-3 text-left"><span><b>{child.assetTag}</b><span className="ml-2 text-sm text-fg-muted">{child.equipmentType} · {child.manufacturer} {child.model}</span></span><span className="text-xs text-fg-muted">Ver</span></button>)}</div> : <p className="text-sm text-fg-muted">Nenhum ativo relacionado. A estrutura de relacionamento já está pronta para o vínculo entre ativos.</p>}</Section>
       <Section title="Observações"><p className="whitespace-pre-wrap text-sm text-fg">{asset.observations}</p></Section>
-      <div className="flex gap-3 pt-2"><button type="button" onClick={() => navigate('/pc-care/assets')} className="flex-1 rounded-lg border border-line py-2 text-sm">Voltar</button><button type="button" onClick={() => navigate(`/pc-care/assets/${asset.id}/edit`)} className="flex-1 rounded-lg bg-violet-600 py-2 text-sm font-medium text-white">Editar</button></div>
+      <div className="flex gap-3 pt-2"><button type="button" onClick={() => navigate('/pc-care/assets')} className="flex-1 rounded-lg border border-line py-2 text-sm">Voltar</button>{canWrite && <button type="button" onClick={() => navigate(`/pc-care/assets/${asset.id}/edit`)} className="flex-1 rounded-lg bg-violet-600 py-2 text-sm font-medium text-white">Editar</button>}</div>
     </div></div>
 }
 function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-xl border border-line bg-card/50 p-4"><h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">{title}</h3>{children}</section> }

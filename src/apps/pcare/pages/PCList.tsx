@@ -6,9 +6,10 @@ import { FilterBar, type AssetFilters } from '../components/FilterBar'
 import { EmptyState } from '../components/EmptyState'
 import { SkeletonCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 export function PCList() {
-  const navigate = useNavigate(); const { assets, loading } = useAssets(); const [search, setSearch] = useState(''); const [filters, setFilters] = useState<AssetFilters>({ location: 'all', type: 'all', status: 'all' })
+  const navigate = useNavigate(); const { assets, loading } = useAssets(); const { isFullAccess } = useAppAccess(); const canWrite = isFullAccess('pc-care'); const [search, setSearch] = useState(''); const [filters, setFilters] = useState<AssetFilters>({ location: 'all', type: 'all', status: 'all' })
   const locations = useMemo(() => [...new Set(assets.map((asset) => asset.location).filter(Boolean))].sort(), [assets])
   const filtered = useMemo(() => assets.filter((asset) => {
     if (filters.location !== 'all' && asset.location !== filters.location) return false
@@ -27,7 +28,7 @@ export function PCList() {
   }, [assets])
   if (loading) return <div className="space-y-2">{[1, 2, 3].map((i) => <SkeletonCard key={i} />)}</div>
   return <div>
-    <div className="mb-4 flex items-center justify-between"><div><h2 className="text-xl font-semibold">Ativos</h2><p className="text-xs text-fg-muted">Inventário de equipamentos de TI</p></div><button type="button" onClick={() => navigate('/pc-care/assets/new')} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-2 text-sm font-medium text-white">+ Novo ativo</button></div>
+    <div className="mb-4 flex items-center justify-between"><div><h2 className="text-xl font-semibold">Ativos</h2><p className="text-xs text-fg-muted">Inventário de equipamentos de TI</p></div>{canWrite && <button type="button" onClick={() => navigate('/pc-care/assets/new')} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-2 text-sm font-medium text-white">+ Novo ativo</button>}</div>
     {expiring.length > 0 && (
       <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-900/30 bg-amber-50 p-3 dark:bg-amber-950/20">
         <icons.ui.alertTriangle size={18} className="shrink-0 text-amber-600 dark:text-amber-400" />

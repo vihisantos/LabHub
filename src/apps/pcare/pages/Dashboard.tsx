@@ -8,6 +8,7 @@ import { actionLogService } from '../services/actionLogService'
 import { SkeletonStatCard, SkeletonTimeline } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { ChartCard, DonutChart, BarChart } from '../../../lib/charts'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
@@ -53,6 +54,8 @@ export function Dashboard() {
   const { parts, loading: partsLoading } = useParts()
   const { all: allMaint, upcoming, loading: maintLoading } = useMaintenance()
   const { activeLab } = useActiveLab()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('pc-care')
 
   const pcs = useMemo(() => {
     if (!activeLab) return allPcs
@@ -201,7 +204,7 @@ export function Dashboard() {
       </div>
 
       <div className="relative z-10 grid grid-cols-3 gap-2">
-        {quickActions.map(({ to, label, icon: Icon, color }, i) => (
+        {quickActions.filter(({ to }) => canWrite || to !== '/pc-care/assets/new').map(({ to, label, icon: Icon, color }, i) => (
           <button
             key={to}
             type="button"

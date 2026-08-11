@@ -9,6 +9,7 @@ import { useParts } from '../hooks/useParts'
 import { useOnlineSync } from '../hooks/useOnlineSync'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 function downloadJSON(data: unknown, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -186,6 +187,8 @@ export function Settings() {
   const [importResult, setImportResult] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmClearFinal, setConfirmClearFinal] = useState(false)
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('pc-care')
 
   function handleExportAll() {
     const all = {
@@ -379,37 +382,41 @@ export function Settings() {
         </button>
       </section>
 
-      <section className="rounded-xl border border-line bg-card/50 p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Importar Dados</h3>
-        <p className="mb-2 text-xs text-fg-muted">O nome do arquivo deve conter "PC" (para PCs) ou "peca" (para peças) para identificar automaticamente o tipo.</p>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv"
-          onChange={handleFileChange}
-          className="hidden"
-        />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="w-full rounded-lg border border-dashed border-line py-3 text-sm text-fg-dim transition-colors hover:border-line hover:text-fg-dim"
-        >
-          Selecionar arquivo CSV
-        </button>
-        {importResult && (
-          <p className="mt-2 text-xs text-fg-dim">{importResult}</p>
-        )}
-      </section>
+      {canWrite && (
+        <section className="rounded-xl border border-line bg-card/50 p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Importar Dados</h3>
+          <p className="mb-2 text-xs text-fg-muted">O nome do arquivo deve conter "PC" (para PCs) ou "peca" (para peças) para identificar automaticamente o tipo.</p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="w-full rounded-lg border border-dashed border-line py-3 text-sm text-fg-dim transition-colors hover:border-line hover:text-fg-dim"
+          >
+            Selecionar arquivo CSV
+          </button>
+          {importResult && (
+            <p className="mt-2 text-xs text-fg-dim">{importResult}</p>
+          )}
+        </section>
+      )}
 
       <section className="rounded-xl border border-red-900/30 bg-red-950/20 p-4">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">Zona de Perigo</h3>
-        <button
-          type="button"
-          onClick={() => setConfirmClear(true)}
-          className="w-full rounded-lg border border-red-600 dark:border-red-800 py-2 text-sm font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-red-50 dark:hover:bg-red-900/30"
-        >
-          Limpar Todos os Dados
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setConfirmClear(true)}
+            className="w-full rounded-lg border border-red-600 dark:border-red-800 py-2 text-sm font-medium text-red-600 dark:text-red-400 transition-colors hover:bg-red-50 dark:hover:bg-red-900/30"
+          >
+            Limpar Todos os Dados
+          </button>
+        )}
       </section>
 
       <ConfirmDialog
