@@ -4,11 +4,14 @@ import { useRooms } from '../hooks/useRooms'
 import { stockService } from '../../stock/services/stockService'
 import { pcService } from '../../pcare/services/pcService'
 import { icons } from '../../../lib/icons'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 export function RoomForm() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { rooms, create, update } = useRooms()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('chamados')
   const existingRoom = id ? rooms.find((r) => r.id === id) : null
 
   const [name, setName] = useState(existingRoom?.name || '')
@@ -68,6 +71,16 @@ export function RoomForm() {
       create({ name: name.trim(), location: location.trim(), assetIds })
     }
     navigate('/chamados/rooms')
+  }
+
+  if (!canWrite) {
+    return (
+      <div className="flex flex-col items-center py-12">
+        <icons.ui.shield size={32} className="text-fg-muted" />
+        <p className="mt-3 text-sm text-fg-muted">Acesso somente leitura</p>
+        <p className="mt-1 text-xs text-fg-dim">Você não tem permissão para criar ou editar salas.</p>
+      </div>
+    )
   }
 
   return (

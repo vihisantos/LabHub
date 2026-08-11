@@ -1,6 +1,7 @@
 import type { ProblemTemplate, ProblemTemplateFormData } from '../types'
 import { createSyncService } from '../../../lib/sync'
 import { DEFAULT_PROBLEM_TEMPLATES } from '../types'
+import { permissionService } from '../../../core/permissions/service'
 
 const service = createSyncService<ProblemTemplate>('problem_templates')
 
@@ -15,12 +16,19 @@ export const problemTemplateService = {
   getById: (id: string) => service.getById(id),
 
   create: (data: ProblemTemplateFormData) => {
+    permissionService.requireWrite('chamados')
     return service.create(serialize(data))
   },
 
-  update: (id: string, data: Partial<ProblemTemplate>) => service.update(id, data),
+  update: (id: string, data: Partial<ProblemTemplate>) => {
+    permissionService.requireWrite('chamados')
+    return service.update(id, data)
+  },
 
-  remove: (id: string) => service.remove(id),
+  remove: (id: string) => {
+    permissionService.requireWrite('chamados')
+    return service.remove(id)
+  },
 
   query: (predicate: (item: ProblemTemplate) => boolean) => service.query(predicate),
 
@@ -33,6 +41,7 @@ export const problemTemplateService = {
     if (existing.length > 0) return
     for (const template of DEFAULT_PROBLEM_TEMPLATES) {
       const now = new Date().toISOString()
+      // Seed direto no sync service — não passa pela guarda de escrita (infra, não ação de usuário)
       service.create({ ...template, createdAt: now, updatedAt: now })
     }
   },

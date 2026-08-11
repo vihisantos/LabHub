@@ -1,6 +1,7 @@
 import type { Ticket, TicketFormData } from '../types'
 import { createSyncService } from '../../../lib/sync'
 import { logService } from '../../../core/logs/service'
+import { permissionService } from '../../../core/permissions/service'
 
 const service = createSyncService<Ticket>('chamados')
 
@@ -27,6 +28,7 @@ export const ticketService = {
   getById: (id: string) => service.getById(id),
 
   create: (data: TicketFormData) => {
+    // Aberto para o formulário público (/chamados-publico) — criação de chamado é sempre permitida.
     const ticket = service.create(serialize(data))
     logService.log({
       userId: 'public',
@@ -41,6 +43,7 @@ export const ticketService = {
   },
 
   update: (id: string, data: Partial<Ticket>) => {
+    permissionService.requireWrite('chamados')
     const ticket = service.update(id, data)
     if (ticket) {
       logService.log({
@@ -56,7 +59,10 @@ export const ticketService = {
     return ticket
   },
 
-  remove: (id: string) => service.remove(id),
+  remove: (id: string) => {
+    permissionService.requireWrite('chamados')
+    return service.remove(id)
+  },
 
   query: (predicate: (item: Ticket) => boolean) => service.query(predicate),
 

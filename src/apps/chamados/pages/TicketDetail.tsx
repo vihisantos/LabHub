@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useTickets } from '../hooks/useTickets'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../types'
 import { icons } from '../../../lib/icons'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { TicketStatus } from '../types'
 
 const STATUS_FLOW: TicketStatus[] = ['aberto', 'em_atendimento', 'resolvido', 'fechado']
@@ -20,6 +21,8 @@ function formatDate(iso: string) {
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const { tickets, updateStatus } = useTickets()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('chamados')
   const ticket = tickets.find((t) => t.id === id)
 
   const history = useMemo(() => {
@@ -140,7 +143,7 @@ export function TicketDetail() {
         </div>
       </div>
 
-      {nextStatus && (
+      {canWrite && nextStatus && (
         <button
           type="button"
           onClick={handleAdvanceStatus}
