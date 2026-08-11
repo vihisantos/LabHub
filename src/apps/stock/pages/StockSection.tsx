@@ -18,6 +18,7 @@ import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { exportStockItemsCSV } from '../utils/export'
 import { parseFile, mapStockRow, validateRows } from '../utils/import'
+import { applyMovementEffects } from '../utils/movementEffects'
 import { createMany } from '../utils/batchCreate'
 import { BatchCreateModal } from '../components/BatchCreateModal'
 import { DesktopSetupModal } from '../components/DesktopSetupModal'
@@ -216,7 +217,7 @@ export function StockSectionPage() {
 
   function confirmDiscard() {
     if (!discardTarget) return
-    createMovement({
+    applyMovementEffects(discardTarget, {
       itemId: discardTarget.id,
       itemName: discardTarget.name,
       type: 'descarte',
@@ -226,41 +227,13 @@ export function StockSectionPage() {
       replacedPart: '',
       newPart: '',
       performedBy: '',
-    })
-    update(discardTarget.id, { status: 'descartado' })
+    }, { createMovement, updateItem: (id, patch) => update(id, patch) })
     setDiscardTarget(null)
   }
 
   function handleMovementSave(data: StockMovementFormData) {
-    createMovement(data)
-    if (movementTarget) {
-      if (data.type === 'mudanca_sala') {
-        update(movementTarget.id, { room: data.toRoom })
-      } else if (data.type === 'conserto') {
-        update(movementTarget.id, { status: 'em_conserto' })
-      } else if (data.type === 'emprestimo') {
-        update(movementTarget.id, { status: 'emprestado', room: data.destinationRoom || movementTarget.room })
-        fetch('/api/push/notify-loan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            itemName: movementTarget.name,
-            borrowedBy: data.borrowedBy || 'Alguém',
-            expectedReturnAt: data.expectedReturnAt || '',
-          }),
-        }).catch(() => {})
-      } else if (data.type === 'devolucao') {
-        update(movementTarget.id, { status: 'ativo' })
-        fetch('/api/push/notify-return', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            itemName: movementTarget.name,
-            returnedBy: data.performedBy || 'Alguém',
-          }),
-        }).catch(() => {})
-      }
-    }
+    if (!movementTarget) return
+    applyMovementEffects(movementTarget, data, { createMovement, updateItem: (id, patch) => update(id, patch) })
     setMovementTarget(null)
   }
 
