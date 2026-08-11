@@ -2,11 +2,14 @@ import { useState, useMemo } from 'react'
 import type { StockItemFormData, StockSection } from '../types'
 import { stockSections, sectionSubcategories, stockConditions } from '../types'
 import { Modal } from '../../pcare/components/Modal'
+import { createMany } from '../utils/batchCreate'
 
 interface BatchCreateModalProps {
   open: boolean
   onClose: () => void
-  onCreate: (items: StockItemFormData[]) => void
+  create: (data: StockItemFormData) => void
+  reload?: () => void
+  onCreated?: (count: number) => void
 }
 
 const emptyForm = (): StockItemFormData => ({
@@ -26,7 +29,7 @@ const emptyForm = (): StockItemFormData => ({
   linkedPcLabel: undefined,
 })
 
-export function BatchCreateModal({ open, onClose, onCreate }: BatchCreateModalProps) {
+export function BatchCreateModal({ open, onClose, create, reload, onCreated }: BatchCreateModalProps) {
   const [form, setForm] = useState<StockItemFormData>(emptyForm())
   const [serialsText, setSerialsText] = useState('')
 
@@ -54,7 +57,9 @@ export function BatchCreateModal({ open, onClose, onCreate }: BatchCreateModalPr
       serialNumber: serial,
     }))
 
-    onCreate(items)
+    if (items.length > 0) {
+      onCreated?.(createMany(items, { create, reload }))
+    }
     setForm(emptyForm())
     setSerialsText('')
     onClose()

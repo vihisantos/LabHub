@@ -2,11 +2,14 @@ import { useState } from 'react'
 import type { StockItemFormData } from '../types'
 import { stockConditions } from '../types'
 import { Modal } from '../../pcare/components/Modal'
+import { createMany } from '../utils/batchCreate'
 
 interface DesktopSetupModalProps {
   open: boolean
   onClose: () => void
-  onCreate: (items: StockItemFormData[]) => void
+  create: (data: StockItemFormData) => void
+  reload?: () => void
+  onCreated?: (count: number) => void
 }
 
 type SetupMode = 'full' | 'monitor' | 'mouse' | 'keyboard'
@@ -61,7 +64,7 @@ interface KeyboardData {
   notes: string
 }
 
-export function DesktopSetupModal({ open, onClose, onCreate }: DesktopSetupModalProps) {
+export function DesktopSetupModal({ open, onClose, create, reload, onCreated }: DesktopSetupModalProps) {
   const [mode, setMode] = useState<SetupMode | null>(null)
   const [step, setStep] = useState<'desktop' | 'monitor' | 'mouse' | 'keyboard' | 'confirm'>('desktop')
   const [desktop, setDesktop] = useState<DesktopData>({
@@ -259,7 +262,7 @@ export function DesktopSetupModal({ open, onClose, onCreate }: DesktopSetupModal
     }
 
     if (items.length > 0) {
-      onCreate(items)
+      onCreated?.(createMany(items, { create, reload }))
     }
     handleClose()
   }
