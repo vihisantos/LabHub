@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useKits } from '../hooks/useKits'
 import { useMovements } from '../hooks/useMovements'
@@ -12,6 +12,7 @@ import { PullToRefresh } from '../../pcare/components/PullToRefresh'
 import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { getOverdueLoans } from '../utils/overdue'
+import { stockPath } from '../utils/stockPath'
 import type { StockSection } from '../types'
 
 const donutColors: Record<StockSection, string> = {
@@ -46,6 +47,7 @@ const sectionColors: Record<StockSection, { bg: string; text: string; icon: stri
 
 export function StockDashboard() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { items, loading, reload } = useStock()
   const { kits } = useKits()
   const { movements } = useMovements()
@@ -231,7 +233,7 @@ export function StockDashboard() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => navigate('/stock/items?section=all')}
+                onClick={() => navigate(stockPath(location.pathname, '/items?section=all'))}
                 className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
               >
                 <icons.ui.package size={20} className="text-emerald-500" />
@@ -241,7 +243,7 @@ export function StockDashboard() {
 
               <button
                 type="button"
-                onClick={() => navigate('/stock/items?section=repair')}
+                onClick={() => navigate(stockPath(location.pathname, '/items?section=repair'))}
                 className={`rounded-xl p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive ${
                   inRepair.length > 0 ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-card'
                 }`}
@@ -257,7 +259,7 @@ export function StockDashboard() {
 
               <button
                 type="button"
-                onClick={() => navigate('/stock/kits')}
+                onClick={() => navigate(stockPath(location.pathname, '/kits'))}
                 className={`rounded-xl p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive ${
                   incompleteKits.length > 0 ? 'bg-red-50 dark:bg-red-950/30' : 'bg-card'
                 }`}
@@ -273,7 +275,7 @@ export function StockDashboard() {
 
               <button
                 type="button"
-                onClick={() => navigate('/stock/movements')}
+                onClick={() => navigate(stockPath(location.pathname, '/movements'))}
                 className={`rounded-xl p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive ${
                   overdueCount > 0 ? 'bg-rose-50 dark:bg-rose-950/30' : 'bg-card'
                 }`}
@@ -289,7 +291,7 @@ export function StockDashboard() {
 
               <button
                 type="button"
-                onClick={() => navigate('/stock/inventory')}
+                onClick={() => navigate(stockPath(location.pathname, '/inventory'))}
                 className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
               >
                 <icons.nav.checklists size={20} className="text-fg-muted" />
@@ -299,7 +301,7 @@ export function StockDashboard() {
 
               <button
                 type="button"
-                onClick={() => navigate('/stock/qr-scan')}
+                onClick={() => navigate(stockPath(location.pathname, '/qr-scan'))}
                 className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
               >
                 <icons.ui.scanBarcode size={20} className="text-fg-muted" />
@@ -309,7 +311,7 @@ export function StockDashboard() {
 
               <button
                 type="button"
-                onClick={() => navigate('/stock/maintenance')}
+                onClick={() => navigate(stockPath(location.pathname, '/maintenance'))}
                 className={`rounded-xl p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive ${
                   maintOverdue.length > 0 ? 'bg-red-50 dark:bg-red-950/30' : 'bg-card'
                 }`}
@@ -329,7 +331,7 @@ export function StockDashboard() {
                 <h3 className="text-sm font-semibold text-fg">Categorias</h3>
                 <button
                   type="button"
-                  onClick={() => navigate('/stock/items')}
+                  onClick={() => navigate(stockPath(location.pathname, '/items'))}
                   className="text-xs font-medium text-emerald-600 dark:text-emerald-400"
                 >
                   Ver tudo
@@ -416,7 +418,7 @@ export function StockDashboard() {
                   </h3>
                   <button
                     type="button"
-                    onClick={() => navigate('/stock/movements')}
+                    onClick={() => navigate(stockPath(location.pathname, '/movements'))}
                     className="text-xs font-medium text-rose-600 dark:text-rose-400"
                   >
                     Ver todos
@@ -457,7 +459,7 @@ export function StockDashboard() {
                   <h3 className="text-sm font-semibold text-fg">Atividade Recente</h3>
                   <button
                     type="button"
-                    onClick={() => navigate('/stock/movements')}
+                    onClick={() => navigate(stockPath(location.pathname, '/movements'))}
                     className="text-xs font-medium text-emerald-600 dark:text-emerald-400"
                   >
                     Ver todas

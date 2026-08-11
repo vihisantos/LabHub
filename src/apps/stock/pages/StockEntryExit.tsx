@@ -1,14 +1,16 @@
 import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { Tabs, TabsList, TabsTrigger } from '../../../lib/components/ui'
+import { stockPath } from '../utils/stockPath'
 
 
 export function StockEntryExit() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { items, loading, update } = useStock()
   const { create: createMovement } = useMovements()
   const [mode, setMode] = useState<'entrada' | 'saida'>('entrada')
@@ -108,7 +110,7 @@ export function StockEntryExit() {
         <h2 className="text-xl font-semibold">Entrada / Saída</h2>
         <button
           type="button"
-          onClick={() => navigate('/stock/movements')}
+          onClick={() => navigate(stockPath(location.pathname, '/movements'))}
           className="rounded-lg bg-input px-3 py-1.5 text-xs font-medium text-fg-dim hover:text-fg transition-colors"
         >
           Histórico

@@ -17,6 +17,7 @@ import { Pipeline } from './pages/Pipeline'
 export function StockApp() {
   return (
     <Routes>
+      <Route path="qr-scan" element={<StockQRScanner />} />
       <Route element={<StockLayout />}>
         <Route index element={<StockDashboard />} />
         <Route path="items" element={<StockSectionPage />} />
@@ -27,7 +28,6 @@ export function StockApp() {
         <Route path="inventory" element={<InventoryList />} />
         <Route path="inventory/:id" element={<InventoryDetail />} />
         <Route path="qr" element={<QRGenerator />} />
-        <Route path="qr-scan" element={<StockQRScanner />} />
         <Route path="entry-exit" element={<StockEntryExit />} />
         <Route path="maintenance" element={<StockMaintenance />} />
         <Route path="pipeline" element={<Pipeline />} />

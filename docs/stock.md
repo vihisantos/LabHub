@@ -2,7 +2,7 @@
 
 > Sub-app para gestao completa de materiais e suprimentos do laboratorio, com movimentacoes, kits, inventario ciclico e entrada/saida.
 
-**Rota:** `/stock`  
+**Rota:** `/stock` (alias `/general-stock` para o atalho PWA "Estoque Geral")  
 **Cor:** `#10b981` (emerald)
 
 ---
@@ -115,9 +115,13 @@ interface StockItem {
 | `/stock/inventory` | InventoryList | Inventario ciclico |
 | `/stock/inventory/:id` | InventoryDetail | Detalhe do inventario |
 | `/stock/qr` | QRGenerator | Gerador de QR codes |
-| `/stock/qr-scan` | StockQRScanner | Scanner QR |
+| `/stock/qr-scan` | StockQRScanner | Scanner QR (tela cheia, fora do layout) |
 | `/stock/entry-exit` | StockEntryExit | Entrada/Saida rapida |
 | `/stock/maintenance` | StockMaintenance | Manutencao preventiva |
+| `/stock/pipeline` | Pipeline | Pipeline de manutencao |
+| `/general-stock/*` | (alias) | Mesmo app com prefixo `/general-stock` (PWA "Estoque Geral") |
+
+> A navegacao interna preserva o prefixo atual (`/stock` ou `/general-stock`) via `src/apps/stock/utils/stockPath.ts`.
 
 ---
 

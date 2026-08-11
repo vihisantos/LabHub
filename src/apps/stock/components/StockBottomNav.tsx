@@ -5,6 +5,7 @@ import { useStock } from '../hooks/useStock'
 import { useKits } from '../hooks/useKits'
 import { useMovements } from '../hooks/useMovements'
 import { getOverdueCount } from '../utils/overdue'
+import { normalizeStockPath, stockNavPath } from '../utils/stockPath'
 import { icons } from '../../../lib/icons'
 import { Popover, PopoverTrigger, PopoverContent } from '../../../lib/components/ui'
 
@@ -43,14 +44,16 @@ export function StockBottomNav() {
 
   const moreBadge = incompleteKits
 
-  const isInMore = moreItems.some((i) => location.pathname.startsWith(i.to))
-  const moreActive = moreItems.find((i) => location.pathname.startsWith(i.to))
+  const normalized = normalizeStockPath(location.pathname)
+
+  const isInMore = moreItems.some((i) => normalized.startsWith(i.to))
+  const moreActive = moreItems.find((i) => normalized.startsWith(i.to))
 
   const MoreIcon = icons.nav.more
 
   const isActive = (to: string) => {
-    if (to === '/stock') return location.pathname === '/stock' || location.pathname === '/stock/'
-    return location.pathname.startsWith(to + '/') || location.pathname === to
+    if (to === '/stock') return normalized === '/stock' || normalized === '/stock/'
+    return normalized.startsWith(to + '/') || normalized === to
   }
   const activeTab = mainNav.find(n => isActive(n.to))
   const displayTab = hoveredTab ? mainNav.find(n => n.to === hoveredTab) : activeTab
@@ -90,7 +93,7 @@ export function StockBottomNav() {
 
   const handleTouchEnd = () => {
     if (hoveredTab && hoveredTab !== activeTab?.to) {
-      navigate(hoveredTab)
+      navigate(stockNavPath(location.pathname, hoveredTab))
     }
     setHoveredTab(null)
   }
@@ -131,7 +134,7 @@ export function StockBottomNav() {
           return (
             <button
               key={to}
-              onClick={() => navigate(to)}
+              onClick={() => navigate(stockNavPath(location.pathname, to))}
               className="relative flex flex-1 flex-col items-center justify-center gap-0 py-1.5 text-[10px] font-medium transition-colors flex-shrink-0"
               style={{
                 color: active ? '#34d399' : 'rgba(255,255,255,0.7)',
@@ -195,11 +198,11 @@ export function StockBottomNav() {
           <PopoverContent side="top" align="center" className="w-72 border border-white/15 bg-slate-900/95 p-2 backdrop-blur-2xl shadow-xl shadow-black/20">
             <div className="grid grid-cols-2 gap-1">
               {moreItems.map(({ to, label, icon: Icon }) => {
-                const active = location.pathname.startsWith(to)
+                const active = normalized.startsWith(to)
                 return (
                   <button
                     key={to}
-                    onClick={() => { navigate(to); setShowMore(false) }}
+                    onClick={() => { navigate(stockNavPath(location.pathname, to)); setShowMore(false) }}
                     className={`flex flex-col items-center gap-1 rounded-xl px-3 py-3 text-[11px] font-medium transition-colors ${
                       active
                         ? 'bg-emerald-900/25 text-emerald-400'

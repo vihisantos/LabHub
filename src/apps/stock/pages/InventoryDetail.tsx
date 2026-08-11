@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useInventory, useInventoryCounts } from '../hooks/useInventory'
 import { useStock } from '../hooks/useStock'
 import { ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockSections } from '../types'
+import { stockPath } from '../utils/stockPath'
 
 type Step = 'counting' | 'review' | 'done'
 
 export function InventoryDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { cycles, completeCycle, removeCycle } = useInventory()
   const { items } = useStock()
   const { counts, saveCount } = useInventoryCounts(id || '')
@@ -80,7 +82,7 @@ export function InventoryDetail() {
   function handleDelete() {
     if (cycle) removeCycle(cycle.id)
     setShowDelete(false)
-    navigate('/stock/inventory', { replace: true })
+    navigate(stockPath(location.pathname, '/inventory'), { replace: true })
   }
 
   if (!cycle) {
@@ -88,7 +90,7 @@ export function InventoryDetail() {
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <icons.ui.search size={32} className="mb-3 text-fg-muted" />
         <h3 className="mb-1 text-lg font-medium text-fg-dim">Ciclo não encontrado</h3>
-        <button type="button" onClick={() => navigate('/stock/inventory')} className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
+        <button type="button" onClick={() => navigate(stockPath(location.pathname, '/inventory'))} className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
           Voltar
         </button>
       </div>
@@ -98,12 +100,7 @@ export function InventoryDetail() {
   if (cycle.status === 'completed') {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => navigate('/stock/inventory')} className="rounded-xl p-1.5 text-fg-dim hover:text-fg hover:bg-input transition-colors">
-            <icons.ui.back size={20} />
-          </button>
-          <h2 className="text-2xl font-bold tracking-tight">{cycle.name}</h2>
-        </div>
+        <h2 className="text-2xl font-bold tracking-tight">{cycle.name}</h2>
 
         <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 p-4 text-center">
           <icons.ui.checkCircle size={32} className="mx-auto mb-2 text-emerald-500" />
@@ -161,7 +158,7 @@ export function InventoryDetail() {
           <icons.ui.checkCircle size={32} className="mx-auto mb-2 text-emerald-500" />
           <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-400">Ciclo Concluído</h3>
         </div>
-        <button type="button" onClick={() => navigate('/stock/inventory')} className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+        <button type="button" onClick={() => navigate(stockPath(location.pathname, '/inventory'))} className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
           Voltar ao Inventário
         </button>
       </div>
@@ -177,12 +174,7 @@ export function InventoryDetail() {
 
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => navigate('/stock/inventory')} className="rounded-xl p-1.5 text-fg-dim hover:text-fg hover:bg-input transition-colors">
-            <icons.ui.back size={20} />
-          </button>
-          <h2 className="text-2xl font-bold tracking-tight">{cycle.name}</h2>
-        </div>
+        <h2 className="text-2xl font-bold tracking-tight">{cycle.name}</h2>
 
         <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)] text-center">
           <p className="text-3xl font-bold text-fg">{counted}/{total}</p>
@@ -234,9 +226,6 @@ export function InventoryDetail() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <button type="button" onClick={() => navigate('/stock/inventory')} className="rounded-xl p-1.5 text-fg-dim hover:text-fg hover:bg-input transition-colors">
-          <icons.ui.back size={20} />
-        </button>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-bold tracking-tight truncate">{cycle.name}</h2>
           <p className="text-xs text-fg-muted">{sectionLabel(cycle.section)} · {allItems.length} itens</p>

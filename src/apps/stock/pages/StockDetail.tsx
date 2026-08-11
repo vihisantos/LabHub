@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
 import { useMovements } from '../hooks/useMovements'
 import { pcService } from '../../pcare/services/pcService'
@@ -11,11 +11,13 @@ import { MovementTimeline } from '../components/MovementTimeline'
 import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
+import { stockPath } from '../utils/stockPath'
 import type { StockItemFormData } from '../types'
 
 export function StockDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { items, create, update, remove } = useStock()
   const { movements } = useMovements()
   const [showEdit, setShowEdit] = useState(false)
@@ -76,7 +78,7 @@ export function StockDetail() {
       <EmptyState
         icon={icons.ui.search}
         title="Item não encontrado"
-        action={{ label: 'Voltar', onClick: () => navigate('/stock') }}
+        action={{ label: 'Voltar', onClick: () => navigate(stockPath(location.pathname, '')) }}
       />
     )
   }
@@ -95,27 +97,19 @@ export function StockDetail() {
       stockPhotoService.setAll(newItem.id, photos)
     }
     setShowDuplicate(false)
-    navigate(`/stock/items/${newItem.id}`, { replace: true })
+    navigate(stockPath(location.pathname, `/items/${newItem.id}`), { replace: true })
   }
 
   function handleDelete() {
     stockPhotoService.deleteAll(item!.id)
     remove(item!.id)
     setShowDelete(false)
-    navigate('/stock', { replace: true })
+    navigate(stockPath(location.pathname, ''), { replace: true })
   }
 
   return (
     <div>
       <div className="mb-5 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => navigate('/stock')}
-          className="rounded-xl p-1.5 text-fg-dim hover:text-fg hover:bg-input transition-colors"
-          aria-label="Voltar"
-        >
-          <icons.ui.back size={20} />
-        </button>
         <h2 className="text-2xl font-bold tracking-tight flex-1">{item.name}</h2>
         <button
           type="button"

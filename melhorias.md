@@ -1,7 +1,7 @@
 # Melhorias - LabHub
 
 > Ideias e prioridades para evolução do projeto.
-> **Versão atual:** 0.1.1 · **Stack:** React 19, Vite, Tailwind v4, Supabase, PWA
+> **Versão atual:** 1.0.0 · **Stack:** React 19, Vite, Tailwind v4, Supabase, PWA
 
 ---
 
@@ -771,7 +771,7 @@
 
 ---
 
-### 56. Editar/Deletar Itens no StockDetail
+### 56. ~~Editar/Deletar Itens no StockDetail~~ ✅
 
 **Problema:** StockDetail é read-only. Usuário precisa voltar pra lista pra editar ou excluir um item.
 
@@ -784,7 +784,7 @@
 
 ---
 
-### 57. Editar/Deletar Kits
+### 57. ~~Editar/Deletar Kits~~ ✅
 
 **Problema:** KitDetail não permite editar nome/sala/itens nem deletar kit. O usuário precisa criar um novo kit se algo estiver errado.
 
@@ -797,7 +797,7 @@
 
 ---
 
-### 58. Workflow de Entrada/Saída no Stock
+### 58. ~~Workflow de Entrada/Saída no Stock~~ ✅
 
 **Problema:** Tipos "entrada" e "saída" existem no enum de movimentações mas nunca são usados. Itens aparecem como "ativo" sem registro de como/when entraram no estoque.
 
@@ -810,7 +810,7 @@
 
 ---
 
-### 59. Alerta de Empréstimo Atrasado
+### 59. ~~Alerta de Empréstimo Atrasado~~ ✅
 
 **Problema:** Itens emprestados têm `expectedReturnAt` mas não há alerta quando o prazo vence. Técnico esquece de cobrar devolução.
 
@@ -823,7 +823,7 @@
 
 ---
 
-### 60. Duplicar Item no Stock
+### 60. ~~Duplicar Item no Stock~~ ✅
 
 **Problema:** Para adicionar 10 mice idênticos, precisa preencher o formulário 10 vezes com os mesmos dados.
 
@@ -836,7 +836,7 @@
 
 ---
 
-### 61. Corrigir BottomNav do Stock
+### 61. ~~Corrigir BottomNav do Stock~~ ✅
 
 **Problema:** BottomNav só tem 4 tabs (Dashboard, Estoque, Mov., Kits). Inventário e QR ficam escondidos no grid do Dashboard — difícil de acessar.
 
@@ -849,7 +849,7 @@
 
 ---
 
-### 62. Editar/Deletar Movimentações
+### 62. ~~Editar/Deletar Movimentações~~ ✅
 
 **Problema:** Movimentações são append-only. Um erro de digitação no tipo ou na data não tem como corrigir.
 
@@ -862,7 +862,7 @@
 
 ---
 
-### 63. Testes Unitários do Stock
+### 63. ~~Testes Unitários do Stock~~ ✅
 
 **Problema:** Stock app tem ZERO testes apesar do vitest estar configurado. Qualquer refactor pode quebrar funcionalidade sem perceber.
 
@@ -875,7 +875,7 @@
 
 ---
 
-### 64. Corrigir Rota `/general-stock` no Layout
+### 64. ~~Corrigir Rota `/general-stock` no Layout~~ ✅
 
 **Problema:** `App.tsx` mapeia `general-stock/*` para StockApp, mas StockLayout hardcoded `/stock/*` no `mainRoutes`. A lógica de back button e título pode quebrar nessa rota.
 
@@ -883,11 +883,13 @@
 - Generalizar paths no StockLayout para suportar ambos os prefixos (`/stock` e `/general-stock`)
 - Usar `pathname.startsWith('/stock') || pathname.startsWith('/general-stock')`
 
-**Arquivos envolvidos:** `src/apps/stock/layouts/StockLayout.tsx`
+**Feito:** StockLayout já trata ambos os prefixos. Para eliminar inconsistências de navegação (back/links), foi criado `src/apps/stock/utils/stockPath.ts` com `stockPrefix`, `stockPath`, `stockNavPath` e `normalizeStockPath`. StockDetail, KitDetail, InventoryDetail, StockDashboard, StockBottomNav e QRScanner agora usam o prefixo atual em vez de `navigate('/stock/...')` hardcoded. Botão voltar duplicado removido dos detalhes (o header do layout é o único). QRScanner movido para fora do StockLayout (padrão do pcare).
+
+**Arquivos envolvidos:** `src/apps/stock/layouts/StockLayout.tsx`, `src/apps/stock/utils/stockPath.ts`, `src/apps/stock/pages/StockDetail.tsx`, `src/apps/stock/pages/KitDetail.tsx`, `src/apps/stock/pages/InventoryDetail.tsx`, `src/apps/stock/pages/StockDashboard.tsx`, `src/apps/stock/pages/StockEntryExit.tsx`, `src/apps/stock/pages/QRScanner.tsx`, `src/apps/stock/components/StockBottomNav.tsx`, `src/apps/stock/index.tsx`
 
 ---
 
-### 65. Sync do Inventário para Supabase
+### 65. ~~Sync do Inventário para Supabase~~ ✅
 
 **Problema:** `inventoryService` usa `createLocalService` (não `createSyncService`). Dados de contagem de inventário não são sincronizados com o Supabase e podem ser perdidos.
 
@@ -908,9 +910,9 @@
 | 🔥 | Auth (Supabase) | Médio | Alto |
 | 🔥 | Upload de fotos | Médio | Alto |
 | 🔥 | Dashboard com gráficos | Médio | Alto |
-| 🔥 | Workflow entrada/saída (stock) | Médio | Alto |
-| 📋 | Editar/deletar itens stock | Baixo | Alto |
-| 📋 | Testes unitários stock | Alto | Alto |
+| ✅ | Workflow entrada/saída (stock) | Médio | Alto |
+| ✅ | Editar/deletar itens stock | Baixo | Alto |
+| ✅ | Testes unitários stock | Alto | Alto |
 | 📋 | Operações em lote | Médio | Médio |
 | 📋 | Notificações push | Alto | Médio |
 | 📋 | Importar dados | Médio | Médio |
@@ -927,11 +929,11 @@
 | 📋 | Inventário cíclico (stock) | Alto | Alto |
 | 📋 | Consolidado por laboratório | Médio | Médio |
 | 📋 | Grade de manutenção (calendário) | Médio | Médio |
-| 📋 | Alerta empréstimo atrasado | Baixo | Médio |
-| 📋 | Duplicar item stock | Baixo | Médio |
-| 📋 | Editar/deletar movimentações | Médio | Médio |
-| 📋 | Sync inventário Supabase | Baixo | Médio |
-| 📋 | Editar/deletar kits | Baixo | Médio |
+| ✅ | Alerta empréstimo atrasado | Baixo | Médio |
+| ✅ | Duplicar item stock | Baixo | Médio |
+| ✅ | Editar/deletar movimentações | Médio | Médio |
+| ✅ | Sync inventário Supabase | Baixo | Médio |
+| ✅ | Editar/deletar kits | Baixo | Médio |
 | 🎯 | Atalhos teclado | Baixo | Baixo |
 | 🎯 | Tema do sistema | Baixo | Baixo |
 | 🎯 | Atividades global | Médio | Baixo |
@@ -966,5 +968,5 @@
 | 🎯 | Print styles | Baixo | Médio |
 | 🎯 | Laboratórios favoritos | Baixo | Baixo |
 | 🎯 | Quick Stats widget | Baixo | Médio |
-| 🎯 | BottomNav stock expandido | Baixo | Médio |
-| 🎯 | Corrigir rota general-stock | Baixo | Baixo |
+| ✅ | BottomNav stock expandido | Baixo | Médio |
+| ✅ | Corrigir rota general-stock | Baixo | Baixo |

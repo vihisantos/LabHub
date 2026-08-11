@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useKits } from '../hooks/useKits'
 import { KitChecklist } from '../components/KitChecklist'
 import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
+import { stockPath } from '../utils/stockPath'
 import type { KitItem, KitStatus } from '../types'
 
 function formatDate(iso: string) {
@@ -20,6 +21,7 @@ function formatDate(iso: string) {
 export function KitDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { kits, update, remove } = useKits()
   const [checking, setChecking] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
@@ -35,7 +37,7 @@ export function KitDetail() {
       <EmptyState
         icon={icons.ui.search}
         title="Kit não encontrado"
-        action={{ label: 'Voltar', onClick: () => navigate('/stock/kits') }}
+        action={{ label: 'Voltar', onClick: () => navigate(stockPath(location.pathname, '/kits')) }}
       />
     )
   }
@@ -74,20 +76,12 @@ export function KitDetail() {
   function handleDelete() {
     remove(kit!.id)
     setShowDelete(false)
-    navigate('/stock/kits', { replace: true })
+    navigate(stockPath(location.pathname, '/kits'), { replace: true })
   }
 
   return (
     <div>
       <div className="mb-5 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => navigate('/stock/kits')}
-          className="rounded-xl p-1.5 text-fg-dim hover:text-fg hover:bg-input transition-colors"
-          aria-label="Voltar"
-        >
-          <icons.ui.back size={20} />
-        </button>
         <h2 className="text-2xl font-bold tracking-tight flex-1">{kit.name}</h2>
         <button
           type="button"
