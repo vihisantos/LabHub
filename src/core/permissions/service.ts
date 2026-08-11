@@ -1,6 +1,7 @@
 import type { Role, RoleKey, AppAccessLevel, AppAccessOverride } from './types'
 import { DEFAULT_ROLES, DEFAULT_ROLE_APPS } from './types'
 import { createSyncService } from '../../lib/sync'
+import { authService } from '../auth/service'
 
 const service = createSyncService<Role>('roles')
 
@@ -87,6 +88,25 @@ export const permissionService = {
     appId: string,
   ): boolean => {
     return permissionService.resolveAppAccess(role, user, appId) !== null
+  },
+
+  /**
+   * Guarda imperativa de escrita (defesa em profundidade).
+   * Só nível 'full' permite modificar dados do app.
+   */
+  canWriteApp: (appId: string): boolean => {
+    const user = authService.getCurrentUser()
+    if (!user) return false
+    if (user.role === 'admin' || user.is_super_admin) return true
+    const role = permissionService.getRoleForUser(user.role)
+    return permissionService.resolveAppAccess(role, user, appId) === 'full'
+  },
+
+  /** Lança erro se o usuário atual não puder escrever no app. */
+  requireWrite: (appId: string): void => {
+    if (!permissionService.canWriteApp(appId)) {
+      throw new Error('Permissão insuficiente: seu acesso a este módulo é somente leitura.')
+    }
   },
 
   getRoleForUser: (userRole: string): Role | undefined => {
