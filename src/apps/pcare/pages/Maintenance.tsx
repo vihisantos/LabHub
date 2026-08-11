@@ -8,6 +8,7 @@ import { SkeletonCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
@@ -31,6 +32,8 @@ export function Maintenance() {
   const navigate = useNavigate()
   const { pcs } = usePCs()
   const { all, upcoming, loading, create, complete, remove, reload } = useMaintenance()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('pc-care')
   const [showForm, setShowForm] = useState(false)
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
@@ -124,13 +127,15 @@ export function Maintenance() {
     <PullToRefresh onRefresh={reload}>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Manutenção</h2>
-        <button
-          type="button"
-          onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
-        >
-          {showForm ? 'Cancelar' : '+ Agendar'}
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowForm(!showForm)}
+            className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md"
+          >
+            {showForm ? 'Cancelar' : '+ Agendar'}
+          </button>
+        )}
       </div>
 
       {/* View switcher */}
@@ -217,7 +222,7 @@ export function Maintenance() {
           icon={icons.ui.calendar}
           title="Nenhuma manutenção agendada"
           description="Programe a manutenção dos computadores."
-          action={{ label: 'Agendar', onClick: () => setShowForm(true) }}
+          action={canWrite ? { label: 'Agendar', onClick: () => setShowForm(true) } : undefined}
         />
       ) : view === 'calendar' ? (
         <div>
@@ -322,7 +327,7 @@ export function Maintenance() {
               <h3 className="mb-2 text-sm font-medium text-red-600 dark:text-red-400"><icons.ui.alertTriangle size={14} className="inline" /> Atrasadas ({overdue.length})</h3>
               <div className="flex flex-col gap-2">
                 {overdue.map((m) => (
-                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
+                  <MaintenanceCard key={m.id} maintenance={m} onComplete={canWrite ? complete : undefined} onRemove={canWrite ? remove : undefined} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
                 ))}
               </div>
             </section>
@@ -332,7 +337,7 @@ export function Maintenance() {
               <h3 className="mb-2 text-sm font-medium text-fg-dim">Próximas ({future.length})</h3>
               <div className="flex flex-col gap-2">
                 {future.map((m) => (
-                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
+                  <MaintenanceCard key={m.id} maintenance={m} onComplete={canWrite ? complete : undefined} onRemove={canWrite ? remove : undefined} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
                 ))}
               </div>
             </section>
@@ -342,7 +347,7 @@ export function Maintenance() {
               <h3 className="mb-2 text-sm font-medium text-fg-muted">Concluídas</h3>
               <div className="flex flex-col gap-2">
                 {all.filter((m) => m.completed).map((m) => (
-                  <MaintenanceCard key={m.id} maintenance={m} onComplete={complete} onRemove={remove} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
+                  <MaintenanceCard key={m.id} maintenance={m} onComplete={canWrite ? complete : undefined} onRemove={canWrite ? remove : undefined} onNavigate={() => navigate(`/pc-care/pcs/${m.pcId}`)} />
                 ))}
               </div>
             </section>
@@ -360,8 +365,8 @@ function MaintenanceCard({
   onNavigate,
 }: {
   maintenance: ReturnType<typeof useMaintenance>['all'][0]
-  onComplete: (id: string) => void
-  onRemove: (id: string) => void
+  onComplete?: (id: string) => void
+  onRemove?: (id: string) => void
   onNavigate: () => void
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -388,10 +393,12 @@ function MaintenanceCard({
             </p>
           </button>
           <div className="flex gap-2">
-            {!m.completed && (
+            {!m.completed && onComplete && (
               <button type="button" onClick={() => onComplete(m.id)} className="rounded bg-emerald-600 dark:bg-emerald-800 px-2 py-1 text-xs text-emerald-50 dark:text-emerald-200 ring-1 ring-emerald-500 dark:ring-emerald-700/50 transition-colors hover:bg-emerald-700">Concluir</button>
             )}
-            <button type="button" onClick={() => setConfirmRemove(true)} className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
+            {onRemove && (
+              <button type="button" onClick={() => setConfirmRemove(true)} className="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
+            )}
           </div>
         </div>
         {m.notes && <p className="mt-1 text-xs text-fg-muted">{m.notes}</p>}
@@ -399,7 +406,7 @@ function MaintenanceCard({
       <ConfirmDialog
         open={confirmRemove}
         onClose={() => setConfirmRemove(false)}
-        onConfirm={() => onRemove(m.id)}
+        onConfirm={() => { setConfirmRemove(false); if (onRemove) onRemove(m.id) }}
         title="Remover manutenção"
         message="Tem certeza que deseja remover esta manutenção?"
         confirmLabel="Remover"

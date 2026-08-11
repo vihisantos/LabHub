@@ -1,5 +1,6 @@
 import type { PartUsage } from '../types/partUsage'
 import { createSyncService } from '../../../lib/sync'
+import { permissionService } from '../../../core/permissions/service'
 
 const store = createSyncService<PartUsage>('part_usage')
 
@@ -12,14 +13,19 @@ export const partUsageService = {
   getByPartId: (partId: string) =>
     store.query((u) => u.partId === partId).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
 
-  log: (partId: string, pcId: string, partName: string, quantity: number) =>
-    store.create({
+  log: (partId: string, pcId: string, partName: string, quantity: number) => {
+    permissionService.requireWrite('pc-care')
+    return store.create({
       partId,
       pcId,
       partName,
       quantity,
       timestamp: new Date().toISOString(),
-    } as unknown as PartUsage),
+    } as unknown as PartUsage)
+  },
 
-  remove: (id: string) => store.remove(id),
+  remove: (id: string) => {
+    permissionService.requireWrite('pc-care')
+    return store.remove(id)
+  },
 }

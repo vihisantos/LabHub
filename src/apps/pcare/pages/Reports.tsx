@@ -8,6 +8,7 @@ import { partService } from '../services/partService'
 import { SkeletonStatCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 type DataType = 'pcs' | 'parts'
 type Format = 'csv' | 'xlsx' | 'pdf'
@@ -29,6 +30,8 @@ export function Reports() {
   const [importing, setImporting] = useState(false)
   const [importSuccess, setImportSuccess] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('pc-care')
 
   const labs = useMemo(() => {
     const unique = new Set(pcs.map((p) => p.labName))
@@ -168,17 +171,19 @@ export function Reports() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Relatórios</h2>
-        <button
-          type="button"
-          onClick={() => setImportMode(!importMode)}
-          className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
-            importMode
-              ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
-              : 'border-line text-fg-dim hover:border-line'
-          }`}
-        >
-          {importMode ? 'Exportar' : 'Importar CSV/XLSX'}
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setImportMode(!importMode)}
+            className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+              importMode
+                ? 'border-violet-500 bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
+                : 'border-line text-fg-dim hover:border-line'
+            }`}
+          >
+            {importMode ? 'Exportar' : 'Importar CSV/XLSX'}
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-4">

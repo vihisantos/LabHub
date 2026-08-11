@@ -6,12 +6,15 @@ import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { PCChecklistItem } from '../types/checklist'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 
 export function ChecklistExecute() {
   const { templateId } = useParams()
   const navigate = useNavigate()
   const { templates } = useChecklistTemplates()
   const { pcs } = usePCs()
+  const { isFullAccess } = useAppAccess()
+  const canWrite = isFullAccess('pc-care')
 
   const template = templates.find((t) => t.id === templateId)
 
@@ -56,6 +59,16 @@ export function ChecklistExecute() {
         <icons.nav.checklists size={40} />
         <p className="text-sm text-fg-dim">Template não encontrado</p>
         <button type="button" onClick={() => navigate('/pc-care/checklists')} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg">Voltar</button>
+      </div>
+    )
+  }
+
+  if (!canWrite) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 px-6 py-20 text-center">
+        <icons.ui.shield size={32} className="mx-auto text-fg-muted" />
+        <p className="text-sm text-fg-dim">Acesso somente leitura</p>
+        <p className="text-xs text-fg-muted">Seu acesso ao PC Care não permite executar checklists.</p>
       </div>
     )
   }
