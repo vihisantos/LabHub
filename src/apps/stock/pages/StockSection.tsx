@@ -251,6 +251,11 @@ export function StockSectionPage() {
     reload()
   }
 
+  function handleBatchUpdate(ids: string[], data: Partial<StockItem>) {
+    for (const id of ids) update(id, data)
+    reload()
+  }
+
   const tabLabel = activeTab === 'all' ? 'Ativos'
     : activeTab === 'repair' ? 'Em Conserto'
     : activeTab === 'emprestados' ? 'Emprestados'
