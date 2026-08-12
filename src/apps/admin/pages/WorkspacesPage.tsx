@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
+import { DuplicateStructureModal } from '../components/DuplicateStructureModal'
 import { icons } from '../../../lib/icons'
 
 export function WorkspacesPage() {
@@ -9,6 +10,7 @@ export function WorkspacesPage() {
   const [location, setLocation] = useState('')
   const [spreadsheetUrl, setSpreadsheetUrl] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [duplicateTarget, setDuplicateTarget] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -124,6 +126,14 @@ export function WorkspacesPage() {
             <div className="flex gap-1">
               <button
                 type="button"
+                onClick={() => setDuplicateTarget(ws.id)}
+                title="Duplicar modelo de dados para este workspace"
+                className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-input hover:text-cyan-500"
+              >
+                <icons.ui.copy size={14} />
+              </button>
+              <button
+                type="button"
                 onClick={() => startEdit(ws.id)}
                 className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-input hover:text-fg"
               >
@@ -140,6 +150,13 @@ export function WorkspacesPage() {
           </div>
         ))}
       </div>
+
+      <DuplicateStructureModal
+        open={!!duplicateTarget}
+        target={workspaces.find((w) => w.id === duplicateTarget) || null}
+        workspaces={workspaces}
+        onClose={() => setDuplicateTarget(null)}
+      />
     </div>
   )
 }

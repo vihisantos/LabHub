@@ -37,7 +37,7 @@ const FEATURES: Feature[] = [
   { id: 101, cat: 'high', name: 'Impersonação de Usuário', desc: 'Admin opera como um usuário para reproduzir problemas', effort: 'med', done: false },
   { id: 102, cat: 'high', name: 'Modo Offline Total com Fila de Operações', desc: 'Parcial: fila de alterações pendentes + re-sync automático ao voltar; falta fila de operações com replay e UI de estado offline', effort: 'high', done: false },
   { id: 103, cat: 'high', name: 'Painel Público de Disponibilidade de Labs', desc: 'Consulta aberta de horários livres sem login', effort: 'med', done: false },
-  { id: 104, cat: 'high', name: 'Múltiplas Unidades (Filiais)', desc: 'Multi-tenant por unidade com dados e permissões isoladas', effort: 'high', done: false },
+  { id: 104, cat: 'high', name: 'Múltiplas Unidades (Filiais)', desc: 'Multi-tenant por unidade com dados e permissões isoladas', effort: 'high', done: true },
 
   { id: 105, cat: 'mid', name: 'Reservas Recorrentes', desc: 'Repetir reserva semanal ou mensal em horários fixos', effort: 'low', done: false },
   { id: 106, cat: 'mid', name: 'QR Check-in/Check-out nos Laboratórios', desc: 'Registro de entrada/saída escaneando o QR da sala', effort: 'med', done: false },
@@ -67,7 +67,7 @@ const FEATURES: Feature[] = [
   { id: 130, cat: 'mid', name: 'Histórico Gráfico de Peças por PC', desc: 'Linha do tempo de trocas com visualização em gráfico', effort: 'med', done: false },
   { id: 131, cat: 'mid', name: 'Fila Prioritária de Chamados por Sala', desc: 'Sala com mais chamados sobe na prioridade automaticamente', effort: 'med', done: false },
   { id: 132, cat: 'mid', name: 'Templates de Murais Digitais na TV', desc: 'Layouts prontos para avisos, eventos e resultados', effort: 'low', done: false },
-  { id: 133, cat: 'mid', name: 'Duplicar Modelo de Dados entre Workspaces', desc: 'Copiar estrutura (salas, categorias, templates) para outro ambiente', effort: 'med', done: false },
+  { id: 133, cat: 'mid', name: 'Duplicar Modelo de Dados entre Workspaces', desc: 'Copiar estrutura (salas, categorias, templates) para outro ambiente', effort: 'med', done: true },
   { id: 134, cat: 'mid', name: 'Itens com Fotos Múltiplas', desc: 'Galeria de fotos por item com vista ampliada', effort: 'low', done: false },
 
   { id: 135, cat: 'low', name: 'Tour por App', desc: 'Onboarding guiado dentro de cada módulo novo', effort: 'low', done: false },
