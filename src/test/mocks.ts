@@ -15,7 +15,7 @@ const adminUser = {
   id: 'test-admin',
   email: 'admin@test.local',
   name: 'Admin Teste',
-  role: 'admin' as const,
+  roleId: 'role-technician',
   status: 'active' as const,
   is_super_admin: true,
   workspace_ids: [],

@@ -1,26 +1,24 @@
-import type { Role, RoleKey, AppAccessLevel, AppAccessOverride } from './types'
-import { DEFAULT_ROLES, DEFAULT_ROLE_APPS } from './types'
+import type { Role, AppAccessLevel, AppAccessOverride } from './types'
+import { DEFAULT_ROLES, resolveRoleId } from './types'
 import { createSyncService } from '../../lib/sync'
 import { authService } from '../auth/service'
 
 const service = createSyncService<Role>('roles')
 
 function serialize(data: Omit<Role, 'id'>): Role {
-  return { ...data, id: crypto.randomUUID() } as Role
+  return { ...data, id: (data as Partial<Role>).id ?? crypto.randomUUID() } as Role
 }
 
-function keyFor(role: { key?: string; name: string }): RoleKey {
-  if (role.key && DEFAULT_ROLE_APPS[role.key as RoleKey]) return role.key as RoleKey
+function keyFor(role: { key?: string; name: string }): string {
+  if (role.key) return role.key
   const name = role.name.toLowerCase()
-  if (name.includes('admin')) return 'admin'
   if (name.includes('téc') || name.includes('tec')) return 'technician'
   return 'viewer'
 }
 
 function defaultAccessFor(role: { key?: string; name: string }): Partial<Record<string, AppAccessLevel>> {
   const key = keyFor(role)
-  if (DEFAULT_ROLE_APPS[key]) return { ...DEFAULT_ROLE_APPS[key] }
-  const match = DEFAULT_ROLES.find((r) => r.key === key)
+  const match = DEFAULT_ROLES.find((r) => r.key === key) ?? DEFAULT_ROLES.find((r) => r.isDefault)
   return match ? { ...match.appAccess } : {}
 }
 
@@ -37,10 +35,18 @@ export const permissionService = {
 
   remove: (id: string) => service.remove(id),
 
-  /** Garante que roles antigas (com permissões granulares) ganhem `key` e `appAccess` */
+  /**
+   * Migração de cargos:
+   * - remove o cargo 'admin' (não existe mais — acesso admin é só is_super_admin);
+   * - garante que cargos legados ganhem `key` e `appAccess`.
+   */
   migrate: () => {
     const existing = service.getAll()
     for (const role of existing) {
+      if (role.key === 'admin' || role.id === 'role-admin') {
+        service.remove(role.id)
+        continue
+      }
       const patch: Partial<Role> = {}
       if (!role.key) patch.key = keyFor(role)
       if (!role.appAccess || Object.keys(role.appAccess).length === 0) {
@@ -54,7 +60,7 @@ export const permissionService = {
     const existing = service.getAll()
     if (existing.length === 0) {
       for (const role of DEFAULT_ROLES) {
-        service.create(serialize(role))
+        service.create(serialize({ ...role }))
       }
       return
     }
@@ -97,8 +103,8 @@ export const permissionService = {
   canWriteApp: (appId: string): boolean => {
     const user = authService.getCurrentUser()
     if (!user) return false
-    if (user.role === 'admin' || user.is_super_admin) return true
-    const role = permissionService.getRoleForUser(user.role)
+    if (user.is_super_admin) return true
+    const role = permissionService.getRoleForUser(user.roleId)
     return permissionService.resolveAppAccess(role, user, appId) === 'full'
   },
 
@@ -109,7 +115,11 @@ export const permissionService = {
     }
   },
 
+  /** Resolve o cargo pelo id (novo) ou pelo valor legado (key/name — migração). */
   getRoleForUser: (userRole: string): Role | undefined => {
+    const id = resolveRoleId(userRole)
+    const byId = service.query((r) => r.id === id)[0]
+    if (byId) return byId
     const byKey = service.query((r) => r.key === userRole)[0]
     if (byKey) return byKey
     return service.query((r) => r.name.toLowerCase().includes(userRole.toLowerCase()))[0]

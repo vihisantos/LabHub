@@ -1,6 +1,5 @@
 import type { AppAccessOverride } from '../permissions/types'
 
-export type UserRole = 'admin' | 'technician' | 'viewer'
 export type Accent = 'emerald' | 'cyan' | 'blue' | 'purple'
 export type ThemeVariant = 'dark' | 'dim' | 'light'
 
@@ -30,7 +29,8 @@ export interface User {
   name: string
   avatar?: string
   banner?: string
-  role: UserRole
+  /** Id do cargo (coleção local `roles`). Admin absoluto não depende de cargo. */
+  roleId: string
   status: UserStatus
   /** Admin absoluto — vê todos os workspaces e administra usuários */
   is_super_admin?: boolean
@@ -60,16 +60,4 @@ export interface AuthCredentials {
 
 export interface SignUpData extends AuthCredentials {
   name: string
-}
-
-export const ROLE_LABELS: Record<UserRole, string> = {
-  admin: 'Administrador',
-  technician: 'Técnico',
-  viewer: 'Visualizador',
-}
-
-export const ROLE_COLORS: Record<UserRole, string> = {
-  admin: 'bg-purple-500/15 text-purple-600 dark:text-purple-400',
-  technician: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
-  viewer: 'bg-fg-muted/15 text-fg-muted',
 }

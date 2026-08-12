@@ -1,10 +1,23 @@
 import { defaultDb, stockDb } from '../../lib/supabase'
 import type { User, AuthCredentials, SignUpData } from './types'
 import { themeStore } from '../theme/store'
+import { resolveRoleId } from '../permissions/types'
 
 let currentUser: User | null = null
 let authListeners: Array<(user: User | null) => void> = []
 let initialized = false
+
+/** Coluna Supabase `role` (string legada ou id) → campo TS `roleId` (id estável). */
+function fromDbUser<T extends Record<string, unknown>>(row: T): Omit<T, 'role'> & { roleId: string } {
+  const { role, ...rest } = row
+  return { ...rest, roleId: resolveRoleId(typeof role === 'string' ? role : undefined) }
+}
+
+/** Campo TS `roleId` → payload do Supabase (`role`). */
+function toDbUser(data: Record<string, unknown>): Record<string, unknown> {
+  const { roleId, ...rest } = data
+  return { ...rest, ...(roleId !== undefined ? { role: roleId } : {}) }
+}
 
 export function applyUserPreferences(user: User) {
   themeStore.apply(user.theme_variant, user.accent)
@@ -121,7 +134,7 @@ export const authService = {
       id: authData.user.id,
       email: data.email,
       name: data.name,
-      role: 'viewer' as const,
+      roleId: 'role-viewer',
       status: 'pending' as const,
       is_super_admin: false,
       workspace_ids: [] as string[],
@@ -148,7 +161,6 @@ export const authService = {
           read: false,
           createdAt: new Date().toISOString(),
           audience: 'role',
-          targetRole: 'admin',
           targetSuperAdmin: true,
         })
       }
@@ -178,7 +190,7 @@ export const authService = {
 
     const { error } = await defaultDb!
       .from('profiles')
-      .update({ ...data, updated_at: new Date().toISOString() })
+      .update({ ...toDbUser(data), updated_at: new Date().toISOString() })
       .eq('id', currentUser.id)
 
     if (error) throw error
@@ -198,7 +210,7 @@ export const authService = {
       .maybeSingle()
 
     if (error || !data) return null
-    return data as User
+    return fromDbUser(data) as unknown as User
   },
 
   createProfile: async (userId: string, email: string, name: string): Promise<User | null> => {
@@ -209,7 +221,7 @@ export const authService = {
       id: userId,
       email,
       name: name || email.split('@')[0],
-      role: 'viewer',
+      roleId: 'role-viewer',
       status: 'active',
       is_super_admin: false,
       workspace_ids: [],
@@ -225,7 +237,7 @@ export const authService = {
 
     const { data, error } = await defaultDb
       .from('profiles')
-      .insert(profile)
+      .insert(toDbUser(profile))
       .select()
       .single()
 
@@ -235,7 +247,7 @@ export const authService = {
     }
 
     console.log('[Auth] Profile created:', data)
-    return data as User
+    return fromDbUser(data) as User
   },
 
   onAuthChange: (callback: (user: User | null) => void) => {
@@ -271,7 +283,7 @@ export const authService = {
     // Only update and notify if something actually changed
     const changed =
       profile.status !== prev.status ||
-      profile.role !== prev.role ||
+      profile.roleId !== prev.roleId ||
       profile.is_super_admin !== prev.is_super_admin ||
       profile.theme_variant !== prev.theme_variant ||
       profile.accent !== prev.accent

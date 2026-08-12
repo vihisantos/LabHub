@@ -12,10 +12,10 @@ export function PushNotificationButton() {
     useMemo(() => {
       if (!user) return null
       const apps: Record<string, boolean> = {}
-      if (user.role === 'admin') {
+      if (user.is_super_admin) {
         for (const app of appRegistry) apps[app.id] = true
       } else {
-        const role = permissionService.getRoleForUser(user.role)
+        const role = permissionService.getRoleForUser(user.roleId)
         for (const app of appRegistry) {
           apps[app.id] = permissionService.resolveAppAccess(role, user, app.id) !== null
         }
@@ -23,7 +23,7 @@ export function PushNotificationButton() {
       return {
         id: user.id,
         name: user.name,
-        role: user.role,
+        role: user.roleId,
         is_super_admin: user.is_super_admin,
         workspace_ids: user.workspace_ids,
         apps,

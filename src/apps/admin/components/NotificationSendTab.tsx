@@ -7,8 +7,8 @@ import type {
   NotificationSeverity,
   NotificationAudience,
 } from '../../../core/notifications/types'
-import type { User, UserRole } from '../../../core/auth/types'
-import { ROLE_LABELS } from '../../../core/auth/types'
+import type { User } from '../../../core/auth/types'
+import { useRoles } from '../../../core/permissions/usePermissions'
 import { adminService } from '../../../core/auth/adminService'
 import { icons } from '../../../lib/icons'
 
@@ -29,13 +29,12 @@ const SEVERITIES: { value: NotificationSeverity; label: string }[] = [
   { value: 'critical', label: 'Crítico' },
 ]
 
-const ROLES: UserRole[] = ['viewer', 'technician', 'admin']
-
 type Destination = 'app' | 'role' | 'user'
 
 export function NotificationSendTab() {
   const { create } = useNotifications()
   const { workspaces } = useWorkspace()
+  const { roles } = useRoles()
 
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
@@ -43,7 +42,7 @@ export function NotificationSendTab() {
   const [severity, setSeverity] = useState<NotificationSeverity>('info')
   const [type, setType] = useState<NotificationType>('system')
   const [destination, setDestination] = useState<Destination>('app')
-  const [targetRole, setTargetRole] = useState<UserRole>('technician')
+  const [targetRole, setTargetRole] = useState<string>('')
   const [targetUser, setTargetUser] = useState('')
   const [workspaceScope, setWorkspaceScope] = useState('all')
   const [profiles, setProfiles] = useState<User[]>([])
@@ -69,12 +68,12 @@ export function NotificationSendTab() {
 
     const workspaceId = workspaceScope === 'all' ? undefined : workspaceScope
     let audience: NotificationAudience | undefined
-    let role: UserRole | undefined
+    let role: string | undefined
     let userId: string | undefined
 
     if (destination === 'role') {
       audience = 'role'
-      role = targetRole
+      role = targetRole || roles.find((r) => r.isDefault)?.id
     } else if (destination === 'user') {
       audience = 'user'
       userId = targetUser
@@ -239,19 +238,19 @@ export function NotificationSendTab() {
         </div>
 
         {destination === 'role' && (
-          <div className="flex gap-1.5">
-            {ROLES.map((r) => (
+          <div className="flex flex-wrap gap-1.5">
+            {roles.map((r) => (
               <button
-                key={r}
+                key={r.id}
                 type="button"
-                onClick={() => setTargetRole(r)}
+                onClick={() => setTargetRole(r.id)}
                 className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
-                  targetRole === r
+                  (targetRole || roles.find((x) => x.isDefault)?.id) === r.id
                     ? 'bg-indigo-500/15 text-indigo-500 ring-1 ring-indigo-500/30'
                     : 'bg-input text-fg-muted hover:text-fg'
                 }`}
               >
-                {ROLE_LABELS[r]}
+                {r.name}
               </button>
             ))}
           </div>

@@ -5,7 +5,6 @@ import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { adminService } from '../../../core/auth/adminService'
 import type { User, UserNotifySettings, NotifyChannelSettings } from '../../../core/auth/types'
 import type { Role } from '../../../core/permissions/types'
-import { ROLE_LABELS } from '../../../core/auth/types'
 import { appRegistry } from '../../../appRegistry'
 import { Switch } from '../../../lib/components/ui/switch'
 import { icons } from '../../../lib/icons'
@@ -15,8 +14,8 @@ const MODULES = appRegistry.filter((app) => app.id !== 'admin')
 const EMPTY_SETTINGS: UserNotifySettings = { muted: false, apps: {} }
 
 function userHasAppAccess(user: User, roles: Role[], appId: string): boolean {
-  if (user.role === 'admin') return true
-  const role = roles.find((r) => r.key === user.role)
+  if (user.is_super_admin) return true
+  const role = roles.find((r) => r.id === user.roleId)
   return permissionService.resolveAppAccess(role, user, appId) !== null
 }
 
@@ -163,7 +162,7 @@ export function NotificationRulesTab() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-medium text-fg">{user.name}</p>
                         <p className="truncate text-[10px] text-fg-muted">
-                          {ROLE_LABELS[user.role]}{' '}
+                          {roles.find((r) => r.id === user.roleId)?.name ?? 'Sem cargo'}{' '}
                           {user.is_super_admin ? '· Admin absoluto' : ''}
                         </p>
                       </div>
@@ -217,7 +216,7 @@ export function NotificationRulesTab() {
           {MODULES.map((app) => {
             const withAccess = profiles.filter((u) => userHasAppAccess(u, roles, app.id) && inWorkspaceScope(u, workspaceFilter))
             const rolesWithAccess = roles
-              .filter((r) => r.key !== 'admin' && r.appAccess?.[app.id])
+              .filter((r) => r.appAccess?.[app.id])
               .map((r) => r.name)
             return (
               <button
@@ -237,7 +236,7 @@ export function NotificationRulesTab() {
                   <p className="mt-0.5 truncate text-[10px] text-fg-muted">
                     {rolesWithAccess.length > 0
                       ? `Cargos com acesso: ${rolesWithAccess.join(', ')}`
-                      : 'Só administradores'}
+                      : 'Só admin absoluto'}
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
