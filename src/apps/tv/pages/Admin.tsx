@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen, Download } from 'lucide-react'
+import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen, Download, ListChecks } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
@@ -19,13 +19,15 @@ import { DeviceManager } from '../components/DeviceManager'
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipProvider } from '../../../lib/components/ui'
 import { CalendarManager } from '../components/CalendarManager'
 import { TvDesktopInstall } from '../components/TvDesktopInstall'
+import { MusicRequestManager } from '../components/MusicRequestManager'
 
-type TabId = 'events' | 'playlists' | 'music' | 'gallery' | 'announcements' | 'devices' | 'calendar' | 'install' | 'help'
+type TabId = 'events' | 'playlists' | 'music' | 'requests' | 'gallery' | 'announcements' | 'devices' | 'calendar' | 'install' | 'help'
 
 const tabs: { id: TabId; label: string; icon: typeof Calendar }[] = [
   { id: 'events', label: 'Eventos', icon: Calendar },
   { id: 'playlists', label: 'Playlists', icon: Monitor },
   { id: 'music', label: 'Filas de Música', icon: ListMusic },
+  { id: 'requests', label: 'Pedidos de Música', icon: ListChecks },
   { id: 'gallery', label: 'Galeria', icon: Images },
   { id: 'announcements', label: 'Avisos', icon: Megaphone },
   { id: 'devices', label: 'Dispositivos', icon: Tv },
@@ -370,6 +372,9 @@ export function AdminView() {
                   )}
                   {activeTab === 'music' && (
                     <QueueManager />
+                  )}
+                  {activeTab === 'requests' && (
+                    <MusicRequestManager />
                   )}
                   {activeTab === 'gallery' && (
                     <GalleryManager

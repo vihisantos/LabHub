@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, ChevronDown, ChevronRight, Shuffle, ArrowUp, ArrowDown, Music, Loader2, ExternalLink, Film } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, ChevronRight, Shuffle, ArrowUp, ArrowDown, Music, Loader2, ExternalLink, Film, PlayCircle } from 'lucide-react'
 import { useMusicQueues, type QueueWithTracks } from '../hooks/useMusicQueues'
+import { useMusicPlayer } from '../contexts/MusicPlayerContext'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -16,6 +17,7 @@ import { TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/compon
 
 export function QueueManager() {
   const { queues, loading, add, edit, remove, addTracksFromUrl, removeTrack, reorder } = useMusicQueues()
+  const { playNext, upNext } = useMusicPlayer()
   const [newName, setNewName] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [urlInput, setUrlInput] = useState('')
@@ -273,6 +275,18 @@ export function QueueManager() {
                                 >
                                   <ExternalLink size={12} />
                                 </a>
+                                <button
+                                  onClick={() => playNext(track)}
+                                  disabled={upNext?.id === track.id}
+                                  className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
+                                    upNext?.id === track.id
+                                      ? 'bg-amber-100 text-amber-600'
+                                      : 'text-slate-400 hover:text-amber-500'
+                                  }`}
+                                  title="Tocar a seguir (após a música atual)"
+                                >
+                                  <PlayCircle size={12} />
+                                </button>
                                 <button
                                   onClick={() => handleMoveUp(q.id, idx)}
                                   disabled={idx === 0}
