@@ -13,14 +13,14 @@
     <img src="https://img.shields.io/badge/Acessar-Aplicacao-10b981?style=for-the-badge&logo=vercel&logoColor=white" alt="Acessar Aplicacao" />
   </a>
   <img src="https://img.shields.io/github/actions/workflow/status/vihisantos/LabHub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI Status" />
-  <img src="https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.0.0-blue?style=for-the-badge" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT--Capybara--Holding-purple?style=for-the-badge" alt="License" />
 </p>
 
 ---
 
 <p align="center">
-  PWA modular para gestao de PCs, estoque, reservas de laboratorios e murais digitais em ambientes universitarios.
+  PWA modular para gestao de PCs, estoque, reservas de laboratorios, murais digitais e pedidos de musica em ambientes universitarios.
 </p>
 
 <br />
@@ -76,7 +76,7 @@ O **LabHub** centraliza todas as operacoes de laboratorios de informatica em uma
     </td>
     <td>
       <strong><a href="docs/tv.md">TV</a></strong><br/>
-      <sub>Canal corporativo, murais digitais, playlists de video e musica</sub>
+      <sub>Canal corporativo, murais digitais, playlists de video e musica, pedidos com aprovacao</sub>
     </td>
     <td align="center">
       <code>#ef4444</code>
@@ -150,7 +150,8 @@ O **LabHub** centraliza todas as operacoes de laboratorios de informatica em uma
 - Reserva de laboratorios e tablets
 - Dashboard com graficos de ocupacao
 - Murais digitais com carousel de eventos
-- Player de video/music para TV corporativa
+- Player de video/musica para TV corporativa
+- Pedidos de musica na TV com busca por nome e aprovacao do admin
 - QR codes para impressao e leitura via camera
 - Relatorios exportaveis em CSV, XLSX e PDF
 - Notificacoes push automaticas
@@ -179,15 +180,15 @@ Documentacao detalhada de cada modulo esta disponivel na pasta `docs/`:
 
 ## Roadmap
 
-O roadmap publico esta disponivel em `/roadmap` dentro do app, com 75 features mapeadas por categoria de impacto.
+O roadmap publico esta disponivel em `/roadmap` dentro do app, com 74 features mapeadas por categoria de impacto.
 
-**Progresso Atual:** ~65 features concluidas de 75 total
+**Progresso Atual:** 9 features concluidas de 74 total
 
 <br />
 
 ## Status
 
-**Versao:** 1.0.0 · **Status:** Pre-release
+**Versao:** 2.0.0 · **Status:** Pre-release
 
 - Camada de dados no localStorage (fonte de verdade local)
 - Sync Supabase disponivel quando configurado
