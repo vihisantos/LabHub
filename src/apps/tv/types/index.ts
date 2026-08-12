@@ -62,6 +62,13 @@ export interface YouTubeTrackInfo {
   duration: number
 }
 
+export interface YouTubeSearchResult {
+  videoId: string
+  title: string
+  channel: string
+  thumbnail: string
+}
+
 export interface TvGallery {
   id: string
   title: string
@@ -85,5 +92,21 @@ export interface TvDevice {
   workspace_id: string | null
   user_id: string | null
   last_seen: string | null
+  created_at: string
+}
+
+export type MusicRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export interface TvMusicRequest {
+  id: string
+  youtube_url: string
+  youtube_video_id: string | null
+  title: string | null
+  requested_by: string
+  requested_by_name: string | null
+  status: MusicRequestStatus
+  reviewed_by: string | null
+  reviewed_at: string | null
+  workspace_id?: string | null
   created_at: string
 }

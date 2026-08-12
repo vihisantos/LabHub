@@ -49,7 +49,7 @@ const FEATURES: Feature[] = [
   { id: 112, cat: 'mid', name: 'Playlists Agendadas na TV', desc: 'Programar conteúdo por horário e dia da semana', effort: 'med', done: false },
   { id: 113, cat: 'mid', name: 'Widgets de Clima/Relógio na TV', desc: 'Painéis informativos junto aos murais digitais', effort: 'low', done: false },
   { id: 114, cat: 'mid', name: 'Modo Emergência na TV', desc: 'Aviso urgente com destaque sobre todo o conteúdo', effort: 'low', done: false },
-  { id: 115, cat: 'mid', name: 'Controle Remoto da TV via QR', desc: 'Abrir o painel de controle no celular escaneando um QR', effort: 'med', done: false },
+  { id: 115, cat: 'mid', name: 'Pedido de Música na TV', desc: 'Colaborador pede uma música pelo hub, admin aprova e ela entra na fila da TV; inclui "tocar a seguir com espera"', effort: 'med', done: true },
   { id: 116, cat: 'mid', name: 'Backup Automático Agendado', desc: 'Parcial: export manual em JSON; falta snapshot periódico com retenção configurável', effort: 'med', done: false },
   { id: 117, cat: 'mid', name: 'Restauração de Workspace a partir de Backup', desc: 'Recuperar dados de um snapshot em um clique', effort: 'med', done: false },
   { id: 118, cat: 'mid', name: 'Exportação de Auditoria (PDF/CSV)', desc: 'Relatório completo de ações com filtros e assinatura', effort: 'med', done: false },

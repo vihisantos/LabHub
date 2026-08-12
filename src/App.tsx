@@ -13,6 +13,7 @@ const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ d
 const DashboardPage = lazy(() => import('./platform/Dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })))
 const Launcher = lazy(() => import('./platform/Launcher/Launcher').then(m => ({ default: m.Launcher })))
 const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
+const MusicRequestPage = lazy(() => import('./pages/MusicRequest').then(m => ({ default: m.default })))
 const PCCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCCareApp })))
 const StockApp = lazy(() => import('./apps/stock').then(m => ({ default: m.StockApp })))
 const ReservaLabApp = lazy(() => import('./apps/reservalab').then(m => ({ default: m.ReservaLabApp })))
@@ -72,6 +73,11 @@ function AppRoutes() {
       <Route path="roadmap" element={
         <AuthGuard>
           <Roadmap />
+        </AuthGuard>
+      } />
+      <Route path="pedir-musica" element={
+        <AuthGuard>
+          <MusicRequestPage />
         </AuthGuard>
       } />
       <Route path="pc-care/*" element={

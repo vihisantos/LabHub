@@ -13,6 +13,7 @@ import { ProfileSheet } from '../Profile/ProfileSheet'
 import { OnboardingOverlay, completeOnboarding, hasCompletedOnboarding } from '../Onboarding/OnboardingOverlay'
 import { UserAvatar } from '../Profile/UserAvatar'
 import { icons } from '../../lib/icons'
+import { Music } from 'lucide-react'
 import { LAUNCHER_MODES, getQuickActions, type LauncherMode } from './launcherModes'
 
 function getGreeting(): string {
@@ -144,6 +145,17 @@ export function Launcher() {
           <div className="mb-6">
             <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Seus Apps</p>
             <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => navigate('/pedir-musica')}
+                className="flex flex-col items-center gap-3 rounded-2xl bg-card p-6 text-center shadow-sm transition-all active:scale-[0.98]"
+              >
+                <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/15 text-red-500">
+                  <Music size={30} />
+                </span>
+                <span className="text-sm font-semibold text-fg">Pedir Música</span>
+                <span className="text-[11px] leading-snug text-fg-muted">Sugira uma música para a TV</span>
+              </button>
               {accessibleApps.map((app) => (
                 <button
                   key={app.id}
@@ -210,6 +222,20 @@ export function Launcher() {
             <div className="mb-6">
               <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Módulos</p>
               <div className="divide-y divide-line overflow-hidden rounded-2xl bg-card shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => navigate('/pedir-musica')}
+                  className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-input"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/15 text-red-500">
+                    <Music size={20} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-fg">Pedir Música</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-fg-muted">Sugira uma música para a TV</span>
+                  </span>
+                  <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
+                </button>
                 {accessibleApps.map((app) => (
                   <button
                     key={app.id}

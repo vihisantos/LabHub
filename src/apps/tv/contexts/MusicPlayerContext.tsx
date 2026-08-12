@@ -3,6 +3,7 @@ import YouTube, { type YouTubeProps } from 'react-youtube'
 import type { TvMusicTrack } from '../types'
 import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 import { useNowPlaying } from '../hooks/useNowPlaying'
+import { useRealtimeBroadcast } from '../../../lib/useRealtimeBroadcast'
 import { isDesktopEnv, localStoreGet, localStoreSet } from '../../../lib/localStore'
 
 const STORAGE_KEY = 'tv-music-player'
@@ -46,10 +47,13 @@ interface MusicPlayerValue {
   shuffle: boolean
   currentTrackIndex: number
   playOrder: number[]
+  upNext: TvMusicTrack | null
   togglePlay: () => void
   setPlaying: (playing: boolean) => void
   next: () => void
   prev: () => void
+  playNext: (track: TvMusicTrack) => void
+  clearUpNext: () => void
 }
 
 const MusicPlayerCtx = createContext<MusicPlayerValue | null>(null)
@@ -85,6 +89,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [playOrder, setPlayOrder] = useState<number[]>([])
   const [isPlaying, setIsPlaying] = useState(true)
 
+  /* Faixa "a seguir" escolhida manualmente — só toca após a atual terminar */
+  const [upNext, setUpNext] = useState<TvMusicTrack | null>(null)
+  /* Indica que a faixa atual é a "a seguir" (após terminar, retoma a playlist) */
+  const [playingUpNext, setPlayingUpNext] = useState(false)
+
+  /* Comando "tocar a seguir" vindo de outra instância (admin → display) */
+  const { send: sendPlayNextCommand } = useRealtimeBroadcast<{ track: TvMusicTrack }>(
+    'tv-music-command',
+    'play-next',
+    (payload) => {
+      if (payload?.track) {
+        setUpNext(payload.track)
+      }
+    },
+    { self: false },
+  )
+
   /* One-time init from storage when tracks arrive */
   useEffect(() => {
     if (allTracks.length === 0 || initialized.current) return
@@ -118,7 +139,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   /* Derive current track from state */
   const currentPlayIndex = playOrder[currentTrackIdx]
-  const currentTrack = currentPlayIndex !== undefined ? allTracks[currentPlayIndex] : null
+  const playlistTrack = currentPlayIndex !== undefined ? allTracks[currentPlayIndex] : null
+  /* Se a faixa atual é a "a seguir" escolhida manualmente, usa ela no lugar da playlist */
+  const currentTrack = playingUpNext && upNext ? upNext : playlistTrack
 
   /* Broadcast now-playing to Supabase channel (used by other tabs) */
   useEffect(() => {
@@ -134,7 +157,39 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [currentTrack?.id, currentTrack?.title, isPlaying, currentTrackIdx, allTracks.length, queueShuffle, broadcast])
 
+  /* Refs espelhados para usar valores atuais dentro dos callbacks de avanço */
+  const playingUpNextRef = useRef(false)
+  const upNextRef = useRef<TvMusicTrack | null>(null)
+  useEffect(() => { playingUpNextRef.current = playingUpNext }, [playingUpNext])
+  useEffect(() => { upNextRef.current = upNext }, [upNext])
+
+  /**
+   * Avança para a próxima faixa:
+   * - Se a faixa "a seguir" está agendada → toca ela primeiro (sem consumir a playlist);
+   * - Se a faixa atual É a "a seguir" → ao terminar, retoma a playlist de onde estava;
+   * - Caso contrário → segue o fluxo normal da playlist.
+   */
   const advance = useCallback(() => {
+    if (playingUpNextRef.current) {
+      // A faixa "a seguir" terminou → retoma a playlist normalmente
+      playingUpNextRef.current = false
+      setUpNext(null)
+      setPlayingUpNext(false)
+      setCurrentTrackIdx((i) => {
+        if (i < playOrder.length - 1) return i + 1
+        if (queueShuffle) {
+          setPlayOrder(shuffleIndices(allTracks.length))
+        }
+        return 0
+      })
+      return
+    }
+    if (upNextRef.current) {
+      // A música atual terminou e há uma escolhida para tocar a seguir
+      playingUpNextRef.current = true
+      setPlayingUpNext(true)
+      return
+    }
     setCurrentTrackIdx((i) => {
       if (i < playOrder.length - 1) return i + 1
       if (queueShuffle) {
@@ -145,6 +200,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [playOrder.length, queueShuffle, allTracks.length])
 
   const goBack = useCallback(() => {
+    setUpNext(null)
+    setPlayingUpNext(false)
+    playingUpNextRef.current = false
+    upNextRef.current = null
     setCurrentTrackIdx((i) => (i > 0 ? i - 1 : playOrder.length - 1))
   }, [playOrder.length])
 
@@ -154,6 +213,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const setPlaying = useCallback((playing: boolean) => {
     setIsPlaying(playing)
+  }, [])
+
+  const playNext = useCallback((track: TvMusicTrack) => {
+    setUpNext(track)
+    upNextRef.current = track
+    void sendPlayNextCommand({ track })
+  }, [sendPlayNextCommand])
+
+  const clearUpNext = useCallback(() => {
+    setUpNext(null)
+    setPlayingUpNext(false)
+    playingUpNextRef.current = false
+    upNextRef.current = null
   }, [])
 
   /* Sync isPlaying to YouTube player */
@@ -185,20 +257,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <MusicPlayerCtx.Provider
-      value={{
-        tracks: allTracks,
-        currentTrack,
-        isPlaying,
-        shuffle: queueShuffle,
-        currentTrackIndex: currentTrackIdx,
-        playOrder,
-        togglePlay,
-        setPlaying,
-        next: advance,
-        prev: goBack,
-      }}
-    >
+      <MusicPlayerCtx.Provider
+        value={{
+          tracks: allTracks,
+          currentTrack,
+          isPlaying,
+          shuffle: queueShuffle,
+          currentTrackIndex: currentTrackIdx,
+          playOrder,
+          upNext,
+          togglePlay,
+          setPlaying,
+          next: advance,
+          prev: goBack,
+          playNext,
+          clearUpNext,
+        }}
+      >
       {currentTrack && (
         <div style={{
           position: 'fixed', bottom: '0', right: '0',

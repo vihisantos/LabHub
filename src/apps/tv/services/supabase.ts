@@ -1,7 +1,7 @@
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { tvApi } from '../utils/apiBase'
-import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement, TvGallery, TvGalleryPhoto, TvDevice } from '../types'
+import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement, TvGallery, TvGalleryPhoto, TvDevice, TvMusicRequest, MusicRequestStatus } from '../types'
 
 /* ── Helpers ── */
 
@@ -379,5 +379,49 @@ export async function updateDevice(id: string, values: Partial<TvDevice>): Promi
 export async function deleteDevice(id: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
   const { error } = await supabase.from('tv_devices').delete().eq('id', id)
+  if (error) throw error
+}
+
+/* ── Music Requests (sugestões de música) ── */
+
+export async function fetchMusicRequests(): Promise<TvMusicRequest[]> {
+  if (!supabase) return []
+  const { data } = await supabase
+    .from('tv_music_requests')
+    .select('*')
+    .order('created_at', { ascending: false })
+  return scoped((data as TvMusicRequest[]) || [])
+}
+
+export async function createMusicRequest(values: {
+  youtube_url: string
+  youtube_video_id: string | null
+  title: string | null
+  requested_by: string
+  requested_by_name: string | null
+}): Promise<void> {
+  if (!supabase) throw new Error('Supabase not initialized')
+  const { error } = await supabase.from('tv_music_requests').insert({
+    ...values,
+    status: 'pending',
+    workspace_id: workspaceId(),
+  } as never)
+  if (error) throw error
+}
+
+export async function reviewMusicRequest(
+  id: string,
+  status: Extract<MusicRequestStatus, 'approved' | 'rejected'>,
+  reviewedBy: string,
+): Promise<void> {
+  if (!supabase) throw new Error('Supabase not initialized')
+  const { error } = await supabase
+    .from('tv_music_requests')
+    .update({
+      status,
+      reviewed_by: reviewedBy,
+      reviewed_at: new Date().toISOString(),
+    } as never)
+    .eq('id', id)
   if (error) throw error
 }

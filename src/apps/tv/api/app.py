@@ -154,6 +154,51 @@ def youtube_fetch():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/tv/youtube/search', methods=['POST'])
+def youtube_search():
+    """Busca músicas no YouTube por nome (sem precisar colar URL)."""
+    try:
+        data = request.get_json() or {}
+        q = str(data.get('q', '')).strip()
+        if not q:
+            return jsonify({'error': 'Informe o nome da música'}), 400
+        max_results = max(1, min(int(data.get('maxResults', 8)), 20))
+
+        api_key = os.environ.get('YOUTUBE_API_KEY')
+        if not api_key:
+            return jsonify({'error': 'YouTube API key não configurada'}), 500
+
+        url = (
+            'https://www.googleapis.com/youtube/v3/search'
+            f'?part=snippet&type=video&videoCategoryId=10'
+            f'&q={q}&maxResults={max_results}&key={api_key}'
+        )
+        resp = requests.get(url, timeout=15)
+        if not resp.ok:
+            return jsonify({'error': f'Erro YouTube API: {resp.status_code}'}), 502
+        data_resp = resp.json()
+
+        results = []
+        for item in data_resp.get('items', []):
+            snippet = item.get('snippet', {})
+            video_id = item.get('id', {}).get('videoId', '')
+            if not video_id:
+                continue
+            thumbnails = snippet.get('thumbnails', {})
+            thumb = thumbnails.get('medium') or thumbnails.get('default') or {}
+            results.append({
+                'videoId': video_id,
+                'title': snippet.get('title', 'Sem título'),
+                'channel': snippet.get('channelTitle', ''),
+                'thumbnail': thumb.get('url', ''),
+            })
+
+        return jsonify({'results': results})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/tv/health', methods=['GET'])
 def health():
     api_key_configured = bool(os.environ.get('YOUTUBE_API_KEY'))
