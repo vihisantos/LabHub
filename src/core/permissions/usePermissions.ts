@@ -46,7 +46,7 @@ export function useRoles() {
 export function useAppAccess() {
   const { user } = useAuth()
   const [role, setRole] = useState<Role | undefined>(() =>
-    user ? permissionService.getRoleForUser(user.role) : undefined,
+    user ? permissionService.getRoleForUser(user.roleId) : undefined,
   )
 
   useEffect(() => {
@@ -56,12 +56,12 @@ export function useAppAccess() {
     }
     permissionService.initDefaults()
     permissionService.migrate()
-    setRole(permissionService.getRoleForUser(user.role))
+    setRole(permissionService.getRoleForUser(user.roleId))
   }, [user])
 
   const getLevel = useCallback((appId: string): AppAccessLevel | null => {
     if (!user) return null
-    if (user.role === 'admin') return 'full'
+    if (user.is_super_admin) return 'full'
     return permissionService.resolveAppAccess(role, user, appId)
   }, [user, role])
 

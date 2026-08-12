@@ -20,7 +20,7 @@ export function AdminDashboard() {
       <div className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
         <h2 className="text-lg font-bold text-fg">Painel Admin</h2>
         <p className="mt-1 text-sm text-fg-muted">
-          {user?.role === 'admin' ? 'Acesso completo' : 'Acesso limitado'}
+          {user?.is_super_admin ? 'Acesso completo' : 'Acesso limitado'}
         </p>
       </div>
 

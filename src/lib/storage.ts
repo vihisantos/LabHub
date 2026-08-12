@@ -12,14 +12,14 @@ export function createLocalService<T extends { id: string; workspace_id?: string
     return getAll().find((item) => item.id === id)
   }
 
-  function create(data: Omit<T, 'id'>): T {
+  function create(data: Omit<T, 'id'> & { id?: string }): T {
     const items = getCol<T>(collection)
     const wsId = enableWorkspaceFilter && !(data as any).workspace_id
       ? workspaceStore.activeWorkspaceId
       : undefined
     const newItem = {
       ...data,
-      id: crypto.randomUUID(),
+      id: (data as Partial<T>).id ?? crypto.randomUUID(),
       ...(wsId ? { workspace_id: wsId } : {}),
     } as T
     items.push(newItem)

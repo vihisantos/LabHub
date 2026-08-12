@@ -1,11 +1,10 @@
-import type { UserRole } from '../auth/types'
-
 export interface UserProfile {
   id: string
   userId: string
   displayName: string
   department: string
-  role: UserRole
+  /** Id do cargo (coleção `roles`) */
+  roleId: string
   avatar?: string
   active: boolean
   createdAt: string

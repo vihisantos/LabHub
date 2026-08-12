@@ -9,7 +9,7 @@ export function useWorkspaceFilter() {
   return useMemo(() => {
     const activeWorkspaceId = workspace?.id || null
     const userWorkspaceIds = user?.workspace_ids || []
-    const isAdmin = user?.role === 'admin'
+    const isAdmin = !!user?.is_super_admin
 
     function filterByWorkspace<T extends { workspace_id?: string }>(items: T[]): T[] {
       if (isAdmin && !activeWorkspaceId) return items

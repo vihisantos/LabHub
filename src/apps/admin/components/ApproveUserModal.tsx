@@ -1,13 +1,12 @@
 import { useState } from 'react'
-import type { User, UserRole } from '../../../core/auth/types'
-import { ROLE_LABELS, ROLE_COLORS } from '../../../core/auth/types'
+import type { User } from '../../../core/auth/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
 import { APP_ACCESS_LABELS } from '../../../core/permissions/types'
+import { roleBadgeClass } from '../../../core/permissions/types'
 import type { AppAccessOverride } from '../../../core/permissions/types'
 import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
 
-const ROLES: UserRole[] = ['viewer', 'technician', 'admin']
 const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
 export function ApproveUserModal({
@@ -17,16 +16,17 @@ export function ApproveUserModal({
 }: {
   user: User
   onClose: () => void
-  onConfirm: (role: UserRole, appAccess: Record<string, AppAccessOverride>) => Promise<boolean>
+  onConfirm: (roleId: string, appAccess: Record<string, AppAccessOverride>) => Promise<boolean>
 }) {
   const { roles: roleList } = useRoles()
-  const [role, setRole] = useState<UserRole>('viewer')
+  const defaultRoleId = roleList.find((r) => r.isDefault)?.id ?? roleList[0]?.id ?? 'role-viewer'
+  const [roleId, setRoleId] = useState<string>(defaultRoleId)
   const [appAccess, setAppAccess] = useState<Record<string, AppAccessOverride>>({})
   const [saving, setSaving] = useState(false)
 
   async function handleConfirm() {
     setSaving(true)
-    const ok = await onConfirm(role, appAccess)
+    const ok = await onConfirm(roleId, appAccess)
     if (!ok) setSaving(false)
   }
 
@@ -42,8 +42,8 @@ export function ApproveUserModal({
     })
   }
 
-  const isAdminRole = role === 'admin'
   const accentColor = user.accent === 'emerald' ? '#10b981' : user.accent === 'cyan' ? '#06b6d4' : user.accent === 'blue' ? '#3b82f6' : '#a855f7'
+  const selectedRole = roleList.find((r) => r.id === roleId)
 
   return (
     <div
@@ -83,43 +83,34 @@ export function ApproveUserModal({
 
           <div>
             <p className="mb-1.5 text-[10px] font-semibold text-fg-muted">Cargo</p>
-            <div className="flex gap-1.5">
-              {ROLES.map((r) => (
+            <div className="flex flex-wrap gap-1.5">
+              {roleList.map((r) => (
                 <button
-                  key={r}
+                  key={r.id}
                   type="button"
-                  onClick={() => setRole(r)}
+                  onClick={() => setRoleId(r.id)}
                   disabled={saving}
                   className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all disabled:opacity-50 ${
-                    role === r
-                      ? `${ROLE_COLORS[r]} ring-1 ring-slate-500/30`
+                    roleId === r.id
+                      ? `${roleBadgeClass(r)} ring-1 ring-slate-500/30`
                       : 'bg-input text-fg-muted hover:text-fg'
                   }`}
                 >
-                  {ROLE_LABELS[r]}
+                  {r.name}
                 </button>
               ))}
             </div>
           </div>
 
-          {isAdminRole ? (
-            <div className="rounded-lg bg-purple-500/5 px-3 py-2">
-              <p className="text-[10px] font-medium text-purple-500">
-                <icons.ui.shield size={10} className="inline mr-1" />
-                Administrador — acesso total a todos os workspaces e dados
-              </p>
-            </div>
-          ) : (
-            <div>
-              <p className="mb-1.5 text-[10px] font-semibold text-fg-muted">
-                Acesso por aplicativo (opcional — sobrescreve o cargo)
-              </p>
-              <div className="space-y-1.5">
-                {editableApps.map((app) => {
-                  const roleForUser = roleList.find((r) => r.key === role)
-                  const roleLevel = roleForUser?.appAccess?.[app.id]
-                  const current = appAccess[app.id] ?? 'inherit'
-                  return (
+          <div>
+            <p className="mb-1.5 text-[10px] font-semibold text-fg-muted">
+              Acesso por aplicativo (opcional — sobrescreve o cargo)
+            </p>
+            <div className="space-y-1.5">
+              {editableApps.map((app) => {
+                const roleLevel = selectedRole?.appAccess?.[app.id]
+                const current = appAccess[app.id] ?? 'inherit'
+                return (
                     <div key={app.id} className="flex items-center gap-3 rounded-lg border border-line px-2.5 py-2">
                       <div
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${current === 'none' ? 'opacity-40 grayscale' : ''}`}
@@ -150,9 +141,8 @@ export function ApproveUserModal({
                 })}
               </div>
             </div>
-          )}
 
-          <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}

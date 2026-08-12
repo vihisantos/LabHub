@@ -1,21 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { adminService } from '../../../core/auth/adminService'
-import type { User, UserRole, Accent, ThemeVariant } from '../../../core/auth/types'
-import { ROLE_LABELS, ROLE_COLORS } from '../../../core/auth/types'
+import type { User, Accent, ThemeVariant } from '../../../core/auth/types'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { workspaceService } from '../../../core/workspaces/service'
 import type { Workspace } from '../../../core/workspaces/types'
 import { themeStore } from '../../../core/theme/store'
 import { useRoles } from '../../../core/permissions/usePermissions'
-import { APP_ACCESS_LABELS } from '../../../core/permissions/types'
+import { APP_ACCESS_LABELS, roleBadgeClass } from '../../../core/permissions/types'
 import type { AppAccessOverride } from '../../../core/permissions/types'
 import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
 import { uploadAvatarToCloudinary } from '../../../lib/cloudinary'
 import { ApproveUserModal } from '../components/ApproveUserModal'
-
-const ROLES: UserRole[] = ['admin', 'technician', 'viewer']
 
 const ACCENTS: { value: Accent; label: string; color: string }[] = [
   { value: 'emerald', label: 'Esmeralda', color: '#10b981' },
@@ -37,7 +34,7 @@ export function UsersPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
+  const [roleFilter, setRoleFilter] = useState<string>('all')
   const [editingUser, setEditingUser] = useState<string | null>(null)
   const [approvingUser, setApprovingUser] = useState<User | null>(null)
   const [saving, setSaving] = useState(false)
@@ -79,23 +76,23 @@ export function UsersPage() {
     const matchesSearch = !search
       || u.name.toLowerCase().includes(search.toLowerCase())
       || u.email.toLowerCase().includes(search.toLowerCase())
-    const matchesRole = roleFilter === 'all' || u.role === roleFilter
+    const matchesRole = roleFilter === 'all' || u.roleId === roleFilter
     return matchesSearch && matchesRole
   })
 
   async function handleApprove(
     userId: string,
-    role: UserRole,
+    roleId: string,
     appAccess: Record<string, AppAccessOverride>,
   ): Promise<boolean> {
     setSaving(true)
-    const success = await adminService.approveUser(userId, { role, app_access: appAccess })
+    const success = await adminService.approveUser(userId, { roleId, app_access: appAccess })
     if (success) {
       setUsers((prev) => prev.map((u) => u.id === userId
-        ? { ...u, status: 'active', role, app_access: { ...(u.app_access || {}), ...appAccess } }
+        ? { ...u, status: 'active', roleId, app_access: { ...(u.app_access || {}), ...appAccess } }
         : u))
       setApprovingUser(null)
-      setFeedback({ type: 'success', message: `Usuário aprovado como ${ROLE_LABELS[role]}!` })
+      setFeedback({ type: 'success', message: `Usuário aprovado como ${roleList.find((r) => r.id === roleId)?.name ?? 'cargo'}` })
     } else {
       setFeedback({ type: 'error', message: 'Erro ao aprovar usuário' })
     }
@@ -134,14 +131,14 @@ export function UsersPage() {
     setTimeout(() => setFeedback(null), 3000)
   }
 
-  async function handleRoleChange(userId: string, newRole: UserRole) {
+  async function handleRoleChange(userId: string, newRoleId: string) {
     setSaving(true)
-    const success = await adminService.updateUserProfile(userId, { role: newRole })
+    const success = await adminService.updateUserProfile(userId, { roleId: newRoleId })
     if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole } : u))
-      setFeedback({ type: 'success', message: `Role alterada para ${ROLE_LABELS[newRole]}` })
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, roleId: newRoleId } : u))
+      setFeedback({ type: 'success', message: `Cargo alterado para ${roleList.find((r) => r.id === newRoleId)?.name ?? 'novo cargo'}` })
     } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar role' })
+      setFeedback({ type: 'error', message: 'Erro ao atualizar cargo' })
     }
     setSaving(false)
     setTimeout(() => setFeedback(null), 3000)
@@ -233,10 +230,13 @@ export function UsersPage() {
   const userCounts = {
     total: users.length,
     pending: pendingUsers.length,
-    admin: users.filter((u) => u.role === 'admin').length,
-    technician: users.filter((u) => u.role === 'technician').length,
-    viewer: users.filter((u) => u.role === 'viewer').length,
+    superAdmin: users.filter((u) => u.is_super_admin).length,
   }
+
+  const roleCounts = roleList.map((role) => ({
+    role,
+    count: users.filter((u) => u.roleId === role.id).length,
+  }))
 
   if (loading) {
     return (
@@ -256,7 +256,7 @@ export function UsersPage() {
         <p className="mt-1 text-sm text-fg-muted">{userCounts.total} usuário{userCounts.total !== 1 ? 's' : ''} no sistema</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="flex flex-wrap gap-2">
         <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
           <p className="text-lg font-bold text-fg">{userCounts.total}</p>
           <p className="text-[10px] text-fg-muted">Total</p>
@@ -268,17 +268,15 @@ export function UsersPage() {
           </div>
         )}
         <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
-          <p className="text-lg font-bold text-fg">{userCounts.admin}</p>
-          <p className="text-[10px] text-fg-muted">Admins</p>
+          <p className="text-lg font-bold text-fg">{userCounts.superAdmin}</p>
+          <p className="text-[10px] text-fg-muted">Admin absoluto</p>
         </div>
-        <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
-          <p className="text-lg font-bold text-fg">{userCounts.technician}</p>
-          <p className="text-[10px] text-fg-muted">Técnicos</p>
-        </div>
-        <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
-          <p className="text-lg font-bold text-fg">{userCounts.viewer}</p>
-          <p className="text-[10px] text-fg-muted">Visualizadores</p>
-        </div>
+        {roleCounts.map(({ role, count }) => (
+          <div key={role.id} className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
+            <p className="text-lg font-bold text-fg">{count}</p>
+            <p className={`text-[10px] ${roleBadgeClass(role)} rounded-full px-1.5`}>{role.name}</p>
+          </div>
+        ))}
       </div>
 
       {feedback && (
@@ -347,12 +345,12 @@ export function UsersPage() {
         </div>
         <select
           value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as UserRole | 'all')}
+          onChange={(e) => setRoleFilter(e.target.value)}
           className="rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg focus:border-slate-500 focus:outline-none"
         >
           <option value="all">Todos</option>
-          {ROLES.map((role) => (
-            <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+          {roleList.map((role) => (
+            <option key={role.id} value={role.id}>{role.name}</option>
           ))}
         </select>
       </div>
@@ -369,7 +367,7 @@ export function UsersPage() {
             const userWsNames = (u.workspace_ids || [])
               .map((id) => workspaces.find((w) => w.id === id))
               .filter(Boolean) as Workspace[]
-            const isAdminUser = u.role === 'admin'
+            const userRole = roleList.find((r) => r.id === u.roleId)
             const isAbsUser = !!u.is_super_admin
 
             return (
@@ -415,47 +413,47 @@ export function UsersPage() {
                     </button>
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-fg truncate">{u.name}</p>
-                      {isAdminUser && (
-                        <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-purple-500">
-                          {isAbsUser ? 'ADMIN ABS' : 'ADMIN'}
-                        </span>
-                      )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-fg truncate">{u.name}</p>
+                        {isAbsUser && (
+                          <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-purple-500">
+                            ADMIN ABS
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-fg-muted truncate">{u.email}</p>
                     </div>
-                    <p className="text-[11px] text-fg-muted truncate">{u.email}</p>
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setEditingUser(isOpen ? null : u.id)}
-                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition-opacity hover:opacity-80 ${ROLE_COLORS[u.role]}`}
-                  >
-                    {ROLE_LABELS[u.role]}
-                    <icons.ui.chevronDown size={10} className="ml-1 inline" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingUser(isOpen ? null : u.id)}
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition-opacity hover:opacity-80 ${roleBadgeClass(userRole)}`}
+                    >
+                      {userRole?.name ?? 'Sem cargo'}
+                      <icons.ui.chevronDown size={10} className="ml-1 inline" />
+                    </button>
                 </div>
 
                 {isOpen && (
                   <div className="border-t border-line px-4 py-3 space-y-3">
                     {isSuperAdmin && (
                       <div>
-                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Role</p>
-                        <div className="flex gap-1.5">
-                          {ROLES.map((role) => (
+                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Cargo</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {roleList.map((role) => (
                             <button
-                              key={role}
+                              key={role.id}
                               type="button"
-                              onClick={() => handleRoleChange(u.id, role)}
-                              disabled={saving || role === u.role}
+                              onClick={() => handleRoleChange(u.id, role.id)}
+                              disabled={saving || role.id === u.roleId}
                               className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
-                                role === u.role
-                                  ? `${ROLE_COLORS[role]} ring-1 ring-slate-500/30`
+                                role.id === u.roleId
+                                  ? `${roleBadgeClass(role)} ring-1 ring-slate-500/30`
                                   : 'bg-input text-fg-muted hover:text-fg'
                               } disabled:opacity-50`}
                             >
-                              {saving && role !== u.role ? '...' : ROLE_LABELS[role]}
+                              {saving && role.id !== u.roleId ? '...' : role.name}
                             </button>
                           ))}
                         </div>
@@ -570,8 +568,7 @@ export function UsersPage() {
                         <div className="space-y-1.5">
                           {editableApps.map((app) => {
                             const current = u.app_access?.[app.id] ?? null
-                            const roleForUser = roleList.find((r) => r.key === u.role)
-                            const roleLevel = roleForUser?.appAccess?.[app.id]
+                            const roleLevel = userRole?.appAccess?.[app.id]
                             return (
                               <div key={app.id} className="flex items-center gap-3 rounded-lg border border-line px-2.5 py-2">
                                 <div

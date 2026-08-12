@@ -16,7 +16,7 @@ export function AdminGuard({ children }: { children: ReactNode }) {
     )
   }
 
-  if (!user || user.role !== 'admin') {
+  if (!user || !user.is_super_admin) {
     return <Navigate to="/" replace />
   }
 

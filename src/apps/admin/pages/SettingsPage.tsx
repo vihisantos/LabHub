@@ -1,11 +1,14 @@
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import { ROLE_LABELS, ROLE_COLORS } from '../types'
+import { roleBadgeClass } from '../../../core/permissions/types'
+import { useRoles } from '../../../core/permissions/usePermissions'
 import { icons } from '../../../lib/icons'
 
 export function SettingsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { roles } = useRoles()
+  const currentRole = roles.find((r) => r.id === user?.roleId)
 
   return (
     <div className="space-y-4">
@@ -27,8 +30,8 @@ export function SettingsPage() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-xs text-fg-muted">Role</span>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ROLE_COLORS[user?.role || 'viewer']}`}>
-              {ROLE_LABELS[user?.role || 'viewer']}
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${roleBadgeClass(currentRole)}`}>
+              {currentRole?.name ?? 'Sem cargo'}
             </span>
           </div>
         </div>

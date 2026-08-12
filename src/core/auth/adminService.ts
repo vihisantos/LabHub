@@ -1,5 +1,16 @@
 import { defaultDb, stockDb } from '../../lib/supabase'
-import type { User, UserRole } from './types'
+import type { User } from './types'
+import { resolveRoleId } from '../permissions/types'
+
+function fromDbUser<T extends Record<string, unknown>>(row: T): Omit<T, 'role'> & { roleId: string } {
+  const { role, ...rest } = row
+  return { ...rest, roleId: resolveRoleId(typeof role === 'string' ? role : undefined) }
+}
+
+function toDbUser(data: Record<string, unknown>): Record<string, unknown> {
+  const { roleId, ...rest } = data
+  return { ...rest, ...(roleId !== undefined ? { role: roleId } : {}) }
+}
 
 async function notifyUser(userId: string, title: string, body: string): Promise<void> {
   if (!stockDb) return
@@ -36,7 +47,7 @@ export const adminService = {
       return []
     }
 
-    return (data || []) as User[]
+    return ((data || []) as Record<string, unknown>[]).map((row) => fromDbUser(row) as unknown as User)
   },
 
   listPendingProfiles: async (): Promise<User[]> => {
@@ -53,18 +64,18 @@ export const adminService = {
       return []
     }
 
-    return (data || []) as User[]
+    return ((data || []) as Record<string, unknown>[]).map((row) => fromDbUser(row) as unknown as User)
   },
 
   approveUser: async (
     userId: string,
-    extra?: { role?: UserRole; app_access?: User['app_access'] },
+    extra?: { roleId?: string; app_access?: User['app_access'] },
   ): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { error } = await defaultDb
       .from('profiles')
-      .update({ status: 'active', ...extra, updated_at: new Date().toISOString() })
+      .update({ status: 'active', ...toDbUser(extra || {}), updated_at: new Date().toISOString() })
       .eq('id', userId)
 
     if (error) {
@@ -113,12 +124,12 @@ export const adminService = {
     return true
   },
 
-  updateUserRole: async (userId: string, role: UserRole): Promise<boolean> => {
+  updateUserRole: async (userId: string, roleId: string): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { error } = await defaultDb
       .from('profiles')
-      .update({ role, updated_at: new Date().toISOString() })
+      .update({ role: roleId, updated_at: new Date().toISOString() })
       .eq('id', userId)
 
     if (error) {
@@ -129,12 +140,12 @@ export const adminService = {
     return true
   },
 
-  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'role' | 'accent' | 'theme_variant' | 'workspace_ids' | 'avatar' | 'app_access' | 'is_super_admin' | 'notify_settings'>>): Promise<boolean> => {
+  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'roleId' | 'accent' | 'theme_variant' | 'workspace_ids' | 'avatar' | 'app_access' | 'is_super_admin' | 'notify_settings'>>): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { error } = await defaultDb
       .from('profiles')
-      .update({ ...data, updated_at: new Date().toISOString() })
+      .update({ ...toDbUser(data), updated_at: new Date().toISOString() })
       .eq('id', userId)
 
     if (error) {

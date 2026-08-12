@@ -36,7 +36,7 @@ vi.mock('../../../../core/auth/AuthContext', () => ({
       id: 'me',
       name: 'Admin',
       email: 'admin@labhub.com',
-      role: 'admin',
+      roleId: 'role-technician',
       is_super_admin: true,
       status: 'active',
       workspace_ids: [],
@@ -58,9 +58,8 @@ vi.mock('../../../../core/permissions/usePermissions', () => ({
   useRoles: () => ({
     loading: false,
     roles: [
-      { key: 'admin', label: 'Administrador', color: 'purple' },
-      { key: 'technician', label: 'Técnico', color: 'blue', appAccess: { reservalab: 'full' } },
-      { key: 'viewer', label: 'Visualizador', color: 'slate', appAccess: { reservalab: 'read' } },
+      { id: 'role-technician', key: 'technician', name: 'Técnico', appAccess: { reservalab: 'full' }, isDefault: false },
+      { id: 'role-viewer', key: 'viewer', name: 'Visualizador', appAccess: { reservalab: 'read' }, isDefault: true },
     ],
   }),
   useAppAccess: () => ({ getLevel: () => 'full' }),
@@ -73,7 +72,7 @@ const pendingUser: User = {
   id: 'u-123',
   email: 'joao@escola.edu.br',
   name: 'João Silva',
-  role: 'viewer',
+  roleId: 'role-viewer',
   status: 'pending',
   workspace_ids: [],
   accent: 'emerald',
@@ -140,7 +139,7 @@ describe('UsersPage deep link', () => {
 
     await waitFor(() => {
       expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123', {
-        role: 'technician',
+        roleId: 'role-technician',
         app_access: {},
       })
     })

@@ -9,7 +9,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     id: 'u-1',
     email: 'a@labhub.com',
     name: 'A',
-    role: 'viewer',
+    roleId: 'role-viewer',
     status: 'active',
     is_super_admin: false,
     workspace_ids: [],
@@ -44,21 +44,29 @@ describe('notificationAppliesTo', () => {
     expect(notificationAppliesTo(makeNotification(), null)).toBe(true)
   })
 
-  it('sem audience (legado) — só admins veem', () => {
-    expect(notificationAppliesTo(makeNotification(), makeUser({ role: 'admin' }))).toBe(true)
-    expect(notificationAppliesTo(makeNotification(), makeUser({ role: 'technician' }))).toBe(false)
+  it('sem audience (legado) — só admins absolutos veem', () => {
+    expect(notificationAppliesTo(makeNotification(), makeUser({ is_super_admin: true }))).toBe(true)
+    expect(notificationAppliesTo(makeNotification(), makeUser({ is_super_admin: false }))).toBe(false)
   })
 
   it('audience role — filtra por cargo', () => {
-    const n = makeNotification({ audience: 'role', targetRole: 'admin' })
-    expect(notificationAppliesTo(n, makeUser({ role: 'admin' }))).toBe(true)
-    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(false)
+    const n = makeNotification({ audience: 'role', targetRole: 'role-technician' })
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-technician' }))).toBe(true)
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-viewer' }))).toBe(false)
   })
 
   it('audience role + targetSuperAdmin — só admin absoluto', () => {
-    const n = makeNotification({ audience: 'role', targetRole: 'admin', targetSuperAdmin: true })
-    expect(notificationAppliesTo(n, makeUser({ role: 'admin', is_super_admin: true }))).toBe(true)
-    expect(notificationAppliesTo(n, makeUser({ role: 'admin', is_super_admin: false }))).toBe(false)
+    const n = makeNotification({
+      audience: 'role',
+      targetRole: 'role-technician',
+      targetSuperAdmin: true,
+    })
+    expect(
+      notificationAppliesTo(n, makeUser({ roleId: 'role-technician', is_super_admin: true })),
+    ).toBe(true)
+    expect(
+      notificationAppliesTo(n, makeUser({ roleId: 'role-technician', is_super_admin: false })),
+    ).toBe(false)
   })
 
   it('audience user — só o destinatário', () => {
@@ -83,35 +91,35 @@ describe('notificationAppliesTo', () => {
 
   it('sem acesso ao app (módulo do appRegistry) → não vê', () => {
     const n = makeNotification({ module: 'tv' })
-    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(false)
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-viewer' }))).toBe(false)
   })
 
   it('com acesso ao app (módulo do appRegistry) → vê', () => {
     const n = makeNotification({ module: 'pc-care' })
-    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(true)
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-viewer' }))).toBe(true)
   })
 
-  it('admin vê de qualquer app', () => {
+  it('admin absoluto vê de qualquer app', () => {
     const n = makeNotification({ module: 'tv' })
-    expect(notificationAppliesTo(n, makeUser({ role: 'admin' }))).toBe(true)
+    expect(notificationAppliesTo(n, makeUser({ is_super_admin: true }))).toBe(true)
   })
 
   it('módulo fora do appRegistry (auth) mantém regra por audience', () => {
-    const n = makeNotification({ module: 'auth', audience: 'role', targetRole: 'admin' })
-    expect(notificationAppliesTo(n, makeUser({ role: 'admin' }))).toBe(true)
-    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(false)
+    const n = makeNotification({ module: 'auth', audience: 'role', targetRole: 'role-technician' })
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-technician' }))).toBe(true)
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-viewer' }))).toBe(false)
   })
 
   it('notify_settings.muted → ninguém vê', () => {
     const n = makeNotification({ module: 'pc-care' })
-    const user = makeUser({ role: 'viewer', notify_settings: { muted: true, apps: {} } })
+    const user = makeUser({ roleId: 'role-viewer', notify_settings: { muted: true, apps: {} } })
     expect(notificationAppliesTo(n, user)).toBe(false)
   })
 
   it('notify_settings: canal in-app desligado por app → não vê daquele app', () => {
     const n = makeNotification({ module: 'pc-care' })
     const user = makeUser({
-      role: 'viewer',
+      roleId: 'role-viewer',
       notify_settings: { muted: false, apps: { 'pc-care': { inapp: false, push: true } } },
     })
     expect(notificationAppliesTo(n, user)).toBe(false)
@@ -120,7 +128,7 @@ describe('notificationAppliesTo', () => {
   it('notify_settings: canal in-app ligado por app → vê', () => {
     const n = makeNotification({ module: 'pc-care' })
     const user = makeUser({
-      role: 'viewer',
+      roleId: 'role-viewer',
       notify_settings: { muted: false, apps: { 'pc-care': { inapp: true, push: false } } },
     })
     expect(notificationAppliesTo(n, user)).toBe(true)
@@ -130,12 +138,12 @@ describe('notificationAppliesTo', () => {
     const n = makeNotification({
       module: 'pc-care',
       audience: 'role',
-      targetRole: 'viewer',
+      targetRole: 'role-viewer',
       workspace_id: 'ws-1',
     })
     workspaceStore.set(null, false, ['ws-2'])
-    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(false)
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-viewer' }))).toBe(false)
     workspaceStore.set(null, false, ['ws-1'])
-    expect(notificationAppliesTo(n, makeUser({ role: 'viewer' }))).toBe(true)
+    expect(notificationAppliesTo(n, makeUser({ roleId: 'role-viewer' }))).toBe(true)
   })
 })

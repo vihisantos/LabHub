@@ -5,10 +5,10 @@ import { permissionService } from '../permissions/service'
 import { appRegistry } from '../../appRegistry'
 
 function hasAppAccess(user: User, appId: string): boolean {
-  if (user.role === 'admin') return true
+  if (user.is_super_admin) return true
   permissionService.initDefaults()
   permissionService.migrate()
-  const role = permissionService.getRoleForUser(user.role)
+  const role = permissionService.getRoleForUser(user.roleId)
   return permissionService.resolveAppAccess(role, user, appId) !== null
 }
 
@@ -41,14 +41,14 @@ export function notificationAppliesTo(n: AppNotification, user: User | null): bo
   // Módulo de app sem audience = entrega a todos com acesso ao app
   if (isAppModule && !n.audience) return true
 
-  // Sem audience = notificação legada (todas eram de aprovação) → só admins
+  // Sem audience = notificação legada (todas eram de aprovação) → só admins absolutos
   if (!n.audience) {
-    return user.role === 'admin'
+    return !!user.is_super_admin
   }
 
   switch (n.audience) {
     case 'role':
-      if (n.targetRole && n.targetRole !== user.role) return false
+      if (n.targetRole && n.targetRole !== user.roleId) return false
       if (n.targetSuperAdmin && !user.is_super_admin) return false
       return true
     case 'workspace':

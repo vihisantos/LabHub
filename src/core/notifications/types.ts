@@ -1,5 +1,3 @@
-import type { UserRole } from '../auth/types'
-
 export type NotificationType = 'ticket' | 'asset' | 'maintenance' | 'system' | 'sync' | 'approval'
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 export type NotificationAudience = 'role' | 'workspace' | 'user'
@@ -16,8 +14,8 @@ export interface AppNotification {
   createdAt: string
   /** Segmentação de destino — quem recebe essa notificação */
   audience?: NotificationAudience
-  /** audience === 'role' — cargo alvo */
-  targetRole?: UserRole
+  /** audience === 'role' — id do cargo alvo (coleção `roles`) */
+  targetRole?: string
   /** audience === 'role' — apenas admin absoluto */
   targetSuperAdmin?: boolean
   /** audience === 'workspace' — ambiente da ocorrência */

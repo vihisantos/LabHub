@@ -31,7 +31,7 @@ export const userService = {
 
   query: (predicate: (item: UserProfile) => boolean) => service.query(predicate),
 
-  getByRole: (role: string) => service.query((u) => u.role === role && u.active),
+  getByRole: (roleId: string) => service.query((u) => u.roleId === roleId && u.active),
 
   getByDepartment: (department: string) => service.query((u) => u.department === department && u.active),
 }

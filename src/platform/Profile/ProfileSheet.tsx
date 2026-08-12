@@ -256,7 +256,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                 </div>
 
                 {/* Admin settings */}
-                {user.role === 'admin' && (
+                {user.is_super_admin && (
                   <button
                     type="button"
                     onClick={goAdmin}
