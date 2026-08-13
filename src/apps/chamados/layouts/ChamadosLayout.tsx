@@ -1,10 +1,11 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { useFastSync } from '../../../lib/useFastSync'
 import { icons } from '../../../lib/icons'
+import { isAlertsMuted, setAlertsMuted } from '../services/ticketAlerts'
 
 function getPageTitle(pathname: string): string {
   if (pathname === '/chamados' || pathname.startsWith('/chamados/dashboard')) return 'Dashboard'
@@ -47,6 +48,13 @@ export function ChamadosLayout() {
   const detail = isDetailPage(location.pathname)
   const mainRef = useRef<HTMLDivElement>(null)
   const { theme, toggle } = useTheme()
+  const [alertsMuted, setAlertsMutedState] = useState(() => isAlertsMuted())
+
+  const toggleAlertsMuted = () => {
+    const next = !alertsMuted
+    setAlertsMuted(next)
+    setAlertsMutedState(next)
+  }
 
   useOnlineSync()
   useFastSync(['chamados', 'rooms', 'problem_templates'], 10000)
@@ -76,6 +84,17 @@ export function ChamadosLayout() {
         </div>
 
         <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={toggleAlertsMuted}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-input ${
+              alertsMuted ? 'text-fg-muted' : 'text-amber-500'
+            }`}
+            aria-label={alertsMuted ? 'Ativar alertas sonoros' : 'Silenciar alertas sonoros'}
+            title={alertsMuted ? 'Ativar alertas sonoros' : 'Silenciar alertas sonoros'}
+          >
+            {alertsMuted ? <icons.ui.volumeX size={18} /> : <icons.ui.volume2 size={18} />}
+          </button>
           <button
             type="button"
             onClick={toggle}

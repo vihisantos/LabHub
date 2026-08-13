@@ -1,35 +1,57 @@
 import type { Ticket, TicketFormData } from '../types'
 import { createSyncService } from '../../../lib/sync'
+import { getCol, setCol } from '../../../lib/db'
 import { logService } from '../../../core/logs/service'
 import { permissionService } from '../../../core/permissions/service'
 
-const service = createSyncService<Ticket>('chamados')
+const local = createSyncService<Ticket>('chamados')
 
-function getNextTicketNumber(): number {
-  const tickets = service.getAll()
-  if (tickets.length === 0) return 1
-  return Math.max(...tickets.map((t) => t.ticketNumber)) + 1
+const API_BASE = '/api/chamados'
+
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((body as { error?: string }).error || `Erro na requisição (${res.status})`)
+  }
+  return body as T
 }
 
-function serialize(data: TicketFormData): Ticket {
-  const now = new Date().toISOString()
-  return {
-    ...data,
-    ticketNumber: getNextTicketNumber(),
-    createdAt: now,
-    updatedAt: now,
-    resolvedAt: null,
-  } as Ticket
+function persistLocal(ticket: Ticket) {
+  const items = getCol<Ticket>('chamados')
+  const idx = items.findIndex((t) => t.id === ticket.id)
+  if (idx === -1) items.push(ticket)
+  else items[idx] = ticket
+  setCol('chamados', items)
+}
+
+function mergeRemote(remote: Ticket[]) {
+  const items = getCol<Ticket>('chamados')
+  const map = new Map(items.map((t) => [t.id, t]))
+  for (const t of remote) {
+    const existing = map.get(t.id)
+    if (!existing || (t.updatedAt || '') > (existing.updatedAt || '')) {
+      map.set(t.id, t)
+    }
+  }
+  setCol('chamados', [...map.values()])
 }
 
 export const ticketService = {
-  getAll: () => service.getAll(),
+  getAll: () => local.getAll(),
 
-  getById: (id: string) => service.getById(id),
+  getById: (id: string) => local.getById(id),
 
-  create: (data: TicketFormData) => {
-    // Aberto para o formulário público (/chamados-publico) — criação de chamado é sempre permitida.
-    const ticket = service.create(serialize(data))
+  /** Cria um chamado na API (fonte de verdade) e persiste localmente como cache. */
+  create: async (data: TicketFormData): Promise<Ticket> => {
+    const ticket = await request<Ticket>(API_BASE, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    persistLocal(ticket)
     logService.log({
       userId: 'public',
       userName: data.reportedBy || 'Anônimo',
@@ -37,14 +59,14 @@ export const ticketService = {
       entity: 'ticket',
       entityId: ticket.id,
       entityLabel: `#${ticket.ticketNumber}`,
-      details: { roomName: data.roomName, assetName: data.assetName, problem: data.problemCategory },
+      details: { roomName: data.roomName, problem: data.problemCategory, area: data.problemArea },
     })
     return ticket
   },
 
   update: (id: string, data: Partial<Ticket>) => {
     permissionService.requireWrite('chamados')
-    const ticket = service.update(id, data)
+    const ticket = local.update(id, data)
     if (ticket) {
       logService.log({
         userId: 'system',
@@ -55,32 +77,50 @@ export const ticketService = {
         entityLabel: `#${ticket.ticketNumber}`,
         details: data.status ? { newStatus: data.status } : undefined,
       })
+      request<{ ticket: Ticket }>(`${API_BASE}/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      })
+        .then((res) => persistLocal(res.ticket))
+        .catch(() => {
+          // Falha de rede: mantém local; próximo pullRemote reconcilia.
+        })
     }
     return ticket
   },
 
   remove: (id: string) => {
     permissionService.requireWrite('chamados')
-    return service.remove(id)
+    const ok = local.remove(id)
+    if (ok) {
+      request(`${API_BASE}/${id}`, { method: 'DELETE' }).catch(() => {})
+    }
+    return ok
   },
 
-  query: (predicate: (item: Ticket) => boolean) => service.query(predicate),
+  query: (predicate: (item: Ticket) => boolean) => local.query(predicate),
 
   getOpenByAsset: (assetId: string, assetSource: string) => {
-    return service.query(
+    return local.query(
       (t) => t.assetId === assetId && t.assetSource === assetSource && (t.status === 'aberto' || t.status === 'em_atendimento')
     )
   },
 
   getOpenByRoom: (roomId: string) => {
-    return service.query(
+    return local.query(
       (t) => t.roomId === roomId && (t.status === 'aberto' || t.status === 'em_atendimento')
     )
   },
 
   getHistoryByAsset: (assetId: string, assetSource: string) => {
-    return service.query(
+    return local.query(
       (t) => t.assetId === assetId && t.assetSource === assetSource
     ).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  },
+
+  /** Puxa os chamados do servidor e mescla no cache local (mais recente por updatedAt). */
+  pullRemote: async (): Promise<void> => {
+    const { tickets } = await request<{ tickets: Ticket[] }>(API_BASE)
+    mergeRemote(tickets || [])
   },
 }

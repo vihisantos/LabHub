@@ -11,6 +11,8 @@ export interface Role {
   description: string
   /** Nível de acesso por aplicativo (id do appRegistry) — ausente = sem acesso */
   appAccess: Partial<Record<string, AppAccessLevel>>
+  /** Permissão separada: gera QR de salas mesmo sem acesso full ao app */
+  manageQr?: boolean
   isDefault: boolean
   /** Id do usuário (profile) que lidera o setor do cargo */
   leaderId?: string
@@ -47,6 +49,7 @@ export const DEFAULT_ROLES: Role[] = [
       reservalab: 'read',
       chamados: 'full',
     },
+    manageQr: true,
     isDefault: false,
   },
   {
@@ -60,6 +63,7 @@ export const DEFAULT_ROLES: Role[] = [
       reservalab: 'dash',
       chamados: 'read',
     },
+    manageQr: false,
     isDefault: true,
   },
 ]

@@ -5,7 +5,7 @@ const actions = [
   {
     label: 'Escanear QR',
     icon: <icons.ui.scanBarcode size={18} />,
-    route: '/chamados-publico',
+    route: '/chamados-publico/scan',
     color: '#f59e0b',
   },
   {

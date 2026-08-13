@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Ticket, TicketFormData, TicketStatus } from '../types'
 import { ticketService } from '../services/ticketService'
+import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket } from '../services/ticketAlerts'
 
 export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -13,16 +14,35 @@ export function useTickets() {
     if (!silent) setLoading(false)
   }, [])
 
-  useEffect(() => {
-    load()
-    // Reload silencioso periódico — reflete mudanças trazidas pelo sync
-    // (o layout roda o useFastSync que puxa do Supabase a cada 10s)
-    const timer = setInterval(() => load(true), 10000)
-    return () => clearInterval(timer)
+  const syncRemote = useCallback(async (silent = true) => {
+    try {
+      await ticketService.pullRemote()
+    } catch {
+      // Sem conexão: mantém o cache local.
+    } finally {
+      load(silent)
+      // Alerta o TI sobre chamados novos vindos do formulário público.
+      const created = syncNewTicketAlerts()
+      if (created.length > 0) alertForNewTickets(created)
+    }
   }, [load])
 
-  const create = useCallback((data: TicketFormData) => {
-    const ticket = ticketService.create(data)
+  useEffect(() => {
+    load()
+    // Puxa do servidor a cada 10s (chamados criados pelo formulário público).
+    const timer = setInterval(() => syncRemote(), 10000)
+    return () => clearInterval(timer)
+  }, [load, syncRemote])
+
+  useEffect(() => {
+    const onOnline = () => syncRemote()
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [syncRemote])
+
+  const create = useCallback(async (data: TicketFormData) => {
+    const ticket = await ticketService.create(data)
+    markLocalTicket(ticket.id)
     setTickets((prev) => [ticket, ...prev])
     return ticket
   }, [])

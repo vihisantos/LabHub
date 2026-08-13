@@ -8,6 +8,7 @@ vi.mock('../core/permissions/usePermissions', () => ({
     getLevel: () => 'full',
     canAccessApp: () => true,
     isFullAccess: () => true,
+    canManageQr: () => true,
   }),
 }))
 

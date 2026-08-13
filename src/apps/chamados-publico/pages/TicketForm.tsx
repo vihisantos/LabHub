@@ -39,28 +39,32 @@ export function TicketForm() {
     return ticketService.getOpenByAsset(asset.id, asset.source)
   }, [asset])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedCategory || !reportedBy.trim() || !room || !asset) return
 
     setSubmitting(true)
 
-    const ticket = ticketService.create({
-      roomId: room.id,
-      roomName: room.name,
-      assetId: asset.id,
-      assetSource: asset.source,
-      assetName: asset.name,
-      assetPatrimony: asset.patrimony,
-      problemCategory: selectedCategory,
-      problemDescription: description,
-      status: 'aberto',
-      reportedBy: reportedBy.trim(),
-      reportedByEmail: reportedByEmail.trim(),
-      assignedTo: '',
-    })
+    try {
+      const ticket = await ticketService.create({
+        roomId: room.id,
+        roomName: room.name,
+        assetId: asset.id,
+        assetSource: asset.source,
+        assetName: asset.name,
+        assetPatrimony: asset.patrimony,
+        problemCategory: selectedCategory,
+        problemDescription: description,
+        status: 'aberto',
+        reportedBy: reportedBy.trim(),
+        reportedByEmail: reportedByEmail.trim(),
+        assignedTo: '',
+      })
 
-    navigate(`/chamados-publico/success/${ticket.id}`)
+      navigate(`/chamados-publico/success/${ticket.id}`)
+    } catch {
+      setSubmitting(false)
+    }
   }
 
   if (!room || !asset) {

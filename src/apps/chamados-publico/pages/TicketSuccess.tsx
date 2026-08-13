@@ -18,7 +18,7 @@ export function TicketSuccess() {
           onClick={() => navigate('/chamados-publico')}
           className="mt-4 rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-white"
         >
-          Escanear novamente
+          Voltar ao início
         </button>
       </div>
     )
@@ -43,10 +43,20 @@ export function TicketSuccess() {
             <span className="text-fg-muted">Sala</span>
             <span className="font-medium text-fg">{ticket.roomName}</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-fg-muted">Equipamento</span>
-            <span className="font-medium text-fg">{ticket.assetName}</span>
-          </div>
+          {ticket.assetName && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-fg-muted">Equipamento</span>
+              <span className="font-medium text-fg">{ticket.assetName}</span>
+            </div>
+          )}
+          {ticket.problemArea && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-fg-muted">Área</span>
+              <span className="font-medium text-fg">
+                {ticket.problemArea === 'administrativa' ? 'Área Administrativa' : 'Área Acadêmica'}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-sm">
             <span className="text-fg-muted">Problema</span>
             <span className="font-medium text-fg">{ticket.problemCategory}</span>
@@ -62,11 +72,20 @@ export function TicketSuccess() {
 
       <button
         type="button"
+        onClick={() => navigate('/chamados-publico/track')}
+        className="mt-3 flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-line bg-card px-6 py-3 text-sm font-medium transition-colors hover:bg-input"
+      >
+        <icons.ui.circleCheck size={18} className="text-amber-500" />
+        Acompanhar e avaliar depois
+      </button>
+
+      <button
+        type="button"
         onClick={() => navigate('/chamados-publico')}
         className="mt-8 flex items-center gap-2 rounded-xl bg-card px-6 py-3 text-sm font-medium shadow-[var(--shadow-card)] transition-colors hover:bg-input"
       >
         <icons.ui.scanBarcode size={18} />
-        Escanear outro QR
+        {ticket.assetName ? 'Escanear outro QR' : 'Abrir outro chamado'}
       </button>
     </div>
   )
