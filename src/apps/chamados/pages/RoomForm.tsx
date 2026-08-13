@@ -10,7 +10,7 @@ export function RoomForm() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { rooms, create, update } = useRooms()
-  const { isFullAccess } = useAppAccess()
+  const { isFullAccess, canManageQr } = useAppAccess()
   const canWrite = isFullAccess('chamados')
   const existingRoom = id ? rooms.find((r) => r.id === id) : null
 
@@ -195,7 +195,7 @@ export function RoomForm() {
         </div>
       </form>
 
-      {existingRoom && (
+      {existingRoom && canManageQr() && (
         <div className="flex gap-2">
           <button
             type="button"

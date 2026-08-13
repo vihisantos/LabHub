@@ -594,3 +594,315 @@ def tv_activation_redeem():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ── Chamados (formulário público via QR) ──
+
+CHAMADOS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS public.chamados_tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "workspace_id" UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    "roomId" TEXT NOT NULL DEFAULT '',
+    "roomName" TEXT NOT NULL DEFAULT '',
+    "assetId" TEXT DEFAULT '',
+    "assetSource" TEXT DEFAULT '',
+    "assetName" TEXT DEFAULT '',
+    "assetPatrimony" TEXT DEFAULT '',
+    "problemCategory" TEXT NOT NULL DEFAULT '',
+    "problemArea" TEXT NOT NULL DEFAULT '',
+    "problemDescription" TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'aberto',
+    "priority" TEXT NOT NULL DEFAULT 'normal',
+    "reportedBy" TEXT NOT NULL DEFAULT '',
+    "reportedByEmail" TEXT DEFAULT '',
+    "assignedTo" TEXT DEFAULT '',
+    "ticketNumber" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMPTZ DEFAULT NOW(),
+    "updatedAt" TIMESTAMPTZ DEFAULT NOW(),
+    "resolvedAt" TIMESTAMPTZ,
+    "archived" BOOLEAN NOT NULL DEFAULT FALSE,
+    "closedAt" TIMESTAMPTZ,
+    "closedBy" TEXT DEFAULT ''
+);
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "priority" TEXT DEFAULT 'normal';
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "archived" BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMPTZ;
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedBy" TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_chamados_workspace ON public.chamados_tickets("workspace_id");
+CREATE INDEX IF NOT EXISTS idx_chamados_status ON public.chamados_tickets(status);
+-- RLS: acesso direto (anon/authenticated) bloqueado; a API acessa via service role.
+ALTER TABLE public.chamados_tickets ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC;
+"""
+
+CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
+
+
+def _ensure_chamados_schema():
+    """Cria a tabela de chamados se não existir (mesmo padrão do _ensure_stock_schema)."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
+    try:
+        resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/rpc/pg_sql',
+            json={'query': CHAMADOS_TABLE_SQL},
+            headers=headers,
+            timeout=10,
+        )
+        print(f"[chamados] pg_sql: {resp.status_code} {resp.text[:200]}")
+    except Exception as e:
+        print(f"[chamados] pg_sql error: {e}")
+
+
+@app.route('/api/chamados/workspaces', methods=['GET'])
+def chamados_workspaces():
+    """Lista os campi (workspaces) para o formulário público. Público, service role."""
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces?select=id,name,slug,location&order=name',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao listar campi'}), 502
+        return jsonify({'workspaces': resp.json() or []})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chamados', methods=['POST'])
+def chamados_create():
+    """Cria um chamado a partir do formulário público (professor), sem login."""
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+        body = request.get_json() or {}
+
+        workspace_id = str(body.get('workspace_id') or '').strip()
+        room_name = str(body.get('roomName') or '').strip()
+        reported_by = str(body.get('reportedBy') or '').strip()
+        problem_category = str(body.get('problemCategory') or '').strip()
+        problem_area = str(body.get('problemArea') or '').strip()
+        problem_description = str(body.get('problemDescription') or '').strip()
+        priority = str(body.get('priority') or 'normal').strip().lower()
+
+        if not workspace_id:
+            return jsonify({'error': 'Selecione o campus'}), 400
+        if not room_name:
+            return jsonify({'error': 'Informe a sala'}), 400
+        if not reported_by:
+            return jsonify({'error': 'Informe seu nome'}), 400
+        if problem_area not in ('administrativa', 'academica'):
+            return jsonify({'error': 'Selecione a área do problema'}), 400
+        if not problem_category:
+            return jsonify({'error': 'Selecione o tipo de problema'}), 400
+        if not problem_description:
+            return jsonify({'error': 'Descreva o que está acontecendo'}), 400
+        if priority not in CHAMADOS_PRIORITIES:
+            return jsonify({'error': 'Prioridade inválida'}), 400
+
+        ws_check = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=id',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not ws_check.ok or not ws_check.json():
+            return jsonify({'error': 'Campus não encontrado'}), 400
+
+        num_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+            f'?select=ticketNumber&workspace_id=eq.{quote(workspace_id)}'
+            f'&order=ticketNumber.desc&limit=1',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not num_resp.ok:
+            return jsonify({'error': 'Erro ao gerar o número do chamado'}), 502
+        num_rows = num_resp.json()
+        ticket_number = (num_rows[0].get('ticketNumber') if num_rows else 0) + 1
+
+        now = datetime.now(timezone.utc).isoformat()
+        payload = {
+            'workspace_id': workspace_id,
+            'roomId': str(body.get('roomId') or '').strip(),
+            'roomName': room_name,
+            'assetId': str(body.get('assetId') or ''),
+            'assetSource': str(body.get('assetSource') or ''),
+            'assetName': str(body.get('assetName') or ''),
+            'assetPatrimony': str(body.get('assetPatrimony') or ''),
+            'problemCategory': problem_category,
+            'problemArea': problem_area,
+            'problemDescription': problem_description,
+            'status': 'aberto',
+            'priority': priority,
+            'reportedBy': reported_by,
+            'reportedByEmail': str(body.get('reportedByEmail') or '').strip(),
+            'assignedTo': str(body.get('assignedTo') or ''),
+            'ticketNumber': ticket_number,
+            'createdAt': now,
+            'updatedAt': now,
+            'resolvedAt': None,
+        }
+
+        ins = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets',
+            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+            json=payload,
+            timeout=10,
+        )
+        if not ins.ok:
+            return jsonify({'error': f'Erro ao criar chamado: {ins.status_code} {ins.text[:200]}'}), 502
+
+        return jsonify({'ticket': ins.json()[0]})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chamados', methods=['GET'])
+def chamados_list():
+    """Lista chamados (filtros opcionais: workspace_id, status, reportedBy). Usado pelo app do TI."""
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+        url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?select=*&order=createdAt.desc'
+        workspace_id = request.args.get('workspace_id')
+        if workspace_id:
+            url += f'&workspace_id=eq.{quote(workspace_id)}'
+        status = request.args.get('status')
+        if status:
+            url += f'&status=eq.{quote(status)}'
+        reported_by = request.args.get('reportedBy')
+        if reported_by:
+            url += f'&reportedBy=ilike.*{quote(reported_by)}*'
+        resp = requests.get(url, headers=_supabase_headers(), timeout=15)
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao listar chamados'}), 502
+        return jsonify({'tickets': resp.json() or []})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chamados/<ticket_id>', methods=['GET', 'PATCH', 'DELETE'])
+def chamados_manage(ticket_id):
+    """Consulta, atualiza status/responsável/prioridade de um chamado ou remove."""
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+
+        if request.method == 'GET':
+            resp = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=*',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not resp.ok:
+                return jsonify({'error': 'Erro ao buscar chamado'}), 502
+            rows = resp.json() or []
+            if not rows:
+                return jsonify({'error': 'Chamado não encontrado'}), 404
+            return jsonify({'ticket': rows[0]})
+
+        if request.method == 'DELETE':
+            resp = requests.delete(
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}',
+                headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+                timeout=10,
+            )
+            if not resp.ok:
+                return jsonify({'error': 'Erro ao remover chamado'}), 502
+            return jsonify({'success': True})
+
+        body = request.get_json() or {}
+        updates = {}
+        for key in ('status', 'assignedTo', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy'):
+            if key in body:
+                updates[key] = body[key]
+        if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
+            return jsonify({'error': 'Prioridade inválida'}), 400
+        if 'status' in updates and updates['status'] == 'resolvido':
+            updates['resolvedAt'] = datetime.now(timezone.utc).isoformat()
+        if 'status' in updates and updates['status'] == 'fechado':
+            updates['archived'] = True
+            updates['closedAt'] = datetime.now(timezone.utc).isoformat()
+        if not updates:
+            return jsonify({'error': 'Nada para atualizar'}), 400
+        updates['updatedAt'] = datetime.now(timezone.utc).isoformat()
+
+        resp = requests.patch(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}',
+            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+            json=updates,
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao atualizar chamado'}), 502
+        rows = resp.json()
+        if not rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        return jsonify({'ticket': rows[0]})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chamados/<ticket_id>/feedback', methods=['POST'])
+def chamados_feedback(ticket_id):
+    """Registra o feedback do professor (nota 1-5) após a resolução do chamado."""
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+
+        fetch = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=*',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        rows = fetch.json() or []
+        if not rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        ticket = rows[0]
+
+        if ticket.get('status') not in ('resolvido', 'fechado'):
+            return jsonify({'error': 'Só é possível avaliar após a resolução do chamado'}), 400
+        if ticket.get('feedbackRating') is not None:
+            return jsonify({'error': 'Chamado já avaliado'}), 400
+
+        body = request.get_json() or {}
+        try:
+            rating = int(body.get('rating'))
+        except (TypeError, ValueError):
+            rating = 0
+        if rating not in (1, 2, 3, 4, 5):
+            return jsonify({'error': 'Nota inválida (1 a 5)'}), 400
+        comment = str(body.get('comment') or '').strip()[:500]
+
+        now = datetime.now(timezone.utc).isoformat()
+        updates = {
+            'feedbackRating': rating,
+            'feedbackComment': comment,
+            'feedbackAt': now,
+            'updatedAt': now,
+        }
+        resp = requests.patch(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}',
+            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+            json=updates,
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao registrar o feedback'}), 502
+        return jsonify({'ticket': resp.json()[0]})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+

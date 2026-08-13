@@ -1,16 +1,19 @@
 export type TicketStatus = 'aberto' | 'em_atendimento' | 'resolvido' | 'fechado'
 export type AssetSource = 'stock' | 'pcare'
+export type TicketProblemArea = 'administrativa' | 'academica'
 
 export interface Ticket {
   id: string
   ticketNumber: number
+  workspace_id?: string
   roomId: string
   roomName: string
-  assetId: string
-  assetSource: AssetSource
+  assetId?: string
+  assetSource?: AssetSource
   assetName: string
-  assetPatrimony: string
+  assetPatrimony?: string
   problemCategory: string
+  problemArea?: TicketProblemArea
   problemDescription: string
   status: TicketStatus
   reportedBy: string
@@ -36,3 +39,16 @@ export const TICKET_STATUS_COLORS: Record<TicketStatus, string> = {
   resolvido: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
   fechado: 'bg-fg-muted/15 text-fg-muted',
 }
+
+export const PROBLEM_AREA_LABELS: Record<TicketProblemArea, string> = {
+  administrativa: 'Área Administrativa',
+  academica: 'Área Acadêmica',
+}
+
+export const TICKET_PROBLEM_CATEGORIES = [
+  'Internet',
+  'Projetor',
+  'Áudio',
+  'Computador',
+  'Outros',
+]

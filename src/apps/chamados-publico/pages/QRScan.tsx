@@ -25,12 +25,20 @@ export function QRScan() {
     }
   }, [rooms, navigate])
 
+  const goToForm = useCallback((roomName: string) => {
+    setFeedback('success')
+    controlsRef.current?.stop?.()
+    setTimeout(() => navigate(`/chamados-publico/new?room=${encodeURIComponent(roomName)}`), 300)
+  }, [navigate])
+
   useEffect(() => {
     const roomParam = searchParams.get('room')
     if (roomParam && rooms.length > 0) {
-      navigateToRoom(roomParam)
+      const room = rooms.find((r) => r.name === roomParam || r.id === roomParam)
+      if (room) navigateToRoom(room.id)
+      else goToForm(roomParam)
     }
-  }, [searchParams, rooms, navigateToRoom])
+  }, [searchParams, rooms, navigateToRoom, goToForm])
 
   function stopStream() {
     if (videoRef.current?.srcObject) {
@@ -52,6 +60,16 @@ export function QRScan() {
         if (cancelledRef.current) return
         if (result) {
           const text = result.getText() || ''
+          try {
+            const parsed = new URL(text)
+            const roomParam = parsed.searchParams.get('room')
+            if (parsed.pathname.endsWith('/new') && roomParam) {
+              goToForm(roomParam)
+              return
+            }
+          } catch {
+            // não é URL — trata como código legado
+          }
           if (text.startsWith('room:')) {
             navigateToRoom(text.replace('room:', ''))
           } else {
@@ -65,7 +83,7 @@ export function QRScan() {
       .catch(() => {
         if (!cancelledRef.current) setFeedback('idle')
       })
-  }, [navigateToRoom])
+  }, [navigateToRoom, goToForm])
 
   useEffect(() => {
     cancelledRef.current = false
@@ -79,8 +97,11 @@ export function QRScan() {
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!manualCode.trim()) return
-    navigateToRoom(manualCode.trim())
+    const value = manualCode.trim()
+    if (!value) return
+    const room = rooms.find((r) => r.name === value || r.id === value)
+    if (room) navigateToRoom(room.id)
+    else setFeedback('error')
   }
 
   return (
@@ -154,7 +175,7 @@ export function QRScan() {
 
       <div className="mb-4 flex w-full max-w-sm items-center gap-3">
         <span className="flex-1 border-t border-line" />
-        <span className="text-xs font-medium text-fg-muted">ou digite o código da sala</span>
+        <span className="text-xs font-medium text-fg-muted">ou digite o nome da sala</span>
         <span className="flex-1 border-t border-line" />
       </div>
 
@@ -170,7 +191,7 @@ export function QRScan() {
           type="submit"
           className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
         >
-          Buscar
+          Continuar
         </button>
       </form>
 

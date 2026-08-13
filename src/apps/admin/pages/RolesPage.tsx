@@ -79,6 +79,12 @@ export function RolesPage() {
     setSaving(null)
   }
 
+  async function setManageQr(role: Role, value: boolean) {
+    setSaving(role.id)
+    update(role.id, { manageQr: value })
+    setSaving(null)
+  }
+
   async function handleCreate() {
     if (!newName.trim()) return
     setSaving('new')
@@ -86,6 +92,7 @@ export function RolesPage() {
       name: newName.trim(),
       description: newDesc.trim() || 'Cargo personalizado',
       appAccess: {},
+      manageQr: false,
       isDefault: false,
       ...(newLeaderId ? { leaderId: newLeaderId } : {}),
     })
@@ -298,6 +305,35 @@ export function RolesPage() {
                         </div>
                       )
                     })}
+                  </div>
+                </div>
+
+                {/* Permissões extras */}
+                <div>
+                  <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Permissões extras</p>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-input/30 px-3 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500">
+                        <icons.ui.qrCode size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-fg">Gerar QR de salas</p>
+                        <p className="text-[10px] text-fg-muted">
+                          Permite imprimir/copiar o QR das salas, independente do nível no app Chamados.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManageQr(role, !role.manageQr)}
+                      disabled={saving === role.id}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${role.manageQr ? 'bg-emerald-500' : 'bg-input'}`}
+                      title={role.manageQr ? 'Revogar QR' : 'Conceder QR'}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${role.manageQr ? 'left-[1.375rem]' : 'left-0.5'}`}
+                      />
+                    </button>
                   </div>
                 </div>
 

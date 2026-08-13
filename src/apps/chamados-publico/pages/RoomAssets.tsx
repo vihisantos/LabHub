@@ -106,7 +106,7 @@ export function RoomAssets() {
                   <AssetCard
                     key={`${asset.source}-${asset.id}`}
                     asset={asset}
-                    onClick={() => navigate(`/chamados-publico/new?room=${room.id}&asset=${asset.id}&source=${asset.source}`)}
+                    onClick={() => navigate(`/chamados-publico/new-asset?room=${room.id}&asset=${asset.id}&source=${asset.source}`)}
                   />
                 ))}
               </div>

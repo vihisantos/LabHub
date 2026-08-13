@@ -1,0 +1,330 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
+import { workspaceStore } from '../../../core/workspaces/store'
+import { useAuth } from '../../../core/auth/useAuth'
+import { ticketService } from '../../chamados/services/ticketService'
+import { PROBLEM_AREA_LABELS, TICKET_PROBLEM_CATEGORIES } from '../../chamados/types'
+import type { TicketFormData, TicketProblemArea } from '../../chamados/types'
+import { OnboardingTour, isTourDone, markTourDone } from '../components/OnboardingTour'
+import { icons } from '../../../lib/icons'
+
+const AREA_OPTIONS: { value: TicketProblemArea; label: string; icon: (typeof icons.ui)[keyof typeof icons.ui] }[] = [
+  { value: 'administrativa', label: PROBLEM_AREA_LABELS.administrativa, icon: icons.nav.settings },
+  { value: 'academica', label: PROBLEM_AREA_LABELS.academica, icon: icons.ui.home },
+]
+
+const CATEGORY_ICONS: Record<string, (typeof icons.ui)[keyof typeof icons.ui]> = {
+  Internet: icons.ui.plug,
+  Projetor: icons.ui.tv,
+  Áudio: icons.ui.volume2,
+  Computador: icons.nav.pcs,
+  Outros: icons.ui.alertCircle,
+}
+
+export function RoomTicketForm() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const { user } = useAuth()
+  const { workspaces, loading: loadingWorkspaces } = useWorkspaces()
+
+  const urlRoom = searchParams.get('room') || ''
+  const [campusId, setCampusId] = useState('')
+  const [roomName, setRoomName] = useState(urlRoom)
+  const [area, setArea] = useState<TicketProblemArea | ''>('')
+  const [category, setCategory] = useState('')
+  const [description, setDescription] = useState('')
+  const [reportedBy, setReportedBy] = useState('')
+  const [reportedByEmail, setReportedByEmail] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const [tourVisible, setTourVisible] = useState(() => !isTourDone())
+
+  const campusRef = useRef<HTMLElement>(null)
+  const roomRef = useRef<HTMLElement>(null)
+  const areaRef = useRef<HTMLElement>(null)
+  const categoryRef = useRef<HTMLElement>(null)
+  const detailsRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (!user?.name) return
+    setReportedBy((prev) => prev || user.name)
+  }, [user?.name])
+
+  useEffect(() => {
+    const active = workspaceStore.activeWorkspaceId
+    if (active && workspaces.some((w) => w.id === active)) {
+      setCampusId(active)
+    }
+  }, [workspaces])
+
+  const campus = workspaces.find((w) => w.id === campusId)
+
+  const canSubmit =
+    !!campusId && roomName.trim().length > 0 && !!area && !!category && reportedBy.trim().length > 0 && !submitting
+
+  const openForRoom = useMemo(() => {
+    if (!roomName.trim()) return []
+    return ticketService
+      .query((t) => t.roomName === roomName.trim() && (t.status === 'aberto' || t.status === 'em_atendimento'))
+      .slice(0, 3)
+  }, [roomName])
+
+  const tourSteps = [
+    {
+      key: 'campus',
+      target: () => campusRef.current,
+      title: 'Onde você está?',
+      description:
+        'Escolha o campus da sua escola. Isso garante que o chamado chegue para a equipe de TI certa.',
+    },
+    {
+      key: 'problema',
+      target: () => categoryRef.current,
+      title: 'Qual o problema?',
+      description:
+        'Toque no tipo de problema: internet, projetor, áudio, computador ou outros. Depois indique a área.',
+    },
+    {
+      key: 'detalhes',
+      target: () => detailsRef.current,
+      title: 'Conte o que aconteceu',
+      description:
+        'Escreva o que está acontecendo e informe seu nome. Pronto — seu chamado vai direto para o TI!',
+    },
+  ]
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!campusId || !area || !category || !reportedBy.trim()) return
+
+    setSubmitting(true)
+    setError('')
+
+    const data: TicketFormData = {
+      workspace_id: campusId,
+      roomId: '',
+      roomName: roomName.trim(),
+      assetName: '',
+      problemCategory: category,
+      problemArea: area,
+      problemDescription: description,
+      status: 'aberto',
+      reportedBy: reportedBy.trim(),
+      reportedByEmail: reportedByEmail.trim(),
+      assignedTo: '',
+    }
+
+    try {
+      const ticket = await ticketService.create(data)
+      markTourDone()
+      navigate(`/chamados-publico/success/${ticket.id}`)
+    } catch (err) {
+      setSubmitting(false)
+      setError(err instanceof Error ? err.message : 'Não foi possível abrir o chamado. Tente novamente.')
+    }
+  }
+
+  const inputClass =
+    'w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500'
+
+  return (
+    <div className="min-h-dvh bg-surface px-4 pt-6 pb-10">
+      <div className="mb-6 text-center">
+        <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
+        <p className="mt-1 text-sm text-fg-muted">Leva menos de 1 minuto</p>
+      </div>
+
+      {error && (
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+          <icons.ui.alertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <section ref={campusRef} aria-label="Campus">
+          <p className="mb-2 text-xs font-semibold text-fg-muted">1 · Qual o campus?</p>
+          {loadingWorkspaces ? (
+            <p className="text-sm text-fg-dim">Carregando campi...</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {workspaces.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => setCampusId(w.id)}
+                  className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
+                    campusId === w.id
+                      ? 'border-amber-500 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
+                      : 'border-line bg-card text-fg hover:border-fg-muted'
+                  }`}
+                >
+                  <icons.ui.mapPin size={16} className="shrink-0" />
+                  <span className="line-clamp-2">{w.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section ref={roomRef} aria-label="Sala">
+          <label htmlFor="room" className="mb-2 block text-xs font-semibold text-fg-muted">
+            2 · Qual a sala? *
+          </label>
+          {urlRoom ? (
+            <div className="flex items-center gap-3 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15">
+                <icons.ui.home size={18} className="text-amber-500" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-fg">{urlRoom}</p>
+                <p className="text-[11px] text-fg-dim">Código lido do QR Code</p>
+              </div>
+            </div>
+          ) : (
+            <input
+              id="room"
+              type="text"
+              value={roomName}
+              onChange={(e) => setRoomName(e.target.value)}
+              placeholder="Ex: Sala 101, Laboratório 2"
+              className={inputClass}
+            />
+          )}
+        </section>
+
+        <section ref={areaRef} aria-label="Área">
+          <p className="mb-2 text-xs font-semibold text-fg-muted">3 · Qual a área?</p>
+          <div className="grid grid-cols-2 gap-2">
+            {AREA_OPTIONS.map((opt) => {
+              const Icon = opt.icon
+              const selected = area === opt.value
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setArea(opt.value)}
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all ${
+                    selected
+                      ? 'border-amber-500 bg-amber-500/10'
+                      : 'border-line bg-card hover:border-fg-muted'
+                  }`}
+                >
+                  <Icon size={20} className={selected ? 'text-amber-500' : 'text-fg-muted'} />
+                  <span
+                    className={`text-xs leading-snug ${
+                      selected ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-fg'
+                    }`}
+                  >
+                    {opt.label}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        <section ref={categoryRef} aria-label="Tipo de problema">
+          <p className="mb-2 text-xs font-semibold text-fg-muted">4 · Qual o problema? *</p>
+          <div className="grid grid-cols-2 gap-2">
+            {TICKET_PROBLEM_CATEGORIES.map((cat) => {
+              const Icon = CATEGORY_ICONS[cat] || icons.ui.alertCircle
+              const selected = category === cat
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setCategory(cat)}
+                  className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
+                    selected
+                      ? 'border-amber-500 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
+                      : 'border-line bg-card text-fg hover:border-fg-muted'
+                  }`}
+                >
+                  <Icon size={16} className="shrink-0" />
+                  {cat}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {openForRoom.length > 0 && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+            <icons.ui.alertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+            <div>
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                Já existe chamado aberto para esta sala.
+              </p>
+              <p className="mt-0.5 text-[11px] text-amber-600/70 dark:text-amber-400/70">
+                Nº {openForRoom.map((t) => `#${t.ticketNumber}`).join(', ')}
+              </p>
+            </div>
+          </div>
+        )}
+
+        <section ref={detailsRef} aria-label="Detalhes">
+          <label htmlFor="description" className="mb-1.5 block text-xs font-semibold text-fg-muted">
+            5 · Descreva o que aconteceu
+          </label>
+          <textarea
+            id="description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Ex: A internet da sala caiu às 10h e não voltou..."
+            rows={3}
+            className={inputClass}
+          />
+
+          <label htmlFor="reportedBy" className="mt-4 mb-1.5 block text-xs font-semibold text-fg-muted">
+            Seu nome *
+          </label>
+          {user?.name && (
+            <p className="mb-1.5 flex items-center gap-1 text-[11px] text-fg-dim">
+              <icons.ui.userCheck size={12} />
+              Identificado como {user.name} — ajuste se necessário
+            </p>
+          )}
+          <input
+            id="reportedBy"
+            type="text"
+            value={reportedBy}
+            onChange={(e) => setReportedBy(e.target.value)}
+            placeholder="Nome do professor"
+            className={inputClass}
+          />
+
+          <label htmlFor="reportedByEmail" className="mt-4 mb-1.5 block text-xs font-semibold text-fg-muted">
+            Email (opcional)
+          </label>
+          <input
+            id="reportedByEmail"
+            type="email"
+            value={reportedByEmail}
+            onChange={(e) => setReportedByEmail(e.target.value)}
+            placeholder="email@exemplo.com"
+            className={inputClass}
+          />
+        </section>
+
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="w-full rounded-xl bg-amber-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {submitting ? 'Abrindo chamado...' : 'Abrir Chamado'}
+        </button>
+
+        <p className="pb-4 text-center text-[11px] text-fg-dim">
+          Seu chamado vai direto para a equipe de TI de {campus?.name || 'sua unidade'}.
+        </p>
+      </form>
+
+      {tourVisible && !loadingWorkspaces && (
+        <OnboardingTour steps={tourSteps} onClose={() => setTourVisible(false)} />
+      )}
+    </div>
+  )
+}
