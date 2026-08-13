@@ -77,6 +77,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (pref) {
         setWorkspaceState(pref)
         setPendingSelection(false)
+      } else if (user.is_super_admin) {
+        // Super admin sempre escolhe (e pode criar) o workspace ao entrar,
+        // mesmo com apenas um ambiente — cada workspace é uma escola.
+        setWorkspaceState(null)
+        setPendingSelection(true)
       } else if (assigned.length === 1) {
         setWorkspaceState(assigned[0])
         localStorage.setItem(STORAGE_KEY, assigned[0].slug)
