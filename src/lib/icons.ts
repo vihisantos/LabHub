@@ -66,6 +66,7 @@ import {
   CircleCheck,
   MapPin,
   ShieldCheck,
+  Star,
 } from 'lucide-react'
 
 export const icons = {
@@ -143,6 +144,7 @@ export const icons = {
     circleCheck: CircleCheck,
     mapPin: MapPin,
     shield: ShieldCheck,
+    star: Star,
   },
 } as const
 

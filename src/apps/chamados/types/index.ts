@@ -8,3 +8,6 @@ export {
 } from './ticket'
 export type { ProblemTemplate, ProblemTemplateFormData } from './problemTemplate'
 export { DEFAULT_PROBLEM_TEMPLATES } from './problemTemplate'
+export type { TicketPriority } from './ticket'
+export { TICKET_PRIORITIES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_COLORS, DEFAULT_SLA_HOURS } from './ticket'
+export type { SlaConfig } from './sla'
