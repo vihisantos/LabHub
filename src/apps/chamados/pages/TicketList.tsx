@@ -1,25 +1,45 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTickets } from '../hooks/useTickets'
-import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../types'
+import {
+  TICKET_STATUS_LABELS,
+  TICKET_STATUS_COLORS,
+  TICKET_PRIORITIES,
+  TICKET_PRIORITY_LABELS,
+  TICKET_PRIORITY_COLORS,
+} from '../types'
+import { slaConfigService } from '../services/slaConfigService'
+import { getPriority, isSlaOverdue } from '../services/sla'
 import { icons } from '../../../lib/icons'
-import type { TicketStatus } from '../types'
+import type { Ticket, TicketPriority, TicketStatus } from '../types'
+
+function slaConfigFor(ticket: Ticket) {
+  return slaConfigService.getHoursForTickets()[ticket.workspace_id ?? ''] ?? null
+}
 
 export function TicketList() {
   const navigate = useNavigate()
   const { tickets } = useTickets()
-  const [statusFilter, setStatusFilter] = useState<TicketStatus | ''>('')
+  const [statusFilter, setStatusFilter] = useState<TicketStatus | 'arquivados' | ''>('')
+  const [priorityFilter, setPriorityFilter] = useState<TicketPriority | ''>('')
   const [roomFilter, setRoomFilter] = useState('')
   const [search, setSearch] = useState('')
 
   const filteredTickets = useMemo(() => {
     return tickets.filter((t) => {
-      if (statusFilter && t.status !== statusFilter) return false
+      const archived = t.archived === true || t.status === 'fechado'
+      if (statusFilter === 'arquivados') {
+        if (!archived) return false
+      } else {
+        if (archived) return false
+        if (statusFilter && t.status !== statusFilter) return false
+      }
+      if (priorityFilter && getPriority(t.priority) !== priorityFilter) return false
       if (roomFilter && t.roomName !== roomFilter) return false
       if (search) {
         const q = search.toLowerCase()
         if (
-          !t.assetName.toLowerCase().includes(q) &&
+          !String(t.assetName || '').toLowerCase().includes(q) &&
           !t.roomName.toLowerCase().includes(q) &&
           !t.problemCategory.toLowerCase().includes(q) &&
           !String(t.ticketNumber).includes(q)
@@ -27,7 +47,7 @@ export function TicketList() {
       }
       return true
     })
-  }, [tickets, statusFilter, roomFilter, search])
+  }, [tickets, statusFilter, priorityFilter, roomFilter, search])
 
   const uniqueRooms = useMemo(() => {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
@@ -54,9 +74,9 @@ export function TicketList() {
             statusFilter === '' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
         >
-          Todos
+          Ativos
         </button>
-        {(['aberto', 'em_atendimento', 'resolvido', 'fechado'] as TicketStatus[]).map((status) => (
+        {(['aberto', 'a_caminho', 'em_atendimento', 'resolvido'] as TicketStatus[]).map((status) => (
           <button
             key={status}
             type="button"
@@ -66,6 +86,39 @@ export function TicketList() {
             }`}
           >
             {TICKET_STATUS_LABELS[status]}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setStatusFilter('arquivados')}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+          }`}
+        >
+          Arquivados
+        </button>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        <button
+          type="button"
+          onClick={() => setPriorityFilter('')}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            priorityFilter === '' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+          }`}
+        >
+          Prioridades
+        </button>
+        {TICKET_PRIORITIES.map((priority) => (
+          <button
+            key={priority}
+            type="button"
+            onClick={() => setPriorityFilter(priority)}
+            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              priorityFilter === priority ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            }`}
+          >
+            {TICKET_PRIORITY_LABELS[priority]}
           </button>
         ))}
       </div>
@@ -87,35 +140,52 @@ export function TicketList() {
         <div className="flex flex-col items-center py-12">
           <icons.ui.inbox size={40} className="text-fg-muted" />
           <p className="mt-3 text-sm text-fg-muted">
-            {tickets.length === 0 ? 'Nenhum chamado registrado' : 'Nenhum resultado encontrado'}
+            {tickets.length === 0
+              ? 'Nenhum chamado registrado'
+              : statusFilter === 'arquivados'
+                ? 'Nenhum chamado arquivado'
+                : 'Nenhum resultado encontrado'}
           </p>
         </div>
       ) : (
         <div className="space-y-2">
-          {filteredTickets.map((ticket) => (
-            <button
-              key={ticket.id}
-              type="button"
-              onClick={() => navigate(`/chamados/tickets/${ticket.id}`)}
-              className="flex w-full items-center gap-3 rounded-xl bg-card p-3.5 text-left shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)]"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-bold text-amber-500">
-                #{ticket.ticketNumber}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-fg truncate">{ticket.assetName}</p>
-                <p className="text-[11px] text-fg-muted">
-                  {ticket.roomName} · {ticket.problemCategory}
-                </p>
-                <p className="text-[10px] text-fg-dim">
-                  {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
-                </p>
-              </div>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}>
-                {TICKET_STATUS_LABELS[ticket.status]}
-              </span>
-            </button>
-          ))}
+          {filteredTickets.map((ticket) => {
+            const overdue = isSlaOverdue(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
+            return (
+              <button
+                key={ticket.id}
+                type="button"
+                onClick={() => navigate(`/chamados/tickets/${ticket.id}`)}
+                className={`flex w-full items-center gap-3 rounded-xl bg-card p-3.5 text-left shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)] ${
+                  overdue ? 'ring-1 ring-red-500/50' : ''
+                }`}
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-bold text-amber-500">
+                  #{ticket.ticketNumber}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-fg truncate">{ticket.assetName || ticket.problemCategory}</p>
+                  <p className="text-[11px] text-fg-muted">
+                    {ticket.roomName} · {ticket.problemCategory}
+                    {ticket.problemArea ? ` · ${ticket.problemArea === 'administrativa' ? 'Adm' : 'Acad'}` : ''}
+                  </p>
+                  <p className="text-[10px] text-fg-dim">
+                    {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
+                    {overdue && <span className="ml-1 font-bold text-red-500">· Em atraso</span>}
+                    {ticket.feedbackRating && (
+                      <span className="ml-1 text-amber-500">· ★ {ticket.feedbackRating}</span>
+                    )}
+                  </p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${TICKET_PRIORITY_COLORS[getPriority(ticket.priority)]}`}>
+                  {TICKET_PRIORITY_LABELS[getPriority(ticket.priority)]}
+                </span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}>
+                  {TICKET_STATUS_LABELS[ticket.status]}
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

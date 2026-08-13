@@ -45,6 +45,14 @@ export const ticketService = {
 
   getById: (id: string) => local.getById(id),
 
+  getByIdNoFilter: (id: string) => getCol<Ticket>('chamados').find((t) => t.id === id),
+
+  isArchived: (ticket: Ticket) => ticket.archived === true || ticket.status === 'fechado',
+
+  getActive: () => local.query((t) => !(t.archived === true || t.status === 'fechado')),
+
+  getArchived: () => local.query((t) => t.archived === true || t.status === 'fechado'),
+
   /** Cria um chamado na API (fonte de verdade) e persiste localmente como cache. */
   create: async (data: TicketFormData): Promise<Ticket> => {
     const ticket = await request<Ticket>(API_BASE, {
@@ -98,17 +106,42 @@ export const ticketService = {
     return ok
   },
 
+  /** Busca um chamado direto na API (professor/feedback — sem guarda de escrita). */
+  getByIdRemote: async (id: string): Promise<Ticket> => {
+    const { ticket } = await request<{ ticket: Ticket }>(`${API_BASE}/${id}`)
+    persistLocal(ticket)
+    return ticket
+  },
+
+  /** Busca chamados pelo nome do professor na API (público). */
+  getByReporter: async (name: string): Promise<Ticket[]> => {
+    const { tickets } = await request<{ tickets: Ticket[] }>(
+      `${API_BASE}?reportedBy=${encodeURIComponent(name)}`,
+    )
+    return tickets || []
+  },
+
+  /** Registra o feedback do professor (nota 1-5) após a resolução. */
+  submitFeedback: async (id: string, rating: number, comment: string): Promise<Ticket> => {
+    const { ticket } = await request<{ ticket: Ticket }>(`${API_BASE}/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, comment }),
+    })
+    persistLocal(ticket)
+    return ticket
+  },
+
   query: (predicate: (item: Ticket) => boolean) => local.query(predicate),
 
   getOpenByAsset: (assetId: string, assetSource: string) => {
     return local.query(
-      (t) => t.assetId === assetId && t.assetSource === assetSource && (t.status === 'aberto' || t.status === 'em_atendimento')
+      (t) => t.assetId === assetId && t.assetSource === assetSource && (t.status === 'aberto' || t.status === 'a_caminho' || t.status === 'em_atendimento')
     )
   },
 
   getOpenByRoom: (roomId: string) => {
     return local.query(
-      (t) => t.roomId === roomId && (t.status === 'aberto' || t.status === 'em_atendimento')
+      (t) => t.roomId === roomId && (t.status === 'aberto' || t.status === 'a_caminho' || t.status === 'em_atendimento')
     )
   },
 

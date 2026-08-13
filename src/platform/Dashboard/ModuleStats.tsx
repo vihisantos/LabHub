@@ -22,7 +22,7 @@ export function ModuleStats() {
     const stockItems = stockService.getAll()
     const tickets = ticketService.getAll()
 
-    const openTickets = tickets.filter((t) => t.status === 'aberto' || t.status === 'em_atendimento')
+    const openTickets = tickets.filter((t) => t.status === 'aberto' || t.status === 'a_caminho' || t.status === 'em_atendimento')
     const resolvedToday = tickets.filter((t) => {
       if (!t.resolvedAt) return false
       const today = new Date().toISOString().slice(0, 10)

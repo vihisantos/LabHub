@@ -10,7 +10,7 @@ export const healthService = {
     const stockItems = stockService.getAll()
     const tickets = ticketService.getAll()
 
-    const openTickets = tickets.filter((t) => t.status === 'aberto' || t.status === 'em_atendimento')
+    const openTickets = tickets.filter((t) => t.status === 'aberto' || t.status === 'a_caminho' || t.status === 'em_atendimento')
     const criticalTickets = openTickets.filter((t) => {
       const age = Date.now() - new Date(t.createdAt).getTime()
       return age > 24 * 60 * 60 * 1000

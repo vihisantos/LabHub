@@ -1,12 +1,22 @@
 import { useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { useTickets } from '../hooks/useTickets'
-import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../types'
+import {
+  TICKET_STATUS_LABELS,
+  TICKET_STATUS_COLORS,
+  TICKET_PRIORITIES,
+  TICKET_PRIORITY_LABELS,
+  TICKET_PRIORITY_COLORS,
+} from '../types'
+import { slaConfigService } from '../services/slaConfigService'
+import { getPriority, getSlaInfo } from '../services/sla'
+import { Stars } from '../components/Stars'
 import { icons } from '../../../lib/icons'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
-import type { TicketStatus } from '../types'
+import { useAuth } from '../../../core/auth/useAuth'
+import type { Ticket, TicketPriority, TicketStatus } from '../types'
 
-const STATUS_FLOW: TicketStatus[] = ['aberto', 'em_atendimento', 'resolvido', 'fechado']
+const STATUS_FLOW: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', {
@@ -18,10 +28,15 @@ function formatDate(iso: string) {
   })
 }
 
+function slaConfigFor(ticket: Ticket) {
+  return slaConfigService.getHoursForTickets()[ticket.workspace_id ?? ''] ?? null
+}
+
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
-  const { tickets, updateStatus } = useTickets()
+  const { tickets, update, updateStatus } = useTickets()
   const { isFullAccess } = useAppAccess()
+  const { user } = useAuth()
   const canWrite = isFullAccess('chamados')
   const ticket = tickets.find((t) => t.id === id)
 
@@ -45,19 +60,140 @@ export function TicketDetail() {
   const currentIndex = STATUS_FLOW.indexOf(ticket.status)
   const nextStatus = currentIndex < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentIndex + 1] : null
 
+  const slaInfo = getSlaInfo(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
+
+  const claimedByMe = ticket.assignedTo === user?.name
+  const claimedByOther =
+    !!ticket.assignedTo && !claimedByMe && (ticket.status === 'a_caminho' || ticket.status === 'em_atendimento')
+
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket) return
-    updateStatus(ticket.id, nextStatus)
+    if (nextStatus === 'a_caminho') {
+      update(ticket.id, { status: nextStatus, assignedTo: user?.name })
+    } else if (nextStatus === 'fechado') {
+      update(ticket.id, {
+        status: nextStatus,
+        archived: true,
+        closedAt: new Date().toISOString(),
+        closedBy: user?.name,
+      })
+    } else {
+      updateStatus(ticket.id, nextStatus)
+    }
+  }
+
+  function handleReopen() {
+    if (!ticket) return
+    update(ticket.id, {
+      status: 'aberto',
+      archived: false,
+      closedAt: null,
+      closedBy: '',
+    })
+  }
+
+  function handlePriority(next: TicketPriority) {
+    if (!ticket || next === getPriority(ticket.priority)) return
+    update(ticket.id, { priority: next })
   }
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
+      {slaInfo?.state === 'overdue' && (
+        <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <icons.ui.alertTriangle size={16} className="shrink-0 text-red-500" />
+          <p className="text-xs font-medium text-red-600 dark:text-red-400">
+            {slaInfo.label} — prazo foi {formatDate(slaInfo.deadline.toISOString())}
+          </p>
+        </div>
+      )}
+
+      {ticket.status === 'a_caminho' && ticket.assignedTo && (
+        <div className="flex items-center gap-2 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3">
+          <icons.ui.mapPin size={16} className="shrink-0 text-orange-500" />
+          <p className="text-xs font-medium text-orange-600 dark:text-orange-400">
+            {claimedByMe ? 'Você está a caminho do local' : `${ticket.assignedTo} está a caminho`}
+          </p>
+        </div>
+      )}
+
+      {ticket.status === 'fechado' && (
+        <div className="rounded-xl border border-line bg-card px-4 py-3">
+          <div className="flex items-center gap-2">
+            <icons.ui.folder size={16} className="shrink-0 text-fg-muted" />
+            <p className="text-xs font-medium text-fg-muted">
+              Chamado arquivado{ticket.closedAt ? ` em ${formatDate(ticket.closedAt)}` : ''}
+              {ticket.closedBy ? ` por ${ticket.closedBy}` : ''}
+            </p>
+          </div>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={handleReopen}
+              className="mt-3 w-full rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-fg transition-colors hover:border-amber-500 hover:text-amber-500"
+            >
+              Reabrir chamado
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className={`rounded-xl bg-card p-5 shadow-[var(--shadow-card)] ${slaInfo?.state === 'overdue' ? 'ring-1 ring-red-500/50' : ''}`}>
         <div className="mb-4 flex items-center justify-between">
           <span className="text-2xl font-bold text-amber-500">#{ticket.ticketNumber}</span>
           <span className={`rounded-full px-3 py-1 text-xs font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}>
             {TICKET_STATUS_LABELS[ticket.status]}
           </span>
+        </div>
+
+        <div className="mb-4 space-y-3 rounded-xl bg-surface p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-fg-muted">Prioridade</span>
+            {canWrite ? (
+              <div className="flex gap-1">
+                {TICKET_PRIORITIES.map((priority) => (
+                  <button
+                    key={priority}
+                    type="button"
+                    onClick={() => handlePriority(priority)}
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      getPriority(ticket.priority) === priority
+                        ? TICKET_PRIORITY_COLORS[priority]
+                        : 'text-fg-dim hover:text-fg'
+                    }`}
+                  >
+                    {TICKET_PRIORITY_LABELS[priority]}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${TICKET_PRIORITY_COLORS[getPriority(ticket.priority)]}`}>
+                {TICKET_PRIORITY_LABELS[getPriority(ticket.priority)]}
+              </span>
+            )}
+          </div>
+          {slaInfo && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-fg-muted">Prazo de atendimento</span>
+              <span className="text-xs font-semibold text-fg">{formatDate(slaInfo.deadline.toISOString())}</span>
+            </div>
+          )}
+          {slaInfo && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-fg-muted">SLA</span>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                  slaInfo.state === 'overdue'
+                    ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+                    : slaInfo.state === 'near'
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                      : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                }`}
+              >
+                {slaInfo.state === 'overdue' ? `Em atraso · ${slaInfo.label}` : slaInfo.label}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="space-y-3 border-t border-line pt-4">
@@ -68,21 +204,28 @@ export function TicketDetail() {
               <p className="text-sm font-medium text-fg">{ticket.roomName}</p>
             </div>
           </div>
-          <div className="flex items-start gap-3">
-            <icons.nav.pcs size={16} className="mt-0.5 shrink-0 text-fg-muted" />
-            <div>
-              <p className="text-xs text-fg-muted">Equipamento</p>
-              <p className="text-sm font-medium text-fg">{ticket.assetName}</p>
-              {ticket.assetPatrimony && (
-                <p className="text-[11px] text-fg-dim">Patrimônio: {ticket.assetPatrimony}</p>
-              )}
+          {ticket.assetName && (
+            <div className="flex items-start gap-3">
+              <icons.nav.pcs size={16} className="mt-0.5 shrink-0 text-fg-muted" />
+              <div>
+                <p className="text-xs text-fg-muted">Equipamento</p>
+                <p className="text-sm font-medium text-fg">{ticket.assetName}</p>
+                {ticket.assetPatrimony && (
+                  <p className="text-[11px] text-fg-dim">Patrimônio: {ticket.assetPatrimony}</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           <div className="flex items-start gap-3">
             <icons.ui.alertCircle size={16} className="mt-0.5 shrink-0 text-fg-muted" />
             <div>
               <p className="text-xs text-fg-muted">Problema</p>
               <p className="text-sm font-medium text-fg">{ticket.problemCategory}</p>
+              {ticket.problemArea && (
+                <p className="text-[11px] text-fg-dim">
+                  {ticket.problemArea === 'administrativa' ? 'Área Administrativa' : 'Área Acadêmica'}
+                </p>
+              )}
             </div>
           </div>
           {ticket.problemDescription && (
@@ -116,6 +259,21 @@ export function TicketDetail() {
         </div>
       </div>
 
+      {ticket.feedbackRating && (
+        <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+          <h3 className="mb-3 text-xs font-semibold text-fg-muted">Feedback do professor</h3>
+          <div className="flex items-center justify-between">
+            <Stars value={ticket.feedbackRating} disabled size={18} />
+            {ticket.feedbackAt && (
+              <span className="text-[10px] text-fg-dim">{formatDate(ticket.feedbackAt)}</span>
+            )}
+          </div>
+          {ticket.feedbackComment && (
+            <p className="mt-2 text-sm text-fg">{ticket.feedbackComment}</p>
+          )}
+        </div>
+      )}
+
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h3 className="mb-3 text-xs font-semibold text-fg-muted">Timeline</h3>
         <div className="space-y-3">
@@ -143,12 +301,20 @@ export function TicketDetail() {
         </div>
       </div>
 
-      {canWrite && nextStatus && (
+      {canWrite && claimedByOther && (
+        <div className="flex items-center gap-2 rounded-xl bg-input/60 px-4 py-3">
+          <icons.ui.userCheck size={16} className="shrink-0 text-fg-muted" />
+          <p className="text-xs text-fg-muted">{ticket.assignedTo} já está atendendo este chamado</p>
+        </div>
+      )}
+
+      {canWrite && nextStatus && !claimedByOther && (
         <button
           type="button"
           onClick={handleAdvanceStatus}
           className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
         >
+          {nextStatus === 'a_caminho' && 'Assumir chamado'}
           {nextStatus === 'em_atendimento' && 'Iniciar Atendimento'}
           {nextStatus === 'resolvido' && 'Marcar como Resolvido'}
           {nextStatus === 'fechado' && 'Fechar Chamado'}

@@ -60,6 +60,10 @@ export function useTickets() {
     if (status === 'resolvido') {
       updates.resolvedAt = new Date().toISOString()
     }
+    if (status === 'fechado') {
+      updates.archived = true
+      updates.closedAt = new Date().toISOString()
+    }
     return update(id, updates)
   }, [update])
 
