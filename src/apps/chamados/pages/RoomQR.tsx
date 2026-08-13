@@ -28,7 +28,8 @@ export function RoomQR() {
   const qrContent = useMemo(() => {
     if (!room) return ''
     const base = typeof window !== 'undefined' ? window.location.origin : ''
-    return `${base}/chamados-publico/new?room=${encodeURIComponent(room.name)}`
+    const workspace = room.workspace_id ? `&workspace=${encodeURIComponent(room.workspace_id)}` : ''
+    return `${base}/chamados-publico/new?room=${encodeURIComponent(room.name)}${workspace}`
   }, [room])
 
   useEffect(() => {

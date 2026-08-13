@@ -852,6 +852,84 @@ def chamados_manage(ticket_id):
         return jsonify({'error': str(e)}), 500
 
 
+# ── Zerar dados (factory reset) ──
+
+WIPE_TOKEN = os.environ.get('WIPE_TOKEN', '')
+
+# Tabelas operacionais apagadas no wipe. Config (workspaces/perfis/cargos) é preservada.
+WIPE_TABLES = [
+    # public (filhos primeiro para respeitar FKs)
+    ('public', 'tv_music_tracks'),
+    ('public', 'tv_music_queues'),
+    ('public', 'tv_gallery_photos'),
+    ('public', 'tv_galleries'),
+    ('public', 'tv_events'),
+    ('public', 'tv_playlists'),
+    ('public', 'tv_announcements'),
+    ('public', 'tv_calendar_cache'),
+    ('public', 'tv_urgent_announcements'),
+    ('public', 'tv_activation_codes'),
+    ('public', 'tablet_reservations'),
+    ('public', 'chamados_tickets'),
+    # schema stock
+    ('stock', 'stock_movements'),
+    ('stock', 'stock_maintenance'),
+    ('stock', 'inventory_counts'),
+    ('stock', 'inventory_cycles'),
+    ('stock', 'stock_kits'),
+    ('stock', 'notifications'),
+    ('stock', 'stock_items'),
+    # schema pcare
+    ('pcare', 'action_logs'),
+    ('pcare', 'pc_checklists'),
+    ('pcare', 'checklist_templates'),
+    ('pcare', 'part_usage'),
+    ('pcare', 'maintenance'),
+    ('pcare', 'parts'),
+    ('pcare', 'pcs'),
+]
+
+
+@app.route('/api/admin/wipe', methods=['POST'])
+def admin_wipe():
+    """Apaga TODAS as linhas das tabelas operacionais (stock, pcare, chamados, tv).
+
+    Requer o header `X-Wipe-Token` igual a WIPE_TOKEN (variável de ambiente).
+    Workspaces, perfis e cargos NÃO são apagados (config essencial do app).
+    """
+    token = (request.headers.get('X-Wipe-Token') or '').strip()
+    if not WIPE_TOKEN or token != WIPE_TOKEN:
+        return jsonify({'error': 'Token inválido ou não configurado'}), 403
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        results = {}
+        for schema, table in WIPE_TABLES:
+            headers = dict(_supabase_headers())
+            if schema in ('stock', 'pcare'):
+                headers['Accept-Profile'] = schema
+                headers['Content-Profile'] = schema
+            try:
+                # WHERE é obrigatório (extensão safeupdate no Supabase).
+                # 404 = tabela ainda não criada no projeto (sem dados para apagar).
+                resp = requests.delete(
+                    f'{_SUPABASE_URL}/rest/v1/{table}?id=neq.00000000-0000-0000-0000-000000000000',
+                    headers={**headers, 'Prefer': 'return=minimal'},
+                    timeout=20,
+                )
+                if resp.status_code == 204:
+                    results[table] = 'ok'
+                elif resp.status_code == 404:
+                    results[table] = 'sem-tabela'
+                else:
+                    results[table] = f'HTTP {resp.status_code}'
+            except Exception as e:
+                results[table] = str(e)
+        return jsonify({'wipe': results})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/chamados/<ticket_id>/feedback', methods=['POST'])
 def chamados_feedback(ticket_id):
     """Registra o feedback do professor (nota 1-5) após a resolução do chamado."""

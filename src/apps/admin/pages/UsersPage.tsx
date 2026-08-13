@@ -44,20 +44,39 @@ export function UsersPage() {
   const { roles: roleList } = useRoles()
   const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const [u, w] = await Promise.all([
       adminService.listAllProfiles(),
       workspaceService.syncFromSupabase(),
     ])
     setUsers(u)
     setWorkspaces(w)
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // Polling: mantém a lista atualizada (aprovações e cargos de outros admins)
+  // refletem rapidamente sem precisar recarregar a página.
+  useEffect(() => {
+    const refresh = () => {
+      if (!saving) load(true)
+    }
+    const id = window.setInterval(refresh, 10000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(id)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [load, saving])
 
   useEffect(() => {
     const pendingId = searchParams.get('pending')

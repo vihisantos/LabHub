@@ -3,6 +3,7 @@ export interface Room {
   name: string
   location: string
   assetIds: string[]
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }

@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { roleBadgeClass } from '../../../core/permissions/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
+import { wipeAllData } from '../../../lib/reset'
 import { icons } from '../../../lib/icons'
 
 export function SettingsPage() {
@@ -9,6 +11,27 @@ export function SettingsPage() {
   const navigate = useNavigate()
   const { roles } = useRoles()
   const currentRole = roles.find((r) => r.id === user?.roleId)
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState('')
+
+  const handleReset = async () => {
+    if (!window.confirm('Zerar TODOS os dados? Esta ação é irreversível.')) return
+    if (
+      !window.confirm(
+        'Confirmação final: stock, PC Care, chamados, salas, TV e demais dados serão apagados (local + Supabase). Workspaces, usuários e cargos ficam preservados. Continuar?',
+      )
+    )
+      return
+    setResetting(true)
+    setResetError('')
+    try {
+      await wipeAllData()
+      window.location.reload()
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'Falha ao zerar os dados.')
+      setResetting(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -86,6 +109,28 @@ export function SettingsPage() {
           </a>
         </div>
       </div>
+
+      {user?.is_super_admin && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+          <h3 className="mb-1 text-xs font-semibold text-red-600 dark:text-red-400">Zona de perigo</h3>
+          <p className="mb-3 text-[11px] text-fg-muted">
+            Apaga todos os dados operacionais (stock, PC Care, chamados, salas, TV) localmente e no Supabase.
+            Workspaces, usuários e cargos são preservados.
+          </p>
+          <button
+            type="button"
+            disabled={resetting}
+            onClick={handleReset}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <icons.ui.trash size={16} />
+            {resetting ? 'Zerando dados...' : 'Zerar todos os dados'}
+          </button>
+          {resetError && (
+            <p className="mt-2 text-[11px] text-red-500">{resetError}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

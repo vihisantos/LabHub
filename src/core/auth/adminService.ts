@@ -73,13 +73,15 @@ export const adminService = {
   ): Promise<boolean> => {
     if (!defaultDb) return false
 
-    const { error } = await defaultDb
+    const { data, error } = await defaultDb
       .from('profiles')
       .update({ status: 'active', ...toDbUser(extra || {}), updated_at: new Date().toISOString() })
       .eq('id', userId)
+      .select('id')
 
-    if (error) {
-      console.error('[Admin] Failed to approve user:', error.message)
+    // RLS pode bloquear o update silenciosamente (0 linhas) — não mascarar
+    if (error || !data || data.length === 0) {
+      console.error('[Admin] Failed to approve user:', error?.message ?? '0 linhas alteradas')
       return false
     }
 
@@ -93,13 +95,14 @@ export const adminService = {
 
     // Delete the auth user and profile
     // For now, just delete the profile (auth user must be deleted from Supabase dashboard)
-    const { error } = await defaultDb
+    const { data, error } = await defaultDb
       .from('profiles')
       .delete()
       .eq('id', userId)
+      .select('id')
 
-    if (error) {
-      console.error('[Admin] Failed to reject user:', error.message)
+    if (error || !data || data.length === 0) {
+      console.error('[Admin] Failed to reject user:', error?.message ?? '0 linhas alteradas')
       return false
     }
 
@@ -127,13 +130,14 @@ export const adminService = {
   updateUserRole: async (userId: string, roleId: string): Promise<boolean> => {
     if (!defaultDb) return false
 
-    const { error } = await defaultDb
+    const { data, error } = await defaultDb
       .from('profiles')
       .update({ role: roleId, updated_at: new Date().toISOString() })
       .eq('id', userId)
+      .select('id')
 
-    if (error) {
-      console.error('[Admin] Failed to update user role:', error.message)
+    if (error || !data || data.length === 0) {
+      console.error('[Admin] Failed to update user role:', error?.message ?? '0 linhas alteradas')
       return false
     }
 
@@ -143,13 +147,14 @@ export const adminService = {
   updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'roleId' | 'accent' | 'theme_variant' | 'workspace_ids' | 'avatar' | 'app_access' | 'is_super_admin' | 'notify_settings'>>): Promise<boolean> => {
     if (!defaultDb) return false
 
-    const { error } = await defaultDb
+    const { data: updated, error } = await defaultDb
       .from('profiles')
       .update({ ...toDbUser(data), updated_at: new Date().toISOString() })
       .eq('id', userId)
+      .select('id')
 
-    if (error) {
-      console.error('[Admin] Failed to update user profile:', error.message)
+    if (error || !updated || updated.length === 0) {
+      console.error('[Admin] Failed to update user profile:', error?.message ?? '0 linhas alteradas')
       return false
     }
 

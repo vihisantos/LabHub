@@ -12,6 +12,8 @@ function serialize(data: RoomFormData): Room {
 export const roomService = {
   getAll: () => service.getAll(),
 
+  getAllUnfiltered: () => service.getAll(true),
+
   getById: (id: string) => service.getById(id),
 
   create: (data: RoomFormData) => {
