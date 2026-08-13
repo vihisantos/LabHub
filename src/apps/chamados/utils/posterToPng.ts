@@ -3,8 +3,9 @@ import QRCode from 'qrcode'
 const W = 1654
 const H = 2339
 
-const AMBER = '#f59e0b'
-const ORANGE = '#ea580c'
+const EMERALD = '#10b981'
+const GREEN = '#16a34a'
+const EMERALD_600 = '#059669'
 const SLATE_900 = '#0f172a'
 const SLATE_800 = '#1e293b'
 const SLATE_700 = '#334155'
@@ -74,8 +75,8 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
   // ── cabeçalho (gradiente) ──
   const headerH = 500
   const grad = ctx.createLinearGradient(0, 0, W, 0)
-  grad.addColorStop(0, AMBER)
-  grad.addColorStop(1, ORANGE)
+  grad.addColorStop(0, EMERALD)
+  grad.addColorStop(1, GREEN)
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, W, headerH)
 
@@ -138,8 +139,8 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
     const badgeCX = stepX + stepH / 2
     const badgeCY = stepY + stepH / 2
     const badgeGrad = ctx.createLinearGradient(badgeCX - badgeR, 0, badgeCX + badgeR, 0)
-    badgeGrad.addColorStop(0, AMBER)
-    badgeGrad.addColorStop(1, ORANGE)
+    badgeGrad.addColorStop(0, EMERALD)
+    badgeGrad.addColorStop(1, GREEN)
     ctx.fillStyle = badgeGrad
     ctx.beginPath()
     ctx.arc(badgeCX, badgeCY, badgeR, 0, Math.PI * 2)
@@ -175,7 +176,7 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
   ctx.font = `500 30px ${FONT}`
   centerText(ctx, qrContent, footerY + 54)
 
-  ctx.fillStyle = AMBER
+  ctx.fillStyle = EMERALD_600
   ctx.font = `700 30px ${FONT}`
   centerText(ctx, 'CHAMADOS · EQUIPE DE TI', footerY + 106)
 
