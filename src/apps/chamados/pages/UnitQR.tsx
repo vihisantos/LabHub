@@ -1,25 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
-import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
+import { QrPoster } from '../components/QrPoster'
+import { renderPosterPng } from '../utils/posterToPng'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { icons } from '../../../lib/icons'
-
-const sizeOptions = [
-  { value: 100, label: '100px — Pequeno' },
-  { value: 150, label: '150px — Médio' },
-  { value: 200, label: '200px — Grande' },
-  { value: 300, label: '300px — Extragrande' },
-]
 
 export function UnitQR() {
   const navigate = useNavigate()
   const { canManageQr } = useAppAccess()
 
   const [qrDataUrl, setQrDataUrl] = useState('')
-  const [size, setSize] = useState(200)
   const [copied, setCopied] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const qrContent = useMemo(() => {
     if (typeof window === 'undefined') return ''
@@ -29,11 +23,11 @@ export function UnitQR() {
   useEffect(() => {
     if (!qrContent) return
     QRCode.toDataURL(qrContent, {
-      width: size,
+      width: 900,
       margin: 2,
       color: { dark: '#1e293b', light: '#ffffff' },
     }).then(setQrDataUrl)
-  }, [qrContent, size])
+  }, [qrContent])
 
   const handlePrint = () => {
     window.print()
@@ -57,12 +51,14 @@ export function UnitQR() {
   }
 
   const handleDownload = async () => {
-    if (!qrDataUrl) return
-    const base64 = qrDataUrl.split(',')[1]
-    const zip = new JSZip()
-    zip.file('QR-chamados.png', base64, { base64: true })
-    const blob = await zip.generateAsync({ type: 'blob' })
-    saveAs(blob, 'QR-chamados.zip')
+    if (!qrContent || downloading) return
+    setDownloading(true)
+    try {
+      const blob = await renderPosterPng(qrContent)
+      saveAs(blob, 'qr-chamados-poster.png')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   if (!canManageQr()) {
@@ -93,39 +89,40 @@ export function UnitQR() {
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          .print-area { display: flex !important; justify-content: center !important; }
+          body * { visibility: hidden; }
+          .qr-poster, .qr-poster * {
+            visibility: visible;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .qr-poster {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 210mm !important;
+            height: 297mm !important;
+            aspect-ratio: auto !important;
+          }
+          @page { size: A4 portrait; margin: 0; }
         }
       `}</style>
 
-      <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+      <div className="no-print rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <p className="text-sm font-semibold text-fg">QR único de chamados</p>
         <p className="mt-1 text-xs leading-relaxed text-fg-muted">
           O professor escaneia o QR, escolhe a unidade (campus) e depois a sala. Um só QR para toda a escola —
-          imprima e fixe nos pontos de uso.
+          imprima o pôster e fixe nas salas.
         </p>
       </div>
 
-      <div className="no-print flex items-center gap-2">
-        {sizeOptions.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => setSize(opt.value)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              size === opt.value ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-            }`}
-          >
-            {opt.value}px
-          </button>
-        ))}
-      </div>
-
-      <div className="print-area flex flex-col items-center rounded-xl bg-card p-6 shadow-[var(--shadow-card)]">
-        {qrDataUrl && (
-          <img src={qrDataUrl} alt="QR Code de chamados" className="mb-3" style={{ width: size }} />
+      <div className="no-print overflow-hidden rounded-xl border border-line bg-white">
+        {qrDataUrl ? (
+          <QrPoster qrDataUrl={qrDataUrl} url={qrContent} />
+        ) : (
+          <div className="flex aspect-[210/297] items-center justify-center text-sm text-fg-dim">
+            Gerando pôster...
+          </div>
         )}
-        <p className="text-sm font-semibold text-fg">Abrir chamado</p>
-        <p className="text-xs text-fg-muted">{qrContent}</p>
       </div>
 
       <div className="no-print flex flex-wrap gap-2">
@@ -140,10 +137,11 @@ export function UnitQR() {
         <button
           type="button"
           onClick={handleDownload}
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
+          disabled={downloading || !qrDataUrl}
+          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <icons.ui.download size={16} />
-          Download
+          {downloading ? 'Gerando...' : 'Baixar pôster'}
         </button>
         <button
           type="button"
