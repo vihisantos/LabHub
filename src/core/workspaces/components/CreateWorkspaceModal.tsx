@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
+import { useWorkspaces } from '../useWorkspaces'
 import { icons } from '../../../lib/icons'
 
 interface CreateWorkspaceModalProps {

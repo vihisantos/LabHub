@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import type { Workspace } from '../../../core/workspaces/types'
 import { useAuth } from '../../../core/auth/AuthContext'
-import { CreateWorkspaceModal } from '../components/CreateWorkspaceModal'
+import { CreateWorkspaceModal } from '../../../core/workspaces/components/CreateWorkspaceModal'
 import { icons } from '../../../lib/icons'
 
 const WS_COLORS = [

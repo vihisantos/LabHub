@@ -119,6 +119,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(getPreferenceKey(user.id))
   }, [user])
 
+  const refreshWorkspaces = useCallback(async () => {
+    await workspaceService.syncFromSupabase()
+    setWorkspaces(workspaceService.getAll())
+  }, [])
+
   const value: WorkspaceContextValue = {
     workspace,
     workspaces,
@@ -133,7 +138,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   if (pendingSelection && !loading) {
     return (
       <WorkspaceContext.Provider value={value}>
-        <WorkspaceGate workspaces={assignedWorkspaces} onSelect={(ws, persist) => applySelection(ws, persist)} />
+        <WorkspaceGate
+          workspaces={assignedWorkspaces}
+          onSelect={(ws, persist) => applySelection(ws, persist)}
+          canCreate={user?.is_super_admin ?? false}
+          onCreated={refreshWorkspaces}
+        />
       </WorkspaceContext.Provider>
     )
   }

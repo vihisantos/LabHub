@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import type { Workspace } from '../../core/workspaces/types'
+import { CreateWorkspaceModal } from '../../core/workspaces/components/CreateWorkspaceModal'
 import { icons } from '../../lib/icons'
 
 const WS_COLORS = [
@@ -15,10 +16,13 @@ const WS_COLORS = [
 interface WorkspaceGateProps {
   workspaces: Workspace[]
   onSelect: (workspace: Workspace, persist: boolean) => void
+  canCreate?: boolean
+  onCreated?: () => void
 }
 
-export function WorkspaceGate({ workspaces, onSelect }: WorkspaceGateProps) {
+export function WorkspaceGate({ workspaces, onSelect, canCreate = false, onCreated }: WorkspaceGateProps) {
   const [persist, setPersist] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
 
   return (
     <motion.div
@@ -98,8 +102,34 @@ export function WorkspaceGate({ workspaces, onSelect }: WorkspaceGateProps) {
               </motion.button>
             )
           })}
+
+          {canCreate && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 + workspaces.length * 0.06, duration: 0.4 }}
+              whileHover={{ y: -6, scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setShowCreate(true)}
+              className="flex min-h-[150px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-line bg-transparent p-6 transition-all hover:border-blue-500/30 hover:bg-blue-500/5"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-dim">
+                <icons.ui.plus size={24} />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-bold text-fg-muted">Nova escola</p>
+                <p className="mt-0.5 text-[10px] text-fg-dim">Criar workspace</p>
+              </div>
+            </motion.button>
+          )}
         </div>
       </div>
+
+      <CreateWorkspaceModal
+        open={showCreate}
+        onClose={() => { setShowCreate(false); onCreated?.() }}
+      />
     </motion.div>
   )
 }
