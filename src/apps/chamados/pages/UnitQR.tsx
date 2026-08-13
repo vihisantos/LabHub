@@ -115,7 +115,7 @@ export function UnitQR() {
         </p>
       </div>
 
-      <div className="no-print overflow-hidden rounded-xl border border-line bg-white">
+      <div className="overflow-hidden rounded-xl border border-line bg-white">
         {qrDataUrl ? (
           <QrPoster qrDataUrl={qrDataUrl} url={qrContent} />
         ) : (

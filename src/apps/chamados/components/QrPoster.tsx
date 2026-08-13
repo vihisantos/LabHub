@@ -28,13 +28,8 @@ export function QrPoster({ qrDataUrl, url }: { qrDataUrl: string; url: string })
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8">
-        <div className="rounded-2xl border-4 border-slate-900 bg-white p-3 shadow-sm">
-          <img
-            src={qrDataUrl}
-            alt="QR Code de chamados"
-            className="h-auto"
-            style={{ width: '46%', minWidth: 96 }}
-          />
+        <div className="w-[46%] min-w-[96px] max-w-[230px] rounded-2xl border-4 border-slate-900 bg-white p-3 shadow-sm">
+          <img src={qrDataUrl} alt="QR Code de chamados" className="block h-auto w-full" />
         </div>
         <p className="text-center text-sm font-semibold text-slate-700">
           Aponte a câmera do celular para o QR Code

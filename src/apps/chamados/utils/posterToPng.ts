@@ -72,7 +72,7 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
   ctx.fillRect(0, 0, W, H)
 
   // ── cabeçalho (gradiente) ──
-  const headerH = 470
+  const headerH = 500
   const grad = ctx.createLinearGradient(0, 0, W, 0)
   grad.addColorStop(0, AMBER)
   grad.addColorStop(1, ORANGE)
@@ -85,18 +85,18 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
 
   ctx.fillStyle = WHITE
   ctx.font = `800 104px ${FONT}`
-  leftText(ctx, 'Abrir Chamado', 150, 250)
+  leftText(ctx, 'Abrir Chamado', 150, 270)
 
   ctx.fillStyle = 'rgba(255,255,255,0.92)'
   ctx.font = `500 40px ${FONT}`
-  leftText(ctx, 'Problema com um equipamento da escola?', 150, 350)
+  leftText(ctx, 'Problema com um equipamento da escola?', 150, 380)
 
   // ── QR ──
-  const qrBox = 920
+  const qrBox = 820
   const qrX = (W - qrBox) / 2
-  const qrY = 690
+  const qrY = 640
   ctx.save()
-  roundRect(ctx, qrX, qrY, qrBox, qrBox, 56)
+  roundRect(ctx, qrX, qrY, qrBox, qrBox, 52)
   ctx.fillStyle = WHITE
   ctx.fill()
   ctx.lineWidth = 10
@@ -104,12 +104,12 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
   ctx.stroke()
   ctx.restore()
 
-  const qrPad = 52
+  const qrPad = 46
   ctx.drawImage(qrImg, qrX + qrPad, qrY + qrPad, qrBox - qrPad * 2, qrBox - qrPad * 2)
 
   ctx.fillStyle = SLATE_700
   ctx.font = `600 38px ${FONT}`
-  centerText(ctx, 'Aponte a câmera do celular para o QR Code', qrY + qrBox + 78)
+  centerText(ctx, 'Aponte a câmera do celular para o QR Code', qrY + qrBox + 100)
 
   // ── passos ──
   const steps = [
@@ -119,9 +119,10 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
   ]
 
   const stepW = 1330
-  const stepH = 160
+  const stepH = 150
+  const stepGap = 24
   const stepX = (W - stepW) / 2
-  let stepY = 1820
+  let stepY = 1660
 
   for (const step of steps) {
     ctx.save()
@@ -133,7 +134,7 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
     ctx.stroke()
     ctx.restore()
 
-    const badgeR = 56
+    const badgeR = 50
     const badgeCX = stepX + stepH / 2
     const badgeCY = stepY + stepH / 2
     const badgeGrad = ctx.createLinearGradient(badgeCX - badgeR, 0, badgeCX + badgeR, 0)
@@ -144,7 +145,7 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
     ctx.arc(badgeCX, badgeCY, badgeR, 0, Math.PI * 2)
     ctx.fill()
     ctx.fillStyle = WHITE
-    ctx.font = `700 52px ${FONT}`
+    ctx.font = `700 46px ${FONT}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(step.n, badgeCX, badgeCY + 2)
@@ -152,17 +153,17 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
     ctx.textAlign = 'left'
     ctx.fillStyle = SLATE_800
     ctx.font = `700 42px ${FONT}`
-    leftText(ctx, step.title, stepX + stepH + 40, stepY + 56)
+    leftText(ctx, step.title, stepX + stepH + 36, stepY + 52)
 
     ctx.fillStyle = SLATE_500
     ctx.font = `400 32px ${FONT}`
-    leftText(ctx, step.desc, stepX + stepH + 40, stepY + 118)
+    leftText(ctx, step.desc, stepX + stepH + 36, stepY + 106)
 
-    stepY += stepH + 26
+    stepY += stepH + stepGap
   }
 
   // ── rodapé ──
-  const footerY = 2170
+  const footerY = 2205
   ctx.strokeStyle = SLATE_200
   ctx.lineWidth = 2
   ctx.beginPath()
@@ -172,11 +173,11 @@ export async function renderPosterPng(qrContent: string): Promise<Blob> {
 
   ctx.fillStyle = SLATE_500
   ctx.font = `500 30px ${FONT}`
-  centerText(ctx, qrContent, footerY + 55)
+  centerText(ctx, qrContent, footerY + 54)
 
   ctx.fillStyle = AMBER
   ctx.font = `700 30px ${FONT}`
-  centerText(ctx, 'CHAMADOS · EQUIPE DE TI', footerY + 110)
+  centerText(ctx, 'CHAMADOS · EQUIPE DE TI', footerY + 106)
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
