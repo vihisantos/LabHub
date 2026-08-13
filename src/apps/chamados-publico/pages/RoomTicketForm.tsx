@@ -79,7 +79,13 @@ export function RoomTicketForm() {
   }, [roomName, campusId])
 
   const canSubmit =
-    !!campusId && roomName.trim().length > 0 && !!area && !!category && reportedBy.trim().length > 0 && !submitting
+    !!campusId &&
+    roomName.trim().length > 0 &&
+    !!area &&
+    !!category &&
+    description.trim().length > 0 &&
+    reportedBy.trim().length > 0 &&
+    !submitting
 
   const openForRoom = useMemo(() => {
     if (!roomName.trim()) return []
@@ -114,7 +120,7 @@ export function RoomTicketForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!campusId || !area || !category || !reportedBy.trim()) return
+    if (!campusId || !area || !category || !description.trim() || !reportedBy.trim()) return
 
     setSubmitting(true)
     setError('')
@@ -258,7 +264,7 @@ export function RoomTicketForm() {
         </section>
 
         <section ref={areaRef} aria-label="Área">
-          <p className="mb-2 text-xs font-semibold text-fg-muted">3 · Qual a área?</p>
+          <p className="mb-2 text-xs font-semibold text-fg-muted">3 · Qual a área? *</p>
           <div className="grid grid-cols-2 gap-2">
             {AREA_OPTIONS.map((opt) => {
               const Icon = opt.icon
@@ -329,7 +335,7 @@ export function RoomTicketForm() {
 
         <section ref={detailsRef} aria-label="Detalhes">
           <label htmlFor="description" className="mb-1.5 block text-xs font-semibold text-fg-muted">
-            5 · Descreva o que aconteceu
+            5 · Descreva o que aconteceu *
           </label>
           <textarea
             id="description"
