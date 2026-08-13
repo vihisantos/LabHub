@@ -112,7 +112,7 @@ export function LogsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por usuário, entidade..."
-              className="w-full rounded-xl border border-line bg-card py-2.5 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-line bg-card py-2.5 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
 
@@ -124,7 +124,7 @@ export function LogsPage() {
                 onClick={() => setActionFilter(filter.value)}
                 className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                   actionFilter === filter.value
-                    ? 'bg-emerald-500 text-white'
+                    ? 'bg-blue-500 text-white'
                     : 'bg-card text-fg-dim border border-line hover:text-fg'
                 }`}
               >

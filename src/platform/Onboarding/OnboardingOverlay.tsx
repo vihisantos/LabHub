@@ -153,7 +153,7 @@ export function OnboardingOverlay({ open, userName, onFinish }: OnboardingOverla
                 <span
                   key={i}
                   className={`h-1.5 rounded-full transition-all ${
-                    i === index ? 'w-6 bg-emerald-500' : 'w-1.5 bg-fg-muted/30'
+                    i === index ? 'w-6 bg-blue-500' : 'w-1.5 bg-fg-muted/30'
                   }`}
                 />
               ))}
@@ -171,7 +171,7 @@ export function OnboardingOverlay({ open, userName, onFinish }: OnboardingOverla
               <button
                 type="button"
                 onClick={goNext}
-                className="flex h-12 flex-[2] items-center justify-center rounded-xl bg-emerald-500 text-sm font-semibold text-white transition-colors hover:bg-emerald-400"
+                className="flex h-12 flex-[2] items-center justify-center rounded-xl bg-blue-500 text-sm font-semibold text-white transition-colors hover:bg-blue-400"
               >
                 {isLast ? 'Começar!' : 'Continuar'}
               </button>

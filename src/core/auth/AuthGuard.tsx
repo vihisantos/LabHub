@@ -27,21 +27,21 @@ function AnimatedClock() {
         strokeWidth="2"
         strokeDasharray="8 4"
         strokeLinecap="round"
-        className="text-emerald-500/40"
+        className="text-blue-500/40"
         fill="none"
         animate={{ rotate: 360 }}
         style={{ originX: '24px', originY: '24px' }}
         transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
       />
       {/* Inner circle */}
-      <circle cx="24" cy="24" r="18" stroke="currentColor" strokeWidth="1.5" className="text-emerald-500/20" fill="none" />
+      <circle cx="24" cy="24" r="18" stroke="currentColor" strokeWidth="1.5" className="text-blue-500/20" fill="none" />
       {/* Clock hand - minute */}
       <motion.line
         x1="24" y1="24" x2="24" y2="12"
         stroke="currentColor"
         strokeWidth="2.5"
         strokeLinecap="round"
-        className="text-emerald-500"
+        className="text-blue-500"
         animate={{ rotate: 360 }}
         style={{ originX: '24px', originY: '24px' }}
         transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
@@ -52,19 +52,19 @@ function AnimatedClock() {
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
-        className="text-emerald-400"
+        className="text-blue-400"
         animate={{ rotate: 360 }}
         style={{ originX: '24px', originY: '24px' }}
         transition={{ duration: 48, repeat: Infinity, ease: 'linear' }}
       />
       {/* Center dot */}
-      <circle cx="24" cy="24" r="3" className="fill-emerald-500" />
+      <circle cx="24" cy="24" r="3" className="fill-blue-500" />
       {/* Pulsing rings */}
       <motion.circle
         cx="24" cy="24" r="22"
         stroke="currentColor"
         strokeWidth="1"
-        className="text-emerald-500/30"
+        className="text-blue-500/30"
         fill="none"
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: [0, 0.5, 0], scale: [0.85, 1.1, 0.85] }}
@@ -74,7 +74,7 @@ function AnimatedClock() {
         cx="24" cy="24" r="22"
         stroke="currentColor"
         strokeWidth="0.5"
-        className="text-emerald-500/20"
+        className="text-blue-500/20"
         fill="none"
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: [0, 0.3, 0], scale: [0.9, 1.2, 0.9] }}
@@ -92,7 +92,7 @@ function FloatingDots() {
       {dots.map((_, i) => (
         <motion.div
           key={i}
-          className="absolute h-1.5 w-1.5 rounded-full bg-emerald-500/20"
+          className="absolute h-1.5 w-1.5 rounded-full bg-blue-500/20"
           style={{
             left: `${15 + (i * 10) % 70}%`,
             top: `${20 + (i * 13) % 60}%`,
@@ -219,7 +219,7 @@ export function AuthGuard({ children, fallback }: AuthGuardProps) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-surface">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
           <p className="text-xs text-fg-muted">Verificando autenticação...</p>
         </div>
       </div>
@@ -262,7 +262,7 @@ export function AuthGuard({ children, fallback }: AuthGuardProps) {
           className="relative z-10 flex flex-col items-center gap-6 px-6 text-center max-w-sm"
         >
           {/* Animated clock */}
-          <div className="text-emerald-500">
+          <div className="text-blue-500">
             <AnimatedClock />
           </div>
 
@@ -293,17 +293,17 @@ export function AuthGuard({ children, fallback }: AuthGuardProps) {
 
           {/* Animated status line */}
           <motion.div
-            className="flex items-center gap-3 rounded-2xl border border-emerald-500/15 bg-emerald-500/5 px-5 py-3"
+            className="flex items-center gap-3 rounded-2xl border border-blue-500/15 bg-blue-500/5 px-5 py-3"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.8, duration: 0.4 }}
           >
             {/* Spinning ring */}
             <div className="relative flex h-5 w-5 items-center justify-center">
-              <div className="absolute inset-0 animate-spin rounded-full border-2 border-emerald-500/30 border-t-emerald-500" />
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <div className="absolute inset-0 animate-spin rounded-full border-2 border-blue-500/30 border-t-blue-500" />
+              <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
             </div>
-            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
               <WaitingDots />
             </span>
           </motion.div>
@@ -321,7 +321,7 @@ export function AuthGuard({ children, fallback }: AuthGuardProps) {
 
           {/* Bottom shine line */}
           <motion.div
-            className="mt-2 h-px w-32 bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent"
+            className="mt-2 h-px w-32 bg-gradient-to-r from-transparent via-blue-500/30 to-transparent"
             initial={{ scaleX: 0, opacity: 0 }}
             animate={{ scaleX: 1, opacity: 1 }}
             transition={{ delay: 1.2, duration: 0.8 }}

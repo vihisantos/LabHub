@@ -67,7 +67,7 @@ export function WorkspaceSelector() {
             <button
               type="button"
               onClick={() => { setWorkspace(workspace, { persist: true }); setOpen(false) }}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400 transition-colors hover:bg-input"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-blue-600 dark:text-blue-400 transition-colors hover:bg-input"
             >
               <icons.ui.check size={13} />
               Definir como padrão
