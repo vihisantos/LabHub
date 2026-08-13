@@ -10,7 +10,7 @@ export function RoomForm() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { rooms, create, update } = useRooms()
-  const { isFullAccess, canManageQr } = useAppAccess()
+  const { isFullAccess } = useAppAccess()
   const canWrite = isFullAccess('chamados')
   const existingRoom = id ? rooms.find((r) => r.id === id) : null
 
@@ -194,19 +194,6 @@ export function RoomForm() {
           </button>
         </div>
       </form>
-
-      {existingRoom && canManageQr() && (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(`/chamados/rooms/${existingRoom.id}/qr`)}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-card px-4 py-3 text-sm font-medium text-fg transition-colors hover:bg-input"
-          >
-            <icons.ui.qrCode size={16} />
-            Ver QR Code
-          </button>
-        </div>
-      )}
     </div>
   )
 }

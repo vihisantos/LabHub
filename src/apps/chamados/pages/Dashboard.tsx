@@ -119,6 +119,21 @@ export function Dashboard() {
         ))}
       </div>
 
+      <button
+        type="button"
+        onClick={() => navigate('/chamados/qr')}
+        className="flex w-full items-center gap-3 rounded-xl bg-amber-500 p-4 text-left text-white shadow-[var(--shadow-card)] transition-colors hover:bg-amber-400"
+      >
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15">
+          <icons.ui.qrCode size={22} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">QR Code de chamados</p>
+          <p className="text-[11px] text-amber-100/80">Imprima um único QR para a escola</p>
+        </div>
+        <icons.ui.chevronRight size={18} className="shrink-0" />
+      </button>
+
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between">
           <span className="text-xs text-fg-muted">SLA de atendimento</span>

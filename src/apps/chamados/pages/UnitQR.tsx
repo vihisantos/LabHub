@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
-import { useRooms } from '../hooks/useRooms'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { icons } from '../../../lib/icons'
 
@@ -14,23 +13,18 @@ const sizeOptions = [
   { value: 300, label: '300px — Extragrande' },
 ]
 
-export function RoomQR() {
-  const { id } = useParams<{ id: string }>()
+export function UnitQR() {
   const navigate = useNavigate()
-  const { rooms } = useRooms()
   const { canManageQr } = useAppAccess()
-  const room = rooms.find((r) => r.id === id)
 
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [size, setSize] = useState(200)
   const [copied, setCopied] = useState(false)
 
   const qrContent = useMemo(() => {
-    if (!room) return ''
-    const base = typeof window !== 'undefined' ? window.location.origin : ''
-    const workspace = room.workspace_id ? `&workspace=${encodeURIComponent(room.workspace_id)}` : ''
-    return `${base}/chamados-publico/new?room=${encodeURIComponent(room.name)}${workspace}`
-  }, [room])
+    if (typeof window === 'undefined') return ''
+    return `${window.location.origin}/chamados-publico/new`
+  }, [])
 
   useEffect(() => {
     if (!qrContent) return
@@ -63,12 +57,12 @@ export function RoomQR() {
   }
 
   const handleDownload = async () => {
-    if (!qrDataUrl || !room) return
+    if (!qrDataUrl) return
     const base64 = qrDataUrl.split(',')[1]
     const zip = new JSZip()
-    zip.file(`QR-${room.name.replace(/[^a-zA-Z0-9]/g, '_')}.png`, base64, { base64: true })
+    zip.file('QR-chamados.png', base64, { base64: true })
     const blob = await zip.generateAsync({ type: 'blob' })
-    saveAs(blob, `QR-${room.name}.zip`)
+    saveAs(blob, 'QR-chamados.zip')
   }
 
   if (!canManageQr()) {
@@ -80,25 +74,16 @@ export function RoomQR() {
         <div>
           <p className="text-sm font-semibold text-fg">Acesso restrito</p>
           <p className="mt-1 text-xs text-fg-muted">
-            Seu cargo não tem permissão para gerar QR de salas.
+            Seu cargo não tem permissão para gerar o QR Code de chamados.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => navigate('/chamados/rooms')}
+          onClick={() => navigate('/chamados')}
           className="rounded-xl bg-blue-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-400"
         >
-          Voltar às salas
+          Voltar ao painel
         </button>
-      </div>
-    )
-  }
-
-  if (!room) {
-    return (
-      <div className="flex flex-col items-center py-12">
-        <icons.ui.alertCircle size={40} className="text-fg-muted" />
-        <p className="mt-3 text-sm text-fg-muted">Sala não encontrada</p>
       </div>
     )
   }
@@ -111,6 +96,14 @@ export function RoomQR() {
           .print-area { display: flex !important; justify-content: center !important; }
         }
       `}</style>
+
+      <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+        <p className="text-sm font-semibold text-fg">QR único de chamados</p>
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+          O professor escaneia o QR, escolhe a unidade (campus) e depois a sala. Um só QR para toda a escola —
+          imprima e fixe nos pontos de uso.
+        </p>
+      </div>
 
       <div className="no-print flex items-center gap-2">
         {sizeOptions.map((opt) => (
@@ -129,12 +122,10 @@ export function RoomQR() {
 
       <div className="print-area flex flex-col items-center rounded-xl bg-card p-6 shadow-[var(--shadow-card)]">
         {qrDataUrl && (
-          <img src={qrDataUrl} alt={`QR Code - ${room.name}`} className="mb-3" style={{ width: size }} />
+          <img src={qrDataUrl} alt="QR Code de chamados" className="mb-3" style={{ width: size }} />
         )}
-        <p className="text-sm font-semibold text-fg">{room.name}</p>
-        {room.location && (
-          <p className="text-xs text-fg-muted">{room.location}</p>
-        )}
+        <p className="text-sm font-semibold text-fg">Abrir chamado</p>
+        <p className="text-xs text-fg-muted">{qrContent}</p>
       </div>
 
       <div className="no-print flex flex-wrap gap-2">

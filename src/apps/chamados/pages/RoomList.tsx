@@ -11,20 +11,12 @@ function RoomCard({ room }: { room: { id: string; name: string; location: string
   const { grouped } = useRoomAssets(room.name)
   const openTickets = ticketService.getOpenByRoom(room.id)
   const totalAssets = Object.values(grouped).reduce((sum, arr) => sum + arr.length, 0)
-  const { canManageQr } = useAppAccess()
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       onClick={() => navigate(`/chamados/rooms/${room.id}/edit`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          navigate(`/chamados/rooms/${room.id}/edit`)
-        }
-      }}
-      className="flex w-full cursor-pointer items-center gap-3 rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)]"
+      className="flex w-full items-center gap-3 rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)]"
     >
       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-500/10">
         <icons.ui.home size={22} className="text-amber-500" />
@@ -41,24 +33,9 @@ function RoomCard({ room }: { room: { id: string; name: string; location: string
             {openTickets.length} chamado{openTickets.length > 1 ? 's' : ''}
           </span>
         )}
-        <div className="flex items-center gap-1.5">
-          {canManageQr() && (
-            <button
-              type="button"
-              title="Ver QR Code"
-              onClick={(e) => {
-                e.stopPropagation()
-                navigate(`/chamados/rooms/${room.id}/qr`)
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500 transition-colors hover:bg-amber-500 hover:text-white"
-            >
-              <icons.ui.qrCode size={16} />
-            </button>
-          )}
-          <icons.ui.chevronRight size={16} className="text-fg-muted" />
-        </div>
+        <icons.ui.chevronRight size={16} className="text-fg-muted" />
       </div>
-    </div>
+    </button>
   )
 }
 

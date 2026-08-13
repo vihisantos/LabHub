@@ -5,7 +5,7 @@ import { TicketList } from './pages/TicketList'
 import { TicketDetail } from './pages/TicketDetail'
 import { RoomList } from './pages/RoomList'
 import { RoomForm } from './pages/RoomForm'
-import { RoomQR } from './pages/RoomQR'
+import { UnitQR } from './pages/UnitQR'
 import { Settings } from './pages/Settings'
 
 export function ChamadosApp() {
@@ -18,7 +18,7 @@ export function ChamadosApp() {
         <Route path="rooms" element={<RoomList />} />
         <Route path="rooms/new" element={<RoomForm />} />
         <Route path="rooms/:id/edit" element={<RoomForm />} />
-        <Route path="rooms/:id/qr" element={<RoomQR />} />
+        <Route path="qr" element={<UnitQR />} />
         <Route path="settings" element={<Settings />} />
         </Route>
     </Routes>

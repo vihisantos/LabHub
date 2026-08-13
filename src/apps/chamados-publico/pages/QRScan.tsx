@@ -31,6 +31,12 @@ export function QRScan() {
     setTimeout(() => navigate(`/chamados-publico/new?room=${encodeURIComponent(roomName)}`), 300)
   }, [navigate])
 
+  const goToFormDirect = useCallback(() => {
+    setFeedback('success')
+    controlsRef.current?.stop?.()
+    setTimeout(() => navigate('/chamados-publico/new'), 300)
+  }, [navigate])
+
   useEffect(() => {
     const roomParam = searchParams.get('room')
     if (roomParam && rooms.length > 0) {
@@ -63,8 +69,9 @@ export function QRScan() {
           try {
             const parsed = new URL(text)
             const roomParam = parsed.searchParams.get('room')
-            if (parsed.pathname.endsWith('/new') && roomParam) {
-              goToForm(roomParam)
+            if (parsed.pathname.endsWith('/new')) {
+              if (roomParam) goToForm(roomParam)
+              else goToFormDirect()
               return
             }
           } catch {
@@ -83,7 +90,7 @@ export function QRScan() {
       .catch(() => {
         if (!cancelledRef.current) setFeedback('idle')
       })
-  }, [navigateToRoom, goToForm])
+  }, [navigateToRoom, goToForm, goToFormDirect])
 
   useEffect(() => {
     cancelledRef.current = false
