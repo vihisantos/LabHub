@@ -124,7 +124,7 @@ export function DashboardPage() {
           <button
             type="button"
             onClick={() => navigate('/roadmap')}
-            className="text-xs font-medium text-emerald-500 hover:text-emerald-400 transition-colors"
+            className="text-xs font-medium text-blue-500 hover:text-blue-400 transition-colors"
           >
             Roadmap
           </button>

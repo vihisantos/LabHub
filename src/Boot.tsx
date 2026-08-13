@@ -23,7 +23,7 @@ export default function Boot() {
           <p className="text-sm text-red-500">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="rounded bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-500"
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500"
           >
             Tentar novamente
           </button>
@@ -36,7 +36,7 @@ export default function Boot() {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-surface">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
           <p className="text-xs text-fg-muted">Inicializando...</p>
         </div>
       </div>

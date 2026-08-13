@@ -33,12 +33,12 @@ export function WorkspaceGate({ workspaces, onSelect }: WorkspaceGateProps) {
           transition={{ duration: 0.6 }}
           className="mb-10 text-center"
         >
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-500">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-500">
             <icons.ui.home size={12} />
             Ambiente
           </div>
           <h1 className="text-3xl font-black tracking-tight text-fg md:text-4xl">
-            Escolha seu <span className="bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">workspace</span>
+            Escolha seu <span className="bg-gradient-to-r from-blue-500 to-sky-500 bg-clip-text text-transparent">workspace</span>
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm text-fg-muted">
             Você tem acesso a mais de um ambiente. Selecione para continuar.
@@ -53,13 +53,13 @@ export function WorkspaceGate({ workspaces, onSelect }: WorkspaceGateProps) {
           onClick={() => setPersist(!persist)}
           className={`mx-auto mb-8 flex items-center gap-2.5 rounded-full px-4 py-2 text-xs font-medium transition-all ${
             persist
-              ? 'bg-emerald-500/15 text-emerald-600 ring-1 ring-emerald-500/30 dark:text-emerald-400'
+              ? 'bg-blue-500/15 text-blue-600 ring-1 ring-blue-500/30 dark:text-blue-400'
               : 'border border-line bg-card text-fg-muted hover:text-fg'
           }`}
         >
           <span
             className={`flex h-4 w-4 items-center justify-center rounded-full border transition-colors ${
-              persist ? 'border-emerald-500 bg-emerald-500' : 'border-fg-muted'
+              persist ? 'border-blue-500 bg-blue-500' : 'border-fg-muted'
             }`}
           >
             {persist && <icons.ui.check size={10} className="text-white" />}
@@ -80,7 +80,7 @@ export function WorkspaceGate({ workspaces, onSelect }: WorkspaceGateProps) {
                 whileHover={{ y: -6, scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => onSelect(ws, persist)}
-                className="relative flex min-h-[150px] flex-col items-center justify-center gap-3 rounded-2xl border border-line bg-card p-6 transition-all hover:border-emerald-500/20 hover:shadow-md"
+                className="relative flex min-h-[150px] flex-col items-center justify-center gap-3 rounded-2xl border border-line bg-card p-6 transition-all hover:border-blue-500/20 hover:shadow-md"
               >
                 <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${color.bg} ${color.text}`}>
                   <icons.ui.home size={24} />
@@ -91,7 +91,7 @@ export function WorkspaceGate({ workspaces, onSelect }: WorkspaceGateProps) {
                     <p className="mt-0.5 text-[10px] text-fg-dim">{ws.location}</p>
                   )}
                 </div>
-                <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="flex items-center gap-1 text-[10px] font-semibold text-blue-500 opacity-0 transition-opacity group-hover:opacity-100">
                   Entrar
                   <icons.ui.chevronRight size={10} />
                 </div>

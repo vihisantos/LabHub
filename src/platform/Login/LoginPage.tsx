@@ -130,7 +130,7 @@ export function LoginPage() {
             type="button"
             onClick={() => setMode('signin')}
             className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-              mode === 'signin' ? 'bg-emerald-500 text-white' : 'text-fg-muted hover:text-fg'
+              mode === 'signin' ? 'bg-blue-500 text-white' : 'text-fg-muted hover:text-fg'
             }`}
           >
             Entrar
@@ -139,7 +139,7 @@ export function LoginPage() {
             type="button"
             onClick={() => setMode('signup')}
             className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-              mode === 'signup' ? 'bg-emerald-500 text-white' : 'text-fg-muted hover:text-fg'
+              mode === 'signup' ? 'bg-blue-500 text-white' : 'text-fg-muted hover:text-fg'
             }`}
           >
             Criar Conta
@@ -149,7 +149,7 @@ export function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-fg-muted">Usuário</label>
-            <div className="flex items-center overflow-hidden rounded-xl border border-line bg-card focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
+            <div className="flex items-center overflow-hidden rounded-xl border border-line bg-card focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
               <input
                 type="text"
                 value={username}
@@ -176,7 +176,7 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full rounded-xl border border-line bg-card px-4 py-3 pr-11 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-line bg-card px-4 py-3 pr-11 text-sm text-fg placeholder:text-fg-dim focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="••••••••"
               />
               <button
@@ -197,7 +197,7 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50"
+            className="w-full rounded-xl bg-blue-500 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:opacity-50"
           >
             {loading ? 'Carregando...' : mode === 'signin' ? 'Entrar' : 'Solicitar Acesso'}
           </button>

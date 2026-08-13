@@ -10,7 +10,7 @@ export interface ThemeState {
 
 type Listener = (state: ThemeState) => void
 
-let state: ThemeState = { theme: 'dark', accent: 'emerald' }
+let state: ThemeState = { theme: 'dark', accent: 'blue' }
 const listeners = new Set<Listener>()
 
 function applyToDom(theme: ThemeVariant, accent: Accent) {

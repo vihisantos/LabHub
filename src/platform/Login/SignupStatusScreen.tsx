@@ -16,20 +16,20 @@ function ApprovedIcon() {
           cx="36" cy="36" r="34"
           stroke="currentColor"
           strokeWidth="2"
-          className="text-emerald-500/30"
+          className="text-blue-500/30"
           fill="none"
           initial={{ pathLength: 0 }}
           animate={{ pathLength: 1 }}
           transition={{ duration: 0.8, delay: 0.3 }}
         />
-        <circle cx="36" cy="36" r="28" className="fill-emerald-500/10" />
+        <circle cx="36" cy="36" r="28" className="fill-blue-500/10" />
         <motion.path
           d="M24 36l8 8 16-16"
           stroke="currentColor"
           strokeWidth="3"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-emerald-500"
+          className="text-blue-500"
           fill="none"
           initial={{ pathLength: 0 }}
           animate={{ pathLength: 1 }}
@@ -37,7 +37,7 @@ function ApprovedIcon() {
         />
         <motion.circle
           cx="36" cy="36" r="2"
-          className="fill-emerald-500"
+          className="fill-blue-500"
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, 0.6, 0] }}
           transition={{ duration: 2, repeat: Infinity, delay: 1.5, ease: 'easeInOut' }}
@@ -103,19 +103,19 @@ function RejectedIcon() {
 
 function WaitingIcon() {
   return (
-    <div className="relative flex h-20 w-20 items-center justify-center rounded-full border-2 border-emerald-500/20">
+    <div className="relative flex h-20 w-20 items-center justify-center rounded-full border-2 border-blue-500/20">
       <motion.div
-        className="absolute inset-0 rounded-full border-2 border-emerald-500/40"
+        className="absolute inset-0 rounded-full border-2 border-blue-500/40"
         animate={{ scale: [1, 1.15], opacity: [0.6, 0] }}
         transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
       />
       <motion.div
-        className="absolute inset-0 rounded-full border-2 border-emerald-500/40"
+        className="absolute inset-0 rounded-full border-2 border-blue-500/40"
         animate={{ scale: [1, 1.15], opacity: [0.6, 0] }}
         transition={{ duration: 1.6, repeat: Infinity, delay: 0.8, ease: 'easeOut' }}
       />
       <motion.div
-        className="h-4 w-4 rounded-full bg-emerald-500"
+        className="h-4 w-4 rounded-full bg-blue-500"
         animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
         transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
       />
@@ -138,7 +138,7 @@ export function SignupStatusScreen({ status, secondsLeft = 60, totalSeconds = 60
         {Array.from({ length: 6 }).map((_, i) => (
           <motion.div
             key={i}
-            className={`absolute h-1.5 w-1.5 rounded-full ${rejected ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}
+            className={`absolute h-1.5 w-1.5 rounded-full ${rejected ? 'bg-red-500/20' : 'bg-blue-500/20'}`}
             style={{
               left: `${15 + ((i * 15) % 70)}%`,
               top: `${20 + ((i * 12) % 60)}%`,
@@ -165,7 +165,7 @@ export function SignupStatusScreen({ status, secondsLeft = 60, totalSeconds = 60
         </motion.div>
 
         <motion.h1
-          className={`text-2xl font-bold ${rejected ? 'text-red-500' : approved ? 'text-emerald-500' : 'text-fg'}`}
+          className={`text-2xl font-bold ${rejected ? 'text-red-500' : approved ? 'text-blue-500' : 'text-fg'}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.8 }}
@@ -195,11 +195,11 @@ export function SignupStatusScreen({ status, secondsLeft = 60, totalSeconds = 60
           >
             <div className="mb-2 flex items-center justify-between text-xs text-fg-muted">
               <span>Montando seu ambiente...</span>
-              <span className="font-mono text-emerald-500">{secondsLeft}s</span>
+              <span className="font-mono text-blue-500">{secondsLeft}s</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-emerald-500/15">
+            <div className="h-1.5 overflow-hidden rounded-full bg-blue-500/15">
               <motion.div
-                className="h-full rounded-full bg-emerald-500"
+                className="h-full rounded-full bg-blue-500"
                 initial={{ width: '0%' }}
                 animate={{ width: `${progress}%` }}
                 transition={{ ease: 'linear' }}
@@ -208,7 +208,7 @@ export function SignupStatusScreen({ status, secondsLeft = 60, totalSeconds = 60
             <motion.button
               type="button"
               onClick={onEnter}
-              className="mt-6 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.97]"
+              className="mt-6 w-full rounded-xl bg-blue-500 py-3 text-sm font-semibold text-white transition-all hover:bg-blue-400 active:scale-[0.97]"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 1.5 }}
@@ -220,16 +220,16 @@ export function SignupStatusScreen({ status, secondsLeft = 60, totalSeconds = 60
 
         {!approved && !rejected && (
           <motion.div
-            className="mt-6 flex items-center justify-center gap-2.5 rounded-2xl border border-emerald-500/15 bg-emerald-500/5 px-5 py-3"
+            className="mt-6 flex items-center justify-center gap-2.5 rounded-2xl border border-blue-500/15 bg-blue-500/5 px-5 py-3"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 1.2 }}
           >
             <div className="relative flex h-4 w-4 items-center justify-center">
-              <div className="absolute inset-0 animate-spin rounded-full border-2 border-emerald-500/30 border-t-emerald-500" />
-              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+              <div className="absolute inset-0 animate-spin rounded-full border-2 border-blue-500/30 border-t-blue-500" />
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
             </div>
-            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
               Aguardando aprovação
             </span>
           </motion.div>
@@ -252,7 +252,7 @@ export function SignupStatusScreen({ status, secondsLeft = 60, totalSeconds = 60
           <motion.button
             type="button"
             onClick={onRetry}
-            className="mt-8 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.97]"
+            className="mt-8 w-full rounded-xl bg-blue-500 py-3 text-sm font-semibold text-white transition-all hover:bg-blue-400 active:scale-[0.97]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.5 }}
@@ -262,7 +262,7 @@ export function SignupStatusScreen({ status, secondsLeft = 60, totalSeconds = 60
         )}
 
         <motion.div
-          className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent"
+          className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-transparent via-blue-500/30 to-transparent"
           initial={{ scaleX: 0 }}
           animate={{ scaleX: 1 }}
           transition={{ delay: 1.8, duration: 0.6 }}

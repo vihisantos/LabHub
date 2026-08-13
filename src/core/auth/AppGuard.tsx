@@ -13,7 +13,7 @@ export function AppGuard({ appId, children }: { appId: string; children: ReactNo
     return (
       <div className="flex min-h-dvh items-center justify-center bg-surface">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
           <p className="text-xs text-fg-muted">Verificando acesso...</p>
         </div>
       </div>
@@ -43,7 +43,7 @@ export function AppGuard({ appId, children }: { appId: string; children: ReactNo
         <button
           type="button"
           onClick={() => navigate('/launcher')}
-          className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-400"
+          className="rounded-xl bg-blue-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-400"
         >
           Voltar ao início
         </button>

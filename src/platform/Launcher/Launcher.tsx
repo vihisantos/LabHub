@@ -131,7 +131,7 @@ export function Launcher() {
                 type="button"
                 onClick={() => changeMode(m.value)}
                 className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-                  mode === m.value ? 'bg-emerald-500 text-white' : 'text-fg-muted hover:text-fg'
+                  mode === m.value ? 'bg-blue-500 text-white' : 'text-fg-muted hover:text-fg'
                 }`}
               >
                 {m.label}
@@ -266,7 +266,7 @@ export function Launcher() {
           <button
             type="button"
             onClick={() => navigate('/roadmap')}
-            className="text-xs font-medium text-emerald-500 hover:text-emerald-400 transition-colors"
+            className="text-xs font-medium text-blue-500 hover:text-blue-400 transition-colors"
           >
             Roadmap
           </button>

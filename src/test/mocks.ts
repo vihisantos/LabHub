@@ -19,7 +19,7 @@ const adminUser = {
   status: 'active' as const,
   is_super_admin: true,
   workspace_ids: [],
-  accent: 'emerald' as const,
+  accent: 'blue' as const,
   theme_variant: 'dark' as const,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
