@@ -155,6 +155,7 @@ O **LabHub** centraliza todas as operacoes de laboratorios de informatica em uma
 - QR codes para impressao e leitura via camera
 - Relatorios exportaveis em CSV, XLSX e PDF
 - Notificacoes push automaticas
+- Gestao de workspaces: exclusao com backup de 2 dias, ativacao/desativacao de apps, duplicacao, mover dados entre escolas, cor e switcher rapido
 - Tema dark/light por sub-app
 - Modo kiosk/foco para tablets
 - Backup manual (exportar/importar JSON)

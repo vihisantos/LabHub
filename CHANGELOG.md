@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [Unreleased]
+
+### Features
+
+* **workspaces:** gestao avancada de workspaces ([6b9f5c1](https://github.com/vihisantos/LabHub/commit/6b9f5c1b8432a68a429c2b74c749bf3bbbe7d832)) — exclusao com backup de 2 dias + auditoria de quem excluiu, configurar (nome/localizacao/link da planilha/cor), ativar/desativar apps por workspace (bloqueio no AppGuard), duplicar configuracao, mover dados (estoque e chamados), switcher rapido no launcher, mini-stats no gate e pagina Backups no admin com restauracao
+* **admin:** pagina de backups e auditoria em /admin/backups (restaura workspace a partir do snapshot de 2 dias)
+* **workspaces:** migracao 021 com cascata nas tabelas TV e cron de limpeza de backups expirados (fallback pelo app)
+
+### Fixes
+
+* **sync:** exclusoes locais agora propagam para o Supabase (tombstones) em colecoes remotas ([e653734](https://github.com/vihisantos/LabHub/commit/e6537346e8a33e0e57f5b803b9082a95f47d2bd2))
+* **supabase:** migracao 022 permite que o admin absoluto edite/aprove perfis (RLS via is_super_admin)
+
 ## [2.0.0](https://github.com/vihisantos/LabHub/compare/v1.0.0...v2.0.0) (2026-08-11)
 
 
