@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { appRegistry } from '../../appRegistry'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
+import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
+import { filterAppsByWorkspace } from '../../core/workspaces/apps'
+import { WorkspaceSwitcherSheet } from '../WorkspaceSwitcher/WorkspaceSwitcherSheet'
 import { authService } from '../../core/auth/service'
 import type { HomeMode } from '../../core/auth/types'
 import { useAppAccess } from '../../core/permissions/usePermissions'
@@ -32,6 +35,8 @@ export function Launcher() {
   const { unreadCount } = useNotifications()
   const { user, signOut } = useAuth()
   const { canAccessApp } = useAppAccess()
+  const { workspace, assignedWorkspaces } = useWorkspace()
+  const [switcherOpen, setSwitcherOpen] = useState(false)
   const [greeting, setGreeting] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -41,7 +46,10 @@ export function Launcher() {
   useFastSync(['notifications'], 10000)
 
   const userName = user?.name?.split(' ')[0] || ''
-  const accessibleApps = appRegistry.filter((app) => canAccessApp(app.id))
+  const accessibleApps = filterAppsByWorkspace(
+    appRegistry.filter((app) => canAccessApp(app.id)),
+    workspace,
+  )
 
   useEffect(() => {
     setGreeting(getGreeting())
@@ -71,6 +79,32 @@ export function Launcher() {
       <div className="mx-auto max-w-lg px-5 pt-8 pb-8">
         {/* Header */}
         <header className="mb-6">
+          {workspace && (
+            <button
+              type="button"
+              onClick={() => setSwitcherOpen(true)}
+              className="mb-4 flex w-full items-center gap-2.5 rounded-xl border border-line bg-card px-3 py-2.5 text-left transition-colors hover:bg-input"
+            >
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                style={{
+                  backgroundColor: (workspace.color || '#6366f1') + '18',
+                  color: workspace.color || '#6366f1',
+                }}
+              >
+                <icons.ui.home size={14} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-semibold text-fg">{workspace.name}</span>
+                {workspace.location && (
+                  <span className="block truncate text-[10px] text-fg-muted">{workspace.location}</span>
+                )}
+              </span>
+              <span className="text-[10px] font-semibold text-blue-500">Trocar</span>
+              <icons.ui.chevronRight size={14} className="text-fg-muted" />
+            </button>
+          )}
+
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-fg">
@@ -277,6 +311,11 @@ export function Launcher() {
       <PushNotificationButton />
       <NotificationsSheet open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
       <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <WorkspaceSwitcherSheet
+        open={switcherOpen}
+        workspaces={assignedWorkspaces}
+        onClose={() => setSwitcherOpen(false)}
+      />
       <OnboardingOverlay
         open={onboardingOpen}
         userName={user?.name || ''}

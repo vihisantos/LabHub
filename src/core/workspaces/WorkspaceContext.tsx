@@ -147,7 +147,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           workspaces={assignedWorkspaces}
           onSelect={(ws, persist) => applySelection(ws, persist)}
           canCreate={user?.is_super_admin ?? false}
+          user={user}
           onCreated={refreshWorkspaces}
+          onDeleted={refreshWorkspaces}
         />
       </WorkspaceContext.Provider>
     )

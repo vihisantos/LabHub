@@ -1,8 +1,19 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import type { Workspace } from '../../core/workspaces/types'
 import { CreateWorkspaceModal } from '../../core/workspaces/components/CreateWorkspaceModal'
+import { workspaceService } from '../../core/workspaces/service'
+import { workspaceBackupService, type Actor } from '../../core/workspaces/backupService'
+import { ticketService } from '../../apps/chamados/services/ticketService'
+import { stockService } from '../../apps/stock/services/stockService'
 import { icons } from '../../lib/icons'
+import { WorkspaceCard } from './components/WorkspaceCard'
+import { WorkspaceActionsSheet } from './components/WorkspaceActionsSheet'
+import { ConfirmDeleteModal } from './components/ConfirmDeleteModal'
+import { WorkspaceSettingsModal } from './components/WorkspaceSettingsModal'
+import { WorkspaceAppsModal } from './components/WorkspaceAppsModal'
+import { DuplicateWorkspaceModal } from './components/DuplicateWorkspaceModal'
+import { MoveDataModal } from './components/MoveDataModal'
 
 const WS_COLORS = [
   { bg: 'bg-indigo-500/10', text: 'text-indigo-500', gradient: 'from-indigo-500 to-purple-500' },
@@ -17,12 +28,66 @@ interface WorkspaceGateProps {
   workspaces: Workspace[]
   onSelect: (workspace: Workspace, persist: boolean) => void
   canCreate?: boolean
+  user?: Pick<Actor, 'id' | 'name'> | null
   onCreated?: () => void
+  onDeleted?: () => void
 }
 
-export function WorkspaceGate({ workspaces, onSelect, canCreate = false, onCreated }: WorkspaceGateProps) {
+export function WorkspaceGate({
+  workspaces,
+  onSelect,
+  canCreate = false,
+  user,
+  onCreated,
+  onDeleted,
+}: WorkspaceGateProps) {
   const [persist, setPersist] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
+  const [actionWs, setActionWs] = useState<Workspace | null>(null)
+  const [confirmWs, setConfirmWs] = useState<Workspace | null>(null)
+  const [settingsWs, setSettingsWs] = useState<Workspace | null>(null)
+  const [appsWs, setAppsWs] = useState<Workspace | null>(null)
+  const [duplicateWs, setDuplicateWs] = useState<Workspace | null>(null)
+  const [moveWs, setMoveWs] = useState<Workspace | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
+  const statsMap = useMemo(() => {
+    const map: Record<string, { chamados: number; estoque: number }> = {}
+    for (const ws of workspaces) map[ws.id] = { chamados: 0, estoque: 0 }
+    for (const t of ticketService.getAll()) {
+      if (t.workspace_id && map[t.workspace_id]) map[t.workspace_id].chamados++
+    }
+    for (const s of stockService.getAll()) {
+      if (s.workspace_id && map[s.workspace_id]) map[s.workspace_id].estoque++
+    }
+    return map
+  }, [workspaces])
+
+  async function handleDelete() {
+    if (!confirmWs) return
+    const actor: Actor = {
+      id: user?.id || 'unknown',
+      name: user?.name || user?.id || 'desconhecido',
+    }
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await workspaceBackupService.backupWorkspace(confirmWs, actor)
+      await workspaceBackupService.logDelete(confirmWs, actor)
+      await workspaceBackupService.pruneExpired()
+      await workspaceService.remove(confirmWs.id)
+      setConfirmWs(null)
+      setActionWs(null)
+      onDeleted?.()
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : 'Não foi possível excluir o workspace.',
+      )
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <motion.div
@@ -75,31 +140,16 @@ export function WorkspaceGate({ workspaces, onSelect, canCreate = false, onCreat
           {workspaces.map((ws, i) => {
             const color = WS_COLORS[i % WS_COLORS.length]
             return (
-              <motion.button
+              <WorkspaceCard
                 key={ws.id}
-                type="button"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 + i * 0.06, duration: 0.4 }}
-                whileHover={{ y: -6, scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => onSelect(ws, persist)}
-                className="relative flex min-h-[150px] flex-col items-center justify-center gap-3 rounded-2xl border border-line bg-card p-6 transition-all hover:border-blue-500/20 hover:shadow-md"
-              >
-                <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${color.bg} ${color.text}`}>
-                  <icons.ui.home size={24} />
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-bold text-fg">{ws.name}</p>
-                  {ws.location && (
-                    <p className="mt-0.5 text-[10px] text-fg-dim">{ws.location}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 text-[10px] font-semibold text-blue-500 opacity-0 transition-opacity group-hover:opacity-100">
-                  Entrar
-                  <icons.ui.chevronRight size={10} />
-                </div>
-              </motion.button>
+                workspace={ws}
+                color={color}
+                index={i}
+                canManage={canCreate}
+                stats={statsMap[ws.id]}
+                onSelect={() => onSelect(ws, persist)}
+                onManage={() => setActionWs(ws)}
+              />
             )
           })}
 
@@ -129,6 +179,69 @@ export function WorkspaceGate({ workspaces, onSelect, canCreate = false, onCreat
       <CreateWorkspaceModal
         open={showCreate}
         onClose={() => { setShowCreate(false); onCreated?.() }}
+      />
+
+      <WorkspaceActionsSheet
+        workspace={actionWs}
+        onClose={() => setActionWs(null)}
+        onConfigure={(ws) => {
+          setActionWs(null)
+          setSettingsWs(ws)
+        }}
+        onApps={(ws) => {
+          setActionWs(null)
+          setAppsWs(ws)
+        }}
+        onDuplicate={(ws) => {
+          setActionWs(null)
+          setDuplicateWs(ws)
+        }}
+        onMoveData={(ws) => {
+          setActionWs(null)
+          setMoveWs(ws)
+        }}
+        onDelete={(ws) => {
+          setActionWs(null)
+          setDeleteError('')
+          setConfirmWs(ws)
+        }}
+      />
+
+      <WorkspaceSettingsModal
+        workspace={settingsWs}
+        open={!!settingsWs}
+        onClose={() => setSettingsWs(null)}
+        onSaved={onCreated}
+      />
+
+      <WorkspaceAppsModal
+        workspace={appsWs}
+        open={!!appsWs}
+        onClose={() => setAppsWs(null)}
+        onSaved={onCreated}
+      />
+
+      <DuplicateWorkspaceModal
+        workspace={duplicateWs}
+        open={!!duplicateWs}
+        onClose={() => setDuplicateWs(null)}
+        onCreated={onCreated}
+      />
+
+      <MoveDataModal
+        workspace={moveWs}
+        open={!!moveWs}
+        onClose={() => setMoveWs(null)}
+      />
+
+      <ConfirmDeleteModal
+        workspace={confirmWs}
+        deleting={deleting}
+        error={deleteError}
+        onClose={() => {
+          if (!deleting) setConfirmWs(null)
+        }}
+        onConfirm={handleDelete}
       />
     </motion.div>
   )

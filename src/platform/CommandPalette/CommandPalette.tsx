@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSearch } from '../../core/search/useSearch'
+import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
+import { isAppDisabled } from '../../core/workspaces/apps'
 import { icons } from '../../lib/icons'
 
 const MODULE_ICONS: Record<string, string> = {
@@ -11,11 +13,21 @@ const MODULE_ICONS: Record<string, string> = {
   reservalab: 'flaskConical',
 }
 
+// module da busca → id do appRegistry (pcare é "pc-care")
+const MODULE_APP_ID: Record<string, string> = {
+  pcare: 'pc-care',
+  stock: 'stock',
+  chamados: 'chamados',
+  tv: 'tv',
+  reservalab: 'reservalab',
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { query, results, search, clear } = useSearch()
+  const { workspace } = useWorkspace()
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -47,6 +59,10 @@ export function CommandPalette() {
 
   if (!open) return null
 
+  const visibleResults = results.filter(
+    (result) => !isAppDisabled(MODULE_APP_ID[result.module], workspace),
+  )
+
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
@@ -66,7 +82,7 @@ export function CommandPalette() {
         </div>
 
         <div className="max-h-80 overflow-y-auto p-2">
-          {query && results.length === 0 && (
+          {query && visibleResults.length === 0 && (
             <div className="py-8 text-center">
               <p className="text-sm text-fg-muted">Nenhum resultado para "{query}"</p>
             </div>
@@ -78,7 +94,7 @@ export function CommandPalette() {
             </div>
           )}
 
-          {results.map((result) => {
+          {visibleResults.map((result) => {
             const iconName = MODULE_ICONS[result.module] || 'inbox'
             const IconComponent = icons.ui[iconName as keyof typeof icons.ui] || icons.ui.inbox
 

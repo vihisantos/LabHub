@@ -2,11 +2,14 @@ import type { ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { useAppAccess } from '../permissions/usePermissions'
+import { useWorkspace } from '../workspaces/WorkspaceContext'
+import { isAppDisabled } from '../workspaces/apps'
 import { appRegistry } from '../../appRegistry'
 
 export function AppGuard({ appId, children }: { appId: string; children: ReactNode }) {
   const { user, loading } = useAuth()
   const { canAccessApp } = useAppAccess()
+  const { workspace } = useWorkspace()
   const navigate = useNavigate()
 
   if (loading) {
@@ -38,6 +41,35 @@ export function AppGuard({ appId, children }: { appId: string; children: ReactNo
           <p className="text-sm font-semibold text-fg">Acesso restrito</p>
           <p className="mt-1 text-xs text-fg-muted">
             Seu cargo não tem acesso ao módulo <span className="font-medium text-fg">{app?.name ?? 'solicitado'}</span>.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/launcher')}
+          className="rounded-xl bg-blue-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-400"
+        >
+          Voltar ao início
+        </button>
+      </div>
+    )
+  }
+
+  if (isAppDisabled(appId, workspace)) {
+    const app = appRegistry.find((a) => a.id === appId)
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-surface px-6 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4" />
+            <path d="M12 16h.01" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-fg">Indisponível neste workspace</p>
+          <p className="mt-1 text-xs text-fg-muted">
+            O módulo <span className="font-medium text-fg">{app?.name ?? 'solicitado'}</span> está desativado para{' '}
+            <span className="font-medium text-fg">{workspace?.name}</span>.
           </p>
         </div>
         <button
