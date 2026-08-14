@@ -1,12 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { workspaceService } from '../service'
-import type { Workspace } from '../types'
 
 vi.mock('../../../lib/supabase', () => ({ defaultDb: undefined }))
 
 describe('workspaceService.create (toSnake)', () => {
   it('aplica defaults para color, disabled_apps e spreadsheet_url', async () => {
-    const created = await workspaceService.create({ name: 'Escola A', slug: 'escola-a' })
+    const created = await workspaceService.create({ name: 'Escola A', slug: 'escola-a', location: '', spreadsheet_url: '' })
 
     expect(created.color).toBe('')
     expect(created.disabled_apps).toEqual([])
@@ -34,7 +33,7 @@ describe('workspaceService.create (toSnake)', () => {
 
 describe('workspaceService.update', () => {
   it('atualiza color e disabled_apps mantendo o restante', async () => {
-    const created = await workspaceService.create({ name: 'Escola C', slug: 'escola-c' })
+    const created = await workspaceService.create({ name: 'Escola C', slug: 'escola-c', location: '', spreadsheet_url: '' })
     const updated = await workspaceService.update(created.id, {
       color: '#22c55e',
       disabled_apps: ['chamados'],
@@ -57,7 +56,7 @@ describe('workspaceService.update', () => {
 
 describe('workspaceService.remove', () => {
   it('remove o workspace localmente', async () => {
-    const created = await workspaceService.create({ name: 'Escola D', slug: 'escola-d' })
+    const created = await workspaceService.create({ name: 'Escola D', slug: 'escola-d', location: '', spreadsheet_url: '' })
     const ok = await workspaceService.remove(created.id)
     expect(ok).toBe(true)
     expect(workspaceService.getById(created.id)).toBeUndefined()
