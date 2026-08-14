@@ -7,7 +7,7 @@ import { ticketService } from '../../chamados/services/ticketService'
 import { roomService } from '../../chamados/services/roomService'
 import { PROBLEM_AREA_LABELS, TICKET_PROBLEM_CATEGORIES } from '../../chamados/types'
 import type { TicketFormData, TicketProblemArea } from '../../chamados/types'
-import { OnboardingTour, isTourDone, markTourDone } from '../components/OnboardingTour'
+import { OnboardingTour, markTourDone } from '../components/OnboardingTour'
 import { icons } from '../../../lib/icons'
 
 const AREA_OPTIONS: { value: TicketProblemArea; label: string; icon: (typeof icons.ui)[keyof typeof icons.ui] }[] = [
@@ -41,7 +41,8 @@ export function RoomTicketForm() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const [tourVisible, setTourVisible] = useState(() => !isTourDone())
+  // Tour fica disponível via botão 'Como funciona?' — nunca abre por cima dos campos.
+  const [tourVisible, setTourVisible] = useState(false)
 
   const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
@@ -157,6 +158,14 @@ export function RoomTicketForm() {
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
         <p className="mt-1 text-sm text-fg-muted">Leva menos de 1 minuto</p>
+        <button
+          type="button"
+          onClick={() => setTourVisible(true)}
+          className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-[11px] font-medium text-fg-muted transition-colors hover:border-amber-500/40 hover:text-fg"
+        >
+          <icons.ui.alertCircle size={12} />
+          Como funciona?
+        </button>
       </div>
 
       {error && (

@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useRooms } from '../../chamados/hooks/useRooms'
 import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
 import { useProblemTemplates } from '../../chamados/hooks/useProblemTemplates'
 import { ticketService } from '../../chamados/services/ticketService'
+import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
+import { workspaceStore } from '../../../core/workspaces/store'
 import { icons } from '../../../lib/icons'
 import type { TicketFormData } from '../../chamados/types'
 
@@ -13,13 +15,31 @@ export function TicketForm() {
   const roomId = searchParams.get('room') || ''
   const assetId = searchParams.get('asset') || ''
   const assetSource = (searchParams.get('source') || 'stock') as TicketFormData['assetSource']
+  const urlWorkspace = searchParams.get('workspace') || ''
 
   const { rooms } = useRooms()
   const room = rooms.find((r) => r.id === roomId)
+  const roomWorkspaceId = room?.workspace_id || ''
   const { assets } = useRoomAssets(room?.name || '')
   const asset = assets.find((a) => a.id === assetId && a.source === assetSource)
 
   const { getByAssetType } = useProblemTemplates()
+
+  const { workspaces, loading: loadingWorkspaces } = useWorkspaces()
+  const [campusId, setCampusId] = useState(urlWorkspace || roomWorkspaceId)
+
+  useEffect(() => {
+    if (campusId || !roomWorkspaceId) return
+    setCampusId(roomWorkspaceId)
+  }, [campusId, roomWorkspaceId])
+
+  useEffect(() => {
+    if (campusId || loadingWorkspaces) return
+    const active = workspaceStore.activeWorkspaceId
+    if (active && workspaces.some((w) => w.id === active)) {
+      setCampusId(active)
+    }
+  }, [campusId, loadingWorkspaces, workspaces])
 
   const template = useMemo(() => {
     if (!asset) return null
@@ -41,12 +61,13 @@ export function TicketForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedCategory || !reportedBy.trim() || !room || !asset) return
+    if (!campusId || !selectedCategory || !reportedBy.trim() || !room || !asset) return
 
     setSubmitting(true)
 
     try {
       const ticket = await ticketService.create({
+        workspace_id: campusId,
         roomId: room.id,
         roomName: room.name,
         assetId: asset.id,
@@ -88,6 +109,34 @@ export function TicketForm() {
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
       </div>
+
+      {loadingWorkspaces ? (
+        <p className="mb-4 text-sm text-fg-dim">Carregando campi...</p>
+      ) : (
+        <div className="mb-6">
+          <p className="mb-2 text-xs font-semibold text-fg-muted">Qual o campus? *</p>
+          <div className="grid grid-cols-2 gap-2">
+            {workspaces.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => setCampusId(w.id)}
+                className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
+                  campusId === w.id
+                    ? 'border-amber-500 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
+                    : 'border-line bg-card text-fg hover:border-fg-muted'
+                }`}
+              >
+                <icons.ui.mapPin size={16} className="shrink-0" />
+                <span className="line-clamp-2">{w.name}</span>
+              </button>
+            ))}
+          </div>
+          {!campusId && workspaces.length > 0 && (
+            <p className="mt-1.5 text-[11px] text-fg-dim">Escolha o campus para onde o chamado deve ir.</p>
+          )}
+        </div>
+      )}
 
       <div className="mb-6 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <div className="flex items-center gap-2 text-xs text-fg-muted">
@@ -174,7 +223,7 @@ export function TicketForm() {
 
         <button
           type="submit"
-          disabled={!selectedCategory || !reportedBy.trim() || submitting}
+          disabled={!campusId || !selectedCategory || !reportedBy.trim() || submitting}
           className="w-full rounded-xl bg-amber-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting ? 'Abrindo chamado...' : 'Abrir Chamado'}
