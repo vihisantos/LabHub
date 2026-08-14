@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import type { Workspace } from './types'
 import { workspaceService } from './service'
@@ -35,6 +36,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  const location = useLocation()
   const [workspace, setWorkspaceState] = useState<Workspace | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
@@ -140,7 +142,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     reload: load,
   }
 
-  if (pendingSelection && !loading) {
+  const isPublicChamados = location.pathname.startsWith('/chamados-publico')
+
+  if (pendingSelection && !loading && !isPublicChamados) {
     return (
       <WorkspaceContext.Provider value={value}>
         <WorkspaceGate
