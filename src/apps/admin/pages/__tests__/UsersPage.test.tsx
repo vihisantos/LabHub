@@ -360,9 +360,11 @@ describe('UsersPage fluxo completo', () => {
       expect(mockAdminService.updateUserProfile).toHaveBeenCalledWith('u-123', {
         app_access: { reservalab: 'none' },
       })
+      // Semântica de "sobrescreve o cargo": label segue o padrão do cargo, select reflete o override
+      expect(screen.getByText('Acesso individual atualizado')).toBeInTheDocument()
+      expect(screen.getByText('Cargo: Acesso total')).toBeInTheDocument()
+      expect(within(appRow('ReservaLab')).getByRole('combobox')).toHaveValue('none')
     })
-    expect(screen.getByText('Acesso individual atualizado')).toBeInTheDocument()
-    expect(within(appRow('ReservaLab')).getByRole('combobox')).toHaveValue('none')
   })
 
   it('restaura o acesso ao cargo ao voltar para "Padrão do cargo"', async () => {
@@ -405,11 +407,14 @@ describe('UsersPage fluxo completo', () => {
     fireEvent.change(within(appRow('ReservaLab')).getByRole('combobox'), { target: { value: 'none' } })
 
     await waitFor(() => {
-      expect(mockAdminService.updateUserProfile).toHaveBeenCalled()
+      // O override é calculado mesmo quando a API falha
+      expect(mockAdminService.updateUserProfile).toHaveBeenCalledWith('u-123', {
+        app_access: { reservalab: 'none' },
+      })
+      expect(screen.getByText('Erro ao atualizar acesso')).toBeInTheDocument()
+      // Estado não muda: o select continua no padrão do cargo
+      expect(within(appRow('ReservaLab')).getByRole('combobox')).toHaveValue('inherit')
     })
-    expect(screen.getByText('Erro ao atualizar acesso')).toBeInTheDocument()
-    // Estado não muda: o select continua no padrão do cargo
-    expect(within(appRow('ReservaLab')).getByRole('combobox')).toHaveValue('inherit')
   })
 
   it('rejeita um usuário pendente', async () => {
