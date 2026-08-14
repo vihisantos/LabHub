@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file. See [standa
 
 ### Features
 
+* **chamados:** push imediato ao abrir chamado — `POST /api/chamados` dispara `_notify_new_ticket` (evento, sem cron): filtra por modulo `chamados` + workspace, respeita notify_settings do perfil e falha de push nunca impede a criacao do chamado
+* **push:** cron do proprio Vercel substitui o cron-jobs.org — `vercel.json` agenda `GET /api/push/check-all` a cada 5 min
+* **push:** protecao por `CRON_SECRET` nos endpoints de cron `GET /api/push/check`, `check-overdue`, `check-pcare` e `check-all` — com a env var configurada exigem `Authorization: Bearer ${CRON_SECRET}` (header enviado automaticamente pelo Vercel Cron); sem ela, mantem o comportamento aberto durante a migracao + warning no log
+* **docs:** novo `docs/database.md` com diagramas Mermaid — ER completo do banco (schemas public/pcare/stock) e mapa de consumo de cada dado pelo app; `docs/api.md` documenta o fluxo de notificacao de chamados
+* **push:** popup de ativacao de notificacoes redesenhado (card com beneficios, dismiss persistente e estado bloqueado com atalho de configuracao do navegador)
+* **push:** script `scripts/cleanup_push_subs.py` deduplica inscricoes por endpoint e remove orfas do Upstash (dry-run por padrao)
+* **push:** admin usa `VITE_RESERVALAB_API_URL` (mesma base dos demais apps) no envio de push manual — antes usava `VITE_PUSH_API_URL` inexistente e o push do admin nunca disparava
 * **workspaces:** gestao avancada de workspaces ([6b9f5c1](https://github.com/vihisantos/LabHub/commit/6b9f5c1b8432a68a429c2b74c749bf3bbbe7d832)) — exclusao com backup de 2 dias + auditoria de quem excluiu, configurar (nome/localizacao/link da planilha/cor), ativar/desativar apps por workspace (bloqueio no AppGuard), duplicar configuracao, mover dados (estoque e chamados), switcher rapido no launcher, mini-stats no gate e pagina Backups no admin com restauracao
 * **admin:** pagina de backups e auditoria em /admin/backups (restaura workspace a partir do snapshot de 2 dias)
 * **workspaces:** migracao 021 com cascata nas tabelas TV e cron de limpeza de backups expirados (fallback pelo app)
@@ -14,6 +21,11 @@ All notable changes to this project will be documented in this file. See [standa
 
 * **sync:** exclusoes locais agora propagam para o Supabase (tombstones) em colecoes remotas ([e653734](https://github.com/vihisantos/LabHub/commit/e6537346e8a33e0e57f5b803b9082a95f47d2bd2))
 * **supabase:** migracao 022 permite que o admin absoluto edite/aprove perfis (RLS via is_super_admin)
+
+### Tests
+
+* **chamados:** testes de push no POST /api/chamados (disparo com subscribers, falha de push nao impede criacao, sem subscribers) em `api/tests/test_chamados.py`
+* **push:** testes de autorizacao por CRON_SECRET nos 4 endpoints de cron (aberto sem env, 401 sem/errado, correto nao-401) em `api/tests/test_push_cron.py`
 
 ## [2.0.0](https://github.com/vihisantos/LabHub/compare/v1.0.0...v2.0.0) (2026-08-11)
 

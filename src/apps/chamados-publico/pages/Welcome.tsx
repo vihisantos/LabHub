@@ -14,8 +14,8 @@ export function Welcome() {
 
   return (
     <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pt-14 pb-10">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/15">
-        <icons.nav.parts size={26} className="text-amber-500" />
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15">
+        <icons.nav.parts size={26} className="text-emerald-500" />
       </div>
       <h1 className="text-2xl font-bold text-fg">Abrir Chamado</h1>
       <p className="mt-2 max-w-xs text-center text-sm leading-relaxed text-fg-muted">
@@ -27,8 +27,8 @@ export function Welcome() {
         onClick={() => navigate('/chamados-publico/scan')}
         className="mt-8 flex w-full max-w-sm items-center gap-3 rounded-2xl bg-card p-4 shadow-[var(--shadow-card)] transition-all hover:bg-input"
       >
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/15">
-          <icons.ui.scanBarcode size={20} className="text-amber-500" />
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
+          <icons.ui.scanBarcode size={20} className="text-emerald-500" />
         </div>
         <div className="text-left">
           <p className="text-sm font-semibold text-fg">Escanear QR Code da sala</p>
@@ -49,12 +49,12 @@ export function Welcome() {
           value={roomName}
           onChange={(e) => setRoomName(e.target.value)}
           placeholder="Digite o nome da sala"
-          className="flex-1 rounded-xl bg-input px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none focus:ring-2 focus:ring-amber-500"
+          className="flex-1 rounded-xl bg-input px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
         <button
           type="submit"
           disabled={!roomName.trim()}
-          className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Continuar
         </button>
@@ -65,8 +65,8 @@ export function Welcome() {
         onClick={() => navigate('/chamados-publico/track')}
         className="mt-4 flex w-full max-w-sm items-center gap-3 rounded-2xl border border-line bg-card p-4 transition-colors hover:bg-input"
       >
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/15">
-          <icons.ui.circleCheck size={20} className="text-amber-500" />
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
+          <icons.ui.circleCheck size={20} className="text-emerald-500" />
         </div>
         <div className="text-left">
           <p className="text-sm font-semibold text-fg">Acompanhar chamado</p>

@@ -25,7 +25,7 @@ function AssetCard({ asset, onClick }: { asset: RoomAsset; onClick: () => void }
       onClick={onClick}
       className="flex w-full items-center gap-3 rounded-xl bg-card p-3.5 text-left shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.98]"
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
         {asset.source === 'pcare' ? <icons.nav.pcs size={20} /> : <icons.ui.package size={20} />}
       </div>
       <div className="min-w-0 flex-1">
@@ -36,7 +36,7 @@ function AssetCard({ asset, onClick }: { asset: RoomAsset; onClick: () => void }
         </p>
       </div>
       {openTickets.length > 0 && (
-        <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+        <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
           {openTickets.length} aberto{openTickets.length > 1 ? 's' : ''}
         </span>
       )}
@@ -64,7 +64,7 @@ export function RoomAssets() {
         <button
           type="button"
           onClick={() => navigate('/chamados-publico')}
-          className="mt-4 rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-white"
+          className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-white"
         >
           Escanear novamente
         </button>
@@ -77,8 +77,8 @@ export function RoomAssets() {
   return (
     <div className="min-h-dvh bg-surface px-4 pt-6 pb-8">
       <div className="mb-6 text-center">
-        <div className="mb-2 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10">
-          <icons.ui.home size={24} className="text-amber-500" />
+        <div className="mb-2 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10">
+          <icons.ui.home size={24} className="text-emerald-500" />
         </div>
         <h1 className="text-2xl font-bold text-fg">{room.name}</h1>
         {room.location && (

@@ -45,7 +45,7 @@ export function SettingsPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-fg-muted">Versão</span>
-            <span className="text-xs font-medium text-fg">2.0.0</span>
+            <span className="text-xs font-medium text-fg">2.1.0</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-xs text-fg-muted">Usuário</span>

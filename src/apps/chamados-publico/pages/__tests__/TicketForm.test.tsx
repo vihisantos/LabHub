@@ -82,7 +82,7 @@ describe('TicketForm (campus)', () => {
 
   it('pré-seleciona o campus da sala quando não vem ?workspace=', () => {
     renderForm()
-    expect(screen.getByText('Qual o campus? *')).toBeInTheDocument()
+    expect(screen.getByText(/campus\?/)).toBeInTheDocument()
     expect(screen.getByText('Campus B')).toBeInTheDocument()
     expect(screen.getByText('Campus A')).toBeInTheDocument()
   })
@@ -109,5 +109,54 @@ describe('TicketForm (campus)', () => {
 
     expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_A }))
     expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-1')
+  })
+
+  it('envia todos os dados do chamado (equipamento, sala, categoria e professor)', async () => {
+    mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock' })
+    renderForm()
+
+    fireEvent.click(screen.getByText('Campus A'))
+    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
+    fireEvent.change(screen.getByPlaceholderText(/O computador não liga/i), {
+      target: { value: 'PC não liga após queda de luz' },
+    })
+
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    fireEvent.click(submit)
+
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: WS_A,
+        roomId: 'r1',
+        roomName: 'Sala 101',
+        assetId: 'pc-1',
+        assetSource: 'stock',
+        assetName: 'PC Aluno 01',
+        assetPatrimony: 'P-001',
+        problemCategory: 'Internet',
+        problemDescription: 'PC não liga após queda de luz',
+        reportedBy: 'Prof. Maria',
+        status: 'aberto',
+      })
+    )
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-1')
+  })
+
+  it('usa o campus pré-selecionado da sala (sem ?workspace=) no chamado', async () => {
+    mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock' })
+    renderForm()
+
+    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
+
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    fireEvent.click(submit)
+
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
   })
 })

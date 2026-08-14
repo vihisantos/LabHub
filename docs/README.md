@@ -2,7 +2,7 @@
 
 > PWA modular para gestao de laboratorios de informatica em ambientes universitarios.
 
-**Versao:** 1.0.0  
+**Versao:** 2.1.0  
 **Status:** Pre-release  
 **Stack Principal:** React 19, TypeScript, Vite, Tailwind CSS v4, Supabase, Flask (Python)
 
@@ -18,6 +18,7 @@
   - [ReservaLab](reservalab.md) — Reserva de laboratorios e tablets
   - [TV](tv.md) — Canal corporativo e murais digitais
 - [API Backend](api.md)
+- [Banco de Dados](database.md) — schemas Supabase e consumo de dados pelo app (diagramas Mermaid)
 - [Variaveis de Ambiente](#variaveis-de-ambiente)
 - [Deploy](#deploy)
 - [CI/CD](#cicd)

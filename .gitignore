@@ -46,5 +46,8 @@ venv/
 *.egg-info/
 .vercel
 
+# Cache de runtime
+.cache_reservas.json
+
 # Keep core/logs module (not log files)
 !src/core/logs/

@@ -151,7 +151,7 @@ export function RoomTicketForm() {
   }
 
   const inputClass =
-    'w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500'
+    'w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500'
 
   return (
     <div className="min-h-dvh bg-surface px-4 pt-6 pb-10">
@@ -161,7 +161,7 @@ export function RoomTicketForm() {
         <button
           type="button"
           onClick={() => setTourVisible(true)}
-          className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-[11px] font-medium text-fg-muted transition-colors hover:border-amber-500/40 hover:text-fg"
+          className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-[11px] font-medium text-fg-muted transition-colors hover:border-emerald-500/40 hover:text-fg"
         >
           <icons.ui.alertCircle size={12} />
           Como funciona?
@@ -177,7 +177,9 @@ export function RoomTicketForm() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <section ref={campusRef} aria-label="Campus">
-          <p className="mb-2 text-xs font-semibold text-fg-muted">1 · Qual o campus?</p>
+          <p className="mb-2 text-xs font-semibold text-fg-muted">
+            1 · Qual o campus? <span className="text-red-500">*</span>
+          </p>
           {loadingWorkspaces ? (
             <p className="text-sm text-fg-dim">Carregando campi...</p>
           ) : (
@@ -189,7 +191,7 @@ export function RoomTicketForm() {
                   onClick={() => setCampusId(w.id)}
                   className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
                     campusId === w.id
-                      ? 'border-amber-500 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
+                      ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
                       : 'border-line bg-card text-fg hover:border-fg-muted'
                   }`}
                 >
@@ -203,7 +205,7 @@ export function RoomTicketForm() {
 
         <section ref={roomRef} aria-label="Sala">
           <label htmlFor="room" className="mb-2 block text-xs font-semibold text-fg-muted">
-            2 · Qual a sala? *
+            2 · Qual a sala? <span className="text-red-500">*</span>
           </label>
           {urlRoom && (
             <p className="mb-1.5 flex items-center gap-1 text-[11px] text-fg-dim">
@@ -258,7 +260,7 @@ export function RoomTicketForm() {
                       onMouseEnter={() => setHighlightedIndex(i)}
                       className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors ${
                         i === highlightedIndex
-                          ? 'bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
+                          ? 'bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
                           : 'text-fg'
                       }`}
                     >
@@ -273,7 +275,9 @@ export function RoomTicketForm() {
         </section>
 
         <section ref={areaRef} aria-label="Área">
-          <p className="mb-2 text-xs font-semibold text-fg-muted">3 · Qual a área? *</p>
+          <p className="mb-2 text-xs font-semibold text-fg-muted">
+            3 · Qual a área? <span className="text-red-500">*</span>
+          </p>
           <div className="grid grid-cols-2 gap-2">
             {AREA_OPTIONS.map((opt) => {
               const Icon = opt.icon
@@ -285,14 +289,14 @@ export function RoomTicketForm() {
                   onClick={() => setArea(opt.value)}
                   className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all ${
                     selected
-                      ? 'border-amber-500 bg-amber-500/10'
+                      ? 'border-emerald-500 bg-emerald-500/10'
                       : 'border-line bg-card hover:border-fg-muted'
                   }`}
                 >
-                  <Icon size={20} className={selected ? 'text-amber-500' : 'text-fg-muted'} />
+                  <Icon size={20} className={selected ? 'text-emerald-500' : 'text-fg-muted'} />
                   <span
                     className={`text-xs leading-snug ${
-                      selected ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-fg'
+                      selected ? 'font-medium text-emerald-600 dark:text-emerald-400' : 'text-fg'
                     }`}
                   >
                     {opt.label}
@@ -304,7 +308,9 @@ export function RoomTicketForm() {
         </section>
 
         <section ref={categoryRef} aria-label="Tipo de problema">
-          <p className="mb-2 text-xs font-semibold text-fg-muted">4 · Qual o problema? *</p>
+          <p className="mb-2 text-xs font-semibold text-fg-muted">
+            4 · Qual o problema? <span className="text-red-500">*</span>
+          </p>
           <div className="grid grid-cols-2 gap-2">
             {TICKET_PROBLEM_CATEGORIES.map((cat) => {
               const Icon = CATEGORY_ICONS[cat] || icons.ui.alertCircle
@@ -316,7 +322,7 @@ export function RoomTicketForm() {
                   onClick={() => setCategory(cat)}
                   className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
                     selected
-                      ? 'border-amber-500 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
+                      ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
                       : 'border-line bg-card text-fg hover:border-fg-muted'
                   }`}
                 >
@@ -329,13 +335,13 @@ export function RoomTicketForm() {
         </section>
 
         {openForRoom.length > 0 && (
-          <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-            <icons.ui.alertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+          <div className="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+            <icons.ui.alertTriangle size={16} className="mt-0.5 shrink-0 text-emerald-500" />
             <div>
-              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+              <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 Já existe chamado aberto para esta sala.
               </p>
-              <p className="mt-0.5 text-[11px] text-amber-600/70 dark:text-amber-400/70">
+              <p className="mt-0.5 text-[11px] text-emerald-600/70 dark:text-emerald-400/70">
                 Nº {openForRoom.map((t) => `#${t.ticketNumber}`).join(', ')}
               </p>
             </div>
@@ -344,7 +350,7 @@ export function RoomTicketForm() {
 
         <section ref={detailsRef} aria-label="Detalhes">
           <label htmlFor="description" className="mb-1.5 block text-xs font-semibold text-fg-muted">
-            5 · Descreva o que aconteceu *
+            5 · Descreva o que aconteceu <span className="text-red-500">*</span>
           </label>
           <textarea
             id="description"
@@ -356,7 +362,7 @@ export function RoomTicketForm() {
           />
 
           <label htmlFor="reportedBy" className="mt-4 mb-1.5 block text-xs font-semibold text-fg-muted">
-            Seu nome *
+            Seu nome <span className="text-red-500">*</span>
           </label>
           {user?.name && (
             <p className="mb-1.5 flex items-center gap-1 text-[11px] text-fg-dim">
@@ -389,7 +395,7 @@ export function RoomTicketForm() {
         <button
           type="submit"
           disabled={!canSubmit}
-          className="w-full rounded-xl bg-amber-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-xl bg-emerald-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? 'Abrindo chamado...' : 'Abrir Chamado'}
         </button>
