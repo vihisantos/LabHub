@@ -7,6 +7,7 @@ import { WorkspacesPage } from './pages/WorkspacesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { BackupsPage } from './pages/BackupsPage'
 
 export function AdminApp() {
   return (
@@ -18,6 +19,7 @@ export function AdminApp() {
         <Route path="workspaces" element={<WorkspacesPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="backups" element={<BackupsPage />} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>
     </Routes>

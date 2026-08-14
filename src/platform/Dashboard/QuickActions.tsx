@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom'
+import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
+import { isAppDisabled } from '../../core/workspaces/apps'
 import { icons } from '../../lib/icons'
 
 const actions = [
@@ -7,35 +9,44 @@ const actions = [
     icon: <icons.ui.scanBarcode size={18} />,
     route: '/chamados-publico/scan',
     color: '#f59e0b',
+    appId: null as string | null,
   },
   {
     label: 'Reservas',
     icon: <icons.ui.flaskConical size={18} />,
     route: '/reservalab',
     color: '#6366f1',
+    appId: 'reservalab',
   },
   {
     label: 'Inventário',
     icon: <icons.nav.pcs size={18} />,
     route: '/pc-care',
     color: '#8b5cf6',
+    appId: 'pc-care',
   },
   {
     label: 'Estoque',
     icon: <icons.ui.package size={18} />,
     route: '/stock',
     color: '#10b981',
+    appId: 'stock',
   },
 ]
 
 export function QuickActions() {
   const navigate = useNavigate()
+  const { workspace } = useWorkspace()
+
+  const visible = actions.filter(
+    (action) => !action.appId || !isAppDisabled(action.appId, workspace),
+  )
 
   return (
     <div>
       <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Ações Rápidas</p>
       <div className="grid grid-cols-4 gap-2">
-        {actions.map((action) => (
+        {visible.map((action) => (
           <button
             key={action.label}
             type="button"

@@ -18,6 +18,10 @@ const NAV_ITEMS = [
   { to: '/admin/settings', label: 'Configurações', icon: icons.nav.settings },
 ]
 
+const NAV_OVERFLOW = [
+  { to: '/admin/backups', label: 'Backups', icon: icons.ui.hardDrive },
+]
+
 const WS_BG_GRADIENTS = [
   'from-indigo-500/10 via-purple-500/5 to-transparent',
   'from-emerald-500/10 via-teal-500/5 to-transparent',
@@ -161,7 +165,11 @@ export function AdminLayout() {
       </main>
 
       {/* Bottom Nav — flutuante, redonda, blur, liquid glass */}
-      <LiquidBottomNav items={NAV_ITEMS} getBadge={(to) => (to === '/admin/notifications' ? unreadCount : 0)} />
+      <LiquidBottomNav
+        items={NAV_ITEMS}
+        overflowItems={NAV_OVERFLOW}
+        getBadge={(to) => (to === '/admin/notifications' ? unreadCount : 0)}
+      />
 
       <PushNotificationButton />
     </div>

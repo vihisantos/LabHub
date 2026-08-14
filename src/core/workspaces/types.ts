@@ -4,6 +4,8 @@ export interface Workspace {
   slug: string
   location: string
   spreadsheet_url: string
+  color?: string
+  disabled_apps?: string[]
   created_at: string
   updated_at: string
 }
