@@ -38,6 +38,39 @@ export function getPendingChanges(): number {
   return getDirtySet().size
 }
 
+const DELETED_KEY = 'labhub_deleted_ids'
+
+function getDeletedMap(): Record<string, string[]> {
+  try {
+    return JSON.parse(localStorage.getItem(DELETED_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function saveDeletedMap(map: Record<string, string[]>) {
+  localStorage.setItem(DELETED_KEY, JSON.stringify(map))
+}
+
+function getDeletedIds(collection: string): string[] {
+  return getDeletedMap()[collection] || []
+}
+
+function clearDeleted(collection: string) {
+  const map = getDeletedMap()
+  if (map[collection]) {
+    delete map[collection]
+    saveDeletedMap(map)
+  }
+}
+
+// Registra um id removido localmente para ser apagado também no remoto no próximo sync.
+function markDeleted(collection: string, id: string) {
+  const map = getDeletedMap()
+  map[collection] = [...new Set([...(map[collection] || []), id])]
+  saveDeletedMap(map)
+}
+
 export interface SyncLogEntry {
   collection: string
   itemCount: number
@@ -169,6 +202,12 @@ async function syncCollection(
     remoteMap.set(item.id, item)
   }
 
+  // Apaga do remoto itens removidos localmente (propagação de exclusão)
+  for (const id of getDeletedIds(collection)) {
+    const { error: delErr } = await s.delete().eq('id', id)
+    if (delErr) throw delErr
+  }
+
   // Sobe dados locais que não existem no remoto ou são mais recentes
   if (dirty.has(collection)) {
     for (const local of items) {
@@ -196,6 +235,9 @@ async function syncCollection(
   if (changed || dirty.has(collection)) {
     setCol(collection, items)
   }
+
+  // Sync concluído com sucesso: limpa os tombstones já propagados
+  clearDeleted(collection)
 
   return 'ok'
 }
@@ -253,7 +295,10 @@ export function createSyncService<T extends { id: string }>(collection: string) 
     },
     remove(id: string): boolean {
       const result = local.remove(id)
-      if (result) markDirty(collection)
+      if (result) {
+        if (REMOTE_DB[collection]) markDeleted(collection, id)
+        markDirty(collection)
+      }
       return result
     },
     query: local.query,

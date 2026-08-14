@@ -178,6 +178,21 @@ describe('createSyncService', () => {
     expect(getDirtyCollections()).not.toContain('sync_test')
   })
 
+  it('remove em coleção remota registra tombstone para propagar exclusão', () => {
+    const service = createSyncService<{ id: string; name: string }>('pcs')
+    const created = service.create({ name: 'delete-me-remote' })
+    expect(service.remove(created.id)).toBe(true)
+    const tombstones = JSON.parse(localStorage.getItem('labhub_deleted_ids') || '{}')
+    expect(tombstones['pcs']).toContain(created.id)
+  })
+
+  it('remove em coleção local não registra tombstone', () => {
+    const service = createSyncService<{ id: string; name: string }>('sync_test')
+    const created = service.create({ name: 'delete-me-local' })
+    expect(service.remove(created.id)).toBe(true)
+    expect(JSON.parse(localStorage.getItem('labhub_deleted_ids') || '{}')['sync_test']).toBeUndefined()
+  })
+
   it('query filtra itens por predicado', () => {
     const service = createSyncService<{ id: string; name: string; type: string }>('sync_test')
     service.create({ name: 'a', type: 'x' })
