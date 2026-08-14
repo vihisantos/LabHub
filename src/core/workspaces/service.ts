@@ -19,12 +19,12 @@ function toSnake(data: WorkspaceFormData & { id?: string }): Workspace {
   }
 }
 
-async function fetchFromSupabase(): Promise<Workspace[]> {
-  if (!defaultDb) return []
+async function fetchFromSupabase(): Promise<Workspace[] | null> {
+  if (!defaultDb) return null
   const { data, error } = await defaultDb.from('workspaces').select('*').order('name')
   if (error) {
     console.warn('[Workspace] Supabase fetch error:', error.message)
-    return []
+    return null
   }
   return (data || []) as Workspace[]
 }
@@ -47,19 +47,6 @@ async function removeFromSupabase(id: string): Promise<boolean> {
     return false
   }
   return true
-}
-
-// Seed antigo (DEFAULT_WORKSPACE) gravado localmente antes de virar dado do banco.
-function isLegacySeed(w: Workspace): boolean {
-  return w.slug === 'piracicaba' && w.name === 'Anhembi Piracicaba'
-}
-
-function pruneLegacySeed(remoteIds: Set<string>): void {
-  for (const ws of local.getAll()) {
-    if (isLegacySeed(ws) && !remoteIds.has(ws.id)) {
-      local.remove(ws.id)
-    }
-  }
 }
 
 export const workspaceService = {
@@ -94,17 +81,25 @@ export const workspaceService = {
 
   syncFromSupabase: async (): Promise<Workspace[]> => {
     const remote = await fetchFromSupabase()
-    pruneLegacySeed(new Set(remote.map((w) => w.id)))
 
-    if (remote.length === 0) return local.getAll()
+    if (!remote) return local.getAll()
 
     const localAll = local.getAll()
     const localMap = new Map(localAll.map((w) => [w.id, w]))
+    const remoteIds = new Set(remote.map((w) => w.id))
 
     for (const ws of remote) {
       const existing = localMap.get(ws.id)
-      if (!existing || existing.updated_at < ws.updated_at) {
+      if (!existing) {
+        local.create(ws as any)
+      } else if (existing.updated_at < ws.updated_at) {
         local.update(ws.id, ws)
+      }
+    }
+
+    for (const ws of localAll) {
+      if (!remoteIds.has(ws.id)) {
+        local.remove(ws.id)
       }
     }
 
