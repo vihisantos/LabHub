@@ -1,9 +1,9 @@
-import sys, os, re, secrets
+import sys, os, re, secrets, hashlib, json
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, parse_qs, quote
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api'))
-from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify
+from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis
 
 import requests
 from flask import jsonify, request
@@ -639,6 +639,64 @@ REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC;
 CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
 CHAMADOS_STATUSES = ('aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado')
 
+CHAMADOS_STATUS_LABELS = {
+    'aberto': 'Aguardando técnico',
+    'a_caminho': 'Técnico a caminho',
+    'em_atendimento': 'Atendendo agora',
+    'resolvido': 'Chamado resolvido',
+    'fechado': 'Chamado concluído',
+}
+
+CHAMADOS_SUBS_PER_TICKET = 10
+
+
+def _chamado_subs(ticket_id):
+    """Inscrições de push registradas para um chamado (professor, página pública)."""
+    if not redis:
+        return []
+    raw = redis.smembers(f'push:chamado:{ticket_id}')
+    subs = []
+    for r in raw:
+        try:
+            subs.append(json.loads(r) if isinstance(r, str) else r)
+        except Exception:
+            continue
+    return subs
+
+
+def _save_chamado_subs(ticket_id, subs):
+    if not redis:
+        return
+    key = f'push:chamado:{ticket_id}'
+    redis.delete(key)
+    for s in subs[:CHAMADOS_SUBS_PER_TICKET]:
+        redis.sadd(key, json.dumps(s, ensure_ascii=False))
+
+
+def _notify_ticket_status(ticket):
+    """Push ao professor (inscrições do próprio chamado) quando status/mensagem mudam."""
+    try:
+        subs = _chamado_subs(ticket.get('id', ''))
+        if not subs:
+            return
+        status = ticket.get('status', '')
+        note = (ticket.get('statusNote') or '').strip()
+        label = CHAMADOS_STATUS_LABELS.get(status, status)
+        msg = f'{label} — {note}' if note else label
+        title = f"Chamado #{ticket.get('ticketNumber')}: {msg}"
+        body = ' · '.join(
+            str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
+        )
+        url = f"/chamados-publico/success/{ticket.get('id')}"
+        keep = []
+        for sub in subs:
+            if push_notify(sub, title, body, url=url):
+                keep.append(sub)
+        _save_chamado_subs(ticket.get('id', ''), keep)
+        print(f"[chamados] push status #{ticket.get('ticketNumber')}: {len(keep)}/{len(subs)} enviados")
+    except Exception as e:
+        print(f"[chamados] push status error: {e}")
+
 
 def _notify_new_ticket(ticket):
     """Dispara push imediato para o TI quando um chamado é aberto.
@@ -865,6 +923,8 @@ def chamados_manage(ticket_id):
                 updates[key] = body[key]
         if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
+
+        prev = None
         if 'status' in updates:
             status = updates['status']
             if status not in CHAMADOS_STATUSES:
@@ -872,7 +932,7 @@ def chamados_manage(ticket_id):
 
             # Busca o estado atual para detectar reabertura (resolvido/fechado → fluxo ativo)
             fetch = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=status,resolvedAt,closedAt,archived',
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=status,statusNote,resolvedAt,closedAt,archived',
                 headers=_supabase_headers(),
                 timeout=10,
             )
@@ -894,6 +954,16 @@ def chamados_manage(ticket_id):
                 updates['closedAt'] = None
                 updates['closedBy'] = ''
                 updates['archived'] = False
+        elif 'statusNote' in updates:
+            # Busca o estado atual para comparar a mensagem e notificar só em mudança
+            fetch = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=status,statusNote',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not fetch.ok:
+                return jsonify({'error': 'Erro ao buscar chamado'}), 502
+            prev = (fetch.json() or [{}])[0]
         if not updates:
             return jsonify({'error': 'Nada para atualizar'}), 400
         updates['updatedAt'] = datetime.now(timezone.utc).isoformat()
@@ -909,8 +979,45 @@ def chamados_manage(ticket_id):
         rows = resp.json()
         if not rows:
             return jsonify({'error': 'Chamado não encontrado'}), 404
-        return jsonify({'ticket': rows[0]})
 
+        ticket = rows[0]
+        if prev is not None and ('status' in updates or 'statusNote' in updates):
+            changed = ('status' in updates and prev.get('status') != ticket.get('status')) or (
+                'statusNote' in updates and prev.get('statusNote') != ticket.get('statusNote')
+            )
+            if changed:
+                _notify_ticket_status(ticket)
+        return jsonify({'ticket': ticket})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chamados/<ticket_id>/subscribe', methods=['POST'])
+def chamados_subscribe(ticket_id):
+    """Registra o push do professor para um chamado (página pública de sucesso).
+
+    Armazena só endpoint/chaves (sem dados de usuário — página pública).
+    Dedupe por endpoint e teto de inscrições por chamado para evitar abuso.
+    """
+    if not redis:
+        return jsonify({'error': 'Redis não configurado'}), 500
+    try:
+        body = request.get_json() or {}
+        endpoint = body.get('endpoint', '')
+        if not endpoint:
+            return jsonify({'error': 'endpoint é obrigatório'}), 400
+
+        sub = {
+            'key': hashlib.sha256(endpoint.encode()).hexdigest(),
+            'endpoint': endpoint,
+            'expirationTime': body.get('expirationTime'),
+            'keys': body.get('keys') or {},
+        }
+        subs = [s for s in _chamado_subs(ticket_id) if s.get('endpoint') != endpoint]
+        subs.append(sub)
+        _save_chamado_subs(ticket_id, subs)
+        return jsonify({'status': 'ok', 'count': len(subs)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

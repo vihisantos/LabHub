@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -708,3 +709,132 @@ def test_feedback_falha_ao_persistir_retorna_502(client, fake_requests):
     )
     resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 5})
     assert resp.status_code == 502
+
+
+# ── POST /api/chamados/<id>/subscribe ──
+
+
+class FakeRedis:
+    def __init__(self, members=None):
+        self.members = list(members or [])
+        self.sadds = []
+        self.deleted = []
+
+    def smembers(self, key):
+        return list(self.members)
+
+    def sadd(self, key, value):
+        self.sadds.append((key, value))
+        self.members.append(value)
+
+    def delete(self, key):
+        self.deleted.append(key)
+
+
+def _sub(endpoint="https://fcm.example/push/x"):
+    return {"endpoint": endpoint, "expirationTime": None, "keys": {"p256dh": "a", "auth": "b"}}
+
+
+def _redis_client(api_module, monkeypatch, members=None):
+    fake = FakeRedis(members)
+    monkeypatch.setattr(api_module, "redis", fake)
+    return fake
+
+
+def test_subscribe_sem_redis_retorna_500(api_module, client, monkeypatch):
+    monkeypatch.setattr(api_module, "redis", None)
+    resp = client.post("/api/chamados/ticket-1/subscribe", json=_sub())
+    assert resp.status_code == 500
+    assert resp.get_json()["error"] == "Redis não configurado"
+
+
+def test_subscribe_sem_endpoint_retorna_400(api_module, client, monkeypatch):
+    _redis_client(api_module, monkeypatch)
+    resp = client.post("/api/chamados/ticket-1/subscribe", json={"keys": {}})
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "endpoint é obrigatório"
+
+
+def test_subscribe_registra_endpoint(api_module, client, monkeypatch):
+    redis = _redis_client(api_module, monkeypatch)
+    resp = client.post("/api/chamados/ticket-1/subscribe", json=_sub())
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "ok"
+    assert resp.get_json()["count"] == 1
+    assert redis.sadds[0][0] == "push:chamado:ticket-1"
+
+
+def test_subscribe_dedupe_por_endpoint(api_module, client, monkeypatch):
+    redis = _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
+    resp = client.post("/api/chamados/ticket-1/subscribe", json=_sub())
+    assert resp.status_code == 200
+    assert resp.get_json()["count"] == 1
+    assert len([s for s in redis.sadds if s[0] == "push:chamado:ticket-1"]) == 1
+
+
+# ── Push ao professor quando status/mensagem mudam ──
+
+
+@pytest.fixture()
+def notify_client(api_module, fake_requests, monkeypatch):
+    monkeypatch.setattr(api_module, "_SUPABASE_URL", SUPABASE_URL)
+    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(api_module, "requests", fake_requests)
+    sent = []
+    monkeypatch.setattr(api_module, "push_notify", lambda sub, title, body, url="/": sent.append({"title": title, "body": body, "url": url}))
+    return api_module.app.test_client(), sent
+
+
+def test_patch_status_notifica_professor(api_module, notify_client, fake_requests, monkeypatch):
+    client, sent = notify_client
+    _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido"))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"})
+
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "Chamado #6" in sent[0]["title"]
+    assert "resolvido" in sent[0]["title"]
+    assert sent[0]["url"] == "/chamados-publico/success/ticket-1"
+
+
+def test_patch_mesmo_status_nao_notifica(api_module, notify_client, fake_requests, monkeypatch):
+    client, sent = notify_client
+    _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto"))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"})
+
+    assert resp.status_code == 200
+    assert sent == []
+
+
+def test_patch_status_note_nova_notifica(api_module, notify_client, fake_requests, monkeypatch):
+    client, sent = notify_client
+    _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto", statusNote=""))
+    _route_patch_ticket(
+        fake_requests,
+        _make_ticket(status="aberto", statusNote="Em outro chamado, atendimento em 5 minutos"),
+    )
+
+    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Em outro chamado, atendimento em 5 minutos"})
+
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "Em outro chamado, atendimento em 5 minutos" in sent[0]["title"]
+
+
+def test_patch_status_note_igual_nao_notifica(api_module, notify_client, fake_requests, monkeypatch):
+    client, sent = notify_client
+    _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto", statusNote="Mesma mensagem"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", statusNote="Mesma mensagem"))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Mesma mensagem"})
+
+    assert resp.status_code == 200
+    assert sent == []
