@@ -318,6 +318,89 @@ def test_create_prioridade_invalida_retorna_400(client, fake_requests):
     assert fake_requests.calls_for("POST", "chamados_tickets") == []
 
 
+# ── Push no POST /api/chamados ──
+
+
+def _make_sub(**overrides):
+    """Inscrição push fictícia de um técnico do workspace ws-a."""
+    sub = {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/fake",
+        "expirationTime": None,
+        "keys": {"p256dh": "fake", "auth": "fake"},
+        "user": {
+            "id": "u-1",
+            "name": "Técnico",
+            "role": "admin",
+            "is_super_admin": True,
+            "workspace_ids": ["ws-a"],
+            "apps": {"chamados": True},
+            "notify_settings": {},
+        },
+    }
+    sub.update(overrides)
+    return sub
+
+
+def test_create_envia_push_para_subscribers(client, fake_requests, api_module, monkeypatch):
+    """Quando há inscritos do módulo chamados, o push é disparado logo após criar o chamado."""
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6))
+
+    calls = []
+    monkeypatch.setattr(api_module, "_target_subs", lambda **kw: [_make_sub()])
+
+    def fake_push(sub, title, body, url="/"):
+        calls.append((title, body, url))
+        return True
+
+    monkeypatch.setattr(api_module, "push_notify", fake_push)
+
+    resp = client.post("/api/chamados", json=_valid_payload())
+
+    assert resp.status_code == 200
+    assert len(calls) == 1
+    title, body, url = calls[0]
+    assert title == "Novo chamado #6"
+    assert body == "Sala 101 · Internet · Prof. Maria"
+    assert url == "/chamados/tickets/ticket-1"
+
+
+def test_create_push_falha_nao_impede_criacao(client, fake_requests, api_module, monkeypatch):
+    """Falha no envio do push não impede a criação do chamado (try/except no backend)."""
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6))
+
+    monkeypatch.setattr(api_module, "_target_subs", lambda **kw: [_make_sub()])
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("webpush falhou")
+
+    monkeypatch.setattr(api_module, "push_notify", boom)
+
+    resp = client.post("/api/chamados", json=_valid_payload())
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["ticketNumber"] == 6
+    # O chamado foi persistido mesmo com o push quebrado
+    assert len(fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")) == 1
+
+
+def test_create_push_sem_subscribers_nao_quebra(client, fake_requests, api_module, monkeypatch):
+    """Sem subscribers do módulo chamados, o chamado é criado normalmente."""
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6))
+
+    monkeypatch.setattr(api_module, "_target_subs", lambda **kw: [])
+
+    resp = client.post("/api/chamados", json=_valid_payload())
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["ticketNumber"] == 6
+
+
 # ── GET /api/chamados ──
 
 

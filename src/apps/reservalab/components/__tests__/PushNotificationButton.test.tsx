@@ -10,107 +10,108 @@ vi.mock('../../../../lib/usePushNotifications', () => ({
 
 import { usePushNotifications } from '../../../../lib/usePushNotifications'
 
-// Mock framer-motion
+// Mock framer-motion (motion.div + AnimatePresence)
 vi.mock('framer-motion', () => ({
+  AnimatePresence: ({ children }: any) => children,
   motion: {
-    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
   },
 }))
 
+function mockHook(overrides: Record<string, unknown> = {}) {
+  ;(usePushNotifications as any).mockReturnValue({
+    supported: true,
+    permission: 'default',
+    subscribed: false,
+    loading: false,
+    error: null,
+    subscribe: mockSubscribe,
+    ...overrides,
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
 })
 
 describe('PushNotificationButton', () => {
   it('não renderiza quando supported=false', () => {
-    ;(usePushNotifications as any).mockReturnValue({
-      supported: false,
-      permission: 'default',
-      subscribed: false,
-      loading: false,
-      subscribe: mockSubscribe,
-    })
-
+    mockHook({ supported: false })
     const { container } = render(<PushNotificationButton />)
     expect(container.textContent).toBe('')
   })
 
   it('não renderiza quando permission=granted', () => {
-    ;(usePushNotifications as any).mockReturnValue({
-      supported: true,
-      permission: 'granted',
-      subscribed: false,
-      loading: false,
-      subscribe: mockSubscribe,
-    })
-
+    mockHook({ permission: 'granted' })
     const { container } = render(<PushNotificationButton />)
     expect(container.textContent).toBe('')
   })
 
   it('não renderiza quando subscribed=true', () => {
-    ;(usePushNotifications as any).mockReturnValue({
-      supported: true,
-      permission: 'default',
-      subscribed: true,
-      loading: false,
-      subscribe: mockSubscribe,
-    })
-
+    mockHook({ subscribed: true })
     const { container } = render(<PushNotificationButton />)
     expect(container.textContent).toBe('')
   })
 
-  it('renderiza "Ativar Notificações" quando suportado e não inscrito', () => {
-    ;(usePushNotifications as any).mockReturnValue({
-      supported: true,
-      permission: 'default',
-      subscribed: false,
-      loading: false,
-      subscribe: mockSubscribe,
-    })
-
+  it('renderiza card com título e botão "Ativar Notificações" quando suportado e não inscrito', () => {
+    mockHook()
     render(<PushNotificationButton />)
+    expect(screen.getByText('Não perca nenhum aviso')).toBeInTheDocument()
     expect(screen.getByText('Ativar Notificações')).toBeInTheDocument()
   })
 
-  it('renderiza "Ativando..." quando loading', () => {
-    ;(usePushNotifications as any).mockReturnValue({
-      supported: true,
-      permission: 'default',
-      subscribed: false,
-      loading: true,
-      subscribe: mockSubscribe,
-    })
+  it('mostra os benefícios listados', () => {
+    mockHook()
+    render(<PushNotificationButton />)
+    expect(screen.getByText(/Novos chamados abertos pelos professores/)).toBeInTheDocument()
+    expect(screen.getByText(/Empréstimos, devoluções e validade do estoque/)).toBeInTheDocument()
+    expect(screen.getByText(/Manutenções agendadas e reservas próximas/)).toBeInTheDocument()
+  })
 
+  it('renderiza "Ativando..." quando loading', () => {
+    mockHook({ loading: true })
     render(<PushNotificationButton />)
     expect(screen.getByText('Ativando...')).toBeInTheDocument()
   })
 
-  it('renderiza "Notificações bloqueadas" quando permission=denied', () => {
-    ;(usePushNotifications as any).mockReturnValue({
-      supported: true,
-      permission: 'denied',
-      subscribed: false,
-      loading: false,
-      subscribe: mockSubscribe,
-    })
-
+  it('não mostra benefícios durante loading', () => {
+    mockHook({ loading: true })
     render(<PushNotificationButton />)
-    expect(screen.getByText('Notificações bloqueadas')).toBeInTheDocument()
+    expect(screen.queryByText(/Novos chamados/)).not.toBeInTheDocument()
   })
 
-  it('chama subscribe ao clicar', () => {
-    ;(usePushNotifications as any).mockReturnValue({
-      supported: true,
-      permission: 'default',
-      subscribed: false,
-      loading: false,
-      subscribe: mockSubscribe,
-    })
+  it('renderiza estado bloqueado quando permission=denied', () => {
+    mockHook({ permission: 'denied' })
+    render(<PushNotificationButton />)
+    expect(screen.getByText('Notificações bloqueadas')).toBeInTheDocument()
+    expect(screen.getByText('Reativar')).toBeInTheDocument()
+    // Link de configuração do navegador
+    // Link de configuração do navegador presente (abre em nova aba)
+    const links = screen.getAllByRole('link')
+    expect(links.length).toBeGreaterThan(0)
+  })
 
+  it('chama subscribe ao clicar em Ativar Notificações', () => {
+    mockHook()
     render(<PushNotificationButton />)
     fireEvent.click(screen.getByText('Ativar Notificações'))
     expect(mockSubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('esconde o card ao clicar no botão de fechar (dismiss persistente)', () => {
+    mockHook()
+    const { container } = render(<PushNotificationButton />)
+    expect(screen.getByText('Ativar Notificações')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar' }))
+    expect(container.textContent).toBe('')
+    expect(localStorage.getItem('labhub_push_prompt_dismissed')).toBe('1')
+  })
+
+  it('não renderiza quando já foi dispensado anteriormente', () => {
+    localStorage.setItem('labhub_push_prompt_dismissed', '1')
+    mockHook()
+    const { container } = render(<PushNotificationButton />)
+    expect(container.textContent).toBe('')
   })
 })

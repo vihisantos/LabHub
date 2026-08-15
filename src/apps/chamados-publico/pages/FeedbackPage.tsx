@@ -81,7 +81,7 @@ export function FeedbackPage() {
         <button
           type="button"
           onClick={() => navigate('/chamados-publico')}
-          className="mt-4 rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-white"
+          className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-white"
         >
           Voltar ao início
         </button>
@@ -110,7 +110,7 @@ export function FeedbackPage() {
           <button
             type="button"
             onClick={() => navigate('/chamados-publico')}
-            className="mt-6 rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-medium text-white"
+            className="mt-6 rounded-xl bg-emerald-500 px-6 py-2.5 text-sm font-medium text-white"
           >
             Voltar ao início
           </button>
@@ -166,7 +166,7 @@ export function FeedbackPage() {
                 placeholder="Conte como foi a experiência..."
                 rows={3}
                 maxLength={500}
-                className="w-full rounded-xl border border-line bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full rounded-xl border border-line bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
             </div>
           </div>
@@ -181,7 +181,7 @@ export function FeedbackPage() {
           <button
             type="submit"
             disabled={rating < 1 || submitting}
-            className="w-full rounded-xl bg-amber-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-xl bg-emerald-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? 'Enviando...' : 'Enviar avaliação'}
           </button>

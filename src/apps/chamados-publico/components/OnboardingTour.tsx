@@ -72,7 +72,7 @@ export function OnboardingTour({ steps, onClose }: OnboardingTourProps) {
     <div className="fixed inset-0 z-50" role="dialog" aria-label="Tour do formulário de chamados">
       {rect && (
         <motion.div
-          className="pointer-events-none absolute z-10 rounded-2xl border-2 border-amber-500"
+          className="pointer-events-none absolute z-10 rounded-2xl border-2 border-emerald-500"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1, top: rect.top - 4, left: rect.left - 4, width: rect.width + 8, height: rect.height + 8 }}
           transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
@@ -90,7 +90,7 @@ export function OnboardingTour({ steps, onClose }: OnboardingTourProps) {
                 <span
                   key={s.key}
                   className={`h-1.5 rounded-full transition-all ${
-                    i === index ? 'w-6 bg-amber-500' : 'w-1.5 bg-line'
+                    i === index ? 'w-6 bg-emerald-500' : 'w-1.5 bg-line'
                   }`}
                 />
               ))}
@@ -105,7 +105,7 @@ export function OnboardingTour({ steps, onClose }: OnboardingTourProps) {
             </button>
           </div>
 
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-500">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-500">
             Passo {index + 1} de {steps.length}
           </p>
           <h3 className="mt-1 text-lg font-bold text-fg">{step?.title}</h3>
@@ -124,7 +124,7 @@ export function OnboardingTour({ steps, onClose }: OnboardingTourProps) {
             <button
               type="button"
               onClick={handleNext}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-400"
             >
               {last ? 'Entendi' : 'Próximo'}
               {!last && <icons.ui.chevronRight size={16} />}

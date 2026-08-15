@@ -96,7 +96,7 @@ export function TicketForm() {
         <button
           type="button"
           onClick={() => navigate('/chamados-publico')}
-          className="mt-4 rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-white"
+          className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-white"
         >
           Escanear novamente
         </button>
@@ -111,21 +111,22 @@ export function TicketForm() {
       </div>
 
       {loadingWorkspaces ? (
-        <p className="mb-4 text-sm text-fg-dim">Carregando campi...</p>
+        <p className="mb-4 text-sm text-fg-dim">Carregando campus...</p>
       ) : (
         <div className="mb-6">
-          <p className="mb-2 text-xs font-semibold text-fg-muted">Qual o campus? *</p>
+          <p className="mb-2 text-xs font-semibold text-fg-muted">
+            Qual o seu campus? <span className="text-red-500">*</span>
+          </p>
           <div className="grid grid-cols-2 gap-2">
             {workspaces.map((w) => (
               <button
                 key={w.id}
                 type="button"
                 onClick={() => setCampusId(w.id)}
-                className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
-                  campusId === w.id
-                    ? 'border-amber-500 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
-                    : 'border-line bg-card text-fg hover:border-fg-muted'
-                }`}
+                className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${campusId === w.id
+                  ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
+                  : 'border-line bg-card text-fg hover:border-fg-muted'
+                  }`}
               >
                 <icons.ui.mapPin size={16} className="shrink-0" />
                 <span className="line-clamp-2">{w.name}</span>
@@ -151,14 +152,14 @@ export function TicketForm() {
       </div>
 
       {openTickets.length > 0 && (
-        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+        <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
           <div className="flex items-start gap-2">
-            <icons.ui.alertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+            <icons.ui.alertTriangle size={16} className="mt-0.5 shrink-0 text-emerald-500" />
             <div>
-              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+              <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 Já existe{openTickets.length > 1 ? 'm' : ''} chamado{openTickets.length > 1 ? 's' : ''} aberto{openTickets.length > 1 ? 's' : ''} para este equipamento.
               </p>
-              <p className="mt-0.5 text-[11px] text-amber-600/70 dark:text-amber-400/70">
+              <p className="mt-0.5 text-[11px] text-emerald-600/70 dark:text-emerald-400/70">
                 Nº {openTickets.map((t) => `#${t.ticketNumber}`).join(', ')}
               </p>
             </div>
@@ -175,11 +176,10 @@ export function TicketForm() {
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`rounded-xl border p-3 text-left text-sm transition-all ${
-                  selectedCategory === cat
-                    ? 'border-amber-500 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400'
-                    : 'border-line bg-card text-fg hover:border-fg-muted'
-                }`}
+                className={`rounded-xl border p-3 text-left text-sm transition-all ${selectedCategory === cat
+                  ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
+                  : 'border-line bg-card text-fg hover:border-fg-muted'
+                  }`}
               >
                 {cat}
               </button>
@@ -194,19 +194,21 @@ export function TicketForm() {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Ex: O computador não liga após queda de luz..."
             rows={3}
-            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
 
         <div>
-          <label className="mb-1.5 block text-xs font-semibold text-fg-muted">Seu nome *</label>
+          <label className="mb-1.5 block text-xs font-semibold text-fg-muted">
+            Seu nome <span className="text-red-500">*</span>
+          </label>
           <input
             type="text"
             value={reportedBy}
             onChange={(e) => setReportedBy(e.target.value)}
             placeholder="Nome do professor"
             required
-            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
 
@@ -217,14 +219,14 @@ export function TicketForm() {
             value={reportedByEmail}
             onChange={(e) => setReportedByEmail(e.target.value)}
             placeholder="email@exemplo.com"
-            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
 
         <button
           type="submit"
           disabled={!campusId || !selectedCategory || !reportedBy.trim() || submitting}
-          className="w-full rounded-xl bg-amber-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full rounded-xl bg-emerald-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting ? 'Abrindo chamado...' : 'Abrir Chamado'}
         </button>

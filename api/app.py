@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, parse_qs, quote
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api'))
-from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers
+from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify
 
 import requests
 from flask import jsonify, request
@@ -640,6 +640,36 @@ CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
 CHAMADOS_STATUSES = ('aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado')
 
 
+def _notify_new_ticket(ticket):
+    """Dispara push imediato para o TI quando um chamado é aberto.
+
+    Usa a mesma infra de push do app (Upstash Redis + VAPID + pywebpush):
+    filtra os inscritos pelo módulo 'chamados' e pelo workspace do chamado,
+    respeitando perfil (apps), cargo e notify_settings de cada usuário.
+    Falha de push não impede a criação do chamado.
+    """
+    try:
+        subs = _target_subs(module='chamados', workspace_id=ticket.get('workspace_id'))
+        if not subs:
+            return
+        title = f"Novo chamado #{ticket.get('ticketNumber')}"
+        body = ' · '.join(
+            str(part) for part in (
+                ticket.get('roomName'),
+                ticket.get('problemCategory'),
+                ticket.get('reportedBy'),
+            ) if part
+        )
+        url = f"/chamados/tickets/{ticket.get('id')}"
+        sent = 0
+        for sub in subs:
+            if push_notify(sub, title, body, url=url):
+                sent += 1
+        print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
+    except Exception as e:
+        print(f"[chamados] push error: {e}")
+
+
 def _ensure_chamados_schema():
     """Cria a tabela de chamados se não existir (mesmo padrão do _ensure_stock_schema)."""
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
@@ -760,7 +790,13 @@ def chamados_create():
         if not ins.ok:
             return jsonify({'error': f'Erro ao criar chamado: {ins.status_code} {ins.text[:200]}'}), 502
 
-        return jsonify({'ticket': ins.json()[0]})
+        ticket = ins.json()[0]
+
+        # Notificação imediata: avisa o TI no momento em que o professor abre o chamado.
+        # Evento, não agendamento — não depende de cron nenhum (próprio app).
+        _notify_new_ticket(ticket)
+
+        return jsonify({'ticket': ticket})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1010,4 +1046,8 @@ def chamados_feedback(ticket_id):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+if __name__ == '__main__':
+    app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
 

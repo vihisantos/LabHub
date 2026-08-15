@@ -128,10 +128,10 @@ export function QRScan() {
           <div className={`relative h-48 w-48 rounded-xl border-2 transition-all ${
             feedback === 'success' ? 'border-emerald-400' : feedback === 'error' ? 'border-red-400' : 'border-white/40'
           }`}>
-            <div className="absolute left-0 top-0 h-6 w-6 rounded-tl-xl border-l-2 border-t-2 border-amber-400" />
-            <div className="absolute right-0 top-0 h-6 w-6 rounded-tr-xl border-r-2 border-t-2 border-amber-400" />
-            <div className="absolute bottom-0 left-0 h-6 w-6 rounded-bl-xl border-b-2 border-l-2 border-amber-400" />
-            <div className="absolute bottom-0 right-0 h-6 w-6 rounded-br-xl border-b-2 border-r-2 border-amber-400" />
+            <div className="absolute left-0 top-0 h-6 w-6 rounded-tl-xl border-l-2 border-t-2 border-emerald-400" />
+            <div className="absolute right-0 top-0 h-6 w-6 rounded-tr-xl border-r-2 border-t-2 border-emerald-400" />
+            <div className="absolute bottom-0 left-0 h-6 w-6 rounded-bl-xl border-b-2 border-l-2 border-emerald-400" />
+            <div className="absolute bottom-0 right-0 h-6 w-6 rounded-br-xl border-b-2 border-r-2 border-emerald-400" />
           </div>
         </div>
 
@@ -192,11 +192,11 @@ export function QRScan() {
           value={manualCode}
           onChange={(e) => setManualCode(e.target.value)}
           placeholder="Ex: Sala 101"
-          className="flex-1 rounded-xl bg-input px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none focus:ring-2 focus:ring-amber-500"
+          className="flex-1 rounded-xl bg-input px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
         <button
           type="submit"
-          className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
+          className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-400"
         >
           Continuar
         </button>

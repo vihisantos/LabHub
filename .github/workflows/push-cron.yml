@@ -1,0 +1,22 @@
+name: Push Cron
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check-all:
+    name: Push check-all
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/push/check-all
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          status=$(curl -sS -o /tmp/check_all.out -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://lab-hub-pi.vercel.app/api/push/check-all")
+          echo "HTTP $status"
+          cat /tmp/check_all.out
+          test "$status" = "200"

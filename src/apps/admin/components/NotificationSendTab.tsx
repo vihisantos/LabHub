@@ -93,7 +93,8 @@ export function NotificationSendTab() {
       })
 
       // Push para o mesmo segmento (o backend filtra por módulo/workspace/cargo)
-      const pushBase = (import.meta.env.VITE_PUSH_API_URL as string) || ''
+      // Mesma base da API usada pelos demais apps; vazio = mesmo domínio (Vercel)
+      const pushBase = (import.meta.env.VITE_RESERVALAB_API_URL as string) || ''
       if (pushBase) {
         fetch(`${pushBase}/api/push/send`, {
           method: 'POST',

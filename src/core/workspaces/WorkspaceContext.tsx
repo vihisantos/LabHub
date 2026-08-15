@@ -128,7 +128,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const refreshWorkspaces = useCallback(async () => {
     await workspaceService.syncFromSupabase()
-    setWorkspaces(workspaceService.getAll())
+    const all = workspaceService.getAll()
+    setWorkspaces(all)
+    setWorkspaceState((prev) => (prev ? all.find((w) => w.id === prev.id) ?? prev : prev))
   }, [])
 
   const value: WorkspaceContextValue = {

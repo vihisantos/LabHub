@@ -11,6 +11,7 @@ export function WorkspacesPage() {
   const [spreadsheetUrl, setSpreadsheetUrl] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [duplicateTarget, setDuplicateTarget] = useState<string | null>(null)
+  const [error, setError] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -18,10 +19,16 @@ export function WorkspacesPage() {
 
     const slug = name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 
-    if (editingId) {
-      await update(editingId, { name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
-    } else {
-      await create({ name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
+    setError('')
+    try {
+      if (editingId) {
+        await update(editingId, { name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
+      } else {
+        await create({ name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
+      }
+    } catch {
+      setError('Falha ao salvar no servidor. Tente novamente.')
+      return
     }
 
     setName('')
@@ -61,6 +68,7 @@ export function WorkspacesPage() {
 
       {showForm && (
         <form onSubmit={handleSubmit} className="space-y-3 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+          {error && <p className="text-xs text-red-500">{error}</p>}
           <div>
             <label className="mb-1 block text-xs font-semibold text-fg-muted">Nome *</label>
             <input
