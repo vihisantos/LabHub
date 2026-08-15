@@ -8,9 +8,6 @@
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],
-  "crons": [
-    { "path": "/api/push/check-all", "schedule": "*/5 * * * *" }
-  ],
   "headers": [
     {
       "source": "/push-sw.js",
