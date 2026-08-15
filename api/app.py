@@ -9,6 +9,61 @@ import requests
 from flask import jsonify, request
 
 
+# ── Cloudinary (helpers compartilhados) ──
+
+def _cloudinary_public_id(image_url: str) -> str | None:
+    """Extrai o public_id de uma URL do Cloudinary (folder/public_id.sem_ext)."""
+    cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+    if not cloud_name or cloud_name not in image_url:
+        return None
+    m = re.search(r'/image/upload/(?:v\d+/)?(.+)$', image_url)
+    if not m:
+        return None
+    raw = re.sub(r'[?#].*$', '', m.group(1))
+    public_id = re.sub(r'\.(jpg|jpeg|png|gif|webp|svg|pdf)$', '', raw, flags=re.IGNORECASE)
+    return public_id or None
+
+
+def _cloudinary_destroy(image_url: str) -> bool:
+    """Apaga uma imagem do Cloudinary pelo secure_url. Retorna True se o destroy foi aceito."""
+    public_id = _cloudinary_public_id(image_url)
+    if not public_id:
+        return False
+    cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+    api_key = os.environ.get('CLOUDINARY_API_KEY', '')
+    api_secret = os.environ.get('CLOUDINARY_API_SECRET', '')
+    if not cloud_name or not api_key or not api_secret:
+        return False
+    import base64
+    auth = base64.b64encode(f'{api_key}:{api_secret}'.encode()).decode()
+    destroy_url = f'https://api.cloudinary.com/v1_1/{cloud_name}/image/destroy'
+    try:
+        resp = requests.post(
+            destroy_url,
+            data={'public_id': public_id},
+            headers={'Authorization': f'Basic {auth}'},
+            timeout=10,
+        )
+        if not resp.ok:
+            return False
+        return resp.json().get('result') == 'ok'
+    except Exception:
+        return False
+
+
+def _is_valid_photo(value: str) -> bool:
+    """Aceita base64 (fallback) ou URL do Cloudinary. Rejeita URLs arbitrárias."""
+    value = (value or '').strip()
+    if not value:
+        return True
+    if value.startswith('data:image/'):
+        return True
+    cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+    if cloud_name and value.startswith(f'https://res.cloudinary.com/{cloud_name}/image/upload/'):
+        return True
+    return False
+
+
 # ── TV: YouTube API ──
 
 def iso_duration_to_seconds(duration: str) -> int:
@@ -349,54 +404,21 @@ def tv_cloudinary_delete():
             return jsonify({'success': False, 'error': 'image_url é obrigatório'}), 400
 
         cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
-        api_key = os.environ.get('CLOUDINARY_API_KEY', '')
-        api_secret = os.environ.get('CLOUDINARY_API_SECRET', '')
 
         if not cloud_name:
             return jsonify({'success': False, 'error': 'Cloudinary cloud_name não configurado'}), 200
 
-        if not api_key or not api_secret:
+        if not os.environ.get('CLOUDINARY_API_KEY') or not os.environ.get('CLOUDINARY_API_SECRET'):
             return jsonify({'success': False, 'error': 'Cloudinary API key/secret não configurados'}), 200
 
-        # Extrair public_id da URL do Cloudinary
-        # URL example: https://res.cloudinary.com/{cloud_name}/image/upload/v{version}/{folder}/{public_id}.{ext}
-        import re
-
-        # Verificar se a URL pertence ao cloud_name configurado
-        if cloud_name not in image_url:
-            return jsonify({'success': False, 'error': 'URL não pertence ao Cloudinary configurado'}), 200
-
-        # Extrair o path após /image/upload/ (ignorando versão opcional v12345/)
-        upload_match = re.search(r'/image/upload/(?:v\d+/)?(.+)$', image_url)
-        if not upload_match:
+        public_id = _cloudinary_public_id(image_url)
+        if not public_id:
             return jsonify({'success': False, 'error': 'URL não é uma imagem do Cloudinary válida'}), 200
 
-        raw_path = upload_match.group(1)
-        # Remover query string e fragmento
-        raw_path = re.sub(r'[?#].*$', '', raw_path)
-        # Remover extensão final (.jpg, .png, etc)
-        public_id = re.sub(r'\.(jpg|jpeg|png|gif|webp|svg|pdf)$', '', raw_path, flags=re.IGNORECASE)
-
-        if not public_id:
-            return jsonify({'success': False, 'error': 'Não foi possível extrair public_id da URL'}), 200
-
-        # Chamar Cloudinary Admin API para destruir a imagem
-        import base64
-        auth = base64.b64encode(f'{api_key}:{api_secret}'.encode()).decode()
-        destroy_url = f'https://api.cloudinary.com/v1_1/{cloud_name}/image/destroy'
-        destroy_resp = requests.post(destroy_url, data={
-            'public_id': public_id,
-        }, headers={
-            'Authorization': f'Basic {auth}',
-        }, timeout=10)
-
-        if not destroy_resp.ok:
-            return jsonify({'success': False, 'error': f'Cloudinary API erro: {destroy_resp.status_code}'}), 200
-
-        result = destroy_resp.json()
+        destroyed = _cloudinary_destroy(image_url)
         return jsonify({
-            'success': result.get('result') == 'ok',
-            'result': result.get('result', 'unknown'),
+            'success': destroyed,
+            'result': 'ok' if destroyed else 'not_found',
             'public_id': public_id,
         })
 
@@ -625,6 +647,23 @@ CREATE TABLE IF NOT EXISTS public.chamados_tickets (
     "statusNote" TEXT DEFAULT '',
     "photos" TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS public.ticket_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "ticket_id" UUID NOT NULL REFERENCES public.chamados_tickets(id) ON DELETE CASCADE,
+    "workspace_id" UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
+    type TEXT NOT NULL DEFAULT 'comentario',
+    content TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    "photo_urls" TEXT DEFAULT '',
+    "createdAt" TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "ticket_id" UUID;
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "workspace_id" UUID;
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'comentario';
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS author TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "photo_urls" TEXT DEFAULT '';
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "priority" TEXT DEFAULT 'normal';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "archived" BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMPTZ;
@@ -633,9 +672,12 @@ ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "statusNote" TEXT D
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "photos" TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_chamados_workspace ON public.chamados_tickets("workspace_id");
 CREATE INDEX IF NOT EXISTS idx_chamados_status ON public.chamados_tickets(status);
+CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON public.ticket_events("ticket_id");
 -- RLS: acesso direto (anon/authenticated) bloqueado; a API acessa via service role.
 ALTER TABLE public.chamados_tickets ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC;
+ALTER TABLE public.ticket_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ticket_events FROM anon, authenticated, PUBLIC;
 """
 
 CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
@@ -673,6 +715,35 @@ def _save_chamado_subs(ticket_id, subs):
     redis.delete(key)
     for s in subs[:CHAMADOS_SUBS_PER_TICKET]:
         redis.sadd(key, json.dumps(s, ensure_ascii=False))
+
+
+def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author='', photo_urls=''):
+    """Insere um evento no histórico do chamado (falhas não quebram o fluxo principal)."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        payload = {
+            'ticket_id': ticket_id,
+            'workspace_id': workspace_id or None,
+            'type': event_type,
+            'content': content,
+            'author': author,
+            'photo_urls': photo_urls,
+        }
+        resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/ticket_events',
+            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+            json=payload,
+            timeout=10,
+        )
+        if not resp.ok:
+            print(f"[chamados] erro ao gravar evento: {resp.status_code} {resp.text[:200]}")
+            return None
+        rows = resp.json() or []
+        return rows[0] if rows else None
+    except Exception as e:
+        print(f"[chamados] evento error: {e}")
+        return None
 
 
 def _notify_ticket_status(ticket):
@@ -801,7 +872,7 @@ def chamados_create():
         photos = str(body.get('photos') or '').strip()
         if len(photos) > 600000:
             return jsonify({'error': 'Foto muito grande'}), 400
-        if photos and not photos.startswith('data:image/'):
+        if photos and not _is_valid_photo(photos):
             return jsonify({'error': 'Foto inválida'}), 400
 
         ws_check = requests.get(
@@ -932,6 +1003,13 @@ def chamados_manage(ticket_id):
                 updates[key] = body[key]
         if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
+        if 'photos' in updates:
+            photos_val = str(updates['photos'] or '').strip()
+            if len(photos_val) > 600000:
+                return jsonify({'error': 'Foto muito grande'}), 400
+            if photos_val and not _is_valid_photo(photos_val):
+                return jsonify({'error': 'Foto inválida'}), 400
+            updates['photos'] = photos_val
 
         prev = None
         if 'status' in updates:
@@ -996,6 +1074,16 @@ def chamados_manage(ticket_id):
             )
             if changed:
                 _notify_ticket_status(ticket)
+                note = str(body.get('statusNote') or ticket.get('statusNote') or '').strip()
+                content = note or CHAMADOS_STATUS_LABELS.get(ticket.get('status', ''), ticket.get('status', ''))
+                author = str(body.get('author') or '').strip() or 'Sistema'
+                _record_ticket_event(
+                    ticket_id,
+                    ticket.get('workspace_id'),
+                    'status',
+                    content=content,
+                    author=author,
+                )
         return jsonify({'ticket': ticket})
 
     except Exception as e:
@@ -1159,6 +1247,180 @@ def chamados_feedback(ticket_id):
         if not resp.ok:
             return jsonify({'error': 'Erro ao registrar o feedback'}), 502
         return jsonify({'ticket': resp.json()[0]})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _require_cron():
+    """Valida o Bearer do cron. Se CRON_SECRET não estiver no ambiente, permite (dev/local)."""
+    secret = os.environ.get('CRON_SECRET', '')
+    if not secret:
+        return True
+    token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
+    return token and token == secret
+
+
+@app.route('/api/chamados/<ticket_id>/events', methods=['GET'])
+def chamados_events_list(ticket_id):
+    """Histórico (timeline) de um chamado, do mais novo para o mais antigo."""
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}&order=createdAt.desc',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao buscar o histórico'}), 502
+        events = []
+        for ev in (resp.json() or []):
+            try:
+                urls = json.loads(ev.get('photo_urls') or '[]')
+            except (TypeError, ValueError):
+                urls = []
+            ev['photos'] = urls if isinstance(urls, list) else []
+            events.append(ev)
+        return jsonify({'events': events})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chamados/<ticket_id>/events', methods=['POST'])
+def chamados_events_create(ticket_id):
+    """Comentário/suporte visual no chamado (solicitante ou técnico), com até 2 fotos."""
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+        fetch = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=id,workspace_id,status',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        rows = fetch.json() or []
+        if not rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        ticket = rows[0]
+
+        body = request.get_json() or {}
+        content = str(body.get('content') or '').strip()[:1000]
+        author = str(body.get('author') or '').strip()[:120]
+        photos = body.get('photos') or []
+
+        if not isinstance(photos, list):
+            return jsonify({'error': 'photos deve ser uma lista'}), 400
+        if len(photos) > 2:
+            return jsonify({'error': 'Máximo de 2 fotos por evento'}), 400
+        for p in photos:
+            pv = str(p or '').strip()
+            if not _is_valid_photo(pv):
+                return jsonify({'error': 'Foto inválida'}), 400
+        if not content and not photos:
+            return jsonify({'error': 'Escreva um comentário ou anexe uma foto'}), 400
+
+        event = _record_ticket_event(
+            ticket_id,
+            ticket.get('workspace_id'),
+            'comentario',
+            content=content,
+            author=author or 'Anônimo',
+            photo_urls=json.dumps([str(p) for p in photos], ensure_ascii=False),
+        )
+        if not event:
+            return jsonify({'error': 'Erro ao gravar o evento'}), 502
+        try:
+            event['photos'] = json.loads(event.get('photo_urls') or '[]')
+        except (TypeError, ValueError):
+            event['photos'] = []
+        return jsonify({'event': event}), 201
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chamados/photos/purge', methods=['POST'])
+def chamados_photos_purge():
+    """Cron diário: apaga do Cloudinary as fotos de chamados fechados há mais de 2 dias.
+
+    Roda via GitHub Actions (photos-cleanup.yml) com Bearer CRON_SECRET.
+    Limpa a coluna photos do ticket e photo_urls dos eventos afetados.
+    """
+    if not _require_cron():
+        return jsonify({'error': 'Não autorizado'}), 401
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+            f'?status=eq.fechado&closedAt=lt.{quote(cutoff)}&select=id,workspace_id,photos',
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao buscar chamados fechados'}), 502
+        tickets = resp.json() or []
+
+        deleted = 0
+        cleared_tickets = []
+        cleared_events = 0
+
+        for t in tickets:
+            ticket_photo = str(t.get('photos') or '').strip()
+            if ticket_photo and ticket_photo.startswith('https://res.cloudinary.com/') and _cloudinary_destroy(ticket_photo):
+                deleted += 1
+                cleared_tickets.append(t.get('id'))
+                requests.patch(
+                    f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(t.get("id"))}',
+                    headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+                    json={'photos': '', 'updatedAt': datetime.now(timezone.utc).isoformat()},
+                    timeout=10,
+                )
+
+        ticket_ids = [t.get('id') for t in tickets if t.get('id')]
+        if ticket_ids:
+            events_resp = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/ticket_events'
+                f'?ticket_id=in.({",".join(quote(i) for i in ticket_ids)})&select=id,photo_urls',
+                headers=_supabase_headers(),
+                timeout=15,
+            )
+            if events_resp.ok:
+                for ev in (events_resp.json() or []):
+                    try:
+                        urls = json.loads(ev.get('photo_urls') or '[]')
+                    except (TypeError, ValueError):
+                        urls = []
+                    cloud_urls = [u for u in urls if isinstance(u, str) and u.startswith('https://res.cloudinary.com/')]
+                    if not cloud_urls:
+                        continue
+                    removed = 0
+                    for u in cloud_urls:
+                        if _cloudinary_destroy(u):
+                            removed += 1
+                    if removed:
+                        deleted += removed
+                        cleared_events += 1
+                        remaining = [u for u in urls if u not in cloud_urls]
+                        requests.patch(
+                            f'{_SUPABASE_URL}/rest/v1/ticket_events?id=eq.{quote(ev.get("id"))}',
+                            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+                            json={'photo_urls': json.dumps(remaining, ensure_ascii=False)},
+                            timeout=10,
+                        )
+
+        return jsonify({
+            'tickets_scanned': len(tickets),
+            'tickets_cleared': len(cleared_tickets),
+            'events_cleared': cleared_events,
+            'photos_deleted': deleted,
+        })
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500

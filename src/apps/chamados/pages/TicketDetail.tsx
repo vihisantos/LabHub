@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useTickets } from '../hooks/useTickets'
 import {
@@ -11,11 +11,14 @@ import {
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
 import { getPriority, getSlaInfo } from '../services/sla'
+import { ticketService } from '../services/ticketService'
 import { Stars } from '../components/Stars'
 import { icons } from '../../../lib/icons'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { useAuth } from '../../../core/auth/useAuth'
+import { uploadPhotos } from '../../chamados-publico/utils/photo'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
+import type { TicketEvent } from '../types'
 
 const STATUS_FLOW: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
 
@@ -41,7 +44,27 @@ export function TicketDetail() {
   const canWrite = isFullAccess('chamados')
   const ticket = tickets.find((t) => t.id === id)
   const [noteInput, setNoteInput] = useState('')
-  const [photoOpen, setPhotoOpen] = useState(false)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [events, setEvents] = useState<TicketEvent[]>([])
+  const [comment, setComment] = useState('')
+  const [commentPhotos, setCommentPhotos] = useState<string[]>([])
+  const [commentError, setCommentError] = useState('')
+  const [sending, setSending] = useState(false)
+  const [uploading, setUploading] = useState(false)
+
+  useEffect(() => {
+    if (!id) return
+    let alive = true
+    ticketService
+      .getEvents(id)
+      .then((evs) => {
+        if (alive) setEvents(evs)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [id])
 
   const history = useMemo(() => {
     if (!ticket) return []
@@ -98,6 +121,42 @@ export function TicketDetail() {
   function handlePriority(next: TicketPriority) {
     if (!ticket || next === getPriority(ticket.priority)) return
     update(ticket.id, { priority: next })
+  }
+
+  async function handleCommentPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (files.length === 0 || commentPhotos.length >= 2) return
+    setUploading(true)
+    setCommentError('')
+    try {
+      const urls = await uploadPhotos(files, 2 - commentPhotos.length)
+      setCommentPhotos((prev) => [...prev, ...urls].slice(0, 2))
+    } catch (err) {
+      setCommentError(err instanceof Error ? err.message : 'Não foi possível anexar a foto.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function handleAddComment() {
+    if (!ticket || (!comment.trim() && commentPhotos.length === 0) || sending) return
+    setSending(true)
+    setCommentError('')
+    try {
+      const ev = await ticketService.addEvent(ticket.id, {
+        content: comment.trim(),
+        author: user?.name || 'Sistema',
+        photos: commentPhotos,
+      })
+      setEvents((prev) => [ev, ...prev])
+      setComment('')
+      setCommentPhotos([])
+    } catch (err) {
+      setCommentError(err instanceof Error ? err.message : 'Não foi possível enviar o comentário.')
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -310,7 +369,7 @@ export function TicketDetail() {
                 <p className="text-xs text-fg-muted">Foto do problema</p>
                 <button
                   type="button"
-                  onClick={() => setPhotoOpen(true)}
+                  onClick={() => setLightbox(ticket.photos ?? null)}
                   className="mt-1 block h-24 w-24 overflow-hidden rounded-xl border border-line"
                 >
                   <img src={ticket.photos} alt="Foto do problema" className="h-full w-full object-cover" />
@@ -354,6 +413,100 @@ export function TicketDetail() {
           )}
         </div>
       )}
+
+      <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+        <h3 className="mb-3 text-xs font-semibold text-fg-muted">Histórico</h3>
+        {canWrite && (
+          <div className="mb-4 rounded-xl border border-line bg-surface p-3">
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Comentário interno sobre o atendimento..."
+              rows={2}
+              className="w-full resize-none rounded-lg border border-line bg-card px-3 py-2 text-xs text-fg placeholder:text-fg-dim focus:border-blue-500 focus:outline-none"
+            />
+            {commentPhotos.length > 0 && (
+              <div className="mt-2 flex gap-2">
+                {commentPhotos.map((url, i) => (
+                  <button
+                    key={`${url}-${i}`}
+                    type="button"
+                    onClick={() => setCommentPhotos((prev) => prev.filter((_, j) => j !== i))}
+                    className="group relative h-14 w-14 overflow-hidden rounded-lg border border-line"
+                  >
+                    <img src={url} alt={`Anexo ${i + 1}`} className="h-full w-full object-cover" />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      <icons.ui.close size={14} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {commentError && <p className="mt-2 text-[11px] text-red-500">{commentError}</p>}
+            <div className="mt-2 flex items-center justify-between">
+              <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-fg-muted transition-colors hover:text-fg">
+                <icons.ui.paperclip size={14} />
+                {commentPhotos.length === 0 ? 'Anexar foto (máx 2)' : `Fotos: ${commentPhotos.length}/2`}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleCommentPhoto}
+                  className="hidden"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={handleAddComment}
+                disabled={(!comment.trim() && commentPhotos.length === 0) || sending || uploading}
+                className="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sending ? '...' : 'Comentar'}
+              </button>
+            </div>
+          </div>
+        )}
+        {events.length === 0 ? (
+          <p className="text-xs text-fg-dim">Nenhum registro ainda</p>
+        ) : (
+          <div className="space-y-3">
+            {events.map((ev) => (
+              <div key={ev.id} className="flex items-start gap-3">
+                <div
+                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+                    ev.type === 'status'
+                      ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
+                      : 'bg-fg-muted/10 text-fg-muted'
+                  }`}
+                >
+                  {ev.type === 'status' ? <icons.ui.clock size={12} /> : <icons.ui.user size={12} />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-[11px] font-semibold text-fg">{ev.author}</p>
+                    <span className="shrink-0 text-[10px] text-fg-dim">{formatDate(ev.createdAt)}</span>
+                  </div>
+                  {ev.content && <p className="mt-0.5 text-xs text-fg-muted">{ev.content}</p>}
+                  {ev.photos.length > 0 && (
+                    <div className="mt-2 flex gap-2">
+                      {ev.photos.map((url, i) => (
+                        <button
+                          key={`${ev.id}-${i}`}
+                          type="button"
+                          onClick={() => setLightbox(url)}
+                          className="h-16 w-16 overflow-hidden rounded-lg border border-line"
+                        >
+                          <img src={url} alt={`Foto do evento ${i + 1}`} className="h-full w-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h3 className="mb-3 text-xs font-semibold text-fg-muted">Timeline</h3>
@@ -418,14 +571,14 @@ export function TicketDetail() {
         </div>
       )}
 
-      {photoOpen && ticket.photos && (
+      {lightbox && (
         <button
           type="button"
-          onClick={() => setPhotoOpen(false)}
+          onClick={() => setLightbox(null)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
         >
           <img
-            src={ticket.photos}
+            src={lightbox}
             alt="Foto do problema"
             className="max-h-full max-w-full rounded-xl object-contain"
           />

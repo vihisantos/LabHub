@@ -17,7 +17,7 @@ vi.mock('../../components/OnboardingTour', () => ({
   isTourDone: () => true,
   markTourDone: vi.fn(),
 }))
-vi.mock('../../utils/photo', () => ({ readPhoto: vi.fn() }))
+vi.mock('../../utils/photo', () => ({ uploadPhoto: vi.fn(), uploadPhotos: vi.fn() }))
 
 const mockNavigate = vi.fn()
 const mockSearchParams = vi.hoisted(() => {
@@ -43,7 +43,7 @@ import { useWorkspaces } from '../../../../core/workspaces/useWorkspaces'
 import { useAuth } from '../../../../core/auth/useAuth'
 import { roomService } from '../../../chamados/services/roomService'
 import { ticketService } from '../../../chamados/services/ticketService'
-import { readPhoto } from '../../utils/photo'
+import { uploadPhoto } from '../../utils/photo'
 import { RoomTicketForm } from '../RoomTicketForm'
 
 const WS_A = 'ws-a'
@@ -212,7 +212,7 @@ describe('RoomTicketForm (criação de chamado)', () => {
   })
 
   it('mostra o botão de anexar foto (opcional) e envia a foto no chamado', async () => {
-    ;(readPhoto as any).mockResolvedValue('data:image/jpeg;base64,foto')
+    ;(uploadPhoto as any).mockResolvedValue('data:image/jpeg;base64,foto')
     const { container } = renderForm()
     fillForm()
 
@@ -235,7 +235,7 @@ describe('RoomTicketForm (criação de chamado)', () => {
   })
 
   it('remove a foto antes de enviar', async () => {
-    ;(readPhoto as any).mockResolvedValue('data:image/jpeg;base64,foto')
+    ;(uploadPhoto as any).mockResolvedValue('data:image/jpeg;base64,foto')
     const { container } = renderForm()
     fillForm()
 

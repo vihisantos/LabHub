@@ -1,0 +1,24 @@
+name: Chamados Photos Cleanup
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  purge:
+    name: Purge closed photos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/chamados/photos/purge
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          status=$(curl -sS -o /tmp/purge.out -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            "https://lab-hub-pi.vercel.app/api/chamados/photos/purge")
+          echo "HTTP $status"
+          cat /tmp/purge.out
+          test "$status" = "200"

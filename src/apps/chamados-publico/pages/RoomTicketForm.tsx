@@ -9,7 +9,7 @@ import { PROBLEM_AREA_LABELS, TICKET_PROBLEM_CATEGORIES } from '../../chamados/t
 import type { TicketFormData, TicketProblemArea } from '../../chamados/types'
 import { OnboardingTour, markTourDone } from '../components/OnboardingTour'
 import { icons } from '../../../lib/icons'
-import { readPhoto } from '../utils/photo'
+import { uploadPhoto } from '../utils/photo'
 
 const AREA_OPTIONS: { value: TicketProblemArea; label: string; icon: (typeof icons.ui)[keyof typeof icons.ui] }[] = [
   { value: 'administrativa', label: PROBLEM_AREA_LABELS.administrativa, icon: icons.nav.settings },
@@ -129,7 +129,7 @@ export function RoomTicketForm() {
     if (!file) return
     setPhotoError('')
     try {
-      setPhoto(await readPhoto(file))
+      setPhoto(await uploadPhoto(file))
     } catch (err) {
       setPhotoError(err instanceof Error ? err.message : 'Não foi possível carregar a foto.')
     }
