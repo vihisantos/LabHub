@@ -23,6 +23,21 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+}
+
+function pushSupported(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    typeof Notification !== 'undefined'
+  )
+}
+
 function showStatusNotification(ticket: Ticket): void {
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
@@ -50,7 +65,50 @@ export function TicketSuccess() {
   )
   const [offline, setOffline] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  const [pushState, setPushState] = useState<'off' | 'on' | 'denied' | 'loading'>('off')
   const lastStatusRef = useRef(ticket?.status)
+
+  useEffect(() => {
+    const id = ticket?.id
+    if (!id) return
+    const stored = localStorage.getItem(`labhub_chamado_push_${id}`) === '1'
+    if (stored) {
+      setPushState(Notification.permission === 'granted' ? 'on' : 'off')
+    } else if (Notification.permission === 'denied') {
+      setPushState('denied')
+    }
+  }, [ticket?.id])
+
+  const activatePush = async () => {
+    if (!ticket) return
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        setPushState('denied')
+        return
+      }
+      setPushState('loading')
+      const registration = await navigator.serviceWorker.register('/push-sw.js')
+      const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+      if (!vapidKey) {
+        setPushState('off')
+        return
+      }
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey) as unknown as string,
+      })
+      await fetch(`/api/chamados/${ticket.id}/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription.toJSON()),
+      })
+      localStorage.setItem(`labhub_chamado_push_${ticket.id}`, '1')
+      setPushState('on')
+    } catch {
+      setPushState('off')
+    }
+  }
 
   useEffect(() => {
     if (!ticketId) return
@@ -175,6 +233,34 @@ export function TicketSuccess() {
           )}
         </p>
       </div>
+
+      {pushSupported() && !concluded && (
+        <div className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card px-4 py-3">
+          {pushState === 'on' ? (
+            <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              <icons.ui.circleCheck size={16} />
+              Notificações de status ativas — avisamos quando o técnico atualizar.
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-fg-muted">
+                {pushState === 'denied'
+                  ? 'Notificações bloqueadas no navegador. Libere o acesso para receber avisos do status.'
+                  : 'Receba um aviso quando o status mudar, mesmo com o app fechado.'}
+              </p>
+              <button
+                type="button"
+                onClick={activatePush}
+                disabled={pushState === 'loading'}
+                className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <icons.ui.bellRing size={14} />
+                {pushState === 'loading' ? 'Ativando...' : pushState === 'denied' ? 'Reativar' : 'Ativar notificações'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <button
         type="button"

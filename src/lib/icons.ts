@@ -67,6 +67,7 @@ import {
   MapPin,
   ShieldCheck,
   Star,
+  BellRing,
 } from 'lucide-react'
 
 export const icons = {
@@ -145,6 +146,7 @@ export const icons = {
     mapPin: MapPin,
     shield: ShieldCheck,
     star: Star,
+    bellRing: BellRing,
   },
 } as const
 
