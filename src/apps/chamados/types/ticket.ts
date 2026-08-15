@@ -29,6 +29,7 @@ export interface Ticket {
   archived?: boolean
   closedAt?: string | null
   closedBy?: string
+  statusNote?: string
   createdAt: string
   updatedAt: string
   resolvedAt: string | null
@@ -84,4 +85,12 @@ export const TICKET_PROBLEM_CATEGORIES = [
   'Áudio',
   'Computador',
   'Outros',
+]
+
+export const TICKET_STATUS_NOTE_PRESETS = [
+  'Em outro chamado, atendimento em 5 minutos',
+  'Técnico a caminho',
+  'Atendendo agora',
+  'Aguardando peça/retorno',
+  'Aguardando vaga de manutenção',
 ]

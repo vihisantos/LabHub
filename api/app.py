@@ -621,12 +621,14 @@ CREATE TABLE IF NOT EXISTS public.chamados_tickets (
     "resolvedAt" TIMESTAMPTZ,
     "archived" BOOLEAN NOT NULL DEFAULT FALSE,
     "closedAt" TIMESTAMPTZ,
-    "closedBy" TEXT DEFAULT ''
+    "closedBy" TEXT DEFAULT '',
+    "statusNote" TEXT DEFAULT ''
 );
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "priority" TEXT DEFAULT 'normal';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "archived" BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMPTZ;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedBy" TEXT DEFAULT '';
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "statusNote" TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_chamados_workspace ON public.chamados_tickets("workspace_id");
 CREATE INDEX IF NOT EXISTS idx_chamados_status ON public.chamados_tickets(status);
 -- RLS: acesso direto (anon/authenticated) bloqueado; a API acessa via service role.
@@ -635,6 +637,7 @@ REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC;
 """
 
 CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
+CHAMADOS_STATUSES = ('aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado')
 
 
 def _notify_new_ticket(ticket):
@@ -857,16 +860,40 @@ def chamados_manage(ticket_id):
 
         body = request.get_json() or {}
         updates = {}
-        for key in ('status', 'assignedTo', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy'):
+        for key in ('status', 'assignedTo', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'statusNote'):
             if key in body:
                 updates[key] = body[key]
         if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
-        if 'status' in updates and updates['status'] == 'resolvido':
-            updates['resolvedAt'] = datetime.now(timezone.utc).isoformat()
-        if 'status' in updates and updates['status'] == 'fechado':
-            updates['archived'] = True
-            updates['closedAt'] = datetime.now(timezone.utc).isoformat()
+        if 'status' in updates:
+            status = updates['status']
+            if status not in CHAMADOS_STATUSES:
+                return jsonify({'error': 'Status inválido'}), 400
+
+            # Busca o estado atual para detectar reabertura (resolvido/fechado → fluxo ativo)
+            fetch = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=status,resolvedAt,closedAt,archived',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not fetch.ok:
+                return jsonify({'error': 'Erro ao buscar chamado'}), 502
+            prev = (fetch.json() or [{}])[0]
+            prev_status = prev.get('status')
+
+            if status == 'resolvido':
+                updates['resolvedAt'] = datetime.now(timezone.utc).isoformat()
+                updates['statusNote'] = ''
+            elif status == 'fechado':
+                updates['archived'] = True
+                updates['closedAt'] = datetime.now(timezone.utc).isoformat()
+                updates['statusNote'] = ''
+            elif prev_status in ('resolvido', 'fechado'):
+                # Reabertura: volta ao fluxo ativo e limpa marcas de conclusão
+                updates['resolvedAt'] = None
+                updates['closedAt'] = None
+                updates['closedBy'] = ''
+                updates['archived'] = False
         if not updates:
             return jsonify({'error': 'Nada para atualizar'}), 400
         updates['updatedAt'] = datetime.now(timezone.utc).isoformat()

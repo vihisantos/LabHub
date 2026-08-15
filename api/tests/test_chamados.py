@@ -167,6 +167,7 @@ def test_chamados_table_sql_garante_rls(api_module):
     sql = api_module.CHAMADOS_TABLE_SQL
     assert "CREATE TABLE IF NOT EXISTS public.chamados_tickets" in sql
     assert '"priority" TEXT NOT NULL DEFAULT' in sql
+    assert '"statusNote" TEXT DEFAULT' in sql
     assert "ENABLE ROW LEVEL SECURITY" in sql
     assert "REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC" in sql
 
@@ -524,6 +525,58 @@ def test_patch_reabertura_limpa_arquivamento(client, fake_requests):
     patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
     assert patch_call["kwargs"]["json"]["archived"] is False
     assert patch_call["kwargs"]["json"]["closedAt"] is None
+
+
+def test_patch_reabertura_de_fechado_limpa_resolved_at(client, fake_requests):
+    _route_get_ticket(
+        fake_requests,
+        _make_ticket(
+            status="fechado",
+            resolvedAt="2026-06-25T13:00:00Z",
+            closedAt="2026-06-25T13:00:00Z",
+            archived=True,
+        ),
+    )
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", archived=False, resolvedAt=None, closedAt=None))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"})
+
+    assert resp.status_code == 200
+    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert patch["resolvedAt"] is None
+    assert patch["closedAt"] is None
+    assert patch["closedBy"] == ""
+    assert patch["archived"] is False
+
+
+def test_patch_status_invalido_retorna_400(client, fake_requests):
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "foo"})
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Status inválido"
+    assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
+
+
+def test_patch_status_note_persiste(client, fake_requests):
+    _route_patch_ticket(fake_requests, _make_ticket(status="a_caminho", statusNote="Em outro chamado, atendimento em 5 minutos"))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Em outro chamado, atendimento em 5 minutos"})
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["statusNote"] == "Em outro chamado, atendimento em 5 minutos"
+    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert patch["statusNote"] == "Em outro chamado, atendimento em 5 minutos"
+
+
+def test_patch_resolvido_limpa_status_note(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="a_caminho", statusNote="Técnico a caminho"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", statusNote=""))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"})
+
+    assert resp.status_code == 200
+    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert patch["statusNote"] == ""
 
 
 def test_patch_ignora_campos_nao_permitidos(client, fake_requests):
