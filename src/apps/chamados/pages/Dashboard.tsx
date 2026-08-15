@@ -137,9 +137,19 @@ export function Dashboard() {
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between">
           <span className="text-xs text-fg-muted">SLA de atendimento</span>
-          <span className={`text-sm font-semibold ${slaStats.overdue > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-            {slaStats.overdue > 0 ? `${slaStats.overdue} em atraso` : 'Sem atrasos'}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`text-sm font-semibold ${slaStats.overdue > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+              {slaStats.overdue > 0 ? `${slaStats.overdue} em atraso` : 'Sem atrasos'}
+            </span>
+            <button
+              type="button"
+              onClick={() => navigate('/chamados/sla')}
+              className="flex items-center gap-1 rounded-lg bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/25 dark:text-amber-400"
+            >
+              Análise
+              <icons.ui.chevronRight size={12} />
+            </button>
+          </div>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
           <div className="rounded-xl bg-red-500/10 py-2.5">
