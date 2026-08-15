@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useTickets } from '../hooks/useTickets'
 import {
   TICKET_STATUS_LABELS,
   TICKET_STATUS_COLORS,
+  TICKET_STATUS_NOTE_PRESETS,
   TICKET_PRIORITIES,
   TICKET_PRIORITY_LABELS,
   TICKET_PRIORITY_COLORS,
@@ -39,6 +40,7 @@ export function TicketDetail() {
   const { user } = useAuth()
   const canWrite = isFullAccess('chamados')
   const ticket = tickets.find((t) => t.id === id)
+  const [noteInput, setNoteInput] = useState('')
 
   const history = useMemo(() => {
     if (!ticket) return []
@@ -116,6 +118,69 @@ export function TicketDetail() {
           </p>
         </div>
       )}
+
+      {ticket.statusNote && (
+        <div className="flex items-start gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3">
+          <icons.ui.messageSquareWarning size={16} className="mt-0.5 shrink-0 text-blue-500" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-blue-600 dark:text-blue-400">{ticket.statusNote}</p>
+            <p className="mt-0.5 text-[10px] text-fg-dim">Mensagem visível para o professor</p>
+          </div>
+        </div>
+      )}
+
+      {canWrite &&
+        (ticket.status === 'aberto' || ticket.status === 'a_caminho' || ticket.status === 'em_atendimento') && (
+          <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+            <h3 className="mb-2 text-xs font-semibold text-fg-muted">Mensagem para o professor</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {TICKET_STATUS_NOTE_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => update(ticket.id, { statusNote: preset })}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    ticket.statusNote === preset
+                      ? 'border-blue-500 bg-blue-500 text-white'
+                      : 'border-line bg-surface text-fg-muted hover:border-blue-500 hover:text-blue-500'
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={noteInput}
+                onChange={(e) => setNoteInput(e.target.value)}
+                placeholder="Mensagem personalizada..."
+                className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs text-fg placeholder:text-fg-dim focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (noteInput.trim()) {
+                    update(ticket.id, { statusNote: noteInput.trim() })
+                    setNoteInput('')
+                  }
+                }}
+                className="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-400"
+              >
+                Definir
+              </button>
+            </div>
+            {ticket.statusNote && (
+              <button
+                type="button"
+                onClick={() => update(ticket.id, { statusNote: '' })}
+                className="mt-2 text-[11px] font-medium text-fg-dim transition-colors hover:text-red-500"
+              >
+                Remover mensagem
+              </button>
+            )}
+          </div>
+        )}
 
       {ticket.status === 'fechado' && (
         <div className="rounded-xl border border-line bg-card px-4 py-3">

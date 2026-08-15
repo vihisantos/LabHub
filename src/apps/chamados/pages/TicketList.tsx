@@ -176,6 +176,9 @@ export function TicketList() {
                       <span className="ml-1 text-amber-500">· ★ {ticket.feedbackRating}</span>
                     )}
                   </p>
+                  {ticket.statusNote && (
+                    <p className="mt-0.5 truncate text-[10px] italic text-blue-500">{ticket.statusNote}</p>
+                  )}
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${TICKET_PRIORITY_COLORS[getPriority(ticket.priority)]}`}>
                   {TICKET_PRIORITY_LABELS[getPriority(ticket.priority)]}

@@ -59,10 +59,12 @@ export function useTickets() {
     const updates: Partial<Ticket> = { status }
     if (status === 'resolvido') {
       updates.resolvedAt = new Date().toISOString()
+      updates.statusNote = ''
     }
     if (status === 'fechado') {
       updates.archived = true
       updates.closedAt = new Date().toISOString()
+      updates.statusNote = ''
     }
     return update(id, updates)
   }, [update])
