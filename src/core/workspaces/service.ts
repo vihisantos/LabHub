@@ -68,8 +68,11 @@ export const workspaceService = {
     const existing = local.getById(id)
     if (!existing) return undefined
     const updated = { ...existing, ...data, updated_at: new Date().toISOString() }
+    const ok = await upsertToSupabase(updated)
+    if (defaultDb && !ok) {
+      throw new Error('Falha ao salvar no servidor. Tente novamente.')
+    }
     local.update(id, updated)
-    await upsertToSupabase(updated)
     return updated
   },
 
