@@ -58,12 +58,12 @@ export function TrackPage() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Seu nome"
-          className="flex-1 rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none"
+          className="flex-1 rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none"
         />
         <button
           type="submit"
           disabled={!name.trim() || loading}
-          className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? '...' : 'Buscar'}
         </button>
@@ -95,7 +95,7 @@ export function TrackPage() {
               return (
                 <div key={ticket.id} className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-amber-500">#{ticket.ticketNumber}</span>
+                    <span className="text-sm font-bold text-emerald-500">#{ticket.ticketNumber}</span>
                     <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}>
                       {TICKET_STATUS_LABELS[ticket.status]}
                     </span>
@@ -119,7 +119,7 @@ export function TrackPage() {
                       <button
                         type="button"
                         onClick={() => handleAvaliar(ticket)}
-                        className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-400"
+                        className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-400"
                       >
                         <icons.ui.star size={14} />
                         Avaliar atendimento

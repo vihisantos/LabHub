@@ -180,9 +180,22 @@ Envia uma notificacao de teste para todos os subscribers inscritos.
 
 ---
 
+### Protecao por CRON_SECRET (endpoints de cron)
+
+Os quatro endpoints de cron sao protegidos pela variavel `CRON_SECRET`:
+
+- `GET /api/push/check` (reservas proximas)
+- `GET /api/push/check-overdue` (emprestimos vencendo)
+- `GET /api/push/check-pcare` (estoque baixo / manutencoes)
+- `GET /api/push/check-all` (todos os checks em uma chamada)
+
+Com `CRON_SECRET` configurada no projeto Vercel, o Cron Job envia automaticamente o header `Authorization: Bearer ${CRON_SECRET}` e os endpoints **exigem** esse header (qualquer outro acesso retorna `401`). Sem a variavel, ficam abertos (comportamento legado) para nao quebrar o fluxo durante a migracao — e um warning e registrado no log. Gere o valor com: `openssl rand -hex 32` e adicione em **Vercel > Project > Settings > Environment Variables** (nome: `CRON_SECRET`).
+
+---
+
 ### GET /api/push/check
 
-Verifica se ha reservas proximas e envia notificacoes push automaticamente.
+Verifica se ha reservas proximas e envia notificacoes push automaticamente. **Protegido por CRON_SECRET** (veja secao acima).
 
 **Logica:**
 1. Busca reservas de hoje
@@ -200,6 +213,105 @@ Verifica se ha reservas proximas e envia notificacoes push automaticamente.
   "subscribers": 5
 }
 ```
+
+---
+
+### GET /api/push/check-overdue
+
+Verifica emprestimos com devolucao prevista nas proximas 12 horas e envia push. **Protegido por CRON_SECRET** (veja secao acima).
+
+---
+
+### GET /api/push/check-pcare
+
+Verifica estoque baixo de pecas e manutencoes agendadas (hoje/amanha) e envia push. **Protegido por CRON_SECRET** (veja secao acima).
+
+---
+
+### GET /api/push/check-all
+
+Roda todos os checks de cron em uma unica chamada (reservas, devolucoes vencendo, pcare, usuarios pendentes e validade de itens). Usado pelo **Cron do Vercel** (substituiu o cron-jobs.org). **Protegido por CRON_SECRET** (veja secao acima).
+
+**Agendamento (vercel.json):**
+
+```json
+{
+  "crons": [
+    { "path": "/api/push/check-all", "schedule": "*/5 * * * *" }
+  ]
+}
+
+```
+
+**Resposta:**
+
+```json
+{
+  "checked": true,
+  "results": {
+    "reservas": { "checked": true, "sent": 2, "subscribers": 5 },
+    "overdue": { "checked": true, "sent": 0, "found": 0, "subscribers": 3 }
+  }
+}
+```
+
+---
+
+## Fluxo: Notificacao de Chamados (Sup-app)
+
+Quando um professor abre um chamado pelo formulario publico (`/chamados-publico`), o sup-app (app do TI) recebe a notificacao **imediatamente**, sem depender de cron ou de servicos externos. O envio e disparado por **evento**, dentro da propria requisicao que cria o chamado.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Prof as Professor (form publico)
+    participant API as API Flask (Vercel)
+    participant DB as Supabase<br/>(public.chamados_tickets)
+    participant SW as Web Push Service<br/>(VAPID)
+    participant TI as TI (sup-app)
+
+    Prof->>API: POST /api/chamados {campus, sala, categoria, descricao}
+    API->>API: valida campos e gera ticketNumber sequencial por workspace
+    API->>DB: INSERT chamados_tickets (workspace_id, sala, categoria, professor)
+    DB-->>API: ticket com id e ticketNumber
+
+    API->>API: _notify_new_ticket(ticket)<br/>-> _target_subs(module='chamados', workspace_id)<br/>-> push_notify(...) por inscricao
+    loop Para cada inscricao valida (notify_settings respeitado)
+        API->>SW: push payload { titulo: "Novo chamado #N",<br/>corpo: "Sala · Categoria · Professor",<br/>url: "/chamados/tickets/{id}" }
+        SW-->>TI: Notificacao push OS-level<br/>(entrega mesmo com app fechado)
+    end
+
+    API-->>Prof: 200 { ticket }  (falha de push nunca impede a criacao)
+
+    par Canal in-app (app do TI aberto)
+        TI->>DB: polling a cada 10s (useTickets / useFastSync)
+        DB-->>TI: chamados novos
+        TI->>TI: ticketAlerts.ts — notificacao no sino (dedupe por actionUrl)<br/>+ som de dois tons + notificacao nativa em 2o plano
+    end
+```
+
+### 1. Criacao do chamado — `POST /api/chamados`
+
+O formulario publico (professor, sem login) envia o chamado. O backend valida os campos, gera o `ticketNumber` sequencial por workspace e insere no Supabase (`public.chamados_tickets`). **Esse endpoint tambem e usado pelo proprio app do TI** quando cria um chamado internamente.
+
+### 2. Push imediato — `_notify_new_ticket(ticket)`
+
+Imediatamente apos o INSERT, o backend chama o helper `_notify_new_ticket` (definido em `api/app.py`):
+
+- **Segmentacao:** `_target_subs(module='chamados', workspace_id=ticket.workspace_id)` — alcanca apenas inscricoes push de usuarios com acesso ao modulo `chamados` **e** ao workspace do campus (super admins recebem de todos).
+- **Respeito ao perfil:** `notify_settings` do usuario e respeitada (`muted` bloqueia tudo; canal `push` desligado para o app `chamados` bloqueia so ele).
+- **Mensagem:** titulo `Novo chamado #{ticketNumber}`; corpo `Sala · Categoria · Professor`; toque leva para `/chamados/tickets/{id}`.
+- **Resiliencia:** qualquer falha de push e capturada (try/except) e **nunca impede** a criacao do chamado — o professor recebe o `200` normalmente.
+
+### 3. Notificacao in-app (app do TI aberto)
+
+Independente do push, o sup-app tambem detecta o chamado novo via polling de 10s (`useTickets` / `useFastSync(['chamados'])` em `ChamadosLayout`) e o `ticketAlerts.ts`:
+
+- Cria a notificacao no sino (in-app) com dedupe por `actionUrl`;
+- Toca um som curto de dois tons (silenciável no header do app);
+- Exibe notificacao nativa do navegador quando a pagina esta em segundo plano.
+
+Os dois canais (push OS-level + in-app) sao complementares: o push garante o aviso mesmo com o app fechado; o in-app cobre a experiencia dentro do aplicativo.
 
 ---
 
@@ -288,6 +400,7 @@ class DateEncoder(json.JSONEncoder):
 | `UPSTASH_REDIS_REST_TOKEN` | Nao | Token do Upstash Redis |
 | `SUPABASE_URL` | Nao | URL do Supabase |
 | `SUPABASE_SERVICE_KEY` | Nao | Service key do Supabase |
+| `CRON_SECRET` | Nao | Protege os endpoints de cron `GET /api/push/check`, `check-overdue`, `check-pcare` e `check-all` (o Vercel Cron envia `Authorization: Bearer ${CRON_SECRET}`) |
 
 ---
 

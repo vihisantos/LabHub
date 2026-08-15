@@ -16,7 +16,7 @@ export function TicketSuccess() {
         <button
           type="button"
           onClick={() => navigate('/chamados-publico')}
-          className="mt-4 rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-white"
+          className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-white"
         >
           Voltar ao início
         </button>
@@ -35,7 +35,7 @@ export function TicketSuccess() {
 
       <div className="mt-8 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 text-center">
-          <span className="text-3xl font-bold text-amber-500">#{ticket.ticketNumber}</span>
+          <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber}</span>
         </div>
 
         <div className="space-y-3 border-t border-line pt-4">
@@ -63,7 +63,7 @@ export function TicketSuccess() {
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-fg-muted">Status</span>
-            <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+            <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
               {TICKET_STATUS_LABELS[ticket.status]}
             </span>
           </div>
@@ -75,7 +75,7 @@ export function TicketSuccess() {
         onClick={() => navigate('/chamados-publico/track')}
         className="mt-3 flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-line bg-card px-6 py-3 text-sm font-medium transition-colors hover:bg-input"
       >
-        <icons.ui.circleCheck size={18} className="text-amber-500" />
+        <icons.ui.circleCheck size={18} className="text-emerald-500" />
         Acompanhar e avaliar depois
       </button>
 

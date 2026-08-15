@@ -522,6 +522,9 @@ def push_action():
 
 @app.route('/api/push/check', methods=['GET'])
 def push_check():
+    """Check de reservas próximas (15 min). Protegido por CRON_SECRET."""
+    if not _cron_authorized():
+        return jsonify({'error': 'Não autorizado'}), 401
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
@@ -762,6 +765,9 @@ CREATE TABLE IF NOT EXISTS pcare.maintenance (
 
 @app.route('/api/push/check-overdue', methods=['GET'])
 def push_check_overdue():
+    """Check de empréstimos com prazo próximo (12 h). Protegido por CRON_SECRET."""
+    if not _cron_authorized():
+        return jsonify({'error': 'Não autorizado'}), 401
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
@@ -838,6 +844,9 @@ def push_check_overdue():
 
 @app.route('/api/push/check-pcare', methods=['GET'])
 def push_check_pcare():
+    """Check de estoque baixo de peças e manutenções agendadas. Protegido por CRON_SECRET."""
+    if not _cron_authorized():
+        return jsonify({'error': 'Não autorizado'}), 401
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
@@ -1025,9 +1034,43 @@ def _check_stock_expiry():
         return {'error': str(e)}
 
 
+_CRON_WARNING_LOGGED = False
+
+
+def _cron_authorized():
+    """Valida o header `Authorization: Bearer ${CRON_SECRET}` usado pelos crons.
+
+    - Com CRON_SECRET configurado: exige o header exato; qualquer outro acesso
+      recebe 401 (protege o endpoint de chamadas externas/abuso).
+    - Sem CRON_SECRET configurado: libera (comportamento atual) para não
+      quebrar o fluxo existente até a variável ser adicionada no deploy.
+      O warning de estado aberto é registrado apenas uma vez por processo
+      (o check-all chama os sub-checks internamente).
+    """
+    global _CRON_WARNING_LOGGED
+    secret = os.environ.get('CRON_SECRET', '')
+    if not secret:
+        if not _CRON_WARNING_LOGGED:
+            _CRON_WARNING_LOGGED = True
+            logger.warning(
+                "CRON_SECRET não configurada — endpoints de cron abertos (sem proteção): "
+                "/api/push/check, check-overdue, check-pcare, check-all"
+            )
+        return True
+    expected = f'Bearer {secret}'
+    return (request.headers.get('Authorization') or '').strip() == expected
+
+
 @app.route('/api/push/check-all', methods=['GET'])
 def push_check_all():
-    """Roda todos os checks de cron em uma única chamada (para cron-jobs.org)."""
+    """Roda todos os checks de cron em uma única chamada (cron-jobs.org / Vercel Cron).
+
+    Protegido por CRON_SECRET: o Vercel envia automaticamente o header
+    `Authorization: Bearer ${CRON_SECRET}` nas invocações do cron.
+    """
+    if not _cron_authorized():
+        return jsonify({'error': 'Não autorizado'}), 401
+
     results = {}
     for name, fn in [
         ('reservas', push_check),

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 
 vi.mock('../../../../core/workspaces/useWorkspaces', () => ({ useWorkspaces: vi.fn() }))
 vi.mock('../../../../core/workspaces/store', () => ({
@@ -41,6 +41,7 @@ vi.mock('react-router-dom', async () => {
 import { useWorkspaces } from '../../../../core/workspaces/useWorkspaces'
 import { useAuth } from '../../../../core/auth/useAuth'
 import { roomService } from '../../../chamados/services/roomService'
+import { ticketService } from '../../../chamados/services/ticketService'
 import { RoomTicketForm } from '../RoomTicketForm'
 
 const WS_A = 'ws-a'
@@ -132,5 +133,79 @@ describe('RoomTicketForm', () => {
 
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByText('Lab 2')).not.toBeInTheDocument()
+  })
+})
+
+describe('RoomTicketForm (criação de chamado)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSearchParams.setParams({ room: '', workspace: '' })
+    ;(useWorkspaces as any).mockReturnValue({
+      workspaces: [
+        { id: WS_A, name: 'Campus A' },
+        { id: WS_B, name: 'Campus B' },
+      ],
+      loading: false,
+    })
+    ;(useAuth as any).mockReturnValue({ user: { name: 'Professor' } })
+    ;(roomService.getAllUnfiltered as any).mockReturnValue(ROOMS)
+    ;(ticketService.create as any).mockResolvedValue({ id: 't-99', ticketNumber: 99 })
+  })
+
+  function fillForm(selectCampus = true) {
+    if (selectCampus) fireEvent.click(screen.getByText('Campus A'))
+    fireEvent.change(getRoomInput(), { target: { value: 'Sala 101' } })
+    fireEvent.click(screen.getByText('Área Acadêmica'))
+    fireEvent.click(screen.getByText('Computador'))
+    fireEvent.change(screen.getByPlaceholderText(/A internet da sala/i), {
+      target: { value: 'A internet caiu' },
+    })
+  }
+
+  it('cria o chamado com o campus escolhido e todos os campos', async () => {
+    renderForm()
+    fillForm()
+
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    expect(submit).not.toBeDisabled()
+    fireEvent.click(submit)
+
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: WS_A,
+        roomName: 'Sala 101',
+        problemArea: 'academica',
+        problemCategory: 'Computador',
+        problemDescription: 'A internet caiu',
+        reportedBy: 'Professor',
+        status: 'aberto',
+      })
+    )
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-99')
+  })
+
+  it('não cria o chamado sem selecionar o campus', () => {
+    renderForm()
+    fillForm(false)
+
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    expect(submit).toBeDisabled()
+    fireEvent.click(submit)
+    expect(ticketService.create).not.toHaveBeenCalled()
+  })
+
+  it('não cria o chamado sem descrever o problema', () => {
+    renderForm()
+    fillForm()
+    fireEvent.change(screen.getByPlaceholderText(/A internet da sala/i), {
+      target: { value: '' },
+    })
+
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    expect(submit).toBeDisabled()
+    fireEvent.click(submit)
+    expect(ticketService.create).not.toHaveBeenCalled()
   })
 })
