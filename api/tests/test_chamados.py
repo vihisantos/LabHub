@@ -900,3 +900,264 @@ def test_patch_status_note_igual_nao_notifica(api_module, notify_client, fake_re
 
     assert resp.status_code == 200
     assert sent == []
+
+
+# ── Fase 4: eventos (histórico/comentários) + fotos Cloudinary ──
+
+
+def test_chamados_table_sql_inclui_ticket_events(api_module):
+    sql = api_module.CHAMADOS_TABLE_SQL
+    assert "CREATE TABLE IF NOT EXISTS public.ticket_events" in sql
+    assert "REFERENCES public.chamados_tickets(id) ON DELETE CASCADE" in sql
+    assert "ticket_events" in sql
+    assert "idx_ticket_events_ticket" in sql
+
+
+def test_create_aceita_foto_cloudinary(client, fake_requests, monkeypatch):
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6))
+
+    resp = client.post(
+        "/api/chamados",
+        json=_valid_payload(photos="https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/foto.jpg"),
+    )
+
+    assert resp.status_code == 200
+    payload = fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")[0]["kwargs"]["json"]
+    assert payload["photos"].startswith("https://res.cloudinary.com/")
+
+    resp2 = client.post(
+        "/api/chamados",
+        json=_valid_payload(photos="https://evil.example/x.png"),
+    )
+    assert resp2.status_code == 400
+    assert resp2.get_json()["error"] == "Foto inválida"
+
+
+def test_patch_aceita_foto_cloudinary(client, fake_requests, monkeypatch):
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos="https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"))
+
+    resp = client.patch(
+        "/api/chamados/ticket-1",
+        json={"photos": "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"},
+    )
+
+    assert resp.status_code == 200
+    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert patch["photos"].startswith("https://res.cloudinary.com/")
+
+
+def _route_event_insert(fake_requests, event):
+    fake_requests.route("POST", "/rest/v1/ticket_events", FakeResponse([event]))
+
+
+def test_events_post_comentario_cria_evento(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+    _route_event_insert(fake_requests, {
+        "id": "ev-1",
+        "ticket_id": "ticket-1",
+        "workspace_id": "ws-a",
+        "type": "comentario",
+        "content": "Testei a sala, cabo solto",
+        "author": "Técnico 1",
+        "photo_urls": "[]",
+        "createdAt": "2026-06-25T12:10:00Z",
+    })
+
+    resp = client.post(
+        "/api/chamados/ticket-1/events",
+        json={"content": "Testei a sala, cabo solto", "author": "Técnico 1"},
+    )
+
+    assert resp.status_code == 201
+    assert resp.get_json()["event"]["content"] == "Testei a sala, cabo solto"
+    payload = fake_requests.calls_for("POST", "/rest/v1/ticket_events")[0]["kwargs"]["json"]
+    assert payload["ticket_id"] == "ticket-1"
+    assert payload["workspace_id"] == "ws-a"
+    assert payload["type"] == "comentario"
+    assert payload["photo_urls"] == "[]"
+
+
+def test_events_post_aceita_2_fotos(client, fake_requests, monkeypatch):
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+    _route_event_insert(fake_requests, {"id": "ev-1", "ticket_id": "ticket-1", "photo_urls": "[]", "createdAt": "2026-06-25T12:10:00Z"})
+
+    resp = client.post(
+        "/api/chamados/ticket-1/events",
+        json={
+            "content": "Foto do local",
+            "photos": [
+                "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/f1.jpg",
+                "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/f2.jpg",
+            ],
+        },
+    )
+
+    assert resp.status_code == 201
+    payload = fake_requests.calls_for("POST", "/rest/v1/ticket_events")[0]["kwargs"]["json"]
+    assert len(json.loads(payload["photo_urls"])) == 2
+
+
+def test_events_post_rejeita_3_fotos(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+
+    resp = client.post(
+        "/api/chamados/ticket-1/events",
+        json={"content": "foto", "photos": ["a", "b", "c"]},
+    )
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Máximo de 2 fotos por evento"
+
+
+def test_events_post_foto_invalida_retorna_400(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+
+    resp = client.post(
+        "/api/chamados/ticket-1/events",
+        json={"content": "foto", "photos": ["https://evil.example/x.png"]},
+    )
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Foto inválida"
+    assert fake_requests.calls_for("POST", "/rest/v1/ticket_events") == []
+
+
+def test_events_post_sem_conteudo_retorna_400(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+
+    resp = client.post("/api/chamados/ticket-1/events", json={"content": "   "})
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Escreva um comentário ou anexe uma foto"
+
+
+def test_events_post_ticket_nao_encontrado_404(client, fake_requests):
+    _route_get_ticket(fake_requests, None)
+
+    resp = client.post("/api/chamados/ticket-unknown/events", json={"content": "oi"})
+
+    assert resp.status_code == 404
+    assert resp.get_json()["error"] == "Chamado não encontrado"
+
+
+def test_events_get_retorna_historico(client, fake_requests):
+    fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([
+        {
+            "id": "ev-2",
+            "type": "comentario",
+            "content": "Novo comentário",
+            "author": "Técnico 1",
+            "photo_urls": '["https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/f.jpg"]',
+            "createdAt": "2026-06-25T12:20:00Z",
+        },
+        {
+            "id": "ev-1",
+            "type": "status",
+            "content": "Chamado resolvido",
+            "author": "Sistema",
+            "photo_urls": "",
+            "createdAt": "2026-06-25T12:10:00Z",
+        },
+    ]))
+
+    resp = client.get("/api/chamados/ticket-1/events")
+
+    assert resp.status_code == 200
+    events = resp.get_json()["events"]
+    assert len(events) == 2
+    assert events[0]["photos"] == ["https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/f.jpg"]
+    assert events[1]["photos"] == []
+
+
+def test_patch_status_resolvido_grava_evento_automatico(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="a_caminho", statusNote="Técnico a caminho"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", statusNote=""))
+    _route_event_insert(fake_requests, {"id": "ev-1", "ticket_id": "ticket-1", "createdAt": "2026-06-25T12:10:00Z"})
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido", "statusNote": "Cabo trocado"})
+
+    assert resp.status_code == 200
+    event_calls = fake_requests.calls_for("POST", "/rest/v1/ticket_events")
+    assert len(event_calls) == 1
+    payload = event_calls[0]["kwargs"]["json"]
+    assert payload["type"] == "status"
+    assert payload["content"] == "Cabo trocado"
+    assert payload["author"] == "Sistema"
+
+
+def test_patch_mesmo_status_nao_grava_evento(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto"))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"})
+
+    assert resp.status_code == 200
+    assert fake_requests.calls_for("POST", "/rest/v1/ticket_events") == []
+
+
+def test_purge_sem_token_com_secret_retorna_401(client, api_module, monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
+
+    resp = client.post("/api/chamados/photos/purge")
+
+    assert resp.status_code == 401
+
+
+def test_purge_apaga_fotos_de_chamados_fechados(client, fake_requests, api_module, monkeypatch):
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", lambda url: url.startswith("https://res.cloudinary.com/"))
+
+    old_closed = _make_ticket(
+        status="fechado",
+        archived=True,
+        closedAt="2026-06-20T12:00:00Z",
+        photos="https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg",
+    )
+    fake_requests.route(
+        "GET",
+        "status=eq.fechado&closedAt=lt.",
+        FakeResponse([old_closed]),
+    )
+    fake_requests.route(
+        "GET",
+        "/rest/v1/ticket_events?ticket_id=in.",
+        FakeResponse([
+            {
+                "id": "ev-1",
+                "photo_urls": '["https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/b.jpg"]',
+            },
+            {
+                "id": "ev-2",
+                "photo_urls": '"data:image/jpeg;base64,abc"',
+            },
+        ]),
+    )
+
+    resp = client.post(
+        "/api/chamados/photos/purge",
+        headers={"Authorization": "Bearer x"},
+    )
+
+    assert resp.status_code == 200
+    result = resp.get_json()
+    assert result["tickets_scanned"] == 1
+    assert result["tickets_cleared"] == 1
+    assert result["events_cleared"] == 1
+    assert result["photos_deleted"] == 2
+
+    ticket_patch = [c for c in fake_requests.calls_for("PATCH", "chamados_tickets") if "photos" in c["kwargs"]["json"]]
+    assert len(ticket_patch) == 1
+    assert ticket_patch[0]["kwargs"]["json"]["photos"] == ""
+
+    event_patches = fake_requests.calls_for("PATCH", "/rest/v1/ticket_events")
+    assert len(event_patches) == 1
+    assert json.loads(event_patches[0]["kwargs"]["json"]["photo_urls"]) == []
+
+
+# --- Fase 4: eventos (historico/comentarios) + fotos Cloudinary ---
+
