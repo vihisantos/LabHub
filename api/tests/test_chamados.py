@@ -169,6 +169,7 @@ def test_chamados_table_sql_garante_rls(api_module):
     assert "CREATE TABLE IF NOT EXISTS public.chamados_tickets" in sql
     assert '"priority" TEXT NOT NULL DEFAULT' in sql
     assert '"statusNote" TEXT DEFAULT' in sql
+    assert '"photos" TEXT DEFAULT' in sql
     assert "ENABLE ROW LEVEL SECURITY" in sql
     assert "REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC" in sql
 
@@ -316,6 +317,46 @@ def test_create_prioridade_invalida_retorna_400(client, fake_requests):
 
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "Prioridade inválida"
+    assert fake_requests.calls_for("POST", "chamados_tickets") == []
+
+
+def test_create_persiste_foto_opcional(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6))
+
+    resp = client.post(
+        "/api/chamados",
+        json=_valid_payload(photos="data:image/jpeg;base64,abc123"),
+    )
+
+    assert resp.status_code == 200
+    payload = fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")[0]["kwargs"]["json"]
+    assert payload["photos"] == "data:image/jpeg;base64,abc123"
+
+
+def test_create_foto_invalida_retorna_400(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+
+    resp = client.post("/api/chamados", json=_valid_payload(photos="https://evil.example/x.png"))
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Foto inválida"
+    assert fake_requests.calls_for("POST", "chamados_tickets") == []
+
+
+def test_create_foto_muito_grande_retorna_400(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+
+    resp = client.post(
+        "/api/chamados",
+        json=_valid_payload(photos="data:image/jpeg;base64," + "a" * 600001),
+    )
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Foto muito grande"
     assert fake_requests.calls_for("POST", "chamados_tickets") == []
 
 
@@ -609,6 +650,27 @@ def test_patch_prioridade_invalida_retorna_400(client, fake_requests):
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "Prioridade inválida"
     assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
+
+
+def test_patch_photos_persiste(client, fake_requests):
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos="data:image/jpeg;base64,xyz"))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"photos": "data:image/jpeg;base64,xyz"})
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["photos"] == "data:image/jpeg;base64,xyz"
+    patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
+    assert patch_call["kwargs"]["json"]["photos"] == "data:image/jpeg;base64,xyz"
+
+
+def test_patch_photos_vazio_remove(client, fake_requests):
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos=""))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"photos": ""})
+
+    assert resp.status_code == 200
+    patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
+    assert patch_call["kwargs"]["json"]["photos"] == ""
 
 
 def test_patch_chamado_nao_encontrado_retorna_404(client, fake_requests):

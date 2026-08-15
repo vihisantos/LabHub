@@ -30,6 +30,7 @@ export interface Ticket {
   closedAt?: string | null
   closedBy?: string
   statusNote?: string
+  photos?: string
   createdAt: string
   updatedAt: string
   resolvedAt: string | null

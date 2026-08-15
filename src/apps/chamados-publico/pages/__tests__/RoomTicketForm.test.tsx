@@ -17,6 +17,7 @@ vi.mock('../../components/OnboardingTour', () => ({
   isTourDone: () => true,
   markTourDone: vi.fn(),
 }))
+vi.mock('../../utils/photo', () => ({ readPhoto: vi.fn() }))
 
 const mockNavigate = vi.fn()
 const mockSearchParams = vi.hoisted(() => {
@@ -42,6 +43,7 @@ import { useWorkspaces } from '../../../../core/workspaces/useWorkspaces'
 import { useAuth } from '../../../../core/auth/useAuth'
 import { roomService } from '../../../chamados/services/roomService'
 import { ticketService } from '../../../chamados/services/ticketService'
+import { readPhoto } from '../../utils/photo'
 import { RoomTicketForm } from '../RoomTicketForm'
 
 const WS_A = 'ws-a'
@@ -207,5 +209,49 @@ describe('RoomTicketForm (criação de chamado)', () => {
     expect(submit).toBeDisabled()
     fireEvent.click(submit)
     expect(ticketService.create).not.toHaveBeenCalled()
+  })
+
+  it('mostra o botão de anexar foto (opcional) e envia a foto no chamado', async () => {
+    ;(readPhoto as any).mockResolvedValue('data:image/jpeg;base64,foto')
+    const { container } = renderForm()
+    fillForm()
+
+    expect(screen.getByText('Anexar foto (opcional)')).toBeInTheDocument()
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [new File(['x'], 'foto.jpg', { type: 'image/jpeg' })] } })
+    })
+    await act(async () => {})
+
+    expect(screen.getByText(/Foto adicionada/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir Chamado' }))
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ photos: 'data:image/jpeg;base64,foto' })
+    )
+  })
+
+  it('remove a foto antes de enviar', async () => {
+    ;(readPhoto as any).mockResolvedValue('data:image/jpeg;base64,foto')
+    const { container } = renderForm()
+    fillForm()
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [new File(['x'], 'foto.jpg', { type: 'image/jpeg' })] } })
+    })
+    await act(async () => {})
+    expect(screen.getByText(/Foto adicionada/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remover foto' }))
+    expect(screen.queryByText(/Foto adicionada/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir Chamado' }))
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ photos: '' }))
   })
 })

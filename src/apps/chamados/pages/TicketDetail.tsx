@@ -41,6 +41,7 @@ export function TicketDetail() {
   const canWrite = isFullAccess('chamados')
   const ticket = tickets.find((t) => t.id === id)
   const [noteInput, setNoteInput] = useState('')
+  const [photoOpen, setPhotoOpen] = useState(false)
 
   const history = useMemo(() => {
     if (!ticket) return []
@@ -302,6 +303,21 @@ export function TicketDetail() {
               </div>
             </div>
           )}
+          {ticket.photos && (
+            <div className="flex items-start gap-3">
+              <icons.ui.camera size={16} className="mt-0.5 shrink-0 text-fg-muted" />
+              <div>
+                <p className="text-xs text-fg-muted">Foto do problema</p>
+                <button
+                  type="button"
+                  onClick={() => setPhotoOpen(true)}
+                  className="mt-1 block h-24 w-24 overflow-hidden rounded-xl border border-line"
+                >
+                  <img src={ticket.photos} alt="Foto do problema" className="h-full w-full object-cover" />
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex items-start gap-3">
             <icons.ui.user size={16} className="mt-0.5 shrink-0 text-fg-muted" />
             <div>
@@ -400,6 +416,23 @@ export function TicketDetail() {
             ))}
           </div>
         </div>
+      )}
+
+      {photoOpen && ticket.photos && (
+        <button
+          type="button"
+          onClick={() => setPhotoOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+        >
+          <img
+            src={ticket.photos}
+            alt="Foto do problema"
+            className="max-h-full max-w-full rounded-xl object-contain"
+          />
+          <span className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white">
+            <icons.ui.close size={18} />
+          </span>
+        </button>
       )}
     </div>
   )
