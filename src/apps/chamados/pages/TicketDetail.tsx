@@ -369,7 +369,7 @@ export function TicketDetail() {
                 <p className="text-xs text-fg-muted">Foto do problema</p>
                 <button
                   type="button"
-                  onClick={() => setLightbox(ticket.photos)}
+                  onClick={() => setLightbox(ticket.photos ?? null)}
                   className="mt-1 block h-24 w-24 overflow-hidden rounded-xl border border-line"
                 >
                   <img src={ticket.photos} alt="Foto do problema" className="h-full w-full object-cover" />
