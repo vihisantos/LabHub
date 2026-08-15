@@ -9,6 +9,7 @@ import { PROBLEM_AREA_LABELS, TICKET_PROBLEM_CATEGORIES } from '../../chamados/t
 import type { TicketFormData, TicketProblemArea } from '../../chamados/types'
 import { OnboardingTour, markTourDone } from '../components/OnboardingTour'
 import { icons } from '../../../lib/icons'
+import { readPhoto } from '../utils/photo'
 
 const AREA_OPTIONS: { value: TicketProblemArea; label: string; icon: (typeof icons.ui)[keyof typeof icons.ui] }[] = [
   { value: 'administrativa', label: PROBLEM_AREA_LABELS.administrativa, icon: icons.nav.settings },
@@ -38,8 +39,11 @@ export function RoomTicketForm() {
   const [description, setDescription] = useState('')
   const [reportedBy, setReportedBy] = useState('')
   const [reportedByEmail, setReportedByEmail] = useState('')
+  const [photo, setPhoto] = useState('')
+  const [photoError, setPhotoError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Tour fica disponível via botão 'Como funciona?' — nunca abre por cima dos campos.
   const [tourVisible, setTourVisible] = useState(false)
@@ -119,6 +123,18 @@ export function RoomTicketForm() {
     },
   ]
 
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoError('')
+    try {
+      setPhoto(await readPhoto(file))
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : 'Não foi possível carregar a foto.')
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!campusId || !area || !category || !description.trim() || !reportedBy.trim()) return
@@ -138,6 +154,7 @@ export function RoomTicketForm() {
       reportedBy: reportedBy.trim(),
       reportedByEmail: reportedByEmail.trim(),
       assignedTo: '',
+      photos: photo,
     }
 
     try {
@@ -360,6 +377,42 @@ export function RoomTicketForm() {
             rows={3}
             className={inputClass}
           />
+
+          <div className="mt-3 flex items-center gap-2.5">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoChange}
+              className="hidden"
+            />
+            {photo ? (
+              <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-line">
+                <img src={photo} alt="Foto do problema" className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPhoto('')}
+                  aria-label="Remover foto"
+                  className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-fg text-surface shadow-[var(--shadow-card)]"
+                >
+                  <icons.ui.close size={12} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-xl border border-dashed border-line bg-card px-3 py-2 text-[11px] font-medium text-fg-muted transition-colors hover:border-emerald-500/40 hover:text-fg"
+              >
+                <icons.ui.camera size={14} />
+                Anexar foto (opcional)
+              </button>
+            )}
+            {photo && (
+              <span className="text-[11px] text-fg-dim">Foto adicionada — o TI verá no chamado</span>
+            )}
+          </div>
+          {photoError && <p className="mt-1.5 text-[11px] text-red-500">{photoError}</p>}
 
           <label htmlFor="reportedBy" className="mt-4 mb-1.5 block text-xs font-semibold text-fg-muted">
             Seu nome <span className="text-red-500">*</span>

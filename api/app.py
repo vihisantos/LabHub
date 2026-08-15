@@ -622,13 +622,15 @@ CREATE TABLE IF NOT EXISTS public.chamados_tickets (
     "archived" BOOLEAN NOT NULL DEFAULT FALSE,
     "closedAt" TIMESTAMPTZ,
     "closedBy" TEXT DEFAULT '',
-    "statusNote" TEXT DEFAULT ''
+    "statusNote" TEXT DEFAULT '',
+    "photos" TEXT DEFAULT ''
 );
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "priority" TEXT DEFAULT 'normal';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "archived" BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMPTZ;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedBy" TEXT DEFAULT '';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "statusNote" TEXT DEFAULT '';
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "photos" TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_chamados_workspace ON public.chamados_tickets("workspace_id");
 CREATE INDEX IF NOT EXISTS idx_chamados_status ON public.chamados_tickets(status);
 -- RLS: acesso direto (anon/authenticated) bloqueado; a API acessa via service role.
@@ -796,6 +798,12 @@ def chamados_create():
         if priority not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
 
+        photos = str(body.get('photos') or '').strip()
+        if len(photos) > 600000:
+            return jsonify({'error': 'Foto muito grande'}), 400
+        if photos and not photos.startswith('data:image/'):
+            return jsonify({'error': 'Foto inválida'}), 400
+
         ws_check = requests.get(
             f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=id',
             headers=_supabase_headers(),
@@ -833,6 +841,7 @@ def chamados_create():
             'reportedBy': reported_by,
             'reportedByEmail': str(body.get('reportedByEmail') or '').strip(),
             'assignedTo': str(body.get('assignedTo') or ''),
+            'photos': photos,
             'ticketNumber': ticket_number,
             'createdAt': now,
             'updatedAt': now,
@@ -918,7 +927,7 @@ def chamados_manage(ticket_id):
 
         body = request.get_json() or {}
         updates = {}
-        for key in ('status', 'assignedTo', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'statusNote'):
+        for key in ('status', 'assignedTo', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'statusNote', 'photos'):
             if key in body:
                 updates[key] = body[key]
         if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
