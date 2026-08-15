@@ -17,3 +17,4 @@ export {
   TICKET_STATUS_NOTE_PRESETS,
 } from './ticket'
 export type { SlaConfig } from './sla'
+export type { ChamadosReport, ReportPeriod, ReportPeriodDays, TechnicianReportRow } from './report'

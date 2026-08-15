@@ -10,6 +10,7 @@ import {
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
 import { getPriority, isSlaOverdue } from '../services/sla'
+import { useAuth } from '../../../core/auth/useAuth'
 import { icons } from '../../../lib/icons'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
 
@@ -20,7 +21,9 @@ function slaConfigFor(ticket: Ticket) {
 export function TicketList() {
   const navigate = useNavigate()
   const { tickets } = useTickets()
+  const { user } = useAuth()
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'arquivados' | ''>('')
+  const [mineFilter, setMineFilter] = useState(false)
   const [priorityFilter, setPriorityFilter] = useState<TicketPriority | ''>('')
   const [roomFilter, setRoomFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -28,11 +31,16 @@ export function TicketList() {
   const filteredTickets = useMemo(() => {
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
-      if (statusFilter === 'arquivados') {
-        if (!archived) return false
-      } else {
+      if (mineFilter) {
         if (archived) return false
-        if (statusFilter && t.status !== statusFilter) return false
+        if (t.assignedToUserId !== user?.id) return false
+      } else {
+        if (statusFilter === 'arquivados') {
+          if (!archived) return false
+        } else {
+          if (archived) return false
+          if (statusFilter && t.status !== statusFilter) return false
+        }
       }
       if (priorityFilter && getPriority(t.priority) !== priorityFilter) return false
       if (roomFilter && t.roomName !== roomFilter) return false
@@ -47,7 +55,7 @@ export function TicketList() {
       }
       return true
     })
-  }, [tickets, statusFilter, priorityFilter, roomFilter, search])
+  }, [tickets, statusFilter, mineFilter, priorityFilter, roomFilter, search, user?.id])
 
   const uniqueRooms = useMemo(() => {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
@@ -69,18 +77,36 @@ export function TicketList() {
       <div className="flex gap-2 overflow-x-auto pb-1">
         <button
           type="button"
-          onClick={() => setStatusFilter('')}
+          onClick={() => {
+            setStatusFilter('')
+            setMineFilter(false)
+          }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            statusFilter === '' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            statusFilter === '' && !mineFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
         >
           Ativos
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMineFilter((v) => !v)
+            setStatusFilter('')
+          }}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            mineFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+          }`}
+        >
+          Minha fila
         </button>
         {(['aberto', 'a_caminho', 'em_atendimento', 'resolvido'] as TicketStatus[]).map((status) => (
           <button
             key={status}
             type="button"
-            onClick={() => setStatusFilter(status)}
+            onClick={() => {
+              setStatusFilter(status)
+              setMineFilter(false)
+            }}
             className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               statusFilter === status ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
             }`}
@@ -90,7 +116,10 @@ export function TicketList() {
         ))}
         <button
           type="button"
-          onClick={() => setStatusFilter('arquivados')}
+          onClick={() => {
+            setStatusFilter('arquivados')
+            setMineFilter(false)
+          }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
@@ -168,6 +197,7 @@ export function TicketList() {
                   <p className="text-[11px] text-fg-muted">
                     {ticket.roomName} · {ticket.problemCategory}
                     {ticket.problemArea ? ` · ${ticket.problemArea === 'administrativa' ? 'Adm' : 'Acad'}` : ''}
+                    {ticket.assignedTo ? ` · ${ticket.assignedTo}` : ''}
                   </p>
                   <p className="text-[10px] text-fg-dim">
                     {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}

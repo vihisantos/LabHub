@@ -615,6 +615,7 @@ CREATE TABLE IF NOT EXISTS public.chamados_tickets (
     "reportedBy" TEXT NOT NULL DEFAULT '',
     "reportedByEmail" TEXT DEFAULT '',
     "assignedTo" TEXT DEFAULT '',
+    "assignedToUserId" TEXT DEFAULT '',
     "ticketNumber" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMPTZ DEFAULT NOW(),
     "updatedAt" TIMESTAMPTZ DEFAULT NOW(),
@@ -630,6 +631,7 @@ ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "archived" BOOLEAN 
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMPTZ;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedBy" TEXT DEFAULT '';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "statusNote" TEXT DEFAULT '';
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "assignedToUserId" TEXT DEFAULT '';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "photos" TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_chamados_workspace ON public.chamados_tickets("workspace_id");
 CREATE INDEX IF NOT EXISTS idx_chamados_status ON public.chamados_tickets(status);
@@ -698,6 +700,37 @@ def _notify_ticket_status(ticket):
         print(f"[chamados] push status #{ticket.get('ticketNumber')}: {len(keep)}/{len(subs)} enviados")
     except Exception as e:
         print(f"[chamados] push status error: {e}")
+
+
+def _notify_ticket_assigned(ticket):
+    """Push direto ao técnico atribuído quando o chamado é designado a ele.
+
+    Segmenta pelas inscrições do usuário (user_id) com acesso ao módulo chamados
+    no workspace do chamado. Falha de push não quebra o fluxo de atualização.
+    """
+    try:
+        user_id = ticket.get('assignedToUserId') or ''
+        if not user_id:
+            return
+        subs = _target_subs(
+            module='chamados',
+            workspace_id=ticket.get('workspace_id'),
+            user_id=user_id,
+        )
+        if not subs:
+            return
+        title = f"Chamado #{ticket.get('ticketNumber')} atribuído a você"
+        body = ' · '.join(
+            str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory'), ticket.get('reportedBy')) if part
+        )
+        url = f"/chamados/tickets/{ticket.get('id')}"
+        sent = 0
+        for sub in subs:
+            if push_notify(sub, title, body, url=url):
+                sent += 1
+        print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
+    except Exception as e:
+        print(f"[chamados] push atribuição error: {e}")
 
 
 def _notify_new_ticket(ticket):
@@ -841,6 +874,7 @@ def chamados_create():
             'reportedBy': reported_by,
             'reportedByEmail': str(body.get('reportedByEmail') or '').strip(),
             'assignedTo': str(body.get('assignedTo') or ''),
+            'assignedToUserId': str(body.get('assignedToUserId') or ''),
             'photos': photos,
             'ticketNumber': ticket_number,
             'createdAt': now,
@@ -927,13 +961,25 @@ def chamados_manage(ticket_id):
 
         body = request.get_json() or {}
         updates = {}
-        for key in ('status', 'assignedTo', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'statusNote', 'photos'):
+        for key in ('status', 'assignedTo', 'assignedToUserId', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'statusNote', 'photos'):
             if key in body:
                 updates[key] = body[key]
         if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
 
         prev = None
+        assignment_changed = False
+        if 'assignedToUserId' in updates:
+            # Busca o responsável atual para só notificar quando houver troca/atribuição
+            fetch = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=assignedToUserId',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not fetch.ok:
+                return jsonify({'error': 'Erro ao buscar chamado'}), 502
+            prev = (fetch.json() or [{}])[0]
+            assignment_changed = (prev.get('assignedToUserId') or '') != (updates.get('assignedToUserId') or '')
         if 'status' in updates:
             status = updates['status']
             if status not in CHAMADOS_STATUSES:
@@ -990,6 +1036,9 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Chamado não encontrado'}), 404
 
         ticket = rows[0]
+        if assignment_changed and ticket.get('assignedToUserId'):
+            # Push direto ao técnico atribuído (filtro por user_id no _target_subs).
+            _notify_ticket_assigned(ticket)
         if prev is not None and ('status' in updates or 'statusNote' in updates):
             changed = ('status' in updates and prev.get('status') != ticket.get('status')) or (
                 'statusNote' in updates and prev.get('statusNote') != ticket.get('statusNote')
@@ -998,6 +1047,143 @@ def chamados_manage(ticket_id):
                 _notify_ticket_status(ticket)
         return jsonify({'ticket': ticket})
 
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _aggregate_ticket_reports(rows):
+    """Agrega chamados do período em métricas para a página de relatórios."""
+    total = len(rows)
+    by_status = {}
+    by_priority = {}
+    by_category = {}
+    by_area = {}
+    by_room = {}
+    tech = {}
+    resolution_total_ms = 0
+    resolution_count = 0
+    rating_sum = 0
+    rating_count = 0
+
+    for t in rows:
+        status = t.get('status') or 'aberto'
+        by_status[status] = by_status.get(status, 0) + 1
+        priority = t.get('priority') or 'normal'
+        by_priority[priority] = by_priority.get(priority, 0) + 1
+        category = t.get('problemCategory') or 'Outros'
+        by_category[category] = by_category.get(category, 0) + 1
+        area = t.get('problemArea') or ''
+        if area:
+            by_area[area] = by_area.get(area, 0) + 1
+        room = t.get('roomName') or ''
+        if room:
+            by_room[room] = by_room.get(room, 0) + 1
+
+        name = (t.get('assignedTo') or '').strip()
+        if name:
+            row = tech.setdefault(name, {'name': name, 'open': 0, 'resolved': 0, 'total': 0, 'resolutionMs': 0, 'ratingSum': 0, 'ratingCount': 0})
+            row['total'] += 1
+            if status in ('aberto', 'a_caminho', 'em_atendimento'):
+                row['open'] += 1
+            if status in ('resolvido', 'fechado') or t.get('resolvedAt'):
+                row['resolved'] += 1
+            if t.get('resolvedAt') and t.get('createdAt'):
+                try:
+                    row['resolutionMs'] += (_parse_iso(t['resolvedAt'], 'resolvedAt') - _parse_iso(t['createdAt'], 'createdAt')).total_seconds() * 1000
+                except Exception:
+                    pass
+            rating = t.get('feedbackRating')
+            if rating:
+                row['ratingSum'] += float(rating)
+                row['ratingCount'] += 1
+
+        if t.get('resolvedAt') and t.get('createdAt'):
+            try:
+                ms = _parse_iso(t['resolvedAt'], 'resolvedAt') - _parse_iso(t['createdAt'], 'createdAt')
+                resolution_total_ms += ms.total_seconds() * 1000
+                resolution_count += 1
+            except Exception:
+                pass
+
+        rating = t.get('feedbackRating')
+        if rating:
+            try:
+                rating_sum += float(rating)
+                rating_count += 1
+            except (TypeError, ValueError):
+                pass
+
+    by_technician = []
+    for row in tech.values():
+        by_technician.append({
+            'name': row['name'],
+            'open': row['open'],
+            'resolved': row['resolved'],
+            'total': row['total'],
+            'avgResolutionHours': round(row['resolutionMs'] / row['resolved'] / 3600000, 1) if row['resolved'] else None,
+            'rating': round(row['ratingSum'] / row['ratingCount'], 2) if row['ratingCount'] else None,
+            'ratingCount': row['ratingCount'],
+        })
+    by_technician.sort(key=lambda r: -r['total'])
+
+    return {
+        'total': total,
+        'byStatus': by_status,
+        'byPriority': by_priority,
+        'byCategory': by_category,
+        'byArea': by_area,
+        'byRoom': sorted(by_room.items(), key=lambda kv: -kv[1]),
+        'byTechnician': by_technician,
+        'avgResolutionHours': round(resolution_total_ms / resolution_count / 3600000, 1) if resolution_count else None,
+        'feedback': {'count': rating_count, 'average': round(rating_sum / rating_count, 2) if rating_count else None},
+    }
+
+
+def _parse_iso(value, label):
+    try:
+        s = value.replace('Z', '+00:00') if isinstance(value, str) else ''
+        return datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return None
+
+
+@app.route('/api/chamados/reports', methods=['GET'])
+def chamados_reports():
+    """Relatório de chamados (agregação no servidor). Período via from/to (ISO).
+
+    Métricas: total, por status/prioridade/categoria/área/sala, por técnico,
+    tempo médio de resolução e satisfação. Fonte: Supabase (chamados_tickets).
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        _ensure_chamados_schema()
+
+        now = datetime.now(timezone.utc)
+        from_iso = request.args.get('from') or (now - timedelta(days=30)).isoformat()
+        to_iso = request.args.get('to') or now.isoformat()
+        from_dt = _parse_iso(from_iso, 'from')
+        to_dt = _parse_iso(to_iso, 'to')
+        if not from_dt or not to_dt:
+            return jsonify({'error': 'Período inválido (use ISO, ex.: 2026-06-01T00:00:00Z)'}), 400
+        if from_dt > to_dt:
+            return jsonify({'error': 'from deve ser anterior a to'}), 400
+
+        url = (
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+            f'?select=status,priority,problemCategory,problemArea,roomName,assignedTo,createdAt,resolvedAt,feedbackRating'
+            f'&createdAt=gte.{quote(from_iso)}&createdAt=lte.{quote(to_iso)}'
+        )
+        workspace_id = request.args.get('workspace_id')
+        if workspace_id:
+            url += f'&workspace_id=eq.{quote(workspace_id)}'
+        resp = requests.get(url, headers=_supabase_headers(), timeout=15)
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao gerar relatório'}), 502
+
+        report = _aggregate_ticket_reports(resp.json() or [])
+        report['period'] = {'from': from_iso, 'to': to_iso}
+        return jsonify({'report': report})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

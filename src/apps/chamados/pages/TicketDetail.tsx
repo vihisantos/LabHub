@@ -15,6 +15,7 @@ import { Stars } from '../components/Stars'
 import { icons } from '../../../lib/icons'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { useAuth } from '../../../core/auth/useAuth'
+import { userService } from '../../../core/users/service'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
 
 const STATUS_FLOW: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
@@ -42,6 +43,20 @@ export function TicketDetail() {
   const ticket = tickets.find((t) => t.id === id)
   const [noteInput, setNoteInput] = useState('')
   const [photoOpen, setPhotoOpen] = useState(false)
+
+  const assignees = userService.getAll()
+
+  function handleAssign(userId: string, name: string) {
+    if (!ticket) return
+    if ((ticket.assignedToUserId ?? '') === userId && ticket.assignedTo === name) return
+    update(ticket.id, { assignedTo: name, assignedToUserId: userId })
+  }
+
+  function handleAssignToMe() {
+    if (!ticket || !user) return
+    const profile = userService.getByUserId(user.id)
+    handleAssign(user.id, profile?.displayName || user.name)
+  }
 
   const history = useMemo(() => {
     if (!ticket) return []
@@ -72,7 +87,7 @@ export function TicketDetail() {
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket) return
     if (nextStatus === 'a_caminho') {
-      update(ticket.id, { status: nextStatus, assignedTo: user?.name })
+      update(ticket.id, { status: nextStatus, assignedTo: user?.name, assignedToUserId: user?.id })
     } else if (nextStatus === 'fechado') {
       update(ticket.id, {
         status: nextStatus,
@@ -182,6 +197,37 @@ export function TicketDetail() {
             )}
           </div>
         )}
+
+      {canWrite && (
+        <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+          <h3 className="mb-2 text-xs font-semibold text-fg-muted">Atribuição</h3>
+          <div className="flex gap-2">
+            <select
+              value={ticket.assignedToUserId ?? ''}
+              onChange={(e) => {
+                const userId = e.target.value
+                const name = userId
+                  ? (assignees.find((a) => a.userId === userId)?.displayName ?? '')
+                  : ''
+                handleAssign(userId, name)
+              }}
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-fg focus:border-amber-500 focus:outline-none"
+            >
+              <option value="">Sem responsável</option>
+              {assignees.map((a) => (
+                <option key={a.id} value={a.userId}>{a.displayName}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={handleAssignToMe}
+              className="shrink-0 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-400"
+            >
+              Pegar para mim
+            </button>
+          </div>
+        </div>
+      )}
 
       {ticket.status === 'fechado' && (
         <div className="rounded-xl border border-line bg-card px-4 py-3">
