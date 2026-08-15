@@ -5,6 +5,7 @@ import { Stars } from '../../chamados/components/Stars'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types'
 import type { Ticket } from '../../chamados/types'
+import type { TicketEvent } from '../../chamados/types'
 
 export function TrackPage() {
   const navigate = useNavigate()
@@ -12,6 +13,11 @@ export function TrackPage() {
   const [tickets, setTickets] = useState<Ticket[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [eventsByTicket, setEventsByTicket] = useState<Record<string, TicketEvent[]>>({})
+  const [loadingEvents, setLoadingEvents] = useState(false)
+  const [commentByTicket, setCommentByTicket] = useState<Record<string, string>>({})
+  const [commentError, setCommentError] = useState('')
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -38,6 +44,41 @@ export function TrackPage() {
 
   function handleAvaliar(ticket: Ticket) {
     navigate(`/chamados-publico/feedback/${ticket.id}`)
+  }
+
+  async function toggleHistory(ticket: Ticket) {
+    if (expandedId === ticket.id) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(ticket.id)
+    if (!eventsByTicket[ticket.id]) {
+      setLoadingEvents(true)
+      try {
+        const evs = await ticketService.getEvents(ticket.id)
+        setEventsByTicket((prev) => ({ ...prev, [ticket.id]: evs }))
+      } catch {
+        setEventsByTicket((prev) => ({ ...prev, [ticket.id]: [] }))
+      } finally {
+        setLoadingEvents(false)
+      }
+    }
+  }
+
+  async function handleComment(ticket: Ticket) {
+    const text = (commentByTicket[ticket.id] || '').trim()
+    if (!text) return
+    setCommentError('')
+    try {
+      const ev = await ticketService.addEvent(ticket.id, {
+        content: text,
+        author: ticket.reportedBy || 'Solicitante',
+      })
+      setEventsByTicket((prev) => ({ ...prev, [ticket.id]: [ev, ...(prev[ticket.id] || [])] }))
+      setCommentByTicket((prev) => ({ ...prev, [ticket.id]: '' }))
+    } catch {
+      setCommentError('Não foi possível enviar o comentário. Tente novamente.')
+    }
   }
 
   const resolvedCount = tickets?.filter((t) => t.status === 'resolvido' || t.status === 'fechado').length ?? 0
@@ -127,7 +168,86 @@ export function TrackPage() {
                     ) : (
                       <span className="text-[11px] text-fg-dim">A avaliação libera após a resolução</span>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => toggleHistory(ticket)}
+                      className="flex items-center gap-1 text-[11px] font-medium text-fg-muted transition-colors hover:text-emerald-500"
+                    >
+                      <icons.ui.clock size={13} />
+                      {expandedId === ticket.id ? 'Fechar histórico' : 'Ver histórico'}
+                    </button>
                   </div>
+
+                  {expandedId === ticket.id && (
+                    <div className="mt-3 rounded-xl border border-line bg-surface p-3">
+                      {loadingEvents && !eventsByTicket[ticket.id] ? (
+                        <p className="text-[11px] text-fg-dim">Carregando histórico...</p>
+                      ) : eventsByTicket[ticket.id] && eventsByTicket[ticket.id].length > 0 ? (
+                        <div className="space-y-2.5">
+                          {eventsByTicket[ticket.id].map((ev) => (
+                            <div key={ev.id} className="flex items-start gap-2">
+                              <span className="mt-0.5 shrink-0 text-fg-dim">
+                                <icons.ui.user size={12} />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <p className="text-[10px] font-semibold text-fg">{ev.author}</p>
+                                  <span className="shrink-0 text-[10px] text-fg-dim">
+                                    {new Date(ev.createdAt).toLocaleString('pt-BR', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                </div>
+                                {ev.content && <p className="mt-0.5 text-[11px] text-fg-muted">{ev.content}</p>}
+                                {ev.photos.length > 0 && (
+                                  <div className="mt-1.5 flex gap-1.5">
+                                    {ev.photos.map((url, i) => (
+                                      <img
+                                        key={`${ev.id}-${i}`}
+                                        src={url}
+                                        alt={`Foto ${i + 1}`}
+                                        className="h-14 w-14 rounded-lg border border-line object-cover"
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-fg-dim">Nenhum registro ainda</p>
+                      )}
+
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          type="text"
+                          value={commentByTicket[ticket.id] || ''}
+                          onChange={(e) =>
+                            setCommentByTicket((prev) => ({ ...prev, [ticket.id]: e.target.value }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleComment(ticket)
+                          }}
+                          placeholder="Escrever um comentário..."
+                          className="min-w-0 flex-1 rounded-lg border border-line bg-card px-3 py-2 text-xs text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleComment(ticket)}
+                          disabled={!(commentByTicket[ticket.id] || '').trim()}
+                          className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Comentar
+                        </button>
+                      </div>
+                      {commentError && <p className="mt-1.5 text-[10px] text-red-500">{commentError}</p>}
+                    </div>
+                  )}
                 </div>
               )
             })}

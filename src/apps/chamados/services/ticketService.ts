@@ -1,4 +1,5 @@
 import type { Ticket, TicketFormData, ChamadosReport } from '../types'
+import type { TicketEvent, TicketEventInput } from '../types'
 import { createSyncService } from '../../../lib/sync'
 import { getCol, setCol } from '../../../lib/db'
 import { logService } from '../../../core/logs/service'
@@ -129,6 +130,21 @@ export const ticketService = {
     })
     persistLocal(ticket)
     return ticket
+  },
+
+  /** Histórico (timeline) de eventos de um chamado, do mais novo ao mais antigo. */
+  getEvents: async (id: string): Promise<TicketEvent[]> => {
+    const { events } = await request<{ events: TicketEvent[] }>(`${API_BASE}/${id}/events`)
+    return events || []
+  },
+
+  /** Adiciona um comentário ao chamado (máx 2 fotos por evento). */
+  addEvent: async (id: string, data: TicketEventInput): Promise<TicketEvent> => {
+    const { event } = await request<{ event: TicketEvent }>(`${API_BASE}/${id}/events`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    return event
   },
 
   query: (predicate: (item: Ticket) => boolean) => local.query(predicate),

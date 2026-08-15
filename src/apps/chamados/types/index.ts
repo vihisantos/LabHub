@@ -18,3 +18,4 @@ export {
 } from './ticket'
 export type { SlaConfig } from './sla'
 export type { ChamadosReport, ReportPeriod, ReportPeriodDays, TechnicianReportRow } from './report'
+export type { TicketEvent, TicketEventInput, TicketEventType } from './events'
