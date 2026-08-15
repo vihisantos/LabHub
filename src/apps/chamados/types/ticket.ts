@@ -23,6 +23,7 @@ export interface Ticket {
   reportedBy: string
   reportedByEmail: string
   assignedTo: string
+  assignedToUserId?: string
   feedbackRating?: number
   feedbackComment?: string
   feedbackAt?: string

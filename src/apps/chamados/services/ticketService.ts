@@ -1,4 +1,4 @@
-import type { Ticket, TicketFormData } from '../types'
+import type { Ticket, TicketFormData, ChamadosReport } from '../types'
 import type { TicketEvent, TicketEventInput } from '../types'
 import { createSyncService } from '../../../lib/sync'
 import { getCol, setCol } from '../../../lib/db'
@@ -171,5 +171,16 @@ export const ticketService = {
   pullRemote: async (): Promise<void> => {
     const { tickets } = await request<{ tickets: Ticket[] }>(API_BASE)
     mergeRemote(tickets || [])
+  },
+
+  /** Relatório agregado no servidor (período opcional em ISO: from/to). */
+  getReports: async (params: { from?: string; to?: string; workspace_id?: string } = {}): Promise<ChamadosReport> => {
+    const qs = new URLSearchParams()
+    if (params.from) qs.set('from', params.from)
+    if (params.to) qs.set('to', params.to)
+    if (params.workspace_id) qs.set('workspace_id', params.workspace_id)
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    const { report } = await request<{ report: ChamadosReport }>(`${API_BASE}/reports${suffix}`)
+    return report
   },
 }

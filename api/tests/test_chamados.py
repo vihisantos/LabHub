@@ -901,6 +901,182 @@ def test_patch_status_note_igual_nao_notifica(api_module, notify_client, fake_re
     assert resp.status_code == 200
     assert sent == []
 
+# -- Fase 5: atribuição de técnicos + relatórios --
+
+
+def test_schema_inclui_assigned_to_user_id(api_module):
+    assert "assignedToUserId" in api_module.CHAMADOS_TABLE_SQL
+    assert 'ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "assignedToUserId"' in api_module.CHAMADOS_TABLE_SQL
+
+
+def test_create_aceita_assigned_to_user_id(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=5)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6, assignedTo="Técnico 2", assignedToUserId="user-2"))
+
+    resp = client.post(
+        "/api/chamados",
+        json=_valid_payload(assignedTo="Técnico 2", assignedToUserId="user-2"),
+    )
+
+    assert resp.status_code == 200
+    insert = fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")[0]["kwargs"]["json"]
+    assert insert["assignedToUserId"] == "user-2"
+    assert insert["assignedTo"] == "Técnico 2"
+
+
+def _route_assignment_get(fake_requests, prev_row):
+    fake_requests.route(
+        "GET",
+        "chamados_tickets?id=eq.",
+        FakeResponse([prev_row] if prev_row else []),
+    )
+
+
+def _assignment_push_fixture(api_module, monkeypatch):
+    sent = []
+    target_kwargs = []
+
+    def fake_target(**kw):
+        target_kwargs.append(kw)
+        return [_make_sub()]
+
+    def fake_push(sub, title, body, url="/"):
+        sent.append({"title": title, "body": body, "url": url})
+        return True
+
+    monkeypatch.setattr(api_module, "_target_subs", fake_target)
+    monkeypatch.setattr(api_module, "push_notify", fake_push)
+    return sent, target_kwargs
+
+
+def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module, monkeypatch):
+    sent, target_kwargs = _assignment_push_fixture(api_module, monkeypatch)
+    _route_assignment_get(fake_requests, _make_ticket(assignedTo="", assignedToUserId=""))
+    _route_patch_ticket(
+        fake_requests,
+        _make_ticket(status="aberto", assignedTo="Técnico 2", assignedToUserId="user-2"),
+    )
+
+    resp = client.patch("/api/chamados/ticket-1", json={"assignedTo": "Técnico 2", "assignedToUserId": "user-2"})
+
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "atribuído a você" in sent[0]["title"]
+    assert "/chamados/tickets/ticket-1" in sent[0]["url"]
+    # Segmentação per-usuário: filtra pelo id do técnico e módulo chamados
+    assert target_kwargs and target_kwargs[0]["user_id"] == "user-2"
+    assert target_kwargs[0]["module"] == "chamados"
+    assert target_kwargs[0]["workspace_id"] == "ws-a"
+
+
+def test_patch_atribuicao_sem_mudanca_nao_avisa(client, fake_requests, api_module, monkeypatch):
+    sent, _ = _assignment_push_fixture(api_module, monkeypatch)
+    _route_assignment_get(fake_requests, _make_ticket(assignedTo="Técnico 2", assignedToUserId="user-2"))
+    _route_patch_ticket(
+        fake_requests,
+        _make_ticket(status="aberto", assignedTo="Técnico 2", assignedToUserId="user-2"),
+    )
+
+    resp = client.patch("/api/chamados/ticket-1", json={"assignedToUserId": "user-2"})
+
+    assert resp.status_code == 200
+    assert sent == []
+
+
+def test_patch_remove_atribuicao_nao_avisa(client, fake_requests, api_module, monkeypatch):
+    sent, _ = _assignment_push_fixture(api_module, monkeypatch)
+    _route_assignment_get(fake_requests, _make_ticket(assignedTo="Técnico 2", assignedToUserId="user-2"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", assignedTo="", assignedToUserId=""))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"assignedToUserId": ""})
+
+    assert resp.status_code == 200
+    assert sent == []
+
+
+def test_reports_agrega_chamados_do_periodo(client, fake_requests):
+    rows = [
+        _make_ticket(
+            id="t-1",
+            status="resolvido",
+            assignedTo="Técnico A",
+            createdAt="2026-06-01T10:00:00Z",
+            resolvedAt="2026-06-01T12:00:00Z",
+            feedbackRating=5,
+        ),
+        _make_ticket(
+            id="t-2",
+            status="em_atendimento",
+            assignedTo="Técnico A",
+            problemCategory="Projetor",
+            problemArea="administrativa",
+            roomName="Lab 2",
+            createdAt="2026-06-05T10:00:00Z",
+            resolvedAt=None,
+            feedbackRating=None,
+        ),
+    ]
+    fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse(rows))
+
+    resp = client.get("/api/chamados/reports", query_string={"from": "2026-06-01T00:00:00Z", "to": "2026-07-01T00:00:00Z"})
+
+    assert resp.status_code == 200
+    report = resp.get_json()["report"]
+    assert report["total"] == 2
+    assert report["byStatus"]["resolvido"] == 1
+    assert report["byStatus"]["em_atendimento"] == 1
+    assert report["byCategory"]["Internet"] == 1
+    assert report["byCategory"]["Projetor"] == 1
+    assert report["byArea"]["administrativa"] == 1
+    assert ["Lab 2", 1] in report["byRoom"]
+    assert report["avgResolutionHours"] == 2.0
+    assert report["feedback"] == {"count": 1, "average": 5.0}
+    assert report["byTechnician"] == [
+        {
+            "name": "Técnico A",
+            "open": 1,
+            "resolved": 1,
+            "total": 2,
+            "avgResolutionHours": 2.0,
+            "rating": 5.0,
+            "ratingCount": 1,
+        }
+    ]
+    url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
+    assert "createdAt=gte." in url
+    assert "createdAt=lte." in url
+
+
+def test_reports_filtra_por_workspace(client, fake_requests):
+    fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
+    resp = client.get("/api/chamados/reports", query_string={"workspace_id": "ws-a"})
+    assert resp.status_code == 200
+    url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
+    assert "workspace_id=eq.ws-a" in url
+
+
+def test_reports_periodo_invalido_retorna_400(client, fake_requests):
+    resp = client.get("/api/chamados/reports", query_string={"from": "nao-e-data"})
+    assert resp.status_code == 400
+
+
+def test_reports_from_apos_to_retorna_400(client, fake_requests):
+    resp = client.get(
+        "/api/chamados/reports",
+        query_string={"from": "2026-07-01T00:00:00Z", "to": "2026-06-01T00:00:00Z"},
+    )
+    assert resp.status_code == 400
+
+
+def test_reports_erro_do_supabase_retorna_502(client, fake_requests):
+    fake_requests.route(
+        "GET",
+        "chamados_tickets?select=status,priority",
+        FakeResponse({"error": "x"}, status_code=500, ok=False),
+    )
+    resp = client.get("/api/chamados/reports")
+    assert resp.status_code == 502
 
 # ── Fase 4: eventos (histórico/comentários) + fotos Cloudinary ──
 
