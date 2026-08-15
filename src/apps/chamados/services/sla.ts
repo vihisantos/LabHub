@@ -94,3 +94,85 @@ export function getSlaInfo(
       : `${formatDuration(remaining)} restantes`
   return { state, label, deadline }
 }
+
+export interface SlaPriorityStats {
+  total: number
+  met: number
+  breached: number
+  avgHours: number
+}
+
+export interface SlaAnalysis {
+  total: number
+  met: number
+  breached: number
+  rate: number
+  avgHours: number
+  byPriority: Record<TicketPriority, SlaPriorityStats>
+}
+
+export interface SlaResolvedTicket {
+  id: string
+  workspace_id?: string | null
+  createdAt: string
+  resolvedAt?: string | null
+  priority?: TicketPriority
+}
+
+function emptyPriorityStats(): Record<TicketPriority, SlaPriorityStats> {
+  return {
+    baixa: { total: 0, met: 0, breached: 0, avgHours: 0 },
+    normal: { total: 0, met: 0, breached: 0, avgHours: 0 },
+    alta: { total: 0, met: 0, breached: 0, avgHours: 0 },
+    urgente: { total: 0, met: 0, breached: 0, avgHours: 0 },
+  }
+}
+
+export function analyzeSla(
+  tickets: SlaResolvedTicket[],
+  configs?: Record<string, Record<TicketPriority, number>>,
+): SlaAnalysis {
+  const byPriority = emptyPriorityStats()
+  let total = 0
+  let met = 0
+  let sumHours = 0
+
+  for (const t of tickets) {
+    if (!t.resolvedAt) continue
+    const created = new Date(t.createdAt).getTime()
+    const resolved = new Date(t.resolvedAt).getTime()
+    if (!Number.isFinite(created) || !Number.isFinite(resolved)) continue
+
+    const p = getPriority(t.priority)
+    const slaHours = getSlaHours(p, configs?.[t.workspace_id ?? ''])
+    if (slaHours <= 0) continue
+
+    const durationHours = (resolved - created) / HOUR_MS
+    if (durationHours < 0) continue
+
+    const ok = durationHours <= slaHours
+    total++
+    sumHours += durationHours
+    if (ok) met++
+
+    const s = byPriority[p]
+    s.total++
+    s.avgHours += durationHours
+    if (ok) s.met++
+    else s.breached++
+  }
+
+  for (const p of Object.keys(byPriority) as TicketPriority[]) {
+    const s = byPriority[p]
+    if (s.total > 0) s.avgHours = Math.round((s.avgHours / s.total) * 10) / 10
+  }
+
+  return {
+    total,
+    met,
+    breached: total - met,
+    rate: total > 0 ? Math.round((met / total) * 100) : 0,
+    avgHours: total > 0 ? Math.round((sumHours / total) * 10) / 10 : 0,
+    byPriority,
+  }
+}

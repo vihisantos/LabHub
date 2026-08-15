@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
+  analyzeSla,
   computeSlaDeadline,
   formatDuration,
   getPriority,
@@ -120,5 +121,76 @@ describe('getSlaInfo', () => {
     const info = getSlaInfo('2026-08-13T09:00:00Z', 'normal', 'aberto', null)
     expect(info!.state).toBe('ok')
     expect(info!.label).toContain('restantes')
+  })
+})
+
+describe('analyzeSla', () => {
+  const mk = (
+    id: string,
+    createdAt: string,
+    resolvedAt: string | null,
+    priority: 'baixa' | 'normal' | 'alta' | 'urgente' = 'normal',
+    workspace_id?: string,
+  ) => ({ id, createdAt, resolvedAt, priority, workspace_id })
+
+  it('vazio → sem resultados', () => {
+    const r = analyzeSla([])
+    expect(r.total).toBe(0)
+    expect(r.rate).toBe(0)
+    expect(r.avgHours).toBe(0)
+    expect(r.byPriority.normal.total).toBe(0)
+  })
+
+  it('ignora tickets sem resolvedAt e sem SLA configurado', () => {
+    const tickets = [
+      mk('a', '2026-08-13T08:00:00Z', null),
+      mk('b', '2026-08-13T08:00:00Z', '2026-08-13T09:00:00Z', 'normal'),
+    ]
+    const r = analyzeSla(tickets, { '': { ...DEFAULT_SLA_HOURS, normal: 0 } })
+    expect(r.total).toBe(0)
+  })
+
+  it('dentro do prazo conta como cumprido', () => {
+    const tickets = [mk('a', '2026-08-13T08:00:00Z', '2026-08-13T09:00:00Z', 'urgente')]
+    const r = analyzeSla(tickets)
+    expect(r.total).toBe(1)
+    expect(r.met).toBe(1)
+    expect(r.breached).toBe(0)
+    expect(r.rate).toBe(100)
+  })
+
+  it('estourado conta como descumprido e mantém taxa', () => {
+    const tickets = [
+      mk('a', '2026-08-13T08:00:00Z', '2026-08-13T09:00:00Z', 'urgente'),
+      mk('b', '2026-08-13T08:00:00Z', '2026-08-13T12:00:00Z', 'urgente'),
+    ]
+    const r = analyzeSla(tickets)
+    expect(r.total).toBe(2)
+    expect(r.met).toBe(1)
+    expect(r.breached).toBe(1)
+    expect(r.rate).toBe(50)
+  })
+
+  it('config personalizada por prioridade e por workspace', () => {
+    const tickets = [
+      mk('a', '2026-08-13T08:00:00Z', '2026-08-13T10:30:00Z', 'normal', 'w1'),
+      mk('b', '2026-08-13T08:00:00Z', '2026-08-13T10:30:00Z', 'normal', 'w2'),
+    ]
+    const configs = { w1: { ...DEFAULT_SLA_HOURS, normal: 2 }, w2: { ...DEFAULT_SLA_HOURS, normal: 3 } }
+    const r = analyzeSla(tickets, configs)
+    expect(r.byPriority.normal.met).toBe(1)
+    expect(r.byPriority.normal.breached).toBe(1)
+  })
+
+  it('média de horas por prioridade e geral', () => {
+    const tickets = [
+      mk('a', '2026-08-13T08:00:00Z', '2026-08-13T10:00:00Z', 'urgente'),
+      mk('b', '2026-08-13T08:00:00Z', '2026-08-13T12:00:00Z', 'urgente'),
+    ]
+    const r = analyzeSla(tickets)
+    expect(r.avgHours).toBe(3)
+    expect(r.byPriority.urgente.avgHours).toBe(3)
+    expect(r.byPriority.urgente.total).toBe(2)
+    expect(r.byPriority.baixa.total).toBe(0)
   })
 })
