@@ -4,6 +4,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 const mockSubscribe = vi.hoisted(() => vi.fn())
 const mockGetSession = vi.hoisted(() => vi.fn())
 const mockFetch = vi.hoisted(() => vi.fn())
+// defaultDb mutável para cobrir também o caso de Supabase não configurado (null)
+const mockSupabaseState = vi.hoisted(() => ({ defaultDb: null as any }))
 
 vi.mock('../../../../lib/usePushNotifications', () => ({
   usePushNotifications: vi.fn(),
@@ -55,7 +57,9 @@ vi.mock('../../services/slaConfigService', () => ({
 }))
 
 vi.mock('../../../../lib/supabase', () => ({
-  defaultDb: { auth: { getSession: mockGetSession } },
+  get defaultDb() {
+    return mockSupabaseState.defaultDb
+  },
 }))
 
 import { usePushNotifications } from '../../../../lib/usePushNotifications'
@@ -76,6 +80,7 @@ function mockHook(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   mockHook()
+  mockSupabaseState.defaultDb = { auth: { getSession: mockGetSession } }
   mockGetSession.mockResolvedValue({
     data: { session: { access_token: 'token-123' } },
     error: null,
@@ -177,6 +182,33 @@ describe('Settings — Notificações Push', () => {
     await act(async () => {})
 
     expect(screen.getByText(/Faça login novamente/)).toBeInTheDocument()
+  })
+
+  it('Testar notificação: mostra aviso quando a sessão expira (getSession sem session)', async () => {
+    mockHook({ permission: 'granted', subscribed: true })
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null })
+
+    render(<Settings />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar notificação' }))
+    await act(async () => {})
+
+    expect(screen.getByText('Sessão expirada. Faça login novamente.')).toBeInTheDocument()
+    // Sem sessão, não chega a chamar o endpoint de teste
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('Testar notificação: avisa quando o Supabase não está configurado (defaultDb null)', async () => {
+    mockHook({ permission: 'granted', subscribed: true })
+    mockSupabaseState.defaultDb = null
+
+    render(<Settings />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar notificação' }))
+    await act(async () => {})
+
+    expect(screen.getByText('Supabase não configurado')).toBeInTheDocument()
+    // Sem cliente, não chama nem getSession nem o endpoint
+    expect(mockGetSession).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
   it('Testar notificação fica desabilitado quando o push não está ativo', () => {
