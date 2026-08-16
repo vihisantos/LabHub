@@ -489,7 +489,7 @@ def tv_activation_create():
         # 1. Valida o JWT do usuário via Supabase Auth
         auth_resp = requests.get(
             f'{_SUPABASE_URL}/auth/v1/user',
-            headers={'Authorization': f'Bearer {token}'},
+            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
             timeout=10,
         )
         if not auth_resp.ok:
@@ -1351,7 +1351,7 @@ def chamados_push_test():
         # Valida o JWT do usuário via Supabase Auth (mesmo padrão da ativação da TV)
         auth_resp = requests.get(
             f'{_SUPABASE_URL}/auth/v1/user',
-            headers={'Authorization': f'Bearer {token}'},
+            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
             timeout=10,
         )
         if not auth_resp.ok:
