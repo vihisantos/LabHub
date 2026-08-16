@@ -1305,6 +1305,54 @@ def chamados_subscribe(ticket_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/chamados/push/test', methods=['POST'])
+def chamados_push_test():
+    """Envia uma push de teste para o próprio usuário logado (módulo chamados).
+
+    Usado pela página de Configurações do Chamados para validar o fluxo completo
+    (inscrição → service worker → notificação). Requer sessão Supabase (Bearer):
+    o push é segmentado pelas inscrições do usuário com acesso ao módulo chamados.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
+        if not token:
+            return jsonify({'error': 'Token de autenticação ausente'}), 401
+
+        # Valida o JWT do usuário via Supabase Auth (mesmo padrão da ativação da TV)
+        auth_resp = requests.get(
+            f'{_SUPABASE_URL}/auth/v1/user',
+            headers={'Authorization': f'Bearer {token}'},
+            timeout=10,
+        )
+        if not auth_resp.ok:
+            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
+        auth_user = auth_resp.json() or {}
+        user_id = auth_user.get('id')
+        if not user_id:
+            return jsonify({'error': 'Usuário não identificado'}), 401
+
+        subs = _target_subs(module='chamados', user_id=user_id)
+        if not subs:
+            return jsonify({
+                'sent': 0,
+                'total': 0,
+                'message': 'Nenhuma inscrição push encontrada para este usuário. Ative as notificações primeiro.',
+            })
+
+        title = 'Teste de notificação — Chamados'
+        body = 'Push funcionando! Você receberá avisos de novos chamados. 🔔'
+        sent = 0
+        for sub in subs:
+            if push_notify(sub, title, body, url='/chamados'):
+                sent += 1
+        print(f"[chamados] push de teste: {sent}/{len(subs)} enviados (user={user_id})")
+        return jsonify({'sent': sent, 'total': len(subs)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Zerar dados (factory reset) ──
 
 WIPE_TOKEN = os.environ.get('WIPE_TOKEN', '')

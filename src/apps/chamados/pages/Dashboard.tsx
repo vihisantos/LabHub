@@ -17,6 +17,7 @@ import {
   isTicketOpen,
 } from '../services/sla'
 import { icons } from '../../../lib/icons'
+import { PushStatusCard } from '../components/PushStatusCard'
 import type { Ticket, TicketStatus } from '../types'
 
 function slaConfigFor(ticket: Ticket) {
@@ -133,6 +134,38 @@ export function Dashboard() {
         </div>
         <icons.ui.chevronRight size={18} className="shrink-0" />
       </button>
+
+      <button
+        type="button"
+        onClick={() => navigate('/chamados/reports')}
+        className="flex w-full items-center gap-3 rounded-xl bg-emerald-500 p-4 text-left text-white shadow-[var(--shadow-card)] transition-colors hover:bg-emerald-400"
+      >
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15">
+          <icons.nav.reports size={22} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Relatórios</p>
+          <p className="text-[11px] text-emerald-100/80">Estatísticas de chamados por período</p>
+        </div>
+        <icons.ui.chevronRight size={18} className="shrink-0" />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => navigate('/chamados/reports')}
+        className="flex w-full items-center gap-3 rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-colors hover:border hover:border-amber-500/40"
+      >
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/10">
+          <icons.ui.fileBarChart size={22} className="text-amber-500" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-fg">Relatórios</p>
+          <p className="text-[11px] text-fg-muted">Métricas do período e por técnico</p>
+        </div>
+        <icons.ui.chevronRight size={18} className="shrink-0 text-fg-dim" />
+      </button>
+
+      <PushStatusCard />
 
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between">

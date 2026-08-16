@@ -13,6 +13,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/chamados/tickets')) return 'Chamados'
   if (pathname.startsWith('/chamados/rooms')) return 'Salas'
   if (pathname.startsWith('/chamados/qr')) return 'QR Code'
+  if (pathname.startsWith('/chamados/reports')) return 'Relatórios'
   if (pathname.startsWith('/chamados/settings')) return 'Configurações'
   return 'Chamados'
 }

@@ -10,6 +10,7 @@ const mainNav: LiquidNavItem[] = [
 ]
 
 const moreItems: LiquidNavItem[] = [
+  { to: '/chamados/reports', label: 'Relatórios', icon: icons.nav.reports },
   { to: '/chamados/qr', label: 'QR Code', icon: icons.ui.qrCode },
   { to: '/chamados/settings', label: 'Config', icon: icons.nav.settings },
 ]
