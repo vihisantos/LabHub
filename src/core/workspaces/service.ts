@@ -20,14 +20,30 @@ function toSnake(data: WorkspaceFormData & { id?: string }): Workspace {
   }
 }
 
+// Fetch em andamento — vários componentes sincronizam workspaces ao mesmo
+// tempo (WorkspaceProvider + modais do gate com useWorkspaces), gerando
+// rajadas de requisições idênticas. Reutilizar a promessa em voo colapsa
+// essas chamadas em uma única requisição.
+let fetchInFlight: Promise<Workspace[] | null> | null = null
+
 async function fetchFromSupabase(): Promise<Workspace[] | null> {
   if (!defaultDb) return null
-  const { data, error } = await defaultDb.from('workspaces').select('*').order('name')
-  if (error) {
-    console.warn('[Workspace] Supabase fetch error:', error.message)
-    return null
+  if (fetchInFlight) return fetchInFlight
+
+  fetchInFlight = (async () => {
+    const { data, error } = await defaultDb.from('workspaces').select('*').order('name')
+    if (error) {
+      console.warn('[Workspace] Supabase fetch error:', error.message)
+      return null
+    }
+    return (data || []) as Workspace[]
+  })()
+
+  try {
+    return await fetchInFlight
+  } finally {
+    fetchInFlight = null
   }
-  return (data || []) as Workspace[]
 }
 
 async function upsertToSupabase(workspace: Workspace): Promise<boolean> {

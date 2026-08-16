@@ -6,6 +6,11 @@ import { resolveRoleId } from '../permissions/types'
 let currentUser: User | null = null
 let authListeners: Array<(user: User | null) => void> = []
 let initialized = false
+// true enquanto signIn() está em andamento — o callback de auth pula a
+// notificação nesse intervalo, pois o próprio signIn() notifica ao final.
+// Sem isso, callback e signIn notificam o mesmo usuário 2x (corrida do
+// SIGNED_IN), o WorkspaceProvider re-executa o load e o gate remonta 2x.
+let signInInFlight = false
 
 /** Coluna Supabase `role` (string legada ou id) → campo TS `roleId` (id estável). */
 function fromDbUser<T extends Record<string, unknown>>(row: T): Omit<T, 'role'> & { roleId: string } {
@@ -51,6 +56,9 @@ export const authService = {
     // 1. Set up auth state listener FIRST (before getSession)
     defaultDb.auth.onAuthStateChange(async (event, session) => {
       console.log('[Auth] State change:', event)
+      // Durante signIn(), o próprio signIn() notifica ao final — ignorar aqui
+      // evita notificar o mesmo usuário duas vezes (callback + signIn).
+      if (signInInFlight) return
       if (session?.user) {
         const profile = await authService.fetchUserProfile(session.user.id)
         // Só notifica quando o perfil mudou de verdade. Sem isso, INITIAL_SESSION
@@ -99,37 +107,42 @@ export const authService = {
 
     console.log('[Auth] Attempting sign in for:', credentials.email)
 
-    const { data, error } = await defaultDb!.auth.signInWithPassword({
-      email: credentials.email,
-      password: credentials.password,
-    })
+    signInInFlight = true
+    try {
+      const { data, error } = await defaultDb!.auth.signInWithPassword({
+        email: credentials.email,
+        password: credentials.password,
+      })
 
-    if (error) {
-      console.error('[Auth] Sign in error:', error.message)
-      throw error
+      if (error) {
+        console.error('[Auth] Sign in error:', error.message)
+        throw error
+      }
+      if (!data.user) throw new Error('Usuário não retornado')
+
+      console.log('[Auth] Sign in successful, user ID:', data.user.id)
+
+      let profile = await authService.fetchUserProfile(data.user.id)
+      console.log('[Auth] Profile fetch result:', profile)
+
+      // If profile doesn't exist (user created before trigger), create it
+      if (!profile) {
+        console.log('[Auth] Profile not found, creating...')
+        profile = await authService.createProfile(data.user.id, data.user.email || credentials.email, '')
+      }
+
+      if (!profile) {
+        console.error('[Auth] Failed to create or fetch profile')
+        throw new Error('Não foi possível criar o perfil do usuário. Verifique se a tabela profiles existe no Supabase.')
+      }
+
+      currentUser = profile
+      applyUserPreferences(profile)
+      notifyListeners()
+      return profile
+    } finally {
+      signInInFlight = false
     }
-    if (!data.user) throw new Error('Usuário não retornado')
-
-    console.log('[Auth] Sign in successful, user ID:', data.user.id)
-
-    let profile = await authService.fetchUserProfile(data.user.id)
-    console.log('[Auth] Profile fetch result:', profile)
-
-    // If profile doesn't exist (user created before trigger), create it
-    if (!profile) {
-      console.log('[Auth] Profile not found, creating...')
-      profile = await authService.createProfile(data.user.id, data.user.email || credentials.email, '')
-    }
-
-    if (!profile) {
-      console.error('[Auth] Failed to create or fetch profile')
-      throw new Error('Não foi possível criar o perfil do usuário. Verifique se a tabela profiles existe no Supabase.')
-    }
-
-    currentUser = profile
-    applyUserPreferences(profile)
-    notifyListeners()
-    return profile
   },
 
   signUp: async (data: SignUpData): Promise<User> => {
