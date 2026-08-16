@@ -14,7 +14,7 @@
   </a>
   <img src="https://img.shields.io/github/actions/workflow/status/vihisantos/LabHub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI Status" />
   <img src="https://img.shields.io/badge/version-2.1.0-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/license-MIT--Capybara--Holding-purple?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/license-All%20rights%20reserved-purple?style=for-the-badge" alt="License" />
 </p>
 
 ---
@@ -204,5 +204,5 @@ O roadmap publico esta disponivel em `/roadmap` dentro do app, com 74 features m
 </p>
 
 <p align="center">
-  <sub>Licenca MIT — Capybara Holding</sub>
+  <sub>Licenca proprietaria — todos os direitos reservados. Veja <a href="LICENSE">LICENSE</a>.</sub>
 </p>
