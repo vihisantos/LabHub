@@ -37,9 +37,17 @@ export function LiquidBottomNav({
 
   const resolve = (to: string) => (resolvePath ? resolvePath(location.pathname, to) : to)
 
+  // Só a rota mais específica fica ativa: sem isso, uma aba pai (ex.: '/pc-care')
+  // continua destacada quando uma rota filha (ex.: '/pc-care/parts') está aberta.
+  const matchedTo = [...items, ...overflowItems]
+    .map((i) => i.to)
+    .filter((t) => t !== '/')
+    .filter((t) => current === t || current.startsWith(t + '/'))
+    .sort((a, b) => b.length - a.length)[0]
+
   const isActive = (to: string) => {
     if (to === '/') return current === '/'
-    return current === to || current.startsWith(to + '/')
+    return to === matchedTo
   }
 
   const moreActive = overflowItems.find((i) => isActive(i.to))

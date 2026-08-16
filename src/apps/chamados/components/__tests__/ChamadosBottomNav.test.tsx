@@ -73,6 +73,18 @@ describe('ChamadosBottomNav', () => {
     expect(within(chamadosBtn as HTMLElement).queryByText('3')).not.toBeInTheDocument()
   })
 
+  it('destaca somente a aba ativa em rota filha (pai não fica selecionado)', () => {
+    renderWithProviders(<ChamadosBottomNav />, { initialEntries: ['/chamados/tickets'] })
+
+    const dashboardBtn = screen.getByText('Dashboard').closest('button')
+    const chamadosBtn = screen.getByText('Chamados').closest('button')
+
+    expect(dashboardBtn).not.toBeNull()
+    expect(chamadosBtn).not.toBeNull()
+    expect(dashboardBtn!.classList.contains('text-indigo-500')).toBe(false)
+    expect(chamadosBtn!.classList.contains('text-indigo-500')).toBe(true)
+  })
+
   it('abre o menu "Mais" e navega para Relatórios', () => {
     renderWithProviders(<ChamadosBottomNav />, { initialEntries: ['/chamados'] })
 

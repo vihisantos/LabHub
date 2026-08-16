@@ -25,6 +25,15 @@ const moreItems: LiquidNavItem[] = [
   { to: '/pc-care/settings',         label: 'Config',     icon: icons.nav.settings },
 ]
 
+// /pc-care/pcs* é o mesmo módulo de /pc-care/assets* (mesma listagem, título
+// "Ativos") — normaliza para que a aba Ativos fique ativa nessas rotas.
+function normalizePCarePath(pathname: string): string {
+  if (pathname.startsWith('/pc-care/pcs')) {
+    return '/pc-care/assets' + pathname.slice('/pc-care/pcs'.length)
+  }
+  return pathname
+}
+
 export function BottomNav() {
   const { overdue, lowStock } = useBadges()
 
@@ -32,6 +41,7 @@ export function BottomNav() {
     <LiquidBottomNav
       items={mainNav}
       overflowItems={moreItems}
+      normalizePath={normalizePCarePath}
       getBadge={(to) => {
         if (to === '/pc-care/maintenance') return overdue
         if (to === '/pc-care/parts') return lowStock
