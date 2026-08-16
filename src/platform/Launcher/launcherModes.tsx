@@ -18,7 +18,7 @@ export interface QuickAction {
 /** Ações rápidas por app (id do appRegistry). Usadas no modo dinâmico. */
 export const QUICK_ACTIONS: Record<string, QuickAction[]> = {
   chamados: [
-    { label: 'Escanear', icon: <icons.ui.scanBarcode size={18} />, route: '/chamados-publico/scan', color: '#f59e0b' },
+    { label: 'Novo Chamado', icon: <icons.ui.plus size={18} />, route: '/chamados-publico/new', color: '#f59e0b' },
     { label: 'Chamados', icon: <icons.ui.alertCircle size={18} />, route: '/chamados/tickets', color: '#f59e0b' },
     { label: 'Salas', icon: <icons.ui.mapPin size={18} />, route: '/chamados/rooms', color: '#f59e0b' },
   ],
