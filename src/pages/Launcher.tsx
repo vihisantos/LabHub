@@ -96,7 +96,7 @@ export function Launcher() {
         >
           Roadmap
         </button>
-        <p className="text-[10px] text-fg-dim">Lab Hub v1.0</p>
+        <p className="text-[10px] text-fg-dim">Lab Hub v2.0</p>
       </footer>
     </div>
   )
