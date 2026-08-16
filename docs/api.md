@@ -319,9 +319,10 @@ Os dois canais (push OS-level + in-app) sao complementares: o push garante o avi
 
 ```
 src/apps/reservalab/api/
-├── app.py              # Servidor Flask principal
-├── .env                # Variaveis de ambiente
-└── REGRAS_ARQUITETURA.md
+└── app.py              # Servidor Flask principal
+
+# Regras de arquitetura: docs/reservalab.md
+# Env vars: lidas do .env da raiz (load_dotenv) ou das env vars do Vercel
 ```
 
 ---

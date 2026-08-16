@@ -12,7 +12,7 @@ vi.mock('framer-motion', () => ({
 
 function makeReservation(overrides: Partial<TransformedReservation> = {}): TransformedReservation {
   return {
-    id: 1,
+    id: 'lab|07h30 - 09h20|Prof. João',
     time: '07h30 - 09h20',
     period: 'manhã',
     subject: 'Matemática',

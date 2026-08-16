@@ -99,6 +99,7 @@ async function waitForGate() {
   const props = mockGateProps.current as {
     workspaces?: Workspace[]
     canCreate?: boolean
+    onSelect?: (ws: Workspace, persist: boolean) => void
   }
   return props
 }
@@ -171,5 +172,38 @@ describe('WorkspaceContext — usuários e seus workspaces', () => {
     const props = await waitForGate()
     expect(idsOf(props.workspaces)).toBe('ws-sjc,ws-mooca')
     expect(props.canCreate).toBe(false)
+  })
+
+  it('gate não reabre para super admin que já escolheu, mesmo com re-render do auth', async () => {
+    mockUseAuth.mockReturnValue({ user: makeUser({ is_super_admin: true, workspace_ids: [] }) })
+
+    const { rerender } = renderProvider()
+
+    const props = await waitForGate()
+    expect(props.onSelect).toBeDefined()
+
+    // Escolhe o campus no gate (sem marcar "Manter preferência")
+    props.onSelect!(WS[0], false)
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.workspace).toBe('ws-sjc'))
+    expect(screen.getByTestId('probe').dataset.pending).toBe('false')
+
+    // Simula evento do auth (ex.: TOKEN_REFRESHED): identidade nova, mesmos dados
+    mockGateProps.current = null
+    mockUseAuth.mockReturnValue({ user: makeUser({ is_super_admin: true, workspace_ids: [] }) })
+
+    rerender(
+      <MemoryRouter>
+        <WorkspaceProvider>
+          <Probe />
+        </WorkspaceProvider>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe').dataset.workspace).toBe('ws-sjc')
+    })
+    // O gate NÃO reaparece e o workspace escolhido é mantido
+    expect(mockGateProps.current).toBeNull()
+    expect(screen.getByTestId('probe').dataset.pending).toBe('false')
   })
 })

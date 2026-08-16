@@ -11,7 +11,7 @@ vi.mock('framer-motion', () => ({
 
 function makeTabletReservation(overrides: Partial<TabletReserva> = {}): TabletReserva {
   return {
-    id: 1,
+    id: '11111111-1111-4111-8111-111111111111',
     sala: 'Lab 101',
     professor: 'Prof. Ana',
     horario_inicio: '2026-06-25T08:00:00.000Z',

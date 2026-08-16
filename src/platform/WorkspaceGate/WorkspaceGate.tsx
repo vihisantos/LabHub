@@ -183,6 +183,7 @@ export function WorkspaceGate({
 
       <WorkspaceActionsSheet
         workspace={actionWs}
+        canManage={canCreate}
         onClose={() => setActionWs(null)}
         onConfigure={(ws) => {
           setActionWs(null)

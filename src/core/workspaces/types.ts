@@ -4,6 +4,8 @@ export interface Workspace {
   slug: string
   location: string
   spreadsheet_url: string
+  /** Quantidade de labs do campus (ReservaLab) — padrão 2 */
+  lab_count?: number
   color?: string
   disabled_apps?: string[]
   created_at: string

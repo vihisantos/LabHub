@@ -29,6 +29,15 @@ function notifyListeners() {
   }
 }
 
+/** Compara dois usuários pelo conteúdo. Evita notificar listeners com um objeto
+ * novo a cada evento do Supabase (INITIAL_SESSION, TOKEN_REFRESHED...), o que
+ * fazia o WorkspaceProvider recarregar e reabrir o gate de seleção no meio da
+ * sessão. */
+function sameUser(a: User | null, b: User | null): boolean {
+  if (!a || !b) return a === b
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 function requireDb() {
   if (!defaultDb) throw new Error('Supabase não configurado. Verifique as variáveis de ambiente.')
 }
@@ -44,12 +53,21 @@ export const authService = {
       console.log('[Auth] State change:', event)
       if (session?.user) {
         const profile = await authService.fetchUserProfile(session.user.id)
-        currentUser = profile
-        if (profile) applyUserPreferences(profile)
+        // Só notifica quando o perfil mudou de verdade. Sem isso, INITIAL_SESSION
+        // + getSession (e TOKEN_REFRESHED) criam objetos novos a cada evento e o
+        // WorkspaceProvider re-roda o load, reabrindo o gate de seleção no meio
+        // da sessão.
+        if (profile && !sameUser(currentUser, profile)) {
+          currentUser = profile
+          applyUserPreferences(profile)
+          notifyListeners()
+        }
       } else {
-        currentUser = null
+        if (currentUser) {
+          currentUser = null
+          notifyListeners()
+        }
       }
-      notifyListeners()
     })
 
     // 2. Then restore existing session
@@ -60,9 +78,12 @@ export const authService = {
       }
       if (session?.user) {
         console.log('[Auth] Session restored for:', session.user.email)
-        currentUser = await authService.fetchUserProfile(session.user.id)
-        if (currentUser) applyUserPreferences(currentUser)
-        notifyListeners()
+        const profile = await authService.fetchUserProfile(session.user.id)
+        if (profile && !sameUser(currentUser, profile)) {
+          currentUser = profile
+          applyUserPreferences(profile)
+          notifyListeners()
+        }
       } else {
         console.log('[Auth] No active session')
       }

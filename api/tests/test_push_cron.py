@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -90,3 +91,77 @@ def test_checks_aceitam_header_correto(client, monkeypatch, endpoint):
     monkeypatch.setenv('CRON_SECRET', 'segredo-teste-123')
     resp = client.get(endpoint, headers={'Authorization': 'Bearer segredo-teste-123'})
     assert resp.status_code != 401
+
+
+# ── Filtro por workspace no alerta de reserva próxima ──────────────────────
+
+class FakeRedis:
+    """Fake mínimo do cliente Redis usado pelos checks de push."""
+
+    def __init__(self, members=None):
+        self._members = members if members is not None else set()
+
+    def smembers(self, key):
+        return set(self._members)
+
+    def get(self, key):
+        return None
+
+    def setex(self, *args, **kwargs):
+        pass
+
+    def delete(self, key):
+        self._members = set()
+
+    def sadd(self, key, value):
+        self._members.add(value)
+
+
+def _push_sub(user):
+    return {
+        'key': 'k-' + user['id'],
+        'endpoint': f'https://push.example/{user["id"]}',
+        'keys': {},
+        'user': user,
+    }
+
+
+def test_target_subs_filtra_por_workspace(push_module, monkeypatch):
+    """Alerta de tablets de um campus só chega para quem tem acesso àquele workspace.
+
+    Cobre a mudança do /api/push/check: reserva de tablets com workspace_id passa
+    a mirar apenas os assinantes do campus (super admin vê todos).
+    """
+    admin = {'id': 'u-admin', 'role': 'admin', 'is_super_admin': True, 'workspace_ids': ['a', 'b'], 'apps': {}, 'notify_settings': {}}
+    tech_a = {'id': 'u-a', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    tech_b = {'id': 'u-b', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['b'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+
+    fake = FakeRedis({
+        json.dumps(_push_sub(admin), ensure_ascii=False),
+        json.dumps(_push_sub(tech_a), ensure_ascii=False),
+        json.dumps(_push_sub(tech_b), ensure_ascii=False),
+    })
+    monkeypatch.setattr(push_module, 'redis', fake)
+
+    out = push_module._target_subs(module='reservalab', workspace_id='a')
+    ids = sorted(s['user']['id'] for s in out)
+
+    # Admin absoluto vê todos; tech do campus B fica de fora
+    assert ids == ['u-a', 'u-admin']
+
+
+def test_target_subs_sem_workspace_atinge_todos(push_module, monkeypatch):
+    """Reserva de tablets sem workspace_id mantém o comportamento legado (todos os assinantes)."""
+    tech_a = {'id': 'u-a', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    tech_b = {'id': 'u-b', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['b'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+
+    fake = FakeRedis({
+        json.dumps(_push_sub(tech_a), ensure_ascii=False),
+        json.dumps(_push_sub(tech_b), ensure_ascii=False),
+    })
+    monkeypatch.setattr(push_module, 'redis', fake)
+
+    out = push_module._target_subs(module='reservalab')
+    ids = sorted(s['user']['id'] for s in out)
+
+    assert ids == ['u-a', 'u-b']

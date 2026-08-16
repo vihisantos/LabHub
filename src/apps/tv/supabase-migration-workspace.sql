@@ -10,9 +10,13 @@ create table if not exists workspaces (
   slug text not null unique,
   location text default '',
   spreadsheet_url text default '',
+  lab_count smallint not null default 2,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Quantidade de labs por campus (ReservaLab): coluna nova para bancos existentes
+alter table workspaces add column if not exists lab_count smallint not null default 2;
 
 -- 1. Adiciona workspace_id nas tabelas de conteúdo
 alter table tv_events add column if not exists workspace_id uuid references workspaces(id);

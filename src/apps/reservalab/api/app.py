@@ -63,22 +63,6 @@ for h in logger.handlers:
     h.setFormatter(JSONFormatter())
 
 CACHE_TTL = 60  # segundos
-if os.environ.get('VERCEL'):
-    CACHE_FILE = '/tmp/.cache_reservas.json'
-else:
-    CACHE_FILE = os.path.join(BASE_DIR, '.cache_reservas.json')
-
-def get_cached_reservas():
-    try:
-        if os.path.exists(CACHE_FILE):
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                cache = json.load(f)
-            if time.time() - cache.get('timestamp', 0) < CACHE_TTL:
-                logger.info("Usando cache")
-                return cache.get('data')
-    except Exception as e:
-        logger.error(f"Erro ao ler cache: {e}")
-    return None
 
 class DateEncoder(json.JSONEncoder):
     """Serializa objetos date/datetime para string ISO automaticamente."""
@@ -87,18 +71,66 @@ class DateEncoder(json.JSONEncoder):
             return obj.strftime('%d/%m/%Y')
         return super().default(obj)
 
-def set_cached_reservas(data):
+
+def _cache_key_for(workspace_slug=None):
+    """Chave de cache por workspace — cada campus tem sua própria planilha/cache."""
+    return f"reservas_{workspace_slug or 'default'}"
+
+
+def _cache_path(cache_key):
+    """Caminho do cache em arquivo (fallback quando Redis não está configurado)."""
+    safe = re.sub(r'[^A-Za-z0-9_.-]', '_', cache_key)
+    if os.environ.get('VERCEL'):
+        return os.path.join('/tmp', f'.cache_{safe}.json')
+    return os.path.join(BASE_DIR, f'.cache_{safe}.json')
+
+
+def get_cached_reservas(cache_key):
+    """Lê o cache por chave. Redis (Upstash) primeiro; arquivo local como fallback."""
+    if redis:
+        try:
+            raw = redis.get(f'cache:{cache_key}')
+            if raw:
+                cache = json.loads(raw) if isinstance(raw, str) else raw
+                if cache and time.time() - cache.get('timestamp', 0) < CACHE_TTL:
+                    return cache.get('data')
+        except Exception as e:
+            logger.error(f"Erro ao ler cache Redis: {e}")
     try:
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'data': data, 'timestamp': time.time()}, f, cls=DateEncoder)
+        path = _cache_path(cache_key)
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+            if time.time() - cache.get('timestamp', 0) < CACHE_TTL:
+                return cache.get('data')
     except Exception as e:
-        logger.error(f"Erro ao salvar cache: {e}")
+        logger.error(f"Erro ao ler cache em arquivo: {e}")
+    return None
+
+
+def set_cached_reservas(cache_key, data):
+    """Grava o cache por chave (Redis + arquivo local para resiliência)."""
+    payload = {'data': data, 'timestamp': time.time()}
+    if redis:
+        try:
+            redis.set(f'cache:{cache_key}', json.dumps(payload, cls=DateEncoder), ex=CACHE_TTL)
+        except Exception as e:
+            logger.error(f"Erro ao salvar cache Redis: {e}")
+    try:
+        with open(_cache_path(cache_key), 'w', encoding='utf-8') as f:
+            json.dump(payload, f, cls=DateEncoder)
+    except Exception as e:
+        logger.error(f"Erro ao salvar cache em arquivo: {e}")
 
 app = Flask(__name__)
 CORS(app)
 
-VAPID_PUBLIC_KEY = "BPySgynYSvDIXSa3haOi3GyDolJqGhMyCdWdZfurxZA-OFySm-rZaIWXDJss2sEV2ngRe2Zp6_1gvxizQ9v2s8g"
-VAPID_PRIVATE_KEY = "8Cfm5ZvDQzP5DP2oyOzyZ-K2ks06K_OQoSlKcpCkWaI"
+# VAPID — apenas env vars (Vercel/.env). Sem as chaves, o push falha com warning
+# (best-effort, não derruba o app).
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
+if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+    logger.warning("VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY nao configuradas — push desabilitado")
 VAPID_CLAIMS = {"sub": "mailto:admin@reservaslab.com"}
 
 _upstash_url = os.environ.get('UPSTASH_REDIS_REST_URL')
@@ -130,7 +162,71 @@ def _get_workspace_spreadsheet_url(workspace_slug):
         logger.error(f"Erro ao buscar URL do workspace '{workspace_slug}': {e}")
     return None
 
-def _parse_spreadsheet(spreadsheet_url):
+def _extract_labs(raw_lab, lab_count):
+    """Normaliza a coluna 'Lab' da planilha em ['LAB01', 'LAB03', ...].
+
+    Entende "Lab 01 e 02", "LAB 1", "01/02" etc. e limita aos labs existentes
+    no campus (lab_count). Números fora da faixa (ex.: "Lab 10" num campus de
+    2 labs) são ignorados.
+    """
+    lab_list = []
+    partes = re.split(r'\s*(?:e|,|&|\+|/| ou | - )\s*', raw_lab, flags=re.IGNORECASE)
+    for parte in partes:
+        p = parte.strip()
+        m = re.search(r'lab\s*0?(\d+)', p, re.IGNORECASE)
+        numero = int(m.group(1)) if m else None
+        if numero is None:
+            m2 = re.match(r'0*(\d+)$', p)
+            numero = int(m2.group(1)) if m2 else None
+        if numero and 1 <= numero <= lab_count:
+            nome = f'LAB{numero:02d}'
+            if nome not in lab_list:
+                lab_list.append(nome)
+    return lab_list
+
+
+def _ensure_workspaces_lab_count():
+    """Cria a coluna lab_count em public.workspaces se ainda não existir."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    sql = 'ALTER TABLE public.workspaces ADD COLUMN IF NOT EXISTS lab_count SMALLINT NOT NULL DEFAULT 2;'
+    try:
+        headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
+        r = requests.post(f"{_SUPABASE_URL}/rest/v1/rpc/pg_sql", json={'query': sql}, headers=headers, timeout=10)
+        logger.info(f"pg_sql lab_count: {r.status_code}")
+    except Exception as e:
+        logger.info(f"pg_sql lab_count error: {e}")
+
+
+def _get_workspace_lab_count(workspace_slug):
+    """Busca a quantidade de labs de um workspace (padrão 2).
+
+    Se a coluna lab_count ainda não existir no banco, garante a criação
+    (self-healing) e tenta de novo.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return 2
+    try:
+        headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
+        url = (
+            f"{_SUPABASE_URL}/rest/v1/workspaces"
+            f"?select=lab_count"
+            f"&slug=eq.{quote(workspace_slug)}"
+        )
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.ok and resp.json():
+            return int(resp.json()[0].get('lab_count') or 2)
+        if not resp.ok:
+            _ensure_workspaces_lab_count()
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.ok and resp.json():
+                return int(resp.json()[0].get('lab_count') or 2)
+    except Exception as e:
+        logger.error(f"Erro ao buscar lab_count do workspace '{workspace_slug}': {e}")
+    return 2
+
+
+def _parse_spreadsheet(spreadsheet_url, lab_count=2):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
     reservas_hoje = []
     reservas_semana = []
@@ -141,7 +237,8 @@ def _parse_spreadsheet(spreadsheet_url):
         response = requests.get(spreadsheet_url, timeout=30)
         response.raise_for_status()
         try:
-            wb = load_workbook(BytesIO(response.content))
+            # read_only + data_only: lê só os valores (sem fórmulas/render), bem mais rápido
+            wb = load_workbook(BytesIO(response.content), read_only=True, data_only=True)
             logger.info("Planilha carregada!")
         except Exception as e:
             logger.error(f"Erro ao carregar planilha: {e}")
@@ -181,15 +278,7 @@ def _parse_spreadsheet(spreadsheet_url):
                 if data is None:
                     continue
                 lab_normalizado = re.sub(r'\s+', ' ', str(lab)).strip() if lab else ''
-                lab_list = []
-                # Divide "Lab 01 e 02" → ["Lab 01", "02"] pra detectar ambos
-                partes = re.split(r'\s*(?:e|,|&|\+|/| ou | - )\s*', lab_normalizado, flags=re.IGNORECASE)
-                for parte in partes:
-                    p = parte.strip()
-                    if re.search(r'lab\s*0?\s*1', p, re.IGNORECASE) or re.match(r'0?1$', p.strip()):
-                        if 'LAB01' not in lab_list: lab_list.append('LAB01')
-                    if re.search(r'lab\s*0?\s*2', p, re.IGNORECASE) or re.match(r'0?2$', p.strip()):
-                        if 'LAB02' not in lab_list: lab_list.append('LAB02')
+                lab_list = _extract_labs(lab_normalizado, lab_count)
                 reserva = {
                     'responsavel': professor_resp,
                     'email': email,
@@ -213,36 +302,52 @@ def _parse_spreadsheet(spreadsheet_url):
         logger.error(f"Erro ao processar planilha: {e}")
     return reservas_hoje, reservas_semana
 
-def get_reservas(workspace_slug=None):
-    cache_key = f"reservas_{workspace_slug or 'default'}"
-    # Cache simples por workspace
-    cached = get_cached_reservas()
+_UNSET = object()
+
+
+def _resolve_spreadsheet_url(workspace_slug):
+    """Resolve a planilha de um campus. Retorna (url, origem).
+
+    origem: 'workspace' (planilha própria do campus) | 'fallback' (global do env)
+            | 'missing' (nenhuma configurada).
+    """
+    if workspace_slug:
+        url = _get_workspace_spreadsheet_url(workspace_slug)
+        if url:
+            return url, 'workspace'
+    if ARQUIVO_URL:
+        return ARQUIVO_URL, 'fallback'
+    return None, 'missing'
+
+
+def get_reservas(workspace_slug=None, spreadsheet_url=_UNSET, lab_count=2):
+    cache_key = _cache_key_for(workspace_slug)
+    # Cache por workspace: cada campus tem sua própria planilha e não pode
+    # receber o cache de outro campus (nem do fallback global).
+    cached = get_cached_reservas(cache_key)
     if cached:
         return cached
     
-    spreadsheet_url = None
-    if workspace_slug:
-        spreadsheet_url = _get_workspace_spreadsheet_url(workspace_slug)
-        if spreadsheet_url:
-            logger.info(f"Usando URL do workspace '{workspace_slug}'")
-        else:
-            logger.info(f"Workspace '{workspace_slug}' sem URL própria, usando fallback")
+    if spreadsheet_url is _UNSET:
+        spreadsheet_url, _ = _resolve_spreadsheet_url(workspace_slug)
     
-    if not spreadsheet_url:
-        spreadsheet_url = ARQUIVO_URL
+    if spreadsheet_url and workspace_slug:
+        logger.info(f"Usando planilha do workspace '{workspace_slug}'")
     
-    reservas_hoje, reservas_semana = _parse_spreadsheet(spreadsheet_url)
+    reservas_hoje, reservas_semana = _parse_spreadsheet(spreadsheet_url, lab_count=lab_count)
     
-    logger.info(f"Planilha: {len(reservas_hoje)} hoje, {len(reservas_semana)} semana")
+    logger.info(f"Planilha[{cache_key}]: {len(reservas_hoje)} hoje, {len(reservas_semana)} semana")
     result = (reservas_hoje, reservas_semana)
-    set_cached_reservas(result)
+    set_cached_reservas(cache_key, result)
     return result
 
 @app.route('/api/reservas', methods=['GET'])
 def api_reservas():
     try:
         workspace_slug = request.args.get('workspace')
-        reservas_hoje, reservas_semana = get_reservas(workspace_slug)
+        spreadsheet_url, spreadsheet_source = _resolve_spreadsheet_url(workspace_slug)
+        lab_count = _get_workspace_lab_count(workspace_slug) if workspace_slug else 2
+        reservas_hoje, reservas_semana = get_reservas(workspace_slug, spreadsheet_url=spreadsheet_url, lab_count=lab_count)
         
         for r in reservas_hoje:
             if isinstance(r.get('data'), (date, datetime)):
@@ -254,6 +359,11 @@ def api_reservas():
 
         lab1 = [r for r in reservas_hoje if 'LAB01' in r.get('labs', [])]
         lab2 = [r for r in reservas_hoje if 'LAB02' in r.get('labs', [])]
+        lab_reservas = {}
+        for r in reservas_hoje:
+            for lab in r.get('labs', []):
+                lab_reservas.setdefault(lab, []).append(r)
+        labs_ordenados = sorted(lab_reservas.keys(), key=lambda x: int(re.sub(r'\D', '', x) or 0))
         
         meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
                  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -261,20 +371,25 @@ def api_reservas():
         data_formatada = f"{hoje.day:02d} de {meses[hoje.month-1]} de {hoje.year}"
         
         cache_info = {}
-        if os.path.exists(CACHE_FILE):
+        cache_path = _cache_path(_cache_key_for(workspace_slug))
+        if os.path.exists(cache_path):
             try:
-                with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                with open(cache_path, 'r', encoding='utf-8') as f:
                     cache_data = json.load(f)
                     cache_info = {'timestamp': cache_data.get('timestamp', 0)}
-            except:
+            except Exception:
                 pass
 
         return jsonify({
             'lab1_reservas': lab1,
             'lab2_reservas': lab2,
+            'lab_reservas': lab_reservas,
+            'labs': labs_ordenados,
+            'lab_count': lab_count,
             'reservas_semana': reservas_semana,
             'data': data_formatada,
-            'cache_info': cache_info
+            'cache_info': cache_info,
+            'spreadsheet': spreadsheet_source
         })
     except Exception as e:
         logger.error(f"Erro na rota api_reservas: {e}")
@@ -283,9 +398,10 @@ def api_reservas():
 @app.route('/api/health')
 def health():
     cache_data = None
-    if os.path.exists(CACHE_FILE):
+    path = _cache_path(_cache_key_for())
+    if os.path.exists(path):
         try:
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
         except Exception:
             pass
@@ -631,7 +747,11 @@ def push_check():
                                 body += f" — {evento}"
                             body += f" — {t.get('quantidade_tablets', '?')} tablets"
                             
-                            for sub in subs:
+                            # Alerta do campus → só quem tem acesso àquele workspace
+                            # (super admin vê todos; reserva sem workspace vai para todos)
+                            ws_id = t.get('workspace_id')
+                            target = _target_subs(module='reservalab', workspace_id=ws_id) if ws_id else subs
+                            for sub in target:
                                 push_notify(sub, title, body)
                             
                             redis.setex(f'push:sent:{notify_id}', 7200, '1')

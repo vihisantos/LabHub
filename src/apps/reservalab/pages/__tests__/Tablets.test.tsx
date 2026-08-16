@@ -44,8 +44,8 @@ import { fetchTabletReservas, deleteTabletReserva } from '../../services/supabas
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 const mockReservas = [
-  { id: 1, sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. Ana', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 7200000).toISOString(), finalidade: 'Aula prática', reservado_por: 'Maria', status: 'ativa' },
-  { id: 2, sala: 'Sala 2', quantidade_tablets: 5, professor: 'Prof. Carlos', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 3600000).toISOString(), finalidade: 'Prova', reservado_por: 'João', status: 'ativa' },
+  { id: '11111111-1111-4111-8111-111111111111', sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. Ana', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 7200000).toISOString(), finalidade: 'Aula prática', reservado_por: 'Maria', status: 'ativa' },
+  { id: '22222222-2222-4222-8222-222222222222', sala: 'Sala 2', quantidade_tablets: 5, professor: 'Prof. Carlos', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 3600000).toISOString(), finalidade: 'Prova', reservado_por: 'João', status: 'ativa' },
 ]
 
 function renderTablets() {
@@ -118,7 +118,7 @@ describe('TabletsView', () => {
     const cancelBtns = await screen.findAllByText('Cancelar')
     fireEvent.click(cancelBtns[0])
     await waitFor(() => {
-      expect(deleteTabletReserva).toHaveBeenCalledWith(1)
+      expect(deleteTabletReserva).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
     })
   })
 
@@ -163,7 +163,7 @@ describe('TabletsView', () => {
 
   it('alterna para "Todas" quando há mais de 5 reservas', async () => {
     const manyReservas = Array.from({ length: 10 }, (_, i) => ({
-      id: i + 1,
+      id: `res-${i + 1}`,
       sala: `Sala ${i + 1}`,
       quantidade_tablets: 1,
       professor: `Prof. ${i}`,

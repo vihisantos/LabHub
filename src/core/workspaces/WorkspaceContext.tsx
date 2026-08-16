@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import type { Workspace } from './types'
@@ -42,6 +42,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [pendingSelection, setPendingSelection] = useState(false)
 
+  // Controla se o usuário já escolheu um workspace nesta sessão. Impede que o
+  // gate reapareça quando o `load` roda de novo por mudança de identidade do
+  // auth (ex.: refresh de token, USER_UPDATED) depois da escolha inicial.
+  const selectionRef = useRef<{ userId: string | null; done: boolean }>({
+    userId: null,
+    done: false,
+  })
+
   const assignedWorkspaces = useMemo(
     () =>
       workspaces.filter((w) => {
@@ -58,6 +66,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (persist && user?.id) {
       localStorage.setItem(getPreferenceKey(user.id), ws.id)
     }
+    selectionRef.current.done = true
     setPendingSelection(false)
   }, [user])
 
@@ -74,17 +83,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })
 
     if (user) {
+      // Nova sessão (primeiro load ou troca de usuário) → volta a exigir seleção
+      if (selectionRef.current.userId !== user.id) {
+        selectionRef.current = { userId: user.id, done: false }
+      }
+
       const prefId = localStorage.getItem(getPreferenceKey(user.id))
       const pref = prefId ? assigned.find((w) => w.id === prefId) : undefined
       if (pref) {
+        selectionRef.current.done = true
         setWorkspaceState(pref)
         setPendingSelection(false)
       } else if (user.is_super_admin) {
         // Super admin sempre escolhe (e pode criar) o workspace ao entrar,
         // mesmo com apenas um ambiente — cada workspace é uma escola.
-        setWorkspaceState(null)
-        setPendingSelection(true)
+        // Só na primeira vez da sessão: se já escolheu, mantém — o gate não
+        // reabre por re-renders de identidade do auth.
+        if (!selectionRef.current.done) {
+          setWorkspaceState(null)
+          setPendingSelection(true)
+        }
       } else if (assigned.length === 1) {
+        selectionRef.current.done = true
         setWorkspaceState(assigned[0])
         localStorage.setItem(STORAGE_KEY, assigned[0].slug)
         setPendingSelection(false)

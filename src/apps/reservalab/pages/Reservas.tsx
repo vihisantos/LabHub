@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Tablet as TabletIcon } from 'lucide-react'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
@@ -16,9 +16,11 @@ import type { ReservasAPIResponse, TabletReserva, TransformedReservation, WeekDa
 function FigmaLabSection({
   labName,
   reservations,
+  missingSpreadsheet = false,
 }: {
   labName: string
   reservations: TransformedReservation[]
+  missingSpreadsheet?: boolean
 }) {
   const [filter, setFilter] = useState('todos')
   const [selectedReserva, setSelectedReserva] = useState<TransformedReservation | null>(null)
@@ -115,6 +117,25 @@ function FigmaLabSection({
                 </motion.div>
               ))}
             </AnimatePresence>
+          ) : missingSpreadsheet ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              style={{
+                width: '100%', padding: '2rem', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+                border: '1.5px dashed rgba(245,158,11,0.5)', borderRadius: '1rem',
+                background: 'rgba(245,158,11,0.06)', color: '#b45309',
+              }}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.7, marginBottom: '0.5rem' }}>
+                <path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>
+              </svg>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>Planilha deste campus não configurada</p>
+              <p style={{ fontSize: '0.75rem', marginTop: '0.25rem', opacity: 0.8 }}>
+                Adicione o link em Configurar workspace → Apps do workspace para ver as reservas.
+              </p>
+            </motion.div>
           ) : (
             <motion.div
               initial={{ opacity: 0 }}
@@ -151,8 +172,13 @@ export function ReservasView() {
   const [tabletWeekData, setTabletWeekData] = useState<WeekDayData[]>([])
   const [loadingTablets, setLoadingTablets] = useState(true)
   const [selectedTablet, setSelectedTablet] = useState<TabletReserva | null>(null)
+  const [error, setError] = useState('')
 
-  const buscarTablets = async () => {
+  const atualizadoEm = data.cache_info?.timestamp
+    ? new Date(data.cache_info.timestamp * 1000)
+    : null
+
+  const buscarTablets = useCallback(async () => {
     try {
       const hoje = new Date()
       hoje.setHours(0, 0, 0, 0)
@@ -208,18 +234,38 @@ export function ReservasView() {
     } finally {
       setLoadingTablets(false)
     }
-  }
+  }, [workspace?.id])
+
+  const carregarReservas = useCallback(async () => {
+    try {
+      const res = await fetchReservas(workspace?.slug)
+      if (res) {
+        setData(res as ReservasAPIResponse)
+        setError('')
+      }
+    } catch (err) {
+      console.error('Erro ao buscar reservas da planilha:', err)
+      setError('Não foi possível carregar as reservas. Verifique a conexão e tente novamente.')
+    }
+  }, [workspace?.slug])
 
   useEffect(() => {
-    fetchReservas(workspace?.slug).then((res) => { if (res) setData(res as ReservasAPIResponse) }).catch(() => {})
-    buscarTablets()
-  }, [])
+    const tick = () => {
+      carregarReservas()
+      buscarTablets()
+    }
+    tick()
+    // Polling a cada 15s para manter o badge "ao vivo" fiel ao que é exibido
+    const timer = setInterval(tick, 15000)
+    return () => clearInterval(timer)
+  }, [carregarReservas, buscarTablets])
 
   const transformReservations = (reservas: any[] | undefined): TransformedReservation[] => {
     if (!reservas || !Array.isArray(reservas)) return []
 
-    const transformed = reservas.map((r, i) => ({
-      id: i,
+    const transformed = reservas.map((r) => ({
+      // Chave estável derivada do conteúdo (o id da planilha muda a cada linha)
+      id: `${r.lab || 'lab'}|${r.horario}|${r.responsavel}|${r.data || ''}`,
       time: r.horario,
       period: getPeriodo(r.horario),
       subject: r.observacao || 'Disciplina',
@@ -245,6 +291,24 @@ export function ReservasView() {
       return 0
     })
   }
+
+  // Seções de lab dinâmicas: a API manda lab_reservas (LAB01..LAB0N conforme o
+  // lab_count do workspace); fallback para Lab 01/02 quando a API antiga não manda.
+  const labSections = useMemo(() => {
+    const map = data.lab_reservas
+    if (map && Object.keys(map).length > 0) {
+      return Object.entries(map)
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+        .map(([lab, res]) => ({
+          labName: `Lab ${String(lab.replace(/\D/g, '')).padStart(2, '0')}`,
+          reservations: transformReservations(res),
+        }))
+    }
+    return [
+      { labName: 'Lab 01', reservations: transformReservations(data.lab1_reservas) },
+      { labName: 'Lab 02', reservations: transformReservations(data.lab2_reservas) },
+    ]
+  }, [data])
 
   const transformWeeklyData = (): WeekDayData[] => {
     if (!data.reservas_semana) return []
@@ -331,6 +395,12 @@ export function ReservasView() {
             <span style={{ position: 'relative', width: '100%', height: '100%', borderRadius: '50%', background: '#0a0a0a' }} />
           </span>
           Sistema de reservas atualizado ao vivo
+          {atualizadoEm && (
+            <span style={{ color: '#71717a', fontWeight: 400 }}>
+              · Atualizado às{' '}
+              {atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
         </div>
 
         <h2 className="hero-title" style={{ fontSize: 'clamp(1.5rem, 6vw, 3rem)', fontWeight: 900, letterSpacing: '-0.025em', lineHeight: 1.2, color: '#1e293b' }}>
@@ -339,17 +409,45 @@ export function ReservasView() {
         <p className="hero-subtitle" style={{ fontSize: 'clamp(0.875rem, 3vw, 1.125rem)', color: '#71717a', marginTop: '1.5rem', lineHeight: 1.625 }}>
           Consulte a disponibilidade em tempo real e verifique os agendamentos. Filtre por período ou visualize toda a grade da semana.
         </p>
+
+        {error && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px', marginTop: '1rem',
+            padding: '10px 14px', borderRadius: '0.75rem',
+            background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+            color: '#dc2626', fontSize: '0.85rem', fontWeight: 500,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+            </svg>
+            {error}
+          </div>
+        )}
+
+        {!error && data.spreadsheet === 'missing' && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px', marginTop: '1rem',
+            padding: '10px 14px', borderRadius: '0.75rem',
+            background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+            color: '#b45309', fontSize: '0.85rem', fontWeight: 500,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>
+            </svg>
+            Este campus ainda não tem planilha configurada. Adicione o link em Configurar workspace → Apps do workspace.
+          </div>
+        )}
       </motion.div>
 
       {/* Lab Sections */}
-      <FigmaLabSection
-        labName="Lab 01"
-        reservations={transformReservations(data.lab1_reservas)}
-      />
-      <FigmaLabSection
-        labName="Lab 02"
-        reservations={transformReservations(data.lab2_reservas)}
-      />
+      {labSections.map((section) => (
+        <FigmaLabSection
+          key={section.labName}
+          labName={section.labName}
+          reservations={section.reservations}
+          missingSpreadsheet={data.spreadsheet === 'missing'}
+        />
+      ))}
 
       {/* Tablets Section */}
       <motion.div

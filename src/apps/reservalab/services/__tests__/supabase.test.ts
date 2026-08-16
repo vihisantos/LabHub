@@ -29,7 +29,7 @@ vi.mock('@supabase/supabase-js', () => ({
 
 const mockTablets: TabletReserva[] = [
   {
-    id: 1,
+    id: '11111111-1111-4111-8111-111111111111',
     sala: 'Sala 101',
     quantidade_tablets: 10,
     professor: 'João',
@@ -40,7 +40,7 @@ const mockTablets: TabletReserva[] = [
     status: 'ativa',
   },
   {
-    id: 2,
+    id: '22222222-2222-4222-8222-222222222222',
     sala: 'Sala 202',
     quantidade_tablets: 5,
     professor: 'Ana',
@@ -155,11 +155,11 @@ describe('supabase service', () => {
         mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve(undefined))
         const values = { sala: 'Sala 404', professor: 'Novo Professor' }
 
-        await supabaseModule.updateTabletReserva(1, values)
+        await supabaseModule.updateTabletReserva('11111111-1111-4111-8111-111111111111', values)
 
         expect(mockFrom).toHaveBeenCalledWith('tablet_reservations')
         expect(mockQueryBuilder.update).toHaveBeenCalledWith(values)
-        expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', 1)
+        expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', '11111111-1111-4111-8111-111111111111')
       })
     })
 
@@ -167,11 +167,11 @@ describe('supabase service', () => {
       it('deleta reserva da tabela com id específico', async () => {
         mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve(undefined))
 
-        await supabaseModule.deleteTabletReserva(5)
+        await supabaseModule.deleteTabletReserva('55555555-5555-4555-8555-555555555555')
 
         expect(mockFrom).toHaveBeenCalledWith('tablet_reservations')
         expect(mockQueryBuilder.delete).toHaveBeenCalled()
-        expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', 5)
+        expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', '55555555-5555-4555-8555-555555555555')
       })
     })
 
@@ -220,12 +220,12 @@ describe('supabase service', () => {
     })
 
     it('updateTabletReserva não chama Supabase', async () => {
-      await supabaseModule.updateTabletReserva(1, {})
+      await supabaseModule.updateTabletReserva('11111111-1111-4111-8111-111111111111', {})
       expect(mockFrom).not.toHaveBeenCalled()
     })
 
     it('deleteTabletReserva não chama Supabase', async () => {
-      await supabaseModule.deleteTabletReserva(1)
+      await supabaseModule.deleteTabletReserva('11111111-1111-4111-8111-111111111111')
       expect(mockFrom).not.toHaveBeenCalled()
     })
 

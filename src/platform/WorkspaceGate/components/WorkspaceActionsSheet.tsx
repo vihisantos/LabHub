@@ -4,6 +4,8 @@ import { icons } from '../../../lib/icons'
 
 interface WorkspaceActionsSheetProps {
   workspace: Workspace | null
+  /** Só o admin absoluto (is_super_admin) pode editar workspaces */
+  canManage?: boolean
   onClose: () => void
   onConfigure: (workspace: Workspace) => void
   onApps: (workspace: Workspace) => void
@@ -23,6 +25,7 @@ interface ActionItem {
 
 export function WorkspaceActionsSheet({
   workspace,
+  canManage = false,
   onClose,
   onConfigure,
   onApps,
@@ -30,6 +33,9 @@ export function WorkspaceActionsSheet({
   onMoveData,
   onDelete,
 }: WorkspaceActionsSheetProps) {
+  // Defesa em profundidade: mesmo que o sheet seja aberto por outro caminho,
+  // usuário sem permissão não vê nem executa as ações de edição.
+  if (!canManage) return null
   const actions: ActionItem[] = workspace
     ? [
         {
