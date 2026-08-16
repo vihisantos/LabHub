@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Workspace } from '../../../core/workspaces/types'
 import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
@@ -22,6 +22,14 @@ export function WorkspaceAppsModal({ workspace, open, onClose, onSaved }: Worksp
   const [labCount, setLabCount] = useState(workspace?.lab_count ?? 2)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (open && workspace) {
+      setDisabled(new Set(workspace.disabled_apps ?? []))
+      setSpreadsheetUrl(workspace.spreadsheet_url ?? '')
+      setLabCount(workspace.lab_count ?? 2)
+    }
+  }, [open, workspace])
 
   const apps = appRegistry.filter((app) => APPS_CONFIGURABLE.includes(app.id))
 

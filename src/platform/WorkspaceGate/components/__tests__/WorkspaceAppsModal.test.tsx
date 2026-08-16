@@ -135,4 +135,54 @@ describe('WorkspaceAppsModal', () => {
       })
     })
   })
+
+  it('preserva os apps já desativados ao abrir e salvar (modal sempre montado no WorkspaceGate)', async () => {
+    const { rerender } = render(<WorkspaceAppsModal workspace={null} open={false} onClose={() => {}} />)
+
+    rerender(
+      <WorkspaceAppsModal
+        workspace={makeWorkspace({ disabled_apps: ['tv'] })}
+        open
+        onClose={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Salvar'))
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith('ws-1', {
+        disabled_apps: ['tv'],
+        spreadsheet_url: '',
+        lab_count: 2,
+      })
+    })
+  })
+
+  it('reflete os apps desativados de outro workspace ao trocar de seleção', async () => {
+    const { rerender } = render(
+      <WorkspaceAppsModal
+        workspace={makeWorkspace({ id: 'ws-1' })}
+        open
+        onClose={() => {}}
+      />,
+    )
+
+    rerender(
+      <WorkspaceAppsModal
+        workspace={makeWorkspace({ id: 'ws-2', disabled_apps: ['stock'] })}
+        open
+        onClose={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Salvar'))
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith('ws-2', {
+        disabled_apps: ['stock'],
+        spreadsheet_url: '',
+        lab_count: 2,
+      })
+    })
+  })
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Workspace } from '../../../core/workspaces/types'
 import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
@@ -31,6 +31,16 @@ export function WorkspaceSettingsModal({ workspace, open, onClose, onSaved }: Wo
   const [color, setColor] = useState(workspace?.color ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (open && workspace) {
+      setName(workspace.name ?? '')
+      setLocation(workspace.location ?? '')
+      setSpreadsheetUrl(workspace.spreadsheet_url ?? '')
+      setLabCount(workspace.lab_count ?? 2)
+      setColor(workspace.color ?? '')
+    }
+  }, [open, workspace])
 
   return (
     <AnimatePresence>
