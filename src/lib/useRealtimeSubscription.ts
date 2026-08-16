@@ -74,7 +74,9 @@ export function useRealtimeSubscription<T extends Record<string, any>>(
       )
       .subscribe((_status, err) => {
         if (err) {
-          console.warn(`[Realtime] Erro no canal ${channelName}:`, err?.message || err)
+          // channelName vai como argumento (nunca no texto do formato) para
+          // evitar format-string injection no console
+          console.warn('[Realtime] Erro no canal:', channelName, err?.message || err)
         }
       })
 

@@ -10,8 +10,9 @@ import logging
 import requests
 import re
 import hashlib
+import ipaddress
 from zoneinfo import ZoneInfo
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from io import BytesIO
 from dotenv import load_dotenv
 from upstash_redis import Redis
@@ -78,8 +79,13 @@ def _cache_key_for(workspace_slug=None):
 
 
 def _cache_path(cache_key):
-    """Caminho do cache em arquivo (fallback quando Redis não está configurado)."""
-    safe = re.sub(r'[^A-Za-z0-9_.-]', '_', cache_key)
+    """Caminho do cache em arquivo (fallback quando Redis não está configurado).
+
+    Usa um hash do cache_key no nome do arquivo: o cache_key deriva de dados
+    externos (workspace_slug da query string) e nunca deve virar caminho de
+    arquivo direto (proteção contra path traversal).
+    """
+    safe = hashlib.sha256(cache_key.encode('utf-8')).hexdigest()[:24]
     if os.environ.get('VERCEL'):
         return os.path.join('/tmp', f'.cache_{safe}.json')
     return os.path.join(BASE_DIR, f'.cache_{safe}.json')
@@ -226,11 +232,42 @@ def _get_workspace_lab_count(workspace_slug):
     return 2
 
 
+def _is_safe_url(url):
+    """Bloqueia URLs que possam apontar para endereços internos (proteção SSRF).
+
+    Aceita apenas http/https e rejeita IPs privados/loopback/link-local/reservados
+    (ex.: 10.x, 192.168.x, 169.254.169.254 de metadata da cloud).
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        host = (parsed.hostname or '').lower()
+        if not host:
+            return False
+        if host in ('localhost', '127.0.0.1', '::1') or host.endswith('.local'):
+            return False
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        except ValueError:
+            pass  # hostname (não-IP): aceito — a validação cobre IPs literais e localhost
+    except Exception:
+        return False
+    return True
+
+
 def _parse_spreadsheet(spreadsheet_url, lab_count=2):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
     reservas_hoje = []
     reservas_semana = []
     if not spreadsheet_url:
+        return reservas_hoje, reservas_semana
+    if not _is_safe_url(spreadsheet_url):
+        logger.error("URL da planilha rejeitada (proteção SSRF): %s", spreadsheet_url)
         return reservas_hoje, reservas_semana
     try:
         logger.info(f"Baixando planilha...")

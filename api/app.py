@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, parse_qs, quote
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api'))
-from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis
+from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger
 
 import requests
 from flask import jsonify, request
@@ -12,16 +12,31 @@ from flask import jsonify, request
 # ── Cloudinary (helpers compartilhados) ──
 
 def _cloudinary_public_id(image_url: str) -> str | None:
-    """Extrai o public_id de uma URL do Cloudinary (folder/public_id.sem_ext)."""
+    """Extrai o public_id de uma URL do Cloudinary (folder/public_id.sem_ext).
+
+    Usa apenas operações de string (sem regex) para evitar ReDoS com URLs
+    controladas pelo usuário.
+    """
     cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
     if not cloud_name or cloud_name not in image_url:
         return None
-    m = re.search(r'/image/upload/(?:v\d+/)?(.+)$', image_url)
-    if not m:
+    marker = '/image/upload/'
+    idx = image_url.find(marker)
+    if idx < 0:
         return None
-    raw = re.sub(r'[?#].*$', '', m.group(1))
-    public_id = re.sub(r'\.(jpg|jpeg|png|gif|webp|svg|pdf)$', '', raw, flags=re.IGNORECASE)
-    return public_id or None
+    raw = image_url[idx + len(marker):]
+    # Remove o prefixo de versão opcional (ex.: v1234567890/)
+    slash = raw.find('/')
+    if raw[:1] == 'v' and slash > 0 and raw[1:slash].isdigit():
+        raw = raw[slash + 1:]
+    # Remove query string e fragmento
+    raw = raw.split('?', 1)[0].split('#', 1)[0]
+    # Remove a extensão de imagem
+    for ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf'):
+        if raw.lower().endswith(ext):
+            raw = raw[:-len(ext)]
+            break
+    return raw or None
 
 
 def _cloudinary_destroy(image_url: str) -> bool:
@@ -191,7 +206,8 @@ def tv_youtube_fetch():
         return jsonify({'tracks': tracks})
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/tv/youtube/search', methods=['POST'])
@@ -236,7 +252,8 @@ def tv_youtube_search():
         return jsonify({'results': results})
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/tv/calendar/extract', methods=['POST'])
@@ -321,7 +338,8 @@ def tv_calendar_extract():
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/tv/youtube/live', methods=['GET'])
@@ -388,7 +406,8 @@ def tv_youtube_live():
         })
 
     except Exception as e:
-        return jsonify({'isLive': False, 'error': str(e)}), 200
+        logger.error("Erro em tv_youtube_live: %s", e, exc_info=True)
+        return jsonify({'isLive': False, 'error': 'Erro interno'}), 200
 
 
 @app.route('/api/tv/cloudinary/delete', methods=['POST'])
@@ -423,7 +442,8 @@ def tv_cloudinary_delete():
         })
 
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 200
+        logger.error("Erro em tv_cloudinary_delete: %s", e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Erro interno'}), 200
 
 
 @app.route('/api/tv/health', methods=['GET'])
@@ -547,7 +567,8 @@ def tv_activation_create():
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/tv/activation/redeem', methods=['POST'])
@@ -614,7 +635,8 @@ def tv_activation_redeem():
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 # ── Chamados (formulário público via QR) ──
@@ -744,7 +766,7 @@ def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author
         rows = resp.json() or []
         return rows[0] if rows else None
     except Exception as e:
-        print(f"[chamados] evento error: {e}")
+        logger.error("[chamados] evento error: %s", e, exc_info=True)
         return None
 
 
@@ -770,7 +792,7 @@ def _notify_ticket_status(ticket):
         _save_chamado_subs(ticket.get('id', ''), keep)
         print(f"[chamados] push status #{ticket.get('ticketNumber')}: {len(keep)}/{len(subs)} enviados")
     except Exception as e:
-        print(f"[chamados] push status error: {e}")
+        logger.error("[chamados] push status error: %s", e, exc_info=True)
 
 
 def _notify_ticket_assigned(ticket):
@@ -801,7 +823,7 @@ def _notify_ticket_assigned(ticket):
                 sent += 1
         print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
     except Exception as e:
-        print(f"[chamados] push atribuição error: {e}")
+        logger.error("[chamados] push atribuição error: %s", e, exc_info=True)
 
 
 def _notify_new_ticket(ticket):
@@ -831,7 +853,7 @@ def _notify_new_ticket(ticket):
                 sent += 1
         print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
     except Exception as e:
-        print(f"[chamados] push error: {e}")
+        logger.error("[chamados] push error: %s", e, exc_info=True)
 
 
 def _ensure_chamados_schema():
@@ -848,7 +870,7 @@ def _ensure_chamados_schema():
         )
         print(f"[chamados] pg_sql: {resp.status_code} {resp.text[:200]}")
     except Exception as e:
-        print(f"[chamados] pg_sql error: {e}")
+        logger.error("[chamados] pg_sql error: %s", e, exc_info=True)
 
 
 @app.route('/api/chamados/workspaces', methods=['GET'])
@@ -867,7 +889,8 @@ def chamados_workspaces():
             return jsonify({'error': 'Erro ao listar campi'}), 502
         return jsonify({'workspaces': resp.json() or []})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados', methods=['POST'])
@@ -971,7 +994,8 @@ def chamados_create():
         return jsonify({'ticket': ticket})
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados', methods=['GET'])
@@ -996,7 +1020,8 @@ def chamados_list():
             return jsonify({'error': 'Erro ao listar chamados'}), 502
         return jsonify({'tickets': resp.json() or []})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados/<ticket_id>', methods=['GET', 'PATCH', 'DELETE'])
@@ -1136,7 +1161,8 @@ def chamados_manage(ticket_id):
         return jsonify({'ticket': ticket})
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 def _aggregate_ticket_reports(rows):
@@ -1273,7 +1299,8 @@ def chamados_reports():
         report['period'] = {'from': from_iso, 'to': to_iso}
         return jsonify({'report': report})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados/<ticket_id>/subscribe', methods=['POST'])
@@ -1302,7 +1329,8 @@ def chamados_subscribe(ticket_id):
         _save_chamado_subs(ticket_id, subs)
         return jsonify({'status': 'ok', 'count': len(subs)})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados/push/test', methods=['POST'])
@@ -1350,7 +1378,8 @@ def chamados_push_test():
         print(f"[chamados] push de teste: {sent}/{len(subs)} enviados (user={user_id})")
         return jsonify({'sent': sent, 'total': len(subs)})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 # ── Zerar dados (factory reset) ──
@@ -1425,10 +1454,12 @@ def admin_wipe():
                 else:
                     results[table] = f'HTTP {resp.status_code}'
             except Exception as e:
-                results[table] = str(e)
+                logger.error("Erro ao limpar %s: %s", table, e, exc_info=True)
+                results[table] = 'erro'
         return jsonify({'wipe': results})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados/<ticket_id>/feedback', methods=['POST'])
@@ -1483,7 +1514,8 @@ def chamados_feedback(ticket_id):
         return jsonify({'ticket': resp.json()[0]})
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 def _require_cron():
@@ -1519,7 +1551,8 @@ def chamados_events_list(ticket_id):
             events.append(ev)
         return jsonify({'events': events})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados/<ticket_id>/events', methods=['POST'])
@@ -1574,7 +1607,8 @@ def chamados_events_create(ticket_id):
         return jsonify({'event': event}), 201
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 @app.route('/api/chamados/photos/purge', methods=['POST'])
@@ -1657,7 +1691,8 @@ def chamados_photos_purge():
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
 
 
 if __name__ == '__main__':
