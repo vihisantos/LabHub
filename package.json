@@ -1,6 +1,7 @@
 {
   "name": "labhub",
   "private": true,
+  "license": "UNLICENSED",
   "version": "2.1.0",
   "type": "module",
   "scripts": {
