@@ -148,9 +148,11 @@ describe('DashboardView', () => {
   it('exibe a Ocupação da Semana com percentual por lab', async () => {
     renderDashboard()
     expect(await screen.findByText('Ocupação da Semana')).toBeInTheDocument()
-    // Fallback para Lab 01/02 quando a API não manda labs
-    expect(screen.getByText('Lab 01')).toBeInTheDocument()
-    expect(screen.getByText('Lab 02')).toBeInTheDocument()
+    // Fallback para Lab 01/02 quando a API não manda labs.
+    // "Lab 01/02" também aparece na seção "Agora" quando há reservas — por
+    // isso usamos getAllByText.
+    expect(screen.getAllByText('Lab 01').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Lab 02').length).toBeGreaterThanOrEqual(1)
     // Cada lab tem 1 reserva de 110min ≈ 1.8h → 2% das 105h disponíveis
     expect(screen.getAllByText('2% · 1.8h').length).toBe(2)
   })
