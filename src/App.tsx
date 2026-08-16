@@ -11,7 +11,7 @@ import { ThemeProvider } from './lib/ThemeContext'
 
 const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('./platform/Dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })))
-const Launcher = lazy(() => import('./platform/Launcher/Launcher').then(m => ({ default: m.Launcher })))
+const HomePage = lazy(() => import('./platform/Dashboard/HomePage').then(m => ({ default: m.HomePage })))
 const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
 const MusicRequestPage = lazy(() => import('./pages/MusicRequest').then(m => ({ default: m.default })))
 const PCCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCCareApp })))
@@ -55,7 +55,7 @@ function AppRoutes() {
       <Route path="login" element={<LoginPage />} />
       <Route index element={
         <AuthGuard>
-          <Launcher />
+          <HomePage />
         </AuthGuard>
       } />
       <Route path="dashboard" element={
@@ -67,7 +67,7 @@ function AppRoutes() {
       } />
       <Route path="launcher" element={
         <AuthGuard>
-          <Launcher />
+          <HomePage />
         </AuthGuard>
       } />
       <Route path="roadmap" element={

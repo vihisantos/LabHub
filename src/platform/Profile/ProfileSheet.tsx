@@ -8,7 +8,8 @@ import { themeStore } from '../../core/theme/store'
 import { ACCENTS, THEMES, accentColor } from '../../core/theme/constants'
 import { uploadAvatarToCloudinary, uploadBannerToCloudinary } from '../../lib/cloudinary'
 import { icons } from '../../lib/icons'
-import { WorkspaceSelector } from '../WorkspaceSelector/WorkspaceSelector'
+import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
+import { WorkspaceSwitcherSheet } from '../WorkspaceSwitcher/WorkspaceSwitcherSheet'
 import { BottomSheet, SheetHeader } from '../ui/BottomSheet'
 import { AvatarIcon } from './UserAvatar'
 
@@ -28,6 +29,8 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const [feedback, setFeedback] = useState<Feedback>(null)
   const avatarRef = useRef<HTMLInputElement>(null)
   const bannerRef = useRef<HTMLInputElement>(null)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const { workspace, assignedWorkspaces } = useWorkspace()
 
   if (!user) return null
 
@@ -98,8 +101,9 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   }
 
   return (
-    <BottomSheet open={open} onClose={onClose}>
-      <SheetHeader onClose={onClose} />
+    <>
+      <BottomSheet open={open} onClose={onClose}>
+        <SheetHeader onClose={onClose} />
 
       <div className="scrollbar-thin flex-1 overflow-y-auto">
               {/* Banner */}
@@ -276,7 +280,24 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                 {/* Workspace switch */}
                 <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
                   <p className="mb-2 text-xs font-semibold text-fg-muted">Workspace</p>
-                  <WorkspaceSelector />
+                  <button
+                    type="button"
+                    onClick={() => setSwitcherOpen(true)}
+                    className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 text-left transition-colors hover:bg-input"
+                  >
+                    <span
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                      style={{ backgroundColor: (workspace?.color || '#6366f1') + '18', color: workspace?.color || '#6366f1' }}
+                    >
+                      <icons.ui.home size={16} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-fg">{workspace?.name || 'Selecionar workspace'}</span>
+                      {workspace?.location && <span className="block text-[10px] text-fg-muted">{workspace.location}</span>}
+                    </span>
+                    <span className="text-[10px] font-semibold text-blue-500">Trocar</span>
+                    <icons.ui.chevronRight size={14} className="text-fg-muted" />
+                  </button>
                 </div>
 
                 {/* Logout */}
@@ -291,6 +312,13 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                 </button>
               </div>
             </div>
-        </BottomSheet>
+      </BottomSheet>
+
+      <WorkspaceSwitcherSheet
+        open={switcherOpen}
+        workspaces={assignedWorkspaces}
+        onClose={() => setSwitcherOpen(false)}
+      />
+    </>
   )
 }
