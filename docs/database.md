@@ -569,7 +569,7 @@ flowchart LR
 | `notifications` | `notifications` | stock | sync | Sino de notificações (todos) |
 | `audit_logs` | — | local-only | logService | Admin Logs |
 | `chamados` | `chamados_tickets` | public | **API Flask** (`/api/chamados`) | Chamados TI + formulário público |
-| `rooms` | — | local-only | roomService | Chamados (salas) |
+| `rooms` | — | local-only | roomService | Chamados público (formulário) |
 | `problem_templates` | — | local-only | problemTemplateService | Chamados (categorias) |
 | `sla_configs` | — | local-only | slaConfigService | Chamados (SLA) |
 | `assets` | — | local-only | assetService | PCare (inventário rico) |

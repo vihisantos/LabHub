@@ -2,24 +2,8 @@ import type { SearchIndex, SearchResult } from './types'
 import { pcService } from '../../apps/pcare/services/pcService'
 import { stockService } from '../../apps/stock/services/stockService'
 import { ticketService } from '../../apps/chamados/services/ticketService'
-import { roomService } from '../../apps/chamados/services/roomService'
-
 function buildIndex(): SearchIndex[] {
   const index: SearchIndex[] = []
-
-  const rooms = roomService.getAll()
-  for (const room of rooms) {
-    index.push({
-      id: `room-${room.id}`,
-      title: room.name,
-      subtitle: room.location || `${room.assetIds.length} ativos`,
-      module: 'chamados',
-      moduleColor: '#f59e0b',
-      actionUrl: `/chamados/rooms/${room.id}/edit`,
-      icon: 'home',
-      keywords: `${room.name} ${room.location} sala`.toLowerCase(),
-    })
-  }
 
   const pcs = pcService.getAll()
   for (const pc of pcs) {

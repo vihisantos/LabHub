@@ -43,7 +43,7 @@ describe('ChamadosBottomNav', () => {
 
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
     expect(screen.getByText('Chamados')).toBeInTheDocument()
-    expect(screen.getByText('Salas')).toBeInTheDocument()
+    expect(screen.queryByText('Salas')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Mais opções')).toBeInTheDocument()
   })
 

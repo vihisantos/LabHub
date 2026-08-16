@@ -6,7 +6,6 @@ import { icons } from '../../../lib/icons'
 const mainNav: LiquidNavItem[] = [
   { to: '/chamados', label: 'Dashboard', icon: icons.nav.dashboard },
   { to: '/chamados/tickets', label: 'Chamados', icon: icons.ui.inbox },
-  { to: '/chamados/rooms', label: 'Salas', icon: icons.ui.home },
 ]
 
 const moreItems: LiquidNavItem[] = [
