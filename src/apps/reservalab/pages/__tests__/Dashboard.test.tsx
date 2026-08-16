@@ -145,6 +145,27 @@ describe('DashboardView', () => {
     expect(await screen.findByText('Reservas por Dia')).toBeInTheDocument()
   })
 
+  it('exibe a Ocupação da Semana com percentual por lab', async () => {
+    renderDashboard()
+    expect(await screen.findByText('Ocupação da Semana')).toBeInTheDocument()
+    // Fallback para Lab 01/02 quando a API não manda labs
+    expect(screen.getByText('Lab 01')).toBeInTheDocument()
+    expect(screen.getByText('Lab 02')).toBeInTheDocument()
+    // Cada lab tem 1 reserva de 110min ≈ 1.8h → 2% das 105h disponíveis
+    expect(screen.getAllByText('2% · 1.8h').length).toBe(2)
+  })
+
+  it('mostra labs com 0% quando não há reservas na semana', async () => {
+    ;(fetchReservas as any).mockResolvedValue({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })
+    ;(fetchTabletReservas as any).mockResolvedValue([])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Ocupação da Semana')).toBeInTheDocument()
+    })
+    // Os dois labs do fallback aparecem com 0%
+    expect(screen.getAllByText('0%').length).toBe(2)
+  })
+
   it('lida com dados vazios sem quebrar', async () => {
     ;(fetchReservas as any).mockResolvedValue({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })
     ;(fetchTabletReservas as any).mockResolvedValue([])

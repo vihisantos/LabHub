@@ -747,7 +747,11 @@ def push_check():
                                 body += f" — {evento}"
                             body += f" — {t.get('quantidade_tablets', '?')} tablets"
                             
-                            for sub in subs:
+                            # Alerta do campus → só quem tem acesso àquele workspace
+                            # (super admin vê todos; reserva sem workspace vai para todos)
+                            ws_id = t.get('workspace_id')
+                            target = _target_subs(module='reservalab', workspace_id=ws_id) if ws_id else subs
+                            for sub in target:
                                 push_notify(sub, title, body)
                             
                             redis.setex(f'push:sent:{notify_id}', 7200, '1')

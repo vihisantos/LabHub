@@ -48,6 +48,7 @@
 
 ### Notificacoes Push
 - Notificacoes automaticas 15 minutos antes do inicio da reserva
+- Alerta de tablets filtrado por campus: so recebe quem tem acesso ao workspace da reserva (super admin ve todos)
 - Suporte a Web Push (VAPID)
 - Backend: Upstash Redis para armazenar subscribers
 - Endpoint de teste: `/api/push/test`

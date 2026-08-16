@@ -65,6 +65,27 @@ export function DashboardView() {
     r.labs?.includes('LAB02') || normalizeLabName(r.lab) === 'LAB02'
   ).length || 0
 
+  // ── Ocupação da semana por lab (horas reservadas / horas disponíveis) ──
+  // Janela de 7 dias × 15h de funcionamento (7h–22h) = 105h por lab
+  const HORAS_SEMANA = 7 * 15
+  const OCC_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#0ea5e9', '#8b5cf6', '#ec4899', '#84cc16', '#f97316', '#14b8a6']
+  const labsDisponiveis = data.labs?.length ? data.labs : ['LAB01', 'LAB02']
+  const labOccupancy = labsDisponiveis.map((lab) => {
+    const horas = (data.reservas_semana || [])
+      .filter((r) => r.labs?.includes(lab) || normalizeLabName(r.lab) === lab)
+      .reduce((sum, r) => {
+        const p = parseHorario(r.horario)
+        if (p.inicio === null || p.fim === null) return sum
+        return sum + (p.fim - p.inicio) / 60
+      }, 0)
+    return {
+      lab,
+      label: `Lab ${lab.replace(/^LAB/, '')}`,
+      horas: Math.round(horas * 10) / 10,
+      pct: Math.min(100, Math.round((horas / HORAS_SEMANA) * 100)),
+    }
+  })
+
   const weekDays = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
   const weekDaysMap: Record<number, string> = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sáb' }
 
@@ -274,6 +295,32 @@ export function DashboardView() {
                   <Bar dataKey="Tablets" fill={tabletColor} radius={[6, 6, 0, 0]} maxBarSize={24} />
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+          </ChartContainer>
+
+          <ChartContainer title="Ocupação da Semana" subtitle="Horas reservadas vs. disponíveis (7h–22h)" isMobile={isMobile}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', padding: '0.25rem 0' }}>
+              {labOccupancy.map((o, i) => (
+                <div key={o.lab}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155' }}>{o.label}</span>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: OCC_COLORS[i % OCC_COLORS.length] }}>
+                      {o.pct}%{o.horas > 0 ? ` · ${o.horas}h` : ''}
+                    </span>
+                  </div>
+                  <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${o.pct}%` }}
+                      transition={{ duration: 0.8, delay: 0.15 + i * 0.08, ease: 'easeOut' }}
+                      style={{ height: '100%', borderRadius: '4px', background: OCC_COLORS[i % OCC_COLORS.length] }}
+                    />
+                  </div>
+                </div>
+              ))}
+              {labOccupancy.length === 0 && (
+                <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Sem dados de reserva para esta semana</p>
+              )}
             </div>
           </ChartContainer>
 
