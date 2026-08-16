@@ -13,6 +13,7 @@ export function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProp
   const [name, setName] = useState('')
   const [location, setLocation] = useState('')
   const [spreadsheetUrl, setSpreadsheetUrl] = useState('')
+  const [labCount, setLabCount] = useState(2)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -29,6 +30,7 @@ export function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProp
         slug,
         location: location.trim(),
         spreadsheet_url: spreadsheetUrl.trim(),
+        lab_count: labCount,
       })
       setName('')
       setLocation('')
@@ -107,6 +109,17 @@ export function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProp
                   value={spreadsheetUrl}
                   onChange={(e) => setSpreadsheetUrl(e.target.value)}
                   placeholder="https://anhembi.sharepoint.com/...planilha.xlsx"
+                  className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-fg placeholder:text-fg-dim focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-fg-muted">Quantidade de labs (ReservaLab)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={labCount}
+                  onChange={(e) => setLabCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
                   className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-fg placeholder:text-fg-dim focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
                 />
               </div>

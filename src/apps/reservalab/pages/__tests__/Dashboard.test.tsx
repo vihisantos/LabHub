@@ -68,7 +68,7 @@ const mockReservasData = {
 }
 
 const mockTabletReservas = [
-  { id: 1, sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. Ana', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 7200000).toISOString(), finalidade: 'Aula prática', reservado_por: 'Maria', status: 'ativa' },
+  { id: '11111111-1111-4111-8111-111111111111', sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. Ana', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 7200000).toISOString(), finalidade: 'Aula prática', reservado_por: 'Maria', status: 'ativa' },
 ]
 
 function renderDashboard() {

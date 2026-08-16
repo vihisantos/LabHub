@@ -12,6 +12,7 @@ function toSnake(data: WorkspaceFormData & { id?: string }): Workspace {
     slug: data.slug,
     location: data.location || '',
     spreadsheet_url: data.spreadsheet_url || '',
+    lab_count: data.lab_count ?? 2,
     color: data.color || '',
     disabled_apps: data.disabled_apps ?? [],
     created_at: now,

@@ -49,7 +49,8 @@ export function DashboardView() {
     fetchAll()
     const interval = setInterval(fetchAll, 15000)
     return () => { mounted = false; clearInterval(interval) }
-  }, [])
+    // Re-busca quando o workspace (campus) muda — antes a closure ficava com o valor antigo
+  }, [workspace?.slug, workspace?.id])
 
   const lab1Today = data?.lab1_reservas?.length || 0
   const lab2Today = data?.lab2_reservas?.length || 0

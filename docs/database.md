@@ -75,6 +75,7 @@ erDiagram
         text slug UK
         text location
         text spreadsheet_url
+        smallint lab_count "labs do campus (ReservaLab), default 2"
         text color
         jsonb disabled_apps
         timestamptz created_at

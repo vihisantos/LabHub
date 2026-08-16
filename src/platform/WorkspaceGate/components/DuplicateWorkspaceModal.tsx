@@ -54,6 +54,10 @@ export function DuplicateWorkspaceModal({ workspace, open, onClose, onCreated }:
               </p>
               <p className="flex items-center gap-2">
                 <icons.ui.check size={14} className="text-emerald-500" />
+                Quantidade de labs
+              </p>
+              <p className="flex items-center gap-2">
+                <icons.ui.check size={14} className="text-emerald-500" />
                 Localização
               </p>
               <p className="flex items-center gap-2">
@@ -79,6 +83,7 @@ export function DuplicateWorkspaceModal({ workspace, open, onClose, onCreated }:
                     slug,
                     location: workspace.location,
                     spreadsheet_url: workspace.spreadsheet_url,
+                    lab_count: workspace.lab_count ?? 2,
                     color: workspace.color || '',
                     disabled_apps: workspace.disabled_apps ?? [],
                   })

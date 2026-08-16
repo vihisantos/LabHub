@@ -9,6 +9,7 @@ export function WorkspacesPage() {
   const [name, setName] = useState('')
   const [location, setLocation] = useState('')
   const [spreadsheetUrl, setSpreadsheetUrl] = useState('')
+  const [labCount, setLabCount] = useState(2)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [duplicateTarget, setDuplicateTarget] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -22,9 +23,9 @@ export function WorkspacesPage() {
     setError('')
     try {
       if (editingId) {
-        await update(editingId, { name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
+        await update(editingId, { name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim(), lab_count: labCount })
       } else {
-        await create({ name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim() })
+        await create({ name: name.trim(), slug, location: location.trim(), spreadsheet_url: spreadsheetUrl.trim(), lab_count: labCount })
       }
     } catch {
       setError('Falha ao salvar no servidor. Tente novamente.')
@@ -34,6 +35,7 @@ export function WorkspacesPage() {
     setName('')
     setLocation('')
     setSpreadsheetUrl('')
+    setLabCount(2)
     setEditingId(null)
     setShowForm(false)
   }
@@ -44,6 +46,7 @@ export function WorkspacesPage() {
       setName(ws.name)
       setLocation(ws.location)
       setSpreadsheetUrl(ws.spreadsheet_url || '')
+      setLabCount(ws.lab_count ?? 2)
       setEditingId(id)
       setShowForm(true)
     }
@@ -58,7 +61,7 @@ export function WorkspacesPage() {
         </div>
         <button
           type="button"
-          onClick={() => { setShowForm(!showForm); setEditingId(null); setName(''); setLocation(''); setSpreadsheetUrl('') }}
+          onClick={() => { setShowForm(!showForm); setEditingId(null); setName(''); setLocation(''); setSpreadsheetUrl(''); setLabCount(2) }}
           className="flex items-center gap-1.5 rounded-lg bg-slate-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-400"
         >
           <icons.ui.plus size={14} />
@@ -100,10 +103,21 @@ export function WorkspacesPage() {
               className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg focus:border-slate-500 focus:outline-none"
             />
           </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-fg-muted">Quantidade de labs (ReservaLab)</label>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={labCount}
+              onChange={(e) => setLabCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg focus:border-slate-500 focus:outline-none"
+            />
+          </div>
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => { setShowForm(false); setEditingId(null) }}
+              onClick={() => { setShowForm(false); setEditingId(null); setLabCount(2) }}
               className="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-medium text-fg"
             >
               Cancelar

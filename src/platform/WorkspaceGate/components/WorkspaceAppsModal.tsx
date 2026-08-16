@@ -18,6 +18,8 @@ export function WorkspaceAppsModal({ workspace, open, onClose, onSaved }: Worksp
   const [disabled, setDisabled] = useState<Set<string>>(
     () => new Set(workspace?.disabled_apps ?? []),
   )
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState(workspace?.spreadsheet_url ?? '')
+  const [labCount, setLabCount] = useState(workspace?.lab_count ?? 2)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -108,6 +110,40 @@ export function WorkspaceAppsModal({ workspace, open, onClose, onSaved }: Worksp
               <p className="px-1 pt-1 text-[10px] text-fg-dim">
                 Apps desativados somem do launcher e bloqueiam o acesso neste workspace. Admin e Dashboard ficam sempre ligados.
               </p>
+
+              <div className="mt-5 border-t border-line pt-4">
+                <label className="mb-1.5 block text-xs font-semibold text-fg-muted">
+                  Link da Planilha (ReservaLab)
+                </label>
+                <input
+                  type="url"
+                  value={spreadsheetUrl}
+                  onChange={(e) => setSpreadsheetUrl(e.target.value)}
+                  placeholder="https://anhembi.sharepoint.com/.../planilha.xlsx?download=1"
+                  className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-fg placeholder:text-fg-dim focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+                />
+                <p className="mt-1 px-1 text-[10px] text-fg-dim">
+                  Usada pelas consultas de reservas de laboratório deste campus (ReservaLab). Deixe vazio para não exibir reservas.
+                </p>
+
+                <div className="mt-4">
+                  <label htmlFor="workspace-lab-count" className="mb-1.5 block text-xs font-semibold text-fg-muted">
+                    Quantidade de labs (ReservaLab)
+                  </label>
+                  <input
+                    id="workspace-lab-count"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={labCount}
+                    onChange={(e) => setLabCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                    className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-fg placeholder:text-fg-dim focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+                  />
+                  <p className="mt-1 px-1 text-[10px] text-fg-dim">
+                    Quantos laboratórios existem neste campus (ex.: 10 num campus, 2 noutro).
+                  </p>
+                </div>
+              </div>
             </div>
 
             {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
@@ -127,7 +163,11 @@ export function WorkspaceAppsModal({ workspace, open, onClose, onSaved }: Worksp
                   setSubmitting(true)
                   setError('')
                   try {
-                    await update(workspace.id, { disabled_apps: [...disabled] })
+                    await update(workspace.id, {
+                      disabled_apps: [...disabled],
+                      spreadsheet_url: spreadsheetUrl.trim(),
+                      lab_count: labCount,
+                    })
                     onClose()
                     onSaved?.()
                   } catch {

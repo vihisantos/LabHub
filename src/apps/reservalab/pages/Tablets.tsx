@@ -44,6 +44,7 @@ export function TabletsView() {
   const [submitting, setSubmitting] = useState(false)
   const [showSalaDropdown, setShowSalaDropdown] = useState(false)
   const [mostrarTodas, setMostrarTodas] = useState(false)
+  const [formError, setFormError] = useState('')
   const { user } = useAuth()
   const { getLevel } = useAppAccess()
   const { workspace } = useWorkspace()
@@ -72,7 +73,8 @@ export function TabletsView() {
     }
     const timer = setTimeout(load, 100)
     return () => { mounted = false; clearTimeout(timer) }
-  }, [])
+    // Re-carrega quando o workspace (campus) muda — antes ficava com o valor antigo
+  }, [workspace?.id])
 
   const hoje = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
   const amanha = useMemo(() => { const d = new Date(hoje); d.setDate(d.getDate() + 1); return d }, [hoje])
@@ -107,16 +109,17 @@ export function TabletsView() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.sala) { alert('Selecione uma sala'); return }
-    if (!form.professor) { alert('Digite o nome do professor'); return }
-    if (!form.data) { alert('Selecione a data'); return }
-    if (!form.inicio) { alert('Digite o horário de início'); return }
-    if (!form.fim) { alert('Digite o horário de fim'); return }
+    if (!form.sala) { setFormError('Selecione uma sala'); return }
+    if (!form.professor) { setFormError('Digite o nome do professor'); return }
+    if (!form.data) { setFormError('Selecione a data'); return }
+    if (!form.inicio) { setFormError('Digite o horário de início'); return }
+    if (!form.fim) { setFormError('Digite o horário de fim'); return }
 
     const inicioTime = parseTime(form.inicio)
     const fimTime = parseTime(form.fim)
-    if (!inicioTime) { alert('Horário de início inválido (use 07h30)'); return }
-    if (!fimTime) { alert('Horário de fim inválido (use 09h20)'); return }
+    if (!inicioTime) { setFormError('Horário de início inválido (use 07h30)'); return }
+    if (!fimTime) { setFormError('Horário de fim inválido (use 09h20)'); return }
+    setFormError('')
 
     setSubmitting(true)
     try {
@@ -131,19 +134,20 @@ export function TabletsView() {
         status: 'ativa',
       }, workspace?.id)
       setForm(initialForm)
+      setFormError('')
       setShowForm(false)
       const hoje2 = new Date(); hoje2.setHours(0, 0, 0, 0)
       const rows = await fetchTabletReservas(hoje2, undefined, workspace?.id)
       setReservas(rows)
     } catch (err) {
       console.error('Erro ao criar reserva:', err)
-      alert('Erro ao criar reserva')
+      setFormError('Erro ao criar reserva. Tente novamente.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleCancel = async (id: number) => {
+  const handleCancel = async (id: string) => {
     try {
       await deleteTabletReserva(id)
       setReservas((prev) => prev.filter((r) => r.id !== id))
@@ -204,7 +208,7 @@ export function TabletsView() {
           )}
           {canEdit && (
             <button
-              onClick={() => setShowForm(!showForm)}
+              onClick={() => { setShowForm(!showForm); setFormError('') }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '10px 20px', borderRadius: '9999px', border: 'none',
@@ -323,6 +327,12 @@ export function TabletsView() {
               </FormField>
             </div>
 
+            {formError && (
+              <p style={{ marginTop: '1rem', color: '#dc2626', fontSize: '0.85rem', fontWeight: 500 }}>
+                {formError}
+              </p>
+            )}
+
             <button
               type="submit"
               disabled={submitting}
@@ -395,7 +405,7 @@ function ReservationRow({
   canCancel,
 }: {
   reservation: TabletReserva
-  onCancel: (id: number) => void
+  onCancel: (id: string) => void
   formatTime: (iso: string) => string
   canCancel: boolean
 }) {

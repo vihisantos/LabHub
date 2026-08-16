@@ -27,6 +27,7 @@ export function WorkspaceSettingsModal({ workspace, open, onClose, onSaved }: Wo
   const [name, setName] = useState(workspace?.name ?? '')
   const [location, setLocation] = useState(workspace?.location ?? '')
   const [spreadsheetUrl, setSpreadsheetUrl] = useState(workspace?.spreadsheet_url ?? '')
+  const [labCount, setLabCount] = useState(workspace?.lab_count ?? 2)
   const [color, setColor] = useState(workspace?.color ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -79,6 +80,7 @@ export function WorkspaceSettingsModal({ workspace, open, onClose, onSaved }: Wo
                     name: name.trim(),
                     location: location.trim(),
                     spreadsheet_url: spreadsheetUrl.trim(),
+                    lab_count: labCount,
                     color,
                   })
                   onClose()
@@ -118,6 +120,17 @@ export function WorkspaceSettingsModal({ workspace, open, onClose, onSaved }: Wo
                   value={spreadsheetUrl}
                   onChange={(e) => setSpreadsheetUrl(e.target.value)}
                   placeholder="https://anhembi.sharepoint.com/.../planilha.xlsx"
+                  className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-fg placeholder:text-fg-dim focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-fg-muted">Quantidade de labs (ReservaLab)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={labCount}
+                  onChange={(e) => setLabCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
                   className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-fg placeholder:text-fg-dim focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
                 />
               </div>

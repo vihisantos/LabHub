@@ -42,12 +42,12 @@ export async function createTabletReserva(values: Record<string, unknown>, works
   await supabase.from('tablet_reservations').insert(payload as never)
 }
 
-export async function updateTabletReserva(id: number, values: Record<string, unknown>): Promise<void> {
+export async function updateTabletReserva(id: string, values: Record<string, unknown>): Promise<void> {
   if (!supabase) return
   await supabase.from('tablet_reservations').update(values as never).eq('id', id)
 }
 
-export async function deleteTabletReserva(id: number): Promise<void> {
+export async function deleteTabletReserva(id: string): Promise<void> {
   if (!supabase) return
   await supabase.from('tablet_reservations').delete().eq('id', id)
 }

@@ -80,7 +80,7 @@ const mockReservasData = {
 }
 
 const mockTabletReservas = [
-  { id: 1, sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. Ana', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 7200000).toISOString(), finalidade: 'Aula prática', reservado_por: 'Maria', status: 'ativa' },
+  { id: '11111111-1111-4111-8111-111111111111', sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. Ana', horario_inicio: new Date(Date.now() + 1000).toISOString(), horario_fim: new Date(Date.now() + 7200000).toISOString(), finalidade: 'Aula prática', reservado_por: 'Maria', status: 'ativa' },
 ]
 
 function renderReservas() {
@@ -227,5 +227,49 @@ describe('ReservasView', () => {
     ;(fetchTabletReservas as any).mockRejectedValue(new Error('API error'))
     renderReservas()
     expect(await screen.findByText('Gestão inteligente de laboratórios')).toBeInTheDocument()
+  })
+
+  it('avisa quando a planilha não está configurada, mas mantém os tablets', async () => {
+    ;(fetchReservas as any).mockResolvedValue({
+      lab1_reservas: [],
+      lab2_reservas: [],
+      reservas_semana: [],
+      spreadsheet: 'missing',
+    })
+    ;(fetchTabletReservas as any).mockResolvedValue(mockTabletReservas)
+    renderReservas()
+
+    // Aviso da planilha aparece (nas seções de lab e no hero)
+    expect((await screen.findAllByText(/Planilha deste campus não configurada/)).length).toBeGreaterThanOrEqual(1)
+    expect((await screen.findAllByText(/Adicione o link em Configurar workspace/)).length).toBeGreaterThanOrEqual(1)
+
+    // Tablets continuam funcionando normalmente
+    expect((await screen.findAllByTestId('tablet-card')).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renderiza N seções de lab conforme o lab_count do campus', async () => {
+    ;(fetchReservas as any).mockResolvedValue({
+      lab1_reservas: [],
+      lab2_reservas: [],
+      lab_reservas: {
+        LAB01: [
+          { horario: '07h30', responsavel: 'Prof. A', observacao: 'Matemática', reserva_feita_por: '', alunos: '30', labs: ['LAB01'], lab: 'Lab 01', data: '25/06/2026' },
+        ],
+        LAB03: [
+          { horario: '09h20', responsavel: 'Prof. C', observacao: 'Biologia', reserva_feita_por: '', alunos: '20', labs: ['LAB03'], lab: 'Lab 03', data: '25/06/2026' },
+        ],
+      },
+      labs: ['LAB01', 'LAB03'],
+      lab_count: 3,
+      reservas_semana: [],
+    })
+    ;(fetchTabletReservas as any).mockResolvedValue([])
+    renderReservas()
+
+    // Seções dinâmicas: Lab 01 e Lab 03 aparecem, com as reservas de cada um
+    expect((await screen.findAllByText('Lab 03')).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Lab 01').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/Biologia - 09h20/)).toBeInTheDocument()
+    expect(screen.getByText(/Matemática - 07h30/)).toBeInTheDocument()
   })
 })
