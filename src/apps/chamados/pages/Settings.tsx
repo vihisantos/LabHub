@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useProblemTemplates } from '../hooks/useProblemTemplates'
 import { icons } from '../../../lib/icons'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
+import { useAuth } from '../../../core/auth/useAuth'
+import { defaultDb as supabase } from '../../../lib/supabase'
+import { usePushNotifications } from '../../../lib/usePushNotifications'
+import { buildPushUser } from '../../../lib/buildPushUser'
 import { slaConfigService } from '../services/slaConfigService'
 import { TICKET_PRIORITIES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_COLORS } from '../types'
 import type { TicketPriority } from '../types'
@@ -21,6 +25,52 @@ export function Settings() {
 
   const [slaHours, setSlaHours] = useState<Record<TicketPriority, number> | null>(null)
   const [slaSaved, setSlaSaved] = useState(false)
+
+  const { user } = useAuth()
+
+  // Payload de segmentação do push (mesmo formato usado no PushNotificationButton)
+  const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
+
+  const { supported, permission, subscribed, loading, error, subscribe } = usePushNotifications(
+    [{ id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' }],
+    pushUser,
+  )
+
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  async function handleTestPush() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      if (!supabase) throw new Error('Supabase não configurado')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Sessão expirada. Faça login novamente.')
+      const res = await fetch('/api/chamados/push/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao enviar a notificação de teste')
+      if (data.total === 0) {
+        setTestResult({ ok: false, message: data.message || 'Nenhuma inscrição encontrada para este usuário' })
+      } else if (data.sent > 0) {
+        setTestResult({ ok: true, message: `Push de teste enviado (${data.sent}/${data.total}) — confira a notificação!` })
+      } else {
+        setTestResult({ ok: false, message: 'O envio falhou. Verifique as permissões do navegador.' })
+      }
+    } catch (e) {
+      setTestResult({ ok: false, message: e instanceof Error ? e.message : 'Erro ao testar a notificação' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const pushActive = subscribed && permission === 'granted'
+  const pushDenied = permission === 'denied'
 
   useEffect(() => {
     if (!workspace?.id) return
@@ -63,6 +113,102 @@ export function Settings() {
 
   return (
     <div className="space-y-6">
+      <section>
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-fg">Notificações Push</h2>
+          <p className="text-[11px] text-fg-muted">
+            Avisos de novos chamados, atribuições e mudanças de status no navegador
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+          {loading ? (
+            <p className="text-xs text-fg-muted">Verificando suporte do navegador…</p>
+          ) : !supported ? (
+            <div className="flex items-center gap-3">
+              <icons.ui.alertTriangle size={20} className="shrink-0 text-amber-500" />
+              <p className="text-xs text-fg-muted">
+                Este navegador não suporta notificações push (é preciso Service Worker + Push API).
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                    pushActive
+                      ? 'bg-emerald-500/10 text-emerald-500'
+                      : pushDenied
+                        ? 'bg-red-500/10 text-red-500'
+                        : 'bg-amber-500/10 text-amber-500'
+                  }`}
+                >
+                  {pushActive ? (
+                    <icons.ui.checkCircle size={20} />
+                  ) : pushDenied ? (
+                    <icons.ui.alertTriangle size={20} />
+                  ) : (
+                    <icons.ui.bellRing size={20} />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-fg">
+                    {pushActive ? '✅ Ativas' : pushDenied ? '⚠️ Bloqueadas pelo navegador' : '🔔 Não ativadas'}
+                  </p>
+                  <p className="text-[11px] text-fg-muted">
+                    {pushActive
+                      ? 'Este dispositivo está inscrito e recebe os avisos do Chamados.'
+                      : pushDenied
+                        ? 'Você bloqueou as notificações neste navegador. Libere nas configurações do navegador e reative abaixo.'
+                        : 'Ative para receber os avisos mesmo com o app fechado.'}
+                  </p>
+                </div>
+              </div>
+
+              {error && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
+              {testResult && (
+                <p className={`mt-2 text-[11px] ${testResult.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {testResult.message}
+                </p>
+              )}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {!pushActive && (
+                  <button
+                    type="button"
+                    onClick={subscribe}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-amber-400 disabled:opacity-60"
+                  >
+                    <icons.ui.bellRing size={14} />
+                    {loading ? 'Ativando…' : pushDenied ? 'Reativar notificações' : 'Ativar notificações'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleTestPush}
+                  disabled={!pushActive || testing}
+                  className={`flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-medium transition-colors ${
+                    pushActive ? 'bg-surface text-fg hover:bg-input' : 'cursor-not-allowed bg-surface text-fg-dim opacity-60'
+                  }`}
+                >
+                  <icons.ui.refresh size={14} />
+                  {testing ? 'Enviando…' : 'Testar notificação'}
+                </button>
+              </div>
+
+              {pushDenied && (
+                <p className="mt-2 text-[11px] leading-snug text-fg-muted">
+                  Dica: no Chrome/Edge, acesse{' '}
+                  <span className="font-medium text-fg">Configurações → Privacidade e segurança → Notificações</span> e
+                  libere este site. Depois volte aqui e clique em “Reativar notificações”.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+
       <section>
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -181,6 +327,7 @@ export function Settings() {
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
+                      aria-label={`Editar template ${template.assetType}`}
                       onClick={() => startEditing(template.id, template.categories)}
                       className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-input hover:text-fg"
                     >
@@ -188,6 +335,7 @@ export function Settings() {
                     </button>
                     <button
                       type="button"
+                      aria-label={`Remover template ${template.assetType}`}
                       onClick={() => remove(template.id)}
                       className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500"
                     >

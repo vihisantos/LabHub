@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Ticket, TicketFormData, TicketStatus } from '../types'
 import { ticketService } from '../services/ticketService'
 import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket } from '../services/ticketAlerts'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 
 export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -29,8 +30,8 @@ export function useTickets() {
 
   useEffect(() => {
     load()
-    // Puxa do servidor a cada 10s (chamados criados pelo formulário público).
-    const timer = setInterval(() => syncRemote(), 10000)
+    // Polling a cada 60s como fallback (Realtime é o canal primário).
+    const timer = setInterval(() => syncRemote(), 60000)
     return () => clearInterval(timer)
   }, [load, syncRemote])
 
@@ -39,6 +40,33 @@ export function useTickets() {
     window.addEventListener('online', onOnline)
     return () => window.removeEventListener('online', onOnline)
   }, [syncRemote])
+
+  // ── Realtime: recebe inserções/atualizações do Supabase via WebSocket ──
+  useRealtimeSubscription<Ticket>(
+    'chamados_tickets',
+    '*',
+    (payload) => {
+      if (payload.eventType === 'INSERT') {
+        const newTicket = payload.new as Ticket
+        // Persiste no cache local e adiciona ao state (sem re-fetch)
+        setTickets((prev) => {
+          if (prev.some((t) => t.id === newTicket.id)) return prev
+          const created = syncNewTicketAlerts()
+          if (created.length > 0) alertForNewTickets(created)
+          return [newTicket, ...prev].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        })
+      } else if (payload.eventType === 'UPDATE') {
+        const updated = payload.new as Ticket
+        setTickets((prev) =>
+          prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t))
+        )
+      } else if (payload.eventType === 'DELETE') {
+        const deleted = payload.old as Pick<Ticket, 'id'>
+        setTickets((prev) => prev.filter((t) => t.id !== deleted.id))
+      }
+    },
+    { channelName: 'chamados:tickets:all' },
+  )
 
   const create = useCallback(async (data: TicketFormData) => {
     const ticket = await ticketService.create(data)

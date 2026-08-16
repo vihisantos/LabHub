@@ -20,6 +20,7 @@ import { userService } from '../../../core/users/service'
 import { uploadPhotos } from '../../chamados-publico/utils/photo'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
 import type { TicketEvent } from '../types'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 
 const STATUS_FLOW: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
 
@@ -66,6 +67,39 @@ export function TicketDetail() {
       alive = false
     }
   }, [id])
+
+  // ── Realtime: novos comentários de outros técnicos aparecem na hora ──
+  type TicketEventRow = {
+    id: string
+    ticket_id: string
+    type: string
+    content: string
+    author: string
+    photo_urls: string
+    createdAt: string
+  }
+  useRealtimeSubscription<TicketEventRow>(
+    'ticket_events',
+    'INSERT',
+    (payload) => {
+      const row = payload.new as TicketEventRow
+      if (!row || row.ticket_id !== id) return
+      const ev: TicketEvent = {
+        id: row.id,
+        ticket_id: row.ticket_id,
+        type: row.type as TicketEvent['type'],
+        content: row.content,
+        author: row.author,
+        photos: (() => { try { return JSON.parse(row.photo_urls || '[]') } catch { return [] } })(),
+        createdAt: row.createdAt,
+      }
+      setEvents((prev) => {
+        if (prev.some((e) => e.id === ev.id)) return prev
+        return [ev, ...prev]
+      })
+    },
+    { channelName: `chamados:events:${id ?? 'none'}`, enabled: !!id },
+  )
 
   const assignees = userService.getAll()
 

@@ -1337,3 +1337,78 @@ def test_purge_apaga_fotos_de_chamados_fechados(client, fake_requests, api_modul
 
 # --- Fase 4: eventos (historico/comentarios) + fotos Cloudinary ---
 
+
+# ── Fase 6: POST /api/chamados/push/test (teste de push do usuário logado) ──
+
+
+def _route_auth_user(fake_requests, user_id="u-1"):
+    fake_requests.route("GET", "/auth/v1/user", FakeResponse({"id": user_id}))
+
+
+def _push_test_fixture(api_module, monkeypatch):
+    sent = []
+    target_kwargs = []
+
+    def fake_target(**kw):
+        target_kwargs.append(kw)
+        return [_make_sub()]
+
+    def fake_push(sub, title, body, url="/"):
+        sent.append({"title": title, "body": body, "url": url})
+        return True
+
+    monkeypatch.setattr(api_module, "_target_subs", fake_target)
+    monkeypatch.setattr(api_module, "push_notify", fake_push)
+    return sent, target_kwargs
+
+
+def test_push_test_sem_supabase_retorna_503(unconfigured_client):
+    resp = unconfigured_client.post("/api/chamados/push/test")
+    assert resp.status_code == 503
+
+
+def test_push_test_sem_token_retorna_401(client, fake_requests):
+    resp = client.post("/api/chamados/push/test")
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "Token de autenticação ausente"
+
+
+def test_push_test_token_invalido_retorna_401(client, fake_requests):
+    fake_requests.route(
+        "GET",
+        "/auth/v1/user",
+        FakeResponse({"error": "invalid"}, status_code=401, ok=False),
+    )
+    resp = client.post("/api/chamados/push/test", headers={"Authorization": "Bearer invalido"})
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "Sessão inválida ou expirada. Faça login novamente."
+
+
+def test_push_test_sem_inscricoes_retorna_aviso(client, fake_requests, api_module, monkeypatch):
+    _route_auth_user(fake_requests)
+    monkeypatch.setattr(api_module, "_target_subs", lambda **kw: [])
+
+    resp = client.post("/api/chamados/push/test", headers={"Authorization": "Bearer token"})
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["sent"] == 0
+    assert body["total"] == 0
+    assert "Ative as notificações primeiro" in body["message"]
+
+
+def test_push_test_envia_para_o_proprio_usuario(client, fake_requests, api_module, monkeypatch):
+    _route_auth_user(fake_requests, user_id="u-1")
+    sent, target_kwargs = _push_test_fixture(api_module, monkeypatch)
+
+    resp = client.post("/api/chamados/push/test", headers={"Authorization": "Bearer token"})
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"sent": 1, "total": 1}
+    assert len(sent) == 1
+    assert "Teste de notificação" in sent[0]["title"]
+    assert sent[0]["url"] == "/chamados"
+    # Segmenta pelo usuário logado e pelo módulo chamados
+    assert target_kwargs and target_kwargs[0]["user_id"] == "u-1"
+    assert target_kwargs[0]["module"] == "chamados"
+
