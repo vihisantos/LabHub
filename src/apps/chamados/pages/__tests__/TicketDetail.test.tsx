@@ -5,6 +5,35 @@ const mockUpdate = vi.hoisted(() => vi.fn())
 const mockUpdateStatus = vi.hoisted(() => vi.fn())
 const mockGetEvents = vi.hoisted(() => vi.fn())
 const mockAddEvent = vi.hoisted(() => vi.fn())
+const mockGetAll = vi.hoisted(() => vi.fn())
+const mockGetByUserId = vi.hoisted(() => vi.fn())
+
+const TICKET = vi.hoisted(() => ({
+  id: 'ticket-1',
+  ticketNumber: 6,
+  workspace_id: 'ws-a',
+  roomId: '',
+  roomName: 'Sala 101',
+  assetName: '',
+  problemCategory: 'Internet',
+  problemArea: 'academica',
+  problemDescription: 'Sem conexão',
+  status: 'em_atendimento',
+  reportedBy: 'Prof. Maria',
+  reportedByEmail: '',
+  assignedTo: '',
+  assignedToUserId: '',
+  feedbackRating: null,
+  feedbackComment: '',
+  feedbackAt: null,
+  archived: false,
+  closedAt: null,
+  closedBy: '',
+  statusNote: '',
+  createdAt: '2026-06-25T12:00:00Z',
+  updatedAt: '2026-06-25T12:00:00Z',
+  resolvedAt: null,
+}))
 
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'ticket-1' }),
@@ -12,33 +41,7 @@ vi.mock('react-router-dom', () => ({
 }))
 vi.mock('../../hooks/useTickets', () => ({
   useTickets: () => ({
-    tickets: [
-      {
-        id: 'ticket-1',
-        ticketNumber: 6,
-        workspace_id: 'ws-a',
-        roomId: '',
-        roomName: 'Sala 101',
-        assetName: '',
-        problemCategory: 'Internet',
-        problemArea: 'academica',
-        problemDescription: 'Sem conexão',
-        status: 'em_atendimento',
-        reportedBy: 'Prof. Maria',
-        reportedByEmail: '',
-        assignedTo: '',
-        feedbackRating: null,
-        feedbackComment: '',
-        feedbackAt: null,
-        archived: false,
-        closedAt: null,
-        closedBy: '',
-        statusNote: '',
-        createdAt: '2026-06-25T12:00:00Z',
-        updatedAt: '2026-06-25T12:00:00Z',
-        resolvedAt: null,
-      },
-    ],
+    tickets: [TICKET],
     update: mockUpdate,
     updateStatus: mockUpdateStatus,
   }),
@@ -47,19 +50,58 @@ vi.mock('../../services/ticketService', () => ({
   ticketService: { getEvents: mockGetEvents, addEvent: mockAddEvent },
 }))
 vi.mock('../../../../core/auth/useAuth', () => ({
-  useAuth: () => ({ user: { name: 'Técnico 1' } }),
+  useAuth: () => ({ user: { id: 'test-admin', name: 'Técnico 1' } }),
+}))
+vi.mock('../../../../core/users/service', () => ({
+  userService: { getAll: mockGetAll, getByUserId: mockGetByUserId },
 }))
 vi.mock('../../../chamados-publico/utils/photo', () => ({
   uploadPhotos: vi.fn(),
   uploadPhoto: vi.fn(),
 }))
+vi.mock('../../../../lib/supabase', () => ({
+  defaultDb: {
+    channel: () => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis() }),
+    removeChannel: vi.fn(),
+  },
+}))
 
 import { uploadPhotos } from '../../../chamados-publico/utils/photo'
 import { TicketDetail } from '../TicketDetail'
 
+const PROFILE_ME = {
+  id: 'p1',
+  userId: 'test-admin',
+  displayName: 'Admin Teste',
+  department: 'TI',
+  roleId: 'r1',
+  active: true,
+  createdAt: '',
+  updatedAt: '',
+}
+
+const PROFILE_OTHER = {
+  id: 'p2',
+  userId: 'user-2',
+  displayName: 'Técnico 2',
+  department: 'TI',
+  roleId: 'r1',
+  active: true,
+  createdAt: '',
+  updatedAt: '',
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  TICKET.assignedTo = ''
+  TICKET.assignedToUserId = ''
+  mockGetEvents.mockResolvedValue([])
+  mockGetAll.mockReturnValue([PROFILE_ME, PROFILE_OTHER])
+  mockGetByUserId.mockReturnValue(PROFILE_ME)
+})
+
 describe('TicketDetail — Histórico e comentários', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
     mockGetEvents.mockResolvedValue([
       {
         id: 'ev-1',
@@ -134,5 +176,56 @@ describe('TicketDetail — Histórico e comentários', () => {
       'ticket-1',
       expect.objectContaining({ photos: expect.arrayContaining([expect.stringContaining('res.cloudinary.com')]) }),
     )
+  })
+})
+
+describe('TicketDetail — atribuição de responsável', () => {
+  it('mostra o seletor de responsáveis com os usuários ativos', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    const select = screen.getByRole('combobox')
+    expect(select).toBeInTheDocument()
+    expect(screen.getByText('Admin Teste')).toBeInTheDocument()
+    expect(screen.getByText('Técnico 2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pegar para mim' })).toBeInTheDocument()
+  })
+
+  it('atribui a mim via "Pegar para mim"', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pegar para mim' }))
+
+    expect(mockUpdate).toHaveBeenCalledWith('ticket-1', {
+      assignedTo: 'Admin Teste',
+      assignedToUserId: 'test-admin',
+    })
+  })
+
+  it('atribui outro técnico pelo seletor', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'user-2' } })
+
+    expect(mockUpdate).toHaveBeenCalledWith('ticket-1', {
+      assignedTo: 'Técnico 2',
+      assignedToUserId: 'user-2',
+    })
+  })
+
+  it('limpa a atribuição com "Sem responsável"', async () => {
+    TICKET.assignedToUserId = 'user-2'
+    TICKET.assignedTo = 'Técnico 2'
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '' } })
+
+    expect(mockUpdate).toHaveBeenCalledWith('ticket-1', {
+      assignedTo: '',
+      assignedToUserId: '',
+    })
   })
 })
