@@ -5,9 +5,9 @@ import { icons } from '../../lib/icons'
 
 const actions = [
   {
-    label: 'Escanear QR',
-    icon: <icons.ui.scanBarcode size={18} />,
-    route: '/chamados-publico/scan',
+    label: 'Novo Chamado',
+    icon: <icons.ui.plus size={18} />,
+    route: '/chamados-publico/new',
     color: '#f59e0b',
     appId: null as string | null,
   },

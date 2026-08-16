@@ -1,6 +1,8 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
+import { OfflineBanner } from '../components/OfflineBanner'
 
 function PublicPageTransition({ children }: { children: React.ReactNode }) {
   return (
@@ -19,11 +21,27 @@ export function PublicLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const isRoot = location.pathname === '/chamados-publico' || location.pathname === '/chamados-publico/'
+  const bannerRef = useRef<HTMLDivElement>(null)
+  const [bannerHeight, setBannerHeight] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = bannerRef.current
+    if (!el) return
+    const update = () => setBannerHeight(el.offsetHeight)
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div className="flex min-h-dvh flex-col bg-surface text-fg">
+      <div ref={bannerRef} className="sticky top-0 z-40">
+        <OfflineBanner />
+      </div>
       {!isRoot && (
-        <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/80 px-4 py-3 backdrop-blur-xl">
+        <header style={{ top: bannerHeight }} className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/80 px-4 py-3 backdrop-blur-xl">
           <button
             type="button"
             onClick={() => navigate(-1)}
