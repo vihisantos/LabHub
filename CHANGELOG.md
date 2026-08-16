@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file. See [standa
 
 ## [Unreleased]
 
+## [2.1.0](https://github.com/vihisantos/LabHub/compare/v2.0.0...v2.1.0) (2026-08-16)
+
 ### Features
 
 * **chamados:** push imediato ao abrir chamado — `POST /api/chamados` dispara `_notify_new_ticket` (evento, sem cron): filtra por modulo `chamados` + workspace, respeita notify_settings do perfil e falha de push nunca impede a criacao do chamado
@@ -16,16 +18,34 @@ All notable changes to this project will be documented in this file. See [standa
 * **workspaces:** gestao avancada de workspaces ([6b9f5c1](https://github.com/vihisantos/LabHub/commit/6b9f5c1b8432a68a429c2b74c749bf3bbbe7d832)) — exclusao com backup de 2 dias + auditoria de quem excluiu, configurar (nome/localizacao/link da planilha/cor), ativar/desativar apps por workspace (bloqueio no AppGuard), duplicar configuracao, mover dados (estoque e chamados), switcher rapido no launcher, mini-stats no gate e pagina Backups no admin com restauracao
 * **admin:** pagina de backups e auditoria em /admin/backups (restaura workspace a partir do snapshot de 2 dias)
 * **workspaces:** migracao 021 com cascata nas tabelas TV e cron de limpeza de backups expirados (fallback pelo app)
+* **chamados:** SLA com prazos por prioridade e analise de cumprimento com dashboard dedicado
+* **chamados:** status ao vivo com mensagens pre-definidas e reabertura pelo TI
+* **chamados:** push de status para o professor por chamado (aberto, a caminho, em atendimento, resolvido)
+* **chamados:** foto opcional no chamado e historico de comentarios com fotos (Cloudinary)
+* **chamados:** relatorios por periodo e por tecnico em `/chamados/reports`
+* **chamados:** professor escolhe o campus no form publico — workspace_id gravado no chamado
+* **chamados:** realtime via Supabase (fase 6) — novos chamados e comentarios aparecem sem recarregar
+* **chamados:** teste de push para o usuario logado e indicador de status das notificacoes nas configuracoes
+* **reservalab:** planilha de reservas por campus — link e quantidade de labs configurados no workspace (sem fallback global)
+* **reservalab:** ocupacao semanal por lab no dashboard e alerta de reserva proxima filtrado por workspace
+* **reservalab:** home do app mostra stats reais do modulo (reservas hoje/semana e ocupacao) via API com cache
+* **chamados-publico:** form publico cria chamados via API com controle de acesso por workspace (canManageQr)
+* **brand:** tema azul da marca em todo o app
 
 ### Fixes
 
 * **sync:** exclusoes locais agora propagam para o Supabase (tombstones) em colecoes remotas ([e653734](https://github.com/vihisantos/LabHub/commit/e6537346e8a33e0e57f5b803b9082a95f47d2bd2))
 * **supabase:** migracao 022 permite que o admin absoluto edite/aprove perfis (RLS via is_super_admin)
+* **chamados:** corrige build do TypeScript e implementa a pagina de relatorios
+* **workspaces:** desativar apps bloqueia de verdade no workspace ativo (AppGuard valida o workspace atual)
 
 ### Tests
 
 * **chamados:** testes de push no POST /api/chamados (disparo com subscribers, falha de push nao impede criacao, sem subscribers) em `api/tests/test_chamados.py`
 * **push:** testes de autorizacao por CRON_SECRET nos 4 endpoints de cron (aberto sem env, 401 sem/errado, correto nao-401) em `api/tests/test_push_cron.py`
+* **chamados:** cobertura dos apps chamados e chamados-publico
+* **stock:** cobertura para activateAsPC e movementEffects
+* **reservalab:** testes do parser de labs por quantidade e da origem da planilha (workspace/fallback/missing)
 
 ## [2.0.0](https://github.com/vihisantos/LabHub/compare/v1.0.0...v2.0.0) (2026-08-11)
 
