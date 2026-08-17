@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { User } from '../../../core/auth/types'
+import type { Workspace } from '../../../core/workspaces/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
 import { APP_ACCESS_LABELS } from '../../../core/permissions/types'
 import { roleBadgeClass } from '../../../core/permissions/types'
@@ -11,22 +12,40 @@ const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
 export function ApproveUserModal({
   user,
+  workspaces,
   onClose,
   onConfirm,
 }: {
   user: User
+  workspaces: Workspace[]
   onClose: () => void
-  onConfirm: (roleId: string, appAccess: Record<string, AppAccessOverride>) => Promise<boolean>
+  onConfirm: (
+    roleId: string,
+    appAccess: Record<string, AppAccessOverride>,
+    workspaceIds: string[],
+  ) => Promise<boolean>
 }) {
   const { roles: roleList } = useRoles()
   const defaultRoleId = roleList.find((r) => r.isDefault)?.id ?? roleList[0]?.id ?? 'role-viewer'
   const [roleId, setRoleId] = useState<string>(defaultRoleId)
   const [appAccess, setAppAccess] = useState<Record<string, AppAccessOverride>>({})
+  const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
+  const canConfirm = selectedWorkspaces.length > 0
+
+  function toggleWorkspace(workspaceId: string) {
+    setSelectedWorkspaces((prev) =>
+      prev.includes(workspaceId)
+        ? prev.filter((id) => id !== workspaceId)
+        : [...prev, workspaceId],
+    )
+  }
+
   async function handleConfirm() {
+    if (!canConfirm) return
     setSaving(true)
-    const ok = await onConfirm(roleId, appAccess)
+    const ok = await onConfirm(roleId, appAccess, selectedWorkspaces)
     if (!ok) setSaving(false)
   }
 
@@ -104,6 +123,43 @@ export function ApproveUserModal({
 
           <div>
             <p className="mb-1.5 text-[10px] font-semibold text-fg-muted">
+              Campus (obrigatório)
+            </p>
+            {workspaces.length === 0 ? (
+              <p className="rounded-lg bg-input/40 px-3 py-2 text-[11px] text-fg-dim">
+                Nenhum campus cadastrado — crie um workspace antes de aprovar.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {workspaces.map((ws) => {
+                  const selected = selectedWorkspaces.includes(ws.id)
+                  return (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      onClick={() => toggleWorkspace(ws.id)}
+                      disabled={saving}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all disabled:opacity-50 ${
+                        selected
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/40'
+                          : 'bg-input text-fg-muted hover:text-fg'
+                      }`}
+                    >
+                      {selected ? '✓ ' : ''}{ws.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <p className={`mt-1.5 text-[10px] ${canConfirm ? 'text-fg-dim' : 'text-amber-500'}`}>
+              {canConfirm
+                ? `${selectedWorkspaces.length} campus${selectedWorkspaces.length !== 1 ? 's' : ''} selecionado${selectedWorkspaces.length !== 1 ? 's' : ''}`
+                : 'Selecione ao menos um campus para aprovar.'}
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[10px] font-semibold text-fg-muted">
               Acesso por aplicativo (opcional — sobrescreve o cargo)
             </p>
             <div className="space-y-1.5">
@@ -154,7 +210,8 @@ export function ApproveUserModal({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={saving}
+              disabled={saving || !canConfirm}
+              title={canConfirm ? undefined : 'Selecione ao menos um campus'}
               className="flex-1 rounded-xl bg-emerald-500 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               {saving ? 'Aprovando...' : 'Aprovar e conceder acesso'}

@@ -2,6 +2,7 @@ import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
+import { MarkNotificationsReadOnVisit } from './core/notifications/MarkNotificationsReadOnVisit'
 import { SplashScreen } from './platform/Splash/SplashScreen'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
 import { AuthProvider, useAuth } from './core/auth/AuthContext'
@@ -156,6 +157,7 @@ export default function App() {
             </Suspense>
             <CommandPalette />
             <GlobalPresenceIndicator />
+            <MarkNotificationsReadOnVisit />
           </WorkspaceProvider>
         </ThemeProvider>
       </AuthProvider>

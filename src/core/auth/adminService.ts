@@ -69,7 +69,7 @@ export const adminService = {
 
   approveUser: async (
     userId: string,
-    extra?: { roleId?: string; app_access?: User['app_access'] },
+    extra?: { roleId?: string; app_access?: User['app_access']; workspace_ids?: string[] },
   ): Promise<boolean> => {
     if (!defaultDb) return false
 

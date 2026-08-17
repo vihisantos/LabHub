@@ -107,13 +107,17 @@ function appRow(name: string): HTMLElement {
 }
 
 describe('UsersPage deep link', () => {
+  const workspaces = [
+    { id: 'ws-mooca', name: 'Campus Mooca', slug: 'mooca', location: 'São Paulo', spreadsheet_url: '', created_at: '', updated_at: '' },
+  ]
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
     currentSearchParams = new URLSearchParams()
     mockAdminService.listAllProfiles.mockResolvedValue([pendingUser])
     mockAdminService.approveUser.mockResolvedValue(true)
-    mockWorkspaceService.syncFromSupabase.mockResolvedValue([])
+    mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
   })
 
   afterEach(() => {
@@ -143,7 +147,7 @@ describe('UsersPage deep link', () => {
     expect(screen.queryByText('Aprovar cadastro')).not.toBeInTheDocument()
   })
 
-  it('confirma a aprovação com o cargo e o app_access selecionados', async () => {
+  it('confirma a aprovação com cargo, app_access e campus obrigatório', async () => {
     currentSearchParams.set('pending', 'u-123')
 
     renderPage()
@@ -152,13 +156,21 @@ describe('UsersPage deep link', () => {
       expect(screen.getByText('Aprovar cadastro')).toBeInTheDocument()
     })
 
+    // Sem campus selecionado, o botão de aprovar fica desabilitado
+    expect(screen.getByRole('button', { name: 'Aprovar e conceder acesso' })).toBeDisabled()
+    expect(screen.getByText('Selecione ao menos um campus para aprovar.')).toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('button', { name: 'Técnico' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
+    expect(screen.getByRole('button', { name: 'Aprovar e conceder acesso' })).toBeEnabled()
+
     fireEvent.click(screen.getByRole('button', { name: 'Aprovar e conceder acesso' }))
 
     await waitFor(() => {
       expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123', {
         roleId: 'role-technician',
         app_access: {},
+        workspace_ids: ['ws-mooca'],
       })
     })
   })
@@ -176,12 +188,14 @@ describe('UsersPage deep link', () => {
     fireEvent.change(within(appRow('ReservaLab')).getByRole('combobox'), { target: { value: 'none' } })
     fireEvent.change(within(appRow('Chamados')).getByRole('combobox'), { target: { value: 'read' } })
 
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
     fireEvent.click(screen.getByRole('button', { name: 'Aprovar e conceder acesso' }))
 
     await waitFor(() => {
       expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123', {
         roleId: 'role-viewer',
         app_access: { reservalab: 'none', chamados: 'read' },
+        workspace_ids: ['ws-mooca'],
       })
     })
   })
@@ -217,12 +231,14 @@ describe('UsersPage deep link', () => {
     fireEvent.change(within(appRow('ReservaLab')).getByRole('combobox'), { target: { value: 'none' } })
     fireEvent.change(within(appRow('ReservaLab')).getByRole('combobox'), { target: { value: 'inherit' } })
 
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
     fireEvent.click(screen.getByRole('button', { name: 'Aprovar e conceder acesso' }))
 
     await waitFor(() => {
       expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123', {
         roleId: 'role-viewer',
         app_access: {},
+        workspace_ids: ['ws-mooca'],
       })
     })
   })
@@ -251,7 +267,7 @@ describe('UsersPage fluxo completo', () => {
     vi.useFakeTimers()
   })
 
-  it('aprova um usuário pendente e o atribui a um workspace pela interface', async () => {
+  it('aprova um usuário pendente com campus obrigatório e ajusta os workspaces pela interface', async () => {
     renderPage()
 
     // 1. Usuário pendente aparece na seção de aprovações
@@ -263,14 +279,16 @@ describe('UsersPage fluxo completo', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Aprovar' }))
     expect(screen.getByText('Aprovar cadastro')).toBeInTheDocument()
 
-    // 3. Escolhe o cargo Técnico e confirma
+    // 3. Escolhe o cargo Técnico + campus obrigatório e confirma
     fireEvent.click(screen.getByRole('button', { name: 'Técnico' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
     fireEvent.click(screen.getByRole('button', { name: 'Aprovar e conceder acesso' }))
 
     await waitFor(() => {
       expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123', {
         roleId: 'role-technician',
         app_access: {},
+        workspace_ids: ['ws-mooca'],
       })
     })
 
@@ -288,15 +306,15 @@ describe('UsersPage fluxo completo', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /Técnico/ }))
 
-    // 6. Atribui o workspace pela interface
-    expect(screen.getByText(/Workspaces \(0 de 2\)/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Campus Mooca/ }))
+    // 6. O campus escolhido na aprovação já aparece; adiciona o segundo pela interface
+    expect(screen.getByText(/Workspaces \(1 de 2\)/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Campus São José/ }))
 
     await waitFor(() => {
-      expect(mockAdminService.updateUserWorkspaces).toHaveBeenCalledWith('u-123', ['ws-mooca'])
+      expect(mockAdminService.updateUserWorkspaces).toHaveBeenCalledWith('u-123', ['ws-mooca', 'ws-sjc'])
     })
     expect(screen.getByText('Acesso concedido')).toBeInTheDocument()
-    expect(screen.getByText(/Workspaces \(1 de 2\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Workspaces \(2 de 2\)/)).toBeInTheDocument()
   })
 
   it('permite remover o acesso do usuário a um workspace', async () => {

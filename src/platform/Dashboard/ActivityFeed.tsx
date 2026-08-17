@@ -74,7 +74,7 @@ export function ActivityFeed({ limit = 10 }: { limit?: number }) {
         <h3 className="text-xs font-semibold text-fg-muted">Atividade Recente</h3>
         <span className="text-[10px] text-fg-dim">{logs.length} registros</span>
       </div>
-      <div className="divide-y divide-line">
+      <div className="scrollbar-thin max-h-80 divide-y divide-line overflow-y-auto">
         {logs.length === 0 ? (
           <div className="py-8 text-center">
             <icons.ui.inbox size={32} className="mx-auto text-fg-muted" />
