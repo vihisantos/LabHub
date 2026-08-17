@@ -257,6 +257,34 @@ Roda todos os checks de cron em uma unica chamada (reservas, devolucoes vencendo
 
 ---
 
+### POST /api/chamados/reports/weekly-email
+
+Envia por email o resumo semanal de chamados (ultimos 7 dias). Requer usuario logado (Bearer Supabase). Usa Resend (`RESEND_API_KEY`). Pode ser chamado manualmente pelo app ou por um cron agendado.
+
+**Body:**
+
+```json
+{
+  "workspace_id": "uuid-do-campus",
+  "to": "destinatario@email.com"
+}
+```
+
+- `workspace_id`: filtra chamados por campus (obrigatorio).
+- `to`: email do destinatario (opcional — usa `REPORT_EMAIL_TO` se omitido).
+
+**Resposta (200):**
+
+```json
+{
+  "ok": true,
+  "total": 12,
+  "sent_to": "destinatario@email.com"
+}
+```
+
+---
+
 ## Fluxo: Notificacao de Chamados (Sup-app)
 
 Quando um professor abre um chamado pelo formulario publico (`/chamados-publico`), o sup-app (app do TI) recebe a notificacao **imediatamente**, sem depender de cron ou de servicos externos. O envio e disparado por **evento**, dentro da propria requisicao que cria o chamado.
@@ -389,6 +417,7 @@ class DateEncoder(json.JSONEncoder):
 - `upstash_redis` — Redis para push
 - `pywebpush` — Web Push (VAPID)
 - `hashlib` — Deduplicacao de push
+- `resend` — Envio de emails (relatorio semanal)
 
 ---
 
@@ -402,6 +431,8 @@ class DateEncoder(json.JSONEncoder):
 | `SUPABASE_URL` | Nao | URL do Supabase |
 | `SUPABASE_SERVICE_KEY` | Nao | Service key do Supabase |
 | `CRON_SECRET` | Nao | Protege os endpoints de cron `GET /api/push/check`, `check-overdue`, `check-pcare` e `check-all` (o Vercel Cron envia `Authorization: Bearer ${CRON_SECRET}`) |
+| `RESEND_API_KEY` | Nao | Chave da API Resend para envio de emails (relatorio semanal de chamados) |
+| `EMAIL_FROM` | Nao | Remetente dos emails enviados via Resend (default: `LabHub <labhub@resend.dev>`) |
 
 ---
 
