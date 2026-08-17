@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
-const mockGetByRoom = vi.hoisted(() => vi.fn())
+const mockGetByRoomUnfiltered = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../../core/assets/service', () => ({
-  assetService: { getByRoom: mockGetByRoom },
+  assetService: { getByRoomUnfiltered: mockGetByRoomUnfiltered },
 }))
 
 import { useRoomAssets } from '../useRoomAssets'
@@ -35,11 +35,11 @@ describe('useRoomAssets', () => {
     const { result } = renderHook(() => useRoomAssets(''))
     expect(result.current.assets).toEqual([])
     expect(result.current.grouped).toEqual({})
-    expect(mockGetByRoom).not.toHaveBeenCalled()
+    expect(mockGetByRoomUnfiltered).not.toHaveBeenCalled()
   })
 
   it('agrupa por categoria segundo o subcategory', () => {
-    mockGetByRoom.mockReturnValue([
+    mockGetByRoomUnfiltered.mockReturnValue([
       makeAsset({ id: 'a', subcategory: 'Desktop' }),
       makeAsset({ id: 'b', subcategory: 'Projetor' }),
       makeAsset({ id: 'c', subcategory: 'Cabo HDMI' }),
@@ -48,7 +48,7 @@ describe('useRoomAssets', () => {
 
     const { result } = renderHook(() => useRoomAssets('Lab 2'))
 
-    expect(mockGetByRoom).toHaveBeenCalledWith('Lab 2')
+    expect(mockGetByRoomUnfiltered).toHaveBeenCalledWith('Lab 2')
     expect(result.current.assets).toHaveLength(4)
     expect(Object.keys(result.current.grouped).sort()).toEqual([
       'Cabos',
@@ -61,14 +61,14 @@ describe('useRoomAssets', () => {
   })
 
   it('recalcula quando a sala muda', () => {
-    mockGetByRoom.mockReturnValue([makeAsset()])
+    mockGetByRoomUnfiltered.mockReturnValue([makeAsset()])
     const { rerender, result } = renderHook(({ room }: { room: string }) => useRoomAssets(room), {
       initialProps: { room: 'Sala 101' },
     })
-    expect(mockGetByRoom).toHaveBeenCalledWith('Sala 101')
+    expect(mockGetByRoomUnfiltered).toHaveBeenCalledWith('Sala 101')
 
     rerender({ room: 'Lab 2' })
-    expect(mockGetByRoom).toHaveBeenLastCalledWith('Lab 2')
+    expect(mockGetByRoomUnfiltered).toHaveBeenLastCalledWith('Lab 2')
     expect(result.current.assets).toHaveLength(1)
   })
 })

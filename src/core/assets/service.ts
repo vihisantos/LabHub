@@ -54,15 +54,21 @@ function matchesFilters(asset: AssetRecord, filters: AssetFilters): boolean {
   return true
 }
 
-export const assetService = {
-  getAll: (filters?: AssetFilters): AssetRecord[] => {
-    const pcs = pcService.getAll().map(buildAssetFromPc)
-    const stockItems = stockService.getAll().map(buildAssetFromStock)
-    const all = [...pcs, ...stockItems]
+function getAll(filters: AssetFilters | undefined, unfiltered: boolean): AssetRecord[] {
+  const pcs = (unfiltered ? pcService.getAllUnfiltered() : pcService.getAll()).map(buildAssetFromPc)
+  const stockItems = (unfiltered ? stockService.getAllUnfiltered() : stockService.getAll()).map(buildAssetFromStock)
+  const all = [...pcs, ...stockItems]
 
-    if (!filters) return all
-    return all.filter((a) => matchesFilters(a, filters))
-  },
+  if (!filters) return all
+  return all.filter((a) => matchesFilters(a, filters))
+}
+
+export const assetService = {
+  getAll: (filters?: AssetFilters): AssetRecord[] => getAll(filters, false),
+
+  // Sem filtro de workspace — usado pelo fluxo público de chamados, onde o
+  // professor precisa ver equipamentos de todos os campi.
+  getAllUnfiltered: (filters?: AssetFilters): AssetRecord[] => getAll(filters, true),
 
   getById: (id: string, source: 'pcare' | 'stock'): AssetRecord | undefined => {
     if (source === 'pcare') {
@@ -75,6 +81,11 @@ export const assetService = {
 
   getByRoom: (room: string): AssetRecord[] => {
     return assetService.getAll({ room })
+  },
+
+  // Versão pública (fluxo de chamados): equipamentos da sala de qualquer campus.
+  getByRoomUnfiltered: (room: string): AssetRecord[] => {
+    return assetService.getAllUnfiltered({ room })
   },
 
   getRooms: (): string[] => {

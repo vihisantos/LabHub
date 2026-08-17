@@ -25,9 +25,11 @@ const CATEGORY_MAP: Record<string, string> = {
 }
 
 export function useRoomAssets(roomName: string) {
+  // Fluxo público (professor): busca equipamentos sem filtro de workspace,
+  // para a sala aparecer mesmo com resíduo de sessão de outro campus.
   const assets = useMemo<RoomAsset[]>(() => {
     if (!roomName) return []
-    return assetService.getByRoom(roomName)
+    return assetService.getByRoomUnfiltered(roomName)
   }, [roomName])
 
   const grouped = useMemo(() => {
