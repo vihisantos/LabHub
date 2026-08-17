@@ -13,7 +13,7 @@ export function AdminDashboard() {
   const { logs } = useLogs()
   const { unreadCount } = useNotifications()
 
-  const recentLogs = useMemo(() => logs.slice(0, 5), [logs])
+  const recentLogs = useMemo(() => logs.slice(0, 15), [logs])
 
   return (
     <div className="space-y-6">
@@ -82,7 +82,7 @@ export function AdminDashboard() {
             Ver todos
           </button>
         </div>
-        <div className="divide-y divide-line">
+        <div className="scrollbar-thin max-h-80 divide-y divide-line overflow-y-auto">
           {recentLogs.length === 0 ? (
             <div className="py-6 text-center">
               <p className="text-xs text-fg-muted">Nenhuma atividade</p>

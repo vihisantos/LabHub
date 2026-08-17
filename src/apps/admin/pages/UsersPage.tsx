@@ -116,12 +116,23 @@ export function UsersPage() {
     userId: string,
     roleId: string,
     appAccess: Record<string, AppAccessOverride>,
+    workspaceIds: string[],
   ): Promise<boolean> {
     setSaving(true)
-    const success = await adminService.approveUser(userId, { roleId, app_access: appAccess })
+    const success = await adminService.approveUser(userId, {
+      roleId,
+      app_access: appAccess,
+      workspace_ids: workspaceIds,
+    })
     if (success) {
       setUsers((prev) => prev.map((u) => u.id === userId
-        ? { ...u, status: 'active', roleId, app_access: { ...(u.app_access || {}), ...appAccess } }
+        ? {
+            ...u,
+            status: 'active',
+            roleId,
+            workspace_ids: workspaceIds,
+            app_access: { ...(u.app_access || {}), ...appAccess },
+          }
         : u))
       setApprovingUser(null)
       setFeedback({ type: 'success', message: `Usuário aprovado como ${roleList.find((r) => r.id === roleId)?.name ?? 'cargo'}` })
@@ -658,8 +669,11 @@ export function UsersPage() {
       {approvingUser && (
         <ApproveUserModal
           user={approvingUser}
+          workspaces={workspaces}
           onClose={() => setApprovingUser(null)}
-          onConfirm={(role, appAccess) => handleApprove(approvingUser.id, role, appAccess)}
+          onConfirm={(role, appAccess, workspaceIds) =>
+            handleApprove(approvingUser.id, role, appAccess, workspaceIds)
+          }
         />
       )}
     </div>
