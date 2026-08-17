@@ -5,11 +5,11 @@ import { renderWithProviders } from '../../../../test/helpers'
 import type { Room } from '../../../chamados/types'
 import type { RoomAsset } from '../../../chamados/hooks/useRoomAssets'
 
-const mockUseRooms = vi.hoisted(() => vi.fn())
+const mockGetAllUnfiltered = vi.hoisted(() => vi.fn())
 const mockUseRoomAssets = vi.hoisted(() => vi.fn())
 const mockGetOpenByAsset = vi.hoisted(() => vi.fn())
 
-vi.mock('../../../chamados/hooks/useRooms', () => ({ useRooms: mockUseRooms }))
+vi.mock('../../../chamados/services/roomService', () => ({ roomService: { getAllUnfiltered: mockGetAllUnfiltered } }))
 vi.mock('../../../chamados/hooks/useRoomAssets', () => ({ useRoomAssets: mockUseRoomAssets }))
 vi.mock('../../../chamados/services/ticketService', () => ({ ticketService: { getOpenByAsset: mockGetOpenByAsset } }))
 
@@ -45,12 +45,19 @@ function makeAsset(overrides: Partial<RoomAsset> = {}): RoomAsset {
   }
 }
 
+import { useSearchParams } from 'react-router-dom'
+
+function NewAssetStub() {
+  const [sp] = useSearchParams()
+  return <div>novo chamado asset | workspace={sp.get('workspace') || ''}</div>
+}
+
 function renderRoomAssets() {
   return renderWithProviders(
     <Routes>
       <Route path="/chamados-publico" element={<div>inicio</div>} />
       <Route path="/chamados-publico/room/:roomId" element={<RoomAssets />} />
-      <Route path="/chamados-publico/new-asset" element={<div>novo chamado asset</div>} />
+      <Route path="/chamados-publico/new-asset" element={<NewAssetStub />} />
     </Routes>,
     { initialEntries: ['/chamados-publico/room/r-1'] },
   )
@@ -58,14 +65,14 @@ function renderRoomAssets() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockUseRooms.mockReturnValue({ rooms: [makeRoom()] })
+  mockGetAllUnfiltered.mockReturnValue([makeRoom()])
   mockUseRoomAssets.mockReturnValue({ assets: [], grouped: {} })
   mockGetOpenByAsset.mockReturnValue([])
 })
 
 describe('RoomAssets', () => {
   it('sala não encontrada', () => {
-    mockUseRooms.mockReturnValue({ rooms: [] })
+    mockGetAllUnfiltered.mockReturnValue([])
     renderRoomAssets()
 
     expect(screen.getByText('Sala não encontrada')).toBeInTheDocument()
@@ -114,6 +121,30 @@ describe('RoomAssets', () => {
     renderRoomAssets()
 
     fireEvent.click(screen.getByRole('button', { name: /PC-02/ }))
-    expect(screen.getByText('novo chamado asset')).toBeInTheDocument()
+    expect(screen.getByText(/novo chamado asset/)).toBeInTheDocument()
+  })
+
+  it('navega passando o workspace da sala na URL (anti-limbo)', () => {
+    mockUseRoomAssets.mockReturnValue({
+      assets: [makeAsset()],
+      grouped: { Equipamentos: [makeAsset()] },
+    })
+    mockGetAllUnfiltered.mockReturnValue([makeRoom({ workspace_id: 'ws-x' })])
+    renderRoomAssets()
+
+    fireEvent.click(screen.getByRole('button', { name: /PC-02/ }))
+    expect(screen.getByText('novo chamado asset | workspace=ws-x')).toBeInTheDocument()
+  })
+
+  it('navega sem workspace quando a sala não tem workspace_id', () => {
+    mockUseRoomAssets.mockReturnValue({
+      assets: [makeAsset()],
+      grouped: { Equipamentos: [makeAsset()] },
+    })
+    mockGetAllUnfiltered.mockReturnValue([makeRoom({ workspace_id: '' })])
+    renderRoomAssets()
+
+    fireEvent.click(screen.getByRole('button', { name: /PC-02/ }))
+    expect(screen.getByText('novo chamado asset | workspace=')).toBeInTheDocument()
   })
 })

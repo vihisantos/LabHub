@@ -5,7 +5,7 @@ vi.mock('../../../../core/workspaces/useWorkspaces', () => ({ useWorkspaces: vi.
 vi.mock('../../../../core/workspaces/store', () => ({
   workspaceStore: { activeWorkspaceId: null },
 }))
-vi.mock('../../../chamados/hooks/useRooms', () => ({ useRooms: vi.fn() }))
+vi.mock('../../../chamados/services/roomService', () => ({ roomService: { getAllUnfiltered: vi.fn() } }))
 vi.mock('../../../chamados/hooks/useRoomAssets', () => ({ useRoomAssets: vi.fn() }))
 vi.mock('../../../chamados/hooks/useProblemTemplates', () => ({ useProblemTemplates: vi.fn() }))
 vi.mock('../../../chamados/services/ticketService', () => ({
@@ -33,7 +33,7 @@ vi.mock('react-router-dom', async () => {
 })
 
 import { useWorkspaces } from '../../../../core/workspaces/useWorkspaces'
-import { useRooms } from '../../../chamados/hooks/useRooms'
+import { roomService } from '../../../chamados/services/roomService'
 import { useRoomAssets } from '../../../chamados/hooks/useRoomAssets'
 import { useProblemTemplates } from '../../../chamados/hooks/useProblemTemplates'
 import { ticketService } from '../../../chamados/services/ticketService'
@@ -72,7 +72,7 @@ describe('TicketForm (campus)', () => {
       ],
       loading: false,
     })
-    ;(useRooms as any).mockReturnValue({ rooms: ROOMS })
+    ;(roomService.getAllUnfiltered as any).mockReturnValue(ROOMS)
     ;(useRoomAssets as any).mockReturnValue({ assets: [ASSET] })
     ;(useProblemTemplates as any).mockReturnValue({
       getByAssetType: () => ({ categories: ['Internet', 'Outro'] }),
@@ -153,6 +153,71 @@ describe('TicketForm (campus)', () => {
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    fireEvent.click(submit)
+
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
+  })
+
+  it('sala sem workspace_id: não usa fallback e exige escolha manual de campus', async () => {
+    ;(roomService.getAllUnfiltered as any).mockReturnValue([
+      { id: 'r1', name: 'Sala 101', location: '', assetIds: [], workspace_id: '', createdAt: '', updatedAt: '' },
+    ])
+    mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock' })
+    renderForm()
+
+    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
+
+    // Sem ?workspace= e sem workspace na sala, o submit fica desabilitado
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    expect(submit).toBeDisabled()
+
+    // Escolhendo um campus manualmente, habilita e envia com o campus escolhido
+    fireEvent.click(screen.getByText('Campus A'))
+    expect(submit).not.toBeDisabled()
+    fireEvent.click(submit)
+
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_A }))
+  })
+
+  it('workspace da URL inexistente (deletado): cai para o workspace da sala quando existe', async () => {
+    mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock', workspace: 'ws-deletado' })
+    renderForm()
+
+    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
+
+    // Campus da URL não existe → o chamado NÃO vai para ele; a sala manda (WS_B)
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    expect(submit).not.toBeDisabled()
+    fireEvent.click(submit)
+
+    await act(async () => {})
+
+    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
+  })
+
+  it('workspace da URL inexistente e sala sem workspace: exige escolha manual', async () => {
+    ;(roomService.getAllUnfiltered as any).mockReturnValue([
+      { id: 'r1', name: 'Sala 101', location: '', assetIds: [], workspace_id: '', createdAt: '', updatedAt: '' },
+    ])
+    mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock', workspace: 'ws-deletado' })
+    renderForm()
+
+    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
+
+    // Sem fonte confiável (URL inválida + sala sem workspace) → submit desabilitado
+    const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
+    expect(submit).toBeDisabled()
+
+    // Escolhendo um campus válido manualmente, envia com ele
+    fireEvent.click(screen.getByText('Campus B'))
+    expect(submit).not.toBeDisabled()
     fireEvent.click(submit)
 
     await act(async () => {})

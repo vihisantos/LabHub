@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useRooms } from '../../chamados/hooks/useRooms'
 import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
 import { useProblemTemplates } from '../../chamados/hooks/useProblemTemplates'
+import { roomService } from '../../chamados/services/roomService'
 import { ticketService } from '../../chamados/services/ticketService'
 import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
-import { workspaceStore } from '../../../core/workspaces/store'
 import { icons } from '../../../lib/icons'
 import type { TicketFormData } from '../../chamados/types'
 
@@ -17,7 +16,9 @@ export function TicketForm() {
   const assetSource = (searchParams.get('source') || 'stock') as TicketFormData['assetSource']
   const urlWorkspace = searchParams.get('workspace') || ''
 
-  const { rooms } = useRooms()
+  // Fluxo público: busca a sala sem filtro de workspace, para o QR funcionar
+  // independente de sessão/resíduo do navegador.
+  const rooms = roomService.getAllUnfiltered()
   const room = rooms.find((r) => r.id === roomId)
   const roomWorkspaceId = room?.workspace_id || ''
   const { assets } = useRoomAssets(room?.name || '')
@@ -26,6 +27,11 @@ export function TicketForm() {
   const { getByAssetType } = useProblemTemplates()
 
   const { workspaces, loading: loadingWorkspaces } = useWorkspaces()
+
+  // Campus confiável: vem da URL (QR com workspace) ou do workspace da sala.
+  // NUNCA cai no workspace ativo do navegador — isso poderia mandar o chamado
+  // para o campus errado. Sem fonte confiável, o professor escolhe na grade
+  // (o submit fica desabilitado até escolher).
   const [campusId, setCampusId] = useState(urlWorkspace || roomWorkspaceId)
 
   useEffect(() => {
@@ -33,13 +39,14 @@ export function TicketForm() {
     setCampusId(roomWorkspaceId)
   }, [campusId, roomWorkspaceId])
 
+  // Se o campus vindo da URL/sala não existe mais (workspace deletado), limpa
+  // para forçar a escolha manual — nunca manda o chamado para um campus inválido.
   useEffect(() => {
-    if (campusId || loadingWorkspaces) return
-    const active = workspaceStore.activeWorkspaceId
-    if (active && workspaces.some((w) => w.id === active)) {
-      setCampusId(active)
+    if (loadingWorkspaces || !campusId) return
+    if (!workspaces.some((w) => w.id === campusId)) {
+      setCampusId('')
     }
-  }, [campusId, loadingWorkspaces, workspaces])
+  }, [campusId, workspaces, loadingWorkspaces])
 
   const template = useMemo(() => {
     if (!asset) return null

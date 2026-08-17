@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useRooms } from '../../chamados/hooks/useRooms'
 import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
+import { roomService } from '../../chamados/services/roomService'
 import { ticketService } from '../../chamados/services/ticketService'
 import { icons } from '../../../lib/icons'
 import type { RoomAsset } from '../../chamados/hooks/useRoomAssets'
@@ -48,7 +48,9 @@ function AssetCard({ asset, onClick }: { asset: RoomAsset; onClick: () => void }
 export function RoomAssets() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
-  const { rooms } = useRooms()
+  // Fluxo público: busca a sala sem filtro de workspace, para o QR funcionar
+  // independente de sessão/resíduo do navegador.
+  const rooms = roomService.getAllUnfiltered()
   const room = rooms.find((r) => r.id === roomId)
 
   const roomName = room?.name || ''
@@ -106,7 +108,7 @@ export function RoomAssets() {
                   <AssetCard
                     key={`${asset.source}-${asset.id}`}
                     asset={asset}
-                    onClick={() => navigate(`/chamados-publico/new-asset?room=${room.id}&asset=${asset.id}&source=${asset.source}`)}
+                    onClick={() => navigate(`/chamados-publico/new-asset?room=${room.id}&asset=${asset.id}&source=${asset.source}&workspace=${room.workspace_id || ''}`)}
                   />
                 ))}
               </div>
