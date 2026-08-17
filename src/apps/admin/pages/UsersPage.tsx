@@ -4,6 +4,7 @@ import { adminService } from '../../../core/auth/adminService'
 import type { User, Accent, ThemeVariant } from '../../../core/auth/types'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { workspaceService } from '../../../core/workspaces/service'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import type { Workspace } from '../../../core/workspaces/types'
 import { themeStore } from '../../../core/theme/store'
 import { useRoles } from '../../../core/permissions/usePermissions'
@@ -42,6 +43,7 @@ export function UsersPage() {
   const [uploadingAvatar, setUploadingAvatar] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const { roles: roleList } = useRoles()
+  const { workspace } = useWorkspace()
   const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
   const load = useCallback(async (silent = false) => {
@@ -91,7 +93,18 @@ export function UsersPage() {
   const pendingUsers = users.filter((u) => u.status === 'pending')
   const activeUsers = users.filter((u) => u.status !== 'pending')
 
-  const filteredUsers = activeUsers.filter((u) => {
+  // Escopo por workspace: a lista de ativos mostra só os usuários do workspace
+  // atual. Admin absoluto e usuários sem workspace atribuído aparecem sempre
+  // (estes últimos precisam ser visíveis para receberem atribuição).
+  const workspaceId = workspace?.id ?? null
+  const scopedActiveUsers = activeUsers.filter((u) => {
+    if (!workspaceId) return true
+    if (u.is_super_admin) return true
+    const ids = u.workspace_ids || []
+    return ids.length === 0 || ids.includes(workspaceId)
+  })
+
+  const filteredUsers = scopedActiveUsers.filter((u) => {
     const matchesSearch = !search
       || u.name.toLowerCase().includes(search.toLowerCase())
       || u.email.toLowerCase().includes(search.toLowerCase())
@@ -247,14 +260,14 @@ export function UsersPage() {
   }
 
   const userCounts = {
-    total: users.length,
+    total: scopedActiveUsers.length,
     pending: pendingUsers.length,
-    superAdmin: users.filter((u) => u.is_super_admin).length,
+    superAdmin: scopedActiveUsers.filter((u) => u.is_super_admin).length,
   }
 
   const roleCounts = roleList.map((role) => ({
     role,
-    count: users.filter((u) => u.roleId === role.id).length,
+    count: scopedActiveUsers.filter((u) => u.roleId === role.id).length,
   }))
 
   if (loading) {
@@ -272,7 +285,9 @@ export function UsersPage() {
     <div className="space-y-4">
       <div className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
         <h2 className="text-lg font-bold text-fg">Usuários</h2>
-        <p className="mt-1 text-sm text-fg-muted">{userCounts.total} usuário{userCounts.total !== 1 ? 's' : ''} no sistema</p>
+        <p className="mt-1 text-sm text-fg-muted">
+          {userCounts.total} usuário{userCounts.total !== 1 ? 's' : ''}{workspace ? ` em ${workspace.name}` : ' no sistema'}
+        </p>
       </div>
 
       <div className="flex flex-wrap gap-2">

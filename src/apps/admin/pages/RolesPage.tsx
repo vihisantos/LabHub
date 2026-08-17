@@ -9,6 +9,7 @@ import {
 } from '../../../core/permissions/types'
 import { adminService } from '../../../core/auth/adminService'
 import type { User } from '../../../core/auth/types'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
 
@@ -31,6 +32,7 @@ function MemberAvatar({ user }: { user: User }) {
 
 export function RolesPage() {
   const { roles, loading, update, create, remove } = useRoles()
+  const { workspace } = useWorkspace()
   const [expandedRole, setExpandedRole] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<User[]>([])
@@ -56,6 +58,20 @@ export function RolesPage() {
   const activeUsers = useMemo(
     () => profiles.filter((u) => u.status === 'active'),
     [profiles],
+  )
+
+  // Escopo por workspace (mesmo critério da página de Usuários): membros, líder
+  // e seletor de líder refletem o workspace atual. Admin absoluto e usuários sem
+  // workspace atribuído aparecem sempre (estes precisam ser atribuídos).
+  const workspaceId = workspace?.id ?? null
+  const scopedActiveUsers = useMemo(
+    () => activeUsers.filter((u) => {
+      if (!workspaceId) return true
+      if (u.is_super_admin) return true
+      const ids = u.workspace_ids || []
+      return ids.length === 0 || ids.includes(workspaceId)
+    }),
+    [activeUsers, workspaceId],
   )
 
   async function setAppAccess(roleId: string, appId: string, level: AppAccessLevel | null) {
@@ -153,8 +169,8 @@ export function RolesPage() {
         const access = role.appAccess || {}
         const grantedCount = appRegistry.filter((app) => access[app.id]).length
         const isExpanded = expandedRole === role.id
-        const leader = activeUsers.find((u) => u.id === role.leaderId)
-        const members = activeUsers.filter((u) => u.roleId === role.id)
+        const leader = scopedActiveUsers.find((u) => u.id === role.leaderId)
+        const members = scopedActiveUsers.filter((u) => u.roleId === role.id)
 
         return (
           <div key={role.id} className="rounded-xl bg-card shadow-[var(--shadow-card)] overflow-hidden">
@@ -212,7 +228,7 @@ export function RolesPage() {
                       className="ml-auto rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-fg focus:outline-none disabled:opacity-50"
                     >
                       <option value="">Sem líder</option>
-                      {activeUsers.map((u) => (
+                      {scopedActiveUsers.map((u) => (
                         <option key={u.id} value={u.id}>{u.name}</option>
                       ))}
                     </select>
