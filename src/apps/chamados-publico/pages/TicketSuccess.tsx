@@ -111,7 +111,7 @@ export function TicketSuccess() {
   }
 
   useEffect(() => {
-    if (!ticketId) return
+    if (!ticketId || ticketId === 'undefined') return
     const id = ticketId
     let alive = true
     async function poll() {

@@ -31,7 +31,7 @@ export function FeedbackPage() {
   const [done, setDone] = useState(false)
 
   useEffect(() => {
-    if (!ticketId) return
+    if (!ticketId || ticketId === 'undefined') return
     ticketService
       .getByIdRemote(ticketId)
       .then((t) => {

@@ -109,6 +109,7 @@ export const ticketService = {
 
   /** Busca um chamado direto na API (professor/feedback — sem guarda de escrita). */
   getByIdRemote: async (id: string): Promise<Ticket> => {
+    if (!id || id === 'undefined') throw new Error('ID do chamado inválido')
     const { ticket } = await request<{ ticket: Ticket }>(`${API_BASE}/${id}`)
     persistLocal(ticket)
     return ticket
