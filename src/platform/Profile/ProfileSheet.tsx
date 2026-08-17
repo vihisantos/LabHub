@@ -12,6 +12,7 @@ import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { WorkspaceSwitcherSheet } from '../WorkspaceSwitcher/WorkspaceSwitcherSheet'
 import { BottomSheet, SheetHeader } from '../ui/BottomSheet'
 import { AvatarIcon } from './UserAvatar'
+import { SecuritySheet } from './SecuritySheet'
 
 interface ProfileSheetProps {
   open: boolean
@@ -30,6 +31,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const avatarRef = useRef<HTMLInputElement>(null)
   const bannerRef = useRef<HTMLInputElement>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [securityOpen, setSecurityOpen] = useState(false)
   const { workspace, assignedWorkspaces } = useWorkspace()
 
   if (!user) return null
@@ -277,6 +279,22 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   </button>
                 )}
 
+                {/* Security */}
+                <button
+                  type="button"
+                  onClick={() => setSecurityOpen(true)}
+                  className="flex w-full items-center gap-3 rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-colors hover:bg-input"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-500">
+                    <icons.ui.shield size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-fg">Segurança</p>
+                    <p className="text-xs text-fg-muted">Biometria e verificação em duas etapas</p>
+                  </div>
+                  <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
+                </button>
+
                 {/* Workspace switch */}
                 <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
                   <p className="mb-2 text-xs font-semibold text-fg-muted">Workspace</p>
@@ -319,6 +337,8 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
         workspaces={assignedWorkspaces}
         onClose={() => setSwitcherOpen(false)}
       />
+
+      <SecuritySheet open={securityOpen} onClose={() => setSecurityOpen(false)} />
     </>
   )
 }

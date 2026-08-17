@@ -16,6 +16,8 @@ if (url && anonKey) {
         detectSessionInUrl: true,
         flowType: 'pkce',
       },
+      // Passkeys (WebAuthn) — signInWithPasskey/registerPasskey/auth.passkey.*
+      experimental: { passkey: true },
     })
     defaultDb = client
     pcareDb = client.schema('pcare')
