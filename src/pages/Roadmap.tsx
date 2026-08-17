@@ -29,7 +29,7 @@ const FEATURES: Feature[] = [
   { id: 94, cat: 'low', name: 'Push Segmentado por App/Workspace', desc: 'Inscrição com workspace e apps; envio filtrado no backend (_target_subs por módulo/workspace/cargo)', effort: 'med', done: true },
 
   { id: 95, cat: 'high', name: 'Sync em Tempo Real (Realtime)', desc: 'Dados e sino atualizam instantaneamente sem polling', effort: 'high', done: false },
-  { id: 96, cat: 'high', name: 'Login Biométrico / Passkey (WebAuthn)', desc: 'Entrar com digital, face ou chave de segurança no lugar da senha', effort: 'high', done: false },
+  { id: 96, cat: 'high', name: 'Login Biométrico / Passkey (WebAuthn)', desc: 'Entrar com digital, face ou chave de segurança no lugar da senha — botão "Entrar com biometria" + MFA WebAuthn como segundo fator (PR #92)', effort: 'high', done: true },
   { id: 97, cat: 'high', name: 'Monitoramento de PCs em Tempo Real', desc: 'Temperatura, uso de CPU e atividade remota por PC', effort: 'high', done: false },
   { id: 98, cat: 'high', name: 'Calendário Visual de Reservas', desc: 'Grade por laboratório com conflitos destacados e sugestão de horário', effort: 'med', done: false },
   { id: 99, cat: 'high', name: 'SLA de Chamados', desc: 'Prazos por prioridade com atraso destacado no dashboard', effort: 'med', done: true },
