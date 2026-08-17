@@ -56,6 +56,15 @@ vi.mock('../../../../core/workspaces/service', () => ({
   workspaceService: mockWorkspaceService,
 }))
 
+// Workspace atual controlável por teste (default: nenhum selecionado → mostra todos)
+const mockWorkspaceCtx = vi.hoisted(() => ({
+  workspace: null as { id: string; name: string } | null,
+}))
+
+vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
+  useWorkspace: () => ({ workspace: mockWorkspaceCtx.workspace }),
+}))
+
 vi.mock('../../../../core/permissions/usePermissions', () => ({
   useRoles: () => ({
     loading: false,
@@ -229,6 +238,7 @@ describe('UsersPage fluxo completo', () => {
     vi.clearAllMocks()
     vi.useRealTimers()
     currentSearchParams = new URLSearchParams()
+    mockWorkspaceCtx.workspace = null
     mockAdminService.listAllProfiles.mockResolvedValue([pendingUser])
     mockAdminService.approveUser.mockResolvedValue(true)
     mockAdminService.rejectUser.mockResolvedValue(true)
@@ -431,5 +441,120 @@ describe('UsersPage fluxo completo', () => {
     })
     expect(screen.getByText('Usuário rejeitado e removido')).toBeInTheDocument()
     expect(screen.queryByText('João Silva')).not.toBeInTheDocument()
+  })
+})
+
+describe('UsersPage escopo por workspace', () => {
+  const workspaces = [
+    { id: 'ws-mooca', name: 'Campus Mooca', slug: 'mooca', location: 'São Paulo', spreadsheet_url: '', created_at: '', updated_at: '' },
+    { id: 'ws-sjc', name: 'Campus São José', slug: 'sjc', location: 'São José dos Campos', spreadsheet_url: '', created_at: '', updated_at: '' },
+  ]
+
+  const moocaUser: User = {
+    ...pendingUser,
+    id: 'u-mooca',
+    name: 'Maria Mooca',
+    email: 'maria@mooca.edu.br',
+    status: 'active',
+    roleId: 'role-technician',
+    workspace_ids: ['ws-mooca'],
+  }
+  const sjcUser: User = {
+    ...pendingUser,
+    id: 'u-sjc',
+    name: 'José São José',
+    email: 'jose@sjc.edu.br',
+    status: 'active',
+    roleId: 'role-technician',
+    workspace_ids: ['ws-sjc'],
+  }
+  const unassignedUser: User = {
+    ...pendingUser,
+    id: 'u-sem-ws',
+    name: 'Paulo Semworkspace',
+    email: 'paulo@semws.edu.br',
+    status: 'active',
+    roleId: 'role-viewer',
+    workspace_ids: [],
+  }
+  const superAdminUser: User = {
+    ...pendingUser,
+    id: 'u-abs',
+    name: 'Ana Absoluta',
+    email: 'ana@labhub.com',
+    status: 'active',
+    roleId: 'role-technician',
+    is_super_admin: true,
+    workspace_ids: [],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+    currentSearchParams = new URLSearchParams()
+    mockWorkspaceCtx.workspace = null
+    mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser, unassignedUser, superAdminUser])
+    mockAdminService.updateUserWorkspaces.mockResolvedValue(true)
+    mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
+  })
+
+  afterEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('mostra apenas os usuários do workspace atual (admin absoluto sempre visível)', async () => {
+    mockWorkspaceCtx.workspace = workspaces[0] // Campus Mooca
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Maria Mooca')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Ana Absoluta')).toBeInTheDocument()
+    expect(screen.getByText('Paulo Semworkspace')).toBeInTheDocument()
+    expect(screen.queryByText('José São José')).not.toBeInTheDocument()
+    // O contador reflete o escopo (3 = mooca + absoluto + sem workspace)
+    expect(screen.getByText('3 usuários em Campus Mooca')).toBeInTheDocument()
+  })
+
+  it('sem workspace selecionado mostra todos os usuários', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Maria Mooca')).toBeInTheDocument()
+    })
+    expect(screen.getByText('José São José')).toBeInTheDocument()
+    expect(screen.getByText('Paulo Semworkspace')).toBeInTheDocument()
+    expect(screen.getByText('Ana Absoluta')).toBeInTheDocument()
+    expect(screen.getByText('4 usuários no sistema')).toBeInTheDocument()
+  })
+
+  it('ao trocar de workspace, a lista acompanha', async () => {
+    mockWorkspaceCtx.workspace = workspaces[1] // Campus São José
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('José São José')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Maria Mooca')).not.toBeInTheDocument()
+    expect(screen.getByText('Ana Absoluta')).toBeInTheDocument()
+    expect(screen.getByText('Paulo Semworkspace')).toBeInTheDocument()
+    expect(screen.getByText('3 usuários em Campus São José')).toBeInTheDocument()
+  })
+
+  it('usuários pendentes continuam visíveis para aprovação em qualquer workspace', async () => {
+    mockWorkspaceCtx.workspace = workspaces[0]
+    mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser, pendingUser])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Aprovações Pendentes (1)')).toBeInTheDocument()
+    })
+    expect(screen.getByText('João Silva')).toBeInTheDocument()
+    // Ativos do workspace atual aparecem; o de outro workspace não
+    expect(screen.getByText('Maria Mooca')).toBeInTheDocument()
+    expect(screen.queryByText('José São José')).not.toBeInTheDocument()
   })
 })
