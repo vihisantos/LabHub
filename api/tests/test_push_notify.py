@@ -7,6 +7,7 @@ causando 403 BadJwtToken na Apple e "aud claim MUST include the origin" no FCM
 quando o mesmo processo envia para os dois provedores (usuários com Chrome + Safari).
 """
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -72,3 +73,81 @@ def test_push_notify_repassa_payload_e_ttl(rlab_module, monkeypatch):
     assert payload["body"] == "Sala 1"
     assert payload["url"] == "/chamados/x"
     assert payload["userId"] == "u1"
+
+
+class FakeRedis:
+    """Mini fake do upstash_redis.Redis: guarda membros e registra srem."""
+
+    def __init__(self, members=None):
+        self.members = set(members or [])
+        self.removed = []
+
+    def smembers(self, key):
+        return set(self.members)
+
+    def sadd(self, key, value):
+        self.members.add(value)
+
+    def srem(self, key, value):
+        if value in self.members:
+            self.members.remove(value)
+            self.removed.append(value)
+            return 1
+        return 0
+
+    def delete(self, key):
+        self.members = set()
+
+
+def _raise_http(status_code):
+    from pywebpush import WebPushException
+
+    class FakeResp:
+        pass
+
+    def boom(**kwargs):
+        resp = FakeResp()
+        resp.status_code = status_code
+        raise WebPushException("Push failed", response=resp)
+
+    return boom
+
+
+def test_push_notify_remove_inscricao_410_do_redis(rlab_module, monkeypatch):
+    """410 Gone (inscrição expirada) deve remover a inscrição do Redis."""
+    fake = FakeRedis([json.dumps(FCM_SUB, ensure_ascii=False)])
+    monkeypatch.setattr(rlab_module, "redis", fake)
+    monkeypatch.setattr(rlab_module, "webpush", _raise_http(410))
+
+    assert rlab_module.push_notify(FCM_SUB, "t", "b") is False
+    assert fake.removed == [json.dumps(FCM_SUB, ensure_ascii=False)]
+    assert fake.members == set()
+
+
+def test_push_notify_remove_inscricao_404_do_redis(rlab_module, monkeypatch):
+    """404 (endpoint removido) também deve limpar a inscrição."""
+    fake = FakeRedis([json.dumps(FCM_SUB, ensure_ascii=False)])
+    monkeypatch.setattr(rlab_module, "redis", fake)
+    monkeypatch.setattr(rlab_module, "webpush", _raise_http(404))
+
+    assert rlab_module.push_notify(FCM_SUB, "t", "b") is False
+    assert fake.removed == [json.dumps(FCM_SUB, ensure_ascii=False)]
+
+
+def test_push_notify_nao_remove_em_erro_nao_410(rlab_module, monkeypatch):
+    """Erros de auth (403) ou genéricos NÃO podem remover a inscrição."""
+    fake = FakeRedis([json.dumps(FCM_SUB, ensure_ascii=False)])
+    monkeypatch.setattr(rlab_module, "redis", fake)
+    monkeypatch.setattr(rlab_module, "webpush", _raise_http(403))
+
+    assert rlab_module.push_notify(FCM_SUB, "t", "b") is False
+    assert fake.removed == []
+    assert fake.members == {json.dumps(FCM_SUB, ensure_ascii=False)}
+
+
+def test_push_notify_sem_redis_nao_quebra_em_410(rlab_module, monkeypatch):
+    """Sem Redis configurado, 410 não pode derrubar o envio dos demais."""
+    monkeypatch.setattr(rlab_module, "redis", None)
+    monkeypatch.setattr(rlab_module, "webpush", _raise_http(410))
+
+    assert rlab_module.push_notify(FCM_SUB, "t", "b") is False
