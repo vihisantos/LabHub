@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { useAuth } from '../../core/auth/AuthContext'
@@ -13,6 +13,8 @@ import { WorkspaceSwitcherSheet } from '../WorkspaceSwitcher/WorkspaceSwitcherSh
 import { BottomSheet, SheetHeader } from '../ui/BottomSheet'
 import { AvatarIcon } from './UserAvatar'
 import { SecuritySheet } from './SecuritySheet'
+import { usePushNotifications } from '../../lib/usePushNotifications'
+import { buildPushUser } from '../../lib/buildPushUser'
 
 interface ProfileSheetProps {
   open: boolean
@@ -33,6 +35,11 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [securityOpen, setSecurityOpen] = useState(false)
   const { workspace, assignedWorkspaces } = useWorkspace()
+  const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
+  const { supported, permission, subscribed, loading: pushLoading, error: pushError, subscribe } = usePushNotifications(
+    [{ id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' }],
+    pushUser,
+  )
 
   if (!user) return null
 
@@ -294,6 +301,65 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   </div>
                   <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
                 </button>
+
+                {/* Push Notifications */}
+                <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                        subscribed && permission === 'granted'
+                          ? 'bg-emerald-500/10 text-emerald-500'
+                          : permission === 'denied'
+                            ? 'bg-red-500/10 text-red-500'
+                            : 'bg-amber-500/10 text-amber-500'
+                      }`}
+                    >
+                      {pushLoading ? (
+                        <icons.ui.clock size={18} />
+                      ) : subscribed && permission === 'granted' ? (
+                        <icons.ui.checkCircle size={18} />
+                      ) : permission === 'denied' ? (
+                        <icons.ui.alertTriangle size={18} />
+                      ) : (
+                        <icons.ui.bellRing size={18} />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-fg">
+                        {pushLoading
+                          ? 'Notificações'
+                          : !supported
+                            ? 'Push não suportado'
+                            : subscribed && permission === 'granted'
+                              ? 'Push ativo'
+                              : permission === 'denied'
+                                ? 'Push bloqueado'
+                                : 'Push desativado'}
+                      </p>
+                      <p className="text-[11px] text-fg-muted">
+                        {pushLoading
+                          ? 'Verificando…'
+                          : !supported
+                            ? 'Este navegador não suporta notificações'
+                            : subscribed && permission === 'granted'
+                              ? 'Você recebe avisos neste dispositivo'
+                              : permission === 'denied'
+                                ? 'Bloqueado pelo navegador — libere nas configurações'
+                                : 'Ative para receber avisos de chamados e estoque'}
+                      </p>
+                    </div>
+                    {!pushLoading && supported && !(subscribed && permission === 'granted') && (
+                      <button
+                        type="button"
+                        onClick={subscribe}
+                        className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-400"
+                      >
+                        {permission === 'denied' ? 'Reativar' : 'Ativar'}
+                      </button>
+                    )}
+                  </div>
+                  {pushError && <p className="mt-2 text-[11px] text-red-500">{pushError}</p>}
+                </div>
 
                 {/* Workspace switch */}
                 <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">

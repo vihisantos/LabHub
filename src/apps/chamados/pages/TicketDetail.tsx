@@ -138,14 +138,15 @@ export function TicketDetail() {
 
   const slaInfo = getSlaInfo(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
 
-  const claimedByMe = ticket.assignedTo === user?.name
+  const claimedByMe = (ticket.assignedToUserId || '') === (user?.id || '')
   const claimedByOther =
     !!ticket.assignedTo && !claimedByMe && (ticket.status === 'a_caminho' || ticket.status === 'em_atendimento')
 
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket) return
     if (nextStatus === 'a_caminho') {
-      update(ticket.id, { status: nextStatus, assignedTo: user?.name, assignedToUserId: user?.id })
+      const profile = userService.getByUserId(user?.id || '')
+      update(ticket.id, { status: nextStatus, assignedTo: profile?.displayName || user?.name, assignedToUserId: user?.id })
     } else if (nextStatus === 'fechado') {
       update(ticket.id, {
         status: nextStatus,

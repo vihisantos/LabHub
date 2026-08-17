@@ -17,7 +17,6 @@ import {
   isTicketOpen,
 } from '../services/sla'
 import { icons } from '../../../lib/icons'
-import { PushStatusCard } from '../components/PushStatusCard'
 import type { Ticket, TicketStatus } from '../types'
 
 function slaConfigFor(ticket: Ticket) {
@@ -164,8 +163,6 @@ export function Dashboard() {
         </div>
         <icons.ui.chevronRight size={18} className="shrink-0 text-fg-dim" />
       </button>
-
-      <PushStatusCard />
 
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between">
