@@ -67,13 +67,13 @@ export function TicketForm() {
   const [submitting, setSubmitting] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({})
 
-  const campusRef = useRef<HTMLElement>(null)
-  const categoryRef = useRef<HTMLElement>(null)
+  const campusRef = useRef<HTMLDivElement>(null)
+  const categoryRef = useRef<HTMLDivElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
   const fieldRefs: Record<FieldKey, React.RefObject<HTMLElement | null>> = {
-    campus: campusRef,
-    category: categoryRef,
+    campus: campusRef as React.RefObject<HTMLElement | null>,
+    category: categoryRef as React.RefObject<HTMLElement | null>,
     reportedBy: nameRef as React.RefObject<HTMLElement | null>,
   }
 

@@ -212,7 +212,7 @@ export function RoomTicketForm() {
       roomName: roomName.trim(),
       assetName: '',
       problemCategory: category,
-      problemArea: area,
+      problemArea: area as TicketProblemArea,
       problemDescription: description,
       status: 'aberto',
       reportedBy: reportedBy.trim(),
