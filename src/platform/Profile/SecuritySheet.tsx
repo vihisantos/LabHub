@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Fingerprint, ShieldCheck, Plus, Trash2, Pencil, X } from 'lucide-react'
-import { securityService, browserSupportsPasskey, type PasskeyItem, type MfaFactor } from '../../core/auth/securityService'
+import { securityService, browserSupportsPasskey, type PasskeyItem } from '../../core/auth/securityService'
 
 interface SecuritySheetProps {
   open: boolean
@@ -10,7 +10,6 @@ interface SecuritySheetProps {
 
 export function SecuritySheet({ open, onClose }: SecuritySheetProps) {
   const [passkeys, setPasskeys] = useState<PasskeyItem[]>([])
-  const [webauthnFactors, setWebauthnFactors] = useState<MfaFactor[]>([])
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -18,9 +17,8 @@ export function SecuritySheet({ open, onClose }: SecuritySheetProps) {
   const canPasskey = browserSupportsPasskey()
 
   const load = useCallback(async () => {
-    const [p, f] = await Promise.all([securityService.listPasskeys(), securityService.listFactors()])
+    const p = await securityService.listPasskeys()
     setPasskeys(p)
-    setWebauthnFactors(f.webauthn)
   }, [])
 
   useEffect(() => {
@@ -44,21 +42,6 @@ export function SecuritySheet({ open, onClose }: SecuritySheetProps) {
         return
       }
       flash('Biometria cadastrada!')
-      await load()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleEnrollWebauthn() {
-    setBusy(true)
-    try {
-      const res = await securityService.enrollWebauthn('Biometria de verificação')
-      if (!res.ok) {
-        flash(res.error || 'Falha ao cadastrar verificação biométrica', 'error')
-        return
-      }
-      flash('Verificação biométrica cadastrada!')
       await load()
     } finally {
       setBusy(false)
@@ -98,21 +81,6 @@ export function SecuritySheet({ open, onClose }: SecuritySheetProps) {
     }
   }
 
-  async function handleUnenrollFactor(id: string) {
-    setBusy(true)
-    try {
-      const res = await securityService.unenrollFactor(id)
-      if (!res.ok) {
-        flash(res.error || 'Falha ao remover', 'error')
-        return
-      }
-      flash('Verificação removida')
-      setWebauthnFactors((f) => f.filter((x) => x.id !== id))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <AnimatePresence>
       {open && (
@@ -138,7 +106,7 @@ export function SecuritySheet({ open, onClose }: SecuritySheetProps) {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-fg">Segurança</p>
-                  <p className="text-[10px] text-fg-dim">Biometria e verificação em duas etapas</p>
+                  <p className="text-[10px] text-fg-dim">Biometria para entrar sem senha</p>
                 </div>
               </div>
               <button
@@ -254,53 +222,6 @@ export function SecuritySheet({ open, onClose }: SecuritySheetProps) {
                 </div>
               </div>
 
-              {/* MFA WebAuthn (segundo fator) */}
-              <div className="rounded-xl border border-line bg-surface p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <div>
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-fg">
-                      <ShieldCheck size={14} className="text-emerald-500" />
-                      Verificação em duas etapas
-                    </p>
-                    <p className="text-[10px] text-fg-dim">Exige biometria após digitar a senha</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleEnrollWebauthn}
-                    disabled={busy || !canPasskey}
-                    className="flex items-center gap-1 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50"
-                  >
-                    <Plus size={13} />
-                    Ativar
-                  </button>
-                </div>
-
-                <div className="space-y-1.5">
-                  {webauthnFactors.map((f) => (
-                    <div key={f.id} className="flex items-center gap-2 rounded-xl border border-line bg-card px-3 py-2">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
-                        <ShieldCheck size={14} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-medium text-fg">{f.friendlyName || 'Biometria'}</p>
-                        <p className="text-[10px] text-fg-dim">{new Date(f.createdAt).toLocaleDateString('pt-BR')}</p>
-                      </div>
-                      <button
-                        type="button"
-                        title="Remover"
-                        onClick={() => handleUnenrollFactor(f.id)}
-                        disabled={busy}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ))}
-                  {webauthnFactors.length === 0 && (
-                    <p className="py-2 text-center text-[10px] text-fg-dim">Dois fatores desativado.</p>
-                  )}
-                </div>
-              </div>
             </div>
           </motion.div>
         </motion.div>

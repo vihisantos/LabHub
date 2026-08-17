@@ -7,9 +7,6 @@ const mockSecurity = vi.hoisted(() => ({
   registerPasskey: vi.fn(),
   renamePasskey: vi.fn(),
   deletePasskey: vi.fn(),
-  listFactors: vi.fn(),
-  enrollWebauthn: vi.fn(),
-  unenrollFactor: vi.fn(),
   browserSupportsPasskey: vi.fn(),
 }))
 
@@ -19,9 +16,6 @@ vi.mock('../../../core/auth/securityService', () => ({
     registerPasskey: mockSecurity.registerPasskey,
     renamePasskey: mockSecurity.renamePasskey,
     deletePasskey: mockSecurity.deletePasskey,
-    listFactors: mockSecurity.listFactors,
-    enrollWebauthn: mockSecurity.enrollWebauthn,
-    unenrollFactor: mockSecurity.unenrollFactor,
   },
   browserSupportsPasskey: mockSecurity.browserSupportsPasskey,
 }))
@@ -33,7 +27,6 @@ beforeEach(() => {
   vi.useRealTimers()
   mockSecurity.browserSupportsPasskey.mockReturnValue(true)
   mockSecurity.listPasskeys.mockResolvedValue([])
-  mockSecurity.listFactors.mockResolvedValue({ webauthn: [], totp: [], all: [] })
 })
 
 describe('SecuritySheet', () => {
@@ -80,40 +73,4 @@ describe('SecuritySheet', () => {
     })
   })
 
-  it('ativa a verificação em duas etapas (MFA WebAuthn)', async () => {
-    mockSecurity.enrollWebauthn.mockResolvedValue({ ok: true })
-    mockSecurity.listFactors.mockResolvedValue({
-      webauthn: [{ id: 'f1', friendlyName: 'Biometria de verificação', factorType: 'webauthn', createdAt: '2026-01-01T00:00:00Z' }],
-      totp: [],
-      all: [],
-    })
-    renderWithProviders(<SecuritySheet open onClose={() => {}} />)
-    fireEvent.click(screen.getByText('Ativar'))
-
-    await waitFor(() => {
-      expect(mockSecurity.enrollWebauthn).toHaveBeenCalled()
-      expect(screen.getByText('Biometria de verificação')).toBeInTheDocument()
-    })
-  })
-
-  it('desativa a verificação em duas etapas', async () => {
-    mockSecurity.listFactors.mockResolvedValue({
-      webauthn: [{ id: 'f1', friendlyName: 'Biometria', factorType: 'webauthn', createdAt: '2026-01-01T00:00:00Z' }],
-      totp: [],
-      all: [],
-    })
-    mockSecurity.unenrollFactor.mockResolvedValue({ ok: true })
-    renderWithProviders(<SecuritySheet open onClose={() => {}} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Biometria')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getAllByTitle('Remover')[0])
-
-    await waitFor(() => {
-      expect(mockSecurity.unenrollFactor).toHaveBeenCalledWith('f1')
-      expect(screen.queryByText('Biometria')).not.toBeInTheDocument()
-    })
-  })
 })

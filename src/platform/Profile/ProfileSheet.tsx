@@ -290,7 +290,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-fg">Segurança</p>
-                    <p className="text-xs text-fg-muted">Biometria e verificação em duas etapas</p>
+                    <p className="text-xs text-fg-muted">Biometria para entrar sem senha</p>
                   </div>
                   <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
                 </button>
