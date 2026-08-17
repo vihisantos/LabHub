@@ -4,7 +4,7 @@ import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
 import { useProblemTemplates } from '../../chamados/hooks/useProblemTemplates'
 import { roomService } from '../../chamados/services/roomService'
 import { ticketService } from '../../chamados/services/ticketService'
-import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
+import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
 import { icons } from '../../../lib/icons'
 import type { TicketFormData } from '../../chamados/types'
 
@@ -26,7 +26,12 @@ export function TicketForm() {
 
   const { getByAssetType } = useProblemTemplates()
 
-  const { workspaces, loading: loadingWorkspaces } = useWorkspaces()
+  const {
+    workspaces,
+    loading: loadingWorkspaces,
+    error: workspacesError,
+    reload: reloadWorkspaces,
+  } = usePublicWorkspaces()
 
   // Campus confiável: vem da URL (QR com workspace) ou do workspace da sala.
   // NUNCA cai no workspace ativo do navegador — isso poderia mandar o chamado
@@ -117,34 +122,50 @@ export function TicketForm() {
         <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
       </div>
 
-      {loadingWorkspaces ? (
-        <p className="mb-4 text-sm text-fg-dim">Carregando campus...</p>
-      ) : (
-        <div className="mb-6">
-          <p className="mb-2 text-xs font-semibold text-fg-muted">
-            Qual o seu campus? <span className="text-red-500">*</span>
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {workspaces.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => setCampusId(w.id)}
-                className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${campusId === w.id
-                  ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
-                  : 'border-line bg-card text-fg hover:border-fg-muted'
-                  }`}
-              >
-                <icons.ui.mapPin size={16} className="shrink-0" />
-                <span className="line-clamp-2">{w.name}</span>
-              </button>
-            ))}
+      <div className="mb-6">
+        <p className="mb-2 text-xs font-semibold text-fg-muted">
+          Qual o seu campus? <span className="text-red-500">*</span>
+        </p>
+        {loadingWorkspaces ? (
+          <p className="text-sm text-fg-dim">Carregando campus...</p>
+        ) : workspacesError ? (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+            <p className="text-xs text-red-600 dark:text-red-400">
+              Não foi possível carregar os campi. Verifique sua conexão e tente novamente.
+            </p>
+            <button
+              type="button"
+              onClick={reloadWorkspaces}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-[11px] font-medium text-fg-muted transition-colors hover:border-red-500/40 hover:text-fg"
+            >
+              <icons.ui.refresh size={12} />
+              Tentar novamente
+            </button>
           </div>
-          {!campusId && workspaces.length > 0 && (
-            <p className="mt-1.5 text-[11px] text-fg-dim">Escolha o campus para onde o chamado deve ir.</p>
-          )}
-        </div>
-      )}
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              {workspaces.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => setCampusId(w.id)}
+                  className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${campusId === w.id
+                    ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
+                    : 'border-line bg-card text-fg hover:border-fg-muted'
+                    }`}
+                >
+                  <icons.ui.mapPin size={16} className="shrink-0" />
+                  <span className="line-clamp-2">{w.name}</span>
+                </button>
+              ))}
+            </div>
+            {!campusId && workspaces.length > 0 && (
+              <p className="mt-1.5 text-[11px] text-fg-dim">Escolha o campus para onde o chamado deve ir.</p>
+            )}
+          </>
+        )}
+      </div>
 
       <div className="mb-6 rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <div className="flex items-center gap-2 text-xs text-fg-muted">

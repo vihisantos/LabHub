@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
-vi.mock('../../../../core/workspaces/useWorkspaces', () => ({ useWorkspaces: vi.fn() }))
+vi.mock('../../hooks/usePublicWorkspaces', () => ({ usePublicWorkspaces: vi.fn() }))
 vi.mock('../../../../core/workspaces/store', () => ({
   workspaceStore: { activeWorkspaceId: null },
 }))
@@ -32,7 +32,7 @@ vi.mock('react-router-dom', async () => {
   }
 })
 
-import { useWorkspaces } from '../../../../core/workspaces/useWorkspaces'
+import { usePublicWorkspaces } from '../../hooks/usePublicWorkspaces'
 import { roomService } from '../../../chamados/services/roomService'
 import { useRoomAssets } from '../../../chamados/hooks/useRoomAssets'
 import { useProblemTemplates } from '../../../chamados/hooks/useProblemTemplates'
@@ -65,7 +65,7 @@ describe('TicketForm (campus)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock' })
-    ;(useWorkspaces as any).mockReturnValue({
+    ;(usePublicWorkspaces as any).mockReturnValue({
       workspaces: [
         { id: WS_A, name: 'Campus A' },
         { id: WS_B, name: 'Campus B' },

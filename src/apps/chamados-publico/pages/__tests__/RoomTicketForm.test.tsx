@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
-vi.mock('../../../../core/workspaces/useWorkspaces', () => ({ useWorkspaces: vi.fn() }))
+vi.mock('../../hooks/usePublicWorkspaces', () => ({ usePublicWorkspaces: vi.fn() }))
 vi.mock('../../../../core/workspaces/store', () => ({
   workspaceStore: { activeWorkspaceId: null },
 }))
@@ -39,7 +39,7 @@ vi.mock('react-router-dom', async () => {
   }
 })
 
-import { useWorkspaces } from '../../../../core/workspaces/useWorkspaces'
+import { usePublicWorkspaces } from '../../hooks/usePublicWorkspaces'
 import { useAuth } from '../../../../core/auth/useAuth'
 import { roomService } from '../../../chamados/services/roomService'
 import { ticketService } from '../../../chamados/services/ticketService'
@@ -68,7 +68,7 @@ describe('RoomTicketForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams.setParams({})
-    ;(useWorkspaces as any).mockReturnValue({
+    ;(usePublicWorkspaces as any).mockReturnValue({
       workspaces: [
         { id: WS_A, name: 'Campus A' },
         { id: WS_B, name: 'Campus B' },
@@ -136,13 +136,31 @@ describe('RoomTicketForm', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByText('Lab 2')).not.toBeInTheDocument()
   })
+
+  it('mostra mensagem amigável e permite tentar novamente quando a API de campus falha', () => {
+    const reload = vi.fn()
+    ;(usePublicWorkspaces as any).mockReturnValue({
+      workspaces: [],
+      loading: false,
+      error: true,
+      reload,
+    })
+
+    renderForm()
+
+    expect(screen.getByText(/Não foi possível carregar os campi/i)).toBeInTheDocument()
+    expect(screen.queryByText('Campus A')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Tentar novamente/i }))
+    expect(reload).toHaveBeenCalled()
+  })
 })
 
 describe('RoomTicketForm (criação de chamado)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams.setParams({ room: '', workspace: '' })
-    ;(useWorkspaces as any).mockReturnValue({
+    ;(usePublicWorkspaces as any).mockReturnValue({
       workspaces: [
         { id: WS_A, name: 'Campus A' },
         { id: WS_B, name: 'Campus B' },

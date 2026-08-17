@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
 import { workspaceStore } from '../../../core/workspaces/store'
+import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
 import { useAuth } from '../../../core/auth/useAuth'
 import { ticketService } from '../../chamados/services/ticketService'
 import { roomService } from '../../chamados/services/roomService'
@@ -28,7 +28,12 @@ export function RoomTicketForm() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
-  const { workspaces, loading: loadingWorkspaces } = useWorkspaces()
+  const {
+    workspaces,
+    loading: loadingWorkspaces,
+    error: workspacesError,
+    reload: reloadWorkspaces,
+  } = usePublicWorkspaces()
 
   const urlRoom = searchParams.get('room') || ''
   const urlWorkspace = searchParams.get('workspace') || ''
@@ -199,6 +204,20 @@ export function RoomTicketForm() {
           </p>
           {loadingWorkspaces ? (
             <p className="text-sm text-fg-dim">Carregando campi...</p>
+          ) : workspacesError ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+              <p className="text-xs text-red-600 dark:text-red-400">
+                Não foi possível carregar os campi. Verifique sua conexão e tente novamente.
+              </p>
+              <button
+                type="button"
+                onClick={reloadWorkspaces}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-[11px] font-medium text-fg-muted transition-colors hover:border-red-500/40 hover:text-fg"
+              >
+                <icons.ui.refresh size={12} />
+                Tentar novamente
+              </button>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {workspaces.map((w) => (
