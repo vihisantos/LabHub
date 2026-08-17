@@ -69,6 +69,7 @@ import {
   ShieldCheck,
   Star,
   BellRing,
+  Mail,
 } from 'lucide-react'
 
 export const icons = {
@@ -149,6 +150,7 @@ export const icons = {
     shield: ShieldCheck,
     star: Star,
     bellRing: BellRing,
+    mail: Mail,
   },
 } as const
 

@@ -1412,3 +1412,152 @@ def test_push_test_envia_para_o_proprio_usuario(client, fake_requests, api_modul
     assert target_kwargs and target_kwargs[0]["user_id"] == "u-1"
     assert target_kwargs[0]["module"] == "chamados"
 
+
+# ── POST /api/chamados/reports/weekly-email (resumo semanal) ──
+
+
+def test_weekly_email_sem_supabase_retorna_503(unconfigured_client):
+    resp = unconfigured_client.post("/api/chamados/reports/weekly-email")
+    assert resp.status_code == 503
+
+
+def test_weekly_email_sem_token_retorna_401(client, fake_requests):
+    resp = client.post("/api/chamados/reports/weekly-email")
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "Token de autenticação ausente"
+
+
+def test_weekly_email_token_invalido_retorna_401(client, fake_requests):
+    fake_requests.route(
+        "GET",
+        "/auth/v1/user",
+        FakeResponse({"error": "invalid"}, status_code=401, ok=False),
+    )
+    resp = client.post("/api/chamados/reports/weekly-email", headers={"Authorization": "Bearer invalido"})
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "Sessão inválida ou expirada. Faça login novamente."
+
+
+def test_weekly_email_sem_resend_key_retorna_400(client, fake_requests, monkeypatch):
+    """Sem RESEND_API_KEY, o endpoint avisa para configurar (não quebra)."""
+    _route_auth_user(fake_requests)
+    fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+
+    resp = client.post(
+        "/api/chamados/reports/weekly-email",
+        headers={"Authorization": "Bearer token"},
+        json={"to": "admin@escola.com"},
+    )
+
+    assert resp.status_code == 400
+    assert "RESEND_API_KEY" in resp.get_json()["error"]
+
+
+def test_weekly_email_sem_destinatario_retorna_400(client, fake_requests, monkeypatch):
+    _route_auth_user(fake_requests)
+    fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    monkeypatch.delenv("REPORT_EMAIL_TO", raising=False)
+
+    resp = client.post(
+        "/api/chamados/reports/weekly-email",
+        headers={"Authorization": "Bearer token"},
+        json={},
+    )
+
+    assert resp.status_code == 400
+    assert "destinatário" in resp.get_json()["error"]
+
+
+def test_weekly_email_envia_resumo_e_responde_ok(client, fake_requests, api_module, monkeypatch):
+    """Com Resend configurado, o resumo é montado e o email disparado (POST api.resend.com)."""
+    _route_auth_user(fake_requests)
+    fake_requests.route(
+        "GET",
+        "chamados_tickets?select=status,priority",
+        FakeResponse([
+            _make_ticket(id="t-1", status="resolvido", roomName="Lab 2", createdAt="2026-06-25T10:00:00Z", resolvedAt="2026-06-25T12:00:00Z"),
+            _make_ticket(id="t-2", status="aberto", roomName="Sala 101", createdAt="2026-06-26T10:00:00Z", resolvedAt=None),
+        ]),
+    )
+    fake_requests.route(
+        "POST",
+        "api.resend.com/emails",
+        FakeResponse({"id": "email-1"}, status_code=200, ok=True),
+    )
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+    resp = client.post(
+        "/api/chamados/reports/weekly-email",
+        headers={"Authorization": "Bearer token"},
+        json={"to": "admin@escola.com"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["total"] == 2
+    assert body["sent_to"] == "admin@escola.com"
+
+    email_calls = fake_requests.calls_for("POST", "api.resend.com/emails")
+    assert len(email_calls) == 1
+    email_payload = email_calls[0]["kwargs"]["json"]
+    assert email_payload["to"] == ["admin@escola.com"]
+    assert "Resumo semanal" in email_payload["subject"]
+    assert "Lab 2" in email_payload["html"]
+    assert "chamados na semana" in email_payload["html"]
+    assert email_calls[0]["kwargs"]["headers"]["Authorization"] == "Bearer re_test"
+
+
+def test_weekly_email_filtra_por_workspace(client, fake_requests, monkeypatch):
+    _route_auth_user(fake_requests)
+    fake_requests.route(
+        "GET",
+        "chamados_tickets?select=status,priority",
+        FakeResponse([]),
+    )
+    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([{"id": "ws-a", "name": "Anhembi"}]))
+    fake_requests.route(
+        "POST",
+        "api.resend.com/emails",
+        FakeResponse({"id": "email-1"}, status_code=200, ok=True),
+    )
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+    resp = client.post(
+        "/api/chamados/reports/weekly-email",
+        headers={"Authorization": "Bearer token"},
+        json={"to": "admin@escola.com", "workspace_id": "ws-a"},
+    )
+
+    assert resp.status_code == 200
+    url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
+    assert "workspace_id=eq.ws-a" in url
+    # Busca o nome do workspace para o cabeçalho do email
+    ws_call = fake_requests.calls_for("GET", "/rest/v1/workspaces")
+    assert ws_call
+    email_calls = fake_requests.calls_for("POST", "api.resend.com/emails")
+    assert len(email_calls) == 1
+    assert "Anhembi" in email_calls[0]["kwargs"]["json"]["html"]
+
+
+def test_weekly_email_falha_do_resend_retorna_502(client, fake_requests, monkeypatch):
+    _route_auth_user(fake_requests)
+    fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
+    fake_requests.route(
+        "POST",
+        "api.resend.com/emails",
+        FakeResponse({"error": "rate limit"}, status_code=429, ok=False, text="rate limit"),
+    )
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+    resp = client.post(
+        "/api/chamados/reports/weekly-email",
+        headers={"Authorization": "Bearer token"},
+        json={"to": "admin@escola.com"},
+    )
+
+    assert resp.status_code == 502
+    assert "Resend" in resp.get_json()["error"]
+

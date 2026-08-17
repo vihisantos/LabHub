@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useTickets } from '../hooks/useTickets'
 import {
   TICKET_STATUS_LABELS,
@@ -40,7 +40,8 @@ function slaConfigFor(ticket: Ticket) {
 
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
-  const { tickets, update, updateStatus } = useTickets()
+  const navigate = useNavigate()
+  const { tickets, update, updateStatus, create } = useTickets()
   const { isFullAccess } = useAppAccess()
   const { user } = useAuth()
   const canWrite = isFullAccess('chamados')
@@ -165,6 +166,33 @@ export function TicketDetail() {
       closedAt: null,
       closedBy: '',
     })
+  }
+
+  // Reabrir com novo número: cria um chamado novo com a mesma sala,
+  // equipamento e problema do fechado — sem reabrir o original.
+  async function handleReopenNew() {
+    if (!ticket) return
+    try {
+      const created = await create({
+        workspace_id: ticket.workspace_id,
+        roomId: ticket.roomId,
+        roomName: ticket.roomName,
+        assetId: ticket.assetId,
+        assetSource: ticket.assetSource,
+        assetName: ticket.assetName,
+        assetPatrimony: ticket.assetPatrimony,
+        problemCategory: ticket.problemCategory,
+        problemArea: ticket.problemArea,
+        problemDescription: ticket.problemDescription,
+        status: 'aberto',
+        reportedBy: ticket.reportedBy,
+        reportedByEmail: ticket.reportedByEmail,
+        assignedTo: '',
+      })
+      navigate(`/chamados/tickets/${created.id}`)
+    } catch {
+      // Falha silenciosa: o toast/estado de erro fica no card original.
+    }
   }
 
   function handlePriority(next: TicketPriority) {
@@ -332,13 +360,23 @@ export function TicketDetail() {
             </p>
           </div>
           {canWrite && (
-            <button
-              type="button"
-              onClick={handleReopen}
-              className="mt-3 w-full rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-fg transition-colors hover:border-amber-500 hover:text-amber-500"
-            >
-              Reabrir chamado
-            </button>
+            <div className="mt-3 space-y-2">
+              <button
+                type="button"
+                onClick={handleReopen}
+                className="w-full rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-fg transition-colors hover:border-amber-500 hover:text-amber-500"
+              >
+                Reabrir chamado
+              </button>
+              <button
+                type="button"
+                onClick={handleReopenNew}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
+              >
+                <icons.ui.plus size={16} />
+                Abrir novo chamado (mesma sala/problema)
+              </button>
+            </div>
           )}
         </div>
       )}

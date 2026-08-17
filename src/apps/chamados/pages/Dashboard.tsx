@@ -152,15 +152,15 @@ export function Dashboard() {
 
       <button
         type="button"
-        onClick={() => navigate('/chamados/reports')}
-        className="flex w-full items-center gap-3 rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-colors hover:border hover:border-amber-500/40"
+        onClick={() => navigate('/chamados/ranking')}
+        className="flex w-full items-center gap-3 rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-colors hover:border hover:border-red-500/40"
       >
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/10">
-          <icons.ui.fileBarChart size={22} className="text-amber-500" />
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10">
+          <icons.ui.fileBarChart size={22} className="text-red-500" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-fg">Relatórios</p>
-          <p className="text-[11px] text-fg-muted">Métricas do período e por técnico</p>
+          <p className="text-sm font-semibold text-fg">Ranking de salas problemáticas</p>
+          <p className="text-[11px] text-fg-muted">Quais salas mais geram chamados</p>
         </div>
         <icons.ui.chevronRight size={18} className="shrink-0 text-fg-dim" />
       </button>

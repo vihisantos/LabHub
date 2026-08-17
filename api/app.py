@@ -1611,6 +1611,179 @@ def chamados_events_create(ticket_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
+def _send_email_via_resend(to, subject, html):
+    """Envia email via Resend (API REST). Retorna (ok, erro)."""
+    api_key = os.environ.get('RESEND_API_KEY', '').strip()
+    from_addr = os.environ.get('EMAIL_FROM', '').strip() or 'LabHub <labhub@resend.dev>'
+    if not api_key:
+        return False, 'RESEND_API_KEY não configurado no servidor'
+    if not to:
+        return False, 'Informe o destinatário do email'
+    try:
+        resp = requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={'from': from_addr, 'to': [to], 'subject': subject, 'html': html},
+            timeout=15,
+        )
+        if not resp.ok:
+            return False, f'Resend retornou {resp.status_code}: {resp.text[:200]}'
+        return True, ''
+    except Exception as e:
+        logger.error('Erro ao enviar email via Resend: %s', e, exc_info=True)
+        return False, 'Falha de rede ao enviar o email'
+
+
+def _build_weekly_report_html(report, workspace_name):
+    """Monta o HTML do resumo semanal de chamados (usado no email)."""
+    total = report.get('total', 0)
+    by_status = report.get('byStatus', {})
+    by_room = report.get('byRoom', []) or []
+    by_tech = report.get('byTechnician', []) or []
+    feedback = report.get('feedback', {})
+
+    status_rows = ''.join(
+        f'<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#374151">{label}</td>'
+        f'<td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;color:#111827;text-align:right;font-weight:600">{by_status.get(status, 0)}</td></tr>'
+        for status, label in [
+            ('aberto', 'Abertos'),
+            ('a_caminho', 'Técnico a caminho'),
+            ('em_atendimento', 'Em atendimento'),
+            ('resolvido', 'Resolvidos'),
+            ('fechado', 'Fechados'),
+        ]
+    )
+
+    room_rows = ''.join(
+        f'<tr><td style="padding:5px 12px;border-bottom:1px solid #e5e7eb;color:#374151">{room}</td>'
+        f'<td style="padding:5px 12px;border-bottom:1px solid #e5e7eb;color:#111827;text-align:right;font-weight:600">{count}</td></tr>'
+        for room, count in by_room[:8]
+    ) or '<tr><td style="padding:6px 12px;color:#6b7280">Sem chamados no período</td></tr>'
+
+    tech_rows = ''.join(
+        f'<tr><td style="padding:5px 12px;border-bottom:1px solid #e5e7eb;color:#374151">{t["name"]}</td>'
+        f'<td style="padding:5px 12px;border-bottom:1px solid #e5e7eb;color:#111827;text-align:right">{t["resolved"]} resolvido(s)</td></tr>'
+        for t in by_tech[:6]
+    ) or '<tr><td style="padding:6px 12px;color:#6b7280">Nenhum técnico com chamados no período</td></tr>'
+
+    avg = report.get('avgResolutionHours')
+    avg_txt = f'{avg}h' if avg is not None else '—'
+    fb_count = feedback.get('count', 0)
+    fb_avg = feedback.get('average')
+    fb_txt = f'{fb_avg:.1f} / 5 ({fb_count} avaliações)' if fb_avg is not None else f'{fb_count} avaliações' if fb_count else 'Sem avaliações'
+
+    ws_name = workspace_name or 'todas as unidades'
+
+    return f"""\
+<!DOCTYPE html>
+<html lang="pt-BR">
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">
+  <div style="max-width:560px;margin:24px auto;background:#ffffff;border-radius:12px;overflow:hidden">
+    <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:24px 28px">
+      <h1 style="margin:0;color:#ffffff;font-size:20px">LabHub · Resumo Semanal</h1>
+      <p style="margin:6px 0 0;color:#fef3c7;font-size:13px">{ws_name}</p>
+    </div>
+    <div style="padding:24px 28px">
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+        <tr>
+          <td style="text-align:center;background:#fef3c7;border-radius:8px;padding:14px">
+            <p style="margin:0;font-size:28px;font-weight:700;color:#111827">{total}</p>
+            <p style="margin:2px 0 0;font-size:12px;color:#6b7280">chamados na semana</p>
+          </td>
+          <td style="width:12px"></td>
+          <td style="text-align:center;background:#ecfdf5;border-radius:8px;padding:14px">
+            <p style="margin:0;font-size:28px;font-weight:700;color:#111827">{avg_txt}</p>
+            <p style="margin:2px 0 0;font-size:12px;color:#6b7280">tempo médio de resolução</p>
+          </td>
+        </tr>
+      </table>
+
+      <h2 style="margin:0 0 8px;font-size:15px;color:#111827">Por status</h2>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px">{status_rows}</table>
+
+      <h2 style="margin:0 0 8px;font-size:15px;color:#111827">Top salas</h2>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px">{room_rows}</table>
+
+      <h2 style="margin:0 0 8px;font-size:15px;color:#111827">Técnicos</h2>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px">{tech_rows}</table>
+
+      <p style="margin:0;font-size:13px;color:#374151">
+        Satisfação dos professores: <strong>{fb_txt}</strong>
+      </p>
+    </div>
+    <div style="padding:14px 28px;background:#f9fafb;border-top:1px solid #e5e7eb">
+      <p style="margin:0;font-size:11px;color:#9ca3af">Gerado automaticamente pelo LabHub · {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}</p>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+
+@app.route('/api/chamados/reports/weekly-email', methods=['POST'])
+def chamados_reports_weekly_email():
+    """Envia por email o resumo semanal de chamados (últimos 7 dias).
+
+    Requer usuário logado (Bearer Supabase). O destinatário vem do body
+    (ou de REPORT_EMAIL_TO). Usa Resend (RESEND_API_KEY). Pode ser chamado
+    manualmente pelo app ou por um cron agendado.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
+        if not token:
+            return jsonify({'error': 'Token de autenticação ausente'}), 401
+        auth_resp = requests.get(
+            f'{_SUPABASE_URL}/auth/v1/user',
+            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
+            timeout=10,
+        )
+        if not auth_resp.ok:
+            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
+
+        _ensure_chamados_schema()
+        now = datetime.now(timezone.utc)
+        from_iso = (now - timedelta(days=7)).isoformat()
+        to_iso = now.isoformat()
+
+        body = request.get_json() or {}
+        workspace_id = str(body.get('workspace_id') or '').strip()
+        workspace_name = ''
+        if workspace_id:
+            ws_resp = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=name',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if ws_resp.ok and ws_resp.json():
+                workspace_name = (ws_resp.json()[0].get('name') or '').strip()
+
+        url = (
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+            f'?select=status,priority,problemCategory,problemArea,roomName,assignedTo,createdAt,resolvedAt,feedbackRating'
+            f'&createdAt=gte.{quote(from_iso)}&createdAt=lte.{quote(to_iso)}'
+        )
+        if workspace_id:
+            url += f'&workspace_id=eq.{quote(workspace_id)}'
+        resp = requests.get(url, headers=_supabase_headers(), timeout=15)
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao gerar o resumo'}), 502
+
+        report = _aggregate_ticket_reports(resp.json() or [])
+        html = _build_weekly_report_html(report, workspace_name)
+
+        to = str(body.get('to') or '').strip() or os.environ.get('REPORT_EMAIL_TO', '').strip()
+        ok, err = _send_email_via_resend(to, f'LabHub · Resumo semanal de chamados ({report["total"]})', html)
+        if not ok:
+            return jsonify({'error': err}), 400 if 'não configurado' in err or 'destinatário' in err else 502
+
+        return jsonify({'ok': True, 'total': report['total'], 'sent_to': to})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e, exc_info=True)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
 @app.route('/api/chamados/photos/purge', methods=['POST'])
 def chamados_photos_purge():
     """Cron diário: apaga do Cloudinary as fotos de chamados fechados há mais de 2 dias.

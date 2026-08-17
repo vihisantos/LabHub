@@ -3,6 +3,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 
 const mockUpdate = vi.hoisted(() => vi.fn())
 const mockUpdateStatus = vi.hoisted(() => vi.fn())
+const mockCreate = vi.hoisted(() => vi.fn())
+const mockNavigate = vi.hoisted(() => vi.fn())
 const mockGetEvents = vi.hoisted(() => vi.fn())
 const mockAddEvent = vi.hoisted(() => vi.fn())
 const mockGetAll = vi.hoisted(() => vi.fn())
@@ -37,13 +39,14 @@ const TICKET = vi.hoisted(() => ({
 
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'ticket-1' }),
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mockNavigate,
 }))
 vi.mock('../../hooks/useTickets', () => ({
   useTickets: () => ({
     tickets: [TICKET],
     update: mockUpdate,
     updateStatus: mockUpdateStatus,
+    create: mockCreate,
   }),
 }))
 vi.mock('../../services/ticketService', () => ({
@@ -227,5 +230,46 @@ describe('TicketDetail — atribuição de responsável', () => {
       assignedTo: '',
       assignedToUserId: '',
     })
+  })
+})
+
+describe('TicketDetail — reabrir com novo número', () => {
+  beforeEach(() => {
+    TICKET.status = 'fechado'
+    TICKET.archived = true
+    TICKET.closedAt = '2026-06-25T13:00:00Z'
+    TICKET.closedBy = 'Técnico 1'
+    TICKET.assetId = 'asset-1'
+    TICKET.assetSource = 'stock'
+    TICKET.assetName = 'PC-02'
+    TICKET.assetPatrimony = 'P-001'
+    mockCreate.mockResolvedValue({ id: 'ticket-novo', ticketNumber: 7 })
+  })
+
+  it('cria um novo chamado com a mesma sala/equipamento/problema e navega', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir novo chamado (mesma sala/problema)' }))
+    await act(async () => {})
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: 'ws-a',
+        roomId: '',
+        roomName: 'Sala 101',
+        assetId: 'asset-1',
+        assetSource: 'stock',
+        assetName: 'PC-02',
+        assetPatrimony: 'P-001',
+        problemCategory: 'Internet',
+        problemArea: 'academica',
+        problemDescription: 'Sem conexão',
+        status: 'aberto',
+        reportedBy: 'Prof. Maria',
+        assignedTo: '',
+      }),
+    )
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados/tickets/ticket-novo')
   })
 })

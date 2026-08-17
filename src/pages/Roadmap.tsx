@@ -53,6 +53,13 @@ const FEATURES: Feature[] = [
   { id: 152, cat: 'mid', name: 'Reabrir Chamado', desc: 'Botão "abrir novamente" com mesma sala/problema, gerando novo número', effort: 'low', done: false },
   { id: 153, cat: 'mid', name: 'Ranking de Salas Problemáticas', desc: 'Top salas por nº de chamados no mês, com gráfico', effort: 'med', done: false },
   { id: 154, cat: 'mid', name: 'Relatório Semanal por Email', desc: 'Resumo automático: chamados abertos/fechados, SLA e manutenções por campus', effort: 'med', done: false },
+  { id: 155, cat: 'mid', name: 'Chamado → Manutenção no PC Care', desc: 'Resolver chamado de PC gera manutenção com peças/checklist vinculada', effort: 'high', done: false },
+  { id: 156, cat: 'mid', name: 'Chamado → Baixa no Stock', desc: 'Troca de peça registra saída do estoque direto no chamado', effort: 'med', done: false },
+  { id: 157, cat: 'mid', name: 'Histórico Unificado do Equipamento', desc: 'Aba no chamado mostrando manutenções anteriores do PC/item', effort: 'med', done: false },
+  { id: 158, cat: 'mid', name: 'Chamados Abertos da Sala na TV', desc: 'Painel da sala mostra o status do chamado ativo ao vivo', effort: 'med', done: false },
+  { id: 159, cat: 'mid', name: 'QR de Reserva na Sala', desc: 'Escaneia o QR e já reserva a sala para o horário atual', effort: 'med', done: false },
+  { id: 160, cat: 'mid', name: 'Anexar Foto no Fechamento', desc: 'Técnico registra a resolução com foto antes/depois', effort: 'low', done: false },
+  { id: 161, cat: 'mid', name: 'Modo Quiosque no Tablet', desc: 'Tablet do professor travado no formulário de chamados', effort: 'med', done: false },
 
   { id: 135, cat: 'low', name: 'Tour por App', desc: 'Onboarding guiado dentro de cada módulo novo', effort: 'low', done: false },
   { id: 136, cat: 'low', name: 'Alto Contraste / Modo Leitura Fácil', desc: 'Variante acessível com contraste e tipografia ampliados', effort: 'med', done: false },
