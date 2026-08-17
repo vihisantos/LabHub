@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api'))
 
@@ -25,6 +26,14 @@ VAPID_CLAIMS = {"sub": "mailto:admin@reservaslab.com"}
 
 def fresh_claims():
     return dict(VAPID_CLAIMS)
+
+
+def host_of(endpoint):
+    """Hostname normalizado do endpoint de push (ex.: fcm.googleapis.com)."""
+    try:
+        return (urlparse(endpoint).hostname or '').lower()
+    except Exception:
+        return ''
 
 # Busca inscrições reais do Redis (Upstash)
 UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL', '')
@@ -51,13 +60,14 @@ def main():
     print(f'Total inscrições: {len(subs)} | reais: {len(real)}')
 
     # Prioriza: uma FCM do admin e uma Apple do admin
-    fcm = [s for s in real if 'fcm.googleapis.com' in s.get('endpoint', '')]
-    apple = [s for s in real if 'web.push.apple.com' in s.get('endpoint', '')]
+    fcm = [s for s in real if host_of(s.get('endpoint', '')) == 'fcm.googleapis.com']
+    apple = [s for s in real if host_of(s.get('endpoint', '')) == 'web.push.apple.com']
 
     targets = []
     # Testa TODAS as inscrições reais (mapear padrão de falha por inscrição)
     for i, s in enumerate(real):
-        kind = 'Apple' if 'apple.com' in s.get('endpoint', '') else 'FCM'
+        host = host_of(s.get('endpoint', ''))
+        kind = 'Apple' if host == 'web.push.apple.com' else 'FCM'
         targets.append((f'{kind}[{i}]', s))
 
     if not targets:
@@ -79,8 +89,8 @@ def main():
                 subscription_info=sub,
                 data=payload,
                 vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims=fresh_claims(),
-            ttl=86400,
+                vapid_claims=fresh_claims(),
+                ttl=86400,
             )
             print(f'{name}: OK - ENVIADO (HTTP 201)')
         except Exception as e:
