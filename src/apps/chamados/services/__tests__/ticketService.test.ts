@@ -83,7 +83,7 @@ describe('ticketService — API', () => {
 
   it('create: POST e persiste localmente', async () => {
     const created = makeTicket({ id: 't-new' })
-    mockFetchOk({ ...created })
+    mockFetchOk({ ticket: created })
 
     const result = await ticketService.create({
       roomId: 'room-1',
@@ -105,7 +105,7 @@ describe('ticketService — API', () => {
   })
 
   it('create: registra auditoria', async () => {
-    mockFetchOk(makeTicket({ id: 't-new', ticketNumber: 99 }))
+    mockFetchOk({ ticket: makeTicket({ id: 't-new', ticketNumber: 99 }) })
     await ticketService.create({
       roomId: 'room-1',
       roomName: 'Lab 2',
