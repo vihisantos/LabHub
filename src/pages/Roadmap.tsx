@@ -10,7 +10,7 @@ interface Feature {
 }
 
 const FEATURES: Feature[] = [
-  { id: 15, cat: 'mid', name: 'Testes E2E (Playwright)', desc: 'Testes de fluxo completo: criar → listar → editar', effort: 'high', done: false },
+  { id: 15, cat: 'mid', name: 'Testes E2E (Playwright)', desc: 'Testes de fluxo completo: criar → listar → editar (scripts/browser-verify: signup, sweep, push-button, cleanup)', effort: 'high', done: true },
   { id: 18, cat: 'mid', name: 'Mapa do Laboratório', desc: 'Editor visual de mapa da sala com grid de posições', effort: 'high', done: false },
   { id: 20, cat: 'mid', name: 'Checklist com Foto', desc: 'Capturar foto durante execução de checklist', effort: 'med', done: false },
   { id: 24, cat: 'low', name: 'Comparar PCs Lado a Lado', desc: 'Tela dividida com specs e status comparados', effort: 'med', done: false },
@@ -26,7 +26,7 @@ const FEATURES: Feature[] = [
   { id: 50, cat: 'low', name: 'IndexedDB (Storage)', desc: 'Migrar dados do localStorage para IndexedDB', effort: 'high', done: true },
   { id: 52, cat: 'low', name: 'Timeline Gráfica', desc: 'Timeline horizontal com bolhas por data', effort: 'med', done: false },
   { id: 75, cat: 'low', name: 'Configurações Customizáveis do Stock', desc: 'Editar seções, subcategorias, condições e campos personalizados do estoque', effort: 'med', done: false },
-  { id: 94, cat: 'low', name: 'Push Segmentado por App/Workspace', desc: 'Inscrição com workspace e apps; envio filtrado no backend', effort: 'med', done: false },
+  { id: 94, cat: 'low', name: 'Push Segmentado por App/Workspace', desc: 'Inscrição com workspace e apps; envio filtrado no backend (_target_subs por módulo/workspace/cargo)', effort: 'med', done: true },
 
   { id: 95, cat: 'high', name: 'Sync em Tempo Real (Realtime)', desc: 'Dados e sino atualizam instantaneamente sem polling', effort: 'high', done: false },
   { id: 96, cat: 'high', name: 'Login Biométrico / Passkey (WebAuthn)', desc: 'Entrar com digital, face ou chave de segurança no lugar da senha', effort: 'high', done: false },
