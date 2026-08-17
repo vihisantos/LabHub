@@ -56,7 +56,7 @@ export const ticketService = {
 
   /** Cria um chamado na API (fonte de verdade) e persiste localmente como cache. */
   create: async (data: TicketFormData): Promise<Ticket> => {
-    const ticket = await request<Ticket>(API_BASE, {
+    const { ticket } = await request<{ ticket: Ticket }>(API_BASE, {
       method: 'POST',
       body: JSON.stringify(data),
     })
