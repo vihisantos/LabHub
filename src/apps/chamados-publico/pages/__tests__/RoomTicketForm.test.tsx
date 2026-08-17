@@ -206,17 +206,17 @@ describe('RoomTicketForm (criação de chamado)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-99')
   })
 
-  it('não cria o chamado sem selecionar o campus', () => {
+  it('não cria o chamado sem selecionar o campus e mostra erros', () => {
     renderForm()
     fillForm(false)
 
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
-    expect(submit).toBeDisabled()
     fireEvent.click(submit)
     expect(ticketService.create).not.toHaveBeenCalled()
+    expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
   })
 
-  it('não cria o chamado sem descrever o problema', () => {
+  it('não cria o chamado sem descrever o problema e mostra erros', () => {
     renderForm()
     fillForm()
     fireEvent.change(screen.getByPlaceholderText(/A internet da sala/i), {
@@ -224,9 +224,9 @@ describe('RoomTicketForm (criação de chamado)', () => {
     })
 
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
-    expect(submit).toBeDisabled()
     fireEvent.click(submit)
     expect(ticketService.create).not.toHaveBeenCalled()
+    expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
   })
 
   it('mostra o botão de anexar foto (opcional) e envia a foto no chamado', async () => {

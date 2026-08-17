@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
@@ -22,6 +22,17 @@ const CATEGORY_ICONS: Record<string, (typeof icons.ui)[keyof typeof icons.ui]> =
   Áudio: icons.ui.volume2,
   Computador: icons.nav.pcs,
   Outros: icons.ui.alertCircle,
+}
+
+type FieldKey = 'campus' | 'room' | 'area' | 'category' | 'description' | 'reportedBy'
+
+const FIELD_LABELS: Record<FieldKey, string> = {
+  campus: 'Selecione o campus',
+  room: 'Informe a sala',
+  area: 'Selecione a área do problema',
+  category: 'Selecione o tipo de problema',
+  description: 'Descreva o que aconteceu',
+  reportedBy: 'Informe seu nome',
 }
 
 export function RoomTicketForm() {
@@ -48,6 +59,7 @@ export function RoomTicketForm() {
   const [photoError, setPhotoError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Tour fica disponível via botão 'Como funciona?' — nunca abre por cima dos campos.
@@ -61,6 +73,15 @@ export function RoomTicketForm() {
   const areaRef = useRef<HTMLElement>(null)
   const categoryRef = useRef<HTMLElement>(null)
   const detailsRef = useRef<HTMLElement>(null)
+
+  const fieldRefs: Record<FieldKey, React.RefObject<HTMLElement | null>> = {
+    campus: campusRef,
+    room: roomRef,
+    area: areaRef,
+    category: categoryRef,
+    description: detailsRef,
+    reportedBy: detailsRef,
+  }
 
   useEffect(() => {
     if (!user?.name) return
@@ -88,14 +109,13 @@ export function RoomTicketForm() {
     return matches.slice(0, 8)
   }, [roomName, campusId])
 
-  const canSubmit =
+  const allFieldsFilled =
     !!campusId &&
     roomName.trim().length > 0 &&
     !!area &&
     !!category &&
     description.trim().length > 0 &&
-    reportedBy.trim().length > 0 &&
-    !submitting
+    reportedBy.trim().length > 0
 
   const openForRoom = useMemo(() => {
     if (!roomName.trim()) return []
@@ -128,6 +148,35 @@ export function RoomTicketForm() {
     },
   ]
 
+  function scrollToField(key: FieldKey) {
+    const ref = fieldRefs[key]
+    if (ref?.current) {
+      ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      ref.current.focus()
+    }
+  }
+
+  const validate = useCallback((): Partial<Record<FieldKey, string>> => {
+    const errors: Partial<Record<FieldKey, string>> = {}
+    if (!campusId) errors.campus = FIELD_LABELS.campus
+    if (!roomName.trim()) errors.room = FIELD_LABELS.room
+    if (!area) errors.area = FIELD_LABELS.area
+    if (!category) errors.category = FIELD_LABELS.category
+    if (!description.trim()) errors.description = FIELD_LABELS.description
+    if (!reportedBy.trim()) errors.reportedBy = FIELD_LABELS.reportedBy
+    return errors
+  }, [campusId, roomName, area, category, description, reportedBy])
+
+  function clearFieldError(key: FieldKey) {
+    if (fieldErrors[key]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    }
+  }
+
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -142,10 +191,20 @@ export function RoomTicketForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!campusId || !area || !category || !description.trim() || !reportedBy.trim()) return
+
+    const errors = validate()
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors)
+      const firstKey = (['campus', 'room', 'area', 'category', 'description', 'reportedBy'] as FieldKey[]).find(
+        (k) => errors[k],
+      )
+      if (firstKey) scrollToField(firstKey)
+      return
+    }
 
     setSubmitting(true)
     setError('')
+    setFieldErrors({})
 
     const data: TicketFormData = {
       workspace_id: campusId,
@@ -174,7 +233,27 @@ export function RoomTicketForm() {
   }
 
   const inputClass =
-    'w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500'
+    'w-full rounded-xl border bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none focus:ring-1'
+
+  function fieldInputClass(key: FieldKey) {
+    const hasError = !!fieldErrors[key]
+    const border = hasError ? 'border-red-500' : 'border-line'
+    const focus = hasError
+      ? 'focus:border-red-500 focus:ring-red-500'
+      : 'focus:border-emerald-500 focus:ring-emerald-500'
+    return `${inputClass} ${border} ${focus}`
+  }
+
+  function FieldError({ fieldKey }: { fieldKey: FieldKey }) {
+    const msg = fieldErrors[fieldKey]
+    if (!msg) return null
+    return (
+      <p className="mt-1.5 flex items-center gap-1 text-[11px] text-red-500">
+        <icons.ui.alertCircle size={12} />
+        {msg}
+      </p>
+    )
+  }
 
   return (
     <div className="min-h-dvh bg-surface px-4 pt-6 pb-10">
@@ -198,8 +277,23 @@ export function RoomTicketForm() {
         </div>
       )}
 
+      {Object.keys(fieldErrors).length > 0 && (
+        <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+          <p className="mb-1 text-xs font-medium text-red-600 dark:text-red-400">
+            Preencha os campos obrigatórios:
+          </p>
+          <ul className="list-inside list-disc space-y-0.5">
+            {Object.entries(fieldErrors).map(([, msg]) => (
+              <li key={msg} className="text-[11px] text-red-600 dark:text-red-400">
+                {msg}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
-        <section ref={campusRef} aria-label="Campus">
+        <section ref={campusRef} tabIndex={-1} aria-label="Campus">
           <p className="mb-2 text-xs font-semibold text-fg-muted">
             1 · Qual o campus? <span className="text-red-500">*</span>
           </p>
@@ -220,27 +314,32 @@ export function RoomTicketForm() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {workspaces.map((w) => (
-                <button
-                  key={w.id}
-                  type="button"
-                  onClick={() => setCampusId(w.id)}
-                  className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
-                    campusId === w.id
-                      ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
-                      : 'border-line bg-card text-fg hover:border-fg-muted'
-                  }`}
-                >
-                  <icons.ui.mapPin size={16} className="shrink-0" />
-                  <span className="line-clamp-2">{w.name}</span>
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {workspaces.map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => { setCampusId(w.id); clearFieldError('campus') }}
+                    className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
+                      campusId === w.id
+                        ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
+                        : fieldErrors.campus
+                          ? 'border-red-500/50 bg-card text-fg hover:border-fg-muted'
+                          : 'border-line bg-card text-fg hover:border-fg-muted'
+                    }`}
+                  >
+                    <icons.ui.mapPin size={16} className="shrink-0" />
+                    <span className="line-clamp-2">{w.name}</span>
+                  </button>
+                ))}
+              </div>
+              <FieldError fieldKey="campus" />
+            </>
           )}
         </section>
 
-        <section ref={roomRef} aria-label="Sala">
+        <section ref={roomRef} tabIndex={-1} aria-label="Sala">
           <label htmlFor="room" className="mb-2 block text-xs font-semibold text-fg-muted">
             2 · Qual a sala? <span className="text-red-500">*</span>
           </label>
@@ -259,6 +358,7 @@ export function RoomTicketForm() {
                 setRoomName(e.target.value)
                 setSuggestionsOpen(true)
                 setHighlightedIndex(-1)
+                clearFieldError('room')
               }}
               onFocus={() => setSuggestionsOpen(true)}
               onBlur={() => setSuggestionsOpen(false)}
@@ -280,7 +380,7 @@ export function RoomTicketForm() {
               }}
               placeholder="Ex: Sala 101, Laboratório 2"
               autoComplete="off"
-              className={inputClass}
+              className={fieldInputClass('room')}
             />
             {suggestionsOpen && campusId && roomSuggestions.length > 0 && (
               <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-line bg-card shadow-[var(--shadow-card)]">
@@ -309,9 +409,10 @@ export function RoomTicketForm() {
               </ul>
             )}
           </div>
+          <FieldError fieldKey="room" />
         </section>
 
-        <section ref={areaRef} aria-label="Área">
+        <section ref={areaRef} tabIndex={-1} aria-label="Área">
           <p className="mb-2 text-xs font-semibold text-fg-muted">
             3 · Qual a área? <span className="text-red-500">*</span>
           </p>
@@ -323,11 +424,13 @@ export function RoomTicketForm() {
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setArea(opt.value)}
+                  onClick={() => { setArea(opt.value); clearFieldError('area') }}
                   className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition-all ${
                     selected
                       ? 'border-emerald-500 bg-emerald-500/10'
-                      : 'border-line bg-card hover:border-fg-muted'
+                      : fieldErrors.area
+                        ? 'border-red-500/50 bg-card hover:border-fg-muted'
+                        : 'border-line bg-card hover:border-fg-muted'
                   }`}
                 >
                   <Icon size={20} className={selected ? 'text-emerald-500' : 'text-fg-muted'} />
@@ -342,9 +445,10 @@ export function RoomTicketForm() {
               )
             })}
           </div>
+          <FieldError fieldKey="area" />
         </section>
 
-        <section ref={categoryRef} aria-label="Tipo de problema">
+        <section ref={categoryRef} tabIndex={-1} aria-label="Tipo de problema">
           <p className="mb-2 text-xs font-semibold text-fg-muted">
             4 · Qual o problema? <span className="text-red-500">*</span>
           </p>
@@ -356,11 +460,13 @@ export function RoomTicketForm() {
                 <button
                   key={cat}
                   type="button"
-                  onClick={() => setCategory(cat)}
+                  onClick={() => { setCategory(cat); clearFieldError('category') }}
                   className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
                     selected
                       ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
-                      : 'border-line bg-card text-fg hover:border-fg-muted'
+                      : fieldErrors.category
+                        ? 'border-red-500/50 bg-card text-fg hover:border-fg-muted'
+                        : 'border-line bg-card text-fg hover:border-fg-muted'
                   }`}
                 >
                   <Icon size={16} className="shrink-0" />
@@ -369,6 +475,7 @@ export function RoomTicketForm() {
               )
             })}
           </div>
+          <FieldError fieldKey="category" />
         </section>
 
         {openForRoom.length > 0 && (
@@ -385,18 +492,19 @@ export function RoomTicketForm() {
           </div>
         )}
 
-        <section ref={detailsRef} aria-label="Detalhes">
+        <section ref={detailsRef} tabIndex={-1} aria-label="Detalhes">
           <label htmlFor="description" className="mb-1.5 block text-xs font-semibold text-fg-muted">
             5 · Descreva o que aconteceu <span className="text-red-500">*</span>
           </label>
           <textarea
             id="description"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => { setDescription(e.target.value); clearFieldError('description') }}
             placeholder="Ex: A internet da sala caiu às 10h e não voltou..."
             rows={3}
-            className={inputClass}
+            className={fieldInputClass('description')}
           />
+          <FieldError fieldKey="description" />
 
           <div className="mt-3 flex items-center gap-2.5">
             <input
@@ -447,10 +555,11 @@ export function RoomTicketForm() {
             id="reportedBy"
             type="text"
             value={reportedBy}
-            onChange={(e) => setReportedBy(e.target.value)}
+            onChange={(e) => { setReportedBy(e.target.value); clearFieldError('reportedBy') }}
             placeholder="Nome do professor"
-            className={inputClass}
+            className={fieldInputClass('reportedBy')}
           />
+          <FieldError fieldKey="reportedBy" />
 
           <label htmlFor="reportedByEmail" className="mt-4 mb-1.5 block text-xs font-semibold text-fg-muted">
             Email (opcional)
@@ -461,14 +570,18 @@ export function RoomTicketForm() {
             value={reportedByEmail}
             onChange={(e) => setReportedByEmail(e.target.value)}
             placeholder="email@exemplo.com"
-            className={inputClass}
+            className={inputClass + ' border-line focus:border-emerald-500 focus:ring-emerald-500'}
           />
         </section>
 
         <button
           type="submit"
-          disabled={!canSubmit}
-          className="w-full rounded-xl bg-emerald-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={submitting}
+          className={`w-full rounded-xl px-4 py-3.5 text-sm font-semibold text-white transition-colors ${
+            allFieldsFilled && !submitting
+              ? 'bg-emerald-500 hover:bg-emerald-400'
+              : 'bg-emerald-500/50 cursor-not-allowed'
+          }`}
         >
           {submitting ? 'Abrindo chamado...' : 'Abrir Chamado'}
         </button>

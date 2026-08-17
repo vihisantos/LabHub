@@ -170,13 +170,17 @@ describe('TicketForm (campus)', () => {
     fireEvent.click(screen.getByText('Internet'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
-    // Sem ?workspace= e sem workspace na sala, o submit fica desabilitado
+    // Sem ?workspace= e sem workspace na sala, o campus fica vazio
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
-    expect(submit).toBeDisabled()
 
-    // Escolhendo um campus manualmente, habilita e envia com o campus escolhido
+    // Clicking without campus shows errors
+    fireEvent.click(submit)
+    await act(async () => {})
+    expect(ticketService.create).not.toHaveBeenCalled()
+    expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
+
+    // Escolhendo um campus manualmente, envia com o campus escolhido
     fireEvent.click(screen.getByText('Campus A'))
-    expect(submit).not.toBeDisabled()
     fireEvent.click(submit)
 
     await act(async () => {})
@@ -211,13 +215,17 @@ describe('TicketForm (campus)', () => {
     fireEvent.click(screen.getByText('Internet'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
-    // Sem fonte confiável (URL inválida + sala sem workspace) → submit desabilitado
+    // Sem fonte confiável (URL inválida + sala sem workspace) → campus vazio
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
-    expect(submit).toBeDisabled()
+
+    // Clicking without campus shows errors
+    fireEvent.click(submit)
+    await act(async () => {})
+    expect(ticketService.create).not.toHaveBeenCalled()
+    expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
 
     // Escolhendo um campus válido manualmente, envia com ele
     fireEvent.click(screen.getByText('Campus B'))
-    expect(submit).not.toBeDisabled()
     fireEvent.click(submit)
 
     await act(async () => {})

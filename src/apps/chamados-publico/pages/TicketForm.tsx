@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
 import { useProblemTemplates } from '../../chamados/hooks/useProblemTemplates'
@@ -8,6 +8,14 @@ import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
 import { icons } from '../../../lib/icons'
 import type { TicketFormData } from '../../chamados/types'
 
+type FieldKey = 'campus' | 'category' | 'reportedBy'
+
+const FIELD_LABELS: Record<FieldKey, string> = {
+  campus: 'Selecione o campus',
+  category: 'Selecione o tipo de problema',
+  reportedBy: 'Informe seu nome',
+}
+
 export function TicketForm() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -16,8 +24,6 @@ export function TicketForm() {
   const assetSource = (searchParams.get('source') || 'stock') as TicketFormData['assetSource']
   const urlWorkspace = searchParams.get('workspace') || ''
 
-  // Fluxo público: busca a sala sem filtro de workspace, para o QR funcionar
-  // independente de sessão/resíduo do navegador.
   const rooms = roomService.getAllUnfiltered()
   const room = rooms.find((r) => r.id === roomId)
   const roomWorkspaceId = room?.workspace_id || ''
@@ -33,10 +39,6 @@ export function TicketForm() {
     reload: reloadWorkspaces,
   } = usePublicWorkspaces()
 
-  // Campus confiável: vem da URL (QR com workspace) ou do workspace da sala.
-  // NUNCA cai no workspace ativo do navegador — isso poderia mandar o chamado
-  // para o campus errado. Sem fonte confiável, o professor escolhe na grade
-  // (o submit fica desabilitado até escolher).
   const [campusId, setCampusId] = useState(urlWorkspace || roomWorkspaceId)
 
   useEffect(() => {
@@ -44,8 +46,6 @@ export function TicketForm() {
     setCampusId(roomWorkspaceId)
   }, [campusId, roomWorkspaceId])
 
-  // Se o campus vindo da URL/sala não existe mais (workspace deletado), limpa
-  // para forçar a escolha manual — nunca manda o chamado para um campus inválido.
   useEffect(() => {
     if (loadingWorkspaces || !campusId) return
     if (!workspaces.some((w) => w.id === campusId)) {
@@ -65,27 +65,72 @@ export function TicketForm() {
   const [reportedBy, setReportedBy] = useState('')
   const [reportedByEmail, setReportedByEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({})
+
+  const campusRef = useRef<HTMLElement>(null)
+  const categoryRef = useRef<HTMLElement>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+
+  const fieldRefs: Record<FieldKey, React.RefObject<HTMLElement | null>> = {
+    campus: campusRef,
+    category: categoryRef,
+    reportedBy: nameRef as React.RefObject<HTMLElement | null>,
+  }
 
   const openTickets = useMemo(() => {
     if (!asset) return []
     return ticketService.getOpenByAsset(asset.id, asset.source)
   }, [asset])
 
+  function scrollToField(key: FieldKey) {
+    const ref = fieldRefs[key]
+    if (ref?.current) {
+      ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      ref.current.focus()
+    }
+  }
+
+  const validate = useCallback((): Partial<Record<FieldKey, string>> => {
+    const errors: Partial<Record<FieldKey, string>> = {}
+    if (!campusId) errors.campus = FIELD_LABELS.campus
+    if (!selectedCategory) errors.category = FIELD_LABELS.category
+    if (!reportedBy.trim()) errors.reportedBy = FIELD_LABELS.reportedBy
+    return errors
+  }, [campusId, selectedCategory, reportedBy])
+
+  function clearFieldError(key: FieldKey) {
+    if (fieldErrors[key]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!campusId || !selectedCategory || !reportedBy.trim() || !room || !asset) return
+
+    const errors = validate()
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors)
+      const firstKey = (['campus', 'category', 'reportedBy'] as FieldKey[]).find((k) => errors[k])
+      if (firstKey) scrollToField(firstKey)
+      return
+    }
 
     setSubmitting(true)
+    setFieldErrors({})
 
     try {
       const ticket = await ticketService.create({
         workspace_id: campusId,
-        roomId: room.id,
-        roomName: room.name,
-        assetId: asset.id,
-        assetSource: asset.source,
-        assetName: asset.name,
-        assetPatrimony: asset.patrimony,
+        roomId: room!.id,
+        roomName: room!.name,
+        assetId: asset!.id,
+        assetSource: asset!.source,
+        assetName: asset!.name,
+        assetPatrimony: asset!.patrimony,
         problemCategory: selectedCategory,
         problemDescription: description,
         status: 'aberto',
@@ -117,11 +162,49 @@ export function TicketForm() {
     )
   }
 
+  const inputClass =
+    'w-full rounded-xl border bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:outline-none focus:ring-1'
+
+  function fieldInputClass(key: FieldKey) {
+    const hasError = !!fieldErrors[key]
+    const border = hasError ? 'border-red-500' : 'border-line'
+    const focus = hasError
+      ? 'focus:border-red-500 focus:ring-red-500'
+      : 'focus:border-emerald-500 focus:ring-emerald-500'
+    return `${inputClass} ${border} ${focus}`
+  }
+
+  function FieldError({ fieldKey }: { fieldKey: FieldKey }) {
+    const msg = fieldErrors[fieldKey]
+    if (!msg) return null
+    return (
+      <p className="mt-1.5 flex items-center gap-1 text-[11px] text-red-500">
+        <icons.ui.alertCircle size={12} />
+        {msg}
+      </p>
+    )
+  }
+
   return (
     <div className="min-h-dvh bg-surface px-4 pt-6 pb-8">
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
       </div>
+
+      {Object.keys(fieldErrors).length > 0 && (
+        <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+          <p className="mb-1 text-xs font-medium text-red-600 dark:text-red-400">
+            Preencha os campos obrigatórios:
+          </p>
+          <ul className="list-inside list-disc space-y-0.5">
+            {Object.entries(fieldErrors).map(([, msg]) => (
+              <li key={msg} className="text-[11px] text-red-600 dark:text-red-400">
+                {msg}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="mb-6">
         <p className="mb-2 text-xs font-semibold text-fg-muted">
@@ -145,15 +228,17 @@ export function TicketForm() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2">
+            <div ref={campusRef} className="grid grid-cols-2 gap-2">
               {workspaces.map((w) => (
                 <button
                   key={w.id}
                   type="button"
-                  onClick={() => setCampusId(w.id)}
+                  onClick={() => { setCampusId(w.id); clearFieldError('campus') }}
                   className={`flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${campusId === w.id
                     ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
-                    : 'border-line bg-card text-fg hover:border-fg-muted'
+                    : fieldErrors.campus
+                      ? 'border-red-500/50 bg-card text-fg hover:border-fg-muted'
+                      : 'border-line bg-card text-fg hover:border-fg-muted'
                     }`}
                 >
                   <icons.ui.mapPin size={16} className="shrink-0" />
@@ -161,9 +246,7 @@ export function TicketForm() {
                 </button>
               ))}
             </div>
-            {!campusId && workspaces.length > 0 && (
-              <p className="mt-1.5 text-[11px] text-fg-dim">Escolha o campus para onde o chamado deve ir.</p>
-            )}
+            <FieldError fieldKey="campus" />
           </>
         )}
       </div>
@@ -197,23 +280,26 @@ export function TicketForm() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        <div>
+        <div ref={categoryRef}>
           <label className="mb-2 block text-xs font-semibold text-fg-muted">Qual o problema?</label>
           <div className="grid grid-cols-2 gap-2">
             {categories.map((cat) => (
               <button
                 key={cat}
                 type="button"
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => { setSelectedCategory(cat); clearFieldError('category') }}
                 className={`rounded-xl border p-3 text-left text-sm transition-all ${selectedCategory === cat
                   ? 'border-emerald-500 bg-emerald-500/10 font-medium text-emerald-600 dark:text-emerald-400'
-                  : 'border-line bg-card text-fg hover:border-fg-muted'
+                  : fieldErrors.category
+                    ? 'border-red-500/50 bg-card text-fg hover:border-fg-muted'
+                    : 'border-line bg-card text-fg hover:border-fg-muted'
                   }`}
               >
                 {cat}
               </button>
             ))}
           </div>
+          <FieldError fieldKey="category" />
         </div>
 
         <div>
@@ -223,7 +309,7 @@ export function TicketForm() {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Ex: O computador não liga após queda de luz..."
             rows={3}
-            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className={`${inputClass} border-line focus:border-emerald-500 focus:ring-emerald-500`}
           />
         </div>
 
@@ -232,13 +318,14 @@ export function TicketForm() {
             Seu nome <span className="text-red-500">*</span>
           </label>
           <input
+            ref={nameRef}
             type="text"
             value={reportedBy}
-            onChange={(e) => setReportedBy(e.target.value)}
+            onChange={(e) => { setReportedBy(e.target.value); clearFieldError('reportedBy') }}
             placeholder="Nome do professor"
-            required
-            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className={fieldInputClass('reportedBy')}
           />
+          <FieldError fieldKey="reportedBy" />
         </div>
 
         <div>
@@ -248,14 +335,18 @@ export function TicketForm() {
             value={reportedByEmail}
             onChange={(e) => setReportedByEmail(e.target.value)}
             placeholder="email@exemplo.com"
-            className="w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className={`${inputClass} border-line focus:border-emerald-500 focus:ring-emerald-500`}
           />
         </div>
 
         <button
           type="submit"
-          disabled={!campusId || !selectedCategory || !reportedBy.trim() || submitting}
-          className="w-full rounded-xl bg-emerald-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={submitting}
+          className={`w-full rounded-xl px-4 py-3.5 text-sm font-semibold text-white transition-colors ${
+            campusId && selectedCategory && reportedBy.trim() && !submitting
+              ? 'bg-emerald-500 hover:bg-emerald-400'
+              : 'bg-emerald-500/50 cursor-not-allowed'
+          }`}
         >
           {submitting ? 'Abrindo chamado...' : 'Abrir Chamado'}
         </button>
