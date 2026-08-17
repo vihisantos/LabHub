@@ -15,9 +15,11 @@ if (url && anonKey) {
         autoRefreshToken: true,
         detectSessionInUrl: true,
         flowType: 'pkce',
+        // Passkeys (WebAuthn) — signInWithPasskey/registerPasskey/auth.passkey.*
+        // NOTA: a flag experimental precisa ficar DENTRO de auth (o supabase-js
+        // lê settings.auth.experimental ao construir o SupabaseAuthClient).
+        experimental: { passkey: true },
       },
-      // Passkeys (WebAuthn) — signInWithPasskey/registerPasskey/auth.passkey.*
-      experimental: { passkey: true },
     })
     defaultDb = client
     pcareDb = client.schema('pcare')
