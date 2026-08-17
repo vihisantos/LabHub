@@ -523,7 +523,7 @@ def push_notify(sub, title, body, url='/', actions=None, user_id=None):
             subscription_info=sub,
             data=json.dumps(data),
             vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims=VAPID_CLAIMS,
+            vapid_claims=dict(VAPID_CLAIMS),
             ttl=86400
         )
         return True
