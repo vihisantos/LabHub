@@ -165,6 +165,7 @@ export function RoomTicketForm() {
     try {
       const ticket = await ticketService.create(data)
       markTourDone()
+      if (!ticket.id) throw new Error('Chamado criado sem ID')
       navigate(`/chamados-publico/success/${ticket.id}`)
     } catch (err) {
       setSubmitting(false)

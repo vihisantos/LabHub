@@ -94,6 +94,7 @@ export function TicketForm() {
         assignedTo: '',
       })
 
+      if (!ticket.id) throw new Error('Chamado criado sem ID')
       navigate(`/chamados-publico/success/${ticket.id}`)
     } catch {
       setSubmitting(false)
