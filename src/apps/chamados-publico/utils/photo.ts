@@ -1,4 +1,4 @@
-import { uploadToCloudinary } from '../../../lib/cloudinary'
+import { uploadChamadosToCloudinary } from '../../../lib/cloudinary'
 
 const MAX_SIZE = 900
 const QUALITY = 0.65
@@ -53,7 +53,7 @@ export async function readPhoto(file: File): Promise<string> {
  */
 export async function uploadPhoto(file: File): Promise<string> {
   try {
-    return await uploadToCloudinary(file, 'chamados')
+    return await uploadChamadosToCloudinary(file)
   } catch (e) {
     console.warn('[chamados] Cloudinary indisponível, usando foto local:', e)
     return readPhoto(file)

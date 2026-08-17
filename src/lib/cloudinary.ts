@@ -2,6 +2,7 @@ const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
 const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
 const UPLOAD_PRESET_AVATARS = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET_AVATARS
 const UPLOAD_PRESET_BANNERS = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET_BANNERS
+const UPLOAD_PRESET_CHAMADOS = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET_CHAMADOS
 
 async function doUpload(file: File, folder: string, preset: string): Promise<string> {
   if (!CLOUD_NAME || !preset) {
@@ -54,6 +55,13 @@ export async function uploadAvatarToCloudinary(file: File): Promise<string> {
  */
 export async function uploadBannerToCloudinary(file: File): Promise<string> {
   return doUpload(file, 'banners', UPLOAD_PRESET_BANNERS || UPLOAD_PRESET)
+}
+
+/**
+ * Upload de foto de chamado usando um preset dedicado (pasta "chamados").
+ */
+export async function uploadChamadosToCloudinary(file: File): Promise<string> {
+  return doUpload(file, 'chamados', UPLOAD_PRESET_CHAMADOS || UPLOAD_PRESET)
 }
 
 /**
