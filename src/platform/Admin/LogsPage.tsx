@@ -156,7 +156,7 @@ export function LogsPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="scrollbar-thin max-h-[65dvh] space-y-2 overflow-y-auto pr-1">
             {filteredLogs.map((log) => (
               <LogItem key={log.id} log={log} />
             ))}
