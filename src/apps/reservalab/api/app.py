@@ -523,12 +523,22 @@ def push_notify(sub, title, body, url='/', actions=None, user_id=None):
             subscription_info=sub,
             data=json.dumps(data),
             vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims=VAPID_CLAIMS,
+            vapid_claims=dict(VAPID_CLAIMS),
             ttl=86400
         )
         return True
     except Exception as e:
         logger.warning(f"Push send error: {e}")
+        # 404/410 = inscrição expirada/removida pelo navegador: remove do Redis
+        # para não insistir no envio em toda rodada (auto-limpeza).
+        resp = getattr(e, 'response', None)
+        status = getattr(resp, 'status_code', None) if resp is not None else None
+        if status in (404, 410) and redis is not None:
+            try:
+                redis.srem('push:subscribers', json.dumps(sub, ensure_ascii=False))
+                logger.info(f"Push: inscrição removida do Redis (HTTP {status})")
+            except Exception as rm_err:
+                logger.error(f"Push: falha ao remover inscrição do Redis: {rm_err}")
         return False
 
 @app.route('/api/push/test', methods=['GET'])
