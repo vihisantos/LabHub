@@ -76,7 +76,7 @@ export function Dashboard() {
   }, [tickets])
 
   const recentTickets = useMemo(() => {
-    return [...tickets].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5)
+    return [...tickets].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 5)
   }, [tickets])
 
   const ticketsByRoom = useMemo(() => {

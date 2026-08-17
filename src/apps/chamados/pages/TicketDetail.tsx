@@ -120,7 +120,7 @@ export function TicketDetail() {
     if (!ticket) return []
     return tickets
       .filter((t) => t.assetId === ticket.assetId && t.assetSource === ticket.assetSource && t.id !== ticket.id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .slice(0, 5)
   }, [ticket, tickets])
 

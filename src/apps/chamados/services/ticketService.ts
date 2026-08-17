@@ -165,7 +165,7 @@ export const ticketService = {
   getHistoryByAsset: (assetId: string, assetSource: string) => {
     return local.query(
       (t) => t.assetId === assetId && t.assetSource === assetSource
-    ).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    ).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
   },
 
   /** Puxa os chamados do servidor e mescla no cache local (mais recente por updatedAt). */

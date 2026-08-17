@@ -61,7 +61,7 @@ export function syncNewTicketAlerts(): AppNotification[] {
   const tickets = ticketService
     .getAll()
     .filter((t) => t.status !== 'resolvido' && t.status !== 'fechado')
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
 
   for (const t of tickets) {
     const url = ticketUrl(t.id)

@@ -11,7 +11,7 @@ export function useTickets() {
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true)
     const data = ticketService.getAll()
-    setTickets(data.sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+    setTickets(data.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')))
     if (!silent) setLoading(false)
   }, [])
 
@@ -53,7 +53,7 @@ export function useTickets() {
           if (prev.some((t) => t.id === newTicket.id)) return prev
           const created = syncNewTicketAlerts()
           if (created.length > 0) alertForNewTickets(created)
-          return [newTicket, ...prev].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          return [newTicket, ...prev].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
         })
       } else if (payload.eventType === 'UPDATE') {
         const updated = payload.new as Ticket
