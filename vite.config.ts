@@ -48,12 +48,12 @@ export default defineConfig({
         ],
       },
     }),
-    process.env.ANALYZE && visualizer({
+    process.env.ANALYZE ? visualizer({
       open: true,
       gzipSize: true,
       brotliSize: true,
       filename: 'dist/stats.html',
-    }),
+    }) : undefined,
   ],
   server: {
     proxy: {
