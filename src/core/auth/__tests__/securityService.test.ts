@@ -10,15 +10,6 @@ const mockSupabaseState = vi.hoisted(() => ({
         update: vi.fn(),
         delete: vi.fn(),
       },
-      mfa: {
-        getAuthenticatorAssuranceLevel: vi.fn(),
-        listFactors: vi.fn(),
-        webauthn: {
-          register: vi.fn(),
-          authenticate: vi.fn(),
-        },
-        unenroll: vi.fn(),
-      },
     },
   },
 }))
@@ -110,75 +101,6 @@ describe('securityService — passkeys', () => {
     const res = await securityService.deletePasskey('pk-1')
     expect(res.ok).toBe(true)
     expect(mockSupabaseState.defaultDb.auth.passkey.delete).toHaveBeenCalledWith({ passkeyId: 'pk-1' })
-  })
-})
-
-describe('securityService — MFA WebAuthn', () => {
-  it('getAssuranceLevel retorna aal1→aal2 quando MFA é necessário', async () => {
-    mockSupabaseState.defaultDb.auth.mfa.getAuthenticatorAssuranceLevel.mockResolvedValue({
-      data: { currentLevel: 'aal1', nextLevel: 'aal2' },
-      error: null,
-    })
-    const { securityService } = await loadService()
-    const aal = await securityService.getAssuranceLevel()
-    expect(aal.currentLevel).toBe('aal1')
-    expect(aal.nextLevel).toBe('aal2')
-  })
-
-  it('getAssuranceLevel retorna nulls quando há erro', async () => {
-    mockSupabaseState.defaultDb.auth.mfa.getAuthenticatorAssuranceLevel.mockResolvedValue({
-      data: null,
-      error: { message: 'boom' },
-    })
-    const { securityService } = await loadService()
-    const aal = await securityService.getAssuranceLevel()
-    expect(aal.currentLevel).toBeNull()
-    expect(aal.nextLevel).toBeNull()
-  })
-
-  it('listFactors separa webauthn dos demais fatores', async () => {
-    mockSupabaseState.defaultDb.auth.mfa.listFactors.mockResolvedValue({
-      data: {
-        all: [
-          { id: 'f1', factor_type: 'webauthn', friendly_name: 'Touch ID', created_at: '2026-01-01T00:00:00Z', status: 'verified' },
-          { id: 'f2', factor_type: 'totp', friendly_name: 'App', created_at: '2026-01-01T00:00:00Z', status: 'verified' },
-        ],
-        webauthn: [{ id: 'f1', factor_type: 'webauthn', friendly_name: 'Touch ID', created_at: '2026-01-01T00:00:00Z', status: 'verified' }],
-        totp: [{ id: 'f2', factor_type: 'totp', friendly_name: 'App', created_at: '2026-01-01T00:00:00Z', status: 'verified' }],
-      },
-      error: null,
-    })
-    const { securityService } = await loadService()
-    const f = await securityService.listFactors()
-    expect(f.webauthn).toHaveLength(1)
-    expect(f.webauthn[0].id).toBe('f1')
-    expect(f.totp).toHaveLength(1)
-  })
-
-  it('enrollWebauthn usa o fator webauthn', async () => {
-    mockSupabaseState.defaultDb.auth.mfa.webauthn.register.mockResolvedValue({ data: {}, error: null })
-    const { securityService } = await loadService()
-    const res = await securityService.enrollWebauthn('Minha biometria')
-    expect(res.ok).toBe(true)
-    expect(mockSupabaseState.defaultDb.auth.mfa.webauthn.register).toHaveBeenCalledWith({
-      friendlyName: 'Minha biometria',
-    })
-  })
-
-  it('authenticateWebauthn repassa o factorId', async () => {
-    mockSupabaseState.defaultDb.auth.mfa.webauthn.authenticate.mockResolvedValue({ data: {}, error: null })
-    const { securityService } = await loadService()
-    const res = await securityService.authenticateWebauthn('f1')
-    expect(res.ok).toBe(true)
-    expect(mockSupabaseState.defaultDb.auth.mfa.webauthn.authenticate).toHaveBeenCalledWith({ factorId: 'f1' })
-  })
-
-  it('unenrollFactor remove o fator', async () => {
-    mockSupabaseState.defaultDb.auth.mfa.unenroll.mockResolvedValue({ data: null, error: null })
-    const { securityService } = await loadService()
-    const res = await securityService.unenrollFactor('f1')
-    expect(res.ok).toBe(true)
-    expect(mockSupabaseState.defaultDb.auth.mfa.unenroll).toHaveBeenCalledWith({ factorId: 'f1' })
   })
 })
 

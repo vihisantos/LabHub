@@ -22,9 +22,6 @@ export function LoginPage() {
   const [pendingUserId, setPendingUserId] = useState<string | null>(null)
   const [pendingStatus, setPendingStatus] = useState<'waiting' | 'approved' | 'rejected'>('waiting')
   const [secondsLeft, setSecondsLeft] = useState(60)
-  const [mfaRequired, setMfaRequired] = useState(false)
-  const [mfaBusy, setMfaBusy] = useState(false)
-  const [mfaError, setMfaError] = useState<string | null>(null)
   const [passkeyBusy, setPasskeyBusy] = useState(false)
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
 
@@ -32,10 +29,10 @@ export function LoginPage() {
   const canPasskey = browserSupportsPasskey()
 
   useEffect(() => {
-    if (isAuthenticated && user?.status === 'active' && !mfaRequired) {
+    if (isAuthenticated && user?.status === 'active') {
       navigate('/', { replace: true })
     }
-  }, [isAuthenticated, user, navigate, mfaRequired])
+  }, [isAuthenticated, user, navigate])
 
   useEffect(() => {
     if (isPendingUser && user?.id) {
@@ -97,17 +94,10 @@ export function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setMfaError(null)
     try {
       const userEmail = buildUserEmail(username)
       if (mode === 'signin') {
         await signIn({ email: userEmail, password })
-        // Usuário com fator MFA: sessão fica em aal1 — precisa do 2º fator antes de entrar
-        const aal = await securityService.getAssuranceLevel()
-        if (aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-          setMfaRequired(true)
-          return
-        }
         navigate('/', { replace: true })
       } else {
         await signUp({ email: userEmail, password, name: username })
@@ -127,41 +117,11 @@ export function LoginPage() {
         setPasskeyError(res.error || 'Falha ao entrar com biometria')
         return
       }
-      // Sessão criada pelo passkey — verifica se ainda falta MFA
-      const aal = await securityService.getAssuranceLevel()
-      if (aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-        setMfaRequired(true)
-        return
-      }
       authService.refreshProfile().finally(() => navigate('/', { replace: true }))
     } catch (e) {
       setPasskeyError(e instanceof Error ? e.message : 'Falha ao entrar com biometria')
     } finally {
       setPasskeyBusy(false)
-    }
-  }
-
-  async function handleMfaConfirm() {
-    setMfaError(null)
-    setMfaBusy(true)
-    try {
-      const { webauthn } = await securityService.listFactors()
-      const factor = webauthn[0]
-      if (!factor) {
-        setMfaError('Nenhum fator biométrico cadastrado nesta conta')
-        return
-      }
-      const res = await securityService.authenticateWebauthn(factor.id)
-      if (!res.ok) {
-        setMfaError(res.error || 'Falha na verificação biométrica')
-        return
-      }
-      setMfaRequired(false)
-      authService.refreshProfile().finally(() => navigate('/', { replace: true }))
-    } catch (e) {
-      setMfaError(e instanceof Error ? e.message : 'Falha na verificação biométrica')
-    } finally {
-      setMfaBusy(false)
     }
   }
 
@@ -173,20 +133,6 @@ export function LoginPage() {
         totalSeconds={60}
         onEnter={handleEnterApp}
         onRetry={handleRetry}
-      />
-    )
-  }
-
-  if (mfaRequired) {
-    return (
-      <MfaStep
-        busy={mfaBusy}
-        error={mfaError}
-        onConfirm={handleMfaConfirm}
-        onBack={() => {
-          setMfaRequired(false)
-          setMfaError(null)
-        }}
       />
     )
   }
@@ -297,61 +243,6 @@ export function LoginPage() {
             </>
           )}
         </form>
-      </div>
-    </div>
-  )
-}
-
-/** Tela de confirmação do segundo fator (biometria) após a senha. */
-function MfaStep({
-  busy,
-  error,
-  onConfirm,
-  onBack,
-}: {
-  busy: boolean
-  error: string | null
-  onConfirm: () => void
-  onBack: () => void
-}) {
-  return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-surface px-5">
-      <div className="mb-8 text-center">
-        <img src="/logo-192.png" alt="LabHub" className="mx-auto mb-3 h-14 w-14 rounded-2xl" />
-        <h1 className="text-2xl font-bold text-fg">Verificação em duas etapas</h1>
-        <p className="mt-1 text-sm text-fg-muted">Confirme sua identidade com a biometria</p>
-      </div>
-
-      <div className="w-full max-w-sm space-y-3">
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-line bg-card p-6 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-500">
-            <Fingerprint size={32} />
-          </div>
-          <p className="text-sm text-fg-muted">
-            Toque no botão abaixo e use a biometria (impressão digital, Face ID ou chave de segurança) para
-            concluir o login.
-          </p>
-          {error && <p className="text-xs text-red-500">{error}</p>}
-        </div>
-
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={busy}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:opacity-50"
-        >
-          <Fingerprint size={18} />
-          {busy ? 'Verificando...' : 'Confirmar com biometria'}
-        </button>
-
-        <button
-          type="button"
-          onClick={onBack}
-          disabled={busy}
-          className="w-full rounded-xl py-2 text-xs font-medium text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
-        >
-          Voltar e trocar de conta
-        </button>
       </div>
     </div>
   )

@@ -3,19 +3,13 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '../../../test/helpers'
 
 const mockSecurity = vi.hoisted(() => ({
-  getAssuranceLevel: vi.fn(),
   signInWithPasskey: vi.fn(),
-  listFactors: vi.fn(),
-  authenticateWebauthn: vi.fn(),
   browserSupportsPasskey: vi.fn(),
 }))
 
 vi.mock('../../../core/auth/securityService', () => ({
   securityService: {
-    getAssuranceLevel: mockSecurity.getAssuranceLevel,
     signInWithPasskey: mockSecurity.signInWithPasskey,
-    listFactors: mockSecurity.listFactors,
-    authenticateWebauthn: mockSecurity.authenticateWebauthn,
   },
   browserSupportsPasskey: mockSecurity.browserSupportsPasskey,
 }))
@@ -86,9 +80,8 @@ describe('LoginPage — biometria e MFA', () => {
     expect(screen.queryByText('Entrar com biometria')).not.toBeInTheDocument()
   })
 
-  it('entra direto quando a senha é suficiente (sem MFA)', async () => {
+  it('entra com senha e navega para o app', async () => {
     mockSecurity.browserSupportsPasskey.mockReturnValue(true)
-    mockSecurity.getAssuranceLevel.mockResolvedValue({ currentLevel: 'aal1', nextLevel: 'aal1' })
     renderWithProviders(<LoginPage />)
     fireEvent.change(screen.getByPlaceholderText('nome.escolhido'), { target: { value: 'vitor' } })
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'senha123' } })
@@ -100,71 +93,9 @@ describe('LoginPage — biometria e MFA', () => {
     })
   })
 
-  it('abre a tela de verificação em duas etapas quando a conta tem MFA', async () => {
-    mockSecurity.browserSupportsPasskey.mockReturnValue(true)
-    mockSecurity.getAssuranceLevel.mockResolvedValue({ currentLevel: 'aal1', nextLevel: 'aal2' })
-    renderWithProviders(<LoginPage />)
-    fireEvent.change(screen.getByPlaceholderText('nome.escolhido'), { target: { value: 'vitor' } })
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'senha123' } })
-    clickSubmit()
-
-    await waitFor(() => {
-      expect(screen.getByText('Verificação em duas etapas')).toBeInTheDocument()
-      expect(mockNavigate).not.toHaveBeenCalled()
-    })
-  })
-
-  it('confirma com biometria o segundo fator e entra no app', async () => {
-    mockSecurity.browserSupportsPasskey.mockReturnValue(true)
-    mockSecurity.getAssuranceLevel.mockResolvedValue({ currentLevel: 'aal1', nextLevel: 'aal2' })
-    mockSecurity.listFactors.mockResolvedValue({
-      webauthn: [{ id: 'f1', friendlyName: 'Touch ID', factorType: 'webauthn', createdAt: '2026-01-01T00:00:00Z' }],
-      totp: [],
-      all: [],
-    })
-    mockSecurity.authenticateWebauthn.mockResolvedValue({ ok: true })
-    renderWithProviders(<LoginPage />)
-    fireEvent.change(screen.getByPlaceholderText('nome.escolhido'), { target: { value: 'vitor' } })
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'senha123' } })
-    clickSubmit()
-
-    await waitFor(() => {
-      expect(screen.getByText('Confirmar com biometria')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByText('Confirmar com biometria'))
-
-    await waitFor(() => {
-      expect(mockSecurity.authenticateWebauthn).toHaveBeenCalledWith('f1')
-      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true })
-    })
-  })
-
-  it('mostra erro quando não há fator biométrico cadastrado', async () => {
-    mockSecurity.browserSupportsPasskey.mockReturnValue(true)
-    mockSecurity.getAssuranceLevel.mockResolvedValue({ currentLevel: 'aal1', nextLevel: 'aal2' })
-    mockSecurity.listFactors.mockResolvedValue({ webauthn: [], totp: [], all: [] })
-    renderWithProviders(<LoginPage />)
-    fireEvent.change(screen.getByPlaceholderText('nome.escolhido'), { target: { value: 'vitor' } })
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'senha123' } })
-    clickSubmit()
-
-    await waitFor(() => {
-      expect(screen.getByText('Confirmar com biometria')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByText('Confirmar com biometria'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Nenhum fator biométrico cadastrado nesta conta')).toBeInTheDocument()
-      expect(mockNavigate).not.toHaveBeenCalled()
-    })
-  })
-
   it('entra via passkey quando a biometria é usada no login', async () => {
     mockSecurity.browserSupportsPasskey.mockReturnValue(true)
     mockSecurity.signInWithPasskey.mockResolvedValue({ ok: true })
-    mockSecurity.getAssuranceLevel.mockResolvedValue({ currentLevel: 'aal1', nextLevel: 'aal1' })
     renderWithProviders(<LoginPage />)
     fireEvent.click(screen.getByText('Entrar com biometria'))
 
