@@ -1,5 +1,6 @@
 import { createSyncService } from '../../lib/sync'
 import { authService } from '../auth/service'
+import { workspaceStore } from '../workspaces/store'
 import type { GlobalAsset, GlobalAssetCreateData, GlobalAssetStats, GlobalAssetStatus } from './global-types'
 
 const service = createSyncService<GlobalAsset>('global_assets')
@@ -8,10 +9,11 @@ function createAsset(data: GlobalAssetCreateData): GlobalAsset {
   const user = authService.getCurrentUser()
   return service.create({
     ...data,
+    workspace_id: workspaceStore.activeWorkspaceId ?? '',
     created_by: user?.id ?? null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  })
+  } as Omit<GlobalAsset, 'id'>)
 }
 
 function updateAsset(id: string, data: Partial<GlobalAsset>): GlobalAsset | undefined {
