@@ -38,7 +38,7 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
 
       expect(ok).toBe(true)
       const [payload] = chain.update.mock.calls[0]
-      expect(payload).toMatchObject({ status: 'active', role: 'role-technician' })
+      expect(payload).toMatchObject({ status: 'active', role: 'technician' })
       expect(payload.roleId).toBeUndefined()
       expect(payload.updated_at).toBeTruthy()
       expect(chain.eq).toHaveBeenCalledWith('id', 'u-1')
@@ -119,7 +119,7 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       expect(ok).toBe(true)
       const [payload] = chain.update.mock.calls[0]
       expect(payload).toMatchObject({
-        role: 'role-admin',
+        role: 'admin',
         name: 'Novo Nome',
         workspace_ids: ['ws-1'],
         is_super_admin: true,
