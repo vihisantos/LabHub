@@ -714,6 +714,14 @@ ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedBy" TEXT DEF
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "statusNote" TEXT DEFAULT '';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "assignedToUserId" TEXT DEFAULT '';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "photos" TEXT DEFAULT '';
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "feedbackRating" INTEGER;
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "feedbackComment" TEXT DEFAULT '';
+ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "feedbackAt" TIMESTAMPTZ;
+DO $$ BEGIN
+  ALTER TABLE public.chamados_tickets ADD CONSTRAINT chk_feedback_rating
+    CHECK ("feedbackRating" IS NULL OR "feedbackRating" BETWEEN 1 AND 5);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_chamados_workspace ON public.chamados_tickets("workspace_id");
 CREATE INDEX IF NOT EXISTS idx_chamados_status ON public.chamados_tickets(status);
 CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON public.ticket_events("ticket_id");
@@ -798,13 +806,20 @@ def _notify_ticket_status(ticket):
             return
         status = ticket.get('status', '')
         note = (ticket.get('statusNote') or '').strip()
-        label = CHAMADOS_STATUS_LABELS.get(status, status)
-        msg = f'{label} — {note}' if note else label
-        title = f"Chamado #{ticket.get('ticketNumber')}: {msg}"
-        body = ' · '.join(
-            str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
-        )
-        url = f"/chamados-publico/success/{ticket.get('id')}"
+
+        if status == 'resolvido':
+            title = 'Como foi seu atendimento? ⭐'
+            body = f"O chamado #{ticket.get('ticketNumber')} foi resolvido. Avalie o atendimento da equipe de TI."
+            url = f"/chamados-publico/feedback/{ticket.get('id')}"
+        else:
+            label = CHAMADOS_STATUS_LABELS.get(status, status)
+            msg = f'{label} — {note}' if note else label
+            title = f"Chamado #{ticket.get('ticketNumber')}: {msg}"
+            body = ' · '.join(
+                str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
+            )
+            url = f"/chamados-publico/success/{ticket.get('id')}"
+
         keep = []
         for sub in subs:
             if push_notify(sub, title, body, url=url):
@@ -1513,10 +1528,14 @@ def chamados_feedback(ticket_id):
             return jsonify({'error': 'Chamado já avaliado'}), 400
 
         body = request.get_json() or {}
-        try:
-            rating = int(body.get('rating'))
-        except (TypeError, ValueError):
+        raw = body.get('rating')
+        if isinstance(raw, float) and raw != int(raw):
             rating = 0
+        else:
+            try:
+                rating = int(raw)
+            except (TypeError, ValueError):
+                rating = 0
         if rating not in (1, 2, 3, 4, 5):
             return jsonify({'error': 'Nota inválida (1 a 5)'}), 400
         comment = str(body.get('comment') or '').strip()[:500]
