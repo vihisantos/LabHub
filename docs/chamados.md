@@ -102,6 +102,8 @@ Cria um chamado a partir do formulário público.
 
 **Resposta:** Objeto do chamado criado com `ticketNumber` gerado sequencialmente.
 
+**Proteção por workspace:** O endpoint verifica `workspaces.disabled_apps` antes de criar o ticket. Se o módulo `chamados` estiver na lista de desabilitados do workspace, retorna `403` com `MODULE_DISABLED`. Nenhum ticket é criado e nenhuma notificação push é disparada.
+
 ### GET /api/chamados
 
 Lista chamados com filtros opcionais: `workspace_id`, `status`, `reportedBy`.

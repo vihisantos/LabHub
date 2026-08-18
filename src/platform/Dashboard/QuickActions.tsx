@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
-import { isAppDisabled } from '../../core/workspaces/apps'
+import { useAppAccess } from '../../core/permissions/usePermissions'
+import { isAppDisabled, isModuleAvailable } from '../../core/workspaces/apps'
 import { icons } from '../../lib/icons'
 
 const actions = [
@@ -9,7 +10,7 @@ const actions = [
     icon: <icons.ui.plus size={18} />,
     route: '/chamados-publico/new',
     color: '#f59e0b',
-    appId: null as string | null,
+    appId: 'chamados' as string | null,
   },
   {
     label: 'Reservas',
@@ -37,9 +38,14 @@ const actions = [
 export function QuickActions() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
+  const { canAccessApp } = useAppAccess()
 
   const visible = actions.filter(
-    (action) => !action.appId || !isAppDisabled(action.appId, workspace),
+    (action) =>
+      !action.appId ||
+      (action.appId === 'chamados'
+        ? !isAppDisabled(action.appId, workspace)
+        : isModuleAvailable(action.appId, workspace, canAccessApp)),
   )
 
   return (

@@ -4,7 +4,8 @@ import { pcService } from '../../apps/pcare/services/pcService'
 import { stockService } from '../../apps/stock/services/stockService'
 import { ticketService } from '../../apps/chamados/services/ticketService'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
-import { isAppDisabled } from '../../core/workspaces/apps'
+import { useAppAccess } from '../../core/permissions/usePermissions'
+import { isModuleAvailable } from '../../core/workspaces/apps'
 import { icons } from '../../lib/icons'
 
 interface ModuleStat {
@@ -28,6 +29,7 @@ const MODULE_APP_ID: Record<string, string> = {
 export function ModuleStats() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
+  const { canAccessApp } = useAppAccess()
 
   const modules = useMemo<ModuleStat[]>(() => {
     const pcs = pcService.getAll()
@@ -95,8 +97,8 @@ export function ModuleStats() {
           { label: 'Display', value: 'Mural digital' },
         ],
       },
-    ].filter((m) => !isAppDisabled(MODULE_APP_ID[m.id], workspace))
-  }, [workspace])
+    ].filter((m) => isModuleAvailable(MODULE_APP_ID[m.id], workspace, canAccessApp))
+  }, [workspace, canAccessApp])
 
   return (
     <div className="rounded-xl bg-card shadow-[var(--shadow-card)]">
