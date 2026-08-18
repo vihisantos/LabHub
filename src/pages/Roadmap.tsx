@@ -24,6 +24,7 @@ const FEATURES: Feature[] = [
   { id: 75, cat: 'low', name: 'Configurações Customizáveis do Stock', desc: 'Editar seções, subcategorias, condições e campos personalizados do estoque', effort: 'med', done: false },
 
   { id: 95, cat: 'high', name: 'Sync em Tempo Real (Realtime)', desc: 'Dados e sino atualizam instantaneamente sem polling', effort: 'high', done: false },
+  { id: 96, cat: 'high', name: 'Login Biométrico / Passkey (WebAuthn)', desc: 'Entrar com digital, face ou chave de segurança no lugar da senha — botão "Entrar com biometria" + gestão de passkeys no perfil (PR #92). MFA WebAuthn como 2º fator removido: Supabase nao suporta (422)', effort: 'high', done: true },
   { id: 97, cat: 'high', name: 'Monitoramento de PCs em Tempo Real', desc: 'Temperatura, uso de CPU e atividade remota por PC', effort: 'high', done: false },
   { id: 102, cat: 'high', name: 'Modo Offline Total com Fila de Operações', desc: 'Parcial: fila de alterações pendentes + re-sync automático ao voltar; falta fila de operações com replay e UI de estado offline', effort: 'high', done: false },
 
