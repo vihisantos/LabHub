@@ -7,9 +7,15 @@ function fromDbUser<T extends Record<string, unknown>>(row: T): Omit<T, 'role'> 
   return { ...rest, roleId: resolveRoleId(typeof role === 'string' ? role : undefined) }
 }
 
+const ROLE_ID_TO_DB: Record<string, string> = {
+  'role-technician': 'technician',
+  'role-viewer': 'viewer',
+  'role-admin': 'admin',
+}
+
 function toDbUser(data: Record<string, unknown>): Record<string, unknown> {
   const { roleId, ...rest } = data
-  return { ...rest, ...(roleId !== undefined ? { role: roleId } : {}) }
+  return { ...rest, ...(roleId !== undefined ? { role: ROLE_ID_TO_DB[String(roleId)] ?? roleId } : {}) }
 }
 
 async function notifyUser(userId: string, title: string, body: string): Promise<void> {
@@ -132,7 +138,7 @@ export const adminService = {
 
     const { data, error } = await defaultDb
       .from('profiles')
-      .update({ role: roleId, updated_at: new Date().toISOString() })
+      .update({ role: ROLE_ID_TO_DB[roleId] ?? roleId, updated_at: new Date().toISOString() })
       .eq('id', userId)
       .select('id')
 
