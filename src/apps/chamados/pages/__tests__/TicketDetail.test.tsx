@@ -61,7 +61,7 @@ vi.mock('../../../../core/auth/useAuth', () => ({
 vi.mock('../../../../core/users/service', () => ({
   userService: { getAll: mockGetAll, getByUserId: mockGetByUserId },
 }))
-vi.mock('../../../chamados-publico/utils/photo', () => ({
+vi.mock('../../utils/photo', () => ({
   uploadPhotos: vi.fn(),
   uploadPhoto: vi.fn(),
 }))
@@ -72,7 +72,7 @@ vi.mock('../../../../lib/supabase', () => ({
   },
 }))
 
-import { uploadPhotos } from '../../../chamados-publico/utils/photo'
+import { uploadPhotos } from '../../utils/photo'
 import { TicketDetail } from '../TicketDetail'
 
 const PROFILE_ME = {

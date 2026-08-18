@@ -27,9 +27,15 @@ const CATEGORY_MAP: Record<string, string> = {
 export function useRoomAssets(roomName: string) {
   // Fluxo público (professor): busca equipamentos sem filtro de workspace,
   // para a sala aparecer mesmo com resíduo de sessão de outro campus.
+  // Fallback: se core/assets não estiver disponível (ex: workspace sem PCare/Estoque),
+  // retorna vazio sem quebrar o módulo Chamados.
   const assets = useMemo<RoomAsset[]>(() => {
     if (!roomName) return []
-    return assetService.getByRoomUnfiltered(roomName)
+    try {
+      return assetService.getByRoomUnfiltered(roomName)
+    } catch {
+      return []
+    }
   }, [roomName])
 
   const grouped = useMemo(() => {

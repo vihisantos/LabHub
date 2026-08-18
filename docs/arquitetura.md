@@ -81,6 +81,8 @@ apps/<nome>/
 └── api/                # (Apenas ReservaLab) Backend Python
 ```
 
+**Isolamento:** Cada sub-app deve funcionar independentemente. Um workspace pode ter apenas um sub-app habilitado. Sub-apps nao devem importar codigo de outros sub-apps — dependencias devem passar por `core/` ou `lib/`. O modulo Chamados e o primeiro a implementar esse isolamento; demais modulos seguem o mesmo padrao em features futuras.
+
 ### 2. Camada de Dados
 
 O sistema de dados opera em 3 niveis:

@@ -60,6 +60,17 @@ describe('useRoomAssets', () => {
     expect(result.current.grouped['Outros'].map((a) => a.id)).toEqual(['d'])
   })
 
+  it('retorna vazio se assetService lançar erro (módulo ausente)', () => {
+    mockGetByRoomUnfiltered.mockImplementation(() => {
+      throw new Error('pcService is not defined')
+    })
+
+    const { result } = renderHook(() => useRoomAssets('Lab 2'))
+
+    expect(result.current.assets).toEqual([])
+    expect(result.current.grouped).toEqual({})
+  })
+
   it('recalcula quando a sala muda', () => {
     mockGetByRoomUnfiltered.mockReturnValue([makeAsset()])
     const { rerender, result } = renderHook(({ room }: { room: string }) => useRoomAssets(room), {
