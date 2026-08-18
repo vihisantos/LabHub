@@ -97,11 +97,11 @@ def _valid_payload(**overrides):
     return payload
 
 
-def _route_workspace_ok(fake_requests):
+def _route_workspace_ok(fake_requests, disabled_apps=None):
     fake_requests.route(
         "GET",
         "/rest/v1/workspaces",
-        FakeResponse([{"id": "ws-a", "name": "Anhembi Piracicaba", "slug": "piracicaba", "location": "Centro"}]),
+        FakeResponse([{"id": "ws-a", "name": "Anhembi Piracicaba", "slug": "piracicaba", "location": "Centro", "disabled_apps": disabled_apps or []}]),
     )
 
 
@@ -1560,4 +1560,59 @@ def test_weekly_email_falha_do_resend_retorna_502(client, fake_requests, monkeyp
 
     assert resp.status_code == 502
     assert "Resend" in resp.get_json()["error"]
+
+
+# ── require_module (workspace module availability) ──
+
+
+def test_create_module_disabled_returns_403(client, fake_requests):
+    _route_workspace_ok(fake_requests, disabled_apps=["chamados"])
+    resp = client.post("/api/chamados", json=_valid_payload())
+    assert resp.status_code == 403
+    body = resp.get_json()
+    assert body["error"] == "MODULE_DISABLED"
+    assert body["module"] == "chamados"
+    assert "não está habilitado" in body["message"]
+    assert fake_requests.calls_for("POST", "chamados_tickets") == []
+
+
+def test_create_module_enabled_proceeds(client, fake_requests):
+    _route_workspace_ok(fake_requests, disabled_apps=[])
+    _route_ticket_number(fake_requests, last=0)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=1))
+    resp = client.post("/api/chamados", json=_valid_payload())
+    assert resp.status_code == 200
+    assert len(fake_requests.calls_for("POST", "chamados_tickets")) == 1
+
+
+def test_create_module_disabled_null_apps_proceeds(client, fake_requests):
+    _route_workspace_ok(fake_requests, disabled_apps=None)
+    _route_ticket_number(fake_requests, last=0)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=1))
+    resp = client.post("/api/chamados", json=_valid_payload())
+    assert resp.status_code == 200
+
+
+def test_create_module_disabled_empty_list_proceeds(client, fake_requests):
+    _route_workspace_ok(fake_requests, disabled_apps=[])
+    _route_ticket_number(fake_requests, last=0)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=1))
+    resp = client.post("/api/chamados", json=_valid_payload())
+    assert resp.status_code == 200
+
+
+def test_create_module_disabled_other_module_proceeds(client, fake_requests):
+    _route_workspace_ok(fake_requests, disabled_apps=["pc-care", "stock"])
+    _route_ticket_number(fake_requests, last=0)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=1))
+    resp = client.post("/api/chamados", json=_valid_payload())
+    assert resp.status_code == 200
+
+
+def test_create_module_disabled_no_ticket_created(client, fake_requests):
+    _route_workspace_ok(fake_requests, disabled_apps=["chamados"])
+    resp = client.post("/api/chamados", json=_valid_payload())
+    assert resp.status_code == 403
+    assert fake_requests.calls_for("POST", "chamados_tickets") == []
+    assert fake_requests.calls_for("GET", "chamados_tickets?select=ticketNumber") == []
 

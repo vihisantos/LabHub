@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSearch } from '../../core/search/useSearch'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
-import { isAppDisabled } from '../../core/workspaces/apps'
+import { useAppAccess } from '../../core/permissions/usePermissions'
+import { isModuleAvailable } from '../../core/workspaces/apps'
 import { icons } from '../../lib/icons'
 
 const MODULE_ICONS: Record<string, string> = {
@@ -28,6 +29,7 @@ export function CommandPalette() {
   const navigate = useNavigate()
   const { query, results, search, clear } = useSearch()
   const { workspace } = useWorkspace()
+  const { canAccessApp } = useAppAccess()
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -60,7 +62,7 @@ export function CommandPalette() {
   if (!open) return null
 
   const visibleResults = results.filter(
-    (result) => !isAppDisabled(MODULE_APP_ID[result.module], workspace),
+    (result) => isModuleAvailable(MODULE_APP_ID[result.module], workspace, canAccessApp),
   )
 
   return (

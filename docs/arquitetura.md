@@ -83,6 +83,23 @@ apps/<nome>/
 
 **Isolamento:** Cada sub-app deve funcionar independentemente. Um workspace pode ter apenas um sub-app habilitado. Sub-apps nao devem importar codigo de outros sub-apps — dependencias devem passar por `core/` ou `lib/`. O modulo Chamados e o primeiro a implementar esse isolamento; demais modulos seguem o mesmo padrao em features futuras.
 
+### Três Camadas de Acesso a Módulos
+
+A disponibilidade de um módulo segue três camadas, nesta ordem:
+
+```
+Workspace (disabled_apps)
+    ↓  módulo habilitado?
+Permissão do usuário (app_access / roles)
+    ↓  usuário tem acesso?
+Acesso permitido
+```
+
+- **Workspace disabled SEMPRE vence.** Um usuário com acesso `full` a um módulo não pode usá-lo se esse módulo estiver desabilitado no workspace.
+- **Backend enforcement:** `require_module()` no endpoint `POST /api/chamados` verifica `disabled_apps` antes de criar o ticket.
+- **Frontend UX:** `isModuleAvailable()` combina `isAppDisabled()` + `canAccessApp()` para filtrar UI (QuickActions, ModuleStats, CommandPalette). `AppGuard` continua protegendo rotas.
+- **Fail-open:** se o workspace não puder ser carregado, o módulo é permitido (não bloqueia fluxo existente).
+
 ### 2. Camada de Dados
 
 O sistema de dados opera em 3 niveis:

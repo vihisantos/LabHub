@@ -447,6 +447,8 @@ erDiagram
     }
 ```
 
+> **`disabled_apps`:** Array de IDs de módulos desabilitados (ex.: `["tv","stock"]`). Ausente ou vazio = todos habilitados (padrão seguro). Disponibilidade do workspace ≠ permissão do usuário — ver AppGuard.
+
 ---
 
 ## Como o App Consome Cada Dado

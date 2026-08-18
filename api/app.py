@@ -471,6 +471,26 @@ def _require_supabase():
     return True
 
 
+def require_module(workspace, module_id):
+    """Verifica se module_id está habilitado no workspace.
+
+    Retorna None se permitido, ou uma tupla (flask.Response, int) se bloqueado.
+    ``workspace`` deve ser o dict já carregado do Supabase (contendo
+    ``disabled_apps`` ou não).  Fail-open: se workspace for None ou vazio,
+    permite a execução.
+    """
+    if not workspace:
+        return None
+    disabled = workspace.get('disabled_apps') or []
+    if module_id in disabled:
+        return jsonify({
+            'error': 'MODULE_DISABLED',
+            'module': module_id,
+            'message': 'Este módulo não está habilitado neste workspace.',
+        }), 403
+    return None
+
+
 @app.route('/api/tv/activation/create', methods=['POST'])
 def tv_activation_create():
     """
@@ -932,12 +952,17 @@ def chamados_create():
             return jsonify({'error': 'Foto inválida'}), 400
 
         ws_check = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=id',
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=id,disabled_apps',
             headers=_supabase_headers(),
             timeout=10,
         )
         if not ws_check.ok or not ws_check.json():
             return jsonify({'error': 'Campus não encontrado'}), 400
+
+        workspace = ws_check.json()[0]
+        module_err = require_module(workspace, 'chamados')
+        if module_err:
+            return module_err
 
         num_resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'

@@ -20,3 +20,12 @@ export function filterAppsByWorkspace<T extends { id: string }>(
   const disabled = new Set(workspace.disabled_apps ?? [])
   return apps.filter((app) => !disabled.has(app.id))
 }
+
+/** Módulo disponível = workspace permite E usuário tem acesso. */
+export function isModuleAvailable(
+  appId: string,
+  workspace: Workspace | null | undefined,
+  canAccessApp: (id: string) => boolean,
+): boolean {
+  return !isAppDisabled(appId, workspace) && canAccessApp(appId)
+}
