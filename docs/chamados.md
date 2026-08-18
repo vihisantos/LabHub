@@ -285,6 +285,27 @@ interface ChamadoForm {
 
 ---
 
+## Isolamento do Modulo
+
+O modulo Chamados funciona de forma **independente** dos demais subapps (PCare, Estoque, ReservaLab, TV). Um workspace pode possuir apenas Chamados habilitado.
+
+**O que e permitido:**
+- Criar, listar, visualizar, alterar, comentar e fechar chamados sem PCare ou Estoque.
+- Chamados sem assetId/assetSource funcionam normalmente.
+- Tickets antigos com `assetSource: 'pcare'` ou `assetSource: 'stock'` continuam sendo exibidos.
+
+**O que e opcional (integração):**
+- `useRoomAssets` busca equipamentos via `core/assets/service`; se o servico falhar (modulos de origem indisponiveis), retorna lista vazia.
+- O campo `assetSource` e um label de integração — nao gera dependencia funcional.
+
+**Dependencias do modulo:**
+- `core/*` (auth, permissions, workspaces, users, logs, notifications) — infraestrutura global.
+- `lib/*` (sync, db, icons, charts, hooks) — infraestrutura global.
+- `core/assets/service` — consumido por `useRoomAssets` com fallback seguro.
+- Nao ha imports de `src/apps/pcare`, `src/apps/stock`, `src/apps/reservalab` ou `src/apps/tv`.
+
+---
+
 ## Seguranca e RLS
 
 - **`chamados_tickets`**: `ENABLE ROW LEVEL SECURITY` + `REVOKE ALL ... FROM anon, authenticated, PUBLIC` — somente o backend (service_role) lê/escreve.
