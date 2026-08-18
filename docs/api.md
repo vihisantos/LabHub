@@ -1,6 +1,6 @@
 # API Backend
 
-> Documentacao da API Flask que serve o sub-app ReservaLab.
+> Documentacao da API Flask que serve o LabHub.
 
 ---
 
@@ -9,8 +9,9 @@
 O backend e um servidor Flask rodando como **Python Serverless** na Vercel. Ele e responsavel por:
 
 - Buscar e processar dados de reservas de laboratorios via planilhas Excel no SharePoint
-- Enviar notificacoes push para dispositivos inscritos
-- Fornecer um endpoint de health check
+- Enviar notificacoes push para dispositivos inscritos (infraestrutura global)
+- Gerenciar chamados, estoque, PCare e administracao de usuarios
+- Fornecer endpoints de health check e cron jobs
 
 **URL Base:** `/api/*` (via Vercel Serverless)  
 **Porta Local:** 5000 (para desenvolvimento)

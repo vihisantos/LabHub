@@ -32,7 +32,7 @@ export function Settings() {
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
 
   const { supported, permission, subscribed, loading, error, subscribe } = usePushNotifications(
-    [{ id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' }],
+    '/api/push/subscribe',
     pushUser,
   )
 

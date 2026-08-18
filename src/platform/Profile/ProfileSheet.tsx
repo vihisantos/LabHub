@@ -37,7 +37,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const { workspace, assignedWorkspaces } = useWorkspace()
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
   const { supported, permission, subscribed, loading: pushLoading, error: pushError, subscribe } = usePushNotifications(
-    [{ id: 'labhub', name: 'LabHub', subscribeUrl: '/api/push/subscribe', icon: '' }],
+    '/api/push/subscribe',
     pushUser,
   )
 

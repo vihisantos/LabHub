@@ -199,8 +199,7 @@ O projeto possui dois backends Flask:
 ```
 Frontend (React)  ─── /api/*  ───→  Flask (Vercel Serverless)
                                       ├── /api/reservas     → Planilha SharePoint
-                                      ├── /api/health       → Status do servidor
-                                      └── /api/push/*       → Notificacoes push
+                                      └── /api/health       → Status do servidor
 ```
 
 ### TV API (`src/apps/tv/api/app.py`)
@@ -212,9 +211,62 @@ Frontend (React)  ─── /api/tv/*  ───→  Flask
 
 ---
 
+## Infraestrutura de Notificacoes
+
+Push notifications e infraestrutura **global do LabHub**, nao de um sub-app especifico.
+
+```
+                    EVENTO
+                      │
+                      ▼
+             NotificationService
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+        Toast       In-app       Push
+          │           │           │
+       imediato    sino       sistema
+```
+
+### Service Worker unificado (`src/sw.ts`)
+
+Um unico SW (gerado via `vite-plugin-pwa` com `injectManifest`) gerencia:
+- **Precache** de assets (Workbox)
+- **Push** — recebe notificacoes do backend e exibe via `showNotification()`
+- **Notificationclick** — abre a URL correta ou foca em janela existente
+
+### Push notifications (`/api/push/*`)
+
+Backend global no Flask (`api/app.py` + `src/apps/reservalab/api/app.py`):
+
+```
+Frontend (React)  ─── /api/push/*  ───→  Flask (Vercel Serverless)
+                                           ├── /api/push/subscribe  → Inscreve dispositivo
+                                           ├── /api/push/send       → Envia push segmentado
+                                           ├── /api/push/action     → Aprova/rejeita via notificacao
+                                           ├── /api/push/check      → Cron: reservas proximas
+                                           ├── /api/push/check-overdue → Cron: emprestimos vencidos
+                                           ├── /api/push/check-pcare   → Cron: PCare
+                                           └── /api/push/check-all     → Cron: todos os checks
+```
+
+Segmentacao por: `module`, `workspace_id`, `role`, `userId`, `notify_settings`.
+
+### Sub-apps que usam push
+
+```
+Chamados ─────┐
+PCare ────────┤
+Estoque ──────┼──→ /api/push/* (global)
+ReservaLab ───┤
+TV ───────────┘
+```
+
+---
+
 ## Seguranca
 
 - Credenciais Supabase carregadas de variaveis de ambiente (nunca hardcoded)
 - Backend Flask com CORS habilitado
-- Service Worker (Workbox) para cache offline
+- Service Worker unificado (Workbox + push) para cache offline e notificacoes
 - Nenhuma autenticacao de usuario implementada (roadmap: Autenticacao Supabase Auth)

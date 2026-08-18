@@ -1,12 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export interface PushAppConfig {
-  id: string
-  name: string
-  subscribeUrl: string
-  icon: string
-}
-
 export interface PushNotifyChannelSettings {
   inapp?: boolean
   push?: boolean
@@ -37,23 +30,41 @@ interface PushState {
   error: string | null
 }
 
-const SW_PATH = '/push-sw.js'
-
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
 }
 
+function isIOSSafari(): boolean {
+  const ua = navigator.userAgent || ''
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+}
+
+function isStandalone(): boolean {
+  try {
+    return window.matchMedia('(display-mode: standalone)').matches
+      || ('standalone' in navigator && (navigator as Record<string, unknown>).standalone === true)
+  } catch {
+    return false
+  }
+}
+
 let swRegistration: ServiceWorkerRegistration | null = null
 
 async function ensureSw(): Promise<ServiceWorkerRegistration> {
   if (swRegistration) return swRegistration
-  swRegistration = await navigator.serviceWorker.register(SW_PATH)
+  swRegistration = await navigator.serviceWorker.ready
   return swRegistration
 }
 
-export function usePushNotifications(apps: PushAppConfig[] = [], user?: PushUserInfo | null) {
+/**
+ * Hook de push notifications.
+ *
+ * @param subscribeUrl  URL do endpoint POST de inscrição (ex.: '/api/push/subscribe').
+ * @param user          Payload de segmentação do usuário (via buildPushUser).
+ */
+export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?: PushUserInfo | null) {
   const [state, setState] = useState<PushState>({
     supported: null,
     permission: null,
@@ -63,17 +74,46 @@ export function usePushNotifications(apps: PushAppConfig[] = [], user?: PushUser
   })
 
   useEffect(() => {
-    const supported = 'serviceWorker' in navigator && 'PushManager' in window
-    setState((s) => ({
-      ...s,
-      supported,
-      permission: supported ? Notification.permission : null,
-      loading: false,
-    }))
+    let cancelled = false
+
+    async function detect() {
+      const hasSW = 'serviceWorker' in navigator
+      const hasPush = 'PushManager' in window
+
+      // iOS Safari: push só funciona em PWA instalada (standalone)
+      if (isIOSSafari() && !isStandalone()) {
+        if (!cancelled) {
+          setState({ supported: false, permission: null, subscribed: false, loading: false, error: null })
+        }
+        return
+      }
+
+      const supported = hasSW && hasPush
+      const permission = supported ? Notification.permission : null
+
+      // Se já existe uma subscription, marca como subscribed
+      let subscribed = false
+      if (supported) {
+        try {
+          const registration = await navigator.serviceWorker.ready
+          const existing = await registration.pushManager.getSubscription()
+          subscribed = !!existing
+        } catch {
+          /*SW não pronto ainda*/
+        }
+      }
+
+      if (!cancelled) {
+        setState({ supported, permission, subscribed, loading: false, error: null })
+      }
+    }
+
+    detect()
+    return () => { cancelled = true }
   }, [])
 
   const subscribe = useCallback(async () => {
-    if (!state.supported) {
+    if (state.supported === false) {
       setState((s) => ({ ...s, error: 'Push não suportado' }))
       return
     }
@@ -89,33 +129,31 @@ export function usePushNotifications(apps: PushAppConfig[] = [], user?: PushUser
 
       const registration = await ensureSw()
 
-      const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
-      if (!vapidKey) {
-        setState((s) => ({ ...s, loading: false, error: 'VAPID key não configurada' }))
-        return
+      // Recupera inscrição existente antes de criar uma nova
+      let subscription = await registration.pushManager.getSubscription()
+
+      if (!subscription) {
+        const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+        if (!vapidKey) {
+          setState((s) => ({ ...s, loading: false, error: 'VAPID key não configurada' }))
+          return
+        }
+
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey) as unknown as string,
+        })
       }
 
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey) as unknown as string,
-      })
-
-      const subJson = subscription.toJSON()
-
-      const payload: Record<string, unknown> = { ...subJson }
+      // Um único POST para o backend (dedupe por endpoint no servidor)
+      const payload: Record<string, unknown> = { ...subscription.toJSON() }
       if (user) payload.user = user
 
-      for (const app of apps) {
-        try {
-          await fetch(app.subscribeUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-        } catch {
-          console.warn(`Push subscribe failed for ${app.id}:`, app.subscribeUrl)
-        }
-      }
+      await fetch(subscribeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
 
       setState((s) => ({
         ...s,
@@ -131,7 +169,7 @@ export function usePushNotifications(apps: PushAppConfig[] = [], user?: PushUser
         error: err instanceof Error ? err.message : 'Erro ao ativar notificações',
       }))
     }
-  }, [apps, user, state.supported])
+  }, [subscribeUrl, user, state.supported])
 
   return { ...state, subscribe }
 }
