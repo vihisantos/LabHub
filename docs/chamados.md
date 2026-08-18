@@ -29,6 +29,8 @@ O módulo **Chamados** centraliza todas as ordens de serviço e solicitações d
 | `/chamados/tickets/:id` | TicketDetail | Detalhe de um chamado específico |
 | `/chamados/publico` | ChamadosPublico | Formulário público para abertura de chamado |
 | `/chamados/publico/success/:id` | TicketSuccess | Página de sucesso após abertura |
+| `/chamados-publico/track` | TrackPage | Acompanhamento público (busca por nome) |
+| `/chamados-publico/feedback/:ticketId` | FeedbackPage | Avaliação pública do atendimento (1-5 estrelas) |
 | `/admin/users` | UsersPage | Gestão de usuários (aprovacao, roles, workspaces) |
 | `/admin/backups` | BackupsPage | Backup e restauracao de workspaces |
 
@@ -44,6 +46,16 @@ O módulo **Chamados** centraliza todas as ordens de serviço e solicitações d
 - Geração automática de `ticketNumber` sequencial por workspace
 - Gravacao no Supabase via API `POST /api/chamados`
 - Disparo immediato de push para a equipe TI (`_notify_new_ticket`)
+
+### 1b. Avaliação do Professor (`/chamados-publico/feedback/:ticketId`)
+
+- Acesso público (sem login) — o UUID do chamado é o token de acesso
+- Disponível apenas após resolução (`resolvido` ou `fechado`)
+- Avaliação por estrelas (1 a 5) com comentário opcional (max 500 chars)
+- Um chamado recebe no máximo uma avaliação (sem edição)
+- Push de resolvido inclui link direto para o formulário: `Como foi seu atendimento? ⭐`
+- Avaliação persistida via `POST /api/chamados/:id/feedback`
+- Proteções: CHECK constraint no banco (`feedbackRating BETWEEN 1 AND 5`), validação na API, validação no frontend
 
 ### 2. Painel TI (`/chamados/tickets`)
 
@@ -113,6 +125,28 @@ Busca um chamado especifico por ID.
 ### PATCH /api/chamados/:id
 
 Atualiza status, responsavel, prioridade, arquivamento, fotos, statusNote.
+
+### POST /api/chamados/:id/feedback
+
+Registra a avaliação do professor após a resolução. Endpoint público (sem auth).
+
+**Body:**
+```json
+{
+  "rating": 4,
+  "comment": "Atendimento rápido e eficiente"
+}
+```
+
+- `rating`: inteiro de 1 a 5 (obrigatório)
+- `comment`: string até 500 caracteres (opcional)
+
+**Regras:**
+- Chamado deve estar com status `resolvido` ou `fechado`
+- Chamado não pode ter avaliação prévia (`feedbackRating` já preenchido)
+- Retorna 400 com mensagem de erro para cada violação
+
+**Resposta:** `{ "ticket": { ...campos atualizados com feedbackRating, feedbackComment, feedbackAt } }`
 
 ### GET /api/chamados/reports
 
@@ -208,7 +242,9 @@ interface ChamadoTicket {
   assignedToUserId: string
   ticketNumber: number
   photos: string[]
-  ticketNumber: integer
+  feedbackRating: number | null
+  feedbackComment: string
+  feedbackAt: string | null
   createdAt: string
   updatedAt: string
   resolvedAt: string | null
@@ -248,6 +284,7 @@ interface ChamadoForm {
 
 | Componente | Descricao |
 |------------|-----------|
+| `Stars` | Widget de avaliação por estrelas (1-5), interativo ou read-only |
 | `TicketCard` | Card de chamado com status e acoes rapidas |
 | `TicketForm` | Formulario de cadastro/edicao (publico ou TI) |
 | `StatusBadge` | Badge de status colorido (aberto, a caminho, etc) |

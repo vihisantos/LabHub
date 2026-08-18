@@ -170,6 +170,11 @@ def test_chamados_table_sql_garante_rls(api_module):
     assert '"priority" TEXT NOT NULL DEFAULT' in sql
     assert '"statusNote" TEXT DEFAULT' in sql
     assert '"photos" TEXT DEFAULT' in sql
+    assert '"feedbackRating" INTEGER' in sql
+    assert '"feedbackComment" TEXT DEFAULT' in sql
+    assert '"feedbackAt" TIMESTAMPTZ' in sql
+    assert "chk_feedback_rating" in sql
+    assert "BETWEEN 1 AND 5" in sql
     assert "ENABLE ROW LEVEL SECURITY" in sql
     assert "REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC" in sql
 
@@ -773,6 +778,98 @@ def test_feedback_falha_ao_persistir_retorna_502(client, fake_requests):
     assert resp.status_code == 502
 
 
+def test_feedback_nota_minima_1_aceita(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", feedbackRating=1))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 1})
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["feedbackRating"] == 1
+
+
+def test_feedback_nota_maxima_5_aceita(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", feedbackRating=5))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 5})
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["feedbackRating"] == 5
+
+
+def test_feedback_nota_zero_retorna_400(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 0})
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
+
+
+def test_feedback_nota_6_retorna_400(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 6})
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
+
+
+def test_feedback_nota_decimal_retorna_400(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 3.5})
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
+
+
+def test_feedback_nota_negativa_retorna_400(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": -1})
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
+
+
+def test_feedback_funciona_sem_autenticacao(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", feedbackRating=4))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 4})
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["feedbackRating"] == 4
+
+
+def test_feedback_chamado_fechado_aceita(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="fechado"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="fechado", feedbackRating=3))
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 3})
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["feedbackRating"] == 3
+
+
+def test_feedback_persiste_todos_os_campos(client, fake_requests):
+    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
+    _route_patch_ticket(
+        fake_requests,
+        _make_ticket(status="resolvido", feedbackRating=2, feedbackComment="Poderia ser melhor", feedbackAt="2026-08-18T12:00:00Z"),
+    )
+
+    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 2, "comment": "Poderia ser melhor"})
+
+    assert resp.status_code == 200
+    ticket = resp.get_json()["ticket"]
+    assert ticket["feedbackRating"] == 2
+    assert ticket["feedbackComment"] == "Poderia ser melhor"
+    assert ticket["feedbackAt"] is not None
+
+
 # ── POST /api/chamados/<id>/subscribe ──
 
 
@@ -857,9 +954,11 @@ def test_patch_status_notifica_professor(api_module, notify_client, fake_request
 
     assert resp.status_code == 200
     assert len(sent) == 1
-    assert "Chamado #6" in sent[0]["title"]
-    assert "resolvido" in sent[0]["title"]
-    assert sent[0]["url"] == "/chamados-publico/success/ticket-1"
+    assert "Como foi seu atendimento" in sent[0]["title"]
+    assert "⭐" in sent[0]["title"]
+    assert "chamado #6 foi resolvido" in sent[0]["body"].lower()
+    assert "avali" in sent[0]["body"].lower()
+    assert sent[0]["url"] == "/chamados-publico/feedback/ticket-1"
 
 
 def test_patch_mesmo_status_nao_notifica(api_module, notify_client, fake_requests, monkeypatch):
@@ -900,6 +999,32 @@ def test_patch_status_note_igual_nao_notifica(api_module, notify_client, fake_re
 
     assert resp.status_code == 200
     assert sent == []
+
+
+def test_patch_status_em_atendimento_nao_usa_url_feedback(api_module, notify_client, fake_requests, monkeypatch):
+    client, sent = notify_client
+    _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+    _route_patch_ticket(fake_requests, _make_ticket(status="em_atendimento"))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "em_atendimento"})
+
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "/chamados-publico/feedback/" not in sent[0]["url"]
+    assert sent[0]["url"] == "/chamados-publico/success/ticket-1"
+
+
+def test_patch_resolvido_mensagem_inclui_ticket_number(api_module, notify_client, fake_requests, monkeypatch):
+    client, sent = notify_client
+    _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto", ticketNumber=42))
+    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", ticketNumber=42))
+
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"})
+
+    assert resp.status_code == 200
+    assert "#42" in sent[0]["body"]
 
 # -- Fase 5: atribuição de técnicos + relatórios --
 
