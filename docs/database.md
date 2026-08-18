@@ -47,6 +47,7 @@ erDiagram
     WORKSPACES ||--o{ TV_ACTIVATION_CODES : "workspace_id"
     WORKSPACES ||--o{ TV_MUSIC_REQUESTS : "workspace_id"
     WORKSPACES ||--o{ TABLET_RESERVATIONS : "workspace_id"
+    WORKSPACES ||--o{ ASSETS : "workspace_id"
 
     AUTH_USERS ||--o| PROFILES : "id"
     AUTH_USERS ||--o{ TV_DEVICES : "user_id"
@@ -138,6 +139,23 @@ erDiagram
         text reservado_por
         text status
         uuid workspace_id FK
+    }
+    ASSETS {
+        uuid id PK
+        uuid workspace_id FK
+        text asset_tag "patrimônio (único por workspace)"
+        text serial_number
+        text equipment_type "Desktop, Notebook, ..."
+        text manufacturer
+        text model
+        text name
+        uuid location_id "placeholder para Location Registry"
+        text status "draft | active | maintenance | retired"
+        text notes
+        jsonb metadata "extensão por módulo"
+        uuid created_by
+        timestamptz created_at
+        timestamptz updated_at
     }
     TV_EVENTS {
         uuid id PK
@@ -575,6 +593,7 @@ flowchart LR
 | `problem_templates` | — | local-only | problemTemplateService | Chamados (categorias) |
 | `sla_configs` | — | local-only | slaConfigService | Chamados (SLA) |
 | `assets` | — | local-only | assetService | PCare (inventário rico) |
+| `global_assets` | `assets` | public | sync (`REMOTE_DB`, `TABLE_NAME_MAP`) | Asset Registry (global) |
 | `pcs` | `pcs` | pcare | sync | PCare |
 | `parts` | `parts` | pcare | sync | PCare |
 | `maintenance` | `maintenance` | pcare | sync | PCare |
@@ -607,6 +626,7 @@ flowchart LR
 > - **API Flask** = acesso com `service_role` (tabelas com RLS bloqueado para anon/authenticated, como `chamados_tickets` e `tv_activation_codes`).
 > - **local-only** = apenas localStorage; não existe tabela remota. Os serviços ainda usam `createSyncService` para CRUD local idêntico.
 > - O `chamados_tickets` é a **única tabela remota** cuja coleção local (`chamados`) é local-only no sync engine — o acesso é feito via API (`ticketService`).
+> - **`global_assets`** = Asset Registry global. RLS isola por `workspace_id` via `profiles.workspace_ids`. Primeira tabela do projeto com RLS baseado em membership real.
 
 ---
 
@@ -628,4 +648,5 @@ flowchart LR
 - **`tv_activation_codes`**: sem policies de RLS — só service_role.
 - **Demais tabelas TV**: policy `Permitir tudo para anon` (modelo de confiança do kiosk/TV).
 - **`profiles`**: acesso via Supabase Auth + adminService (service_role no backend para aprovar usuários).
+- **`public.assets` (Asset Registry)**: RLS isola por `workspace_id` via `profiles.workspace_ids`. Super admins veem tudo. Usuários veem apenas assets dos workspaces que pertencem. O sync usa o client autenticado (não service_role), então o RLS protege pull e push automaticamente.
 - **Push notifications**: inscrições ficam no Upstash Redis (não no Postgres); `notifications` (in-app) ficam no schema `stock`.

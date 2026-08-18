@@ -77,6 +77,7 @@ export function setCol<T>(name: string, data: T[]): void {
 
 const COLLECTIONS = [
   'assets',
+  'global_assets',
   'pcs',
   'parts',
   'part_usage',
