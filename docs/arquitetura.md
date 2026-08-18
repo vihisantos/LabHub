@@ -108,7 +108,7 @@ O sistema de dados opera em 3 niveis:
 ┌─────────────────────────────────────────────┐
 │  Supabase (PostgreSQL)                      │
 │  Fonte de verdade remota                    │
-│  Schema: pcare, stock                       │
+│  Schema: pcare, stock, public               │
 ├─────────────────────────────────────────────┤
 │  Engine de Sync (sync.ts)                   │
 │  Dirty-tracking, merge por timestamp        │
@@ -126,6 +126,37 @@ O sistema de dados opera em 3 niveis:
 2. A collection e marcada como "dirty" no `sync.ts`
 3. Em background, `syncAll()` faz pull dos dados remotos e upsert do que mudou
 4. O primeiro sync e pull-only (dados mock nao sobem pro banco)
+
+### Asset Registry (Global)
+
+O Asset Registry (`core/assets/`) e a entidade global de ativos, independente de PCare/Estoque.
+
+```
+┌─────────────────────────────────────────────┐
+│  public.assets (Supabase)                   │
+│  Tabela global com RLS por workspace        │
+│  RLS: workspace_id IN profiles.workspace_ids│
+├─────────────────────────────────────────────┤
+│  global_assets (IndexedDB)                  │
+│  Coleção local, sync via defaultDb          │
+│  Filtro: workspaceStore.filter()            │
+├─────────────────────────────────────────────┤
+│  core/assets/global-repository.ts           │
+│  CRUD + stats, zero imports de apps/*       │
+└─────────────────────────────────────────────┘
+```
+
+**Relação com legado:**
+- `core/assets/service.ts` (legado) importa `pcService` + `stockService` — será removido na migração futura
+- `apps/pcare/services/assetService.ts` continua usando a coleção `assets` (local-only)
+- `global_assets` é a coleção nova, com sync remoto e RLS
+- Os coexistem pacificamente: coleções diferentes, tipos diferentes, supabase schemas diferentes
+
+**Segurança:**
+- RLS no banco: `workspace_id IN (SELECT unnest(workspace_ids) FROM profiles WHERE id = auth.uid())`
+- Sync usa client autenticado (JWT do usuário), não service_role
+- Pull e push são protegidos automaticamente pelo RLS
+- `workspaceStore.filter()` no frontend é segunda barreira (defense in depth)
 
 ### 3. Camada de Servicos
 
