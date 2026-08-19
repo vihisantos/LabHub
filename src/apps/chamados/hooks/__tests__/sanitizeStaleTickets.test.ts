@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Ticket } from '../../types'
 
-const mockGetCol = vi.hoisted(() => vi.fn<Ticket[]>())
+const mockGetCol = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
 const mockPersistTickets = vi.hoisted(() => vi.fn())
 
 vi.mock('../../services/ticketService', () => ({
