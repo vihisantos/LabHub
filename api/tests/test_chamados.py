@@ -74,6 +74,7 @@ def client(api_module, fake_requests, monkeypatch):
     monkeypatch.setattr(api_module, "_SUPABASE_URL", SUPABASE_URL)
     monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(api_module, "requests", fake_requests)
+    api_module._rate_limit_store.clear()
     return api_module.app.test_client()
 
 
@@ -1740,4 +1741,122 @@ def test_create_module_disabled_no_ticket_created(client, fake_requests):
     assert resp.status_code == 403
     assert fake_requests.calls_for("POST", "chamados_tickets") == []
     assert fake_requests.calls_for("GET", "chamados_tickets?select=ticketNumber") == []
+
+
+# ── Segurança: validação de tamanho de texto ──
+
+
+def test_create_roomName_excessivo_retorna_400(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    resp = client.post("/api/chamados", json=_valid_payload(roomName="X" * 101))
+    assert resp.status_code == 400
+    assert "muito longo" in resp.get_json()["error"]
+    assert fake_requests.calls_for("POST", "chamados_tickets") == []
+
+
+def test_create_reportedBy_excessivo_retorna_400(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    resp = client.post("/api/chamados", json=_valid_payload(reportedBy="X" * 101))
+    assert resp.status_code == 400
+    assert "muito longo" in resp.get_json()["error"]
+
+
+def test_create_problemDescription_excessivo_retorna_400(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    resp = client.post("/api/chamados", json=_valid_payload(problemDescription="X" * 2001))
+    assert resp.status_code == 400
+    assert "muito longo" in resp.get_json()["error"]
+
+
+def test_create_workspace_id_excessivo_retorna_400(client, fake_requests):
+    _route_workspace_ok(fake_requests)
+    resp = client.post("/api/chamados", json=_valid_payload(workspace_id="X" * 51))
+    assert resp.status_code == 400
+    assert "muito longo" in resp.get_json()["error"]
+
+
+# ── Segurança: payloads com tipos errados ──
+
+
+def test_create_priority_numerica_retorna_400(client, fake_requests):
+    """Priority deve ser string, não número."""
+    _route_workspace_ok(fake_requests)
+    resp = client.post("/api/chamados", json=_valid_payload(priority=123))
+    assert resp.status_code == 400
+    assert "Prioridade" in resp.get_json()["error"] or "inválid" in resp.get_json()["error"]
+
+
+def test_create_body_nao_json_retorna_erro(client, fake_requests):
+    """Body que não é JSON deve retornar erro gracefully."""
+    _route_workspace_ok(fake_requests)
+    resp = client.post("/api/chamados", data="not json", content_type="text/plain")
+    assert resp.status_code in (400, 415, 500)
+
+
+def test_create_workspace_id_vazio_retorna_400(client, fake_requests):
+    resp = client.post("/api/chamados", json=_valid_payload(workspace_id=""))
+    assert resp.status_code == 400
+    assert "campus" in resp.get_json()["error"].lower()
+
+
+def test_create_problemArea_invalida_retorna_400(client, fake_requests):
+    resp = client.post("/api/chamados", json=_valid_payload(problemArea="hacker"))
+    assert resp.status_code == 400
+
+
+# ── Segurança: XSS em campos de texto ──
+
+
+def test_create_xss_no_roomName_e_valido(client, fake_requests):
+    """XSS no roomName não deve quebrar a API (validação de tamanho pegaria se > 100)."""
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=0)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=1, roomName="<script>alert(1)</script>"))
+    resp = client.post("/api/chamados", json=_valid_payload(roomName="<script>alert(1)</script>"))
+    # O XSS não é sanitizado no server-side (o React faz no client), mas não deve quebrar
+    assert resp.status_code == 200
+
+
+def test_create_xss_no_problemDescription_e_valido(client, fake_requests):
+    """XSS na descrição não deve quebrar a API."""
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=0)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=1))
+    xss_payload = '<img src=x onerror=alert(1)>'
+    resp = client.post("/api/chamados", json=_valid_payload(problemDescription=xss_payload))
+    assert resp.status_code == 200
+    # Verifica que o payload enviado ao Supabase contém o XSS (server não sanitiza, o React faz)
+    insert_calls = fake_requests.calls_for("POST", "chamados_tickets")
+    assert len(insert_calls) == 1
+    assert insert_calls[0]["kwargs"]["json"]["problemDescription"] == xss_payload
+
+
+# ── Segurança: rate limiting ──
+
+
+def test_rate_limit_nao_bloqueia_requisicoes_normais(client, fake_requests):
+    """Requisições dentro do limite devem funcionar."""
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=0)
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=1))
+    # Limpa o rate limit store
+    client.application.config.get("TESTING", None)
+    from chamados_api import _rate_limit_store
+    _rate_limit_store.clear()
+    resp = client.post("/api/chamados", json=_valid_payload())
+    assert resp.status_code == 200
+
+
+def test_rate_limit_limpa_entradas_antigas(client, fake_requests):
+    """Entradas fora da janela de 1h devem ser removidas."""
+    from chamados_api import _rate_limit_store, _check_rate_limit
+    import time
+    ip = "test-ip"
+    _rate_limit_store.clear()
+    # Simula requisições antigas (2 horas atrás)
+    old_time = time.time() - 7200
+    _rate_limit_store[ip] = [old_time] * 25  # Mais que o limite
+    # Deve permitir porque as entradas estão fora da janela
+    assert _check_rate_limit(ip) is True
+    _rate_limit_store.clear()
 
