@@ -7,6 +7,8 @@ import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { useFastSync } from '../../../lib/useFastSync'
 import { icons } from '../../../lib/icons'
 import { isAlertsMuted, setAlertsMuted } from '../services/ticketAlerts'
+import { useTickets } from '../hooks/useTickets'
+import { TicketsContext } from '../contexts/TicketsContext'
 
 function getPageTitle(pathname: string): string {
   if (pathname === '/chamados' || pathname.startsWith('/chamados/dashboard')) return 'Dashboard'
@@ -54,6 +56,9 @@ export function ChamadosLayout() {
   useOnlineSync()
   useFastSync(['chamados', 'rooms', 'problem_templates'], 10000)
 
+  const { tickets, loading, syncing, reload } = useTickets()
+  const openCount = tickets.filter((t) => t.status !== 'fechado' && t.status !== 'resolvido' && !t.archived).length
+
   function scrollToTop() {
     if (mainRef.current && mainRef.current.scrollTop > 0) {
       mainRef.current.scrollTo({ top: 0, behavior: 'smooth' })
@@ -61,64 +66,66 @@ export function ChamadosLayout() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-surface text-fg">
-      <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/80 px-4 py-3.5 backdrop-blur-xl">
-        {detail && (
-          <Link
-            to="/chamados"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            aria-label="Voltar"
-            viewTransition
-          >
-            <icons.ui.back size={20} />
-          </Link>
-        )}
+    <TicketsContext.Provider value={{ tickets, loading, syncing, reload }}>
+      <div className="flex min-h-dvh flex-col bg-surface text-fg">
+        <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/80 px-4 py-3.5 backdrop-blur-xl">
+          {detail && (
+            <Link
+              to="/chamados"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
+              aria-label="Voltar"
+              viewTransition
+            >
+              <icons.ui.back size={20} />
+            </Link>
+          )}
 
-        <button
-          type="button"
-          onClick={scrollToTop}
-          className="flex items-center gap-2 overflow-hidden text-left"
-        >
-          <div className="flex flex-col">
-            <h1 className="text-[17px] font-semibold tracking-tight text-fg leading-tight">{title}</h1>
-            <p className="text-[11px] font-medium leading-tight bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">Chamados</p>
-          </div>
-        </button>
-
-        <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
-            onClick={toggleAlertsMuted}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-input ${
-              alertsMuted ? 'text-fg-muted' : 'text-amber-500'
-            }`}
-            aria-label={alertsMuted ? 'Ativar alertas sonoros' : 'Silenciar alertas sonoros'}
-            title={alertsMuted ? 'Ativar alertas sonoros' : 'Silenciar alertas sonoros'}
+            onClick={scrollToTop}
+            className="flex items-center gap-2 overflow-hidden text-left"
           >
-            {alertsMuted ? <icons.ui.volumeX size={18} /> : <icons.ui.volume2 size={18} />}
-          </button>
-          <button
-            type="button"
-            onClick={toggle}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            aria-label="Alternar tema"
-          >
-            {theme === 'light' ? <icons.ui.moon size={18} /> : <icons.ui.sun size={18} />}
-          </button>
-        </div>
-      </header>
-
-      <main ref={mainRef} className="flex-1 overflow-y-auto pb-28" style={{ paddingBottom: 'max(7rem, calc(4rem + env(safe-area-inset-bottom)))' }}>
-        <AnimatePresence mode="wait" initial={false}>
-          <ChamadosPageTransition key={location.pathname}>
-            <div className="p-4">
-              <Outlet />
+            <div className="flex flex-col">
+              <h1 className="text-[17px] font-semibold tracking-tight text-fg leading-tight">{title}</h1>
+              <p className="text-[11px] font-medium leading-tight bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">Chamados</p>
             </div>
-          </ChamadosPageTransition>
-        </AnimatePresence>
-      </main>
+          </button>
 
-      <ChamadosBottomNav />
-    </div>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleAlertsMuted}
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-input ${
+                alertsMuted ? 'text-fg-muted' : 'text-amber-500'
+              }`}
+              aria-label={alertsMuted ? 'Ativar alertas sonoros' : 'Silenciar alertas sonoros'}
+              title={alertsMuted ? 'Ativar alertas sonoros' : 'Silenciar alertas sonoros'}
+            >
+              {alertsMuted ? <icons.ui.volumeX size={18} /> : <icons.ui.volume2 size={18} />}
+            </button>
+            <button
+              type="button"
+              onClick={toggle}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
+              aria-label="Alternar tema"
+            >
+              {theme === 'light' ? <icons.ui.moon size={18} /> : <icons.ui.sun size={18} />}
+            </button>
+          </div>
+        </header>
+
+        <main ref={mainRef} className="flex-1 overflow-y-auto pb-28" style={{ paddingBottom: 'max(7rem, calc(4rem + env(safe-area-inset-bottom)))' }}>
+          <AnimatePresence mode="wait" initial={false}>
+            <ChamadosPageTransition key={location.pathname}>
+              <div className="p-4">
+                <Outlet />
+              </div>
+            </ChamadosPageTransition>
+          </AnimatePresence>
+        </main>
+
+        <ChamadosBottomNav openCount={openCount} />
+      </div>
+    </TicketsContext.Provider>
   )
 }

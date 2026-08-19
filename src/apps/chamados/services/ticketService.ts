@@ -29,6 +29,10 @@ function persistLocal(ticket: Ticket) {
   setCol('chamados', items)
 }
 
+function persistTickets(tickets: Ticket[]) {
+  setCol('chamados', tickets)
+}
+
 function mergeRemote(remote: Ticket[]) {
   const items = getCol<Ticket>('chamados')
   const map = new Map(items.map((t) => [t.id, t]))
@@ -43,6 +47,8 @@ function mergeRemote(remote: Ticket[]) {
 
 export const ticketService = {
   getAll: () => local.getAll(),
+
+  persistTickets,
 
   getById: (id: string) => local.getById(id),
 

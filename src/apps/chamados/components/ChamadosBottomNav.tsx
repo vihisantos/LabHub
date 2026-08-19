@@ -1,6 +1,4 @@
 import { LiquidBottomNav, type LiquidNavItem } from '../../../lib/components/LiquidBottomNav'
-import { useTickets } from '../hooks/useTickets'
-import { isTicketOpen } from '../services/sla'
 import { icons } from '../../../lib/icons'
 
 const mainNav: LiquidNavItem[] = [
@@ -21,10 +19,7 @@ function normalizeChamadosPath(pathname: string): string {
   return pathname
 }
 
-export function ChamadosBottomNav() {
-  const { tickets } = useTickets()
-  const openCount = tickets.filter((t) => isTicketOpen(t.status)).length
-
+export function ChamadosBottomNav({ openCount = 0 }: { openCount?: number }) {
   return (
     <LiquidBottomNav
       items={mainNav}

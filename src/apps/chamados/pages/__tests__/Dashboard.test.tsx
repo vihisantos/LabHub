@@ -3,9 +3,9 @@ import { screen, within } from '@testing-library/react'
 import { renderWithProviders } from '../../../../test/helpers'
 import type { Ticket } from '../../types'
 
-const mockUseTickets = vi.hoisted(() => vi.fn())
+const mockUseTicketsCtx = vi.hoisted(() => vi.fn())
 
-vi.mock('../../hooks/useTickets', () => ({ useTickets: mockUseTickets }))
+vi.mock('../../contexts/TicketsContext', () => ({ useTicketsContext: mockUseTicketsCtx }))
 vi.mock('../../components/PushStatusCard', () => ({ PushStatusCard: () => null }))
 
 import { Dashboard } from '../Dashboard'
@@ -47,7 +47,7 @@ beforeEach(() => {
 
 describe('Dashboard', () => {
   it('estado vazio: nenhum chamado, sem atrasos', () => {
-    mockUseTickets.mockReturnValue({ tickets: [] })
+    mockUseTicketsCtx.mockReturnValue({ tickets: [] })
     renderWithProviders(<Dashboard />)
 
     expect(screen.getByText('Sem atrasos')).toBeInTheDocument()
@@ -59,7 +59,7 @@ describe('Dashboard', () => {
   })
 
   it('conta os chamados por status', () => {
-    mockUseTickets.mockReturnValue({
+    mockUseTicketsCtx.mockReturnValue({
       tickets: [
         makeTicket(),
         makeTicket({ id: 't-2', status: 'aberto' }),
@@ -78,7 +78,7 @@ describe('Dashboard', () => {
   })
 
   it('mostra satisfação, tempo médio e abertos por sala', () => {
-    mockUseTickets.mockReturnValue({
+    mockUseTicketsCtx.mockReturnValue({
       tickets: [
         makeTicket({
           id: 't-1',
@@ -114,7 +114,7 @@ describe('Dashboard', () => {
   })
 
   it('lista chamado em atraso com a duração', () => {
-    mockUseTickets.mockReturnValue({
+    mockUseTicketsCtx.mockReturnValue({
       tickets: [
         makeTicket({
           id: 't-1',
@@ -133,7 +133,7 @@ describe('Dashboard', () => {
   })
 
   it('mostra os últimos chamados', () => {
-    mockUseTickets.mockReturnValue({
+    mockUseTicketsCtx.mockReturnValue({
       tickets: [makeTicket({ id: 't-1', assetName: 'PC-01', problemCategory: 'Internet' })],
     })
     renderWithProviders(<Dashboard />)

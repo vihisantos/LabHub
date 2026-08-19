@@ -3,9 +3,9 @@ import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '../../../../test/helpers'
 import type { Ticket } from '../../types'
 
-const mockUseTickets = vi.hoisted(() => vi.fn())
+const mockUseTicketsCtx = vi.hoisted(() => vi.fn())
 
-vi.mock('../../hooks/useTickets', () => ({ useTickets: mockUseTickets }))
+vi.mock('../../contexts/TicketsContext', () => ({ useTicketsContext: mockUseTicketsCtx }))
 
 import { SlaDashboard } from '../SlaDashboard'
 
@@ -38,7 +38,7 @@ beforeEach(() => {
 
 describe('SlaDashboard', () => {
   it('sem dados quando não há chamados resolvidos', () => {
-    mockUseTickets.mockReturnValue({ tickets: [] })
+    mockUseTicketsCtx.mockReturnValue({ tickets: [] })
     renderWithProviders(<SlaDashboard />)
 
     expect(screen.getByText('Sem dados')).toBeInTheDocument()
@@ -46,7 +46,7 @@ describe('SlaDashboard', () => {
   })
 
   it('mostra taxa de cumprimento de 100% para chamado no prazo', () => {
-    mockUseTickets.mockReturnValue({ tickets: [makeTicket()] })
+    mockUseTicketsCtx.mockReturnValue({ tickets: [makeTicket()] })
     renderWithProviders(<SlaDashboard />)
 
     expect(screen.getByText('1/1 no prazo')).toBeInTheDocument()
@@ -54,7 +54,7 @@ describe('SlaDashboard', () => {
   })
 
   it('lista chamado resolvido fora do prazo', () => {
-    mockUseTickets.mockReturnValue({
+    mockUseTicketsCtx.mockReturnValue({
       tickets: [
         makeTicket({
           createdAt: '2026-06-01T10:00:00Z',
@@ -69,7 +69,7 @@ describe('SlaDashboard', () => {
   })
 
   it('filtra por período selecionado', () => {
-    mockUseTickets.mockReturnValue({
+    mockUseTicketsCtx.mockReturnValue({
       tickets: [
         makeTicket({ createdAt: '2026-06-01T10:00:00Z', resolvedAt: '2026-06-01T11:00:00Z' }),
       ],

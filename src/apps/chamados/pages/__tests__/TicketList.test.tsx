@@ -85,11 +85,13 @@ const TICKETS = vi.hoisted(() => [
   },
 ])
 
+const mockReload = vi.hoisted(() => vi.fn())
+
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }))
-vi.mock('../../hooks/useTickets', () => ({
-  useTickets: () => ({ tickets: TICKETS }),
+vi.mock('../../contexts/TicketsContext', () => ({
+  useTicketsContext: () => ({ tickets: TICKETS, loading: false, syncing: false, reload: mockReload }),
 }))
 vi.mock('../../../../core/auth/useAuth', () => ({
   useAuth: () => ({ user: { id: 'test-admin', name: 'Admin Teste' } }),
@@ -115,5 +117,30 @@ describe('TicketList — fila do técnico', () => {
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.queryByText('#2')).not.toBeInTheDocument()
     expect(screen.queryByText('#3')).not.toBeInTheDocument()
+  })
+
+  it('botão de refresh chama reload e não recarrega a página', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    const refreshBtn = screen.getByLabelText('Atualizar lista')
+    fireEvent.click(refreshBtn)
+
+    expect(mockReload).toHaveBeenCalledTimes(1)
+  })
+
+  it('filtros permanecem após refresh', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Minha fila' }))
+    expect(screen.getByText('#1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Atualizar lista'))
+    await act(async () => {})
+
+    // Filtro "Minha fila" ainda ativo
+    expect(screen.getByText('#1')).toBeInTheDocument()
+    expect(screen.queryByText('#2')).not.toBeInTheDocument()
   })
 })

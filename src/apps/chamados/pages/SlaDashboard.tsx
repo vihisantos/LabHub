@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useTickets } from '../hooks/useTickets'
+import { useTicketsContext } from '../contexts/TicketsContext'
 import { analyzeSla, formatDuration, getSlaHours } from '../services/sla'
 import { slaConfigService } from '../services/slaConfigService'
 import { TICKET_PRIORITIES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_COLORS } from '../types'
@@ -23,7 +23,7 @@ function formatHours(hours: number): string {
 
 export function SlaDashboard() {
   const navigate = useNavigate()
-  const { tickets } = useTickets()
+  const { tickets } = useTicketsContext()
   const [period, setPeriod] = useState<Period>(30)
 
   const sinceMs = period > 0 ? Date.now() - period * DAY_MS : 0

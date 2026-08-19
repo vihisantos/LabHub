@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useTickets } from '../hooks/useTickets'
+import { useTicketsContext } from '../contexts/TicketsContext'
 import {
   TICKET_STATUS_LABELS,
   TICKET_STATUS_COLORS,
@@ -25,7 +25,7 @@ function slaConfigFor(ticket: Ticket) {
 
 export function Dashboard() {
   const navigate = useNavigate()
-  const { tickets } = useTickets()
+  const { tickets } = useTicketsContext()
 
   const stats = useMemo(() => {
     const byStatus: Record<TicketStatus, number> = {

@@ -3,10 +3,12 @@ import type { Ticket, TicketFormData, TicketStatus } from '../types'
 import { ticketService } from '../services/ticketService'
 import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket } from '../services/ticketAlerts'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
+import { getCol } from '../../../lib/db'
 
 export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
 
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true)
@@ -16,12 +18,14 @@ export function useTickets() {
   }, [])
 
   const syncRemote = useCallback(async (silent = true) => {
+    if (!silent) setSyncing(true)
     try {
       await ticketService.pullRemote()
     } catch {
       // Sem conexão: mantém o cache local.
     } finally {
       load(silent)
+      setSyncing(false)
       // Alerta o TI sobre chamados novos vindos do formulário público.
       const created = syncNewTicketAlerts()
       if (created.length > 0) alertForNewTickets(created)
@@ -48,21 +52,34 @@ export function useTickets() {
     (payload) => {
       if (payload.eventType === 'INSERT') {
         const newTicket = payload.new as Ticket
-        // Persiste no cache local e adiciona ao state (sem re-fetch)
         setTickets((prev) => {
           if (prev.some((t) => t.id === newTicket.id)) return prev
           const created = syncNewTicketAlerts()
           if (created.length > 0) alertForNewTickets(created)
           return [newTicket, ...prev].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
         })
+        // Persiste no IndexedDB para sobreviver a refresh/reabertura.
+        ticketService.persistTickets(
+          getCol<Ticket>('chamados').some((t) => t.id === newTicket.id)
+            ? getCol<Ticket>('chamados')
+            : [...getCol<Ticket>('chamados'), newTicket].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+        )
       } else if (payload.eventType === 'UPDATE') {
         const updated = payload.new as Ticket
         setTickets((prev) =>
-          prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t))
+          prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)),
         )
+        // Merge no IndexedDB: atualiza o ticket mantendo os dados locais mais recentes.
+        const items = getCol<Ticket>('chamados')
+        const idx = items.findIndex((t) => t.id === updated.id)
+        if (idx !== -1) items[idx] = { ...items[idx], ...updated }
+        ticketService.persistTickets(items)
       } else if (payload.eventType === 'DELETE') {
         const deleted = payload.old as Pick<Ticket, 'id'>
         setTickets((prev) => prev.filter((t) => t.id !== deleted.id))
+        ticketService.persistTickets(
+          getCol<Ticket>('chamados').filter((t) => t.id !== deleted.id),
+        )
       }
     },
     { channelName: 'chamados:tickets:all' },
@@ -105,5 +122,7 @@ export function useTickets() {
     return ok
   }, [])
 
-  return { tickets, loading, create, update, updateStatus, remove, reload: load }
+  const reload = useCallback(() => syncRemote(false), [syncRemote])
+
+  return { tickets, loading, syncing, create, update, updateStatus, remove, reload }
 }

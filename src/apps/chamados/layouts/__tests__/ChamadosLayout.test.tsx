@@ -6,6 +6,9 @@ import { renderWithProviders } from '../../../../test/helpers'
 vi.mock('../../../lib/useOnlineSync', () => ({ useOnlineSync: vi.fn() }))
 vi.mock('../../../lib/useFastSync', () => ({ useFastSync: vi.fn() }))
 vi.mock('../../components/ChamadosBottomNav', () => ({ ChamadosBottomNav: () => <div>nav</div> }))
+vi.mock('../../hooks/useTickets', () => ({
+  useTickets: () => ({ tickets: [], loading: false, syncing: false, reload: vi.fn() }),
+}))
 
 import { ChamadosLayout } from '../ChamadosLayout'
 

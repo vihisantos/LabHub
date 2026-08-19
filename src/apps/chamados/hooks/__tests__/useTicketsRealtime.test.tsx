@@ -25,6 +25,7 @@ const mockRemove = vi.hoisted(() => vi.fn())
 const mockSyncAlerts = vi.hoisted(() => vi.fn())
 const mockAlertFor = vi.hoisted(() => vi.fn())
 const mockMarkLocal = vi.hoisted(() => vi.fn())
+const mockPersistTickets = vi.hoisted(() => vi.fn())
 
 vi.mock('../../services/ticketService', () => ({
   ticketService: {
@@ -33,6 +34,7 @@ vi.mock('../../services/ticketService', () => ({
     create: mockCreate,
     update: mockUpdate,
     remove: mockRemove,
+    persistTickets: mockPersistTickets,
   },
 }))
 
@@ -40,6 +42,14 @@ vi.mock('../../services/ticketAlerts', () => ({
   syncNewTicketAlerts: mockSyncAlerts,
   alertForNewTickets: mockAlertFor,
   markLocalTicket: mockMarkLocal,
+}))
+
+const mockGetCol = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
+const mockSetCol = vi.hoisted(() => vi.fn())
+
+vi.mock('../../../../lib/db', () => ({
+  getCol: mockGetCol,
+  setCol: mockSetCol,
 }))
 
 import { useTickets } from '../useTickets'
@@ -76,6 +86,7 @@ function realtimeCallback(): (payload: any) => void {
 beforeEach(() => {
   vi.clearAllMocks()
   mockSyncAlerts.mockReturnValue([])
+  mockPersistTickets.mockImplementation(() => {})
 })
 
 describe('useTickets — Realtime (chamado criado em outro navegador aparece sem recarregar)', () => {
@@ -187,5 +198,154 @@ describe('useTickets — Realtime (chamado criado em outro navegador aparece sem
     })
 
     expect(result.current.tickets.map((t) => t.id)).toEqual(['t-2'])
+  })
+})
+
+describe('useTickets — Realtime persiste no IndexedDB', () => {
+  it('INSERT: persiste o novo ticket no cache local', async () => {
+    mockGetAll.mockReturnValue([makeTicket()])
+
+    renderHook(() => useTickets())
+    await act(async () => {})
+
+    mockPersistTickets.mockClear()
+
+    const novo = makeTicket({
+      id: 't-2',
+      ticketNumber: 2,
+      createdAt: '2026-06-25T11:00:00Z',
+      updatedAt: '2026-06-25T11:00:00Z',
+    })
+
+    act(() => {
+      realtimeCallback()({
+        schema: 'public',
+        table: 'chamados_tickets',
+        commit_timestamp: '2026-06-25T11:00:00Z',
+        eventType: 'INSERT',
+        new: novo,
+        old: {},
+        errors: [],
+      })
+    })
+
+    expect(mockPersistTickets).toHaveBeenCalledTimes(1)
+    const persisted = mockPersistTickets.mock.calls[0][0] as Ticket[]
+    expect(persisted.some((t) => t.id === 't-2')).toBe(true)
+  })
+
+  it('UPDATE: persiste a mudança no cache local', async () => {
+    mockGetAll.mockReturnValue([makeTicket()])
+    mockGetCol.mockReturnValue([makeTicket()])
+
+    renderHook(() => useTickets())
+    await act(async () => {})
+
+    mockPersistTickets.mockClear()
+
+    act(() => {
+      realtimeCallback()({
+        schema: 'public',
+        table: 'chamados_tickets',
+        commit_timestamp: '2026-06-25T12:00:00Z',
+        eventType: 'UPDATE',
+        new: makeTicket({ status: 'em_atendimento' }),
+        old: { id: 't-1' },
+        errors: [],
+      })
+    })
+
+    expect(mockPersistTickets).toHaveBeenCalledTimes(1)
+    const persisted = mockPersistTickets.mock.calls[0][0] as Ticket[]
+    expect(persisted[0].status).toBe('em_atendimento')
+  })
+
+  it('DELETE: remove do cache local', async () => {
+    mockGetAll.mockReturnValue([
+      makeTicket({ id: 't-1' }),
+      makeTicket({ id: 't-2', ticketNumber: 2, createdAt: '2026-06-25T11:00:00Z' }),
+    ])
+
+    renderHook(() => useTickets())
+    await act(async () => {})
+
+    mockPersistTickets.mockClear()
+
+    act(() => {
+      realtimeCallback()({
+        schema: 'public',
+        table: 'chamados_tickets',
+        commit_timestamp: '2026-06-25T12:00:00Z',
+        eventType: 'DELETE',
+        new: {},
+        old: { id: 't-1' },
+        errors: [],
+      })
+    })
+
+    expect(mockPersistTickets).toHaveBeenCalledTimes(1)
+    const persisted = mockPersistTickets.mock.calls[0][0] as Ticket[]
+    expect(persisted.every((t) => t.id !== 't-1')).toBe(true)
+  })
+
+  it('UPDATERealtime + reabura: ticket mantém valor atualizado', async () => {
+    mockGetAll.mockReturnValue([makeTicket()])
+    mockGetCol.mockReturnValue([makeTicket()])
+
+    const { unmount } = renderHook(() => useTickets())
+    await act(async () => {})
+
+    // Simula mudança via Realtime
+    act(() => {
+      realtimeCallback()({
+        schema: 'public',
+        table: 'chamados_tickets',
+        commit_timestamp: '2026-06-25T12:00:00Z',
+        eventType: 'UPDATE',
+        new: makeTicket({ status: 'em_atendimento', updatedAt: '2026-06-25T12:00:00Z' }),
+        old: { id: 't-1' },
+        errors: [],
+      })
+    })
+
+    // Verifica que persistiu
+    expect(mockPersistTickets).toHaveBeenCalled()
+    const persisted = mockPersistTickets.mock.calls[mockPersistTickets.mock.calls.length - 1][0] as Ticket[]
+    expect(persisted[0].status).toBe('em_atendimento')
+
+    unmount()
+
+    // Simula reabertura: getAll retorna dados do cache (que foi persistido)
+    mockGetAll.mockReturnValue(persisted)
+    mockPersistTickets.mockClear()
+
+    const { result: result2 } = renderHook(() => useTickets())
+    await act(async () => {})
+
+    expect(result2.current.tickets[0].status).toBe('em_atendimento')
+  })
+})
+
+describe('useTickets — syncRemote e reload', () => {
+  it('syncRemote atualiza syncing durante a operação', async () => {
+    mockGetAll.mockReturnValue([])
+    let resolvePull!: () => void
+    mockPullRemote.mockImplementation(() => new Promise<void>((r) => { resolvePull = r }))
+
+    const { result } = renderHook(() => useTickets())
+    await act(async () => {})
+
+    expect(result.current.syncing).toBe(false)
+
+    act(() => {
+      result.current.reload()
+    })
+
+    // Durante a promise, syncing deve ser true
+    expect(result.current.syncing).toBe(true)
+
+    await act(async () => { resolvePull() })
+
+    expect(result.current.syncing).toBe(false)
   })
 })

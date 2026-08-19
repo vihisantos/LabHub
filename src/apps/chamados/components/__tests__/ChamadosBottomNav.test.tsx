@@ -1,40 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, within } from '@testing-library/react'
 import { renderWithProviders } from '../../../../test/helpers'
-import type { Ticket } from '../../types'
-
-const mockUseTickets = vi.hoisted(() => vi.fn())
-
-vi.mock('../../hooks/useTickets', () => ({ useTickets: mockUseTickets }))
 
 import { ChamadosBottomNav } from '../ChamadosBottomNav'
 
-function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
-  return {
-    id: 't-1',
-    ticketNumber: 1,
-    workspace_id: 'ws-a',
-    roomId: 'room-1',
-    roomName: 'Sala 101',
-    assetName: '',
-    problemCategory: 'Internet',
-    problemArea: 'academica',
-    problemDescription: 'Sem conexão',
-    status: 'aberto',
-    priority: 'normal',
-    reportedBy: 'Prof. Maria',
-    reportedByEmail: '',
-    assignedTo: '',
-    createdAt: '2026-06-25T10:00:00Z',
-    updatedAt: '2026-06-25T10:00:00Z',
-    resolvedAt: null,
-    ...overrides,
-  }
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
-  mockUseTickets.mockReturnValue({ tickets: [] })
 })
 
 describe('ChamadosBottomNav', () => {
@@ -48,16 +19,7 @@ describe('ChamadosBottomNav', () => {
   })
 
   it('mostra o contador de chamados abertos no item Chamados', () => {
-    mockUseTickets.mockReturnValue({
-      tickets: [
-        makeTicket(),
-        makeTicket({ id: 't-2', status: 'em_atendimento' }),
-        makeTicket({ id: 't-3', status: 'a_caminho' }),
-        makeTicket({ id: 't-4', status: 'resolvido' }),
-      ],
-    })
-
-    renderWithProviders(<ChamadosBottomNav />, { initialEntries: ['/chamados/tickets'] })
+    renderWithProviders(<ChamadosBottomNav openCount={3} />, { initialEntries: ['/chamados/tickets'] })
 
     const chamadosBtn = screen.getByText('Chamados').closest('button')
     expect(chamadosBtn).not.toBeNull()
@@ -65,9 +27,7 @@ describe('ChamadosBottomNav', () => {
   })
 
   it('sem chamados abertos não mostra badge', () => {
-    mockUseTickets.mockReturnValue({ tickets: [makeTicket({ status: 'resolvido' })] })
-
-    renderWithProviders(<ChamadosBottomNav />, { initialEntries: ['/chamados/tickets'] })
+    renderWithProviders(<ChamadosBottomNav openCount={0} />, { initialEntries: ['/chamados/tickets'] })
 
     const chamadosBtn = screen.getByText('Chamados').closest('button')
     expect(within(chamadosBtn as HTMLElement).queryByText('3')).not.toBeInTheDocument()

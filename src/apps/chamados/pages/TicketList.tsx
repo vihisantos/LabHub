@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useTickets } from '../hooks/useTickets'
+import { useTicketsContext } from '../contexts/TicketsContext'
 import {
   TICKET_STATUS_LABELS,
   TICKET_STATUS_COLORS,
@@ -20,7 +20,7 @@ function slaConfigFor(ticket: Ticket) {
 
 export function TicketList() {
   const navigate = useNavigate()
-  const { tickets } = useTickets()
+  const { tickets, syncing, reload } = useTicketsContext()
   const { user } = useAuth()
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'arquivados' | ''>('')
   const [mineFilter, setMineFilter] = useState(false)
@@ -63,15 +63,27 @@ export function TicketList() {
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <icons.ui.search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por #, sala, ativo ou problema..."
-          className="w-full rounded-xl border border-line bg-card py-2.5 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-        />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <icons.ui.search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por #, sala, ativo ou problema..."
+            className="w-full rounded-xl border border-line bg-card py-2.5 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => reload()}
+          disabled={syncing}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg disabled:opacity-50"
+          aria-label="Atualizar lista"
+          title="Atualizar lista"
+        >
+          <icons.ui.refresh size={16} className={syncing ? 'animate-spin' : ''} />
+        </button>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
