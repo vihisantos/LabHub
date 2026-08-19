@@ -43,7 +43,7 @@ function showStatusNotification(ticket: Ticket): void {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
     if (!document.hidden) return
     const message = statusMessage(ticket)
-    const notification = new Notification(`Chamado #${ticket.ticketNumber}`, {
+    const notification = new Notification(`Chamado #${ticket.ticketNumber || '?'}`, {
       body: `Status: ${TICKET_STATUS_LABELS[ticket.status]}${message ? ` — ${message}` : ''}`,
       tag: `chamado-${ticket.id}-status`,
       icon: '/icon-192.png',
@@ -173,7 +173,7 @@ export function TicketSuccess() {
 
       <div className="mt-8 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 text-center">
-          <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber}</span>
+          <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
         </div>
 
         <div className="space-y-3 border-t border-line pt-4">

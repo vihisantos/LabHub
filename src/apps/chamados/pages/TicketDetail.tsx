@@ -682,7 +682,7 @@ export function TicketDetail() {
               <div key={t.id} className="flex items-center justify-between text-sm">
                 <span className="text-fg-muted">#{t.ticketNumber} — {t.problemCategory}</span>
                 <span className="text-[10px] text-fg-dim">
-                  {new Date(t.createdAt).toLocaleDateString('pt-BR')}
+                  {(() => { const d = new Date(t.createdAt); return isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR') })()}
                 </span>
               </div>
             ))}

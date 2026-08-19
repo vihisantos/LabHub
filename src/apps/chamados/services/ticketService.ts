@@ -21,7 +21,19 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+/** Garante que campos obrigatórios estejam presentes no ticket. */
+function normalizeTicket<T extends Ticket>(ticket: T): T {
+  if (!ticket.createdAt || isNaN(new Date(ticket.createdAt).getTime())) {
+    ticket.createdAt = new Date().toISOString()
+  }
+  if (ticket.ticketNumber == null) {
+    ticket.ticketNumber = 0
+  }
+  return ticket
+}
+
 function persistLocal(ticket: Ticket) {
+  normalizeTicket(ticket)
   const items = getCol<Ticket>('chamados')
   const idx = items.findIndex((t) => t.id === ticket.id)
   if (idx === -1) items.push(ticket)
@@ -30,6 +42,7 @@ function persistLocal(ticket: Ticket) {
 }
 
 function persistTickets(tickets: Ticket[]) {
+  tickets.forEach(normalizeTicket)
   setCol('chamados', tickets)
 }
 

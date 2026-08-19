@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { ChamadosBottomNav } from '../components/ChamadosBottomNav'
 import { useTheme } from '../../../lib/ThemeContext'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
-import { useFastSync } from '../../../lib/useFastSync'
 import { icons } from '../../../lib/icons'
 import { isAlertsMuted, setAlertsMuted } from '../services/ticketAlerts'
 import { useTickets } from '../hooks/useTickets'
@@ -54,7 +53,6 @@ export function ChamadosLayout() {
   }
 
   useOnlineSync()
-  useFastSync(['chamados', 'rooms', 'problem_templates'], 10000)
 
   const { tickets, loading, syncing, reload } = useTickets()
   const openCount = tickets.filter((t) => t.status !== 'fechado' && t.status !== 'resolvido' && !t.archived).length

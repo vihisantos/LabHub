@@ -262,8 +262,11 @@ export async function syncAll(onItem?: (collection: string, current: number, tot
         await syncCollection(collection, db, dirty)
         logSync(collection, getCol(collection).length, 'ok')
       } else {
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        logSync(collection, getCol(collection).length, 'simulated')
+        // Coleção local: apenas limpa o flag sujo, sem rede nem sleep.
+        clearDirty(collection)
+        synced++
+        onItem?.(collection, current, allCollections.length)
+        continue
       }
 
       clearDirty(collection)

@@ -202,7 +202,7 @@ export function TicketList() {
                 }`}
               >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-bold text-amber-500">
-                  #{ticket.ticketNumber}
+                  #{ticket.ticketNumber || '?'}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-fg truncate">{ticket.assetName || ticket.problemCategory}</p>
@@ -212,7 +212,10 @@ export function TicketList() {
                     {ticket.assignedTo ? ` · ${ticket.assignedTo}` : ''}
                   </p>
                   <p className="text-[10px] text-fg-dim">
-                    {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
+                    {(() => {
+                      const d = new Date(ticket.createdAt)
+                      return isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR')
+                    })()}
                     {overdue && <span className="ml-1 font-bold text-red-500">· Em atraso</span>}
                     {ticket.feedbackRating && (
                       <span className="ml-1 text-amber-500">· ★ {ticket.feedbackRating}</span>

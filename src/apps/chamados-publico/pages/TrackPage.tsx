@@ -136,7 +136,7 @@ export function TrackPage() {
               return (
                 <div key={ticket.id} className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-emerald-500">#{ticket.ticketNumber}</span>
+                    <span className="text-sm font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
                     <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}>
                       {TICKET_STATUS_LABELS[ticket.status]}
                     </span>
@@ -146,7 +146,10 @@ export function TrackPage() {
                     <p>{ticket.roomName}</p>
                     <p>{ticket.problemCategory}{ticket.assetName ? ` · ${ticket.assetName}` : ''}</p>
                     <p className="text-[10px] text-fg-dim">
-                      Aberto em {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
+                      {(() => {
+                        const d = new Date(ticket.createdAt)
+                        return isNaN(d.getTime()) ? '' : `Aberto em ${d.toLocaleDateString('pt-BR')}`
+                      })()}
                     </p>
                   </div>
 
