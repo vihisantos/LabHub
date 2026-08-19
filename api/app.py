@@ -1027,6 +1027,15 @@ def chamados_create():
 
         ticket = ins.json()[0]
 
+        # Validação de integridade: garante que campos obrigatórios foram persistidos.
+        if not ticket.get('createdAt') or ticket.get('ticketNumber') is None:
+            logger.error(
+                "[chamados] Ticket criado sem campos obrigatórios: createdAt=%s ticketNumber=%s",
+                ticket.get('createdAt'), ticket.get('ticketNumber'),
+            )
+            ticket.setdefault('createdAt', now)
+            ticket.setdefault('ticketNumber', ticket_number)
+
         # Notificação imediata: avisa o TI no momento em que o professor abre o chamado.
         # Evento, não agendamento — não depende de cron nenhum (próprio app).
         _notify_new_ticket(ticket)

@@ -35,15 +35,16 @@ function buildIndex(): SearchIndex[] {
 
   const tickets = ticketService.getAll()
   for (const ticket of tickets) {
+    const num = ticket.ticketNumber || '?'
     index.push({
       id: `ticket-${ticket.id}`,
-      title: `#${ticket.ticketNumber}`,
+      title: `#${num}`,
       subtitle: `${ticket.roomName} · ${ticket.assetName} · ${ticket.problemCategory}`,
       module: 'chamados',
       moduleColor: '#f59e0b',
       actionUrl: `/chamados/tickets/${ticket.id}`,
       icon: 'alertCircle',
-      keywords: `#${ticket.ticketNumber} ${ticket.roomName} ${ticket.assetName} ${ticket.problemCategory} ${ticket.status}`.toLowerCase(),
+      keywords: `#${num} ${ticket.roomName} ${ticket.assetName} ${ticket.problemCategory} ${ticket.status}`.toLowerCase(),
     })
   }
 

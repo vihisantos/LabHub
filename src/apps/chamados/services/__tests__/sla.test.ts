@@ -194,3 +194,42 @@ describe('analyzeSla', () => {
     expect(r.byPriority.baixa.total).toBe(0)
   })
 })
+
+describe('SLA com datas inválidas', () => {
+  it('computeSlaDeadline: data inválida → retorna Date(NaN)', () => {
+    const d = computeSlaDeadline('invalid', 24)
+    expect(isNaN(d.getTime())).toBe(true)
+  })
+
+  it('getSlaRemainingMs: data inválida → retorna 0', () => {
+    expect(getSlaRemainingMs('invalid', 'normal', null)).toBe(0)
+    expect(getSlaRemainingMs('', 'urgente', null)).toBe(0)
+  })
+
+  it('getSlaState: data inválida → retorna null (sem estado)', () => {
+    expect(getSlaState('invalid', 'normal', 'aberto', null)).toBeNull()
+    expect(getSlaState('', 'urgente', 'a_caminho', null)).toBeNull()
+  })
+
+  it('isSlaOverdue: data inválida → retorna false (não atrasado)', () => {
+    expect(isSlaOverdue('invalid', 'normal', 'aberto', null)).toBe(false)
+  })
+
+  it('getSlaInfo: data inválida → retorna null', () => {
+    expect(getSlaInfo('invalid', 'normal', 'aberto', null)).toBeNull()
+  })
+
+  it('analyzeSla: ignora tickets com datas inválidas', () => {
+    const mk = (id: string, createdAt: string, resolvedAt: string | null) => ({
+      id, createdAt, resolvedAt, priority: 'normal' as const,
+    })
+    const tickets = [
+      mk('a', 'invalid', '2026-08-13T10:00:00Z'),
+      mk('b', '2026-08-13T08:00:00Z', 'invalid'),
+      mk('c', '2026-08-13T08:00:00Z', '2026-08-13T10:00:00Z'),
+    ]
+    const r = analyzeSla(tickets)
+    expect(r.total).toBe(1)
+    expect(r.byPriority.normal.total).toBe(1)
+  })
+})

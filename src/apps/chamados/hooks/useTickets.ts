@@ -1,17 +1,44 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Ticket, TicketFormData, TicketStatus } from '../types'
 import { ticketService } from '../services/ticketService'
 import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket } from '../services/ticketAlerts'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { getCol } from '../../../lib/db'
 
+/**
+ * Corrige tickets antigos no IndexedDB que estejam sem createdAt ou ticketNumber.
+ * Roda apenas na primeira carga para não impactar performance.
+ */
+export function sanitizeStaleTickets(): void {
+  const items = getCol<Ticket>('chamados')
+  const now = new Date().toISOString()
+  let dirty = false
+  for (const t of items) {
+    if (!t.createdAt || isNaN(new Date(t.createdAt).getTime())) {
+      t.createdAt = now
+      dirty = true
+    }
+    if (t.ticketNumber == null) {
+      t.ticketNumber = 0
+      dirty = true
+    }
+  }
+  if (dirty) ticketService.persistTickets(items)
+}
+
 export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const sanitizedRef = useRef(false)
 
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true)
+    // Na primeira carga, corrige tickets antigos no IndexedDB.
+    if (!sanitizedRef.current) {
+      sanitizedRef.current = true
+      sanitizeStaleTickets()
+    }
     const data = ticketService.getAll()
     setTickets(data.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')))
     if (!silent) setLoading(false)
@@ -51,7 +78,11 @@ export function useTickets() {
     '*',
     (payload) => {
       if (payload.eventType === 'INSERT') {
-        const newTicket = payload.new as Ticket
+        const raw = payload.new as Ticket
+        // Normaliza campos obrigatórios vindos do Realtime.
+        if (!raw.createdAt || isNaN(new Date(raw.createdAt).getTime())) raw.createdAt = new Date().toISOString()
+        if (raw.ticketNumber == null) raw.ticketNumber = 0
+        const newTicket = raw
         setTickets((prev) => {
           if (prev.some((t) => t.id === newTicket.id)) return prev
           const created = syncNewTicketAlerts()
@@ -66,6 +97,8 @@ export function useTickets() {
         )
       } else if (payload.eventType === 'UPDATE') {
         const updated = payload.new as Ticket
+        if (!updated.createdAt || isNaN(new Date(updated.createdAt).getTime())) updated.createdAt = new Date().toISOString()
+        if (updated.ticketNumber == null) updated.ticketNumber = 0
         setTickets((prev) =>
           prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)),
         )

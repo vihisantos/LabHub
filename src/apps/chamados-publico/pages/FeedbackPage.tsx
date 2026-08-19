@@ -95,7 +95,7 @@ export function FeedbackPage() {
     <div className="min-h-dvh bg-surface px-4 pt-6 pb-8">
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-fg">Avaliar Atendimento</h1>
-        <p className="mt-1 text-sm text-fg-muted">Chamado #{ticket.ticketNumber}</p>
+        <p className="mt-1 text-sm text-fg-muted">Chamado #{ticket.ticketNumber || '?'}</p>
       </div>
 
       {done ? (

@@ -209,15 +209,20 @@ export function Dashboard() {
                 className="flex w-full items-center gap-3 rounded-xl bg-red-500/5 p-3 text-left transition-colors hover:bg-red-500/10"
               >
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-xs font-bold text-red-500">
-                  #{ticket.ticketNumber}
+                  #{ticket.ticketNumber || '?'}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-fg">{ticket.assetName || ticket.problemCategory}</p>
                   <p className="text-[11px] text-fg-muted">{ticket.roomName}</p>
                 </div>
-                <span className="shrink-0 text-[11px] font-semibold text-red-500">
-                  Atrasado há {formatDuration(-getSlaRemainingMs(ticket.createdAt, ticket.priority, slaConfigFor(ticket)))}
-                </span>
+                {(() => {
+                  const remaining = getSlaRemainingMs(ticket.createdAt, ticket.priority, slaConfigFor(ticket))
+                  return remaining !== 0 ? (
+                    <span className="shrink-0 text-[11px] font-semibold text-red-500">
+                      Atrasado há {formatDuration(-remaining)}
+                    </span>
+                  ) : null
+                })()}
               </button>
             ))}
           </div>
@@ -300,7 +305,7 @@ export function Dashboard() {
                   }`}
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-bold text-amber-500">
-                    #{ticket.ticketNumber}
+                    #{ticket.ticketNumber || '?'}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-fg truncate">{ticket.assetName || ticket.problemCategory}</p>

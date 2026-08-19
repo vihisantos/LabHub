@@ -23,7 +23,13 @@ export function getSlaHours(
   return value
 }
 
+/** Verifica se a string de data é parseável. */
+function isValidDate(dateStr: string): boolean {
+  return !isNaN(new Date(dateStr).getTime())
+}
+
 export function computeSlaDeadline(createdAt: string, hours: number): Date {
+  if (!isValidDate(createdAt)) return new Date(NaN)
   return new Date(new Date(createdAt).getTime() + hours * HOUR_MS)
 }
 
@@ -32,6 +38,7 @@ export function getSlaRemainingMs(
   priority: TicketPriority | undefined,
   config?: Record<TicketPriority, number> | null,
 ): number {
+  if (!isValidDate(createdAt)) return 0
   const hours = getSlaHours(priority, config)
   if (hours <= 0) return 0
   return computeSlaDeadline(createdAt, hours).getTime() - Date.now()
@@ -44,6 +51,7 @@ export function getSlaState(
   config?: Record<TicketPriority, number> | null,
 ): SlaState | null {
   if (!isTicketOpen(status)) return null
+  if (!isValidDate(createdAt)) return null
   const hours = getSlaHours(priority, config)
   if (hours <= 0) return null
   const remaining = getSlaRemainingMs(createdAt, priority, config)
