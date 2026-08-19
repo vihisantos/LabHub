@@ -6,7 +6,59 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 
 from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger
 
 import requests
+from collections import defaultdict
 from flask import jsonify, request
+
+
+# ── Rate limiting (in-memory) ──
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_WINDOW = 3600  # 1 hora em segundos
+RATE_LIMIT_MAX_REQUESTS = 20  # máximo de chamados por IP por hora
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Verifica se o IP excedeu o limite de requisições. Retorna True se permitido."""
+    now = datetime.now(timezone.utc).timestamp()
+    window_start = now - RATE_LIMIT_WINDOW
+    # Remove entradas antigas
+    _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if t > window_start]
+    if len(_rate_limit_store[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        return False
+    _rate_limit_store[ip].append(now)
+    return True
+
+
+def _get_client_ip() -> str:
+    """Obtém o IP real do cliente, considerando proxy reverso."""
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+# ── Limites de tamanho de texto ──
+MAX_FIELD_LENGTHS = {
+    'workspace_id': 50,
+    'roomName': 100,
+    'reportedBy': 100,
+    'reportedByEmail': 150,
+    'problemCategory': 100,
+    'problemArea': 20,
+    'problemDescription': 2000,
+    'assignedTo': 100,
+    'assignedToUserId': 50,
+    'statusNote': 1000,
+    'author': 100,
+    'content': 2000,
+}
+
+
+def _validate_field_length(key: str, value: str) -> str | None:
+    """Valida o comprimento de um campo. Retorna mensagem de erro ou None."""
+    max_len = MAX_FIELD_LENGTHS.get(key)
+    if max_len and len(value) > max_len:
+        return f'Campo {key} muito longo (máximo {max_len} caracteres)'
+    return None
 
 
 # ── Cloudinary (helpers compartilhados) ──
@@ -934,6 +986,11 @@ def chamados_create():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
+        # Rate limiting
+        client_ip = _get_client_ip()
+        if not _check_rate_limit(client_ip):
+            return jsonify({'error': 'Muitas requisições. Tente novamente em mais de 1 hora.'}), 429
+
         _ensure_chamados_schema()
         body = request.get_json() or {}
 
@@ -959,6 +1016,17 @@ def chamados_create():
             return jsonify({'error': 'Descreva o que está acontecendo'}), 400
         if priority not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
+
+        # Validação de tamanho de texto
+        field_lengths = {
+            'workspace_id': workspace_id, 'roomName': room_name,
+            'reportedBy': reported_by, 'problemCategory': problem_category,
+            'problemArea': problem_area, 'problemDescription': problem_description,
+        }
+        for key, value in field_lengths.items():
+            err = _validate_field_length(key, value)
+            if err:
+                return jsonify({'error': err}), 400
 
         photos = str(body.get('photos') or '').strip()
         if len(photos) > 600000:
@@ -1111,6 +1179,12 @@ def chamados_manage(ticket_id):
                 updates[key] = body[key]
         if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
+        # Validação de tamanho de texto nos updates
+        for key in ('assignedTo', 'assignedToUserId', 'problemDescription', 'statusNote', 'author'):
+            if key in updates and isinstance(updates[key], str):
+                err = _validate_field_length(key, updates[key])
+                if err:
+                    return jsonify({'error': err}), 400
         if 'photos' in updates:
             photos_val = str(updates['photos'] or '').strip()
             if len(photos_val) > 600000:
