@@ -1,4 +1,4 @@
-import { defaultDb, stockDb } from '../../lib/supabase'
+import { defaultDb } from '../../lib/supabase'
 import type { User, AuthCredentials, SignUpData } from './types'
 import { themeStore } from '../theme/store'
 import { resolveRoleId } from '../permissions/types'
@@ -178,28 +178,6 @@ export const authService = {
       banner: '',
       created_at: now,
       updated_at: now,
-    }
-
-    // Create a notification DIRECTLY on Supabase so admins receive it
-    // regardless of this device's sync (pendente não roda sync)
-    try {
-      if (stockDb) {
-        await stockDb.from('notifications').insert({
-          id: crypto.randomUUID(),
-          title: 'Novo usuário pendente',
-          body: `${data.name} (${data.email}) aguarda aprovação`,
-          type: 'approval',
-          severity: 'info',
-          module: 'auth',
-          actionUrl: `/admin/users?pending=${profile.id}`,
-          read: false,
-          createdAt: new Date().toISOString(),
-          audience: 'role',
-          targetSuperAdmin: true,
-        })
-      }
-    } catch (e) {
-      console.warn('[Auth] Failed to create approval notification:', e)
     }
 
     // Don't set currentUser — user is not approved yet

@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { mockFrom } = vi.hoisted(() => ({ mockFrom: vi.fn() }))
-const { mockStockFrom } = vi.hoisted(() => ({ mockStockFrom: vi.fn() }))
 const { mockSignUp } = vi.hoisted(() => ({ mockSignUp: vi.fn() }))
 const { mockSignOut } = vi.hoisted(() => ({ mockSignOut: vi.fn() }))
 
 vi.mock('../../../lib/supabase', () => ({
   defaultDb: { from: mockFrom, auth: { signUp: mockSignUp, signOut: mockSignOut } },
-  stockDb: { from: mockStockFrom },
 }))
 
 // O authService é importado pelo setup global (mocks.ts) com o supabase real.
@@ -21,7 +19,6 @@ async function loadAuthService() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockStockFrom.mockReturnValue({ insert: vi.fn(async () => ({ error: null })) })
 })
 
 describe('authService.signUp — criação de usuário', () => {
@@ -54,27 +51,17 @@ describe('authService.signUp — criação de usuário', () => {
     )
   })
 
-  it('cria notificação de aprovação para super admins ao cadastrar', async () => {
+  it('não cria notificação de aprovação no frontend (agora é feito pelo trigger do banco)', async () => {
     mockSignUp.mockResolvedValue({
       data: { user: { id: 'u-novo' } },
       error: null,
     })
-    const insert = vi.fn((_payload: Record<string, unknown>) => Promise.resolve({ error: null }))
-    mockStockFrom.mockReturnValue({ insert })
 
     const authService = await loadAuthService()
     await authService.signUp({ email: 'prof@escola.edu.br', password: 'secret', name: 'Prof. Ana' })
 
-    expect(insert).toHaveBeenCalledOnce()
-    const [payload] = insert.mock.calls[0]
-    expect(payload).toMatchObject({
-      title: 'Novo usuário pendente',
-      type: 'approval',
-      module: 'auth',
-      audience: 'role',
-      targetSuperAdmin: true,
-      actionUrl: '/admin/users?pending=u-novo',
-    })
+    // A notificação agora é criada pelo trigger handle_new_user() no banco de dados.
+    // O frontend NÃO deve mais enviar INSERT para stock.notifications durante o signUp.
   })
 
   it('propaga erro do Supabase ao cadastrar', async () => {
