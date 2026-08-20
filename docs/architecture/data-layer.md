@@ -59,17 +59,35 @@ createSyncService<T>(collection) → {
 | `stock` | stock_items, movements, kits, inventory, notifications | Sync engine |
 
 ### Row Level Security (RLS)
-All tables have RLS enabled. Policies filter by workspace membership:
+All stock/pcare tables have RLS with per-operation policies (SELECT/INSERT/UPDATE/DELETE). Policies use the helper function `user_belongs_to_workspace()`:
+
 ```sql
-workspace_id IN (
-  SELECT unnest(workspace_ids)
-  FROM profiles
-  WHERE id = auth.uid()
-)
+-- Function with text/uuid overloads (migration 027)
+CREATE OR REPLACE FUNCTION public.user_belongs_to_workspace(ws_id text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
+  SELECT ws_id IS NULL OR ws_id = ''
+      OR ws_id IN (
+        SELECT unnest(workspace_ids)::text
+        FROM public.profiles WHERE id = auth.uid()
+      )
+$$;
+-- uuid overload also exists for FK-typed workspace_id columns
 ```
 
-### Exception: Chamados
-`chamados_tickets` has `REVOKE ALL FROM anon, authenticated` — only the Flask API (service_role) can access it.
+Policy pattern:
+```sql
+CREATE POLICY "{table}_select" ON schema.table FOR SELECT
+  USING (is_super_admin() OR user_belongs_to_workspace(workspace_id));
+```
+
+Key behaviors:
+- **Super admin** (`is_super_admin()`) bypasses all policies
+- **NULL workspace_id** (legacy records) → visible to everyone
+- **service_role** → bypasses RLS entirely (used by triggers, Flask API)
+
+### Exceptions
+- `chamados_tickets` has `REVOKE ALL FROM anon, authenticated` — only the Flask API (service_role) can access it.
+- `pg_sql()` function is `REVOKE`d from anon/authenticated/PUBLIC — only service_role can call it (migration 025).
 
 ## Data Access Patterns
 

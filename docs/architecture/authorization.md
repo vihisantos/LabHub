@@ -47,13 +47,17 @@ Access levels:
 
 ### Database Level (RLS)
 ```sql
--- Every table with workspace_id has this pattern:
-workspace_id IN (
-  SELECT unnest(workspace_ids)
-  FROM profiles
-  WHERE id = auth.uid()
-)
+-- Every stock/pcare table uses this pattern (migration 027):
+CREATE POLICY "{table}_select" ON schema.table FOR SELECT
+  USING (
+    is_super_admin()
+    OR user_belongs_to_workspace(workspace_id)
+  );
+-- INSERT/UPDATE/DELETE follow the same pattern
+-- NULL workspace_id = legacy records, visible to all
 ```
+
+Function `user_belongs_to_workspace()` has two overloads (text, uuid) to match column types across schemas.
 
 ### Frontend Level
 ```typescript

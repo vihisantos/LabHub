@@ -12,6 +12,9 @@ supabase/migrations/
 ├── 002_seed_admin.sql
 ├── ...
 ├── 024_global_asset_registry.sql
+├── 025_security_revoke_pg_sql.sql
+├── 026_security_revoke_anon_stock_pcare.sql
+├── 027_rls_workspace_isolation.sql
 └── supa/              # Supabase CLI managed
 ```
 
@@ -22,8 +25,8 @@ NNN_description_in_snake_case.sql
 ```
 
 Examples:
-- `025_add_ticket_notes.sql`
-- `026_create_location_registry.sql`
+- `028_add_ticket_notes.sql`
+- `029_create_location_registry.sql`
 
 ## Creating a Migration
 
@@ -69,11 +72,9 @@ CREATE POLICY "my_table_select" ON public.my_table
   FOR SELECT TO authenticated
   USING (
     public.is_super_admin()
-    OR workspace_id IN (
-      SELECT unnest(workspace_ids)
-      FROM public.profiles WHERE id = auth.uid()
-    )
+    OR public.user_belongs_to_workspace(workspace_id)
   );
+-- Same pattern for INSERT, UPDATE (with WITH CHECK), DELETE
 ```
 
 ### Indexes

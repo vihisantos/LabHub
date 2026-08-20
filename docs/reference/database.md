@@ -121,15 +121,37 @@ Tables in `public` schema:
 
 ## RLS Policies
 
-All tables use workspace-based RLS:
+All stock/pcare tables use workspace-based RLS with per-operation policies:
+
 ```sql
-workspace_id IN (
-  SELECT unnest(workspace_ids)
-  FROM profiles WHERE id = auth.uid()
-)
+-- Helper function (migration 027)
+CREATE OR REPLACE FUNCTION public.user_belongs_to_workspace(ws_id text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
+  SELECT ws_id IS NULL OR ws_id = ''
+      OR ws_id IN (
+        SELECT unnest(workspace_ids)::text
+        FROM public.profiles WHERE id = auth.uid()
+      )
+$$;
+-- Also has a uuid overload for FK-typed workspace_id columns
+
+-- Per-table policy pattern:
+CREATE POLICY "{table}_select" ON schema.table FOR SELECT
+  USING (is_super_admin() OR user_belongs_to_workspace(workspace_id));
+-- Same for INSERT, UPDATE (with WITH CHECK), DELETE
 ```
 
-Exception: `chamados_tickets` has `REVOKE ALL FROM anon, authenticated` — only service_role access.
+Exceptions:
+- `chamados_tickets` has `REVOKE ALL FROM anon, authenticated` — only service_role access.
+- `pg_sql()` function is `REVOKE`d from anon/authenticated/PUBLIC (migration 025).
+
+### Security Migrations
+
+| Migration | Description |
+|-----------|-------------|
+| 025 | Revoke `pg_sql()` from anon/authenticated/PUBLIC |
+| 026 | Revoke anon from stock/pcare schemas, move notification creation to DB trigger |
+| 027 | Replace permissive RLS with workspace-scoped policies, create `user_belongs_to_workspace()` |
 
 ## Related
 

@@ -24,7 +24,7 @@ Users belong to workspaces via `profiles.workspace_ids` (UUID array).
 
 Data isolation happens at three levels:
 
-1. **Database (RLS)** — Supabase Row Level Security policies filter rows by `workspace_id IN (SELECT unnest(workspace_ids) FROM profiles WHERE id = auth.uid())`
+1. **Database (RLS)** — Supabase Row Level Security policies filter rows via `user_belongs_to_workspace(workspace_id)` with `is_super_admin()` bypass (migration 027)
 2. **Frontend (filter)** — `workspaceStore.filter()` applies workspace filtering on local data
 3. **API (backend)** — Flask endpoints verify workspace membership before operations
 
