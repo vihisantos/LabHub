@@ -190,6 +190,7 @@ export function TicketSuccess() {
   const concluded = ticket.status === 'resolvido' || ticket.status === 'fechado'
 
   async function handleCopyNumber() {
+    if (!ticket) return
     const text = `#${ticket.ticketNumber || '?'} — ${ticket.roomName} — ${ticket.problemCategory}`
     try {
       await navigator.clipboard.writeText(text)
