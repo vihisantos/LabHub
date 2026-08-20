@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTicketsContext } from '../contexts/TicketsContext'
 import {
@@ -27,6 +27,18 @@ export function TicketList() {
   const [priorityFilter, setPriorityFilter] = useState<TicketPriority | ''>('')
   const [roomFilter, setRoomFilter] = useState('')
   const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'recente' | 'prioridade' | 'sla' | 'sala' | 'numero'>('recente')
+  const [visibleCount, setVisibleCount] = useState(20)
+
+  useEffect(() => { setVisibleCount(20) }, [statusFilter, mineFilter, priorityFilter, roomFilter, search, sortBy])
+
+  const SORT_OPTIONS: { value: typeof sortBy; label: string }[] = [
+    { value: 'recente', label: 'Mais recentes' },
+    { value: 'prioridade', label: 'Prioridade' },
+    { value: 'sla', label: 'SLA' },
+    { value: 'sala', label: 'Sala' },
+    { value: 'numero', label: 'Nº' },
+  ]
 
   const filteredTickets = useMemo(() => {
     return tickets.filter((t) => {
@@ -61,8 +73,50 @@ export function TicketList() {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
   }, [tickets])
 
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { ativos: 0, arquivados: 0, aberto: 0, a_caminho: 0, em_atendimento: 0, resolvido: 0 }
+    for (const t of tickets) {
+      const archived = t.archived === true || t.status === 'fechado'
+      if (archived) {
+        counts.arquivados++
+      } else {
+        counts.ativos++
+        if (t.status in counts) counts[t.status]++
+      }
+    }
+    return counts
+  }, [tickets])
+
+  const PRIORITY_ORDER: Record<string, number> = { urgente: 0, alta: 1, normal: 2, baixa: 3 }
+
+  const sortedTickets = useMemo(() => {
+    const sorted = [...filteredTickets]
+    switch (sortBy) {
+      case 'prioridade':
+        return sorted.sort((a, b) => (PRIORITY_ORDER[getPriority(a.priority)] ?? 2) - (PRIORITY_ORDER[getPriority(b.priority)] ?? 2))
+      case 'sla':
+        return sorted.sort((a, b) => {
+          const aOverdue = isSlaOverdue(a.createdAt, a.priority, a.status, slaConfigFor(a))
+          const bOverdue = isSlaOverdue(b.createdAt, b.priority, b.status, slaConfigFor(b))
+          if (aOverdue !== bOverdue) return aOverdue ? -1 : 1
+          return (a.createdAt || '').localeCompare(b.createdAt || '')
+        })
+      case 'sala':
+        return sorted.sort((a, b) => a.roomName.localeCompare(b.roomName))
+      case 'numero':
+        return sorted.sort((a, b) => (b.ticketNumber || 0) - (a.ticketNumber || 0))
+      default:
+        return sorted.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+    }
+  }, [filteredTickets, sortBy])
+
   return (
     <div className="space-y-4">
+      {syncing && (
+        <div className="h-0.5 -mt-2 -mx-4 overflow-hidden">
+          <div className="h-full w-1/3 animate-[shimmer_1.5s_infinite] rounded-full bg-amber-500" />
+        </div>
+      )}
       <div className="flex gap-2">
         <div className="relative flex-1">
           <icons.ui.search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
@@ -97,7 +151,7 @@ export function TicketList() {
             statusFilter === '' && !mineFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
         >
-          Ativos
+          Ativos {statusCounts.ativos > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.ativos}</span>}
         </button>
         <button
           type="button"
@@ -123,7 +177,7 @@ export function TicketList() {
               statusFilter === status ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
             }`}
           >
-            {TICKET_STATUS_LABELS[status]}
+            {TICKET_STATUS_LABELS[status]} {statusCounts[status] > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts[status]}</span>}
           </button>
         ))}
         <button
@@ -136,7 +190,7 @@ export function TicketList() {
             statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
         >
-          Arquivados
+          Arquivados {statusCounts.arquivados > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.arquivados}</span>}
         </button>
       </div>
 
@@ -177,7 +231,22 @@ export function TicketList() {
         </select>
       )}
 
-      {filteredTickets.length === 0 ? (
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {SORT_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setSortBy(opt.value)}
+            className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              sortBy === opt.value ? 'bg-fg text-surface' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {sortedTickets.length === 0 ? (
         <div className="flex flex-col items-center py-12">
           <icons.ui.inbox size={40} className="text-fg-muted" />
           <p className="mt-3 text-sm text-fg-muted">
@@ -190,7 +259,7 @@ export function TicketList() {
         </div>
       ) : (
         <div className="space-y-2">
-          {filteredTickets.map((ticket) => {
+          {sortedTickets.slice(0, visibleCount).map((ticket) => {
             const overdue = isSlaOverdue(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
             return (
               <button
@@ -234,6 +303,15 @@ export function TicketList() {
               </button>
             )
           })}
+          {visibleCount < sortedTickets.length && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((prev) => prev + 20)}
+              className="w-full rounded-xl border border-line bg-card py-3 text-sm font-medium text-fg-muted transition-colors hover:text-fg"
+            >
+              Carregar mais ({sortedTickets.length - visibleCount} restantes)
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -61,8 +61,8 @@ export function useTickets() {
 
   useEffect(() => {
     load()
-    // Polling a cada 60s como fallback (Realtime é o canal primário).
-    const timer = setInterval(() => syncRemote(), 60000)
+    // Polling a cada 15s como fallback (Realtime é o canal primário).
+    const timer = setInterval(() => syncRemote(), 15000)
     return () => clearInterval(timer)
   }, [load, syncRemote])
 

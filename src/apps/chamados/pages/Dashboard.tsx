@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTicketsContext } from '../contexts/TicketsContext'
 import {
@@ -26,6 +26,12 @@ function slaConfigFor(ticket: Ticket) {
 export function Dashboard() {
   const navigate = useNavigate()
   const { tickets } = useTicketsContext()
+  const [slaTick, setSlaTick] = useState(0)
+
+  useEffect(() => {
+    const timer = setInterval(() => setSlaTick((t) => t + 1), 60000)
+    return () => clearInterval(timer)
+  }, [])
 
   const stats = useMemo(() => {
     const byStatus: Record<TicketStatus, number> = {
@@ -54,7 +60,7 @@ export function Dashboard() {
       if (getPriority(t.priority) === 'urgente') urgent++
     }
     return { overdue, near, urgent }
-  }, [tickets])
+  }, [tickets, slaTick])
 
   const overdueTickets = useMemo(() => {
     return tickets
@@ -65,7 +71,7 @@ export function Dashboard() {
         return ma - mb
       })
       .slice(0, 5)
-  }, [tickets])
+  }, [tickets, slaTick])
 
   const feedbackStats = useMemo(() => {
     const rated = tickets.filter((t) => t.feedbackRating)

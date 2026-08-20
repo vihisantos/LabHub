@@ -65,6 +65,7 @@ export function TicketForm() {
   const [reportedBy, setReportedBy] = useState('')
   const [reportedByEmail, setReportedByEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({})
 
   const campusRef = useRef<HTMLDivElement>(null)
@@ -121,6 +122,7 @@ export function TicketForm() {
 
     setSubmitting(true)
     setFieldErrors({})
+    setSubmitError('')
 
     try {
       const ticket = await ticketService.create({
@@ -142,6 +144,7 @@ export function TicketForm() {
       if (!ticket.id) throw new Error('Chamado criado sem ID')
       navigate(`/chamados-publico/success/${ticket.id}`)
     } catch {
+      setSubmitError('Não foi possível abrir o chamado. Verifique sua conexão e tente novamente.')
       setSubmitting(false)
     }
   }
@@ -203,6 +206,15 @@ export function TicketForm() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {submitError && (
+        <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-red-600 dark:text-red-400">
+            <icons.ui.alertCircle size={14} />
+            {submitError}
+          </p>
         </div>
       )}
 

@@ -54,7 +54,7 @@ export function ChamadosLayout() {
 
   useOnlineSync()
 
-  const { tickets, loading, syncing, reload } = useTickets()
+  const { tickets, loading, syncing, reload, create, update, updateStatus, remove } = useTickets()
   const openCount = tickets.filter((t) => t.status !== 'fechado' && t.status !== 'resolvido' && !t.archived).length
 
   function scrollToTop() {
@@ -64,7 +64,7 @@ export function ChamadosLayout() {
   }
 
   return (
-    <TicketsContext.Provider value={{ tickets, loading, syncing, reload }}>
+    <TicketsContext.Provider value={{ tickets, loading, syncing, reload, create, update, updateStatus, remove }}>
       <div className="flex min-h-dvh flex-col bg-surface text-fg">
         <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/80 px-4 py-3.5 backdrop-blur-xl">
           {detail && (
