@@ -27,6 +27,7 @@ export interface StockMovement {
   expectedReturnAt?: string
   returnedAt?: string
   destinationRoom?: string
+  workspace_id?: string
   createdAt: string
   deletedAt?: string
 }

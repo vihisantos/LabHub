@@ -12,6 +12,7 @@ export interface ChecklistTemplate {
   items: ChecklistItemDef[]
   createdAt: string
   updatedAt: string
+  workspace_id?: string
 }
 
 export type ChecklistTemplateForm = Omit<ChecklistTemplate, 'id' | 'createdAt' | 'updatedAt'>
@@ -32,6 +33,7 @@ export interface PCChecklist {
   labName: string
   items: PCChecklistItem[]
   completedAt: string | null
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }

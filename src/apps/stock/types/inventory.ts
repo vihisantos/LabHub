@@ -12,6 +12,7 @@ export interface InventoryCycle {
   damagedCount: number
   startedAt: string
   completedAt: string | null
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }
@@ -34,4 +35,5 @@ export interface InventoryCount {
   actualRoom: string
   notes: string
   countedAt: string | null
+  workspace_id?: string
 }

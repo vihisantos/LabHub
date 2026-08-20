@@ -9,6 +9,7 @@ export interface StockMaintenance {
   performedBy: string
   completed: boolean
   completedAt: string | null
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }
