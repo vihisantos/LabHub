@@ -90,7 +90,7 @@ export function TicketList() {
   const PRIORITY_ORDER: Record<string, number> = { urgente: 0, alta: 1, normal: 2, baixa: 3 }
 
   const sortedTickets = useMemo(() => {
-    const sorted = [...filteredTickets]
+    const sorted = filteredTickets.filter((t) => t.id && t.ticketNumber != null)
     switch (sortBy) {
       case 'prioridade':
         return sorted.sort((a, b) => (PRIORITY_ORDER[getPriority(a.priority)] ?? 2) - (PRIORITY_ORDER[getPriority(b.priority)] ?? 2))

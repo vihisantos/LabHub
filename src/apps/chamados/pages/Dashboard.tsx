@@ -64,7 +64,7 @@ export function Dashboard() {
 
   const overdueTickets = useMemo(() => {
     return tickets
-      .filter((t) => isTicketOpen(t.status) && isSlaOverdue(t.createdAt, t.priority, t.status, slaConfigFor(t)))
+      .filter((t) => t.id && t.ticketNumber != null && isTicketOpen(t.status) && isSlaOverdue(t.createdAt, t.priority, t.status, slaConfigFor(t)))
       .sort((a, b) => {
         const ma = getSlaRemainingMs(a.createdAt, a.priority, slaConfigFor(a))
         const mb = getSlaRemainingMs(b.createdAt, b.priority, slaConfigFor(b))
@@ -81,7 +81,7 @@ export function Dashboard() {
   }, [tickets])
 
   const recentTickets = useMemo(() => {
-    return [...tickets].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 5)
+    return tickets.filter((t) => t.id && t.ticketNumber != null).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 5)
   }, [tickets])
 
   const ticketsByRoom = useMemo(() => {
