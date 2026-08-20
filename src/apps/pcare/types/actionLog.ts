@@ -12,4 +12,5 @@ export interface ActionLog {
   type: ActionType
   description: string
   timestamp: string
+  workspace_id?: string
 }

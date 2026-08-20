@@ -5,4 +5,5 @@ export interface PartUsage {
   partName: string
   quantity: number
   timestamp: string
+  workspace_id?: string
 }

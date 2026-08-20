@@ -71,6 +71,7 @@ export interface Asset {
   photos: string[]
   warranty: AssetWarranty
   licenses: AssetLicense[]
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }

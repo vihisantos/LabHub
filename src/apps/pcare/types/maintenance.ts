@@ -8,6 +8,7 @@ export interface ScheduledMaintenance {
   notes: string
   completed: boolean
   completedAt: string | null
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }

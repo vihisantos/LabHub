@@ -6,6 +6,7 @@ export interface Part {
   minQuantity: number
   serialNumber?: string
   notes?: string
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }

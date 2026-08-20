@@ -13,6 +13,7 @@ export interface Kit {
   items: KitItem[]
   lastChecked: string | null
   status: KitStatus
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }

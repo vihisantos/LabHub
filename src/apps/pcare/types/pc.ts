@@ -72,6 +72,7 @@ export interface PC {
   observations: string
   photos: string[]
   lastIntervention: string | null
+  workspace_id?: string
   createdAt: string
   updatedAt: string
 }
