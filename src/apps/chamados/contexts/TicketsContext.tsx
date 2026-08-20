@@ -1,11 +1,15 @@
 import { createContext, useContext } from 'react'
-import type { Ticket } from '../types'
+import type { Ticket, TicketFormData, TicketStatus } from '../types'
 
 export interface TicketsContextValue {
   tickets: Ticket[]
   loading: boolean
   syncing: boolean
   reload: (silent?: boolean) => Promise<void>
+  create: (data: TicketFormData) => Promise<Ticket>
+  update: (id: string, data: Partial<Ticket>) => Ticket | undefined
+  updateStatus: (id: string, status: TicketStatus) => Ticket | undefined
+  remove: (id: string) => boolean
 }
 
 export const TicketsContext = createContext<TicketsContextValue | null>(null)

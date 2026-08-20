@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ticketService } from '../../chamados/services/ticketService'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types'
+import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import type { Ticket, TicketStatus } from '../../chamados/types'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
@@ -20,7 +21,13 @@ function statusMessage(ticket: Ticket): string {
 }
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const d = new Date(iso)
+  const now = new Date()
+  const isToday = d.toDateString() === now.toDateString()
+  if (isToday) {
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -66,6 +73,7 @@ export function TicketSuccess() {
   const [offline, setOffline] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [pushState, setPushState] = useState<'off' | 'on' | 'denied' | 'loading'>('off')
+  const [copied, setCopied] = useState(false)
   const lastStatusRef = useRef(ticket?.status)
 
   useEffect(() => {
@@ -141,6 +149,25 @@ export function TicketSuccess() {
     }
   }, [ticketId])
 
+  // Realtime: atualizações de status chegam instantaneamente via WebSocket
+  useRealtimeSubscription<{ id: string; status: string; statusNote: string; updatedAt: string }>(
+    'chamados_tickets',
+    '*',
+    (payload) => {
+      if ((payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') && payload.new.id === ticketId) {
+        const updated = payload.new as unknown as Ticket
+        setTicket((prev) => (prev ? { ...prev, ...updated } : prev))
+        setOffline(false)
+        setNotFound(false)
+        if (lastStatusRef.current && lastStatusRef.current !== updated.status) {
+          showStatusNotification(updated)
+        }
+        lastStatusRef.current = updated.status
+      }
+    },
+    { channelName: `chamados:public:${ticketId ?? 'none'}`, enabled: !!ticketId },
+  )
+
   if (!ticket || notFound) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center px-5">
@@ -162,6 +189,17 @@ export function TicketSuccess() {
   const statusMsg = statusMessage(ticket)
   const concluded = ticket.status === 'resolvido' || ticket.status === 'fechado'
 
+  async function handleCopyNumber() {
+    const text = `#${ticket.ticketNumber || '?'} — ${ticket.roomName} — ${ticket.problemCategory}`
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback silencioso
+    }
+  }
+
   return (
     <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pt-16 pb-8">
       <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15">
@@ -172,8 +210,16 @@ export function TicketSuccess() {
       <p className="mt-2 text-sm text-fg-muted">Seu chamado foi registrado com sucesso</p>
 
       <div className="mt-8 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
-        <div className="mb-4 text-center">
+        <div className="mb-4 flex items-center justify-center gap-3">
           <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
+          <button
+            type="button"
+            onClick={handleCopyNumber}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 transition-colors hover:bg-emerald-500/20"
+            title={copied ? 'Copiado!' : 'Copiar número'}
+          >
+            {copied ? <icons.ui.circleCheck size={16} /> : <icons.ui.copy size={16} />}
+          </button>
         </div>
 
         <div className="space-y-3 border-t border-line pt-4">

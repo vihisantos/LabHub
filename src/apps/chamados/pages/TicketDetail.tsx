@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useTickets } from '../hooks/useTickets'
+import { useTicketsContext } from '../contexts/TicketsContext'
 import {
   TICKET_STATUS_LABELS,
   TICKET_STATUS_COLORS,
@@ -41,7 +41,7 @@ function slaConfigFor(ticket: Ticket) {
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { tickets, update, updateStatus, create } = useTickets()
+  const { tickets, update, updateStatus, create } = useTicketsContext()
   const { isFullAccess } = useAppAccess()
   const { user } = useAuth()
   const canWrite = isFullAccess('chamados')
@@ -489,10 +489,11 @@ export function TicketDetail() {
                 <button
                   type="button"
                   onClick={() => setLightbox(ticket.photos ?? null)}
-                  className="mt-1 block h-24 w-24 overflow-hidden rounded-xl border border-line"
+                  className="mt-1 block h-36 w-full overflow-hidden rounded-xl border border-line"
                 >
                   <img src={ticket.photos} alt="Foto do problema" className="h-full w-full object-cover" />
                 </button>
+                <p className="mt-1 text-[10px] text-fg-dim">Toque para ampliar</p>
               </div>
             </div>
           )}
@@ -695,6 +696,7 @@ export function TicketDetail() {
           type="button"
           onClick={() => setLightbox(null)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          aria-label="Fechar foto"
         >
           <img
             src={lightbox}

@@ -22,8 +22,8 @@ vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'ticket-1' }),
   useNavigate: () => vi.fn(),
 }))
-vi.mock('../../hooks/useTickets', () => ({
-  useTickets: () => ({
+vi.mock('../../contexts/TicketsContext', () => ({
+  useTicketsContext: () => ({
     tickets: [
       {
         id: 'ticket-1',
