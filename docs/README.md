@@ -1,128 +1,107 @@
-# LabHub — Documentacao do Projeto
+# LabHub Documentation
 
-> PWA modular para gestao de laboratorios de informatica em ambientes universitarios.
+> Modular PWA for managing IT laboratory operations in university campuses.
 
-**Versao:** 2.1.0  
-**Status:** Pre-release  
-**Stack Principal:** React 19, TypeScript, Vite, Tailwind CSS v4, Supabase, Flask (Python)
+**Version:** 2.1.0 · **Status:** Pre-release
 
 ---
 
-## Sumario
+## Understand the System
 
-- [Visao Geral](#visao-geral)
-- [Arquitetura](arquitetura.md)
-- [Sub-apps](#sub-apps)
-  - [PCare](pcare.md) — Gestao de PCs, limpeza e manutencao
-  - [Estoque](stock.md) — Controle de materiais e suprimentos
-  - [ReservaLab](reservalab.md) — Reserva de laboratorios e tablets
-  - [TV](tv.md) — Canal corporativo e murais digitais
-- [API Backend](api.md)
-- [Banco de Dados](database.md) — schemas Supabase e consumo de dados pelo app (diagramas Mermaid)
-- [Variaveis de Ambiente](#variaveis-de-ambiente)
-- [Deploy](#deploy)
-- [CI/CD](#cicd)
-- [Roadmap](#roadmap)
+| Document | Description |
+|----------|-------------|
+| [System Overview](concepts/system-overview.md) | What LabHub is and why it exists |
+| [Workspaces](concepts/workspaces.md) | Multi-tenancy and campus isolation |
+| [Modules](concepts/modules.md) | How the system is organized into sub-apps |
+| [Assets](concepts/assets.md) | Global Asset Registry for physical IT assets |
+| [Tickets](concepts/tickets.md) | Support request lifecycle and SLA |
+| [Offline-first](concepts/offline-first.md) | Local-first data strategy |
+| [Synchronization](concepts/synchronization.md) | Data flow between localStorage and Supabase |
+| [Glossary](glossary.md) | Quick reference for LabHub-specific terms |
 
----
+## Architecture
 
-## Visao Geral
+| Document | Description |
+|----------|-------------|
+| [System Architecture](architecture/system.md) | High-level system design and data flow patterns |
+| [Frontend](architecture/frontend.md) | React structure, components, and patterns |
+| [Backend](architecture/backend.md) | Flask API, routes, and integrations |
+| [Data Layer](architecture/data-layer.md) | Three-tier data architecture |
+| [Realtime](architecture/realtime.md) | WebSocket subscriptions and live updates |
+| [Authentication](architecture/authentication.md) | User auth flow and profile management |
+| [Authorization](architecture/authorization.md) | Three-layer access control model |
 
-O **LabHub** e uma plataforma web progressiva (PWA) desenvolvida para gerenciar todas as operacoes de laboratorios de informatica em um campus universitario. Ele centraliza o inventario de computadores, controle de estoque, reservas de salas e comunicacao visual em uma unica interface modular.
+## Module Documentation
 
-### Principios de Design
+| Module | Description |
+|--------|-------------|
+| [Chamados](modules/chamados/overview.md) | Support tickets and service orders |
+| [Assets](modules/assets/overview.md) | Global Asset Registry |
+| [Stock](modules/stock/overview.md) | Materials and supplies management |
+| [PCare](modules/pcare/overview.md) | Computer inventory and maintenance |
+| [ReservaLab](modules/reservalab/overview.md) | Lab and tablet reservations |
+| [TV](modules/tv/overview.md) | Digital signage and corporate channel |
+| [Workspaces](modules/workspaces/overview.md) | Campus management |
 
-- **Modularidade**: Cada sub-app e um modulo independente com seu proprio layout, rotas, servicos e contexto de tema.
-- **Offline-first**: Dados sao persistidos localmente (localStorage) e sincronizados com Supabase em background. O app funciona 100% offline.
-- **Progressive Web App**: Pode ser instalado na tela inicial, funciona sem conexao e suporta notificacoes push.
-- **Multi-lab**: Suporte a multiplos laboratorios com troca rapida entre eles.
-- **Dark/Light**: Temas independentes por sub-app, com deteccao automatica do tema do sistema.
+## Guides
 
-### Stack Tecnica
+| Guide | Description |
+|-------|-------------|
+| [Setup](guides/setup.md) | Development environment setup |
+| [Development](guides/development.md) | Day-to-day workflow and conventions |
+| [Testing](guides/testing.md) | Writing and running tests |
+| [Adding a Module](guides/adding-module.md) | Step-by-step module creation |
+| [Database Migrations](guides/database-migrations.md) | Creating Supabase migrations |
+| [Deployment](guides/deployment.md) | CI/CD and release process |
 
-| Camada | Tecnologia |
-|--------|-----------|
-| Frontend | React 19, TypeScript 6, Vite 8 |
-| Estilo | Tailwind CSS v4, Radix UI |
-| Animacoes | Framer Motion |
-| Graficos | Recharts |
-| Dados Locais | localStorage (via `createLocalService`) |
-| Sync Remoto | Supabase (PostgreSQL) |
-| Backend API | Flask (Python) — Vercel Serverless (ReservaLab + TV) |
-| Build | Vite, oxlint |
-| Testes | Vitest, Testing Library |
-| CI/CD | GitHub Actions + Vercel |
-| PWA | vite-plugin-pwa, Workbox |
-| Exportacao | jsPDF, xlsx, file-saver |
+## Technical Reference
 
----
+| Reference | Description |
+|-----------|-------------|
+| [API](reference/api.md) | Flask endpoint reference |
+| [Database](reference/database.md) | Supabase schema reference |
+| [Types](reference/types.md) | TypeScript type definitions |
+| [Events](reference/events.md) | Realtime events and notifications |
+| [Configuration](reference/configuration.md) | Environment variables and config files |
 
-## Sub-apps
+## Engineering Decisions
 
-O LabHub e composto por 4 sub-apps, cada uma acessivel a partir do Launcher principal:
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-001](decisions/ADR-001-offline-first-architecture.md) | Offline-first with localStorage | Accepted |
+| [ADR-002](decisions/ADR-002-supabase-as-remote-database.md) | Supabase as remote database | Accepted |
+| [ADR-003](decisions/ADR-003-flask-api-for-chamados.md) | Flask API for Chamados | Accepted |
+| [ADR-004](decisions/ADR-004-workspace-isolation.md) | Workspace isolation model | Accepted |
+| [ADR-005](decisions/ADR-005-module-isolation.md) | Module isolation pattern | Accepted |
+| [ADR-006](decisions/ADR-006-global-asset-registry.md) | Global Asset Registry | Accepted |
+| [ADR-007](decisions/ADR-007-realtime-for-tickets.md) | Realtime for tickets | Accepted |
+| [ADR-008](decisions/ADR-008-three-layer-access-control.md) | Three-layer access control | Accepted |
 
-| App | Descricao | Cor |
-|-----|-----------|-----|
-| **[PCare](pcare.md)** | Gestao de PCs, limpeza, manutencao, checklists, QR codes, relatorios | `#06b6d4` |
-| **[Estoque](stock.md)** | Controle de materiais, movimentacoes, kits, inventario ciclico | `#10b981` |
-| **[ReservaLab](reservalab.md)** | Reserva de laboratorios, tablets, dashboard com graficos | `#6366f1` |
-| **[TV](tv.md)** | Canal corporativo, murais digitais, playlists de video/musica | `#ef4444` |
+## Operations
 
----
+| Document | Description |
+|----------|-------------|
+| [Deployment](operations/deployment.md) | Deployment pipeline and rollback |
+| [Monitoring](operations/monitoring.md) | Metrics and health checks |
+| [Troubleshooting](operations/troubleshooting.md) | Common issues and solutions |
+| [Recovery](operations/recovery.md) | Backup and disaster recovery |
 
-## Variaveis de Ambiente
+## Historical
 
-### Frontend
-
-| Variavel | Obrigatorio | Descricao |
-|----------|-------------|-----------|
-| `VITE_SUPABASE_URL` | Nao | URL do projeto Supabase |
-| `VITE_SUPABASE_ANON_KEY` | Nao | Chave anon publica do Supabase |
-| `VITE_APP_VERSION` | Nao | Versao do app (exibida nas Configuracoes) |
-| `VITE_RESERVALAB_API_URL` | Nao | URL base da API Flask do ReservaLab |
-| `VITE_VAPID_PUBLIC_KEY` | Nao | Chave publica VAPID para Web Push |
-
-> **Sem as variaveis do Supabase**, o app funciona em modo local (localStorage apenas, sem sync remoto).
-
-### Backend Flask (ReservaLab)
-
-| Variavel | Obrigatorio | Descricao |
-|----------|-------------|-----------|
-| `SHAREPOINT_URL` | Sim | URL da planilha de reservas (com `?download=1`) |
-| `UPSTASH_REDIS_REST_URL` | Nao | URL do Upstash Redis (push notifications) |
-| `UPSTASH_REDIS_REST_TOKEN` | Nao | Token do Upstash Redis |
-| `SUPABASE_URL` | Nao | URL do Supabase (para tablets) |
-| `SUPABASE_SERVICE_KEY` | Nao | Service key do Supabase |
-
----
-
-## Deploy
-
-O deploy e **automatico** a cada push na branch `main` via integracao GitHub + Vercel.
-
-- **Frontend**: Build estatico servido pela Vercel
-- **Backend**: Flask rodando como Python Serverless na Vercel
-- **Rotas**: `/api/*` vai para o Flask, todo o resto vai para o SPA React
+| Document | Description |
+|----------|-------------|
+| [Audits](audits/) | Historical analyses and legacy documentation |
 
 ---
 
-## CI/CD
+## Contributing to Documentation
 
-| Job | Trigger | O que faz |
-|-----|---------|-----------|
-| `lint` | push/PR na main | Executa `oxlint` |
-| `test` | push/PR na main | Executa testes Vitest |
-| `build` | apos lint + test ok | Build de producao + upload artifact |
-| Deploy Vercel | push na main | Deploy automatico via integracao nativa |
+1. **One question per document** — Each doc should answer primarily one question
+2. **Use the right category** — Concepts (what), Architecture (how it works), Guides (how to), Reference (details)
+3. **Keep it current** — Update docs when code changes
+4. **No empty files** — Only create docs with real content
+5. **Use Mermaid** — Diagrams help, but don't overdo it
 
----
+## License
 
-## Roadmap
-
-O roadmap publico esta disponivel em `/roadmap` dentro do app. Ha 75 features mapeadas, com progresso visivel por categoria de impacto.
-
----
-
-## Licenca
-
-MIT License — Capybara Holding
+Proprietary — All rights reserved. See [LICENSE](../LICENSE).
