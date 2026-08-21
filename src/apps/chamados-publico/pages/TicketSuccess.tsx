@@ -31,24 +31,59 @@ function formatTime(iso: string) {
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+/* ── Push helpers isolados do fluxo crítico ─────────────────── */
+
+function isNotificationAvailable(): boolean {
+  try {
+    return typeof Notification !== 'undefined'
+  } catch {
+    return false
+  }
 }
 
-function pushSupported(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    'serviceWorker' in navigator &&
-    'PushManager' in window &&
-    typeof Notification !== 'undefined'
-  )
+function isPushSupported(): boolean {
+  try {
+    return (
+      typeof window !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      'PushManager' in window &&
+      isNotificationAvailable()
+    )
+  } catch {
+    return false
+  }
+}
+
+function safeGetNotificationPermission(): NotificationPermission | 'unavailable' {
+  if (!isNotificationAvailable()) return 'unavailable'
+  try {
+    return Notification.permission
+  } catch {
+    return 'unavailable'
+  }
+}
+
+function safeLocalStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Storage indisponível — silencioso
+  }
 }
 
 function showStatusNotification(ticket: Ticket): void {
+  if (!isNotificationAvailable()) return
   try {
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    if (Notification.permission !== 'granted') return
+    if (document.hidden === undefined) return
     if (!document.hidden) return
     const message = statusMessage(ticket)
     const notification = new Notification(`Chamado #${ticket.ticketNumber || '?'}`, {
@@ -64,6 +99,14 @@ function showStatusNotification(ticket: Ticket): void {
     // Notificação nativa indisponível
   }
 }
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+}
+
+/* ── Componente ─────────────────────────────────────────────── */
 
 export function TicketSuccess() {
   const { ticketId } = useParams<{ ticketId: string }>()
@@ -85,19 +128,26 @@ export function TicketSuccess() {
   const [ratingError, setRatingError] = useState('')
   const hasShownRatingRef = useRef(false)
 
+  /* Inicialização do push state — isolada do fluxo crítico */
   useEffect(() => {
     const id = ticket?.id
     if (!id) return
-    const stored = localStorage.getItem(`labhub_chamado_push_${id}`) === '1'
+    if (!isPushSupported()) return
+
+    const stored = safeLocalStorageGet(`labhub_chamado_push_${id}`) === '1'
+    const perm = safeGetNotificationPermission()
+    if (perm === 'unavailable') return
+
     if (stored) {
-      setPushState(Notification.permission === 'granted' ? 'on' : 'off')
-    } else if (Notification.permission === 'denied') {
+      setPushState(perm === 'granted' ? 'on' : 'off')
+    } else if (perm === 'denied') {
       setPushState('denied')
     }
   }, [ticket?.id])
 
   const activatePush = async () => {
     if (!ticket) return
+    if (!isPushSupported()) return
     try {
       const permission = await Notification.requestPermission()
       if (permission !== 'granted') {
@@ -120,7 +170,7 @@ export function TicketSuccess() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subscription.toJSON()),
       })
-      localStorage.setItem(`labhub_chamado_push_${ticket.id}`, '1')
+      safeLocalStorageSet(`labhub_chamado_push_${ticket.id}`, '1')
       setPushState('on')
     } catch {
       setPushState('off')
@@ -315,7 +365,7 @@ export function TicketSuccess() {
         </p>
       </div>
 
-      {pushSupported() && !concluded && (
+      {isPushSupported() && !concluded && (
         <div className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card px-4 py-3">
           {pushState === 'on' ? (
             <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
