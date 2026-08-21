@@ -127,4 +127,144 @@ describe('TicketSuccess', () => {
 
     expect(screen.getByText('Seu chamado foi concluído. Obrigado!')).toBeInTheDocument()
   })
+
+  it('(A) Notification indisponível — renderiza sem crash', async () => {
+    vi.unstubAllGlobals()
+    vi.stubGlobal('Notification', undefined)
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('#1')).toBeInTheDocument()
+  })
+
+  it('(B) Notification disponível — renderiza normalmente', async () => {
+    vi.stubGlobal('Notification', {
+      permission: 'default',
+      requestPermission: vi.fn().mockResolvedValue('granted'),
+    })
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('#1')).toBeInTheDocument()
+  })
+
+  it('(C) PushManager indisponível — seção de push não aparece, sem exceção', async () => {
+    vi.unstubAllGlobals()
+    vi.stubGlobal('Notification', { permission: 'default' })
+    const originalPushManager = window.PushManager
+    delete (window as unknown as Record<string, unknown>).PushManager
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.queryByText('Ativar notificações')).not.toBeInTheDocument()
+    expect(screen.queryByText('Receba um aviso quando o status mudar')).not.toBeInTheDocument()
+
+    if (originalPushManager) {
+      ;(window as unknown as Record<string, unknown>).PushManager = originalPushManager
+    }
+  })
+
+  it('(D) localStorage indisponível — renderiza sem crash', async () => {
+    const getItemSpy = vi.fn(() => { throw new DOMException('localStorage blocked', 'SecurityError') })
+    const setItemSpy = vi.fn(() => { throw new DOMException('localStorage blocked', 'SecurityError') })
+    vi.stubGlobal('localStorage', { getItem: getItemSpy, setItem: setItemSpy })
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('#1')).toBeInTheDocument()
+  })
+
+  it('(E) Permission denied — renderiza e mostra seção de push com texto de bloqueio', async () => {
+    vi.stubGlobal('Notification', {
+      permission: 'denied',
+      requestPermission: vi.fn().mockResolvedValue('denied'),
+    })
+    ;(window as unknown as Record<string, unknown>).PushManager = class {}
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { register: vi.fn() },
+      configurable: true,
+    })
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Notificações bloqueadas no navegador. Libere o acesso para receber avisos do status.')).toBeInTheDocument()
+
+    delete (window as unknown as Record<string, unknown>).PushManager
+  })
+
+  it('(F) Service Worker register falha — componente continua renderizando', async () => {
+    vi.stubGlobal('Notification', {
+      permission: 'default',
+      requestPermission: vi.fn().mockResolvedValue('granted'),
+    })
+    ;(window as unknown as Record<string, unknown>).PushManager = class {}
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: {
+        register: vi.fn().mockRejectedValue(new Error('SW registration failed')),
+      },
+      configurable: true,
+    })
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Ativar notificações')).toBeInTheDocument()
+
+    delete (window as unknown as Record<string, unknown>).PushManager
+  })
+
+  it('(G) PushManager.subscribe falha — componente continua renderizando', async () => {
+    const fakePushManager = {
+      subscribe: vi.fn().mockRejectedValue(new Error('subscribe failed')),
+    }
+    vi.stubGlobal('Notification', {
+      permission: 'default',
+      requestPermission: vi.fn().mockResolvedValue('granted'),
+    })
+    ;(window as unknown as Record<string, unknown>).PushManager = class {}
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: {
+        register: vi.fn().mockResolvedValue({ pushManager: fakePushManager }),
+      },
+      configurable: true,
+    })
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+
+    delete (window as unknown as Record<string, unknown>).PushManager
+  })
+
+  it('(H) Navegação pós-criação funciona — botão de acompanhar está visível', async () => {
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
+  })
+
+  it('(I) Polling e realtime atualizam o status', async () => {
+    mockGetById.mockReturnValue(makeTicket())
+    mockGetByIdRemote.mockResolvedValue(
+      makeTicket({ status: 'em_atendimento', statusNote: 'Técnico chegou' }),
+    )
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Em atendimento')).toBeInTheDocument()
+    expect(screen.getByText('Técnico chegou')).toBeInTheDocument()
+  })
 })
