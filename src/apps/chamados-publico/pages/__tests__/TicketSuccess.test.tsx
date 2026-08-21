@@ -171,8 +171,8 @@ describe('TicketSuccess', () => {
   })
 
   it('(D) localStorage indisponível — renderiza sem crash', async () => {
-    const getItemSpy = vi.fn(() => { throw new SecurityError('localStorage blocked') })
-    const setItemSpy = vi.fn(() => { throw new SecurityError('localStorage blocked') })
+    const getItemSpy = vi.fn(() => { throw new DOMException('localStorage blocked', 'SecurityError') })
+    const setItemSpy = vi.fn(() => { throw new DOMException('localStorage blocked', 'SecurityError') })
     vi.stubGlobal('localStorage', { getItem: getItemSpy, setItem: setItemSpy })
     mockGetById.mockReturnValue(makeTicket())
     renderSuccess()
