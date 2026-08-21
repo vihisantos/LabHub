@@ -6,9 +6,21 @@ import type { Ticket } from '../../../chamados/types'
 
 const mockGetById = vi.hoisted(() => vi.fn())
 const mockGetByIdRemote = vi.hoisted(() => vi.fn())
+const mockSubmitFeedback = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../chamados/services/ticketService', () => ({
-  ticketService: { getById: mockGetById, getByIdRemote: mockGetByIdRemote },
+  ticketService: {
+    getById: mockGetById,
+    getByIdRemote: mockGetByIdRemote,
+    submitFeedback: mockSubmitFeedback,
+    getAll: vi.fn().mockReturnValue([]),
+    getEvents: vi.fn().mockResolvedValue([]),
+    addEvent: vi.fn(),
+  },
+}))
+
+vi.mock('../../../../lib/useRealtimeSubscription', () => ({
+  useRealtimeSubscription: () => {},
 }))
 
 import { TicketSuccess } from '../TicketSuccess'
