@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ticketService } from '../../chamados/services/ticketService'
+import { Stars } from '../../chamados/components/Stars'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
@@ -76,6 +77,14 @@ export function TicketSuccess() {
   const [copied, setCopied] = useState(false)
   const lastStatusRef = useRef(ticket?.status)
 
+  const [showRatingModal, setShowRatingModal] = useState(false)
+  const [rating, setRating] = useState(0)
+  const [ratingComment, setRatingComment] = useState('')
+  const [ratingSubmitting, setRatingSubmitting] = useState(false)
+  const [ratingDone, setRatingDone] = useState(false)
+  const [ratingError, setRatingError] = useState('')
+  const hasShownRatingRef = useRef(false)
+
   useEffect(() => {
     const id = ticket?.id
     if (!id) return
@@ -118,6 +127,30 @@ export function TicketSuccess() {
     }
   }
 
+  function maybeShowRating(next: Ticket) {
+    const wasResolved = lastStatusRef.current === 'resolvido' || lastStatusRef.current === 'fechado'
+    const isNowResolved = next.status === 'resolvido' || next.status === 'fechado'
+    if (!wasResolved && isNowResolved && !next.feedbackRating && !hasShownRatingRef.current) {
+      hasShownRatingRef.current = true
+      setShowRatingModal(true)
+    }
+  }
+
+  async function handleSubmitRating() {
+    if (!ticket || rating < 1) return
+    setRatingSubmitting(true)
+    setRatingError('')
+    try {
+      const updated = await ticketService.submitFeedback(ticket.id, rating, ratingComment.trim())
+      setTicket(updated)
+      setRatingDone(true)
+      setTimeout(() => setShowRatingModal(false), 1500)
+    } catch (err) {
+      setRatingError(err instanceof Error ? err.message : 'Erro ao enviar. Tente novamente.')
+      setRatingSubmitting(false)
+    }
+  }
+
   useEffect(() => {
     if (!ticketId || ticketId === 'undefined') return
     const id = ticketId
@@ -131,6 +164,7 @@ export function TicketSuccess() {
         setNotFound(false)
         if (lastStatusRef.current && lastStatusRef.current !== fresh.status) {
           showStatusNotification(fresh)
+          maybeShowRating(fresh)
         }
         lastStatusRef.current = fresh.status
       } catch (err) {
@@ -149,7 +183,6 @@ export function TicketSuccess() {
     }
   }, [ticketId])
 
-  // Realtime: atualizações de status chegam instantaneamente via WebSocket
   useRealtimeSubscription<{ id: string; status: string; statusNote: string; updatedAt: string }>(
     'chamados_tickets',
     '*',
@@ -161,6 +194,7 @@ export function TicketSuccess() {
         setNotFound(false)
         if (lastStatusRef.current && lastStatusRef.current !== updated.status) {
           showStatusNotification(updated)
+          maybeShowRating(updated)
         }
         lastStatusRef.current = updated.status
       }
@@ -326,6 +360,75 @@ export function TicketSuccess() {
         <icons.ui.scanBarcode size={18} />
         {ticket.assetName ? 'Escanear outro QR' : 'Abrir outro chamado'}
       </button>
+
+      {showRatingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-5">
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-2xl">
+            {ratingDone ? (
+              <div className="flex flex-col items-center py-4">
+                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15">
+                  <icons.ui.checkCircle size={28} className="text-emerald-500" />
+                </div>
+                <p className="text-sm font-semibold text-fg">Obrigado!</p>
+                <p className="mt-1 text-xs text-fg-muted">Sua avaliação foi registrada.</p>
+              </div>
+            ) : (
+              <>
+                <div className="mb-1 text-center">
+                  <p className="text-sm font-bold text-fg">Como foi o atendimento?</p>
+                  <p className="mt-0.5 text-xs text-fg-muted">Chamado #{ticket.ticketNumber || '?'}</p>
+                </div>
+
+                <div className="mt-4 flex justify-center">
+                  <Stars value={rating} onChange={setRating} size={28} />
+                </div>
+                <p className="mt-1 text-center text-[11px] text-fg-dim">
+                  {rating === 0
+                    ? 'Toque nas estrelas'
+                    : rating <= 2
+                      ? 'Péssimo / Ruim'
+                      : rating === 3
+                        ? 'Regular'
+                        : rating === 4
+                          ? 'Bom'
+                          : 'Excelente'}
+                </p>
+
+                <textarea
+                  value={ratingComment}
+                  onChange={(e) => setRatingComment(e.target.value)}
+                  placeholder="Comentário (opcional)"
+                  rows={2}
+                  maxLength={500}
+                  className="mt-4 w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none"
+                />
+
+                {ratingError && (
+                  <p className="mt-2 text-center text-[11px] text-red-500">{ratingError}</p>
+                )}
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRatingModal(false)}
+                    className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-xs font-medium text-fg-muted transition-colors hover:bg-input"
+                  >
+                    Agora não
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmitRating}
+                    disabled={rating < 1 || ratingSubmitting}
+                    className="flex-1 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {ratingSubmitting ? 'Enviando...' : 'Enviar'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
