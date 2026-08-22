@@ -155,7 +155,7 @@ export function TicketSuccess() {
         return
       }
       setPushState('loading')
-      const registration = await navigator.serviceWorker.register('/push-sw.js')
+      const registration = await navigator.serviceWorker.ready
       const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
       if (!vapidKey) {
         setPushState('off')

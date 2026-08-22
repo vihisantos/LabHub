@@ -25,5 +25,5 @@
     }
   },
   "include": ["src"],
-  "exclude": ["src/apps/reservalab/api/frontend", "src/sw.ts"]
+  "exclude": ["src/apps/reservalab/api/frontend", "src/sw.ts", "src/__tests__/sw.test.ts"]
 }
