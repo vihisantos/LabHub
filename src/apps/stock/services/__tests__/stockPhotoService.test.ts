@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { stockPhotoService } from '../stockPhotoService'
 
 beforeEach(() => {
@@ -117,6 +117,69 @@ describe('stockPhotoService', () => {
 
     it('countOrphans com store vazio retorna 0', () => {
       expect(stockPhotoService.countOrphans(new Set(['id-1']))).toBe(0)
+    })
+  })
+
+  describe('Storage hardening', () => {
+    it('add não lança quando localStorage.setItem lança SecurityError', () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('Storage access denied', 'SecurityError')
+      })
+
+      expect(() => stockPhotoService.add('item-1', 'data:test')).not.toThrow()
+
+      spy.mockRestore()
+    })
+
+    it('add não lança quando localStorage.setItem lança QuotaExceededError', () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota exceeded', 'QuotaExceededError')
+      })
+
+      expect(() => stockPhotoService.add('item-1', 'data:test')).not.toThrow()
+
+      spy.mockRestore()
+    })
+
+    it('último estado válido permanece quando gravação falha', () => {
+      // Seed valid data
+      stockPhotoService.setAll('item-1', ['data:existing'])
+      expect(stockPhotoService.get('item-1')).toEqual(['data:existing'])
+
+      // Block writes
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota exceeded', 'QuotaExceededError')
+      })
+
+      // Attempt to modify
+      stockPhotoService.add('item-1', 'data:new')
+
+      spy.mockRestore()
+
+      // Previous valid data is still in localStorage (the write failed)
+      expect(stockPhotoService.get('item-1')).toEqual(['data:existing'])
+    })
+
+    it('removeAt não lança quando localStorage.setItem lança SecurityError', () => {
+      stockPhotoService.setAll('item-1', ['data:a', 'data:b'])
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('Storage access denied', 'SecurityError')
+      })
+
+      expect(() => stockPhotoService.removeAt('item-1', 0)).not.toThrow()
+
+      spy.mockRestore()
+    })
+
+    it('deleteAll não lança quando localStorage.setItem lança SecurityError', () => {
+      stockPhotoService.setAll('item-1', ['data:a'])
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('Storage access denied', 'SecurityError')
+      })
+
+      expect(() => stockPhotoService.deleteAll('item-1')).not.toThrow()
+
+      spy.mockRestore()
     })
   })
 })

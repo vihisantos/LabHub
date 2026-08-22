@@ -242,3 +242,67 @@ describe('syncAll / syncSingle com coleções locais (sem rede)', () => {
     expect(getDirtyCollections()).not.toContain('notifications')
   })
 })
+
+describe('Storage hardening — saveDirtySet / saveDeletedMap', () => {
+  it('markDirty não lança quando localStorage.setItem lança SecurityError', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    })
+
+    expect(() => markDirty('pcs')).not.toThrow()
+
+    spy.mockRestore()
+  })
+
+  it('clearDirty não lança quando localStorage.setItem lança SecurityError', () => {
+    // Seed a dirty collection in localStorage first (while storage works)
+    markDirty('pcs')
+    expect(getDirtyCollections()).toContain('pcs')
+
+    // Now block storage and try to clear
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    })
+
+    expect(() => clearDirty('pcs')).not.toThrow()
+
+    spy.mockRestore()
+  })
+
+  it('markDirty não lança quando localStorage.setItem lança QuotaExceededError', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota exceeded', 'QuotaExceededError')
+    })
+
+    expect(() => markDirty('pcs')).not.toThrow()
+
+    spy.mockRestore()
+  })
+
+  it('createSyncService.create funciona quando localStorage está bloqueado', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    })
+
+    const service = createSyncService<{ id: string; name: string }>('sync_test')
+    const item = service.create({ name: 'test' })
+    expect(item.id).toBeDefined()
+    expect(item.name).toBe('test')
+    expect(service.getAll()).toHaveLength(1)
+
+    spy.mockRestore()
+  })
+
+  it('createSyncService.remove funciona quando localStorage está bloqueado', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    })
+
+    const service = createSyncService<{ id: string; name: string }>('pcs')
+    const created = service.create({ name: 'delete-me' })
+    expect(service.remove(created.id)).toBe(true)
+    expect(service.getById(created.id)).toBeUndefined()
+
+    spy.mockRestore()
+  })
+})

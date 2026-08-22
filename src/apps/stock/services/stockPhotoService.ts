@@ -12,7 +12,11 @@ function getAll(): Record<string, string[]> {
 }
 
 function saveAll(data: Record<string, string[]>) {
-  localStorage.setItem(PHOTOS_KEY, JSON.stringify(data))
+  try {
+    localStorage.setItem(PHOTOS_KEY, JSON.stringify(data))
+  } catch {
+    /* QuotaExceededError or SecurityError — next getAll() returns previous valid state */
+  }
 }
 
 /** Compress an image file to a smaller base64 JPEG (max 800px, 70% quality) */

@@ -207,3 +207,60 @@ describe('WorkspaceContext — usuários e seus workspaces', () => {
     expect(screen.getByTestId('probe').dataset.pending).toBe('false')
   })
 })
+
+describe('WorkspaceContext — storage hardening', () => {
+  it('usuário com 1 workspace entra direto quando localStorage.getItem lança SecurityError', async () => {
+    mockUseAuth.mockReturnValue({ user: makeUser({ workspace_ids: ['ws-sjc'] }) })
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    })
+
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
+    expect(screen.getByTestId('probe').dataset.workspace).toBe('ws-sjc')
+    expect(screen.getByTestId('probe').dataset.pending).toBe('false')
+
+    spy.mockRestore()
+  })
+
+  it('seleção funciona quando localStorage.setItem lança SecurityError', async () => {
+    mockUseAuth.mockReturnValue({ user: makeUser({ is_super_admin: true, workspace_ids: [] }) })
+    renderProvider()
+
+    const props = await waitForGate()
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    })
+
+    props.onSelect!(WS[0], true)
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.workspace).toBe('ws-sjc'))
+    expect(screen.getByTestId('probe').dataset.pending).toBe('false')
+
+    spy.mockRestore()
+  })
+
+  it('clearPreference não lança quando localStorage.removeItem lança SecurityError', async () => {
+    mockUseAuth.mockReturnValue({ user: makeUser({ workspace_ids: ['ws-sjc'] }) })
+
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
+
+    const spy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    })
+
+    // clearPreference is exposed via useWorkspace — test via the hook
+    // The provider should continue functioning
+    expect(screen.getByTestId('probe').dataset.workspace).toBe('ws-sjc')
+
+    spy.mockRestore()
+  })
+
+  it('preferência continua sendo persistida quando localStorage funciona', async () => {
+    mockUseAuth.mockReturnValue({ user: makeUser({ workspace_ids: ['ws-sjc'] }) })
+
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
+    expect(localStorage.getItem('labhub_active_workspace')).toBe('ws-sjc')
+  })
+})

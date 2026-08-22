@@ -15,7 +15,11 @@ function getDirtySet(): Set<string> {
 }
 
 function saveDirtySet(dirty: Set<string>) {
-  localStorage.setItem(DIRTY_KEY, JSON.stringify([...dirty]))
+  try {
+    localStorage.setItem(DIRTY_KEY, JSON.stringify([...dirty]))
+  } catch {
+    /* localStorage unavailable — dirty set remains in memory, next sync will reconcile */
+  }
 }
 
 export function markDirty(collection: string) {
@@ -49,7 +53,11 @@ function getDeletedMap(): Record<string, string[]> {
 }
 
 function saveDeletedMap(map: Record<string, string[]>) {
-  localStorage.setItem(DELETED_KEY, JSON.stringify(map))
+  try {
+    localStorage.setItem(DELETED_KEY, JSON.stringify(map))
+  } catch {
+    /* localStorage unavailable — tombstones remain in memory, next sync will reconcile */
+  }
 }
 
 function getDeletedIds(collection: string): string[] {

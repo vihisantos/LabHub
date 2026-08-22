@@ -62,9 +62,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const applySelection = useCallback((ws: Workspace, persist: boolean) => {
     setWorkspaceState(ws)
-    localStorage.setItem(STORAGE_KEY, ws.slug)
-    if (persist && user?.id) {
-      localStorage.setItem(getPreferenceKey(user.id), ws.id)
+    try {
+      localStorage.setItem(STORAGE_KEY, ws.slug)
+      if (persist && user?.id) {
+        localStorage.setItem(getPreferenceKey(user.id), ws.id)
+      }
+    } catch {
+      /* localStorage unavailable — selection works in memory, won't persist across refreshes */
     }
     selectionRef.current.done = true
     setPendingSelection(false)
@@ -88,7 +92,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         selectionRef.current = { userId: user.id, done: false }
       }
 
-      const prefId = localStorage.getItem(getPreferenceKey(user.id))
+      let prefId: string | null = null
+      try {
+        prefId = localStorage.getItem(getPreferenceKey(user.id))
+      } catch {
+        /* localStorage unavailable — no persisted preference */
+      }
       const pref = prefId ? assigned.find((w) => w.id === prefId) : undefined
       if (pref) {
         selectionRef.current.done = true
@@ -106,7 +115,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       } else if (assigned.length === 1) {
         selectionRef.current.done = true
         setWorkspaceState(assigned[0])
-        localStorage.setItem(STORAGE_KEY, assigned[0].slug)
+        try {
+          localStorage.setItem(STORAGE_KEY, assigned[0].slug)
+        } catch {
+          /* localStorage unavailable — auto-select works in memory */
+        }
         setPendingSelection(false)
       } else if (assigned.length > 1) {
         // Sem preferência persistida: força o gate de seleção
@@ -143,7 +156,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const clearPreference = useCallback(() => {
     if (!user?.id) return
-    localStorage.removeItem(getPreferenceKey(user.id))
+    try {
+      localStorage.removeItem(getPreferenceKey(user.id))
+    } catch {
+      /* localStorage unavailable — preference remains in storage but is ignored */
+    }
   }, [user])
 
   const refreshWorkspaces = useCallback(async () => {
