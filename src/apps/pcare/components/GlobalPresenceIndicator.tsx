@@ -5,12 +5,23 @@ import { useRealtimePresence } from '../../../lib/useRealtimePresence'
 /* ── Global tab ID shared across all apps ── */
 function getGlobalTabId(): string {
   const key = 'labhub_global_tab_id'
-  let id = sessionStorage.getItem(key)
-  if (!id) {
-    id = crypto.randomUUID()
-    sessionStorage.setItem(key, id)
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      let id = sessionStorage.getItem(key)
+      if (!id) {
+        id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        sessionStorage.setItem(key, id)
+      }
+      return id
+    }
+  } catch {
+    /* sessionStorage blocked (e.g. Safari private mode) — fall through to ephemeral ID */
   }
-  return id
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 const TAB_ID = getGlobalTabId()

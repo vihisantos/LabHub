@@ -106,6 +106,17 @@ describe('KioskProvider', () => {
     expect(screen.getByTestId('kiosk-mode')).toHaveTextContent('on')
   })
 
+  it('não quebra quando localStorage lança SecurityError no initializer', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Failed to read localStorage', 'SecurityError')
+    })
+
+    expect(() => renderTestHarness()).not.toThrow()
+    expect(screen.getByTestId('kiosk-mode')).toHaveTextContent('off')
+
+    spy.mockRestore()
+  })
+
   it('evento Escape sai do modo quiosque', () => {
     renderTestHarness()
     fireEvent.click(screen.getByText('Enter'))

@@ -11,9 +11,13 @@ const LabContext = createContext<LabContextValue>({
 })
 
 export function LabProvider({ children }: { children: ReactNode }) {
-  const [activeLab, setActiveLabState] = useState<string | null>(
-    () => localStorage.getItem('labhub_active_lab'),
-  )
+  const [activeLab, setActiveLabState] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('labhub_active_lab')
+    } catch {
+      return null
+    }
+  })
 
   const setActiveLab = useCallback((lab: string | null) => {
     setActiveLabState(lab)

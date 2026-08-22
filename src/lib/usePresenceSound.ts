@@ -40,9 +40,13 @@ function getAudioCtx(): AudioContext {
 }
 
 export function usePresenceSound() {
-  const [muted, setMuted] = useState(
-    () => localStorage.getItem(STORAGE_KEY) === 'true',
-  )
+  const [muted, setMuted] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
   const mutedRef = useRef(muted)
   mutedRef.current = muted
 

@@ -111,4 +111,15 @@ describe('usePresenceSound', () => {
     rerender()
     expect(result.current.toggleMute).toBe(firstToggle)
   })
+
+  it('não quebra quando localStorage lança SecurityError no initializer', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Failed to read localStorage', 'SecurityError')
+    })
+
+    const { result } = renderHook(() => usePresenceSound())
+    expect(result.current.muted).toBe(false)
+
+    spy.mockRestore()
+  })
 })

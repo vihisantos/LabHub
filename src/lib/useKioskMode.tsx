@@ -11,7 +11,13 @@ const KioskContext = createContext<KioskContextValue>({ kioskMode: false, enterK
 const STORAGE_KEY = 'labhub_kiosk_mode'
 
 export function KioskProvider({ children }: { children: ReactNode }) {
-  const [kioskMode, setKioskMode] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true')
+  const [kioskMode, setKioskMode] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
 
   const enterKiosk = useCallback(() => {
     setKioskMode(true)
