@@ -355,7 +355,9 @@ def require_workspace(f):
 def require_module(module_id: str):
     """Decorator factory: check if module is enabled in the workspace.
 
-    Must be used AFTER @require_auth and @require_workspace.
+    Can be used with or without @require_workspace:
+    - If @require_workspace was used (g.workspace exists), checks disabled_apps
+    - If no workspace context, passes through (module-level check not possible)
 
     Usage:
         @app.route('/api/example')
@@ -368,12 +370,9 @@ def require_module(module_id: str):
     def decorator(f):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
-            if not hasattr(g, 'workspace'):
-                return _auth_error('Workspace validation required')
-
-            if not _is_module_enabled(g.workspace, module_id):
-                return _forbidden(f'Module "{module_id}" is disabled')
-
+            if hasattr(g, 'workspace'):
+                if not _is_module_enabled(g.workspace, module_id):
+                    return _forbidden(f'Module "{module_id}" is disabled')
             return f(*args, **kwargs)
         return wrapper
     return decorator

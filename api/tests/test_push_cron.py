@@ -22,11 +22,11 @@ def client(push_module):
     return push_module.app.test_client()
 
 
-def test_check_all_sem_cron_secret_fica_aberto(client, monkeypatch):
-    """Sem CRON_SECRET configurado o endpoint mantém o comportamento legado (aberto)."""
+def test_check_all_sem_cron_secret_fica_fechado(client, monkeypatch):
+    """Sem CRON_SECRET configurado o endpoint retorna 503 (fail-closed)."""
     monkeypatch.delenv('CRON_SECRET', raising=False)
     resp = client.get('/api/push/check-all')
-    assert resp.status_code == 200
+    assert resp.status_code == 503
 
 
 def test_check_all_exige_header_com_cron_secret(client, monkeypatch):
