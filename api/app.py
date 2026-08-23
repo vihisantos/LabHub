@@ -4,10 +4,22 @@ from urllib.parse import urlparse, parse_qs, quote
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api'))
 from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger
+from auth import (
+    require_auth,
+    require_module as require_module_auth,
+    require_cron,
+    require_admin,
+    _verify_jwt,
+    _get_token_from_request,
+    _get_user_profile,
+    _get_workspace,
+    _user_in_workspace,
+    _is_module_enabled,
+)
 
 import requests
 from collections import defaultdict
-from flask import jsonify, request
+from flask import jsonify, request, g
 
 
 # ── Rate limiting (in-memory) ──
@@ -463,10 +475,13 @@ def tv_youtube_live():
 
 
 @app.route('/api/tv/cloudinary/delete', methods=['POST'])
+@require_auth
+@require_module_auth('tv')
 def tv_cloudinary_delete():
     """
     Deleta uma imagem do Cloudinary pelo seu secure_url.
     Requer CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET configurados no ambiente.
+    Auth required, TV module required.
     """
     try:
         data = request.get_json() or {}
@@ -1116,8 +1131,9 @@ def chamados_create():
 
 
 @app.route('/api/chamados', methods=['GET'])
+@require_auth
 def chamados_list():
-    """Lista chamados (filtros opcionais: workspace_id, status, reportedBy). Usado pelo app do TI."""
+    """Lista chamados (filtros opcionais: workspace_id, status, reportedBy). Requer autenticação."""
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
@@ -1142,8 +1158,9 @@ def chamados_list():
 
 
 @app.route('/api/chamados/<ticket_id>', methods=['GET', 'PATCH', 'DELETE'])
+@require_auth
 def chamados_manage(ticket_id):
-    """Consulta, atualiza status/responsável/prioridade de um chamado ou remove."""
+    """Consulta, atualiza status/responsável/prioridade de um chamado ou remove. Requer autenticação."""
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
@@ -1385,6 +1402,7 @@ def _parse_iso(value, label):
 
 
 @app.route('/api/chamados/reports', methods=['GET'])
+@require_auth
 def chamados_reports():
     """Relatório de chamados (agregação no servidor). Período via from/to (ISO).
 
@@ -1457,6 +1475,8 @@ def chamados_subscribe(ticket_id):
 
 
 @app.route('/api/chamados/push/test', methods=['POST'])
+@require_auth
+@require_admin
 def chamados_push_test():
     """Envia uma push de teste para o próprio usuário logado (módulo chamados).
 
@@ -1544,11 +1564,13 @@ WIPE_TABLES = [
 
 
 @app.route('/api/admin/wipe', methods=['POST'])
+@require_auth
+@require_admin
 def admin_wipe():
-    """Apaga TODAS as linhas das tabelas operacionais (stock, pcare, chamados, tv).
+    """Apaga TODAS as linhas das tabelas operacionais (stock, pcare, chamados, TV).
 
     Requer o header `X-Wipe-Token` igual a WIPE_TOKEN (variável de ambiente).
-    Workspaces, perfis e cargos NÃO são apagados (config essencial do app).
+    Auth required, super admin required.
     """
     token = (request.headers.get('X-Wipe-Token') or '').strip()
     if not WIPE_TOKEN or token != WIPE_TOKEN:
@@ -1655,6 +1677,7 @@ def _require_cron():
 
 
 @app.route('/api/chamados/<ticket_id>/events', methods=['GET'])
+@require_auth
 def chamados_events_list(ticket_id):
     """Histórico (timeline) de um chamado, do mais novo para o mais antigo."""
     if not _require_supabase():
@@ -1683,6 +1706,7 @@ def chamados_events_list(ticket_id):
 
 
 @app.route('/api/chamados/<ticket_id>/events', methods=['POST'])
+@require_auth
 def chamados_events_create(ticket_id):
     """Comentário/suporte visual no chamado (solicitante ou técnico), com até 2 fotos."""
     if not _require_supabase():
@@ -1848,6 +1872,8 @@ def _build_weekly_report_html(report, workspace_name):
 
 
 @app.route('/api/chamados/reports/weekly-email', methods=['POST'])
+@require_auth
+@require_admin
 def chamados_reports_weekly_email():
     """Envia por email o resumo semanal de chamados (últimos 7 dias).
 
@@ -1912,6 +1938,7 @@ def chamados_reports_weekly_email():
 
 
 @app.route('/api/chamados/photos/purge', methods=['POST'])
+@require_cron
 def chamados_photos_purge():
     """Cron diário: apaga do Cloudinary as fotos de chamados fechados há mais de 2 dias.
 
