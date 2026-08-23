@@ -1,6 +1,7 @@
 import time
 import json
-from flask import Flask, jsonify, request
+import hmac
+from flask import Flask, jsonify, request, g
 from openpyxl import load_workbook
 from datetime import date, timedelta, datetime
 from flask_cors import CORS
@@ -17,6 +18,22 @@ from io import BytesIO
 from dotenv import load_dotenv
 from upstash_redis import Redis
 from pywebpush import webpush
+
+# Authorization layer
+sys.path.insert(0, os.path.dirname(__file__))
+from auth import (
+    require_auth,
+    require_module as require_module_auth,
+    require_cron,
+    require_admin,
+    _verify_jwt,
+    _get_token_from_request,
+    _get_user_profile,
+    _get_workspace,
+    _user_in_workspace,
+    _is_module_enabled,
+    _SUPABASE_SERVICE_KEY as _AUTH_SERVICE_KEY,
+)
 
 # Detecta caminho correto quando rodando de exe
 if getattr(sys, 'frozen', False):
@@ -542,6 +559,8 @@ def push_notify(sub, title, body, url='/', actions=None, user_id=None):
         return False
 
 @app.route('/api/push/test', methods=['GET'])
+@require_auth
+@require_admin
 def push_test():
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
@@ -558,6 +577,8 @@ def push_test():
 
 
 @app.route('/api/push/send', methods=['POST'])
+@require_auth
+@require_admin
 def push_send():
     """Envia um push para os subscribers (filtrando por módulo, workspace, cargo e usuário)."""
     if not redis:
@@ -632,8 +653,10 @@ def _supabase_headers():
 
 
 @app.route('/api/push/action', methods=['POST'])
+@require_auth
+@require_admin
 def push_action():
-    """Aprova ou rejeita um usuário pendente diretamente da notificação push."""
+    """Aprova ou rejeita um usuário pendente. Requer super admin."""
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return jsonify({'error': 'Supabase not configured'}), 503
     try:
@@ -834,7 +857,16 @@ def _get_key(obj, *keys):
 
 
 @app.route('/api/push/notify-loan', methods=['POST'])
+@require_auth
+@require_module_auth('stock')
 def push_notify_loan():
+    """Notify stock subscribers about a loan. Auth required, stock module required."""
+    # Workspace validation: if workspace_id is provided, verify membership
+    if request.is_json:
+        body_json = request.get_json(silent=True) or {}
+        ws_id = body_json.get('workspace_id')
+        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
+            return jsonify({'error': 'Access denied to this workspace'}), 403
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
@@ -860,7 +892,16 @@ def push_notify_loan():
 
 
 @app.route('/api/push/notify-return', methods=['POST'])
+@require_auth
+@require_module_auth('stock')
 def push_notify_return():
+    """Notify stock subscribers about a return. Auth required, stock module required."""
+    # Workspace validation: if workspace_id is provided, verify membership
+    if request.is_json:
+        body_json = request.get_json(silent=True) or {}
+        ws_id = body_json.get('workspace_id')
+        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
+            return jsonify({'error': 'Access denied to this workspace'}), 403
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
@@ -1229,14 +1270,13 @@ def _cron_authorized():
 
 
 @app.route('/api/push/check-all', methods=['GET'])
+@require_cron
 def push_check_all():
     """Roda todos os checks de cron em uma única chamada (cron-jobs.org / Vercel Cron).
 
     Protegido por CRON_SECRET: o Vercel envia automaticamente o header
     `Authorization: Bearer ${CRON_SECRET}` nas invocações do cron.
     """
-    if not _cron_authorized():
-        return jsonify({'error': 'Não autorizado'}), 401
 
     results = {}
     for name, fn in [
