@@ -22,8 +22,7 @@ desktop/renderer
 .env*
 !.env.example
 
-# Supabase migration scripts (one-time, already applied)
-supabase/
+# Supabase (migrations versioned, supa/ legacy ignored)
 supa/
 
 # Editor directories and files
