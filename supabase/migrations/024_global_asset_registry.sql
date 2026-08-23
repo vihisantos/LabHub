@@ -5,9 +5,23 @@
 -- Cada ativo pertence a um workspace. RLS isola por
 -- workspace_ids do perfil do usuário autenticado.
 --
--- Executar no SQL Editor do Supabase.
--- Rollback: DROP TABLE IF EXISTS public.assets;
+-- Pré-requisito: is_super_admin() deve existir antes das policies.
+-- Criamos aqui para fresh DB. Em produção a função já existe.
+-- A versão definitiva (com REVOKE) fica na migration 028.
 -- ============================================================
+
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(
+    (SELECT p.is_super_admin FROM public.profiles p WHERE p.id = auth.uid()),
+    false
+  )
+$$;
 
 CREATE TABLE IF NOT EXISTS public.assets (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -41,7 +55,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_workspace_asset_tag
 
 -- ============================================================
 -- RLS — workspace membership via profiles.workspace_ids
--- Uses is_super_admin() from migration 022.
+-- Uses is_super_admin() defined above in this migration (definitive version in 028).
 -- ============================================================
 
 ALTER TABLE public.assets ENABLE ROW LEVEL SECURITY;

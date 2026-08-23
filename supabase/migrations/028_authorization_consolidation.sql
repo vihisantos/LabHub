@@ -4,7 +4,7 @@
 -- Consolidates the authorization layer after the full security audit.
 --
 -- Objects addressed:
---   1. is_super_admin() function — versioned for the first time
+--   1. is_super_admin() function — authoritative version + REVOKE anon
 --   2. workspaces.disabled_apps column — official migration
 --   3. workspaces.color column — official migration
 --   4. workspaces.lab_count column — official migration
@@ -21,15 +21,25 @@
 --   - Existing data is never truncated or modified
 --   - No frontend or backend code is changed
 --
+-- Fresh DB compatibility:
+--   - is_super_admin() was already created in 024 as a prerequisite for that
+--     migration's policies. This is the authoritative version (with REVOKE).
+--   - tablet_reservations is created here (IF NOT EXISTS). Migration 011
+--     guards its ALTER with a table-existence check.
+--
 -- Rollback: drop the function, revert policies to role='admin' versions.
 -- =============================================================================
 
 
 -- =============================================================================
--- 1. is_super_admin() — versioned function
+-- 1. is_super_admin() — authoritative function definition
 -- =============================================================================
--- Previously referenced by migrations 024 and 027 but never defined in the
--- repository. Must be defined BEFORE any policy that references it.
+-- First defined in migration 024 (prerequisite for assets policies).
+-- This is the definitive version: same logic, plus REVOKE from anon
+-- as defense-in-depth.
+--
+-- SECURITY DEFINER: avoids RLS recursion on profiles.
+-- search_path = public: prevents search_path injection.
 
 CREATE OR REPLACE FUNCTION public.is_super_admin()
 RETURNS boolean
@@ -46,7 +56,14 @@ $$;
 
 COMMENT ON FUNCTION public.is_super_admin() IS
   'Returns true if the authenticated user has is_super_admin = true on their profile. '
-  'SECURITY DEFINER to avoid RLS recursion on profiles. Created in migration 028.';
+  'SECURITY DEFINER to avoid RLS recursion on profiles. '
+  'First created in migration 024, authoritative version in 028.';
+
+-- Defense-in-depth: anon should never call this function.
+-- RLS policies only run for authenticated/service_role contexts,
+-- but revoking anon prevents accidental or malicious direct calls.
+REVOKE EXECUTE ON FUNCTION public.is_super_admin() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.is_super_admin() FROM PUBLIC;
 
 
 -- =============================================================================
@@ -159,22 +176,27 @@ CREATE POLICY "workspaces_delete"
 -- The table exists in production (used by ReservaLab tablet module).
 -- We create it idempotently with IF NOT EXISTS to avoid breaking fresh DBs.
 --
--- Estado de produção: tabela existe, acessada pelo Flask via service_role
--- e pelo frontend via Supabase client (src/apps/reservalab/services/supabase.ts).
+-- Schema matches the application code exactly:
+--   Frontend: src/apps/reservalab/types/index.ts (TabletReserva interface)
+--   Service:  src/apps/reservalab/services/supabase.ts
+--   Insert:   src/apps/reservalab/pages/Tablets.tsx (lines 126-135)
+--   Flask:    src/apps/reservalab/api/app.py (lines 753-800)
+--
+-- Estado de produção: tabela existe com schema PT, acessada pelo Flask via
+-- service_role e pelo frontend via Supabase client.
 -- RLS status original não confirmado — aplicamos workspace isolation padrão.
 
 CREATE TABLE IF NOT EXISTS public.tablet_reservations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  device_name TEXT NOT NULL DEFAULT '',
-  lab_number INTEGER NOT NULL DEFAULT 1,
-  reserved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-  start_time TIMESTAMPTZ NOT NULL,
-  end_time TIMESTAMPTZ NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled', 'completed')),
-  notes TEXT DEFAULT '',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  sala TEXT NOT NULL DEFAULT '',
+  quantidade_tablets INTEGER NOT NULL DEFAULT 1,
+  professor TEXT NOT NULL DEFAULT '',
+  horario_inicio TIMESTAMPTZ NOT NULL,
+  horario_fim TIMESTAMPTZ NOT NULL,
+  finalidade TEXT DEFAULT '',
+  reservado_por TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ativa' CHECK (status IN ('ativa', 'cancelada', 'concluida'))
 );
 
 ALTER TABLE public.tablet_reservations ENABLE ROW LEVEL SECURITY;
@@ -186,7 +208,7 @@ CREATE INDEX IF NOT EXISTS idx_tablet_reservations_status
   ON public.tablet_reservations(status);
 
 CREATE INDEX IF NOT EXISTS idx_tablet_reservations_times
-  ON public.tablet_reservations(start_time, end_time);
+  ON public.tablet_reservations(horario_inicio, horario_fim);
 
 -- RLS: standard workspace isolation
 DROP POLICY IF EXISTS "tablet_reservations_select" ON public.tablet_reservations;
@@ -232,16 +254,17 @@ CREATE POLICY "tablet_reservations_delete"
 -- =============================================================================
 -- 6. TV tables — documented, USING(true) preserved
 -- =============================================================================
--- PROBLEM: TV tables (tv_events, tv_playlists, tv_music_queues, etc.) have
+-- KNOWN SECURITY DEBT:
+-- TV tables (tv_events, tv_playlists, tv_music_queues, etc.) have
 -- USING(true) policies that allow any authenticated or anonymous user full
--- read/write access. This is a security gap.
+-- read/write/delete access. This is a known vulnerability.
 --
--- WHY NOT FIX HERE: The TV kiosk displays run WITHOUT authentication (anon).
--- They need to read events, playlists, announcements, etc. Replacing USING(true)
--- with workspace isolation would break all kiosk displays immediately.
---
--- CORRECT FIX (deferred to a dedicated TV Authorization PR):
---   1. Make kiosk displays authenticate with a service key or limited anon role
+-- WHY DEFERRED:
+-- The TV kiosk displays run WITHOUT authentication (anon session).
+-- They need to read events, playlists, announcements, etc.
+-- Replacing USING(true) with workspace isolation would break all kiosk
+-- displays immediately. The fix requires architectural changes:
+--   1. Kiosk authentication (service key or limited role)
 --   2. Replace USING(true) with workspace-based policies
 --   3. Move TV CRUD to authenticated-only endpoints
 --
@@ -252,7 +275,7 @@ CREATE POLICY "tablet_reservations_delete"
 --
 -- Current policies: USING(true) WITH CHECK(true) — no restriction.
 -- This migration does NOT change TV policies.
--- See: docs/audits/authorization-audit.md for full analysis.
+-- Will be addressed in a dedicated TV Authorization PR.
 
 
 -- =============================================================================
@@ -293,7 +316,7 @@ CREATE POLICY "tablet_reservations_delete"
 -- This migration ensures the following objects are version-controlled:
 --
 -- FUNCTIONS:
---   public.is_super_admin()          — NEW (was missing from repo)
+--   public.is_super_admin()          — first defined in 024, authoritative here
 --   public.user_belongs_to_workspace(text) — EXISTS in 027
 --   public.user_belongs_to_workspace(uuid) — EXISTS in 027
 --   public.handle_new_user()         — EXISTS in 026
@@ -322,7 +345,7 @@ CREATE POLICY "tablet_reservations_delete"
 --   pcare.* (7 tables)              — is_super_admin() OR user_belongs_to_workspace()
 --   assets (1 table)                — is_super_admin() OR workspace_id IN (...)
 --   tv_music_requests               — authenticated SELECT, owner INSERT, super_admin UPDATE
---   TV tables (9 tables)            — USING(true) — deferred to TV auth PR
+--   TV tables (9 tables)            — USING(true) — DEFERRED (security debt)
 --   tv_activation_codes             — no policies (service_role only)
 --   chamados_tickets                — REVOKE ALL (service_role only)
 --   ticket_events                   — REVOKE ALL (service_role only)
