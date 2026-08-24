@@ -100,12 +100,20 @@ def _cache_path(cache_key):
 
     Usa um hash do cache_key no nome do arquivo: o cache_key deriva de dados
     externos (workspace_slug da query string) e nunca deve virar caminho de
-    arquivo direto (proteção contra path traversal).
+    arquivo direto (proteção contra path traversal / injection).
     """
+    if not isinstance(cache_key, str) or not cache_key:
+        raise ValueError("Invalid cache key")
     safe = hashlib.sha256(cache_key.encode('utf-8')).hexdigest()[:24]
-    if os.environ.get('VERCEL'):
-        return os.path.join('/tmp', f'.cache_{safe}.json')
-    return os.path.join(BASE_DIR, f'.cache_{safe}.json')
+    filename = f'.cache_{safe}.json'
+    # Garante que o nome seja estritamente um basename simples
+    filename = os.path.basename(filename)
+    base_dir = os.path.abspath('/tmp' if os.environ.get('VERCEL') else BASE_DIR)
+    target = os.path.abspath(os.path.join(base_dir, filename))
+    # Defesa em profundidade: garante confinamento estrito dentro de base_dir
+    if os.path.commonpath([base_dir, target]) != base_dir:
+        raise ValueError("Invalid cache path")
+    return target
 
 
 def get_cached_reservas(cache_key):
@@ -446,8 +454,8 @@ def api_reservas():
             'spreadsheet': spreadsheet_source
         })
     except Exception as e:
-        logger.error(f"Erro na rota api_reservas: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("Erro na rota api_reservas: %s", e)
+        return jsonify({'error': 'Erro ao processar reservas'}), 500
 
 @app.route('/api/health')
 def health():
@@ -498,20 +506,49 @@ def push_subscribe():
             return jsonify({'error': 'Missing endpoint'}), 400
 
         user = body.get('user') or {}
+        user_id = str(user.get('id', '') or '')
+
+        # SEC-03: Do NOT trust client-supplied role/is_super_admin/workspace_ids.
+        # Fetch authoritative values from Supabase profiles when user_id is present.
+        server_user = {
+            'id': user_id,
+            'name': str(user.get('name', '') or ''),
+            'role': '',
+            'is_super_admin': False,
+            'workspace_ids': [],
+            'apps': user.get('apps') or {},
+            'notify_settings': user.get('notify_settings') or {},
+        }
+        if user_id and _SUPABASE_URL and _SUPABASE_SERVICE_KEY:
+            try:
+                prof_resp = requests.get(
+                    f'{_SUPABASE_URL}/rest/v1/profiles',
+                    params={
+                        'id': f'eq.{user_id}',
+                        'select': 'role,is_super_admin,workspace_ids',
+                    },
+                    headers={
+                        'apikey': _SUPABASE_SERVICE_KEY,
+                        'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
+                    },
+                    timeout=5,
+                )
+                if prof_resp.ok:
+                    rows = prof_resp.json()
+                    if rows:
+                        p = rows[0]
+                        server_user['role'] = p.get('role') or ''
+                        server_user['is_super_admin'] = bool(p.get('is_super_admin'))
+                        server_user['workspace_ids'] = list(p.get('workspace_ids') or [])
+            except Exception:
+                pass
+
         sub = {
             'key': hashlib.sha256(endpoint.encode()).hexdigest(),
             'endpoint': endpoint,
             'expirationTime': body.get('expirationTime'),
             'keys': body.get('keys') or {},
-            'user': {
-                'id': str(user.get('id', '') or ''),
-                'name': str(user.get('name', '') or ''),
-                'role': str(user.get('role', '') or ''),
-                'is_super_admin': bool(user.get('is_super_admin', False)),
-                'workspace_ids': list(user.get('workspace_ids') or []),
-                'apps': user.get('apps') or {},
-                'notify_settings': user.get('notify_settings') or {},
-            },
+            'user': server_user,
         }
 
         # Remove qualquer inscrição anterior com o mesmo endpoint (dedupe por dispositivo)
@@ -526,8 +563,8 @@ def push_subscribe():
         logger.info(f"Push subscriber added: {sub['key'][:8]}... role={sub['user']['role']}")
         return jsonify({'status': 'ok'})
     except Exception as e:
-        logger.error(f"Push subscribe error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("Push subscribe error: %s", e)
+        return jsonify({'error': 'Erro ao registrar inscrição de push'}), 500
 
 def push_notify(sub, title, body, url='/', actions=None, user_id=None):
     try:
@@ -606,8 +643,8 @@ def push_send():
                 count += 1
         return jsonify({'sent': count, 'total': len(subs)})
     except Exception as e:
-        logger.error(f"Push send error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("Push send error: %s", e)
+        return jsonify({'error': 'Erro ao enviar notificação push'}), 500
 
 
 def _target_subs(module=None, workspace_id=None, user_id=None, role=None):
@@ -702,17 +739,24 @@ def push_action():
             logger.info(f"Push action: rejected user {user_id[:8]}")
             return jsonify({'status': 'rejected'})
     except Exception as e:
-        logger.error(f"Push action error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("Push action error: %s", e)
+        return jsonify({'error': 'Erro ao processar ação de usuário'}), 500
 
 
 @app.route('/api/push/check', methods=['GET'])
+@require_cron
 def push_check():
     """Check de reservas próximas (15 min). Protegido por CRON_SECRET."""
-    if not _cron_authorized():
-        return jsonify({'error': 'Não autorizado'}), 401
+    result = _internal_push_check()
+    if isinstance(result, dict) and 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+def _internal_push_check():
+    """Core logic for push check — reservas + tablets. Returns dict."""
     if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+        return {'error': 'Redis not configured'}
     try:
         today = get_today_sp()
         reservas_hoje, _ = get_reservas()
@@ -830,10 +874,10 @@ def push_check():
             except Exception as e:
                 logger.error(f"Tablet push check error: {e}")
         
-        return jsonify({'checked': True, 'sent': sent, 'subscribers': len(subs)})
+        return {'checked': True, 'sent': sent, 'subscribers': len(subs)}
     except Exception as e:
-        logger.error(f"Push check error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("Push check error: %s", e)
+        return {'error': 'Erro ao verificar push'}
 
 # ─── Notificações de Empréstimos (Stock) ─────────────────────────
 
@@ -887,8 +931,8 @@ def push_notify_loan():
         logger.info(f"Loan notify: {title}")
         return jsonify({'sent': len(subs)})
     except Exception as e:
-        logger.error(f"notify-loan error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("notify-loan error: %s", e)
+        return jsonify({'error': 'Erro ao processar notificação de empréstimo'}), 500
 
 
 @app.route('/api/push/notify-return', methods=['POST'])
@@ -919,8 +963,8 @@ def push_notify_return():
         logger.info(f"Return notify: {title}")
         return jsonify({'sent': len(subs)})
     except Exception as e:
-        logger.error(f"notify-return error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("notify-return error: %s", e)
+        return jsonify({'error': 'Erro ao processar notificação de devolução'}), 500
 
 
 def _ensure_stock_schema(supabase_url, supabase_key):
@@ -972,17 +1016,24 @@ CREATE TABLE IF NOT EXISTS pcare.maintenance (
         logger.info(f"pg_sql pcare error: {e}")
 
 @app.route('/api/push/check-overdue', methods=['GET'])
+@require_cron
 def push_check_overdue():
     """Check de empréstimos com prazo próximo (12 h). Protegido por CRON_SECRET."""
-    if not _cron_authorized():
-        return jsonify({'error': 'Não autorizado'}), 401
+    result = _internal_push_check_overdue()
+    if isinstance(result, dict) and 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+def _internal_push_check_overdue():
+    """Core logic for overdue loan check. Returns dict."""
     if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+        return {'error': 'Redis not configured'}
     try:
         supabase_url = os.environ.get('SUPABASE_URL', '')
         supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
         if not supabase_url or not supabase_key:
-            return jsonify({'error': 'Supabase not configured'}), 500
+            return {'error': 'Supabase not configured'}
 
         _ensure_stock_schema(supabase_url, supabase_key)
 
@@ -1001,7 +1052,7 @@ def push_check_overdue():
         resp = requests.get(url, headers=headers2, timeout=10)
         if not resp.ok:
             logger.error(f"check-overdue Supabase error: {resp.status_code} url={url} body={resp.text[:500]}")
-            return jsonify({'error': 'Supabase query failed', 'detail': resp.text[:500]}), 500
+            return {'error': 'Supabase query failed'}
 
         all_loans = resp.json()
         subs = _target_subs(module='stock')
@@ -1044,24 +1095,31 @@ def push_check_overdue():
             sent += 1
             logger.info(f"Overdue notify: {item_name}")
 
-        return jsonify({'checked': True, 'sent': sent, 'found': found, 'subscribers': len(subs)})
+        return {'checked': True, 'sent': sent, 'found': found, 'subscribers': len(subs)}
     except Exception as e:
-        logger.error(f"check-overdue error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("check-overdue error: %s", e)
+        return {'error': 'Erro ao verificar itens em atraso'}
 
 
 @app.route('/api/push/check-pcare', methods=['GET'])
+@require_cron
 def push_check_pcare():
     """Check de estoque baixo de peças e manutenções agendadas. Protegido por CRON_SECRET."""
-    if not _cron_authorized():
-        return jsonify({'error': 'Não autorizado'}), 401
+    result = _internal_push_check_pcare()
+    if isinstance(result, dict) and 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+def _internal_push_check_pcare():
+    """Core logic for pcare low stock + maintenance check. Returns dict."""
     if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+        return {'error': 'Redis not configured'}
     try:
         supabase_url = os.environ.get('SUPABASE_URL', '')
         supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
         if not supabase_url or not supabase_key:
-            return jsonify({'error': 'Supabase not configured'}), 500
+            return {'error': 'Supabase not configured'}
 
         _ensure_stock_schema(supabase_url, supabase_key)
 
@@ -1123,10 +1181,10 @@ def push_check_pcare():
         except Exception as e:
             logger.error(f"check-pcare maintenance error: {e}")
 
-        return jsonify({'checked': True, 'sent': sent, 'subscribers': len(subs)})
+        return {'checked': True, 'sent': sent, 'subscribers': len(subs)}
     except Exception as e:
-        logger.error(f"check-pcare error: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("check-pcare error: %s", e)
+        return {'error': 'Erro ao verificar manutenções do PC Care'}
 
 
 def _check_pending_users():
@@ -1170,8 +1228,8 @@ def _check_pending_users():
             logger.info(f"Pending user notify: {(u.get('id') or '')[:8]}")
         return {'checked': True, 'found': len(pending), 'sent': sent, 'subscribers': len(subs)}
     except Exception as e:
-        logger.error(f"check-pending error: {e}")
-        return {'error': str(e)}
+        logger.error("check-pending error: %s", e)
+        return {'error': 'Erro ao verificar usuários pendentes'}
 
 
 def _check_stock_expiry():
@@ -1238,35 +1296,8 @@ def _check_stock_expiry():
             logger.info(f"Stock expiry: {nome} ({dias}d)")
         return {'checked': True, 'sent': sent, 'subscribers': len(_target_subs(module='stock'))}
     except Exception as e:
-        logger.error(f"check-expiry error: {e}")
-        return {'error': str(e)}
-
-
-_CRON_WARNING_LOGGED = False
-
-
-def _cron_authorized():
-    """Valida o header `Authorization: Bearer ${CRON_SECRET}` usado pelos crons.
-
-    - Com CRON_SECRET configurado: exige o header exato; qualquer outro acesso
-      recebe 401 (protege o endpoint de chamadas externas/abuso).
-    - Sem CRON_SECRET configurado: libera (comportamento atual) para não
-      quebrar o fluxo existente até a variável ser adicionada no deploy.
-      O warning de estado aberto é registrado apenas uma vez por processo
-      (o check-all chama os sub-checks internamente).
-    """
-    global _CRON_WARNING_LOGGED
-    secret = os.environ.get('CRON_SECRET', '')
-    if not secret:
-        if not _CRON_WARNING_LOGGED:
-            _CRON_WARNING_LOGGED = True
-            logger.warning(
-                "CRON_SECRET não configurada — endpoints de cron abertos (sem proteção): "
-                "/api/push/check, check-overdue, check-pcare, check-all"
-            )
-        return True
-    expected = f'Bearer {secret}'
-    return (request.headers.get('Authorization') or '').strip() == expected
+        logger.error("check-expiry error: %s", e)
+        return {'error': 'Erro ao verificar validade de itens'}
 
 
 @app.route('/api/push/check-all', methods=['GET'])
@@ -1280,22 +1311,18 @@ def push_check_all():
 
     results = {}
     for name, fn in [
-        ('reservas', push_check),
-        ('overdue', push_check_overdue),
-        ('pcare', push_check_pcare),
+        ('reservas', _internal_push_check),
+        ('overdue', _internal_push_check_overdue),
+        ('pcare', _internal_push_check_pcare),
         ('pendentes', _check_pending_users),
         ('validade', _check_stock_expiry),
     ]:
         try:
             out = fn()
-            if isinstance(out, tuple):
-                out = out[0]
-            if hasattr(out, 'get_json'):
-                out = out.get_json()
             results[name] = out
         except Exception as e:
-            logger.error(f"check-all: {name} error: {e}")
-            results[name] = {'error': str(e)}
+            logger.error("check-all: %s error: %s", name, e)
+            results[name] = {'error': 'Erro na execução da verificação'}
     return jsonify({'checked': True, 'results': results})
 
 

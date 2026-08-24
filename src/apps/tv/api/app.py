@@ -150,8 +150,8 @@ def youtube_fetch():
 
         return jsonify({'tracks': tracks})
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        return jsonify({'error': 'Erro interno ao processar YouTube'}), 500
 
 
 @app.route('/api/tv/youtube/search', methods=['POST'])
@@ -195,8 +195,8 @@ def youtube_search():
 
         return jsonify({'results': results})
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        return jsonify({'error': 'Erro interno ao buscar vídeos no YouTube'}), 500
 
 
 @app.route('/api/tv/health', methods=['GET'])

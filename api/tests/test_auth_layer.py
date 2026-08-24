@@ -328,8 +328,8 @@ class TestRequireModule:
         token = _make_jwt({"sub": "user-1"})
         return {"Authorization": f"Bearer {token}"}
 
-    def test_cloudinary_delete_no_workspace_passes_module_check(self, root_client, fake_requests, monkeypatch):
-        """Without workspace context, require_module is a no-op — only auth applies."""
+    def test_cloudinary_delete_no_workspace_returns_403(self, root_client, fake_requests, monkeypatch):
+        """Without workspace context, require_workspace returns 403 (SEC-04)."""
         monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
         headers = self._auth_headers(fake_requests)
         resp = root_client.post(
@@ -337,7 +337,7 @@ class TestRequireModule:
             json={"image_url": "https://test.com/img.jpg"},
             headers=headers,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 403
 
     def test_cloudinary_delete_tv_enabled_allowed(self, root_client, fake_requests, monkeypatch):
         monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
@@ -345,7 +345,7 @@ class TestRequireModule:
         _patch_workspace(fake_requests)
         resp = root_client.post(
             "/api/tv/cloudinary/delete",
-            json={"image_url": "https://test.com/img.jpg"},
+            json={"image_url": "https://test.com/img.jpg", "workspace_id": "ws-test"},
             headers=headers,
         )
         assert resp.status_code != 403
@@ -474,3 +474,427 @@ class TestChamadosAuth:
             "problemDescription": "Test",
         })
         assert resp.status_code != 401
+
+
+# ── Helper: create JWT without 'sub' ────────────────────────────────────────
+
+def _make_jwt_no_sub() -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    body = {"exp": int(time.time()) + 3600, "iss": f"{SUPABASE_URL}/auth/v1", "aud": "authenticated"}
+
+    def b64url(data):
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+
+    signing_input = f"{b64url(header)}.{b64url(body)}"
+    sig = hmac.new(SUPABASE_JWT_SECRET.encode(), signing_input.encode(), hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{signing_input}.{sig_b64}"
+
+
+def _make_jwt_wrong_iss() -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    body = {"exp": int(time.time()) + 3600, "sub": "user-1", "iss": "https://evil.supabase.co/auth/v1", "aud": "authenticated"}
+
+    def b64url(data):
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+
+    signing_input = f"{b64url(header)}.{b64url(body)}"
+    sig = hmac.new(SUPABASE_JWT_SECRET.encode(), signing_input.encode(), hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{signing_input}.{sig_b64}"
+
+
+def _make_jwt_wrong_aud() -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    body = {"exp": int(time.time()) + 3600, "sub": "user-1", "iss": f"{SUPABASE_URL}/auth/v1", "aud": "admin"}
+
+    def b64url(data):
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+
+    signing_input = f"{b64url(header)}.{b64url(body)}"
+    sig = hmac.new(SUPABASE_JWT_SECRET.encode(), signing_input.encode(), hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{signing_input}.{sig_b64}"
+
+
+def _make_jwt_no_aud() -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    body = {"exp": int(time.time()) + 3600, "sub": "user-1", "iss": f"{SUPABASE_URL}/auth/v1"}
+
+    def b64url(data):
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+
+    signing_input = f"{b64url(header)}.{b64url(body)}"
+    sig = hmac.new(SUPABASE_JWT_SECRET.encode(), signing_input.encode(), hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{signing_input}.{sig_b64}"
+
+
+# ── Tests: Cross-workspace isolation (SEC-01) ───────────────────────────────
+
+class TestCrossWorkspaceIsolation:
+    """Users cannot access tickets/workspaces they don't belong to."""
+
+    def _user_a_headers(self, fake_requests):
+        profile = {
+            "id": "user-a",
+            "email": "a@test.com",
+            "name": "User A",
+            "role": "technician",
+            "is_super_admin": False,
+            "workspace_ids": ["ws-a"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        token = _make_jwt({"sub": "user-a"})
+        return {"Authorization": f"Bearer {token}"}
+
+    def _user_b_headers(self, fake_requests):
+        profile = {
+            "id": "user-b",
+            "email": "b@test.com",
+            "name": "User B",
+            "role": "technician",
+            "is_super_admin": False,
+            "workspace_ids": ["ws-b"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        token = _make_jwt({"sub": "user-b"})
+        return {"Authorization": f"Bearer {token}"}
+
+    def _super_admin_headers(self, fake_requests):
+        profile = {
+            "id": "admin-1",
+            "email": "admin@test.com",
+            "name": "Admin",
+            "role": "technician",
+            "is_super_admin": True,
+            "workspace_ids": ["ws-a", "ws-b"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        token = _make_jwt({"sub": "admin-1"})
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_user_a_cannot_list_user_b_workspace(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) cannot list tickets from workspace ws-b."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        # FakeSupabase returns tickets from ws-b
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-b", "status": "aberto"}
+        ]))
+        resp = root_client.get("/api/chamados?workspace_id=ws-b", headers=headers)
+        assert resp.status_code == 403
+
+    def test_user_a_can_list_own_workspace(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) can list tickets from their own workspace."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-a", "status": "aberto"}
+        ]))
+        resp = root_client.get("/api/chamados?workspace_id=ws-a", headers=headers)
+        assert resp.status_code == 200
+
+    def test_super_admin_can_list_any_workspace(self, root_client, fake_requests, monkeypatch):
+        """Super admin can list tickets from any workspace."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "admin-1"})
+        headers = self._super_admin_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-b", "status": "aberto"}
+        ]))
+        resp = root_client.get("/api/chamados?workspace_id=ws-b", headers=headers)
+        assert resp.status_code == 200
+
+    def test_user_a_cannot_manage_user_b_ticket(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) cannot GET a ticket belonging to workspace ws-b."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-b"}
+        ]))
+        resp = root_client.get("/api/chamados/t1", headers=headers)
+        assert resp.status_code == 403
+
+    def test_user_a_cannot_delete_user_b_ticket(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) cannot DELETE a ticket belonging to workspace ws-b."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-b"}
+        ]))
+        resp = root_client.delete("/api/chamados/t1", headers=headers)
+        assert resp.status_code == 403
+
+    def test_user_a_cannot_patch_user_b_ticket(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) cannot PATCH a ticket belonging to workspace ws-b."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-b"}
+        ]))
+        resp = root_client.patch("/api/chamados/t1", json={"status": "resolvido"}, headers=headers)
+        assert resp.status_code == 403
+
+    def test_user_a_cannot_view_user_b_ticket_events(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) cannot view events for a ticket belonging to workspace ws-b."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-b"}
+        ]))
+        resp = root_client.get("/api/chamados/t1/events", headers=headers)
+        assert resp.status_code == 403
+
+    def test_user_a_cannot_create_event_on_user_b_ticket(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) cannot POST an event on a ticket belonging to workspace ws-b."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-b", "status": "aberto"}
+        ]))
+        resp = root_client.post(
+            "/api/chamados/t1/events",
+            json={"content": "test", "author": "A"},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+
+    def test_user_a_cannot_report_user_b_workspace(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) cannot generate reports for workspace ws-b."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        resp = root_client.get("/api/chamados/reports?workspace_id=ws-b", headers=headers)
+        assert resp.status_code == 403
+
+    def test_user_a_can_view_own_ticket(self, root_client, fake_requests, monkeypatch):
+        """User A (ws-a) can GET a ticket belonging to their own workspace."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
+        headers = self._user_a_headers(fake_requests)
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-a"}
+        ]))
+        resp = root_client.get("/api/chamados/t1", headers=headers)
+        assert resp.status_code == 200
+
+
+# ── Tests: Cron fail-closed (SEC-02) ───────────────────────────────────────
+
+class TestCronFailClosed:
+    """All cron endpoints return 503 when CRON_SECRET is not set."""
+
+    def test_check_no_secret_returns_503(self, reservalab_client, monkeypatch):
+        monkeypatch.setenv("CRON_SECRET", "")
+        resp = reservalab_client.get("/api/push/check")
+        assert resp.status_code == 503
+
+    def test_check_overdue_no_secret_returns_503(self, reservalab_client, monkeypatch):
+        monkeypatch.setenv("CRON_SECRET", "")
+        resp = reservalab_client.get("/api/push/check-overdue")
+        assert resp.status_code == 503
+
+    def test_check_pcare_no_secret_returns_503(self, reservalab_client, monkeypatch):
+        monkeypatch.setenv("CRON_SECRET", "")
+        resp = reservalab_client.get("/api/push/check-pcare")
+        assert resp.status_code == 503
+
+    def test_check_wrong_secret_returns_401(self, reservalab_client, monkeypatch):
+        monkeypatch.setenv("CRON_SECRET", "correct-secret")
+        resp = reservalab_client.get(
+            "/api/push/check",
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
+        assert resp.status_code == 401
+
+    def test_check_overdue_wrong_secret_returns_401(self, reservalab_client, monkeypatch):
+        monkeypatch.setenv("CRON_SECRET", "correct-secret")
+        resp = reservalab_client.get(
+            "/api/push/check-overdue",
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
+        assert resp.status_code == 401
+
+    def test_check_pcare_wrong_secret_returns_401(self, reservalab_client, monkeypatch):
+        monkeypatch.setenv("CRON_SECRET", "correct-secret")
+        resp = reservalab_client.get(
+            "/api/push/check-pcare",
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
+        assert resp.status_code == 401
+
+
+# ── Tests: Push subscribe does not trust body (SEC-03) ─────────────────────
+
+class TestPushSubscribeUntrusted:
+    """push_subscribe must not store client-supplied auth metadata."""
+
+    def test_subscribe_calls_profile_lookup_not_trusting_body(self, reservalab_client, fake_requests, monkeypatch):
+        """Server fetches role/is_super_admin/workspace_ids from Supabase, not client body."""
+        # Profile lookup returns limited data — not what client sent
+        fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([
+            {"id": "user-1", "role": "technician", "is_super_admin": False, "workspace_ids": ["ws-a"]}
+        ]))
+        resp = reservalab_client.post("/api/push/subscribe", json={
+            "endpoint": "https://fcm.googleapis.com/test",
+            "keys": {"p256dh": "test", "auth": "test"},
+            "user": {
+                "id": "user-1",
+                "name": "Hacker",
+                "role": "admin",
+                "is_super_admin": True,
+                "workspace_ids": ["ws-a", "ws-b", "ws-c"],
+            },
+        })
+        # Verify the server performed a profile lookup from Supabase
+        profile_calls = [c for c in fake_requests.calls if "/rest/v1/profiles" in c["url"]]
+        assert len(profile_calls) >= 1, "Server must fetch profile from Supabase, not trust client body"
+
+    def test_subscribe_no_user_id_skips_profile_lookup(self, reservalab_client, fake_requests, monkeypatch):
+        """When no user_id is provided, server skips profile lookup (anonymous subscription)."""
+        resp = reservalab_client.post("/api/push/subscribe", json={
+            "endpoint": "https://fcm.googleapis.com/test2",
+            "keys": {"p256dh": "test2", "auth": "test2"},
+            "user": {
+                "is_super_admin": True,
+                "workspace_ids": ["ws-a", "ws-b", "ws-c"],
+            },
+        })
+        # No profile lookup should happen since user.id is empty
+        profile_calls = [c for c in fake_requests.calls if "/rest/v1/profiles" in c["url"]]
+        assert len(profile_calls) == 0, "Server should not look up profile when user.id is empty"
+
+
+# ── Tests: Cloudinary delete requires workspace (SEC-04) ────────────────────
+
+class TestCloudinaryDeleteWorkspace:
+    """tv/cloudinary/delete now requires workspace context."""
+
+    def test_cloudinary_delete_no_workspace_returns_403(self, root_client, fake_requests, monkeypatch):
+        """Without workspace, cloudinary/delete now returns 403 (require_workspace)."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        profile = {
+            "id": "user-1",
+            "email": "test@test.com",
+            "name": "Test User",
+            "role": "technician",
+            "is_super_admin": False,
+            "workspace_ids": ["ws-test"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        token = _make_jwt({"sub": "user-1"})
+        resp = root_client.post(
+            "/api/tv/cloudinary/delete",
+            json={"image_url": "https://test.com/img.jpg"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+
+
+# ── Tests: JWT hardening (SEC-05) ──────────────────────────────────────────
+
+class TestJWTHardening:
+    """JWT validation rejects tokens with missing/invalid claims."""
+
+    def test_jwt_without_sub_rejected(self, reservalab_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: None)
+        token = _make_jwt_no_sub()
+        resp = reservalab_client.post(
+            "/api/push/action",
+            json={"action": "approve", "userId": "u1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 401
+
+    def test_jwt_with_wrong_issuer_rejected(self, reservalab_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: None)
+        token = _make_jwt_wrong_iss()
+        resp = reservalab_client.post(
+            "/api/push/action",
+            json={"action": "approve", "userId": "u1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 401
+
+    def test_jwt_with_wrong_audience_rejected(self, reservalab_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: None)
+        token = _make_jwt_wrong_aud()
+        resp = reservalab_client.post(
+            "/api/push/action",
+            json={"action": "approve", "userId": "u1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 401
+
+    def test_jwt_without_audience_accepted(self, reservalab_client, fake_requests, monkeypatch):
+        """JWT without 'aud' is accepted (Supabase tokens may omit aud)."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        profile = {
+            "id": "user-1",
+            "email": "test@test.com",
+            "name": "Test User",
+            "role": "technician",
+            "is_super_admin": False,
+            "workspace_ids": ["ws-test"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        token = _make_jwt_no_aud()
+        resp = reservalab_client.post(
+            "/api/push/action",
+            json={"action": "approve", "userId": "u1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code != 401
+
+    def test_jwt_expired_rejected(self, reservalab_client, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: None)
+        token = _make_expired_jwt({"sub": "user-1"})
+        resp = reservalab_client.post(
+            "/api/push/action",
+            json={"action": "approve", "userId": "u1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 401
+
+
+# ── Tests: CodeQL Security Hardening ───────────────────────────────────────
+
+class TestCodeQLHardening:
+    """Validações de SSRF, ReDoS e tratamento de erros limpo."""
+
+    def test_tv_calendar_extract_ssrf_blocked_for_internal_ips(self, root_client):
+        """Endpoints que baixam recursos externos bloqueiam localhost e IPs privados."""
+        for unsafe_url in (
+            "http://127.0.0.1:8080/secret",
+            "http://localhost:5000/internal",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.1/admin.pdf",
+            "http://192.168.1.1/router",
+            "file:///etc/passwd",
+            "ftp://files.example.com/test.pdf",
+        ):
+            resp = root_client.post("/api/tv/calendar/extract", json={"url": unsafe_url})
+            assert resp.status_code == 400
+            data = resp.get_json()
+            assert "SSRF" in data.get("error", "")
+
+    def test_tv_calendar_extract_empty_url_returns_400(self, root_client):
+        resp = root_client.post("/api/tv/calendar/extract", json={"url": ""})
+        assert resp.status_code == 400
+        assert "URL do PDF é obrigatória" in resp.get_json().get("error", "")
+
+    def test_error_responses_do_not_leak_exception_internals(self, reservalab_client, reservalab_module, monkeypatch):
+        """Erros 500 retornam mensagens genéricas e seguras, sem str(e) cru."""
+        def raise_boom(*args, **kwargs):
+            raise RuntimeError("Database connection string leaked: secret_pass@host")
+
+        monkeypatch.setattr(reservalab_module, "_parse_spreadsheet", raise_boom)
+        resp = reservalab_client.get("/api/reservas?workspace=invalid")
+        assert resp.status_code == 500
+        data = resp.get_json()
+        assert "secret_pass" not in str(data)
+        assert data.get("error") == "Erro ao processar reservas"
+

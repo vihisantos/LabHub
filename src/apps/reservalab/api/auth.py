@@ -77,17 +77,30 @@ def _verify_jwt(token: str) -> dict | None:
     except Exception:
         return None
 
-    # Check expiration
+    # Check expiration (hard fail — never accept tokens without exp)
     exp = payload.get('exp')
-    if exp and exp < time.time():
+    if not exp or exp < time.time():
         return None
 
-    # Check issuer
+    # Check issuer (hard fail — Supabase always sets iss)
     if _SUPABASE_URL:
         expected_issuer = f'{_SUPABASE_URL}/auth/v1'
         if payload.get('iss') != expected_issuer:
-            # Some Supabase setups don't set iss — allow if aud matches
-            pass
+            return None
+
+    # Check audience if present (hard fail if set)
+    aud = payload.get('aud')
+    if aud is not None:
+        expected_aud = 'authenticated'
+        if isinstance(aud, list):
+            if expected_aud not in aud:
+                return None
+        elif aud != expected_aud:
+            return None
+
+    # Reject tokens without 'sub' claim
+    if not payload.get('sub'):
+        return None
 
     # Try JWKS verification first
     jwks = _fetch_jwks()
@@ -101,7 +114,6 @@ def _verify_jwt(token: str) -> dict | None:
                         token,
                         key,
                         algorithms=['RS256', 'ES256'],
-                        options={'verify_aud': False},
                     )
                     return verified
                 except Exception:
