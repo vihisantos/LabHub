@@ -1,3 +1,8 @@
+-- ============================================================================
+-- DEPRECATED — NÃO EXECUTAR. Registro histórico apenas.
+-- O DDL canônico vive em supabase/migrations/000_bootstrap_baseline.sql
+-- (seção TV). Novas mudanças de schema: supabase/migrations/NNN_nome.sql.
+-- ============================================================================
 -- Tabela de eventos para TV corporativa
 create table if not exists tv_events (
   id uuid default gen_random_uuid() primary key,

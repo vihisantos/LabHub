@@ -22,9 +22,7 @@ desktop/renderer
 .env*
 !.env.example
 
-# Supabase migration scripts (one-time, already applied)
-supabase/
-supa/
+# Supabase schema/migrations SÃO versionados (ver supabase/migrations/README.md)
 
 # Editor directories and files
 .vscode/*

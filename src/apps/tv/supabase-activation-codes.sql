@@ -1,4 +1,7 @@
 -- ============================================================
+-- DEPRECATED — NÃO EXECUTAR. Registro histórico apenas.
+-- Consolidado em supabase/migrations/000_bootstrap_baseline.sql (seção TV).
+-- ============================================================
 -- Códigos de ativação do Lab Hub TV Desktop
 -- O código é gerado no painel do site (PC) e digitado no app
 -- desktop na TV. Apenas o backend (service_role) cria/valida:
