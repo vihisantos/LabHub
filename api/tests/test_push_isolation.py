@@ -71,10 +71,11 @@ def _sub_json(endpoint: str) -> str:
 
 @pytest.fixture(scope="module")
 def api_module():
-    # Reutiliza o módulo já carregado por test_chamados.py (scope="session")
+    # Reutiliza o módulo já carregado por outros testes (scope="session")
     # para evitar reimportar api/app.py (Flask rejeita @app.route após primeiro request).
-    if "chamados_api" in sys.modules:
-        return sys.modules["chamados_api"]
+    for existing in ("chamados_api", "root_api"):
+        if existing in sys.modules and getattr(sys.modules[existing], "app", None) is not None:
+            return sys.modules[existing]
     spec = importlib.util.spec_from_file_location("chamados_api", API_FILE)
     mod = importlib.util.module_from_spec(spec)
     sys.modules["chamados_api"] = mod

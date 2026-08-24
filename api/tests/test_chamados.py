@@ -1,6 +1,10 @@
+import base64
+import hashlib
+import hmac
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -8,6 +12,55 @@ import pytest
 API_FILE = Path(__file__).resolve().parents[1] / "app.py"
 
 SUPABASE_URL = "https://test.supabase.co"
+SUPABASE_JWT_SECRET = "test-jwt-secret-for-testing-only-32chars!!"
+
+
+def _make_jwt(payload: dict, secret: str = SUPABASE_JWT_SECRET) -> str:
+    """Cria um JWT bem-formado para os testes (a verificação real é bypassada)."""
+    header = {"alg": "HS256", "typ": "JWT"}
+    body = {"exp": int(time.time()) + 3600, **payload}
+
+    def b64url(data):
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+
+    signing_input = f"{b64url(header)}.{b64url(body)}"
+    sig = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+    return f"{signing_input}.{sig_b64}"
+
+
+SUPER_ADMIN_PROFILE = {
+    "id": "user-1",
+    "email": "test@test.com",
+    "name": "Test User",
+    "role": "technician",
+    "is_super_admin": True,
+    "workspace_ids": ["ws-a"],
+    "status": "active",
+}
+
+
+def _setup_auth(fake_requests, monkeypatch, profile=None):
+    """Configura a camada de auth: JWT válido + perfil no Supabase fake.
+
+    Retorna os headers Authorization para usar nas chamadas do client.
+    """
+    profile = profile or SUPER_ADMIN_PROFILE
+    monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": profile["id"]})
+    fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
+    return {"Authorization": f"Bearer {_make_jwt({'sub': profile['id']})}"}
+
+
+def _patch_auth_infrastructure(api_module, fake_requests, monkeypatch):
+    """Roteia requests do app e do módulo auth pelo Supabase fake."""
+    monkeypatch.setattr(api_module, "_SUPABASE_URL", SUPABASE_URL)
+    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(api_module, "requests", fake_requests)
+    auth_mod = sys.modules.get("auth")
+    if auth_mod is not None:
+        monkeypatch.setattr(auth_mod, "requests", fake_requests)
+        monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
+        monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
 
 
 class FakeResponse:
@@ -57,6 +110,13 @@ class FakeRequests:
 
 @pytest.fixture(scope="session")
 def api_module():
+    # Reaproveita o módulo da API já carregado por outro arquivo de teste
+    # (ex.: "root_api" em test_auth_layer.py): reexecutar app.py registraria
+    # rotas num app Flask que já atendeu requisições, o que quebra.
+    for existing in ("chamados_api", "root_api"):
+        if existing in sys.modules and getattr(sys.modules[existing], "app", None) is not None:
+            if Path(getattr(sys.modules[existing], "__file__", "")) == API_FILE:
+                return sys.modules[existing]
     spec = importlib.util.spec_from_file_location("chamados_api", API_FILE)
     mod = importlib.util.module_from_spec(spec)
     sys.modules["chamados_api"] = mod
@@ -71,9 +131,7 @@ def fake_requests():
 
 @pytest.fixture()
 def client(api_module, fake_requests, monkeypatch):
-    monkeypatch.setattr(api_module, "_SUPABASE_URL", SUPABASE_URL)
-    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
-    monkeypatch.setattr(api_module, "requests", fake_requests)
+    _patch_auth_infrastructure(api_module, fake_requests, monkeypatch)
     api_module._rate_limit_store.clear()
     return api_module.app.test_client()
 
@@ -452,35 +510,39 @@ def test_create_push_sem_subscribers_nao_quebra(client, fake_requests, api_modul
 # ── GET /api/chamados ──
 
 
-def test_list_retorna_chamados(client, fake_requests):
+def test_list_retorna_chamados(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_list_tickets(fake_requests, [_make_ticket()])
-    resp = client.get("/api/chamados")
+    resp = client.get("/api/chamados", headers=headers)
     assert resp.status_code == 200
     assert resp.get_json()["tickets"][0]["roomName"] == "Sala 101"
 
 
-def test_list_aplica_filtros_de_workspace_e_status(client, fake_requests):
+def test_list_aplica_filtros_de_workspace_e_status(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_list_tickets(fake_requests, [])
-    resp = client.get("/api/chamados?workspace_id=ws-a&status=aberto")
+    resp = client.get("/api/chamados?workspace_id=ws-a&status=aberto", headers=headers)
     assert resp.status_code == 200
     url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
     assert "workspace_id=eq.ws-a" in url
     assert "status=eq.aberto" in url
 
 
-def test_list_erro_do_supabase_retorna_502(client, fake_requests):
+def test_list_erro_do_supabase_retorna_502(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route(
         "GET",
         "/rest/v1/chamados_tickets",
         FakeResponse({"error": "x"}, status_code=500, ok=False),
     )
-    resp = client.get("/api/chamados")
+    resp = client.get("/api/chamados", headers=headers)
     assert resp.status_code == 502
 
 
-def test_list_filtra_por_reporter(client, fake_requests):
+def test_list_filtra_por_reporter(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_list_tickets(fake_requests, [_make_ticket()])
-    resp = client.get("/api/chamados", query_string={"reportedBy": "Maria"})
+    resp = client.get("/api/chamados", query_string={"reportedBy": "Maria"}, headers=headers)
     assert resp.status_code == 200
     url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
     assert "reportedBy=ilike.*Maria*" in url
@@ -489,43 +551,50 @@ def test_list_filtra_por_reporter(client, fake_requests):
 # ── GET /api/chamados/<id> ──
 
 
-def test_get_chamado_por_id(client, fake_requests):
+def test_get_chamado_por_id(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket())
-    resp = client.get("/api/chamados/ticket-1")
+    resp = client.get("/api/chamados/ticket-1", headers=headers)
     assert resp.status_code == 200
     assert resp.get_json()["ticket"]["id"] == "ticket-1"
 
 
-def test_get_chamado_nao_encontrado_retorna_404(client, fake_requests):
+def test_get_chamado_nao_encontrado_retorna_404(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, None)
-    resp = client.get("/api/chamados/ticket-unknown")
+    resp = client.get("/api/chamados/ticket-unknown", headers=headers)
     assert resp.status_code == 404
     assert resp.get_json()["error"] == "Chamado não encontrado"
 
 
-def test_get_chamado_erro_do_supabase_retorna_502(client, fake_requests):
+def test_get_chamado_erro_do_supabase_retorna_502(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route(
         "GET",
         "chamados_tickets?id=eq.",
         FakeResponse({"error": "x"}, status_code=500, ok=False),
     )
-    resp = client.get("/api/chamados/ticket-1")
+    resp = client.get("/api/chamados/ticket-1", headers=headers)
     assert resp.status_code == 502
 
 
 # ── PATCH /api/chamados/<id> ──
 
 
-def test_patch_sem_updates_retorna_400(client):
-    resp = client.patch("/api/chamados/ticket-1", json={})
+def test_patch_sem_updates_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket())
+    resp = client.patch("/api/chamados/ticket-1", json={}, headers=headers)
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "Nada para atualizar"
 
 
-def test_patch_status_resolvido_define_resolved_at(client, fake_requests):
+def test_patch_status_resolvido_define_resolved_at(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", resolvedAt="2026-06-25T12:05:00Z"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"}, headers=headers)
 
     assert resp.status_code == 200
     assert resp.get_json()["ticket"]["status"] == "resolvido"
@@ -534,7 +603,9 @@ def test_patch_status_resolvido_define_resolved_at(client, fake_requests):
     assert "updatedAt" in patch_call["kwargs"]["json"]
 
 
-def test_patch_status_fechado_arquiva_automaticamente(client, fake_requests):
+def test_patch_status_fechado_arquiva_automaticamente(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(
         fake_requests,
         _make_ticket(
@@ -545,7 +616,7 @@ def test_patch_status_fechado_arquiva_automaticamente(client, fake_requests):
         ),
     )
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "fechado", "closedBy": "Técnico 1"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "fechado", "closedBy": "Técnico 1"}, headers=headers)
 
     assert resp.status_code == 200
     ticket = resp.get_json()["ticket"]
@@ -558,12 +629,15 @@ def test_patch_status_fechado_arquiva_automaticamente(client, fake_requests):
     assert "updatedAt" in patch_call["kwargs"]["json"]
 
 
-def test_patch_reabertura_limpa_arquivamento(client, fake_requests):
+def test_patch_reabertura_limpa_arquivamento(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", archived=False, closedAt=None))
 
     resp = client.patch(
         "/api/chamados/ticket-1",
         json={"status": "aberto", "archived": False, "closedAt": None},
+        headers=headers,
     )
 
     assert resp.status_code == 200
@@ -575,7 +649,8 @@ def test_patch_reabertura_limpa_arquivamento(client, fake_requests):
     assert patch_call["kwargs"]["json"]["closedAt"] is None
 
 
-def test_patch_reabertura_de_fechado_limpa_resolved_at(client, fake_requests):
+def test_patch_reabertura_de_fechado_limpa_resolved_at(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(
         fake_requests,
         _make_ticket(
@@ -587,7 +662,7 @@ def test_patch_reabertura_de_fechado_limpa_resolved_at(client, fake_requests):
     )
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", archived=False, resolvedAt=None, closedAt=None))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"}, headers=headers)
 
     assert resp.status_code == 200
     patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
@@ -597,18 +672,22 @@ def test_patch_reabertura_de_fechado_limpa_resolved_at(client, fake_requests):
     assert patch["archived"] is False
 
 
-def test_patch_status_invalido_retorna_400(client, fake_requests):
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "foo"})
+def test_patch_status_invalido_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "foo"}, headers=headers)
 
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "Status inválido"
     assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
 
 
-def test_patch_status_note_persiste(client, fake_requests):
+def test_patch_status_note_persiste(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="a_caminho", statusNote="Em outro chamado, atendimento em 5 minutos"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Em outro chamado, atendimento em 5 minutos"})
+    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Em outro chamado, atendimento em 5 minutos"}, headers=headers)
 
     assert resp.status_code == 200
     assert resp.get_json()["ticket"]["statusNote"] == "Em outro chamado, atendimento em 5 minutos"
@@ -616,31 +695,36 @@ def test_patch_status_note_persiste(client, fake_requests):
     assert patch["statusNote"] == "Em outro chamado, atendimento em 5 minutos"
 
 
-def test_patch_resolvido_limpa_status_note(client, fake_requests):
+def test_patch_resolvido_limpa_status_note(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="a_caminho", statusNote="Técnico a caminho"))
     _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", statusNote=""))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"}, headers=headers)
 
     assert resp.status_code == 200
     patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
     assert patch["statusNote"] == ""
 
 
-def test_patch_ignora_campos_nao_permitidos(client, fake_requests):
+def test_patch_ignora_campos_nao_permitidos(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="em_atendimento"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "em_atendimento", "roomName": "Hackeado"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "em_atendimento", "roomName": "Hackeado"}, headers=headers)
 
     assert resp.status_code == 200
     patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
     assert "roomName" not in patch_call["kwargs"]["json"]
 
 
-def test_patch_prioridade_valida_eh_aplicada(client, fake_requests):
+def test_patch_prioridade_valida_eh_aplicada(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", priority="urgente"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"priority": "urgente"})
+    resp = client.patch("/api/chamados/ticket-1", json={"priority": "urgente"}, headers=headers)
 
     assert resp.status_code == 200
     assert resp.get_json()["ticket"]["priority"] == "urgente"
@@ -648,20 +732,24 @@ def test_patch_prioridade_valida_eh_aplicada(client, fake_requests):
     assert patch_call["kwargs"]["json"]["priority"] == "urgente"
 
 
-def test_patch_prioridade_invalida_retorna_400(client, fake_requests):
+def test_patch_prioridade_invalida_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"priority": "x"})
+    resp = client.patch("/api/chamados/ticket-1", json={"priority": "x"}, headers=headers)
 
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "Prioridade inválida"
     assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
 
 
-def test_patch_photos_persiste(client, fake_requests):
+def test_patch_photos_persiste(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos="data:image/jpeg;base64,xyz"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"photos": "data:image/jpeg;base64,xyz"})
+    resp = client.patch("/api/chamados/ticket-1", json={"photos": "data:image/jpeg;base64,xyz"}, headers=headers)
 
     assert resp.status_code == 200
     assert resp.get_json()["ticket"]["photos"] == "data:image/jpeg;base64,xyz"
@@ -669,35 +757,43 @@ def test_patch_photos_persiste(client, fake_requests):
     assert patch_call["kwargs"]["json"]["photos"] == "data:image/jpeg;base64,xyz"
 
 
-def test_patch_photos_vazio_remove(client, fake_requests):
+def test_patch_photos_vazio_remove(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos=""))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"photos": ""})
+    resp = client.patch("/api/chamados/ticket-1", json={"photos": ""}, headers=headers)
 
     assert resp.status_code == 200
     patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
     assert patch_call["kwargs"]["json"]["photos"] == ""
 
 
-def test_patch_chamado_nao_encontrado_retorna_404(client, fake_requests):
+def test_patch_chamado_nao_encontrado_retorna_404(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, None)
     _route_patch_ticket(fake_requests, None)
-    resp = client.patch("/api/chamados/ticket-unknown", json={"status": "resolvido"})
+    resp = client.patch("/api/chamados/ticket-unknown", json={"status": "resolvido"}, headers=headers)
     assert resp.status_code == 404
 
 
 # ── DELETE /api/chamados/<id> ──
 
 
-def test_delete_chamado(client, fake_requests):
+def test_delete_chamado(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket())
     fake_requests.route("DELETE", "chamados_tickets", FakeResponse({}, ok=True))
-    resp = client.delete("/api/chamados/ticket-1")
+    resp = client.delete("/api/chamados/ticket-1", headers=headers)
     assert resp.status_code == 200
     assert resp.get_json()["success"] is True
 
 
-def test_delete_falha_retorna_502(client, fake_requests):
+def test_delete_falha_retorna_502(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket())
     fake_requests.route("DELETE", "chamados_tickets", FakeResponse({}, status_code=500, ok=False))
-    resp = client.delete("/api/chamados/ticket-1")
+    resp = client.delete("/api/chamados/ticket-1", headers=headers)
     assert resp.status_code == 502
 
 
@@ -937,9 +1033,7 @@ def test_subscribe_dedupe_por_endpoint(api_module, client, monkeypatch):
 
 @pytest.fixture()
 def notify_client(api_module, fake_requests, monkeypatch):
-    monkeypatch.setattr(api_module, "_SUPABASE_URL", SUPABASE_URL)
-    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
-    monkeypatch.setattr(api_module, "requests", fake_requests)
+    _patch_auth_infrastructure(api_module, fake_requests, monkeypatch)
     sent = []
     monkeypatch.setattr(api_module, "push_notify", lambda sub, title, body, url="/": sent.append({"title": title, "body": body, "url": url}))
     return api_module.app.test_client(), sent
@@ -947,11 +1041,12 @@ def notify_client(api_module, fake_requests, monkeypatch):
 
 def test_patch_status_notifica_professor(api_module, notify_client, fake_requests, monkeypatch):
     client, sent = notify_client
+    headers = _setup_auth(fake_requests, monkeypatch)
     _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="resolvido"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"}, headers=headers)
 
     assert resp.status_code == 200
     assert len(sent) == 1
@@ -964,11 +1059,12 @@ def test_patch_status_notifica_professor(api_module, notify_client, fake_request
 
 def test_patch_mesmo_status_nao_notifica(api_module, notify_client, fake_requests, monkeypatch):
     client, sent = notify_client
+    headers = _setup_auth(fake_requests, monkeypatch)
     _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"}, headers=headers)
 
     assert resp.status_code == 200
     assert sent == []
@@ -976,6 +1072,7 @@ def test_patch_mesmo_status_nao_notifica(api_module, notify_client, fake_request
 
 def test_patch_status_note_nova_notifica(api_module, notify_client, fake_requests, monkeypatch):
     client, sent = notify_client
+    headers = _setup_auth(fake_requests, monkeypatch)
     _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
     _route_get_ticket(fake_requests, _make_ticket(status="aberto", statusNote=""))
     _route_patch_ticket(
@@ -983,7 +1080,7 @@ def test_patch_status_note_nova_notifica(api_module, notify_client, fake_request
         _make_ticket(status="aberto", statusNote="Em outro chamado, atendimento em 5 minutos"),
     )
 
-    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Em outro chamado, atendimento em 5 minutos"})
+    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Em outro chamado, atendimento em 5 minutos"}, headers=headers)
 
     assert resp.status_code == 200
     assert len(sent) == 1
@@ -992,11 +1089,12 @@ def test_patch_status_note_nova_notifica(api_module, notify_client, fake_request
 
 def test_patch_status_note_igual_nao_notifica(api_module, notify_client, fake_requests, monkeypatch):
     client, sent = notify_client
+    headers = _setup_auth(fake_requests, monkeypatch)
     _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
     _route_get_ticket(fake_requests, _make_ticket(status="aberto", statusNote="Mesma mensagem"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", statusNote="Mesma mensagem"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Mesma mensagem"})
+    resp = client.patch("/api/chamados/ticket-1", json={"statusNote": "Mesma mensagem"}, headers=headers)
 
     assert resp.status_code == 200
     assert sent == []
@@ -1004,11 +1102,12 @@ def test_patch_status_note_igual_nao_notifica(api_module, notify_client, fake_re
 
 def test_patch_status_em_atendimento_nao_usa_url_feedback(api_module, notify_client, fake_requests, monkeypatch):
     client, sent = notify_client
+    headers = _setup_auth(fake_requests, monkeypatch)
     _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="em_atendimento"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "em_atendimento"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "em_atendimento"}, headers=headers)
 
     assert resp.status_code == 200
     assert len(sent) == 1
@@ -1018,11 +1117,12 @@ def test_patch_status_em_atendimento_nao_usa_url_feedback(api_module, notify_cli
 
 def test_patch_resolvido_mensagem_inclui_ticket_number(api_module, notify_client, fake_requests, monkeypatch):
     client, sent = notify_client
+    headers = _setup_auth(fake_requests, monkeypatch)
     _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
     _route_get_ticket(fake_requests, _make_ticket(status="aberto", ticketNumber=42))
     _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", ticketNumber=42))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido"}, headers=headers)
 
     assert resp.status_code == 200
     assert "#42" in sent[0]["body"]
@@ -1077,6 +1177,7 @@ def _assignment_push_fixture(api_module, monkeypatch):
 
 
 def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     sent, target_kwargs = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignment_get(fake_requests, _make_ticket(assignedTo="", assignedToUserId=""))
     _route_patch_ticket(
@@ -1084,7 +1185,7 @@ def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module
         _make_ticket(status="aberto", assignedTo="Técnico 2", assignedToUserId="user-2"),
     )
 
-    resp = client.patch("/api/chamados/ticket-1", json={"assignedTo": "Técnico 2", "assignedToUserId": "user-2"})
+    resp = client.patch("/api/chamados/ticket-1", json={"assignedTo": "Técnico 2", "assignedToUserId": "user-2"}, headers=headers)
 
     assert resp.status_code == 200
     assert len(sent) == 1
@@ -1097,6 +1198,7 @@ def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module
 
 
 def test_patch_atribuicao_sem_mudanca_nao_avisa(client, fake_requests, api_module, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     sent, _ = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignment_get(fake_requests, _make_ticket(assignedTo="Técnico 2", assignedToUserId="user-2"))
     _route_patch_ticket(
@@ -1104,24 +1206,26 @@ def test_patch_atribuicao_sem_mudanca_nao_avisa(client, fake_requests, api_modul
         _make_ticket(status="aberto", assignedTo="Técnico 2", assignedToUserId="user-2"),
     )
 
-    resp = client.patch("/api/chamados/ticket-1", json={"assignedToUserId": "user-2"})
+    resp = client.patch("/api/chamados/ticket-1", json={"assignedToUserId": "user-2"}, headers=headers)
 
     assert resp.status_code == 200
     assert sent == []
 
 
 def test_patch_remove_atribuicao_nao_avisa(client, fake_requests, api_module, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     sent, _ = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignment_get(fake_requests, _make_ticket(assignedTo="Técnico 2", assignedToUserId="user-2"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", assignedTo="", assignedToUserId=""))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"assignedToUserId": ""})
+    resp = client.patch("/api/chamados/ticket-1", json={"assignedToUserId": ""}, headers=headers)
 
     assert resp.status_code == 200
     assert sent == []
 
 
-def test_reports_agrega_chamados_do_periodo(client, fake_requests):
+def test_reports_agrega_chamados_do_periodo(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     rows = [
         _make_ticket(
             id="t-1",
@@ -1145,7 +1249,7 @@ def test_reports_agrega_chamados_do_periodo(client, fake_requests):
     ]
     fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse(rows))
 
-    resp = client.get("/api/chamados/reports", query_string={"from": "2026-06-01T00:00:00Z", "to": "2026-07-01T00:00:00Z"})
+    resp = client.get("/api/chamados/reports", query_string={"from": "2026-06-01T00:00:00Z", "to": "2026-07-01T00:00:00Z"}, headers=headers)
 
     assert resp.status_code == 200
     report = resp.get_json()["report"]
@@ -1174,34 +1278,39 @@ def test_reports_agrega_chamados_do_periodo(client, fake_requests):
     assert "createdAt=lte." in url
 
 
-def test_reports_filtra_por_workspace(client, fake_requests):
+def test_reports_filtra_por_workspace(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
-    resp = client.get("/api/chamados/reports", query_string={"workspace_id": "ws-a"})
+    resp = client.get("/api/chamados/reports", query_string={"workspace_id": "ws-a"}, headers=headers)
     assert resp.status_code == 200
     url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
     assert "workspace_id=eq.ws-a" in url
 
 
-def test_reports_periodo_invalido_retorna_400(client, fake_requests):
-    resp = client.get("/api/chamados/reports", query_string={"from": "nao-e-data"})
+def test_reports_periodo_invalido_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    resp = client.get("/api/chamados/reports", query_string={"from": "nao-e-data"}, headers=headers)
     assert resp.status_code == 400
 
 
-def test_reports_from_apos_to_retorna_400(client, fake_requests):
+def test_reports_from_apos_to_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     resp = client.get(
         "/api/chamados/reports",
         query_string={"from": "2026-07-01T00:00:00Z", "to": "2026-06-01T00:00:00Z"},
+        headers=headers,
     )
     assert resp.status_code == 400
 
 
-def test_reports_erro_do_supabase_retorna_502(client, fake_requests):
+def test_reports_erro_do_supabase_retorna_502(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route(
         "GET",
         "chamados_tickets?select=status,priority",
         FakeResponse({"error": "x"}, status_code=500, ok=False),
     )
-    resp = client.get("/api/chamados/reports")
+    resp = client.get("/api/chamados/reports", headers=headers)
     assert resp.status_code == 502
 
 # ── Fase 4: eventos (histórico/comentários) + fotos Cloudinary ──
@@ -1240,11 +1349,14 @@ def test_create_aceita_foto_cloudinary(client, fake_requests, monkeypatch):
 
 def test_patch_aceita_foto_cloudinary(client, fake_requests, monkeypatch):
     monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos="https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"))
 
     resp = client.patch(
         "/api/chamados/ticket-1",
         json={"photos": "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"},
+        headers=headers,
     )
 
     assert resp.status_code == 200
@@ -1256,7 +1368,8 @@ def _route_event_insert(fake_requests, event):
     fake_requests.route("POST", "/rest/v1/ticket_events", FakeResponse([event]))
 
 
-def test_events_post_comentario_cria_evento(client, fake_requests):
+def test_events_post_comentario_cria_evento(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_event_insert(fake_requests, {
         "id": "ev-1",
@@ -1272,6 +1385,7 @@ def test_events_post_comentario_cria_evento(client, fake_requests):
     resp = client.post(
         "/api/chamados/ticket-1/events",
         json={"content": "Testei a sala, cabo solto", "author": "Técnico 1"},
+        headers=headers,
     )
 
     assert resp.status_code == 201
@@ -1285,6 +1399,7 @@ def test_events_post_comentario_cria_evento(client, fake_requests):
 
 def test_events_post_aceita_2_fotos(client, fake_requests, monkeypatch):
     monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_event_insert(fake_requests, {"id": "ev-1", "ticket_id": "ticket-1", "photo_urls": "[]", "createdAt": "2026-06-25T12:10:00Z"})
 
@@ -1297,6 +1412,7 @@ def test_events_post_aceita_2_fotos(client, fake_requests, monkeypatch):
                 "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/f2.jpg",
             ],
         },
+        headers=headers,
     )
 
     assert resp.status_code == 201
@@ -1304,24 +1420,28 @@ def test_events_post_aceita_2_fotos(client, fake_requests, monkeypatch):
     assert len(json.loads(payload["photo_urls"])) == 2
 
 
-def test_events_post_rejeita_3_fotos(client, fake_requests):
+def test_events_post_rejeita_3_fotos(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
 
     resp = client.post(
         "/api/chamados/ticket-1/events",
         json={"content": "foto", "photos": ["a", "b", "c"]},
+        headers=headers,
     )
 
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "Máximo de 2 fotos por evento"
 
 
-def test_events_post_foto_invalida_retorna_400(client, fake_requests):
+def test_events_post_foto_invalida_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
 
     resp = client.post(
         "/api/chamados/ticket-1/events",
         json={"content": "foto", "photos": ["https://evil.example/x.png"]},
+        headers=headers,
     )
 
     assert resp.status_code == 400
@@ -1329,25 +1449,29 @@ def test_events_post_foto_invalida_retorna_400(client, fake_requests):
     assert fake_requests.calls_for("POST", "/rest/v1/ticket_events") == []
 
 
-def test_events_post_sem_conteudo_retorna_400(client, fake_requests):
+def test_events_post_sem_conteudo_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
 
-    resp = client.post("/api/chamados/ticket-1/events", json={"content": "   "})
+    resp = client.post("/api/chamados/ticket-1/events", json={"content": "   "}, headers=headers)
 
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "Escreva um comentário ou anexe uma foto"
 
 
-def test_events_post_ticket_nao_encontrado_404(client, fake_requests):
+def test_events_post_ticket_nao_encontrado_404(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, None)
 
-    resp = client.post("/api/chamados/ticket-unknown/events", json={"content": "oi"})
+    resp = client.post("/api/chamados/ticket-unknown/events", json={"content": "oi"}, headers=headers)
 
     assert resp.status_code == 404
     assert resp.get_json()["error"] == "Chamado não encontrado"
 
 
-def test_events_get_retorna_historico(client, fake_requests):
+def test_events_get_retorna_historico(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket())
     fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([
         {
             "id": "ev-2",
@@ -1367,7 +1491,7 @@ def test_events_get_retorna_historico(client, fake_requests):
         },
     ]))
 
-    resp = client.get("/api/chamados/ticket-1/events")
+    resp = client.get("/api/chamados/ticket-1/events", headers=headers)
 
     assert resp.status_code == 200
     events = resp.get_json()["events"]
@@ -1376,12 +1500,13 @@ def test_events_get_retorna_historico(client, fake_requests):
     assert events[1]["photos"] == []
 
 
-def test_patch_status_resolvido_grava_evento_automatico(client, fake_requests):
+def test_patch_status_resolvido_grava_evento_automatico(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="a_caminho", statusNote="Técnico a caminho"))
     _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", statusNote=""))
     _route_event_insert(fake_requests, {"id": "ev-1", "ticket_id": "ticket-1", "createdAt": "2026-06-25T12:10:00Z"})
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido", "statusNote": "Cabo trocado"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "resolvido", "statusNote": "Cabo trocado"}, headers=headers)
 
     assert resp.status_code == 200
     event_calls = fake_requests.calls_for("POST", "/rest/v1/ticket_events")
@@ -1392,11 +1517,12 @@ def test_patch_status_resolvido_grava_evento_automatico(client, fake_requests):
     assert payload["author"] == "Sistema"
 
 
-def test_patch_mesmo_status_nao_grava_evento(client, fake_requests):
+def test_patch_mesmo_status_nao_grava_evento(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto"))
 
-    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"})
+    resp = client.patch("/api/chamados/ticket-1", json={"status": "aberto"}, headers=headers)
 
     assert resp.status_code == 200
     assert fake_requests.calls_for("POST", "/rest/v1/ticket_events") == []
@@ -1411,6 +1537,7 @@ def test_purge_sem_token_com_secret_retorna_401(client, api_module, monkeypatch)
 
 
 def test_purge_apaga_fotos_de_chamados_fechados(client, fake_requests, api_module, monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
     monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
     monkeypatch.setattr(api_module, "_cloudinary_destroy", lambda url: url.startswith("https://res.cloudinary.com/"))
 
@@ -1442,7 +1569,7 @@ def test_purge_apaga_fotos_de_chamados_fechados(client, fake_requests, api_modul
 
     resp = client.post(
         "/api/chamados/photos/purge",
-        headers={"Authorization": "Bearer x"},
+        headers={"Authorization": "Bearer super-secret"},
     )
 
     assert resp.status_code == 200
@@ -1467,10 +1594,6 @@ def test_purge_apaga_fotos_de_chamados_fechados(client, fake_requests, api_modul
 # ── Fase 6: POST /api/chamados/push/test (teste de push do usuário logado) ──
 
 
-def _route_auth_user(fake_requests, user_id="u-1"):
-    fake_requests.route("GET", "/auth/v1/user", FakeResponse({"id": user_id}))
-
-
 def _push_test_fixture(api_module, monkeypatch):
     sent = []
     target_kwargs = []
@@ -1488,33 +1611,35 @@ def _push_test_fixture(api_module, monkeypatch):
     return sent, target_kwargs
 
 
-def test_push_test_sem_supabase_retorna_503(unconfigured_client):
-    resp = unconfigured_client.post("/api/chamados/push/test")
+def test_push_test_sem_supabase_retorna_503(client, fake_requests, api_module, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    monkeypatch.setattr(api_module, "_SUPABASE_URL", "")
+    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "")
+    resp = client.post("/api/chamados/push/test", headers=headers)
     assert resp.status_code == 503
 
 
 def test_push_test_sem_token_retorna_401(client, fake_requests):
     resp = client.post("/api/chamados/push/test")
     assert resp.status_code == 401
-    assert resp.get_json()["error"] == "Token de autenticação ausente"
+    assert resp.get_json()["error"] == "Missing authorization token"
 
 
-def test_push_test_token_invalido_retorna_401(client, fake_requests):
-    fake_requests.route(
-        "GET",
-        "/auth/v1/user",
-        FakeResponse({"error": "invalid"}, status_code=401, ok=False),
+def test_push_test_token_invalido_retorna_401(client, fake_requests, monkeypatch):
+    monkeypatch.setattr("auth._verify_jwt", lambda t: None)
+    resp = client.post(
+        "/api/chamados/push/test",
+        headers={"Authorization": f"Bearer {_make_jwt({'sub': 'user-1'})}"},
     )
-    resp = client.post("/api/chamados/push/test", headers={"Authorization": "Bearer invalido"})
     assert resp.status_code == 401
-    assert resp.get_json()["error"] == "Sessão inválida ou expirada. Faça login novamente."
+    assert resp.get_json()["error"] == "Invalid or expired token"
 
 
 def test_push_test_sem_inscricoes_retorna_aviso(client, fake_requests, api_module, monkeypatch):
-    _route_auth_user(fake_requests)
+    headers = _setup_auth(fake_requests, monkeypatch)
     monkeypatch.setattr(api_module, "_target_subs", lambda **kw: [])
 
-    resp = client.post("/api/chamados/push/test", headers={"Authorization": "Bearer token"})
+    resp = client.post("/api/chamados/push/test", headers=headers)
 
     assert resp.status_code == 200
     body = resp.get_json()
@@ -1524,55 +1649,57 @@ def test_push_test_sem_inscricoes_retorna_aviso(client, fake_requests, api_modul
 
 
 def test_push_test_envia_para_o_proprio_usuario(client, fake_requests, api_module, monkeypatch):
-    _route_auth_user(fake_requests, user_id="u-1")
+    headers = _setup_auth(fake_requests, monkeypatch)
     sent, target_kwargs = _push_test_fixture(api_module, monkeypatch)
 
-    resp = client.post("/api/chamados/push/test", headers={"Authorization": "Bearer token"})
+    resp = client.post("/api/chamados/push/test", headers=headers)
 
     assert resp.status_code == 200
     assert resp.get_json() == {"sent": 1, "total": 1}
     assert len(sent) == 1
     assert "Teste de notificação" in sent[0]["title"]
     assert sent[0]["url"] == "/chamados"
-    # Segmenta pelo usuário logado e pelo módulo chamados
-    assert target_kwargs and target_kwargs[0]["user_id"] == "u-1"
+    # Segmenta pelo usuário logado (sub do JWT) e pelo módulo chamados
+    assert target_kwargs and target_kwargs[0]["user_id"] == "user-1"
     assert target_kwargs[0]["module"] == "chamados"
 
 
 # ── POST /api/chamados/reports/weekly-email (resumo semanal) ──
 
 
-def test_weekly_email_sem_supabase_retorna_503(unconfigured_client):
-    resp = unconfigured_client.post("/api/chamados/reports/weekly-email")
+def test_weekly_email_sem_supabase_retorna_503(client, fake_requests, api_module, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    monkeypatch.setattr(api_module, "_SUPABASE_URL", "")
+    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "")
+    resp = client.post("/api/chamados/reports/weekly-email", headers=headers)
     assert resp.status_code == 503
 
 
 def test_weekly_email_sem_token_retorna_401(client, fake_requests):
     resp = client.post("/api/chamados/reports/weekly-email")
     assert resp.status_code == 401
-    assert resp.get_json()["error"] == "Token de autenticação ausente"
+    assert resp.get_json()["error"] == "Missing authorization token"
 
 
-def test_weekly_email_token_invalido_retorna_401(client, fake_requests):
-    fake_requests.route(
-        "GET",
-        "/auth/v1/user",
-        FakeResponse({"error": "invalid"}, status_code=401, ok=False),
+def test_weekly_email_token_invalido_retorna_401(client, fake_requests, monkeypatch):
+    monkeypatch.setattr("auth._verify_jwt", lambda t: None)
+    resp = client.post(
+        "/api/chamados/reports/weekly-email",
+        headers={"Authorization": f"Bearer {_make_jwt({'sub': 'user-1'})}"},
     )
-    resp = client.post("/api/chamados/reports/weekly-email", headers={"Authorization": "Bearer invalido"})
     assert resp.status_code == 401
-    assert resp.get_json()["error"] == "Sessão inválida ou expirada. Faça login novamente."
+    assert resp.get_json()["error"] == "Invalid or expired token"
 
 
 def test_weekly_email_sem_resend_key_retorna_400(client, fake_requests, monkeypatch):
     """Sem RESEND_API_KEY, o endpoint avisa para configurar (não quebra)."""
-    _route_auth_user(fake_requests)
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
     monkeypatch.delenv("RESEND_API_KEY", raising=False)
 
     resp = client.post(
         "/api/chamados/reports/weekly-email",
-        headers={"Authorization": "Bearer token"},
+        headers=headers,
         json={"to": "admin@escola.com"},
     )
 
@@ -1581,14 +1708,14 @@ def test_weekly_email_sem_resend_key_retorna_400(client, fake_requests, monkeypa
 
 
 def test_weekly_email_sem_destinatario_retorna_400(client, fake_requests, monkeypatch):
-    _route_auth_user(fake_requests)
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
     monkeypatch.delenv("REPORT_EMAIL_TO", raising=False)
 
     resp = client.post(
         "/api/chamados/reports/weekly-email",
-        headers={"Authorization": "Bearer token"},
+        headers=headers,
         json={},
     )
 
@@ -1598,7 +1725,7 @@ def test_weekly_email_sem_destinatario_retorna_400(client, fake_requests, monkey
 
 def test_weekly_email_envia_resumo_e_responde_ok(client, fake_requests, api_module, monkeypatch):
     """Com Resend configurado, o resumo é montado e o email disparado (POST api.resend.com)."""
-    _route_auth_user(fake_requests)
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route(
         "GET",
         "chamados_tickets?select=status,priority",
@@ -1616,7 +1743,7 @@ def test_weekly_email_envia_resumo_e_responde_ok(client, fake_requests, api_modu
 
     resp = client.post(
         "/api/chamados/reports/weekly-email",
-        headers={"Authorization": "Bearer token"},
+        headers=headers,
         json={"to": "admin@escola.com"},
     )
 
@@ -1637,7 +1764,7 @@ def test_weekly_email_envia_resumo_e_responde_ok(client, fake_requests, api_modu
 
 
 def test_weekly_email_filtra_por_workspace(client, fake_requests, monkeypatch):
-    _route_auth_user(fake_requests)
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route(
         "GET",
         "chamados_tickets?select=status,priority",
@@ -1653,7 +1780,7 @@ def test_weekly_email_filtra_por_workspace(client, fake_requests, monkeypatch):
 
     resp = client.post(
         "/api/chamados/reports/weekly-email",
-        headers={"Authorization": "Bearer token"},
+        headers=headers,
         json={"to": "admin@escola.com", "workspace_id": "ws-a"},
     )
 
@@ -1669,7 +1796,7 @@ def test_weekly_email_filtra_por_workspace(client, fake_requests, monkeypatch):
 
 
 def test_weekly_email_falha_do_resend_retorna_502(client, fake_requests, monkeypatch):
-    _route_auth_user(fake_requests)
+    headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
     fake_requests.route(
         "POST",
@@ -1680,7 +1807,7 @@ def test_weekly_email_falha_do_resend_retorna_502(client, fake_requests, monkeyp
 
     resp = client.post(
         "/api/chamados/reports/weekly-email",
-        headers={"Authorization": "Bearer token"},
+        headers=headers,
         json={"to": "admin@escola.com"},
     )
 
@@ -1834,29 +1961,27 @@ def test_create_xss_no_problemDescription_e_valido(client, fake_requests):
 # ── Segurança: rate limiting ──
 
 
-def test_rate_limit_nao_bloqueia_requisicoes_normais(client, fake_requests):
+def test_rate_limit_nao_bloqueia_requisicoes_normais(client, fake_requests, api_module):
     """Requisições dentro do limite devem funcionar."""
     _route_workspace_ok(fake_requests)
     _route_ticket_number(fake_requests, last=0)
     _route_create_insert(fake_requests, _make_ticket(ticketNumber=1))
     # Limpa o rate limit store
     client.application.config.get("TESTING", None)
-    from chamados_api import _rate_limit_store
-    _rate_limit_store.clear()
+    api_module._rate_limit_store.clear()
     resp = client.post("/api/chamados", json=_valid_payload())
     assert resp.status_code == 200
 
 
-def test_rate_limit_limpa_entradas_antigas(client, fake_requests):
+def test_rate_limit_limpa_entradas_antigas(client, fake_requests, api_module):
     """Entradas fora da janela de 1h devem ser removidas."""
-    from chamados_api import _rate_limit_store, _check_rate_limit
     import time
     ip = "test-ip"
-    _rate_limit_store.clear()
+    api_module._rate_limit_store.clear()
     # Simula requisições antigas (2 horas atrás)
     old_time = time.time() - 7200
-    _rate_limit_store[ip] = [old_time] * 25  # Mais que o limite
+    api_module._rate_limit_store[ip] = [old_time] * 25  # Mais que o limite
     # Deve permitir porque as entradas estão fora da janela
-    assert _check_rate_limit(ip) is True
-    _rate_limit_store.clear()
+    assert api_module._check_rate_limit(ip) is True
+    api_module._rate_limit_store.clear()
 

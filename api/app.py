@@ -2,13 +2,14 @@ import sys, os, re, secrets, hashlib, json
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, parse_qs, quote
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api'))
-from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api')))
+from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger, _is_safe_url
 from auth import (
     require_auth,
     require_module as require_module_auth,
     require_cron,
     require_admin,
+    require_workspace,
     _verify_jwt,
     _get_token_from_request,
     _get_user_profile,
@@ -146,15 +147,21 @@ def _is_valid_photo(value: str) -> bool:
 # ── TV: YouTube API ──
 
 def iso_duration_to_seconds(duration: str) -> int:
-    if not duration:
+    if not duration or not isinstance(duration, str) or len(duration) > 20:
         return 0
-    m = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
-    if not m:
+    duration = duration.upper()
+    if not duration.startswith('PT'):
         return 0
-    h = int(m.group(1) or 0)
-    mi = int(m.group(2) or 0)
-    s = int(m.group(3) or 0)
-    return h * 3600 + mi * 60 + s
+    total = 0
+    remaining = duration[2:]
+    for suffix, multiplier in (('H', 3600), ('M', 60), ('S', 1)):
+        if suffix in remaining:
+            idx = remaining.index(suffix)
+            num = remaining[:idx]
+            if num.isdigit() and num:
+                total += int(num) * multiplier
+            remaining = remaining[idx + 1:]
+    return total
 
 
 def parse_youtube_url(url: str) -> dict | None:
@@ -270,7 +277,7 @@ def tv_youtube_fetch():
         return jsonify({'tracks': tracks})
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -316,7 +323,7 @@ def tv_youtube_search():
         return jsonify({'results': results})
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -328,8 +335,12 @@ def tv_calendar_extract():
         semester_code = data.get('semester_code', '26/2')
         end_date_str = data.get('end_date', '2026-12-18')
 
-        if not pdf_url:
+        if not pdf_url or not isinstance(pdf_url, str):
             return jsonify({'error': 'URL do PDF é obrigatória'}), 400
+
+        # Proteção SSRF: bloqueia esquemas não-HTTP, loopback, IPs privados e metadata da cloud
+        if not _is_safe_url(pdf_url):
+            return jsonify({'error': 'URL inválida ou não permitida (proteção SSRF)'}), 400
 
         # Download PDF
         resp = requests.get(pdf_url, timeout=30)
@@ -350,10 +361,9 @@ def tv_calendar_extract():
 
         text_content = "\n".join(full_text)
 
-        # Regex parser para capturar itens no formato "DD - Titulo" ou "DD a DD - Titulo"
+        # Parse linear determinístico sem regex para capturar itens no formato "DD - Titulo" ou "DD a DD - Titulo" (elimina ReDoS)
         lines = text_content.split('\n')
         extracted_events = []
-        pattern = re.compile(r'^(\d{1,2}(?:\s*a\s*\d{1,2})?)\s*[-–—]\s*(.+)$')
 
         months_map = {
             'janeiro': 1, 'fevereiro': 2, 'março': 3, 'marco': 3, 'abril': 4,
@@ -374,11 +384,20 @@ def tv_calendar_extract():
                     current_month = m_num
                     break
 
-            match = pattern.match(line_clean)
-            if match:
-                day_part = match.group(1).strip()
-                title_part = match.group(2).strip()
+            # Divisão determinística por hífens/travessões sem backtracking polinomial
+            day_part = None
+            title_part = None
+            for sep in (' - ', ' – ', ' — ', '-', '–', '—'):
+                if sep in line_clean:
+                    left, right = line_clean.split(sep, 1)
+                    left = left.strip()
+                    right = right.strip()
+                    if left and left[:1].isdigit():
+                        day_part = left
+                        title_part = right
+                        break
 
+            if day_part and title_part:
                 # Limpar encoding e ruídos comuns
                 title_part = title_part.encode('latin1', 'ignore').decode('utf-8', 'ignore') if not any(c in title_part for c in 'ãõçáéíóú') else title_part
 
@@ -402,7 +421,7 @@ def tv_calendar_extract():
         })
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -470,12 +489,13 @@ def tv_youtube_live():
         })
 
     except Exception as e:
-        logger.error("Erro em tv_youtube_live: %s", e, exc_info=True)
+        logger.error("Erro em tv_youtube_live: %s", e)
         return jsonify({'isLive': False, 'error': 'Erro interno'}), 200
 
 
 @app.route('/api/tv/cloudinary/delete', methods=['POST'])
 @require_auth
+@require_workspace
 @require_module_auth('tv')
 def tv_cloudinary_delete():
     """
@@ -509,7 +529,7 @@ def tv_cloudinary_delete():
         })
 
     except Exception as e:
-        logger.error("Erro em tv_cloudinary_delete: %s", e, exc_info=True)
+        logger.error("Erro em tv_cloudinary_delete: %s", e)
         return jsonify({'success': False, 'error': 'Erro interno'}), 200
 
 
@@ -654,7 +674,7 @@ def tv_activation_create():
         })
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -722,7 +742,7 @@ def tv_activation_redeem():
         })
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -861,7 +881,7 @@ def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author
         rows = resp.json() or []
         return rows[0] if rows else None
     except Exception as e:
-        logger.error("[chamados] evento error: %s", e, exc_info=True)
+        logger.error("[chamados] evento error: %s", e)
         return None
 
 
@@ -894,7 +914,7 @@ def _notify_ticket_status(ticket):
         _save_chamado_subs(ticket.get('id', ''), keep)
         print(f"[chamados] push status #{ticket.get('ticketNumber')}: {len(keep)}/{len(subs)} enviados")
     except Exception as e:
-        logger.error("[chamados] push status error: %s", e, exc_info=True)
+        logger.error("[chamados] push status error: %s", e)
 
 
 def _notify_ticket_assigned(ticket):
@@ -925,7 +945,7 @@ def _notify_ticket_assigned(ticket):
                 sent += 1
         print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
     except Exception as e:
-        logger.error("[chamados] push atribuição error: %s", e, exc_info=True)
+        logger.error("[chamados] push atribuição error: %s", e)
 
 
 def _notify_new_ticket(ticket):
@@ -955,7 +975,7 @@ def _notify_new_ticket(ticket):
                 sent += 1
         print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
     except Exception as e:
-        logger.error("[chamados] push error: %s", e, exc_info=True)
+        logger.error("[chamados] push error: %s", e)
 
 
 def _ensure_chamados_schema():
@@ -972,7 +992,7 @@ def _ensure_chamados_schema():
         )
         print(f"[chamados] pg_sql: {resp.status_code} {resp.text[:200]}")
     except Exception as e:
-        logger.error("[chamados] pg_sql error: %s", e, exc_info=True)
+        logger.error("[chamados] pg_sql error: %s", e)
 
 
 @app.route('/api/chamados/workspaces', methods=['GET'])
@@ -991,7 +1011,7 @@ def chamados_workspaces():
             return jsonify({'error': 'Erro ao listar campi'}), 502
         return jsonify({'workspaces': resp.json() or []})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1126,7 +1146,7 @@ def chamados_create():
         return jsonify({'ticket': ticket})
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1138,10 +1158,27 @@ def chamados_list():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
         _ensure_chamados_schema()
-        url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?select=*&order=createdAt.desc'
+        user = g.user
+        user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
+        is_super_admin = bool(user.get('is_super_admin'))
+
         workspace_id = request.args.get('workspace_id')
         if workspace_id:
+            if not is_super_admin and workspace_id not in user_ws_ids:
+                return jsonify({'error': 'Acesso negado a este workspace'}), 403
+
+        url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?select=*&order=createdAt.desc'
+        if workspace_id:
             url += f'&workspace_id=eq.{quote(workspace_id)}'
+        elif not is_super_admin:
+            if not user_ws_ids:
+                return jsonify({'tickets': []})
+            if len(user_ws_ids) == 1:
+                url += f'&workspace_id=eq.{quote(user_ws_ids[0])}'
+            else:
+                ws_filter = ','.join(f'"{w}"' for w in user_ws_ids)
+                url += f'&workspace_id=in.({quote(ws_filter)})'
+
         status = request.args.get('status')
         if status:
             url += f'&status=eq.{quote(status)}'
@@ -1153,7 +1190,7 @@ def chamados_list():
             return jsonify({'error': 'Erro ao listar chamados'}), 502
         return jsonify({'tickets': resp.json() or []})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1165,6 +1202,9 @@ def chamados_manage(ticket_id):
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
         _ensure_chamados_schema()
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
 
         if request.method == 'GET':
             resp = requests.get(
@@ -1177,9 +1217,27 @@ def chamados_manage(ticket_id):
             rows = resp.json() or []
             if not rows:
                 return jsonify({'error': 'Chamado não encontrado'}), 404
+            ticket_ws = rows[0].get('workspace_id') or ''
+            if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+                return jsonify({'error': 'Acesso negado a este chamado'}), 403
             return jsonify({'ticket': rows[0]})
 
         if request.method == 'DELETE':
+            # Verify workspace ownership before delete
+            fetch = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not fetch.ok:
+                return jsonify({'error': 'Erro ao buscar chamado'}), 502
+            rows = fetch.json() or []
+            if not rows:
+                return jsonify({'error': 'Chamado não encontrado'}), 404
+            ticket_ws = rows[0].get('workspace_id') or ''
+            if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+                return jsonify({'error': 'Acesso negado a este chamado'}), 403
+
             resp = requests.delete(
                 f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}',
                 headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
@@ -1188,6 +1246,21 @@ def chamados_manage(ticket_id):
             if not resp.ok:
                 return jsonify({'error': 'Erro ao remover chamado'}), 502
             return jsonify({'success': True})
+
+        # PATCH: Verify workspace ownership before any update
+        fetch_ws = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch_ws.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        ws_rows = fetch_ws.json() or []
+        if not ws_rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        ticket_ws = ws_rows[0].get('workspace_id') or ''
+        if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
 
         body = request.get_json() or {}
         updates = {}
@@ -1301,7 +1374,7 @@ def chamados_manage(ticket_id):
         return jsonify({'ticket': ticket})
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1413,6 +1486,9 @@ def chamados_reports():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
         _ensure_chamados_schema()
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
 
         now = datetime.now(timezone.utc)
         from_iso = request.args.get('from') or (now - timedelta(days=30)).isoformat()
@@ -1431,7 +1507,20 @@ def chamados_reports():
         )
         workspace_id = request.args.get('workspace_id')
         if workspace_id:
+            if not is_super_admin and workspace_id not in user_ws_ids:
+                return jsonify({'error': 'Acesso negado a este workspace'}), 403
             url += f'&workspace_id=eq.{quote(workspace_id)}'
+        elif not is_super_admin:
+            if not user_ws_ids:
+                report = _aggregate_ticket_reports([])
+                report['period'] = {'from': from_iso, 'to': to_iso}
+                return jsonify({'report': report})
+            if len(user_ws_ids) == 1:
+                url += f'&workspace_id=eq.{quote(user_ws_ids[0])}'
+            else:
+                ws_filter = ','.join(f'"{w}"' for w in user_ws_ids)
+                url += f'&workspace_id=in.({quote(ws_filter)})'
+
         resp = requests.get(url, headers=_supabase_headers(), timeout=15)
         if not resp.ok:
             return jsonify({'error': 'Erro ao gerar relatório'}), 502
@@ -1440,7 +1529,7 @@ def chamados_reports():
         report['period'] = {'from': from_iso, 'to': to_iso}
         return jsonify({'report': report})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1470,7 +1559,7 @@ def chamados_subscribe(ticket_id):
         _save_chamado_subs(ticket_id, subs)
         return jsonify({'status': 'ok', 'count': len(subs)})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1478,31 +1567,11 @@ def chamados_subscribe(ticket_id):
 @require_auth
 @require_admin
 def chamados_push_test():
-    """Envia uma push de teste para o próprio usuário logado (módulo chamados).
-
-    Usado pela página de Configurações do Chamados para validar o fluxo completo
-    (inscrição → service worker → notificação). Requer sessão Supabase (Bearer):
-    o push é segmentado pelas inscrições do usuário com acesso ao módulo chamados.
-    """
+    """Envia uma push de teste para o próprio usuário logado (módulo chamados)."""
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
-        if not token:
-            return jsonify({'error': 'Token de autenticação ausente'}), 401
-
-        # Valida o JWT do usuário via Supabase Auth (mesmo padrão da ativação da TV)
-        auth_resp = requests.get(
-            f'{_SUPABASE_URL}/auth/v1/user',
-            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
-            timeout=10,
-        )
-        if not auth_resp.ok:
-            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
-        auth_user = auth_resp.json() or {}
-        user_id = auth_user.get('id')
-        if not user_id:
-            return jsonify({'error': 'Usuário não identificado'}), 401
+        user_id = g.user_id
 
         subs = _target_subs(module='chamados', user_id=user_id)
         if not subs:
@@ -1521,7 +1590,7 @@ def chamados_push_test():
         print(f"[chamados] push de teste: {sent}/{len(subs)} enviados (user={user_id})")
         return jsonify({'sent': sent, 'total': len(subs)})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1599,11 +1668,11 @@ def admin_wipe():
                 else:
                     results[table] = f'HTTP {resp.status_code}'
             except Exception as e:
-                logger.error("Erro ao limpar %s: %s", table, e, exc_info=True)
+                logger.error("Erro ao limpar %s: %s", table, e)
                 results[table] = 'erro'
         return jsonify({'wipe': results})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1663,17 +1732,8 @@ def chamados_feedback(ticket_id):
         return jsonify({'ticket': resp.json()[0]})
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
-
-
-def _require_cron():
-    """Valida o Bearer do cron. Se CRON_SECRET não estiver no ambiente, permite (dev/local)."""
-    secret = os.environ.get('CRON_SECRET', '')
-    if not secret:
-        return True
-    token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
-    return token and token == secret
 
 
 @app.route('/api/chamados/<ticket_id>/events', methods=['GET'])
@@ -1684,6 +1744,25 @@ def chamados_events_list(ticket_id):
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
         _ensure_chamados_schema()
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
+
+        # Verify ticket belongs to user's workspace
+        fetch_ticket = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch_ticket.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        t_rows = fetch_ticket.json() or []
+        if not t_rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        ticket_ws = t_rows[0].get('workspace_id') or ''
+        if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
+
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}&order=createdAt.desc',
             headers=_supabase_headers(),
@@ -1701,7 +1780,7 @@ def chamados_events_list(ticket_id):
             events.append(ev)
         return jsonify({'events': events})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1724,6 +1803,14 @@ def chamados_events_create(ticket_id):
         if not rows:
             return jsonify({'error': 'Chamado não encontrado'}), 404
         ticket = rows[0]
+
+        # SEC-01: Verify ticket belongs to user's workspace
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
+        ticket_ws = ticket.get('workspace_id') or ''
+        if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
 
         body = request.get_json() or {}
         content = str(body.get('content') or '').strip()[:1000]
@@ -1758,7 +1845,7 @@ def chamados_events_create(ticket_id):
         return jsonify({'event': event}), 201
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1781,7 +1868,7 @@ def _send_email_via_resend(to, subject, html):
             return False, f'Resend retornou {resp.status_code}: {resp.text[:200]}'
         return True, ''
     except Exception as e:
-        logger.error('Erro ao enviar email via Resend: %s', e, exc_info=True)
+        logger.error('Erro ao enviar email via Resend: %s', e)
         return False, 'Falha de rede ao enviar o email'
 
 
@@ -1875,26 +1962,10 @@ def _build_weekly_report_html(report, workspace_name):
 @require_auth
 @require_admin
 def chamados_reports_weekly_email():
-    """Envia por email o resumo semanal de chamados (últimos 7 dias).
-
-    Requer usuário logado (Bearer Supabase). O destinatário vem do body
-    (ou de REPORT_EMAIL_TO). Usa Resend (RESEND_API_KEY). Pode ser chamado
-    manualmente pelo app ou por um cron agendado.
-    """
+    """Envia por email o resumo semanal de chamados (últimos 7 dias)."""
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
-        if not token:
-            return jsonify({'error': 'Token de autenticação ausente'}), 401
-        auth_resp = requests.get(
-            f'{_SUPABASE_URL}/auth/v1/user',
-            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
-            timeout=10,
-        )
-        if not auth_resp.ok:
-            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
-
         _ensure_chamados_schema()
         now = datetime.now(timezone.utc)
         from_iso = (now - timedelta(days=7)).isoformat()
@@ -1903,6 +1974,14 @@ def chamados_reports_weekly_email():
         body = request.get_json() or {}
         workspace_id = str(body.get('workspace_id') or '').strip()
         workspace_name = ''
+
+        # SEC-01: Validate workspace access
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
+        if workspace_id and not is_super_admin and workspace_id not in user_ws_ids:
+            return jsonify({'error': 'Acesso negado a este workspace'}), 403
+
         if workspace_id:
             ws_resp = requests.get(
                 f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=name',
@@ -1933,7 +2012,7 @@ def chamados_reports_weekly_email():
 
         return jsonify({'ok': True, 'total': report['total'], 'sent_to': to})
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -1945,8 +2024,6 @@ def chamados_photos_purge():
     Roda via GitHub Actions (photos-cleanup.yml) com Bearer CRON_SECRET.
     Limpa a coluna photos do ticket e photo_urls dos eventos afetados.
     """
-    if not _require_cron():
-        return jsonify({'error': 'Não autorizado'}), 401
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
@@ -2018,7 +2095,7 @@ def chamados_photos_purge():
         })
 
     except Exception as e:
-        logger.error("Erro interno na API: %s", e, exc_info=True)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
