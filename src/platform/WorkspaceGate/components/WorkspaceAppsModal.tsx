@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import type { Workspace } from '../../../core/workspaces/types'
 import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
 import { APPS_CONFIGURABLE } from '../../../core/workspaces/apps'
-import { appRegistry } from '../../../appRegistry'
+import { appRegistry, type AppModule } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
+import { WorkspaceAppSheet } from './WorkspaceAppSheet'
 
 interface WorkspaceAppsModalProps {
   workspace: Workspace | null
@@ -22,6 +23,7 @@ export function WorkspaceAppsModal({ workspace, open, onClose, onSaved }: Worksp
   const [labCount, setLabCount] = useState(workspace?.lab_count ?? 2)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [managedApp, setManagedApp] = useState<AppModule | null>(null)
 
   useEffect(() => {
     if (open && workspace) {
@@ -85,34 +87,48 @@ export function WorkspaceAppsModal({ workspace, open, onClose, onSaved }: Worksp
               {apps.map((app) => {
                 const isOff = disabled.has(app.id)
                 return (
-                  <button
+                  <div
                     key={app.id}
-                    type="button"
-                    onClick={() => toggle(app.id)}
-                    className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 text-left transition-colors hover:bg-input"
+                    className="flex w-full items-center gap-1 rounded-xl border border-line bg-surface pl-3 transition-colors hover:bg-input"
                   >
-                    <span
-                      className="flex h-9 w-9 items-center justify-center rounded-xl"
-                      style={{ backgroundColor: app.color + '18', color: app.color }}
-                    >
-                      <app.icon size={16} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-fg">{app.name}</span>
-                      <span className="block truncate text-[10px] text-fg-muted">{app.description}</span>
-                    </span>
-                    <span
-                      className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${
-                        isOff ? 'bg-line' : 'bg-emerald-500'
-                      }`}
+                    <button
+                      type="button"
+                      onClick={() => toggle(app.id)}
+                      aria-pressed={!isOff}
+                      className="flex min-w-0 flex-1 items-center gap-3 py-2.5 text-left"
                     >
                       <span
-                        className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                          isOff ? 'translate-x-0' : 'translate-x-5'
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                        style={{ backgroundColor: app.color + '18', color: app.color }}
+                      >
+                        <app.icon size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-fg">{app.name}</span>
+                        <span className="block truncate text-[10px] text-fg-muted">{app.description}</span>
+                      </span>
+                      <span
+                        className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+                          isOff ? 'bg-line' : 'bg-emerald-500'
                         }`}
-                      />
-                    </span>
-                  </button>
+                      >
+                        <span
+                          className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                            isOff ? 'translate-x-0' : 'translate-x-5'
+                          }`}
+                        />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManagedApp(app)}
+                      aria-label={`Gerenciar ${app.name} neste workspace`}
+                      title={`Gerenciar ${app.name}`}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
+                    >
+                      <icons.ui.chevronRight size={16} />
+                    </button>
+                  </div>
                 )
               })}
               <p className="px-1 pt-1 text-[10px] text-fg-dim">
@@ -191,6 +207,17 @@ export function WorkspaceAppsModal({ workspace, open, onClose, onSaved }: Worksp
           </motion.div>
         </motion.div>
       )}
+      <WorkspaceAppSheet
+        app={managedApp}
+        workspace={workspace}
+        open={!!managedApp}
+        onClose={() => setManagedApp(null)}
+        onDisabledAppsChange={(list) => {
+          setDisabled(new Set(list))
+          // Toggle do sheet grava imediatamente: recarrega a lista autoritativa.
+          onSaved?.()
+        }}
+      />
     </AnimatePresence>
   )
 }

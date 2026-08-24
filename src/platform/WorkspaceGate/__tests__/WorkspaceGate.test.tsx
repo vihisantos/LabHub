@@ -11,6 +11,7 @@ vi.mock('framer-motion', () => ({
     p: ({ children, ...props }: any) => <p {...props}>{children}</p>,
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
+  useDragControls: () => ({ start: () => {} }),
 }))
 
 function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
