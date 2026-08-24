@@ -1,4 +1,8 @@
 -- ============================================================
+-- DEPRECATED — NÃO EXECUTAR. Registro histórico apenas.
+-- Consolidado em supabase/migrations/000_bootstrap_baseline.sql
+-- (o backfill de dados legados daqui NÃO roda mais: produção já migrada).
+-- ============================================================
 -- MIGRAÇÃO: TV corporativa multi-workspace + registro de dispositivos
 -- Execute este arquivo no SQL Editor do Supabase.
 -- ============================================================

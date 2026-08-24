@@ -36,19 +36,33 @@ export async function fetchAllEvents(): Promise<TvEvent[]> {
 
 export async function createEvent(values: Omit<TvEvent, 'id' | 'created_at'>): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_events').insert({ ...values, workspace_id: workspaceId() } as never)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_events').insert({ ...values, workspace_id: ws } as never)
   if (error) throw error
 }
 
 export async function updateEvent(id: string, values: Partial<TvEvent>): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_events').update(values as never).eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase
+    .from('tv_events')
+    .update(values as never)
+    .eq('id', id)
+    .eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function deleteEvent(id: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_events').delete().eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase
+    .from('tv_events')
+    .delete()
+    .eq('id', id)
+    .eq('workspace_id', ws)
   if (error) throw error
 }
 

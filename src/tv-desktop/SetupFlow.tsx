@@ -4,7 +4,7 @@ import type { Workspace } from '../core/workspaces/types'
 import type { User } from '../core/auth/types'
 import { authService } from '../core/auth/service'
 import { defaultDb as supabase } from '../lib/supabase'
-import { registerDevice, redeemActivationCode } from './deviceService'
+import { redeemActivationCode, provisionWithLogin } from './deviceService'
 import type { DeviceConfig } from './config'
 
 type Step = 'login' | 'activation' | 'workspace' | 'name' | 'saving'
@@ -71,23 +71,27 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
     if (!selectedWorkspace || !user || !deviceName.trim()) return
     setStep('saving')
     setSaving(true)
+    setError(null)
     const deviceId = existing?.deviceId ?? crypto.randomUUID()
     try {
-      await registerDevice({
+      // Provisiona identidade de kiosk e substitui a sessão humana local
+      // pela sessão do device (credenciais humanas não ficam na TV).
+      await provisionWithLogin({
+        workspaceId: selectedWorkspace.id,
+        deviceId,
+        deviceName: deviceName.trim(),
+      })
+      onDone({
         deviceId,
         name: deviceName.trim(),
-        workspaceId: selectedWorkspace.id,
-        userId: user.id,
+        workspace: selectedWorkspace,
+        createdAt: new Date().toISOString(),
       })
-    } catch {
-      // Sem Supabase/offline: segue apenas com config local
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao registrar a TV')
+      setSaving(false)
+      setStep('name')
     }
-    onDone({
-      deviceId,
-      name: deviceName.trim(),
-      workspace: selectedWorkspace,
-      createdAt: new Date().toISOString(),
-    })
   }
 
   const canLogin = email.trim() && password && !loading
@@ -98,19 +102,9 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
     setActivating(true)
     setError(null)
     try {
-      const res = await redeemActivationCode(code)
       const deviceId = existing?.deviceId ?? crypto.randomUUID()
-      const name = deviceName.trim() || res.device_name?.trim() || 'TV Desktop'
-      try {
-        await registerDevice({
-          deviceId,
-          name,
-          workspaceId: res.workspace.id,
-          userId: res.user_id,
-        })
-      } catch {
-        // Sem Supabase/offline: segue apenas com config local
-      }
+      const res = await redeemActivationCode(code, deviceId, deviceName.trim())
+      const name = deviceName.trim() || res.device_name || 'TV Desktop'
       onDone({
         deviceId,
         name,

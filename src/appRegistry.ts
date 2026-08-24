@@ -1,5 +1,10 @@
 import type { ComponentType } from 'react'
 
+import type { AppSettingsDefinition, AppSettingsPanelProps } from './core/appSettings/types'
+import { icons } from './lib/icons'
+import { tvSettingsDefinition } from './apps/tv/settings/definition'
+import { TvSettingsPanel } from './apps/tv/settings/TvSettingsPanel'
+
 export interface AppModule {
   id: string
   name: string
@@ -7,9 +12,21 @@ export interface AppModule {
   icon: ComponentType<{ size?: number }>
   route: string
   color: string
-}
 
-import { icons } from './lib/icons'
+  /** Pode ser gerenciado por admins dentro de um workspace (WorkspaceAppSheet). */
+  configurable?: boolean
+  /** Declara intenção de purge de dados por workspace. A ação só é habilitada
+   * quando o mecanismo real existir (app_data_backups + endpoint dedicado). */
+  clearable?: boolean
+
+  /** Contrato consumido por core/appSettings. Obrigatório antes de qualquer
+   * leitura/escrita de configuração deste app via appSettingsService. */
+  settings?: AppSettingsDefinition<unknown>
+
+  /** Painel próprio de configuração renderizado pelo shell genérico.
+   * A plataforma não gera formulários: cada app traz sua UI. */
+  SettingsPanel?: ComponentType<AppSettingsPanelProps>
+}
 
 export const appRegistry: AppModule[] = [
   {
@@ -51,6 +68,10 @@ export const appRegistry: AppModule[] = [
     icon: icons.ui.tv,
     route: '/tv',
     color: '#ef4444',
+    configurable: true,
+    clearable: true,
+    settings: tvSettingsDefinition,
+    SettingsPanel: TvSettingsPanel,
   },
   {
     id: 'chamados',
@@ -67,5 +88,30 @@ export const appRegistry: AppModule[] = [
     icon: icons.nav.settings,
     route: '/admin',
     color: '#64748b',
+  },
+]
+
+/**
+ * Apps planejados que ainda NÃO entram no launcher: não possuem página/route
+ * própria e apareceriam como tiles mortos (Launcher.tsx renderiza todo o
+ * registry; UsersPage/RolesPage também iterariam a permissão).
+ *
+ * Quando o PR do Painel de Chamados entregar a página real, basta mover o
+ * objeto abaixo para dentro de `appRegistry` — o WorkspaceAppSheet e o
+ * core/appSettings já suportam o módulo sem nenhuma alteração adicional.
+ *
+ * Fonte de dados futura: consulta SOMENTE LEITURA sobre chamados_tickets.
+ * Nenhuma cópia/tabela paralela de chamados será criada.
+ */
+export const plannedApps: AppModule[] = [
+  {
+    id: 'chamados-dashboard',
+    name: 'Painel de Chamados',
+    description: 'Dashboard de chamados e indicadores para telas da TI.',
+    icon: icons.nav.dashboard,
+    route: '/chamados-dashboard',
+    color: '#f59e0b',
+    configurable: true,
+    clearable: false,
   },
 ]
