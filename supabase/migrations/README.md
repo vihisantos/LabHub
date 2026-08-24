@@ -40,6 +40,7 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 | 028 | `028_authorization_consolidation.sql` | Consolidação da camada de autorização (is_super_admin etc.) |
 | 029 | `029_reconcile_legacy_policies.sql` | DROP das policies permissivas legadas (`*_all`, `allow_all`, `notifications_all`) nas tabelas já cobertas pela 027 |
 | 030 | `030_tv_device_identity.sql` | Identidade do kiosk TV: fecha RLS das `tv_*` (SELECT por workspace p/ device/membro/admin; escrita só admin/membro; device atualiza só a própria linha em `tv_devices`); REVOKE anon |
+| 031 | `031_workspace_app_settings_and_backups.sql` | Fundação da arquitetura de apps por workspace: `workspace_app_settings` (config JSONB única por workspace+app, escrita só super admin/admin do ws) + `app_data_backups` (trilha append-only pré-purge: sem UPDATE/DELETE policies); helper `can_manage_workspace_apps()`; REVOKE anon |
 
 ## Regras para novas migrations
 
@@ -50,6 +51,13 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 4. Nunca criar policy permissiva (`USING(true)`) em tabela de dados de app.
 5. Ao final de mudanças de autorização, rodar a query de verificação do
    cabeçalho da `029` e conferir as exceções esperadas.
+
+### Testes SQL
+
+`tests/NNN_*_checks.sql`: scripts de asserção executáveis no SQL Editor
+**depois** de aplicar a migration correspondente. Cada drift relevante (tabelas,
+colunas, RLS, policies, grants) dispara `RAISE EXCEPTION`; execução limpa termina
+com `NOTICE OK`. Rodar em staging antes de produção.
 
 ## Drift conhecido vs produção (auditado em 2026-08)
 
@@ -77,5 +85,6 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 1. Rodar `029` em produção e validar com a query de verificação (fechar buraco
    de notificações cross-workspace aberto pela 026).
 2. `pcare.assets`: criar policies restritivas e remover `assets_all`.
-3. TV: identidade de kiosk → fechar RLS das `tv_*`.
+3. Aplicar `030` em produção (identidade de kiosk já implementada; TVs legadas
+   voltam ao setup na primeira boot após aplicação).
 4. Verificar se há outras policies permissivas fora do inventário (query da 029).
