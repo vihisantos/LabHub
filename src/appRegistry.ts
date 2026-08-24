@@ -2,6 +2,8 @@ import type { ComponentType } from 'react'
 
 import type { AppSettingsDefinition, AppSettingsPanelProps } from './core/appSettings/types'
 import { icons } from './lib/icons'
+import { tvSettingsDefinition } from './apps/tv/settings/definition'
+import { TvSettingsPanel } from './apps/tv/settings/TvSettingsPanel'
 
 export interface AppModule {
   id: string
@@ -68,6 +70,8 @@ export const appRegistry: AppModule[] = [
     color: '#ef4444',
     configurable: true,
     clearable: true,
+    settings: tvSettingsDefinition,
+    SettingsPanel: TvSettingsPanel,
   },
   {
     id: 'chamados',

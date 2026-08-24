@@ -37,12 +37,13 @@ describe('appRegistry (compatibilidade com apps antigos)', () => {
     expect(dashboard.SettingsPanel).toBeUndefined()
   })
 
-  it('tv declara as capacidades esperadas (configurable + clearable), sem painel ainda', () => {
+  it('tv declara capacidades completas (configurable + clearable + settings + painel)', () => {
     const tv = appRegistry.find((a) => a.id === 'tv')!
     expect(tv.configurable).toBe(true)
     expect(tv.clearable).toBe(true)
-    expect(tv.settings).toBeUndefined() // TvSettingsDefinition chega no PR da integração
-    expect(tv.SettingsPanel).toBeUndefined() // TvSettingsPanel idem
+    const tvDefaults = tv.settings?.defaultSettings as { eventSource: { enabled: boolean } } | undefined
+    expect(tvDefaults?.eventSource.enabled).toBe(false) // default seguro
+    expect(typeof tv.SettingsPanel).toBe('function') // TvSettingsPanel
   })
 
   it('APPS_CONFIGURABLE exclui admin/dashboard e inclui tv', () => {

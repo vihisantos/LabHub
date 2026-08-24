@@ -1,9 +1,10 @@
-import sys, os, re, secrets, hashlib, json
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse, parse_qs, quote
+import sys, os, re, secrets, hashlib, json, socket, ipaddress, time
+from datetime import datetime, timedelta, timezone, date
+from io import BytesIO
+from urllib.parse import urlparse, parse_qs, quote, urljoin
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api')))
-from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger, _is_safe_url
+from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger, _is_safe_url, _cache_path
 from auth import (
     require_auth,
     require_module as require_module_auth,
@@ -21,6 +22,7 @@ from auth import (
 import requests
 from collections import defaultdict
 from flask import jsonify, request, g
+from openpyxl import load_workbook
 
 
 # ── Rate limiting (in-memory) ──
@@ -423,6 +425,376 @@ def tv_calendar_extract():
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
+
+
+# ── TV Corporativa — fonte Excel/SharePoint (fase 1: link anônimo) ────────────
+# Credenciais Microsoft NUNCA chegam ao frontend; o download é sempre server-side.
+# Evolução para links privados (Graph/app-only) será um PR separado.
+
+TV_SOURCE_MAX_URL_LEN = 2048
+TV_SOURCE_MAX_BYTES = 8 * 1024 * 1024  # 8 MB
+TV_SOURCE_TIMEOUT = (10, 30)  # (conexão, leitura)
+TV_SOURCE_MAX_REDIRECTS = 3
+TV_SOURCE_PARSE_ROW_CAP = 5000
+TV_SOURCE_PREVIEW_CAP = 100
+TV_REFRESH_MIN, TV_REFRESH_MAX = 60, 3600
+
+
+def _tv_validate_source_url(url):
+    """Valida a URL da fonte com proteção SSRF em profundidade.
+
+    Camadas: string/tamanho → HTTPS only → _is_safe_url (herdada do ReservaLab:
+    bloqueia localhost, IPs literais privados/loopback/link-local/reservados e
+    esquemas não-HTTP) → resolução DNS validando TODOS os IPs retornados.
+    """
+    if not isinstance(url, str) or not url or len(url) > TV_SOURCE_MAX_URL_LEN:
+        return False
+    parsed = urlparse(url)
+    if parsed.scheme != 'https':
+        return False
+    if not _is_safe_url(url):
+        return False
+    host = (parsed.hostname or '').lower()
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr.split('%')[0])
+        except ValueError:
+            return False
+        if ip.is_private or ip.is_loopback or ip.is_link_local \
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            return False
+    return True
+
+
+def _tv_fetch_source_bytes(url):
+    """Baixa o arquivo da fonte com revalidação SSRF a cada hop de redirect.
+
+    Retorna (bytes | None, erro | None). Redirects são seguidos manualmente
+    (limite TV_SOURCE_MAX_REDIRECTS) para impedir redirecionamento para hosts
+    internos. O download é streamado com teto de tamanho.
+    """
+    current = url
+    for _hop in range(TV_SOURCE_MAX_REDIRECTS + 1):
+        if not _tv_validate_source_url(current):
+            return None, 'URL inválida ou não permitida (proteção SSRF)'
+        try:
+            resp = requests.get(
+                current, timeout=TV_SOURCE_TIMEOUT, allow_redirects=False, stream=True,
+            )
+        except requests.exceptions.Timeout:
+            return None, 'Tempo esgotado ao contatar a fonte'
+        except requests.exceptions.RequestException as exc:
+            return None, f'Falha de rede ({exc.__class__.__name__})'
+        if resp.status_code in (301, 302, 303, 307, 308):
+            loc = resp.headers.get('Location', '')
+            resp.close()
+            if not loc:
+                return None, 'Redirect sem destino'
+            current = urljoin(current, loc)
+            continue
+        if not resp.ok:
+            resp.close()
+            return None, f'A fonte respondeu HTTP {resp.status_code}'
+        chunks, total = [], 0
+        try:
+            for chunk in resp.iter_content(64 * 1024):
+                total += len(chunk)
+                if total > TV_SOURCE_MAX_BYTES:
+                    return None, 'Arquivo maior que o limite permitido'
+                chunks.append(chunk)
+        finally:
+            resp.close()
+        return b''.join(chunks), None
+    return None, 'Excesso de redirects'
+
+
+_TV_FIELD_ALIASES = {
+    'title': ('title', 'título', 'titulo', 'evento', 'nome'),
+    'date': ('date', 'data', 'início', 'inicio'),
+    'endDate': ('enddate', 'end date', 'data final', 'fim'),
+    'description': ('description', 'descrição', 'descricao', 'obs', 'observação'),
+    'location': ('location', 'local', 'sala'),
+    'category': ('category', 'categoria', 'tipo'),
+}
+
+
+def _tv_normalize_header(value):
+    return re.sub(r'\s+', ' ', str(value)).strip().lower()
+
+
+def _tv_parse_date(value):
+    """Converte célula de data em ISO yyyy-mm-dd; None quando inválida."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+            try:
+                return datetime.strptime(s[:10], fmt).date().isoformat()
+            except ValueError:
+                continue
+    return None
+
+
+def _tv_parse_events_xlsx(content, sheet_name=None, field_map=None):
+    """Normaliza XLSX em eventos genéricos (sem persistir nada).
+
+    Sobrevive a: aba inexistente/vazia, colunas ausentes, datas inválidas,
+    linhas vazias/duplicadas, workbook malformado — linhas ruins viram
+    ignoredCount sem derrubar a importação. Duplicatas dentro do arquivo são
+    contabilizadas como ignoradas (primeira ocorrência vence).
+    """
+    result = {'events': [], 'validCount': 0, 'ignoredCount': 0}
+    fm = {}
+    if isinstance(field_map, dict):
+        for key, val in field_map.items():
+            if key in _TV_FIELD_ALIASES and isinstance(val, str) and val.strip():
+                fm[key] = _tv_normalize_header(val)
+    try:
+        wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        result['error'] = 'Workbook inválido ou corrompido'
+        return result
+    names = list(wb.sheetnames)
+    if not names:
+        wb.close()
+        result['error'] = 'Workbook sem abas'
+        return result
+    if sheet_name:
+        if sheet_name not in names:
+            wb.close()
+            result['error'] = f'Aba "{sheet_name}" não encontrada'
+            return result
+        ws = wb[sheet_name]
+    else:
+        ws = wb[names[0]]
+    rows = ws.iter_rows(min_row=1, max_row=TV_SOURCE_PARSE_ROW_CAP, values_only=True)
+    header = []
+    for row in rows:
+        header = [_tv_normalize_header(c) if c is not None else '' for c in row]
+        break
+
+    def _find_col(field):
+        wanted = fm.get(field)
+        if wanted and wanted in header:
+            return header.index(wanted)
+        for alias in _TV_FIELD_ALIASES[field]:
+            if alias in header:
+                return header.index(alias)
+        return -1
+
+    idx = {field: _find_col(field) for field in _TV_FIELD_ALIASES}
+    seen = set()
+    for row in rows:
+        if row is None or all(c is None or str(c).strip() == '' for c in row):
+            continue
+        title = ''
+        if idx['title'] >= 0 and idx['title'] < len(row) and row[idx['title']] is not None:
+            title = str(row[idx['title']]).strip()
+        date_iso = _tv_parse_date(row[idx['date']]) if idx['date'] >= 0 and idx['date'] < len(row) else None
+        if not title or not date_iso:
+            result['ignoredCount'] += 1
+            continue
+
+        def _cell(field, max_len):
+            i = idx[field]
+            if i < 0 or i >= len(row) or row[i] is None:
+                return ''
+            return str(row[i]).strip()[:max_len]
+
+        end_iso = _tv_parse_date(row[idx['endDate']]) if idx['endDate'] >= 0 and idx['endDate'] < len(row) else None
+        external_id = hashlib.sha256('|'.join([
+            title[:300], date_iso, end_iso or '', _cell('location', 200),
+        ]).encode('utf-8')).hexdigest()[:16]
+        if external_id in seen:
+            result['ignoredCount'] += 1
+            continue
+        seen.add(external_id)
+        event = {
+            'externalId': external_id,
+            'title': title[:300],
+            'date': date_iso,
+            'origin': 'sharepoint_excel',
+        }
+        if end_iso:
+            event['endDate'] = end_iso
+        description = _cell('description', 500)
+        location = _cell('location', 200)
+        category = _cell('category', 80)
+        if description:
+            event['description'] = description
+        if location:
+            event['location'] = location
+        if category:
+            event['category'] = category
+        result['events'].append(event)
+        result['validCount'] += 1
+    wb.close()
+    return result
+
+
+def _tv_cache_key(workspace_id, event_source_cfg):
+    """Chave inclui workspace E hash da configuração: trocar a URL/aba muda a
+    chave, então alterar a configuração invalida o cache naturalmente."""
+    cfg_hash = hashlib.sha256(json.dumps(
+        event_source_cfg, sort_keys=True, ensure_ascii=False,
+    ).encode('utf-8')).hexdigest()[:12]
+    return f'tv_source_{workspace_id}_{cfg_hash}'
+
+
+def _tv_cache_read(cache_key, ttl_seconds):
+    """Lê cache Redis/arquivo no padrão ReservaLab. Retorna (fresh, stale)."""
+    payload = None
+    if redis:
+        try:
+            raw = redis.get(f'cache:{cache_key}')
+            if raw:
+                payload = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception as exc:
+            logger.error("Erro ao ler cache Redis (tv_source): %s", exc)
+    if payload is None:
+        try:
+            path = _cache_path(cache_key)
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as fh:
+                    payload = json.load(fh)
+        except Exception as exc:
+            logger.error("Erro ao ler cache em arquivo (tv_source): %s", exc)
+    if not isinstance(payload, dict):
+        return None, None
+    ts = payload.get('timestamp', 0)
+    data = payload.get('data')
+    fresh = data if ts and time.time() - ts < ttl_seconds else None
+    stale = data if ts and data is not None else None
+    return fresh, stale
+
+
+def _tv_cache_write(cache_key, data, ttl_seconds):
+    """Grava cache (Redis + arquivo) com TTL dinâmico limitado por constantes."""
+    payload = {'data': data, 'timestamp': time.time()}
+    ttl_seconds = max(TV_REFRESH_MIN, min(TV_REFRESH_MAX, int(ttl_seconds)))
+    if redis:
+        try:
+            redis.set(f'cache:{cache_key}', json.dumps(payload, ensure_ascii=False), ex=ttl_seconds)
+        except Exception as exc:
+            logger.error("Erro ao salvar cache Redis (tv_source): %s", exc)
+    try:
+        with open(_cache_path(cache_key), 'w', encoding='utf-8') as fh:
+            json.dump(payload, fh, ensure_ascii=False)
+    except Exception as exc:
+        logger.error("Erro ao salvar cache em arquivo (tv_source): %s", exc)
+
+
+def _get_tv_app_settings(workspace_id):
+    """Lê workspace_app_settings do workspace autenticado (service key, server-side).
+
+    O cliente nunca envia settings/workspace como autoridade — o identificador
+    vem exclusivamente de g.workspace_id, resolvido pelo require_workspace.
+    """
+    try:
+        url = (
+            f"{_SUPABASE_URL}/rest/v1/workspace_app_settings"
+            f"?workspace_id=eq.{workspace_id}&app_id=eq.tv&select=settings"
+        )
+        resp = requests.get(url, headers=_supabase_headers(), timeout=10)
+        if resp.ok:
+            rows = resp.json() or []
+            if rows and isinstance(rows[0].get('settings'), dict):
+                return rows[0]['settings']
+    except Exception as exc:
+        logger.error("Erro ao ler tv app settings: %s", exc)
+    return {}
+
+
+def _tv_source_response(payload, status_code=200):
+    body = dict(payload)
+    events = body.get('events')
+    if isinstance(events, list) and len(events) > TV_SOURCE_PREVIEW_CAP:
+        body['totalEvents'] = len(events)
+        body['events'] = events[:TV_SOURCE_PREVIEW_CAP]
+    return jsonify(body), status_code
+
+
+@app.route('/api/tv/source/fetch', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
+def tv_source_fetch():
+    """Testa/normaliza a fonte configurada do workspace autenticado.
+
+    Não persiste eventos (sem import neste PR); retorna preview + contagens.
+    Em falha de rede serve o último resultado válido (stale) quando houver.
+    """
+    if not _check_rate_limit(_get_client_ip()):
+        return jsonify({'error': 'Muitas requisições. Tente novamente mais tarde.'}), 429
+    try:
+        # Identificadores do corpo do cliente são ignorados de propósito:
+        # autoridade = token JWT + membership (require_workspace) apenas.
+        settings = _get_tv_app_settings(g.workspace_id)
+        source = settings.get('eventSource') or {}
+        if not source.get('enabled') or not source.get('url'):
+            return jsonify({'ok': False, 'error': 'Fonte externa não configurada para este workspace'}), 400
+
+        display = settings.get('display') or {}
+        try:
+            refresh = int(display.get('refreshIntervalSeconds') or 300)
+        except (TypeError, ValueError):
+            refresh = 300
+        ttl = max(TV_REFRESH_MIN, min(TV_REFRESH_MAX, refresh))
+        cache_key = _tv_cache_key(g.workspace_id, source)
+
+        url = source['url']
+        if not _tv_validate_source_url(url):
+            return jsonify({'ok': False, 'error': 'URL configurada é inválida ou não permitida (proteção SSRF)'}), 400
+
+        # Dentro do TTL responde do cache sem tocar a rede.
+        fresh, _stale = _tv_cache_read(cache_key, ttl)
+        if fresh:
+            return _tv_source_response({'ok': True, 'freshness': 'fresh', **fresh})
+
+        content, fetch_error = _tv_fetch_source_bytes(url)
+        synced_at = datetime.now(timezone.utc).isoformat()
+
+        if fetch_error is None and content:
+            parsed = _tv_parse_events_xlsx(content, source.get('sheetName'), source.get('fieldMap'))
+            if parsed.get('error'):
+                _fresh, stale = _tv_cache_read(cache_key, ttl)
+                if stale:
+                    return _tv_source_response({
+                        'ok': True, 'freshness': 'stale', 'warning': parsed['error'], **stale,
+                    })
+                return jsonify({'ok': False, 'error': parsed['error']}), 502
+            payload = {
+                'events': parsed['events'],
+                'validCount': parsed['validCount'],
+                'ignoredCount': parsed['ignoredCount'],
+                'syncedAt': synced_at,
+                'source': 'sharepoint_excel',
+            }
+            _tv_cache_write(cache_key, payload, ttl)
+            return _tv_source_response({'ok': True, 'freshness': 'fresh', **payload})
+
+        _fresh, stale = _tv_cache_read(cache_key, ttl)
+        if stale:
+            return _tv_source_response({
+                'ok': True, 'freshness': 'stale', 'warning': fetch_error, **stale,
+            })
+        return jsonify({'ok': False, 'error': fetch_error or 'Falha ao obter a fonte'}), 502
+
+    except Exception as exc:
+        logger.error("Erro em /api/tv/source/fetch: %s", exc)
+        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
 
 
 @app.route('/api/tv/youtube/live', methods=['GET'])

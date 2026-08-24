@@ -13,7 +13,7 @@ vi.mock('../../../../core/appSettings/service', () => ({
   appSettingsService: { getUpdatedAt: mockGetUpdatedAt },
 }))
 
-import { appRegistry } from '../../../../appRegistry'
+import { appRegistry, plannedApps } from '../../../../appRegistry'
 import type { AppModule } from '../../../../appRegistry'
 import type { Workspace } from '../../../../core/workspaces/types'
 import { WorkspaceAppSheet } from '../WorkspaceAppSheet'
@@ -162,10 +162,19 @@ describe('WorkspaceAppSheet', () => {
   })
 
   it('configuração sem painel fica desabilitada com aviso, sem inventar formulário', () => {
-    renderWithProviders(renderSheet(tv))
+    const appSemPainel = plannedApps.find((a) => a.id === 'chamados-dashboard')!
+    renderWithProviders(renderSheet(appSemPainel))
     const configureButton = screen.getByText('Configurar').closest('button')!
     expect(configureButton).toBeDisabled()
     expect(screen.getByText('Configuração disponível em breve')).toBeInTheDocument()
+  })
+
+  it('tv registra definição e painel próprios de configuração', () => {
+    expect(tv.settings).toBeDefined()
+    expect(typeof tv.SettingsPanel).toBe('function')
+    renderWithProviders(renderSheet(tv))
+    const configureButton = screen.getByText('Configurar').closest('button')!
+    expect(configureButton).toBeEnabled()
   })
 
   it('app com SettingsPanel futuro tem slot correto renderizado pelo shell', async () => {
