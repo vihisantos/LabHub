@@ -23,6 +23,8 @@ desktop/renderer
 !.env.example
 
 # Supabase schema/migrations SÃO versionados (ver supabase/migrations/README.md)
+# supa/ é legado ignorado
+supa/
 
 # Editor directories and files
 .vscode/*
