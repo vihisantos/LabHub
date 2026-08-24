@@ -82,9 +82,13 @@ com `NOTICE OK`. Rodar em staging antes de produção.
 
 ## Pendências de segurança rastreadas
 
-1. Rodar `029` em produção e validar com a query de verificação (fechar buraco
-   de notificações cross-workspace aberto pela 026).
-2. `pcare.assets`: criar policies restritivas e remover `assets_all`.
-3. Aplicar `030` em produção (identidade de kiosk já implementada; TVs legadas
-   voltam ao setup na primeira boot após aplicação).
-4. Verificar se há outras policies permissivas fora do inventário (query da 029).
+1. ~~Rodar `029` em produção~~ **Concluída (2026-08-24)** — aplicada via Management API;
+   policies legadas `USING(true)` removidas de stock/pcare/notifications.
+2. `pcare.assets`: criar policies restritivas e remover `assets_all` (dívida
+   documentada da 029 — requer substituto antes de remover).
+3. ~~Aplicar `030` em produção~~ **Concluída (2026-08-24)** — identidade do kiosk
+   ativa; TVs legadas voltam ao setup na primeira boot.
+4. ~~Aplicar `031` em produção~~ **Concluída (2026-08-24)** — `workspace_app_settings`
+   + `app_data_backups` criadas; checks de `tests/031_rls_checks.sql` passaram
+   sem drift no banco real.
+5. Verificar se há outras policies permissivas fora do inventário (query da 029).
