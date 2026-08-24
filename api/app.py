@@ -558,6 +558,86 @@ def _require_supabase():
     return True
 
 
+# ── TV: identidade do kiosk (usuário GoTrue sem senha + sessão via token_hash) ──
+
+_TV_DEVICE_EMAIL_DOMAIN = 'devices.labhub.local'
+_uuid_re = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+
+
+def _tv_device_email(device_id: str) -> str:
+    """E-mail determinístico do usuário GoTrue do kiosk (sem senha permanente)."""
+    return f'kiosk-{device_id.lower()}@{_TV_DEVICE_EMAIL_DOMAIN}'
+
+
+def _provision_tv_device_session(device_id: str):
+    """
+    Cria (ou reutiliza) o usuário GoTrue do kiosk e gera um token_hash de
+    magiclink de uso único. O app desktop troca o token por sessão com
+    supabase.auth.verifyOtp({ token_hash, type: 'magiclink' }).
+
+    Retorna (token_hash, auth_user_id). Levanta RuntimeError em falha.
+    """
+    email = _tv_device_email(device_id)
+
+    # 1) Usuário SEM senha (não autentica por password; só via magiclink).
+    #    422 "already registered" é aceitável: reativação do mesmo device.
+    create_resp = requests.post(
+        f'{_SUPABASE_URL}/auth/v1/admin/users',
+        headers={**_supabase_headers(), 'Content-Type': 'application/json'},
+        json={
+            'email': email,
+            'email_confirm': True,
+            'user_metadata': {'role': 'tv_device', 'device_id': device_id},
+        },
+        timeout=10,
+    )
+    if create_resp.status_code not in (200, 201, 422):
+        raise RuntimeError(f'Falha ao criar identidade da TV ({create_resp.status_code})')
+
+    # 2) Magic link server-side → extrai token_hash do action_link.
+    link_resp = requests.post(
+        f'{_SUPABASE_URL}/auth/v1/admin/generate_link',
+        headers={**_supabase_headers(), 'Content-Type': 'application/json'},
+        json={'type': 'magiclink', 'email': email},
+        timeout=10,
+    )
+    if not link_resp.ok:
+        raise RuntimeError(f'Falha ao gerar sessão da TV ({link_resp.status_code})')
+    payload = link_resp.json() or {}
+    action_link = (payload.get('properties') or {}).get('action_link') or ''
+    token_hash = (parse_qs(urlparse(action_link).query).get('token') or [None])[0]
+    if not token_hash:
+        raise RuntimeError('action_link sem token')
+    auth_user_id = (payload.get('user') or {}).get('id')
+    if not auth_user_id:
+        raise RuntimeError('generate_link sem user.id')
+    return token_hash, auth_user_id
+
+
+def _upsert_tv_device_row(device_id: str, name: str, workspace_id: str, auth_user_id: str) -> bool:
+    """Registra/atualiza a linha do device (service_role; RLS não se aplica)."""
+    up_resp = requests.post(
+        f'{_SUPABASE_URL}/rest/v1/tv_devices',
+        headers={**_supabase_headers(), 'Prefer': 'resolution=merge-duplicates,return=minimal'},
+        json={
+            'id': device_id,
+            'name': name,
+            'workspace_id': workspace_id,
+            'user_id': auth_user_id,
+            'last_seen': datetime.now(timezone.utc).isoformat(),
+        },
+        timeout=10,
+    )
+    return up_resp.ok
+
+
+def _validate_device_id(device_id):
+    """Valida UUID vindo do cliente; retorna string normalizada ou None."""
+    if not isinstance(device_id, str) or not _uuid_re.match(device_id.strip()):
+        return None
+    return device_id.strip().lower()
+
+
 def require_module(workspace, module_id):
     """Verifica se module_id está habilitado no workspace.
 
@@ -682,15 +762,22 @@ def tv_activation_create():
 def tv_activation_redeem():
     """
     Valida e consome um código de ativação (chamado pelo app desktop, anon).
-    Retorna o workspace, o usuário dono e o nome sugerido da TV.
+    Provisiona a identidade do kiosk (usuário GoTrue sem senha + vínculo em
+    tv_devices) e retorna token_hash para o device obter sessão própria.
     """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
+        if not _check_rate_limit(f'tv-redeem:{_get_client_ip()}'):
+            return jsonify({'error': 'Muitas tentativas. Aguarde alguns minutos.'}), 429
+
         body = request.get_json() or {}
         code = str(body.get('code') or '').strip().upper()
         if not code:
             return jsonify({'error': 'Informe o código de ativação'}), 400
+        device_id = _validate_device_id(body.get('device_id'))
+        if not device_id:
+            return jsonify({'error': 'device_id inválido'}), 400
 
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/tv_activation_codes?code=eq.{quote(code)}&select=*',
@@ -716,6 +803,32 @@ def tv_activation_redeem():
             except Exception:
                 pass
 
+        workspace_id = row.get('workspace_id')
+        ws_resp = requests.get(
+            f"{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}",
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        workspace = ws_resp.json()[0] if ws_resp.ok and ws_resp.json() else None
+        if not workspace:
+            return jsonify({'error': 'Workspace do código não encontrado'}), 500
+
+        # Provisiona identidade ANTES de consumir o código: se a infra falhar,
+        # o código permanece utilizável.
+        try:
+            token_hash, auth_user_id = _provision_tv_device_session(device_id)
+        except RuntimeError as e:
+            logger.error("Erro ao provisionar identidade da TV: %s", e)
+            return jsonify({'error': str(e)}), 502
+
+        device_name = (
+            str(body.get('device_name') or '').strip()[:60]
+            or (row.get('device_name') or '').strip()
+            or 'TV Desktop'
+        )
+        if not _upsert_tv_device_row(device_id, device_name, workspace_id, auth_user_id):
+            return jsonify({'error': 'Falha ao registrar o dispositivo'}), 502
+
         # Consome o código (uso único)
         requests.patch(
             f"{_SUPABASE_URL}/rest/v1/tv_activation_codes?id=eq.{quote(row['id'])}",
@@ -724,21 +837,89 @@ def tv_activation_redeem():
             timeout=10,
         )
 
+        return jsonify({
+            'success': True,
+            'code': code,
+            'workspace': workspace,
+            'device_name': device_name,
+            'token_hash': token_hash,
+        })
+
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/tv/devices/provision', methods=['POST'])
+def tv_device_provision():
+    """
+    Provisiona identidade + sessão de kiosk a partir do painel web
+    (fluxo de configuração com login humano). Requer Bearer do usuário;
+    autorização igual à geração de códigos (super admin em qualquer
+    workspace; membro apenas no próprio).
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        token = _get_token_from_request()
+        if not token:
+            return jsonify({'error': 'Token de autenticação ausente'}), 401
+
+        auth_resp = requests.get(
+            f'{_SUPABASE_URL}/auth/v1/user',
+            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
+            timeout=10,
+        )
+        if not auth_resp.ok:
+            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
+        user_id = (auth_resp.json() or {}).get('id')
+        if not user_id:
+            return jsonify({'error': 'Usuário não identificado'}), 401
+
+        prof_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not prof_resp.ok or not prof_resp.json():
+            return jsonify({'error': 'Perfil não encontrado'}), 404
+        profile = prof_resp.json()[0]
+        workspace_ids = profile.get('workspace_ids') or []
+        is_super_admin = bool(profile.get('is_super_admin'))
+
+        body = request.get_json() or {}
+        workspace_id = body.get('workspace_id')
+        device_id = _validate_device_id(body.get('device_id'))
+        if not workspace_id or not device_id:
+            return jsonify({'error': 'workspace_id e device_id são obrigatórios'}), 400
+
+        if not is_super_admin and workspace_id not in workspace_ids:
+            return jsonify({'error': 'Sem permissão neste workspace'}), 403
+
         ws_resp = requests.get(
-            f"{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(row['workspace_id'])}",
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=id,name,slug,location',
             headers=_supabase_headers(),
             timeout=10,
         )
         workspace = ws_resp.json()[0] if ws_resp.ok and ws_resp.json() else None
         if not workspace:
-            return jsonify({'error': 'Workspace do código não encontrado'}), 500
+            return jsonify({'error': 'Workspace não encontrado'}), 400
+
+        try:
+            token_hash, auth_user_id = _provision_tv_device_session(device_id)
+        except RuntimeError as e:
+            logger.error("Erro ao provisionar identidade da TV: %s", e)
+            return jsonify({'error': str(e)}), 502
+
+        device_name = str(body.get('device_name') or '').strip()[:60] or 'TV Desktop'
+        if not _upsert_tv_device_row(device_id, device_name, workspace_id, auth_user_id):
+            return jsonify({'error': 'Falha ao registrar o dispositivo'}), 502
 
         return jsonify({
             'success': True,
-            'code': code,
             'workspace': workspace,
-            'user_id': row.get('user_id'),
-            'device_name': row.get('device_name'),
+            'device_name': device_name,
+            'token_hash': token_hash,
         })
 
     except Exception as e:

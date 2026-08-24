@@ -39,6 +39,7 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 | 027 | `027_rls_workspace_isolation.sql` | Isolamento por workspace nas 15 tabelas stock/pcare/notifications + `user_belongs_to_workspace()`; **não cobre `pcare.assets` nem `tv_*`** |
 | 028 | `028_authorization_consolidation.sql` | Consolidação da camada de autorização (is_super_admin etc.) |
 | 029 | `029_reconcile_legacy_policies.sql` | DROP das policies permissivas legadas (`*_all`, `allow_all`, `notifications_all`) nas tabelas já cobertas pela 027 |
+| 030 | `030_tv_device_identity.sql` | Identidade do kiosk TV: fecha RLS das `tv_*` (SELECT por workspace p/ device/membro/admin; escrita só admin/membro; device atualiza só a própria linha em `tv_devices`); REVOKE anon |
 
 ## Regras para novas migrations
 
