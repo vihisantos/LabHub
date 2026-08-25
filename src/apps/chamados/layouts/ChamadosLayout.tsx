@@ -8,6 +8,7 @@ import { icons } from '../../../lib/icons'
 import { isAlertsMuted, setAlertsMuted } from '../services/ticketAlerts'
 import { useTickets } from '../hooks/useTickets'
 import { TicketsContext } from '../contexts/TicketsContext'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 
 function getPageTitle(pathname: string): string {
   if (pathname === '/chamados' || pathname.startsWith('/chamados/dashboard')) return 'Dashboard'
@@ -55,7 +56,10 @@ export function ChamadosLayout() {
   useOnlineSync()
 
   const { tickets, loading, syncing, reload, create, update, updateStatus, remove } = useTickets()
-  const openCount = tickets.filter((t) => t.status !== 'fechado' && t.status !== 'resolvido' && !t.archived).length
+  const { workspace } = useWorkspace()
+  const openCount = tickets.filter(
+    (t) => t.workspace_id === workspace?.id && t.status !== 'fechado' && t.status !== 'resolvido' && !t.archived,
+  ).length
 
   function scrollToTop() {
     if (mainRef.current && mainRef.current.scrollTop > 0) {

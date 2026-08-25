@@ -1,13 +1,30 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import { Routes, Route } from 'react-router-dom'
 import { renderWithProviders } from '../../../../test/helpers'
+import type { Ticket } from '../../types'
 
 vi.mock('../../../lib/useOnlineSync', () => ({ useOnlineSync: vi.fn() }))
 vi.mock('../../../lib/useFastSync', () => ({ useFastSync: vi.fn() }))
-vi.mock('../../components/ChamadosBottomNav', () => ({ ChamadosBottomNav: () => <div>nav</div> }))
+
+let mockOpenCount = 0
+vi.mock('../../components/ChamadosBottomNav', () => ({
+  ChamadosBottomNav: ({ openCount }: { openCount?: number }) => {
+    mockOpenCount = openCount ?? 0
+    return <div>nav</div>
+  },
+}))
+
+const mockUseTickets = vi.fn((): { tickets: Ticket[]; loading: boolean; syncing: boolean; reload: () => void } => ({
+  tickets: [], loading: false, syncing: false, reload: vi.fn(),
+}))
 vi.mock('../../hooks/useTickets', () => ({
-  useTickets: () => ({ tickets: [], loading: false, syncing: false, reload: vi.fn() }),
+  useTickets: () => mockUseTickets(),
+}))
+
+const mockUseWorkspace = vi.fn((): { workspace: { id: string; name: string } | null } => ({ workspace: { id: 'ws-a', name: 'Campus A' } }))
+vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
+  useWorkspace: () => mockUseWorkspace(),
 }))
 
 import { ChamadosLayout } from '../ChamadosLayout'
@@ -67,5 +84,99 @@ describe('ChamadosLayout', () => {
   it('botão de alternar tema presente', () => {
     renderLayout('/chamados')
     expect(screen.getByLabelText('Alternar tema')).toBeInTheDocument()
+  })
+
+  // ── Badge workspace filtering ──────────────────────────────────────────────
+
+  const makeTicket = (overrides: Partial<Ticket> = {}): Ticket => ({
+    id: 't1', ticketNumber: 1, workspace_id: 'ws-a', roomId: 'r1', roomName: 'Lab',
+    assetId: '', assetSource: 'stock', assetName: '', assetPatrimony: '',
+    problemCategory: 'Internet', problemArea: 'academica',
+    problemDescription: 'Sem rede', status: 'aberto',
+    priority: 'normal', reportedBy: 'Prof', reportedByEmail: '',
+    assignedTo: '', assignedToUserId: '', createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z', resolvedAt: null, ...overrides,
+  })
+
+  beforeEach(() => {
+    mockUseTickets.mockReturnValue({
+      tickets: [], loading: false, syncing: false, reload: vi.fn(),
+    })
+    mockUseWorkspace.mockReturnValue({ workspace: { id: 'ws-a', name: 'Campus A' } })
+  })
+
+  it('badge=1 para ticket ativo no workspace atual', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket()], loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(1)
+  })
+
+  it('badge=0 para ticket ativo em outro workspace', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket({ workspace_id: 'ws-other' })],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(0)
+  })
+
+  it('badge=0 para ticket fechado no workspace atual', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket({ status: 'fechado' })],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(0)
+  })
+
+  it('badge=0 para ticket resolvido no workspace atual', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket({ status: 'resolvido' })],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(0)
+  })
+
+  it('badge=0 para ticket archived', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket({ archived: true })],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(0)
+  })
+
+  it('badge=1 mesmo com ticket ativo eliminado por filtro de UI (minha fila)', () => {
+    // Badge é métrica estrutural — filtros de UI não o afetam
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket({ assignedToUserId: 'other-user' })],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(1)
+  })
+
+  it('badge=0 para ticket stale de workspace anterior', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [
+        makeTicket({ id: 't-active', workspace_id: 'ws-a' }),
+        makeTicket({ id: 't-stale', workspace_id: 'ws-old', ticketNumber: 2 }),
+      ],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(1)
+  })
+
+  it('badge=0 quando workspace é null (loading)', () => {
+    mockUseWorkspace.mockReturnValue({ workspace: null })
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket()], loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(0)
   })
 })
