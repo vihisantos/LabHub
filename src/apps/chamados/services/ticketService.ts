@@ -4,14 +4,33 @@ import { createSyncService } from '../../../lib/sync'
 import { getCol, setCol } from '../../../lib/db'
 import { logService } from '../../../core/logs/service'
 import { permissionService } from '../../../core/permissions/service'
+import { defaultDb } from '../../../lib/supabase'
 
 const local = createSyncService<Ticket>('chamados')
 
 const API_BASE = '/api/chamados'
 
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (defaultDb) {
+    try {
+      const { data } = await defaultDb.auth.getSession()
+      const token = data.session?.access_token
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+    } catch {
+      // Session unavailable — request proceeds without auth header;
+      // the backend will return 401 if authentication is required.
+    }
+  }
+  return headers
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const authHeaders = await getAuthHeaders()
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     ...init,
   })
   const body = await res.json().catch(() => ({}))

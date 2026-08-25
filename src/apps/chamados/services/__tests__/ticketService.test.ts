@@ -1,8 +1,23 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { ticketService } from '../ticketService'
 import { logService } from '../../../../core/logs/service'
 import { setCol } from '../../../../lib/db'
 import type { Ticket, TicketFormData, ChamadosReport } from '../../types'
+
+// Mock the Supabase client so request() can obtain the access token
+const mockGetSession = vi.fn().mockResolvedValue({ data: { session: null } })
+vi.mock('../../../../lib/supabase', () => ({
+  defaultDb: {
+    auth: { getSession: (...args: unknown[]) => mockGetSession(...args) },
+  },
+}))
+
+// Mock permissionService so requireWrite does not throw in unit tests
+vi.mock('../../../../core/permissions/service', () => ({
+  permissionService: {
+    requireWrite: vi.fn(),
+  },
+}))
 
 function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   return {
@@ -36,6 +51,11 @@ function mockFetchOk(body: unknown, ok = true, status = 200) {
     json: async () => body,
   } as Response)
 }
+
+beforeEach(() => {
+  mockGetSession.mockReset()
+  mockGetSession.mockResolvedValue({ data: { session: null } })
+})
 
 describe('ticketService — consultas locais', () => {
   it('começa vazio e reflete a base local', () => {
@@ -121,14 +141,17 @@ describe('ticketService — API', () => {
     expect(logs[0].entityLabel).toBe('#99')
   })
 
-  it('update: atualiza local e envia PATCH', () => {
+  it('update: atualiza local e envia PATCH', async () => {
     setCol('chamados', [makeTicket({ id: 't1', status: 'aberto' })])
     mockFetchOk({ ticket: makeTicket({ id: 't1', status: 'em_atendimento' }) })
 
     ticketService.update('t1', { status: 'em_atendimento' })
 
     expect(ticketService.getById('t1')?.status).toBe('em_atendimento')
-    expect(fetch).toHaveBeenCalledWith('/api/chamados/t1', expect.objectContaining({ method: 'PATCH' }))
+    // update() fires request() async (getAuthHeaders → getSession); flush microtasks
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/chamados/t1', expect.objectContaining({ method: 'PATCH' }))
+    })
   })
 
   it('getByIdRemote: busca na API e persiste', async () => {
@@ -192,6 +215,31 @@ describe('ticketService — API', () => {
 
     await ticketService.getReports({})
     expect(fetch).toHaveBeenLastCalledWith('/api/chamados/reports', expect.anything())
+  })
+
+  it('pullRemote: envia Authorization header quando há sessão', async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: 'test-token-abc' } },
+    })
+    mockFetchOk({ tickets: [] })
+    await ticketService.pullRemote()
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/chamados',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token-abc',
+        }),
+      }),
+    )
+  })
+
+  it('pullRemote: funciona sem sessão (sem header Authorization)', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    mockFetchOk({ tickets: [] })
+    await ticketService.pullRemote()
+    const callHeaders = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]?.headers
+    expect(callHeaders?.Authorization).toBeUndefined()
+    expect(callHeaders?.['Content-Type']).toBe('application/json')
   })
 
   it('pullRemote: mescla com updatedAt mais recente', async () => {
