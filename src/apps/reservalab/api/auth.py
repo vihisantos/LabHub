@@ -114,6 +114,11 @@ def _verify_jwt(token: str) -> dict | None:
                         token,
                         key,
                         algorithms=['RS256', 'ES256'],
+                        options={
+                            'verify_aud': False,
+                            'verify_iss': False,
+                            'verify_exp': False,
+                        },
                     )
                     return verified
                 except Exception:
