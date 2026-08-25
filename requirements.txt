@@ -2,6 +2,7 @@ flask
 flask-cors
 openpyxl
 python-dotenv
+python-jose[cryptography]
 requests
 pywebpush
 upstash-redis
