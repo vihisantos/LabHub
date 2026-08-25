@@ -168,6 +168,27 @@ Fetch YouTube video/playlist metadata.
 ### GET /api/tv/health
 Server status.
 
+### GET /api/tv/chamados/display
+TV-safe snapshot of the workspace's tickets for the future CallsDashboardScreen kiosk screen.
+
+**Auth:** device-only. `Bearer` JWT of a provisioned kiosk session; the workspace is
+resolved server-side from the persisted `tv_devices.user_id → workspace_id` link.
+Human/admin sessions are rejected (403). Client parameters never influence scope.
+
+**Projection (allowlist, server-side):** `ticketNumber`, `roomName`, `problemArea`,
+`problemCategory`, `priority`, `status`, `createdAt`, `resolvedAt`. Never returns:
+reporter identity/e-mail, free-text description, asset patrimony, photos, comments,
+feedback text, internal IDs or raw rows. This endpoint does NOT provide administrative
+access to chamados (read-only projection, no writes).
+
+**Response:** `{ generatedAt, summary: { total, open, inProgress, highPriority,
+avgResolutionHours, satisfaction }, tickets: [...] }`
+
+**Scope/limits:** active tickets only (`aberto/a_caminho/em_atendimento`, not archived),
+max 100 items; metrics aggregated over an explicit 30-day window.
+
+**Polling/rate limit:** poll every 30–60 s; limit 240 requests/hour per IP (429 beyond).
+
 ## Related
 
 - [Architecture: Backend](../architecture/backend.md)

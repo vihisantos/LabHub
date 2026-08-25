@@ -17,6 +17,7 @@ from auth import (
     _get_workspace,
     _user_in_workspace,
     _is_module_enabled,
+    _forbidden,
 )
 
 import requests
@@ -31,13 +32,18 @@ RATE_LIMIT_WINDOW = 3600  # 1 hora em segundos
 RATE_LIMIT_MAX_REQUESTS = 20  # máximo de chamados por IP por hora
 
 
-def _check_rate_limit(ip: str) -> bool:
-    """Verifica se o IP excedeu o limite de requisições. Retorna True se permitido."""
+def _check_rate_limit(ip: str, max_requests: int | None = None) -> bool:
+    """Verifica se o IP excedeu o limite de requisições. Retorna True se permitido.
+
+    ``max_requests`` permite limites específicos por endpoint (padrão:
+    RATE_LIMIT_MAX_REQUESTS, usado pelos endpoints existentes).
+    """
+    limit = RATE_LIMIT_MAX_REQUESTS if max_requests is None else max_requests
     now = datetime.now(timezone.utc).timestamp()
     window_start = now - RATE_LIMIT_WINDOW
     # Remove entradas antigas
     _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if t > window_start]
-    if len(_rate_limit_store[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+    if len(_rate_limit_store[ip]) >= limit:
         return False
     _rate_limit_store[ip].append(now)
     return True
@@ -1299,6 +1305,167 @@ def tv_device_provision():
         return jsonify({'error': 'Erro interno'}), 500
 
 
+# ── TV: snapshot TV-safe do Dashboard de Chamados ──
+#
+# GET /api/tv/chamados/display — device-only. Fornece à futura CallsDashboardScreen
+# um snapshot pequeno e sem PII dos chamados do workspace do dispositivo.
+#
+# Autorização: JWT → user_id → tv_devices.user_id → workspace_id (vínculo
+# persistido no servidor). Nenhum parâmetro do cliente influencia o escopo.
+# Projeção: allowlist explícita de colunas na consulta E no serializer — o
+# objeto bruto de chamados_tickets NUNCA sai do backend.
+# Superfície pública de TV (qualquer pessoa pode ver/fotografar a tela):
+# "se o dado não precisa aparecer na TV, não sai do backend".
+#
+# NÃO é acesso administrativo a chamados: sem escrita, sem comentários,
+# sem dados de contato, sem descrição livre, sem patrimônio, sem fotos.
+
+TV_CHAMADOS_TICKET_LIMIT = 100        # máx. de chamados ativos na lista da TV
+TV_CHAMADOS_METRICS_WINDOW_DAYS = 30  # janela explícita do histórico p/ métricas
+TV_CHAMADOS_RATE_LIMIT_PER_HOUR = 240  # polling legítimo: 1 req/30s = 120/h + margem
+
+_CHAMADOS_ACTIVE_STATUSES = ('aberto', 'a_caminho', 'em_atendimento')
+_CHAMADOS_HIGH_PRIORITIES = ('alta', 'urgente')
+
+# Allowlist de colunas — nunca `select=*` nesta superfície.
+_TV_CHAMADOS_TICKET_COLS = (
+    'ticketNumber,roomName,problemArea,problemCategory,priority,status,createdAt,resolvedAt'
+)
+_TV_CHAMADOS_METRIC_COLS = 'status,priority,createdAt,resolvedAt,feedbackRating'
+
+
+def _resolve_tv_device_workspace(user_id) -> str | None:
+    """Resolve o workspace do kiosk pelo vínculo persistido tv_devices.user_id.
+
+    Retorna o workspace_id ou None quando a sessão não corresponde a um
+    dispositivo registrado ou o device está sem vínculo válido de workspace.
+    """
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_devices'
+            f'?user_id=eq.{quote(str(user_id))}&select=id,workspace_id&limit=1',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        rows = resp.json() if resp.ok else []
+    except Exception:
+        return None
+    if not rows:
+        return None
+    workspace_id = rows[0].get('workspace_id')
+    return str(workspace_id) if workspace_id else None
+
+
+def _tv_project_ticket(row: dict) -> dict:
+    """Serializer allowlist do chamado para TV — campos explícitos, nunca bruto.
+
+    Proibidos por design (presentes no banco, ausentes aqui): reportedBy,
+    reportedByEmail, problemDescription, assetPatrimony/asset*, photos,
+    statusNote, assignedTo*, feedbackComment/feedbackAt/feedbackRating,
+    id, roomId, workspace_id e metadados.
+    """
+    return {
+        'ticketNumber': row.get('ticketNumber'),
+        'roomName': row.get('roomName') or '',
+        'problemArea': row.get('problemArea') or '',
+        'problemCategory': row.get('problemCategory') or '',
+        'priority': row.get('priority') or 'normal',
+        'status': row.get('status') or 'aberto',
+        'createdAt': row.get('createdAt'),
+        'resolvedAt': row.get('resolvedAt'),
+    }
+
+
+def _tv_chamados_summary(active_rows: list, window_rows: list) -> dict:
+    """Métricas agregadas sem nomes: contagens da fila ativa + janela de histórico."""
+    open_count = sum(1 for t in active_rows if t.get('status') == 'aberto')
+    in_progress = sum(1 for t in active_rows if t.get('status') in _CHAMADOS_ACTIVE_STATUSES[1:])
+    high_priority = sum(1 for t in active_rows if t.get('priority') in _CHAMADOS_HIGH_PRIORITIES)
+
+    resolution_total_s = 0.0
+    resolution_count = 0
+    rating_sum = 0.0
+    rating_count = 0
+    for t in window_rows:
+        if t.get('resolvedAt') and t.get('createdAt'):
+            created = _parse_iso(t['createdAt'], 'createdAt')
+            resolved = _parse_iso(t['resolvedAt'], 'resolvedAt')
+            if created and resolved:
+                resolution_total_s += max(0.0, (resolved - created).total_seconds())
+                resolution_count += 1
+        rating = t.get('feedbackRating')
+        if rating:
+            try:
+                rating_sum += float(rating)
+                rating_count += 1
+            except (TypeError, ValueError):
+                pass
+
+    return {
+        'total': len(active_rows),
+        'open': open_count,
+        'inProgress': in_progress,
+        'highPriority': high_priority,
+        'avgResolutionHours': round(resolution_total_s / resolution_count / 3600, 1) if resolution_count else None,
+        'satisfaction': round(rating_sum / rating_count, 2) if rating_count else None,
+    }
+
+
+@app.route('/api/tv/chamados/display', methods=['GET'])
+@require_auth
+def tv_chamados_display():
+    """Snapshot TV-safe dos chamados do workspace do dispositivo autenticado.
+
+    Device-only (403 para qualquer sessão sem linha em tv_devices com
+    workspace válido — inclusive humanos/admins). Consultas sempre escopadas
+    pelo vínculo server-side; parâmetros do cliente são ignorados.
+    Resposta: { generatedAt, summary, tickets } — sem workspace_id.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not _check_rate_limit(f'tv-chamados-display:{_get_client_ip()}', TV_CHAMADOS_RATE_LIMIT_PER_HOUR):
+        return jsonify({'error': 'Muitas requisições. Aguarde alguns instantes.'}), 429
+    try:
+        workspace_id = _resolve_tv_device_workspace(g.user_id)
+        if not workspace_id:
+            return jsonify({'error': 'Sessão não corresponde a um dispositivo TV válido'}), 403
+
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(days=TV_CHAMADOS_METRICS_WINDOW_DAYS)).isoformat()
+        base = f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+        ws_filter = f'workspace_id=eq.{quote(workspace_id)}&archived=eq.false'
+
+        # 1) Fila ativa (chamados que aparecem na TV)
+        actives_resp = requests.get(
+            f'{base}?select={_TV_CHAMADOS_TICKET_COLS}&{ws_filter}'
+            f'&status=in.({",".join(_CHAMADOS_ACTIVE_STATUSES)})'
+            f'&order=createdAt.desc&limit={TV_CHAMADOS_TICKET_LIMIT}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        # 2) Janela recente p/ métricas agregadas (saída numérica, sem nomes)
+        window_resp = requests.get(
+            f'{base}?select={_TV_CHAMADOS_METRIC_COLS}&{ws_filter}'
+            f'&createdAt=gte.{quote(cutoff)}&order=createdAt.desc&limit=1000',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not actives_resp.ok or not window_resp.ok:
+            return jsonify({'error': 'Erro ao consultar chamados'}), 502
+
+        active_rows = actives_resp.json() or []
+        window_rows = window_resp.json() or []
+        return jsonify({
+            'generatedAt': now.isoformat(),
+            'summary': _tv_chamados_summary(active_rows, window_rows),
+            'tickets': [_tv_project_ticket(row) for row in active_rows],
+        })
+
+    except Exception as exc:
+        logger.error("Erro em /api/tv/chamados/display: %s", exc)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
 # ── Chamados (formulário público via QR) ──
 
 CHAMADOS_TABLE_SQL = """
@@ -2226,6 +2393,196 @@ def admin_wipe():
         return jsonify({'wipe': results})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+# ── App data purge (TV) ──────────────────────────────────────────────────────
+#
+# Fluxo do PR 5: describe (contagens reais) → backup obrigatório → purge
+# transacional → audit. Toda a lógica destrutiva vive em UMA função SQL
+# (public.purge_tv_app_data, migration 032) executada via rpc: ou tudo
+# acontece (backup + deletes + audit) ou nada acontece.
+#
+# Autorização: @require_auth + @require_workspace validam identidade e
+# membership; o gate de gerência espelha can_manage_workspace_apps (migration
+# 031): super admin OU membro com profile.role='admin'. O decorator existente
+# require_admin é super-admin-only (plataforma) e não pode ser aplicado sem
+# quebrar o requisito "admin do workspace pode purgar".
+#
+# Workspace NUNCA vem do corpo como autoridade: g.workspace_id é resolvido e
+# validado pelo require_workspace (membership contra o JWT); o valor é apenas
+# repassado às funções SQL, que escopam todos os predicates por ele.
+
+APP_DATA_PURGE_MAX_ROWS = 50000
+APP_DATA_PURGE_MAX_BYTES = 32 * 1024 * 1024  # 32 MB de JSONB
+
+SUPPORTED_PURGE_APPS = ('tv',)
+
+
+def _require_workspace_app_manager():
+    """403 a menos que seja super admin ou admin do workspace autenticado.
+
+    Espelho exato do predicado SQL can_manage_workspace_apps (migration 031):
+    mesma hierarquia usada para gravar workspace_app_settings — nenhuma nova
+    permissão é criada aqui. Retorna Response de erro ou None.
+    """
+    user = getattr(g, 'user', None) or {}
+    if user.get('is_super_admin'):
+        return None
+    role = str(user.get('role') or '').strip().lower()
+    if role != 'admin':
+        return _forbidden('Workspace admin access required')
+    return None
+
+
+def _validate_purge_app_id():
+    """Valida appId/app_id do corpo contra os apps suportados hoje (apenas tv).
+
+    Retorna (app_id, error_response). Campos workspace_id/workspace no corpo são
+    ignorados como autoridade — quem manda é g.workspace_id.
+    """
+    body = request.get_json(silent=True) or {}
+    app_id = str(body.get('appId') or body.get('app_id') or '').strip()
+    if not app_id:
+        return None, (jsonify({'error': 'appId é obrigatório'}), 400)
+    if app_id not in SUPPORTED_PURGE_APPS:
+        return None, (jsonify({'error': f'App "{app_id}" não suporta limpeza de dados'}), 400)
+    if body.get('workspaceId') and str(body['workspaceId']) != str(g.workspace_id):
+        # Rejeita explicitamente tentativa de apontar outro workspace.
+        return None, _forbidden('Access denied to this workspace')
+    return app_id, None
+
+
+def _rpc(function_name: str, params: dict):
+    """Chama uma função SQL via PostgREST RPC com service_role."""
+    return requests.post(
+        f'{_SUPABASE_URL}/rest/v1/rpc/{function_name}',
+        headers=_supabase_headers(),
+        json=params,
+        timeout=60,
+    )
+
+
+def _supabase_unavailable():
+    return jsonify({'error': 'Supabase não configurado'}), 503
+
+
+@app.route('/api/admin/app-data/describe', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
+def admin_app_data_describe():
+    """Contagens reais dos dados de conteúdo da TV do workspace autenticado.
+
+    Body: {"appId": "tv"} (obrigatório; outros apps → 400).
+    Resposta: { ok, appId, workspaceId, tables:{...}, total }
+    """
+    manager_err = _require_workspace_app_manager()
+    if manager_err:
+        return manager_err
+
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return _supabase_unavailable()
+
+    app_id, err = _validate_purge_app_id()
+    if err:
+        return err
+
+    try:
+        resp = _rpc('describe_tv_app_data', {'p_workspace': g.workspace_id})
+        if resp.status_code != 200:
+            logger.error("[app-data] describe rpc %s: %s", resp.status_code, resp.text[:300])
+            return jsonify({'error': 'Não foi possível calcular as contagens'}), 502
+        data = resp.json() or {}
+        tables = data.get('tables') or {}
+        return jsonify({
+            'ok': True,
+            'appId': app_id,
+            'workspaceId': g.workspace_id,
+            'tables': tables,
+            'total': data.get('total', 0),
+        })
+    except Exception as e:
+        logger.error("[app-data] describe error: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/app-data/purge', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
+def admin_app_data_purge():
+    """Limpa os dados de conteúdo da TV do workspace autenticado.
+
+    Ordem garantida server-side (uma única transação SQL):
+      contagens → guarda de tamanho → BACKUP → DELETEs → AUDIT.
+    Backup falhou/estourou limite ⇒ nada é apagado.
+
+    Body: {"appId": "tv"}. workspace_id do corpo nunca é autoridade.
+    Concorrência: advisory lock por workspace dentro da função SQL serializa
+    purges simultâneos (o segundo executa depois e encontra zero linhas).
+    """
+    manager_err = _require_workspace_app_manager()
+    if manager_err:
+        return manager_err
+
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return _supabase_unavailable()
+
+    app_id, err = _validate_purge_app_id()
+    if err:
+        return err
+
+    actor = g.user or {}
+    actor_name = actor.get('name') or actor.get('email') or ''
+
+    try:
+        resp = _rpc('purge_tv_app_data', {
+            'p_workspace': g.workspace_id,
+            'p_actor_id': g.user_id,
+            'p_actor_name': actor_name,
+            'p_max_rows': APP_DATA_PURGE_MAX_ROWS,
+            'p_max_bytes': APP_DATA_PURGE_MAX_BYTES,
+        })
+
+        if resp.status_code == 200:
+            data = resp.json() or {}
+            result_kind = data.get('result')
+            deleted = data.get('deleted') or {}
+            total = int(data.get('totalDeleted') or 0)
+            payload = {
+                'ok': True,
+                'appId': app_id,
+                'backupId': data.get('backupId'),
+                'backupExpiresAt': data.get('backupExpiresAt'),
+                'deleted': deleted,
+                'totalDeleted': total,
+                'auditId': data.get('auditId'),
+            }
+            if result_kind == 'empty':
+                payload['empty'] = True
+            logger.info(
+                "[app-data] purge ws=%s app=%s total=%s backup=%s audit=%s actor=%s",
+                g.workspace_id, app_id, total, data.get('backupId'), data.get('auditId'), g.user_id,
+            )
+            return jsonify(payload)
+
+        text = resp.text or ''
+        logger.error("[app-data] purge rpc %s: %s", resp.status_code, text[:300])
+        if 'APP_DATA_BACKUP_TOO_LARGE' in text:
+            return jsonify({
+                'error': (
+                    'O volume de dados excede o limite seguro de backup. '
+                    'Nada foi removido. Solicite limpeza administrativa específica.'
+                ),
+                'code': 'backup_too_large',
+            }), 413
+        if 'WORKSPACE_NOT_FOUND' in text:
+            return jsonify({'error': 'Workspace não encontrado'}), 404
+        # Qualquer outro erro ⇒ rollback total no banco; mensagem segura.
+        return jsonify({'error': 'Não foi possível concluir a limpeza. Nenhum dado foi removido.'}), 500
+    except Exception as e:
+        logger.error("[app-data] purge error: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 

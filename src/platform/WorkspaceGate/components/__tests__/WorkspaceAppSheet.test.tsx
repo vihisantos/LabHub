@@ -13,6 +13,11 @@ vi.mock('../../../../core/appSettings/service', () => ({
   appSettingsService: { getUpdatedAt: mockGetUpdatedAt },
 }))
 
+vi.mock('../AppDataResetModal', () => ({
+  AppDataResetModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="app-data-reset-dialog-slot">RESET_MODAL</div> : null,
+}))
+
 import { appRegistry, plannedApps } from '../../../../appRegistry'
 import type { AppModule } from '../../../../appRegistry'
 import type { Workspace } from '../../../../core/workspaces/types'
@@ -35,6 +40,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
 
 const tv = appRegistry.find((a) => a.id === 'tv')!
 const admin = appRegistry.find((a) => a.id === 'admin')!
+const chamadosDashboard = plannedApps.find((a) => a.id === 'chamados-dashboard')!
 
 const fakeConfigurableApp: AppModule = {
   id: 'tv',
@@ -187,14 +193,22 @@ describe('WorkspaceAppSheet', () => {
     expect(await screen.findByText('Desativar neste workspace')).toBeInTheDocument()
   })
 
-  it('clearable=false esconde limpar dados; clearable=true mostra ação preparada e desabilitada', () => {
+  it('clearable=false esconde a ação; clearable=true mostra e abre o modal de purge', () => {
     const { unmount } = renderWithProviders(renderSheet(fakeConfigurableApp))
     expect(screen.queryByText('Limpar dados deste workspace')).not.toBeInTheDocument()
     unmount()
 
     renderWithProviders(renderSheet(tv))
-    const purgeButton = screen.getByText('Limpar dados deste workspace').closest('button')!
-    expect(purgeButton).toBeDisabled()
+    const purgeButton = screen.getByTestId('clear-app-data-button').closest('button')!
+    expect(purgeButton).toBeEnabled()
+
+    fireEvent.click(purgeButton)
+    expect(screen.getByTestId('app-data-reset-dialog-slot')).toBeInTheDocument()
+  })
+
+  it('planned app (chamados-dashboard, clearable=false) nunca mostra ação de purge', () => {
+    renderWithProviders(renderSheet(chamadosDashboard))
+    expect(screen.queryByTestId('clear-app-data-button')).not.toBeInTheDocument()
   })
 
   it('app sempre-ativo (admin/dashboard) mostra status fixo e sem toggle', () => {

@@ -86,6 +86,9 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
         name: deviceName.trim(),
         workspace: selectedWorkspace,
         createdAt: new Date().toISOString(),
+        // Preserva a preferência local de tela em reconfigurações
+        // (nova instalação fica sem screenApp ⇒ resolve para 'tv').
+        screenApp: existing?.screenApp,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao registrar a TV')
@@ -110,6 +113,9 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
         name,
         workspace: res.workspace,
         createdAt: new Date().toISOString(),
+        // Preserva a preferência local de tela em reconfigurações
+        // (nova instalação fica sem screenApp ⇒ resolve para 'tv').
+        screenApp: existing?.screenApp,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao ativar a TV')

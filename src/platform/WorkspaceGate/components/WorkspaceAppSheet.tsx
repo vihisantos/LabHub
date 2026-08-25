@@ -5,6 +5,7 @@ import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
 import { APPS_CONFIGURABLE, isAppDisabled } from '../../../core/workspaces/apps'
 import { appSettingsService } from '../../../core/appSettings/service'
 import type { AppModule } from '../../../appRegistry'
+import { AppDataResetModal } from './AppDataResetModal'
 import { icons } from '../../../lib/icons'
 
 interface WorkspaceAppSheetProps {
@@ -32,8 +33,9 @@ function getFocusableElements(root: HTMLElement): HTMLElement[] {
  * o SettingsPanel próprio do app, quando existir.
  *
  * Desativar reutiliza o mecanismo existente (workspaces.disabled_apps ->
- * Launcher/AppGuard). "Limpar dados" fica preparado e desabilitado até o
- * mecanismo real de purge existir — nenhum fake purge neste PR.
+ * Launcher/AppGuard). "Limpar dados" abre o AppDataResetModal (PR 5): contagens
+ * reais server-side, confirmação forte e purge com backup obrigatório — o
+ * servidor é quem valida identidade/workspace/permissão.
  */
 export function WorkspaceAppSheet({
   app,
@@ -45,8 +47,14 @@ export function WorkspaceAppSheet({
   const { update } = useWorkspaces()
   const [view, setView] = useState<'overview' | 'settings'>('overview')
   const [toggling, setToggling] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
+  const resetOpenRef = useRef(false)
   const [error, setError] = useState('')
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+
+  useEffect(() => {
+    resetOpenRef.current = resetOpen
+  }, [resetOpen])
 
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const previouslyFocused = useRef<HTMLElement | null>(null)
@@ -54,6 +62,7 @@ export function WorkspaceAppSheet({
   useEffect(() => {
     if (open) {
       setView('overview')
+      setResetOpen(false)
       setError('')
       setUpdatedAt(null)
     }
@@ -87,7 +96,9 @@ export function WorkspaceAppSheet({
     })
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
+      // O AppDataResetModal captura Escape quando está aberto (capture phase);
+      // o ref é defesa adicional contra corridas de render.
+      if (event.key === 'Escape' && !resetOpenRef.current) {
         event.stopPropagation()
         onClose()
       }
@@ -241,10 +252,9 @@ export function WorkspaceAppSheet({
                 {app.clearable && (
                   <button
                     type="button"
-                    disabled
-                    className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 text-left opacity-60"
-                    aria-disabled="true"
-                    title="O mecanismo de limpeza com backup será habilitado em breve"
+                    onClick={() => setResetOpen(true)}
+                    data-testid="clear-app-data-button"
+                    className="flex w-full items-center gap-3 rounded-xl border border-line bg-card px-3 py-2.5 text-left transition-colors hover:bg-input"
                   >
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-500">
                       <icons.ui.trash size={14} />
@@ -254,7 +264,7 @@ export function WorkspaceAppSheet({
                         Limpar dados deste workspace
                       </span>
                       <span className="block text-[10px] text-fg-dim">
-                        Disponível em breve, com backup automático
+                        Remove dados de conteúdo, com backup automático
                       </span>
                     </span>
                     <icons.ui.chevronRight size={16} className="text-fg-dim" />
@@ -300,6 +310,12 @@ export function WorkspaceAppSheet({
           </>
         )}
       </div>
+      <AppDataResetModal
+        app={app}
+        workspace={workspace}
+        open={resetOpen}
+        onClose={() => setResetOpen(false)}
+      />
     </BottomSheet>
   )
 }
