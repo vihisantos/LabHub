@@ -17,6 +17,7 @@ from auth import (
     _get_workspace,
     _user_in_workspace,
     _is_module_enabled,
+    _forbidden,
 )
 
 import requests
@@ -2226,6 +2227,196 @@ def admin_wipe():
         return jsonify({'wipe': results})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+# ── App data purge (TV) ──────────────────────────────────────────────────────
+#
+# Fluxo do PR 5: describe (contagens reais) → backup obrigatório → purge
+# transacional → audit. Toda a lógica destrutiva vive em UMA função SQL
+# (public.purge_tv_app_data, migration 032) executada via rpc: ou tudo
+# acontece (backup + deletes + audit) ou nada acontece.
+#
+# Autorização: @require_auth + @require_workspace validam identidade e
+# membership; o gate de gerência espelha can_manage_workspace_apps (migration
+# 031): super admin OU membro com profile.role='admin'. O decorator existente
+# require_admin é super-admin-only (plataforma) e não pode ser aplicado sem
+# quebrar o requisito "admin do workspace pode purgar".
+#
+# Workspace NUNCA vem do corpo como autoridade: g.workspace_id é resolvido e
+# validado pelo require_workspace (membership contra o JWT); o valor é apenas
+# repassado às funções SQL, que escopam todos os predicates por ele.
+
+APP_DATA_PURGE_MAX_ROWS = 50000
+APP_DATA_PURGE_MAX_BYTES = 32 * 1024 * 1024  # 32 MB de JSONB
+
+SUPPORTED_PURGE_APPS = ('tv',)
+
+
+def _require_workspace_app_manager():
+    """403 a menos que seja super admin ou admin do workspace autenticado.
+
+    Espelho exato do predicado SQL can_manage_workspace_apps (migration 031):
+    mesma hierarquia usada para gravar workspace_app_settings — nenhuma nova
+    permissão é criada aqui. Retorna Response de erro ou None.
+    """
+    user = getattr(g, 'user', None) or {}
+    if user.get('is_super_admin'):
+        return None
+    role = str(user.get('role') or '').strip().lower()
+    if role != 'admin':
+        return _forbidden('Workspace admin access required')
+    return None
+
+
+def _validate_purge_app_id():
+    """Valida appId/app_id do corpo contra os apps suportados hoje (apenas tv).
+
+    Retorna (app_id, error_response). Campos workspace_id/workspace no corpo são
+    ignorados como autoridade — quem manda é g.workspace_id.
+    """
+    body = request.get_json(silent=True) or {}
+    app_id = str(body.get('appId') or body.get('app_id') or '').strip()
+    if not app_id:
+        return None, (jsonify({'error': 'appId é obrigatório'}), 400)
+    if app_id not in SUPPORTED_PURGE_APPS:
+        return None, (jsonify({'error': f'App "{app_id}" não suporta limpeza de dados'}), 400)
+    if body.get('workspaceId') and str(body['workspaceId']) != str(g.workspace_id):
+        # Rejeita explicitamente tentativa de apontar outro workspace.
+        return None, _forbidden('Access denied to this workspace')
+    return app_id, None
+
+
+def _rpc(function_name: str, params: dict):
+    """Chama uma função SQL via PostgREST RPC com service_role."""
+    return requests.post(
+        f'{_SUPABASE_URL}/rest/v1/rpc/{function_name}',
+        headers=_supabase_headers(),
+        json=params,
+        timeout=60,
+    )
+
+
+def _supabase_unavailable():
+    return jsonify({'error': 'Supabase não configurado'}), 503
+
+
+@app.route('/api/admin/app-data/describe', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
+def admin_app_data_describe():
+    """Contagens reais dos dados de conteúdo da TV do workspace autenticado.
+
+    Body: {"appId": "tv"} (obrigatório; outros apps → 400).
+    Resposta: { ok, appId, workspaceId, tables:{...}, total }
+    """
+    manager_err = _require_workspace_app_manager()
+    if manager_err:
+        return manager_err
+
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return _supabase_unavailable()
+
+    app_id, err = _validate_purge_app_id()
+    if err:
+        return err
+
+    try:
+        resp = _rpc('describe_tv_app_data', {'p_workspace': g.workspace_id})
+        if resp.status_code != 200:
+            logger.error("[app-data] describe rpc %s: %s", resp.status_code, resp.text[:300])
+            return jsonify({'error': 'Não foi possível calcular as contagens'}), 502
+        data = resp.json() or {}
+        tables = data.get('tables') or {}
+        return jsonify({
+            'ok': True,
+            'appId': app_id,
+            'workspaceId': g.workspace_id,
+            'tables': tables,
+            'total': data.get('total', 0),
+        })
+    except Exception as e:
+        logger.error("[app-data] describe error: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/app-data/purge', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
+def admin_app_data_purge():
+    """Limpa os dados de conteúdo da TV do workspace autenticado.
+
+    Ordem garantida server-side (uma única transação SQL):
+      contagens → guarda de tamanho → BACKUP → DELETEs → AUDIT.
+    Backup falhou/estourou limite ⇒ nada é apagado.
+
+    Body: {"appId": "tv"}. workspace_id do corpo nunca é autoridade.
+    Concorrência: advisory lock por workspace dentro da função SQL serializa
+    purges simultâneos (o segundo executa depois e encontra zero linhas).
+    """
+    manager_err = _require_workspace_app_manager()
+    if manager_err:
+        return manager_err
+
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return _supabase_unavailable()
+
+    app_id, err = _validate_purge_app_id()
+    if err:
+        return err
+
+    actor = g.user or {}
+    actor_name = actor.get('name') or actor.get('email') or ''
+
+    try:
+        resp = _rpc('purge_tv_app_data', {
+            'p_workspace': g.workspace_id,
+            'p_actor_id': g.user_id,
+            'p_actor_name': actor_name,
+            'p_max_rows': APP_DATA_PURGE_MAX_ROWS,
+            'p_max_bytes': APP_DATA_PURGE_MAX_BYTES,
+        })
+
+        if resp.status_code == 200:
+            data = resp.json() or {}
+            result_kind = data.get('result')
+            deleted = data.get('deleted') or {}
+            total = int(data.get('totalDeleted') or 0)
+            payload = {
+                'ok': True,
+                'appId': app_id,
+                'backupId': data.get('backupId'),
+                'backupExpiresAt': data.get('backupExpiresAt'),
+                'deleted': deleted,
+                'totalDeleted': total,
+                'auditId': data.get('auditId'),
+            }
+            if result_kind == 'empty':
+                payload['empty'] = True
+            logger.info(
+                "[app-data] purge ws=%s app=%s total=%s backup=%s audit=%s actor=%s",
+                g.workspace_id, app_id, total, data.get('backupId'), data.get('auditId'), g.user_id,
+            )
+            return jsonify(payload)
+
+        text = resp.text or ''
+        logger.error("[app-data] purge rpc %s: %s", resp.status_code, text[:300])
+        if 'APP_DATA_BACKUP_TOO_LARGE' in text:
+            return jsonify({
+                'error': (
+                    'O volume de dados excede o limite seguro de backup. '
+                    'Nada foi removido. Solicite limpeza administrativa específica.'
+                ),
+                'code': 'backup_too_large',
+            }), 413
+        if 'WORKSPACE_NOT_FOUND' in text:
+            return jsonify({'error': 'Workspace não encontrado'}), 404
+        # Qualquer outro erro ⇒ rollback total no banco; mensagem segura.
+        return jsonify({'error': 'Não foi possível concluir a limpeza. Nenhum dado foi removido.'}), 500
+    except Exception as e:
+        logger.error("[app-data] purge error: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
