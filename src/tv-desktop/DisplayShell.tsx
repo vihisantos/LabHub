@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { Settings, RefreshCw, ExternalLink, LogOut } from 'lucide-react'
 import { ToastProvider } from '../lib/ToastContext'
 import { MusicPlayerProvider } from '../apps/tv/contexts/MusicPlayerContext'
-import { TvDisplay } from '../apps/tv/pages/TvDisplay'
+import { ScreenRenderer } from './ScreenRenderer'
 import { workspaceStore } from '../core/workspaces/store'
 import { startHeartbeat, openAdminPanel } from './deviceService'
 import type { DeviceConfig } from './config'
@@ -48,7 +48,7 @@ export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
       <ToastProvider>
         <MusicPlayerProvider>
           <MemoryRouter initialEntries={['/display']}>
-            <TvDisplay deviceName={config.name} />
+            <ScreenRenderer config={config} />
           </MemoryRouter>
         </MusicPlayerProvider>
       </ToastProvider>

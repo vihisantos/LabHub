@@ -32,13 +32,18 @@ RATE_LIMIT_WINDOW = 3600  # 1 hora em segundos
 RATE_LIMIT_MAX_REQUESTS = 20  # máximo de chamados por IP por hora
 
 
-def _check_rate_limit(ip: str) -> bool:
-    """Verifica se o IP excedeu o limite de requisições. Retorna True se permitido."""
+def _check_rate_limit(ip: str, max_requests: int | None = None) -> bool:
+    """Verifica se o IP excedeu o limite de requisições. Retorna True se permitido.
+
+    ``max_requests`` permite limites específicos por endpoint (padrão:
+    RATE_LIMIT_MAX_REQUESTS, usado pelos endpoints existentes).
+    """
+    limit = RATE_LIMIT_MAX_REQUESTS if max_requests is None else max_requests
     now = datetime.now(timezone.utc).timestamp()
     window_start = now - RATE_LIMIT_WINDOW
     # Remove entradas antigas
     _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if t > window_start]
-    if len(_rate_limit_store[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+    if len(_rate_limit_store[ip]) >= limit:
         return False
     _rate_limit_store[ip].append(now)
     return True
@@ -1297,6 +1302,167 @@ def tv_device_provision():
 
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+# ── TV: snapshot TV-safe do Dashboard de Chamados ──
+#
+# GET /api/tv/chamados/display — device-only. Fornece à futura CallsDashboardScreen
+# um snapshot pequeno e sem PII dos chamados do workspace do dispositivo.
+#
+# Autorização: JWT → user_id → tv_devices.user_id → workspace_id (vínculo
+# persistido no servidor). Nenhum parâmetro do cliente influencia o escopo.
+# Projeção: allowlist explícita de colunas na consulta E no serializer — o
+# objeto bruto de chamados_tickets NUNCA sai do backend.
+# Superfície pública de TV (qualquer pessoa pode ver/fotografar a tela):
+# "se o dado não precisa aparecer na TV, não sai do backend".
+#
+# NÃO é acesso administrativo a chamados: sem escrita, sem comentários,
+# sem dados de contato, sem descrição livre, sem patrimônio, sem fotos.
+
+TV_CHAMADOS_TICKET_LIMIT = 100        # máx. de chamados ativos na lista da TV
+TV_CHAMADOS_METRICS_WINDOW_DAYS = 30  # janela explícita do histórico p/ métricas
+TV_CHAMADOS_RATE_LIMIT_PER_HOUR = 240  # polling legítimo: 1 req/30s = 120/h + margem
+
+_CHAMADOS_ACTIVE_STATUSES = ('aberto', 'a_caminho', 'em_atendimento')
+_CHAMADOS_HIGH_PRIORITIES = ('alta', 'urgente')
+
+# Allowlist de colunas — nunca `select=*` nesta superfície.
+_TV_CHAMADOS_TICKET_COLS = (
+    'ticketNumber,roomName,problemArea,problemCategory,priority,status,createdAt,resolvedAt'
+)
+_TV_CHAMADOS_METRIC_COLS = 'status,priority,createdAt,resolvedAt,feedbackRating'
+
+
+def _resolve_tv_device_workspace(user_id) -> str | None:
+    """Resolve o workspace do kiosk pelo vínculo persistido tv_devices.user_id.
+
+    Retorna o workspace_id ou None quando a sessão não corresponde a um
+    dispositivo registrado ou o device está sem vínculo válido de workspace.
+    """
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_devices'
+            f'?user_id=eq.{quote(str(user_id))}&select=id,workspace_id&limit=1',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        rows = resp.json() if resp.ok else []
+    except Exception:
+        return None
+    if not rows:
+        return None
+    workspace_id = rows[0].get('workspace_id')
+    return str(workspace_id) if workspace_id else None
+
+
+def _tv_project_ticket(row: dict) -> dict:
+    """Serializer allowlist do chamado para TV — campos explícitos, nunca bruto.
+
+    Proibidos por design (presentes no banco, ausentes aqui): reportedBy,
+    reportedByEmail, problemDescription, assetPatrimony/asset*, photos,
+    statusNote, assignedTo*, feedbackComment/feedbackAt/feedbackRating,
+    id, roomId, workspace_id e metadados.
+    """
+    return {
+        'ticketNumber': row.get('ticketNumber'),
+        'roomName': row.get('roomName') or '',
+        'problemArea': row.get('problemArea') or '',
+        'problemCategory': row.get('problemCategory') or '',
+        'priority': row.get('priority') or 'normal',
+        'status': row.get('status') or 'aberto',
+        'createdAt': row.get('createdAt'),
+        'resolvedAt': row.get('resolvedAt'),
+    }
+
+
+def _tv_chamados_summary(active_rows: list, window_rows: list) -> dict:
+    """Métricas agregadas sem nomes: contagens da fila ativa + janela de histórico."""
+    open_count = sum(1 for t in active_rows if t.get('status') == 'aberto')
+    in_progress = sum(1 for t in active_rows if t.get('status') in _CHAMADOS_ACTIVE_STATUSES[1:])
+    high_priority = sum(1 for t in active_rows if t.get('priority') in _CHAMADOS_HIGH_PRIORITIES)
+
+    resolution_total_s = 0.0
+    resolution_count = 0
+    rating_sum = 0.0
+    rating_count = 0
+    for t in window_rows:
+        if t.get('resolvedAt') and t.get('createdAt'):
+            created = _parse_iso(t['createdAt'], 'createdAt')
+            resolved = _parse_iso(t['resolvedAt'], 'resolvedAt')
+            if created and resolved:
+                resolution_total_s += max(0.0, (resolved - created).total_seconds())
+                resolution_count += 1
+        rating = t.get('feedbackRating')
+        if rating:
+            try:
+                rating_sum += float(rating)
+                rating_count += 1
+            except (TypeError, ValueError):
+                pass
+
+    return {
+        'total': len(active_rows),
+        'open': open_count,
+        'inProgress': in_progress,
+        'highPriority': high_priority,
+        'avgResolutionHours': round(resolution_total_s / resolution_count / 3600, 1) if resolution_count else None,
+        'satisfaction': round(rating_sum / rating_count, 2) if rating_count else None,
+    }
+
+
+@app.route('/api/tv/chamados/display', methods=['GET'])
+@require_auth
+def tv_chamados_display():
+    """Snapshot TV-safe dos chamados do workspace do dispositivo autenticado.
+
+    Device-only (403 para qualquer sessão sem linha em tv_devices com
+    workspace válido — inclusive humanos/admins). Consultas sempre escopadas
+    pelo vínculo server-side; parâmetros do cliente são ignorados.
+    Resposta: { generatedAt, summary, tickets } — sem workspace_id.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not _check_rate_limit(f'tv-chamados-display:{_get_client_ip()}', TV_CHAMADOS_RATE_LIMIT_PER_HOUR):
+        return jsonify({'error': 'Muitas requisições. Aguarde alguns instantes.'}), 429
+    try:
+        workspace_id = _resolve_tv_device_workspace(g.user_id)
+        if not workspace_id:
+            return jsonify({'error': 'Sessão não corresponde a um dispositivo TV válido'}), 403
+
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(days=TV_CHAMADOS_METRICS_WINDOW_DAYS)).isoformat()
+        base = f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+        ws_filter = f'workspace_id=eq.{quote(workspace_id)}&archived=eq.false'
+
+        # 1) Fila ativa (chamados que aparecem na TV)
+        actives_resp = requests.get(
+            f'{base}?select={_TV_CHAMADOS_TICKET_COLS}&{ws_filter}'
+            f'&status=in.({",".join(_CHAMADOS_ACTIVE_STATUSES)})'
+            f'&order=createdAt.desc&limit={TV_CHAMADOS_TICKET_LIMIT}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        # 2) Janela recente p/ métricas agregadas (saída numérica, sem nomes)
+        window_resp = requests.get(
+            f'{base}?select={_TV_CHAMADOS_METRIC_COLS}&{ws_filter}'
+            f'&createdAt=gte.{quote(cutoff)}&order=createdAt.desc&limit=1000',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not actives_resp.ok or not window_resp.ok:
+            return jsonify({'error': 'Erro ao consultar chamados'}), 502
+
+        active_rows = actives_resp.json() or []
+        window_rows = window_resp.json() or []
+        return jsonify({
+            'generatedAt': now.isoformat(),
+            'summary': _tv_chamados_summary(active_rows, window_rows),
+            'tickets': [_tv_project_ticket(row) for row in active_rows],
+        })
+
+    except Exception as exc:
+        logger.error("Erro em /api/tv/chamados/display: %s", exc)
         return jsonify({'error': 'Erro interno'}), 500
 
 
