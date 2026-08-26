@@ -1,4 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+vi.mock('../../workspaces/store', async () => {
+  const actual = await vi.importActual<typeof import('../../workspaces/store')>('../../workspaces/store')
+  return actual
+})
+
 import { globalAssetRepository } from '../global-repository'
 import { setCol, resetCache } from '../../../lib/db'
 import { clearDirty, getDirtyCollections } from '../../../lib/sync'
@@ -47,7 +53,11 @@ function makeAsset(overrides: Partial<GlobalAsset> = {}): GlobalAsset {
 beforeEach(() => {
   resetCache()
   localStorage.clear()
-  workspaceStore.set(null, false, [])
+  workspaceStore.set(
+    { id: 'ws-1', name: 'Campus A', slug: 'campus-a', location: '', spreadsheet_url: '', color: '', disabled_apps: [], created_at: '', updated_at: '' },
+    false,
+    ['ws-1'],
+  )
 })
 
 describe('globalAssetRepository — CRUD', () => {
@@ -359,7 +369,7 @@ describe('globalAssetRepository — workspace isolation (local)', () => {
     expect(all.map((a) => a.id)).not.toContain('a3')
   })
 
-  it('usuário sem workspace_ids vê tudo (legado)', () => {
+  it('usuário sem workspace_ids não vê nada (zero-trust)', () => {
     const ws1 = makeAsset({ id: 'a1', workspace_id: 'ws-1' })
     const ws2 = makeAsset({ id: 'a2', workspace_id: 'ws-2' })
     setCol('global_assets', [ws1, ws2])
@@ -367,7 +377,7 @@ describe('globalAssetRepository — workspace isolation (local)', () => {
     workspaceStore.set(null, false, [])
 
     const all = globalAssetRepository.getAll()
-    expect(all).toHaveLength(2)
+    expect(all).toHaveLength(0)
   })
 
   it('super admin com workspace ativo vê só o workspace ativo', () => {

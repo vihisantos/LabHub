@@ -1,4 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+vi.mock('../../workspaces/store', async () => {
+  const actual = await vi.importActual<typeof import('../../workspaces/store')>('../../workspaces/store')
+  return actual
+})
+
 import { notificationAppliesTo } from '../visibility'
 import { workspaceStore } from '../../workspaces/store'
 import type { AppNotification } from '../types'
@@ -37,7 +43,11 @@ function makeNotification(overrides: Partial<AppNotification> = {}): AppNotifica
 
 describe('notificationAppliesTo', () => {
   beforeEach(() => {
-    workspaceStore.set(null, false, [])
+    workspaceStore.set(
+      { id: 'ws-test', name: 'Test', slug: 'test', location: '', spreadsheet_url: '', color: '', disabled_apps: [], created_at: '', updated_at: '' } as never,
+      true,
+      ['ws-test'],
+    )
   })
 
   it('sem usuário (não autenticado) retorna true', () => {
@@ -136,7 +146,6 @@ describe('notificationAppliesTo', () => {
 
   it('workspace_id fora do ativo → não vê (mesmo com audience role)', () => {
     const n = makeNotification({
-      module: 'pc-care',
       audience: 'role',
       targetRole: 'role-viewer',
       workspace_id: 'ws-1',

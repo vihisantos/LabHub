@@ -12,6 +12,18 @@ vi.mock('../core/permissions/usePermissions', () => ({
   }),
 }))
 
+vi.mock('../core/workspaces/store', () => ({
+  workspaceStore: {
+    get activeWorkspaceId() { return null },
+    get isAdmin() { return true },
+    get userWorkspaceIds() { return [] as string[] },
+    filter: <T,>(rows: T[]) => rows,
+    matches: () => true,
+    set: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+  },
+}))
+
 const adminUser = {
   id: 'test-admin',
   email: 'admin@test.local',

@@ -7,9 +7,11 @@ const service = createSyncService<GlobalAsset>('global_assets')
 
 function createAsset(data: GlobalAssetCreateData): GlobalAsset {
   const user = authService.getCurrentUser()
+  const ws = workspaceStore.activeWorkspaceId
+  if (!ws) throw new Error('Workspace não selecionado')
   return service.create({
     ...data,
-    workspace_id: workspaceStore.activeWorkspaceId ?? '',
+    workspace_id: ws,
     created_by: user?.id ?? null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

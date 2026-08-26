@@ -73,13 +73,16 @@ export function useUrgentAnnouncements() {
   }, [loadAnnouncements])
 
   const createUrgent = async (message: string, severity: 'info' | 'warning' | 'danger', durationMinutes: number | null) => {
+    const ws = workspaceStore.activeWorkspaceId
+    if (!ws) throw new Error('Workspace não selecionado')
+
     const expiresAt = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString() : null
     const newRecord: Omit<UrgentAnnouncement, 'id' | 'created_at'> = {
       message,
       severity,
       expires_at: expiresAt,
       is_active: true,
-      workspace_id: workspaceStore.activeWorkspaceId,
+      workspace_id: ws,
     }
 
     if (supabase) {

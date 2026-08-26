@@ -76,19 +76,20 @@ export async function fetchActiveCalendarCache(): Promise<AcademicCalendarCache 
 }
 
 export async function saveCalendarCache(cacheData: Omit<AcademicCalendarCache, 'id' | 'extracted_at'>): Promise<AcademicCalendarCache> {
+  const ws = workspaceStore.activeWorkspaceId
+  if (!ws) throw new Error('Workspace não selecionado')
+
   const record: AcademicCalendarCache = {
     ...cacheData,
-    workspace_id: workspaceStore.activeWorkspaceId ?? null,
+    workspace_id: ws,
     extracted_at: new Date().toISOString(),
   }
 
   if (supabase) {
     try {
-      // Inativar anteriores (do mesmo workspace, quando houver)
+      // Inativar anteriores (do mesmo workspace)
       let q = supabase.from('tv_calendar_cache').update({ is_active: false } as never).eq('semester_code', cacheData.semester_code)
-      if (workspaceStore.activeWorkspaceId) {
-        q = q.eq('workspace_id', workspaceStore.activeWorkspaceId)
-      }
+      q = q.eq('workspace_id', ws)
       await q
       const { data, error } = await supabase.from('tv_calendar_cache').insert(record as never).select().single()
       if (!error && data) {

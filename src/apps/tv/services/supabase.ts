@@ -89,19 +89,25 @@ export async function fetchAllPlaylists(): Promise<TvPlaylist[]> {
 
 export async function createPlaylist(values: Omit<TvPlaylist, 'id' | 'created_at'>): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_playlists').insert({ ...values, workspace_id: workspaceId() })
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_playlists').insert({ ...values, workspace_id: ws })
   if (error) throw error
 }
 
 export async function updatePlaylist(id: string, values: Partial<TvPlaylist>): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_playlists').update(values as never).eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_playlists').update(values as never).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function deletePlaylist(id: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_playlists').delete().eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_playlists').delete().eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
@@ -115,19 +121,25 @@ export async function fetchQueues(): Promise<TvMusicQueue[]> {
 
 export async function createQueue(values: Partial<TvMusicQueue>): Promise<void> {
   if (!supabase) return
-  const { error } = await supabase.from('tv_music_queues').insert({ ...values, workspace_id: workspaceId() } as never)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_music_queues').insert({ ...values, workspace_id: ws } as never)
   if (error) throw error
 }
 
 export async function updateQueue(id: string, values: Partial<TvMusicQueue>): Promise<void> {
   if (!supabase) return
-  const { error } = await supabase.from('tv_music_queues').update(values as never).eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_music_queues').update(values as never).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function deleteQueue(id: string): Promise<void> {
   if (!supabase) return
-  const { error } = await supabase.from('tv_music_queues').delete().eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_music_queues').delete().eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
@@ -185,19 +197,25 @@ export async function fetchAllAnnouncements(): Promise<TvAnnouncement[]> {
 
 export async function createAnnouncement(values: Omit<TvAnnouncement, 'id' | 'created_at'>): Promise<void> {
   if (!supabase) return
-  const { error } = await supabase.from('tv_announcements').insert({ ...values, workspace_id: workspaceId() } as never)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_announcements').insert({ ...values, workspace_id: ws } as never)
   if (error) throw error
 }
 
 export async function updateAnnouncement(id: string, values: Partial<TvAnnouncement>): Promise<void> {
   if (!supabase) return
-  const { error } = await supabase.from('tv_announcements').update(values as never).eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_announcements').update(values as never).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
   if (!supabase) return
-  const { error } = await supabase.from('tv_announcements').delete().eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_announcements').delete().eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
@@ -232,28 +250,36 @@ export async function fetchGalleries(): Promise<TvGallery[]> {
 
 export async function createGallery(title: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_galleries').insert({ title, sort_order: 0, workspace_id: workspaceId() } as never)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_galleries').insert({ title, sort_order: 0, workspace_id: ws } as never)
   if (error) throw error
 }
 
 export async function deleteGallery(id: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_galleries').delete().eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_galleries').delete().eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function toggleGalleryActive(id: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
   const { data: current } = await supabase
     .from('tv_galleries')
     .select('is_active')
     .eq('id', id)
+    .eq('workspace_id', ws)
     .single()
   if (!current) return
   const { error } = await supabase
     .from('tv_galleries')
     .update({ is_active: !current.is_active })
     .eq('id', id)
+    .eq('workspace_id', ws)
   if (error) throw error
 }
 
@@ -377,22 +403,29 @@ export async function upsertDevice(device: {
 
 export async function heartbeatDevice(id: string): Promise<void> {
   if (!supabase) return
+  const ws = workspaceId()
+  if (!ws) return
   const { error } = await supabase
     .from('tv_devices')
     .update({ last_seen: new Date().toISOString() } as never)
     .eq('id', id)
+    .eq('workspace_id', ws)
   if (error) console.warn('[TV] Heartbeat device failed:', error.message)
 }
 
 export async function updateDevice(id: string, values: Partial<TvDevice>): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_devices').update(values as never).eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_devices').update(values as never).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function deleteDevice(id: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_devices').delete().eq('id', id)
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { error } = await supabase.from('tv_devices').delete().eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
@@ -415,10 +448,12 @@ export async function createMusicRequest(values: {
   requested_by_name: string | null
 }): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
   const { error } = await supabase.from('tv_music_requests').insert({
     ...values,
     status: 'pending',
-    workspace_id: workspaceId(),
+    workspace_id: ws,
   } as never)
   if (error) throw error
 }
@@ -429,6 +464,8 @@ export async function reviewMusicRequest(
   reviewedBy: string,
 ): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
   const { error } = await supabase
     .from('tv_music_requests')
     .update({
@@ -437,5 +474,6 @@ export async function reviewMusicRequest(
       reviewed_at: new Date().toISOString(),
     } as never)
     .eq('id', id)
+    .eq('workspace_id', ws)
   if (error) throw error
 }

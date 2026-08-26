@@ -27,6 +27,13 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: mockCreateClient,
 }))
 
+vi.mock('../../../../core/workspaces/store', () => ({
+  workspaceStore: {
+    activeWorkspaceId: 'ws-test-reservalab',
+    filter: <T,>(rows: T[]) => rows,
+  },
+}))
+
 const mockTablets: TabletReserva[] = [
   {
     id: '11111111-1111-4111-8111-111111111111',
@@ -146,7 +153,7 @@ describe('supabase service', () => {
         await supabaseModule.createTabletReserva(values)
 
         expect(mockFrom).toHaveBeenCalledWith('tablet_reservations')
-        expect(mockQueryBuilder.insert).toHaveBeenCalledWith(values)
+        expect(mockQueryBuilder.insert).toHaveBeenCalledWith({ ...values, workspace_id: 'ws-test-reservalab' })
       })
     })
 

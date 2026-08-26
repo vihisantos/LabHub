@@ -60,14 +60,14 @@ beforeEach(() => {
 })
 
 describe('useWorkspaceFilter — visibilidade por workspace do usuário', () => {
-  it('usuário sem workspaces atribuídos vê tudo (legado)', () => {
+  it('usuário sem workspaces atribuídos vê nada (zero trust)', () => {
     mockUseAuth.mockReturnValue({ user: makeUser({ workspace_ids: [] }) })
     mockUseWorkspace.mockReturnValue({ workspace: null })
 
     const { result } = renderHook(() => useWorkspaceFilter())
 
-    expect(result.current.filterByWorkspace(ITEMS)).toHaveLength(3)
-    expect(result.current.matchesWorkspace({ workspace_id: 'ws-1' })).toBe(true)
+    expect(result.current.filterByWorkspace(ITEMS)).toHaveLength(0)
+    expect(result.current.matchesWorkspace({ workspace_id: 'ws-1' })).toBe(false)
     expect(result.current.isAdmin).toBe(false)
     expect(result.current.activeWorkspaceId).toBeNull()
   })
@@ -79,9 +79,10 @@ describe('useWorkspaceFilter — visibilidade por workspace do usuário', () => 
     const { result } = renderHook(() => useWorkspaceFilter())
 
     const filtered = result.current.filterByWorkspace(ITEMS)
-    // vê itens do ws-1 e itens sem workspace_id
-    expect(filtered.map((i) => i.id)).toEqual(['a', 'c'])
+    // vê apenas itens do ws-1; itens sem workspace_id NÃO passam
+    expect(filtered.map((i) => i.id)).toEqual(['a'])
     expect(result.current.matchesWorkspace({ workspace_id: 'ws-2' })).toBe(false)
+    expect(result.current.matchesWorkspace({ workspace_id: undefined })).toBe(false)
   })
 
   it('usuário com workspace ativo vê apenas o do workspace ativo', () => {
@@ -91,7 +92,8 @@ describe('useWorkspaceFilter — visibilidade por workspace do usuário', () => 
     const { result } = renderHook(() => useWorkspaceFilter())
 
     const filtered = result.current.filterByWorkspace(ITEMS)
-    expect(filtered.map((i) => i.id)).toEqual(['b', 'c'])
+    // vê apenas itens do ws-2; sem workspace_id NÃO passa
+    expect(filtered.map((i) => i.id)).toEqual(['b'])
     expect(result.current.activeWorkspaceId).toBe('ws-2')
     expect(result.current.matchesWorkspace({ workspace_id: 'ws-1' })).toBe(false)
   })
@@ -114,7 +116,9 @@ describe('useWorkspaceFilter — visibilidade por workspace do usuário', () => 
     const { result } = renderHook(() => useWorkspaceFilter())
 
     const filtered = result.current.filterByWorkspace(ITEMS)
+    // vê apenas itens do ws-1; sem workspace_id NÃO passa
     expect(filtered.map((i) => i.id)).toEqual(['a'])
     expect(result.current.matchesWorkspace({ workspace_id: 'ws-2' })).toBe(false)
+    expect(result.current.matchesWorkspace({ workspace_id: undefined })).toBe(false)
   })
 })
