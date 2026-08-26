@@ -89,6 +89,11 @@ const fakeRegistry = vi.hoisted(() => [
 
 vi.mock('../../../appRegistry', () => ({ appRegistry: fakeRegistry }))
 
+vi.mock('../../../core/workspaces/store', async () => {
+  const actual = await vi.importActual<typeof import('../../../core/workspaces/store')>('../../../core/workspaces/store')
+  return actual
+})
+
 import { workspaceStore } from '../../../core/workspaces/store'
 import { appSettingsService, deepMerge } from '../service'
 
