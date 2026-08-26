@@ -14,17 +14,17 @@ export function useWorkspaceFilter() {
     function filterByWorkspace<T extends { workspace_id?: string }>(items: T[]): T[] {
       if (isAdmin && !activeWorkspaceId) return items
       if (isAdmin && activeWorkspaceId) return items.filter((item) => item.workspace_id === activeWorkspaceId)
-      if (activeWorkspaceId) return items.filter((item) => !item.workspace_id || item.workspace_id === activeWorkspaceId)
-      if (userWorkspaceIds.length > 0) return items.filter((item) => !item.workspace_id || userWorkspaceIds.includes(item.workspace_id))
-      return items
+      if (activeWorkspaceId) return items.filter((item) => item.workspace_id === activeWorkspaceId)
+      if (userWorkspaceIds.length > 0) return items.filter((item) => userWorkspaceIds.includes(item.workspace_id || ''))
+      return []
     }
 
     function matchesWorkspace(item: { workspace_id?: string }): boolean {
       if (isAdmin && !activeWorkspaceId) return true
       if (isAdmin && activeWorkspaceId) return item.workspace_id === activeWorkspaceId
-      if (activeWorkspaceId) return !item.workspace_id || item.workspace_id === activeWorkspaceId
-      if (userWorkspaceIds.length > 0) return !item.workspace_id || userWorkspaceIds.includes(item.workspace_id)
-      return true
+      if (activeWorkspaceId) return item.workspace_id === activeWorkspaceId
+      if (userWorkspaceIds.length > 0) return userWorkspaceIds.includes(item.workspace_id || '')
+      return false
     }
 
     return { filterByWorkspace, matchesWorkspace, activeWorkspaceId, isAdmin }

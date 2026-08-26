@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { TabletReserva } from '../types'
+import { workspaceStore } from '../../../core/workspaces/store'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -20,16 +21,16 @@ export async function fetchTabletReservas(desde?: Date, ate?: Date, workspaceId?
   const limite = ate || new Date(hoje)
   if (!ate) limite.setDate(limite.getDate() + 7)
 
+  const wsId = workspaceId || workspaceStore.activeWorkspaceId
+  if (!wsId) return []
+
   let query = supabase
     .from('tablet_reservations')
     .select('*')
     .gte('horario_inicio', hoje.toISOString())
     .lt('horario_inicio', limite.toISOString())
     .eq('status', 'ativa')
-
-  if (workspaceId) {
-    query = query.eq('workspace_id', workspaceId)
-  }
+    .eq('workspace_id', wsId)
 
   const { data } = await query.order('horario_inicio', { ascending: true })
 
@@ -38,8 +39,9 @@ export async function fetchTabletReservas(desde?: Date, ate?: Date, workspaceId?
 
 export async function createTabletReserva(values: Record<string, unknown>, workspaceId?: string): Promise<void> {
   if (!supabase) return
-  const payload = workspaceId ? { ...values, workspace_id: workspaceId } : values
-  await supabase.from('tablet_reservations').insert(payload as never)
+  const wsId = workspaceId || workspaceStore.activeWorkspaceId
+  if (!wsId) throw new Error('Workspace não selecionado')
+  await supabase.from('tablet_reservations').insert({ ...values, workspace_id: wsId } as never)
 }
 
 export async function updateTabletReserva(id: string, values: Record<string, unknown>): Promise<void> {

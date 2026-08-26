@@ -33,10 +33,10 @@ export const workspaceStore = {
 
   matches(item: { workspace_id?: string | null }): boolean {
     if (_isAdmin && !_activeWorkspaceId) return true
-    if (_isAdmin && _activeWorkspaceId) return item.workspace_id === _activeWorkspaceId || !item.workspace_id
-    if (_activeWorkspaceId) return !item.workspace_id || item.workspace_id === _activeWorkspaceId
-    if (_userWorkspaceIds.length > 0) return !item.workspace_id || _userWorkspaceIds.includes(item.workspace_id)
-    return true
+    if (_isAdmin && _activeWorkspaceId) return item.workspace_id === _activeWorkspaceId
+    if (_activeWorkspaceId) return item.workspace_id === _activeWorkspaceId
+    if (_userWorkspaceIds.length > 0) return _userWorkspaceIds.includes(item.workspace_id || '')
+    return false
   },
 
   filter<T extends { workspace_id?: string | null }>(items: T[]): T[] {
