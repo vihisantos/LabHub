@@ -13,15 +13,14 @@
 --   3. Adicionar NOT NULL em todas as tabelas workspace-scoped.
 --   4. DELETE registros existentes com NULL (lixo legado sem dono).
 --   5. Corrigir tv_music_requests USING(true) → workspace-scoped.
---   6. Corrigir pcare.assets USING(true) → workspace-scoped.
+--   6. Corrigir stock.notifications USING(true) → workspace-scoped.
 --
 -- Exceções (mantêm NULL permitido):
 --   - stock.notifications: global por design (approval, system).
 --   - workspace_backups, workspace_audit_logs: service_role only, sem RLS.
 --   - tv_music_tracks, tv_gallery_photos: filhas via JOIN (sem workspace_id).
+-- Nota: public.assets já estava NOT NULL (não requer ALTER).
 -- =============================================================================
-
-BEGIN;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- FASE 4: Corrigir user_belongs_to_workspace()
@@ -104,7 +103,6 @@ DELETE FROM stock.stock_maintenance WHERE workspace_id IS NULL;
 DELETE FROM stock.stock_inventory_cycles WHERE workspace_id IS NULL;
 DELETE FROM stock.stock_inventory_counts WHERE workspace_id IS NULL;
 DELETE FROM stock.stock_photos WHERE workspace_id IS NULL;
-DELETE FROM pcare.assets WHERE workspace_id IS NULL;
 DELETE FROM pcare.pcs WHERE workspace_id IS NULL;
 DELETE FROM pcare.parts WHERE workspace_id IS NULL;
 DELETE FROM pcare.maintenance WHERE workspace_id IS NULL;
@@ -137,7 +135,6 @@ ALTER TABLE stock.stock_inventory_counts ALTER COLUMN workspace_id SET NOT NULL;
 ALTER TABLE stock.stock_photos ALTER COLUMN workspace_id SET NOT NULL;
 
 -- Pcare schema — NOT NULL
-ALTER TABLE pcare.assets ALTER COLUMN workspace_id SET NOT NULL;
 ALTER TABLE pcare.pcs ALTER COLUMN workspace_id SET NOT NULL;
 ALTER TABLE pcare.parts ALTER COLUMN workspace_id SET NOT NULL;
 ALTER TABLE pcare.maintenance ALTER COLUMN workspace_id SET NOT NULL;
@@ -161,28 +158,28 @@ CREATE POLICY "tv_music_requests_select"
     OR user_belongs_to_workspace(workspace_id)
   );
 
--- pcare.assets: remover policy legada assets_all + criar policies workspace-scoped
-DROP POLICY IF EXISTS "assets_all" ON pcare.assets;
-DROP POLICY IF EXISTS "pcare_assets_select" ON pcare.assets;
-DROP POLICY IF EXISTS "pcare_assets_insert" ON pcare.assets;
-DROP POLICY IF EXISTS "pcare_assets_update" ON pcare.assets;
-DROP POLICY IF EXISTS "pcare_assets_delete" ON pcare.assets;
+-- public.assets: remover policy legada assets_all + criar policies workspace-scoped
+DROP POLICY IF EXISTS "assets_all" ON public.assets;
+DROP POLICY IF EXISTS "public_assets_select" ON public.assets;
+DROP POLICY IF EXISTS "public_assets_insert" ON public.assets;
+DROP POLICY IF EXISTS "public_assets_update" ON public.assets;
+DROP POLICY IF EXISTS "public_assets_delete" ON public.assets;
 
-CREATE POLICY "pcare_assets_select"
-  ON pcare.assets FOR SELECT
+CREATE POLICY "public_assets_select"
+  ON public.assets FOR SELECT
   USING (is_super_admin() OR user_belongs_to_workspace(workspace_id));
 
-CREATE POLICY "pcare_assets_insert"
-  ON pcare.assets FOR INSERT
+CREATE POLICY "public_assets_insert"
+  ON public.assets FOR INSERT
   WITH CHECK (is_super_admin() OR user_belongs_to_workspace(workspace_id));
 
-CREATE POLICY "pcare_assets_update"
-  ON pcare.assets FOR UPDATE
+CREATE POLICY "public_assets_update"
+  ON public.assets FOR UPDATE
   USING (is_super_admin() OR user_belongs_to_workspace(workspace_id))
   WITH CHECK (is_super_admin() OR user_belongs_to_workspace(workspace_id));
 
-CREATE POLICY "pcare_assets_delete"
-  ON pcare.assets FOR DELETE
+CREATE POLICY "public_assets_delete"
+  ON public.assets FOR DELETE
   USING (is_super_admin());
 
 -- stock.notifications: recriar policies (mantém NULL permitido para global)
@@ -236,7 +233,6 @@ AS $$
     'stock_inventory_cycles',  (SELECT count(*) FROM stock.stock_inventory_cycles WHERE workspace_id IS NULL),
     'stock_inventory_counts',  (SELECT count(*) FROM stock.stock_inventory_counts WHERE workspace_id IS NULL),
     'stock_photos',            (SELECT count(*) FROM stock.stock_photos WHERE workspace_id IS NULL),
-    'pcare_assets',            (SELECT count(*) FROM pcare.assets WHERE workspace_id IS NULL),
     'pcare_pcs',                (SELECT count(*) FROM pcare.pcs WHERE workspace_id IS NULL),
     'pcare_parts',             (SELECT count(*) FROM pcare.parts WHERE workspace_id IS NULL),
     'pcare_maintenance',       (SELECT count(*) FROM pcare.maintenance WHERE workspace_id IS NULL),
@@ -251,5 +247,3 @@ REVOKE EXECUTE ON FUNCTION public.workspace_has_null_records() FROM anon;
 REVOKE EXECUTE ON FUNCTION public.workspace_has_null_records() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.workspace_has_null_records() TO service_role;
 GRANT EXECUTE ON FUNCTION public.workspace_has_null_records() TO authenticated;
-
-COMMIT;
