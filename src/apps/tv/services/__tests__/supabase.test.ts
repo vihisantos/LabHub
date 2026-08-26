@@ -199,17 +199,21 @@ describe('createPlaylist', () => {
 })
 
 describe('updatePlaylist', () => {
-  it('atualiza playlist por id', async () => {
+  it('atualiza playlist por id com workspace scoping', async () => {
     await updatePlaylist('pl-1', { name: 'Atualizada' })
     expect(lastCall('update')?.a).toEqual([{ name: 'Atualizada' }])
-    expect(lastCall('eq')?.a).toEqual(['id', 'pl-1'])
+    const eqCalls = state.calls.filter((c) => c.m === 'eq')
+    expect(eqCalls[eqCalls.length - 2]?.a).toEqual(['id', 'pl-1'])
+    expect(eqCalls[eqCalls.length - 1]?.a).toEqual(['workspace_id', 'ws-x'])
   })
 })
 
 describe('deletePlaylist', () => {
-  it('deleta playlist por id', async () => {
+  it('deleta playlist por id com workspace scoping', async () => {
     await deletePlaylist('pl-1')
     expect(lastCall('delete')).toBeDefined()
-    expect(lastCall('eq')?.a).toEqual(['id', 'pl-1'])
+    const eqCalls = state.calls.filter((c) => c.m === 'eq')
+    expect(eqCalls[eqCalls.length - 2]?.a).toEqual(['id', 'pl-1'])
+    expect(eqCalls[eqCalls.length - 1]?.a).toEqual(['workspace_id', 'ws-x'])
   })
 })

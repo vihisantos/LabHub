@@ -1,4 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+vi.mock('../store', async () => {
+  const actual = await vi.importActual<typeof import('../store')>('../store')
+  return actual
+})
+
 import { workspaceStore } from '../store'
 
 const WS_A = 'ws-aaaa-1111'
