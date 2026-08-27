@@ -49,6 +49,11 @@ export const notificationService = {
 
   remove: (id: string) => service.remove(id),
 
+  snooze: (id: string, hours: number) => {
+    const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
+    return service.update(id, { snoozedUntil: until })
+  },
+
   clearAll: () => {
     const all = service.getAll()
     for (const n of all) {
