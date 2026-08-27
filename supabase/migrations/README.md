@@ -3,10 +3,71 @@
 Fonte única de verdade do schema do banco. **Toda mudança de schema entra aqui**
 como `NNN_nome.sql` (numeração sequencial, nunca reutilizar números).
 
+## Como as migrations são aplicadas hoje (automatizado)
+
+Desde `migrations.yml`/`scripts/migrate.py`, as migrations **pendentes** são
+aplicadas **automaticamente após merge em `main`** via GitHub Actions →
+Supabase Management API → PostgreSQL. Não há mais aplicação manual via SQL Editor
+para migrations novas.
+
+Fluxo do runner (`scripts/migrate.py`):
+
+1. Garante a existência de `public.schema_migrations` (histórico de aplicação).
+2. Lê as versões já aplicadas.
+3. Resolve o **baseline** (ver abaixo).
+4. Aplica cada migration pendente em ordem numérica, dentro de uma transação com
+   `pg_advisory_xact_lock` (serializa execuções concorrentes). Só registra em
+   `schema_migrations` depois que o SQL roda sem erro.
+
+### Baseline (por que o runner não reaplica o histórico)
+
+O banco de produção **já tem migrations 000-035 aplicadas manualmente, sem a
+tabela `schema_migrations`**. Se o runner assumisse "tabela vazia = banco vazio",
+tentaria reaplicar todo o histórico e quebraria produção. Por isso o baseline
+representa "**tudo até aqui já está no banco** por decisão do operador":
+
+- Configure `BASELINE_VERSION` (GitHub Secret) para **`035`** em produção —
+  significa que 000-035 já estão aplicadas e o runner passa a aplicar apenas
+  `036+`.
+- Sem `BASELINE_VERSION` e com a tabela vazia, o runner usa como baseline a
+  **maior versão do repositório** (não reaplica nada; só aplica o que vier
+  depois). Seguro, mas em um banco **novo** prefira definir o baseline explícito
+  e aplicar o histórico uma vez (ver "Ordem canônica").
+
+A linha de baseline fica gravada em `schema_migrations` com `filename =
+'__baseline__'`.
+
+### GitHub Secrets (Settings → Secrets and variables → Actions)
+
+| Secret | Obrigatório | Descrição |
+|--------|-------------|-----------|
+| `SUPABASE_PROJECT_REF` | sim | ex. `ypkulvbllxgkjzhpzemf` |
+| `SUPABASE_ACCESS_TOKEN` | sim | PAT da Supabase (Management API) — prefira a PAT a expor a service role key de longa duração no CI |
+| `BASELINE_VERSION` | não | `035` para produção (tudo até 035 já aplicado) |
+
+### Rodar localmente
+
+```sh
+python -m pip install requests python-dotenv
+SUPABASE_PROJECT_REF=... SUPABASE_ACCESS_TOKEN=... BASELINE_VERSION=035 python scripts/migrate.py
+python scripts/migrate.py --dry-run        # só lista pendentes, não executa
+```
+
+### Troubleshooting
+
+- **Migration falhou**: o runner sai com código ≠ 0 e **não** marca a migration
+  como aplicada (a transação inteira é revertida). Corrija o SQL e reexecute.
+- **Reaplicar mesmo o que já rodou**: como as migrations são idempotentes,
+  reexecutar é seguro; `schema_migrations` evita trabalho repetido.
+- **Sem variáveis de ambiente**: o runner falha cedo com mensagem clara (exit 2).
+- **Concorrência**: `pg_advisory_xact_lock` serializa aplicações simultâneas; cada
+  migration é aplicada + registrada na mesma transação.
+
 ## Ordem canônica de aplicação
 
-Em um banco **novo** (Supabase vazio), aplicar em ordem numérica via SQL Editor
-ou `psql` (não há CLI/config local neste projeto):
+Em um banco **novo** (Supabase vazio), a ordem é a numérica; sem a automatização
+(ou com baseline `000`), aplicar via SQL Editor ou `psql` (não há CLI/config
+local neste projeto):
 
 ```
 000_bootstrap_baseline.sql   -- schemas stock/pcare + tabelas-base + TV + chamados (idempotente)
@@ -14,8 +75,10 @@ ou `psql` (não há CLI/config local neste projeto):
 029_reconcile_legacy_policies.sql  -- remove policies permissivas legadas que 027 não cobriu
 ```
 
-Em um banco **existente** (produção): aplicar apenas as migrations ainda não
-aplicadas. Todas as novas migrations devem ser idempotentes (`IF NOT EXISTS`,
+Para produção com o runner ativo, **defina o baseline `035`**; o runner cuida de
+`036+` automaticamente.
+
+Todas as novas migrations devem ser idempotentes (`IF NOT EXISTS`,
 `DROP ... IF EXISTS`, guards `duplicate_object`) para tolerar drift entre
 ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 
@@ -41,6 +104,10 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 | 029 | `029_reconcile_legacy_policies.sql` | DROP das policies permissivas legadas (`*_all`, `allow_all`, `notifications_all`) nas tabelas já cobertas pela 027 |
 | 030 | `030_tv_device_identity.sql` | Identidade do kiosk TV: fecha RLS das `tv_*` (SELECT por workspace p/ device/membro/admin; escrita só admin/membro; device atualiza só a própria linha em `tv_devices`); REVOKE anon |
 | 031 | `031_workspace_app_settings_and_backups.sql` | Fundação da arquitetura de apps por workspace: `workspace_app_settings` (config JSONB única por workspace+app, escrita só super admin/admin do ws) + `app_data_backups` (trilha append-only pré-purge: sem UPDATE/DELETE policies); helper `can_manage_workspace_apps()`; REVOKE anon |
+| 032 | `032_tv_app_data_purge.sql` | Purga de dados TV com escopo por workspace |
+| 033 | `033_workspace_isolation_hardening.sql` | Endurecimento do isolamento por workspace (zero-trust null guards) |
+| 034 | `034_drop_legacy_rls_policies.sql` | DROP de 14 policies legadas que burlavam o isolamento |
+| 035 | `035_tracking_token.sql` | Chamados: credencial anônima `tracking_token_hash` (acesso limitado a um chamado) + índice único |
 
 ## Regras para novas migrations
 
@@ -57,7 +124,8 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 `tests/NNN_*_checks.sql`: scripts de asserção executáveis no SQL Editor
 **depois** de aplicar a migration correspondente. Cada drift relevante (tabelas,
 colunas, RLS, policies, grants) dispara `RAISE EXCEPTION`; execução limpa termina
-com `NOTICE OK`. Rodar em staging antes de produção.
+com `NOTICE OK`. Rodar em staging antes de produção. O
+`tests/036_schema_migrations_checks.sql` valida a tabela de histórico do runner.
 
 ## Drift conhecido vs produção (auditado em 2026-08)
 
@@ -91,4 +159,8 @@ com `NOTICE OK`. Rodar em staging antes de produção.
 4. ~~Aplicar `031` em produção~~ **Concluída (2026-08-24)** — `workspace_app_settings`
    + `app_data_backups` criadas; checks de `tests/031_rls_checks.sql` passaram
    sem drift no banco real.
-5. Verificar se há outras policies permissivas fora do inventário (query da 029).
+5. ~~Aplicar `032`/`033`/`034` em produção~~ **Concluída (2026-08-24/25)** —
+   purga TV, endurecimento de isolamento e DROP das policies legadas aplicados.
+6. ~~Aplicar `035` em produção~~ **Concluída (2026-08-27)** — `tracking_token_hash`
+   + índice único; agora faz parte do baseline do runner (definir `BASELINE_VERSION=035`).
+7. Verificar se há outras policies permissivas fora do inventário (query da 029).
