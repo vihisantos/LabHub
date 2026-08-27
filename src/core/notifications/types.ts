@@ -22,6 +22,8 @@ export interface AppNotification {
   workspace_id?: string
   /** audience === 'user' — usuário específico */
   targetUserId?: string
+  /** Adiar notificação — só para tipo 'maintenance' */
+  snoozedUntil?: string
 }
 
 export type NotificationFormData = Omit<AppNotification, 'id' | 'read' | 'createdAt'>

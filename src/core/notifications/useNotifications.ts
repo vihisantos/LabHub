@@ -6,6 +6,62 @@ import { workspaceStore } from '../workspaces/store'
 import { notificationAppliesTo } from './visibility'
 import type { User } from '../auth/types'
 
+// ── Date grouping helpers ────────────────────────────────────────────────
+
+function toDateKey(iso: string): string {
+  const d = new Date(iso)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const item = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const diff = today.getTime() - item.getTime()
+  if (diff < 86_400_000) return 'Hoje'
+  if (diff < 86_400_000 * 2) return 'Ontem'
+  if (diff < 86_400_000 * 7) return 'Esta semana'
+  return 'Anteriores'
+}
+
+export type DateGroup = 'Hoje' | 'Ontem' | 'Esta semana' | 'Anteriores'
+export const DATE_GROUP_ORDER: DateGroup[] = ['Hoje', 'Ontem', 'Esta semana', 'Anteriores']
+
+export function groupByDate(items: AppNotification[]): Map<DateGroup, AppNotification[]> {
+  const map = new Map<DateGroup, AppNotification[]>()
+  for (const g of DATE_GROUP_ORDER) map.set(g, [])
+  for (const n of items) {
+    const key = toDateKey(n.createdAt)
+    map.get(key as DateGroup)!.push(n)
+  }
+  return map
+}
+
+// ── Smart grouping: merge same ticket ────────────────────────────────────
+
+export interface SmartGroupedNotification {
+  notification: AppNotification
+  count: number
+  relatedIds: string[]
+}
+
+export function smartGroup(items: AppNotification[]): SmartGroupedNotification[] {
+  const groups = new Map<string, AppNotification[]>()
+  for (const n of items) {
+    // Group by ticket id extracted from actionUrl, or fall back to title
+    const ticketMatch = n.actionUrl?.match(/\/chamados\/tickets\/([^/]+)/)
+    const key = ticketMatch ? `ticket:${ticketMatch[1]}` : `title:${n.title}`
+    const arr = groups.get(key) || []
+    arr.push(n)
+    groups.set(key, arr)
+  }
+  return Array.from(groups.values()).map((arr) => {
+    // Keep newest as primary
+    arr.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    return {
+      notification: arr[0],
+      count: arr.length,
+      relatedIds: arr.map((n) => n.id),
+    }
+  })
+}
+
 export function useNotifications() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [user, setUser] = useState<User | null>(() => authService.getCurrentUser())
@@ -66,6 +122,11 @@ export function useNotifications() {
     setNotifications([])
   }, [])
 
+  const snooze = useCallback((id: string, hours: number) => {
+    notificationService.snooze(id, hours)
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, snoozedUntil: new Date(Date.now() + hours * 60 * 60 * 1000).toISOString() } : n)))
+  }, [])
+
   return {
     notifications: visibleNotifications,
     unreadCount,
@@ -75,6 +136,7 @@ export function useNotifications() {
     markAllAsRead,
     remove,
     clearAll,
+    snooze,
     reload: load,
   }
 }
