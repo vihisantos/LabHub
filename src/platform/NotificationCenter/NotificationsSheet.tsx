@@ -161,20 +161,14 @@ export function NotificationsSheet({ open, onClose }: NotificationsSheetProps) {
   const { notifications, unreadCount, markAsRead, markAllAsRead, remove, clearAll, snooze, reload } = useNotifications()
   const [viewMode, setViewMode] = useState<ViewMode>('type')
   const prevUnreadRef = useRef(unreadCount)
-  const [approving, setApproving] = useState(false)
-
   const handleApprove = useCallback(async (userId: string) => {
-    setApproving(true)
     const ok = await adminService.approveUser(userId)
     if (ok) reload()
-    setApproving(false)
   }, [reload])
 
   const handleReject = useCallback(async (userId: string) => {
-    setApproving(true)
     const ok = await adminService.rejectUser(userId)
     if (ok) reload()
-    setApproving(false)
   }, [reload])
 
   // Sound + vibration on new critical notification
