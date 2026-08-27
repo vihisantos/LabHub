@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import type { Workspace } from '../../core/workspaces/types'
 import { CreateWorkspaceModal } from '../../core/workspaces/components/CreateWorkspaceModal'
 import { workspaceService } from '../../core/workspaces/service'
-import { workspaceBackupService, type Actor } from '../../core/workspaces/backupService'
+import type { Actor } from '../../core/workspaces/backupService'
 import { ticketService } from '../../apps/chamados/services/ticketService'
 import { stockService } from '../../apps/stock/services/stockService'
 import { icons } from '../../lib/icons'
@@ -37,7 +37,7 @@ export function WorkspaceGate({
   workspaces,
   onSelect,
   canCreate = false,
-  user,
+  user: _user,
   onCreated,
   onDeleted,
 }: WorkspaceGateProps) {
@@ -66,17 +66,27 @@ export function WorkspaceGate({
 
   async function handleDelete() {
     if (!confirmWs) return
-    const actor: Actor = {
-      id: user?.id || 'unknown',
-      name: user?.name || user?.id || 'desconhecido',
-    }
     setDeleting(true)
     setDeleteError('')
     try {
-      await workspaceBackupService.backupWorkspace(confirmWs, actor)
-      await workspaceBackupService.logDelete(confirmWs, actor)
-      await workspaceBackupService.pruneExpired()
-      await workspaceService.remove(confirmWs.id)
+      const { defaultDb } = await import('../../lib/supabase')
+      let token: string | undefined
+      if (defaultDb) {
+        const { data } = await defaultDb.auth.getSession()
+        token = data.session?.access_token
+      }
+      const resp = await fetch(`/api/admin/workspaces/${encodeURIComponent(confirmWs.id)}/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      })
+      const body = await resp.json().catch(() => ({}))
+      if (!resp.ok) {
+        throw new Error((body as Record<string, unknown>).error || `Erro ${resp.status}`)
+      }
+      workspaceService.remove(confirmWs.id)
       setConfirmWs(null)
       setActionWs(null)
       onDeleted?.()

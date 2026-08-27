@@ -1,9 +1,6 @@
 import { defaultDb } from '../../lib/supabase'
 import type { Workspace } from './types'
 
-const TABLE_BACKUPS = 'workspace_backups'
-const TABLE_AUDIT = 'workspace_audit_logs'
-
 export const BACKUP_TTL_DAYS = 2
 
 export interface Actor {
@@ -32,126 +29,75 @@ export interface WorkspaceAuditLog {
   created_at: string
 }
 
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  let token: string | undefined
+  if (defaultDb) {
+    const { data } = await defaultDb.auth.getSession()
+    token = data.session?.access_token
+  }
+  const resp = await fetch(path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  })
+  const body = await resp.json().catch(() => ({}))
+  if (!resp.ok) {
+    const msg = (body as Record<string, unknown>).error || `Erro ${resp.status}`
+    throw new Error(typeof msg === 'string' ? msg : 'Erro na API')
+  }
+  return body as T
+}
+
 export const workspaceBackupService = {
   /**
-   * Cria um backup do workspace antes da exclusão, retido por
-   * BACKUP_TTL_DAYS dias. Lança erro se não for possível gravar,
-   * para que a exclusão seja abortada por segurança.
+   * Backup agora é feito pelo backend (POST /api/admin/workspaces/:id/delete).
+   * Mantido como noop para compatibilidade.
    */
-  async backupWorkspace(workspace: Workspace, actor: Actor): Promise<void> {
-    if (!defaultDb) return
-    const expiresAt = new Date(
-      Date.now() + BACKUP_TTL_DAYS * 24 * 60 * 60 * 1000,
-    ).toISOString()
-    const { error } = await defaultDb.from(TABLE_BACKUPS).insert({
-      workspace_id: workspace.id,
-      workspace_name: workspace.name,
-      workspace_data: workspace,
-      deleted_by: actor.id,
-      deleted_by_name: actor.name,
-      expires_at: expiresAt,
-    })
-    if (error) throw new Error(`Falha ao criar backup do workspace: ${error.message}`)
-  },
+  async backupWorkspace(_workspace: Workspace, _actor: Actor): Promise<void> {},
 
   /**
-   * Registra em workspace_audit_logs quem excluiu o workspace.
+   * Audit log agora é feito pelo backend.
    */
-  async logDelete(workspace: Workspace, actor: Actor): Promise<void> {
-    if (!defaultDb) return
-    const { error } = await defaultDb.from(TABLE_AUDIT).insert({
-      action: 'delete',
-      workspace_id: workspace.id,
-      workspace_name: workspace.name,
-      actor_id: actor.id,
-      actor_name: actor.name,
-    })
-    if (error) throw new Error(`Falha ao registrar log de exclusão: ${error.message}`)
-  },
+  async logDelete(_workspace: Workspace, _actor: Actor): Promise<void> {},
 
   /**
-   * Remove backups já expirados (auto-limpeza pelo app).
-   * Complementa o cron do banco para os casos sem pg_cron.
+   * Remove backups já expirados via backend.
    */
   async pruneExpired(): Promise<void> {
-    if (!defaultDb) return
-    await defaultDb
-      .from(TABLE_BACKUPS)
-      .delete()
-      .lt('expires_at', new Date().toISOString())
+    await apiFetch('/api/admin/backups/prune', { method: 'POST' })
   },
 
   /**
-   * Lista backups ainda válidos (não expirados), mais recentes primeiro.
+   * Lista backups ainda válidos via backend.
    */
   async listBackups(): Promise<WorkspaceBackup[]> {
-    if (!defaultDb) return []
-    const { data, error } = await defaultDb
-      .from(TABLE_BACKUPS)
-      .select('*')
-      .gte('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-    if (error) {
-      console.warn('[Backup] fetch error:', error.message)
+    try {
+      const { backups } = await apiFetch<{ backups: WorkspaceBackup[] }>('/api/admin/backups')
+      return backups || []
+    } catch {
       return []
     }
-    return (data || []) as WorkspaceBackup[]
   },
 
   /**
-   * Histórico de auditoria de workspaces (exclusões e restaurações).
+   * Histórico de auditoria via backend.
    */
   async listAuditLogs(): Promise<WorkspaceAuditLog[]> {
-    if (!defaultDb) return []
-    const { data, error } = await defaultDb
-      .from(TABLE_AUDIT)
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100)
-    if (error) {
-      console.warn('[Backup] audit fetch error:', error.message)
+    try {
+      const { logs } = await apiFetch<{ logs: WorkspaceAuditLog[] }>('/api/admin/audit-logs')
+      return logs || []
+    } catch {
       return []
     }
-    return (data || []) as WorkspaceAuditLog[]
   },
 
   /**
-   * Restaura um workspace a partir de um backup: recria a linha em
-   * workspaces (mesmo id/config), registra na auditoria e remove o
-   * backup usado.
+   * Restaura workspace a partir de backup via backend.
    */
-  async restoreBackup(backupId: string, actor: Actor): Promise<void> {
-    if (!defaultDb) return
-    const { data, error } = await defaultDb
-      .from(TABLE_BACKUPS)
-      .select('*')
-      .eq('id', backupId)
-      .maybeSingle()
-    if (error || !data) {
-      throw new Error('Backup não encontrado ou já expirado')
-    }
-
-    const backup = data as unknown as WorkspaceBackup
-    const ws = backup.workspace_data
-
-    const { error: upsertErr } = await defaultDb
-      .from('workspaces')
-      .upsert(ws, { onConflict: 'id' })
-    if (upsertErr) {
-      throw new Error(`Falha ao restaurar workspace: ${upsertErr.message}`)
-    }
-
-    const { error: logErr } = await defaultDb.from(TABLE_AUDIT).insert({
-      action: 'restore',
-      workspace_id: ws.id,
-      workspace_name: ws.name,
-      actor_id: actor.id,
-      actor_name: actor.name,
-    })
-    if (logErr) {
-      throw new Error(`Workspace restaurado, mas o log falhou: ${logErr.message}`)
-    }
-
-    await defaultDb.from(TABLE_BACKUPS).delete().eq('id', backupId)
+  async restoreBackup(backupId: string, _actor: Actor): Promise<void> {
+    await apiFetch(`/api/admin/backups/${encodeURIComponent(backupId)}/restore`, { method: 'POST' })
   },
 }
