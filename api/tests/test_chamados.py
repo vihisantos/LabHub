@@ -782,7 +782,9 @@ def test_patch_troca_foto_destroi_antiga_no_cloudinary(client, fake_requests, mo
     monkeypatch.setattr(
         api_module,
         "_cloudinary_destroy",
-        lambda url: (destroyed.append(url) or True) if "res.cloudinary.com" in url else False,
+        lambda url: (
+            destroyed.append(url) or True
+        ) if url.startswith("https://res.cloudinary.com/") else False,
     )
 
     resp = client.patch("/api/chamados/ticket-1", json={"photos": new_url}, headers=headers)
@@ -805,7 +807,9 @@ def test_patch_mesma_foto_nao_destroi(client, fake_requests, monkeypatch, api_mo
     monkeypatch.setattr(
         api_module,
         "_cloudinary_destroy",
-        lambda u: (destroyed.append(u) or True) if "res.cloudinary.com" in u else False,
+        lambda u: (
+            destroyed.append(u) or True
+        ) if u.startswith("https://res.cloudinary.com/") else False,
     )
 
     resp = client.patch("/api/chamados/ticket-1", json={"photos": url}, headers=headers)
@@ -856,7 +860,9 @@ def test_delete_chamado_destroi_fotos_cloudinary_best_effort(client, fake_reques
     monkeypatch.setattr(
         api_module,
         "_cloudinary_destroy",
-        lambda url: (destroyed.append(url) or True) if "res.cloudinary.com" in url else False,
+        lambda url: (
+            destroyed.append(url) or True
+        ) if url.startswith("https://res.cloudinary.com/") else False,
     )
 
     resp = client.delete("/api/chamados/ticket-1", headers=headers)
