@@ -53,8 +53,9 @@ jobs:
           python-version: "3.12"
       - run: pip install requests python-dotenv pytest
       - name: Run migration runner tests (mocks only)
+        working-directory: scripts
         run: |
-          python -m pytest scripts/tests/test_migrations.py -q
+          python -m pytest tests/test_migrations.py -q
 
   build:
     name: Build
