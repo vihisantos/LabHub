@@ -1,259 +1,245 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ticketService } from '../../chamados/services/ticketService'
+import { publicTicketService, toTicket, type PublicTicket } from '../../chamados/services/publicTicketService'
 import { Stars } from '../../chamados/components/Stars'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types'
 import type { Ticket } from '../../chamados/types'
 import type { TicketEvent } from '../../chamados/types'
 
+function normalizeToken(raw: string): string {
+  return raw.trim().replace(/^["']|["']$/g, '')
+}
+
 export function TrackPage() {
   const navigate = useNavigate()
-  const [name, setName] = useState('')
-  const [tickets, setTickets] = useState<Ticket[] | null>(null)
+
+  // Modo anônimo: token do chamado (credencial do professor). Se presente,
+  // busca APENAS o chamado associado (escopo limitado, sem expor outros dados).
+  const [token, setToken] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlToken = params.get('token')
+    if (urlToken) {
+      try {
+        localStorage.setItem(`chamado_token_track`, urlToken)
+      } catch {}
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    return normalizeToken(urlToken || '')
+  })
+  const initialToken = useRef(token)
+  const [tokenInput, setTokenInput] = useState('')
+  const [publicTicket, setPublicTicket] = useState<PublicTicket | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [eventsByTicket, setEventsByTicket] = useState<Record<string, TicketEvent[]>>({})
+  const [expanded, setExpanded] = useState(false)
+  const [events, setEvents] = useState<TicketEvent[]>([])
   const [loadingEvents, setLoadingEvents] = useState(false)
-  const [commentByTicket, setCommentByTicket] = useState<Record<string, string>>({})
-  const [commentError, setCommentError] = useState('')
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault()
-    const q = name.trim()
-    if (!q) return
+  async function loadByToken(tk: string) {
     setLoading(true)
     setError('')
     try {
-      const found = await ticketService.getByReporter(q)
-      setTickets(
-        found.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-      )
-    } catch {
-      // Sem conexão: usa o cache local.
-      const local = ticketService
-        .getAll()
-        .filter((t) => t.reportedBy.toLowerCase().includes(q.toLowerCase()))
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      setTickets(local)
+      const pub = await publicTicketService.getByToken(tk)
+      setPublicTicket(pub)
+    } catch (err) {
+      setPublicTicket(null)
+      setError(err instanceof Error ? err.message : 'Não foi possível localizar o chamado.')
     } finally {
       setLoading(false)
     }
   }
 
-  function handleAvaliar(ticket: Ticket) {
-    navigate(`/chamados-publico/feedback/${ticket.id}`)
+  useEffect(() => {
+    if (initialToken.current) {
+      loadByToken(initialToken.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function handleTokenSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const tk = normalizeToken(tokenInput)
+    if (!tk) return
+    setToken(tk)
+    try {
+      localStorage.setItem(`chamado_token_track`, tk)
+    } catch {}
+    setExpanded(false)
+    setEvents([])
+    await loadByToken(tk)
   }
 
-  async function toggleHistory(ticket: Ticket) {
-    if (expandedId === ticket.id) {
-      setExpandedId(null)
+  async function toggleHistory() {
+    if (expanded) {
+      setExpanded(false)
       return
     }
-    setExpandedId(ticket.id)
-    if (!eventsByTicket[ticket.id]) {
+    setExpanded(true)
+    if (events.length === 0) {
       setLoadingEvents(true)
       try {
-        const evs = await ticketService.getEvents(ticket.id)
-        setEventsByTicket((prev) => ({ ...prev, [ticket.id]: evs }))
+        const evs = await publicTicketService.getEvents(token)
+        setEvents(evs)
       } catch {
-        setEventsByTicket((prev) => ({ ...prev, [ticket.id]: [] }))
+        setEvents([])
       } finally {
         setLoadingEvents(false)
       }
     }
   }
 
-  async function handleComment(ticket: Ticket) {
-    const text = (commentByTicket[ticket.id] || '').trim()
-    if (!text) return
-    setCommentError('')
-    try {
-      const ev = await ticketService.addEvent(ticket.id, {
-        content: text,
-        author: ticket.reportedBy || 'Solicitante',
-      })
-      setEventsByTicket((prev) => ({ ...prev, [ticket.id]: [ev, ...(prev[ticket.id] || [])] }))
-      setCommentByTicket((prev) => ({ ...prev, [ticket.id]: '' }))
-    } catch {
-      setCommentError('Não foi possível enviar o comentário. Tente novamente.')
-    }
-  }
-
-  const resolvedCount = tickets?.filter((t) => t.status === 'resolvido' || t.status === 'fechado').length ?? 0
-  const ratedCount = tickets?.filter((t) => t.feedbackRating).length ?? 0
+  const pubTicket: Ticket | null = publicTicket ? toTicket(publicTicket) : null
+  const pubResolved = pubTicket?.status === 'resolvido' || pubTicket?.status === 'fechado'
 
   return (
     <div className="min-h-dvh bg-surface px-4 pt-6 pb-8">
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-fg">Acompanhar Chamado</h1>
         <p className="mt-1 text-sm text-fg-muted">
-          Busque pelo nome que usou ao abrir o chamado e veja o status
+          Use o código de acompanhamento para ver o status do seu chamado
         </p>
       </div>
 
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Seu nome"
-          className="flex-1 rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!name.trim() || loading}
-          className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? '...' : 'Buscar'}
-        </button>
+      <form onSubmit={handleTokenSubmit}>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={tokenInput || initialToken.current}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder="Código de acompanhamento"
+            className="flex-1 rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? '...' : 'Buscar'}
+          </button>
+        </div>
       </form>
 
       {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
 
-      {tickets && tickets.length === 0 && (
+      {loading && !pubTicket && (
+        <p className="mt-10 text-center text-sm text-fg-muted">Carregando...</p>
+      )}
+
+      {!loading && !pubTicket && !error && (
         <div className="mt-10 flex flex-col items-center text-center">
           <icons.ui.inbox size={40} className="text-fg-muted" />
-          <p className="mt-3 text-sm text-fg-muted">Nenhum chamado encontrado com esse nome</p>
-          <p className="mt-1 text-xs text-fg-dim">Confira se digitou o nome exatamente como no cadastro</p>
+          <p className="mt-3 text-sm text-fg-muted">
+            Digite o código que recebeu ao abrir o chamado para acompanhar o status.
+          </p>
         </div>
       )}
 
-      {tickets && tickets.length > 0 && (
+      {pubTicket && (
         <>
           <div className="mt-5 flex items-center gap-2 text-[11px] text-fg-muted">
-            <span>{tickets.length} chamado{tickets.length !== 1 ? 's' : ''}</span>
+            <span>1 chamado</span>
             <span className="text-fg-dim">·</span>
-            <span>{resolvedCount} resolvido{resolvedCount !== 1 ? 's' : ''}</span>
-            <span className="text-fg-dim">·</span>
-            <span>{ratedCount} avaliado{ratedCount !== 1 ? 's' : ''}</span>
+            <span>{pubResolved ? 'resolvido' : 'em andamento'}</span>
           </div>
 
           <div className="mt-3 space-y-2">
-            {tickets.map((ticket) => {
-              const resolved = ticket.status === 'resolvido' || ticket.status === 'fechado'
-              return (
-                <div key={ticket.id} className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
-                    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}>
-                      {TICKET_STATUS_LABELS[ticket.status]}
-                    </span>
+            <div key={pubTicket.id} className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-emerald-500">#{pubTicket.ticketNumber || '?'}</span>
+                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${TICKET_STATUS_COLORS[pubTicket.status]}`}>
+                  {TICKET_STATUS_LABELS[pubTicket.status]}
+                </span>
+              </div>
+
+              <div className="mt-2 space-y-1 text-xs text-fg-muted">
+                <p>{pubTicket.roomName}</p>
+                <p>{pubTicket.problemCategory}</p>
+                <p className="text-[10px] text-fg-dim">
+                  {(() => {
+                    const d = new Date(pubTicket.createdAt)
+                    return isNaN(d.getTime()) ? '' : `Aberto em ${d.toLocaleDateString('pt-BR')}`
+                  })()}
+                </p>
+              </div>
+
+              <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
+                {pubResolved && pubTicket.feedbackRating ? (
+                  <div className="flex items-center gap-2">
+                    <Stars value={pubTicket.feedbackRating} disabled size={16} />
+                    <span className="text-[11px] text-fg-dim">Avaliado</span>
                   </div>
+                ) : pubResolved ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/chamados-publico/feedback/${pubTicket.id}?token=${encodeURIComponent(token)}`)
+                    }
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-400"
+                  >
+                    <icons.ui.star size={14} />
+                    Avaliar atendimento
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-fg-dim">A avaliação libera após a resolução</span>
+                )}
 
-                  <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                    <p>{ticket.roomName}</p>
-                    <p>{ticket.problemCategory}{ticket.assetName ? ` · ${ticket.assetName}` : ''}</p>
-                    <p className="text-[10px] text-fg-dim">
-                      {(() => {
-                        const d = new Date(ticket.createdAt)
-                        return isNaN(d.getTime()) ? '' : `Aberto em ${d.toLocaleDateString('pt-BR')}`
-                      })()}
-                    </p>
-                  </div>
+                <button
+                  type="button"
+                  onClick={toggleHistory}
+                  className="flex items-center gap-1 text-[11px] font-medium text-fg-muted transition-colors hover:text-emerald-500"
+                >
+                  <icons.ui.clock size={13} />
+                  {expanded ? 'Fechar histórico' : 'Ver histórico'}
+                </button>
+              </div>
 
-                  <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
-                    {resolved && ticket.feedbackRating ? (
-                      <div className="flex items-center gap-2">
-                        <Stars value={ticket.feedbackRating} disabled size={16} />
-                        <span className="text-[11px] text-fg-dim">Avaliado</span>
-                      </div>
-                    ) : resolved ? (
-                      <button
-                        type="button"
-                        onClick={() => handleAvaliar(ticket)}
-                        className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-400"
-                      >
-                        <icons.ui.star size={14} />
-                        Avaliar atendimento
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-fg-dim">A avaliação libera após a resolução</span>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => toggleHistory(ticket)}
-                      className="flex items-center gap-1 text-[11px] font-medium text-fg-muted transition-colors hover:text-emerald-500"
-                    >
-                      <icons.ui.clock size={13} />
-                      {expandedId === ticket.id ? 'Fechar histórico' : 'Ver histórico'}
-                    </button>
-                  </div>
-
-                  {expandedId === ticket.id && (
-                    <div className="mt-3 rounded-xl border border-line bg-surface p-3">
-                      {loadingEvents && !eventsByTicket[ticket.id] ? (
-                        <p className="text-[11px] text-fg-dim">Carregando histórico...</p>
-                      ) : eventsByTicket[ticket.id] && eventsByTicket[ticket.id].length > 0 ? (
-                        <div className="space-y-2.5">
-                          {eventsByTicket[ticket.id].map((ev) => (
-                            <div key={ev.id} className="flex items-start gap-2">
-                              <span className="mt-0.5 shrink-0 text-fg-dim">
-                                <icons.ui.user size={12} />
+              {expanded && (
+                <div className="mt-3 rounded-xl border border-line bg-surface p-3">
+                  {loadingEvents ? (
+                    <p className="text-[11px] text-fg-dim">Carregando histórico...</p>
+                  ) : events.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {events.map((ev) => (
+                        <div key={ev.id} className="flex items-start gap-2">
+                          <span className="mt-0.5 shrink-0 text-fg-dim">
+                            <icons.ui.user size={12} />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="text-[10px] font-semibold text-fg">{ev.author}</p>
+                              <span className="shrink-0 text-[10px] text-fg-dim">
+                                {new Date(ev.createdAt).toLocaleString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
                               </span>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-baseline justify-between gap-2">
-                                  <p className="text-[10px] font-semibold text-fg">{ev.author}</p>
-                                  <span className="shrink-0 text-[10px] text-fg-dim">
-                                    {new Date(ev.createdAt).toLocaleString('pt-BR', {
-                                      day: '2-digit',
-                                      month: '2-digit',
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                    })}
-                                  </span>
-                                </div>
-                                {ev.content && <p className="mt-0.5 text-[11px] text-fg-muted">{ev.content}</p>}
-                                {ev.photos.length > 0 && (
-                                  <div className="mt-1.5 flex gap-1.5">
-                                    {ev.photos.map((url, i) => (
-                                      <img
-                                        key={`${ev.id}-${i}`}
-                                        src={url}
-                                        alt={`Foto ${i + 1}`}
-                                        className="h-14 w-14 rounded-lg border border-line object-cover"
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
                             </div>
-                          ))}
+                            {ev.content && <p className="mt-0.5 text-[11px] text-fg-muted">{ev.content}</p>}
+                            {ev.photos.length > 0 && (
+                              <div className="mt-1.5 flex gap-1.5">
+                                {ev.photos.map((url, i) => (
+                                  <img
+                                    key={`${ev.id}-${i}`}
+                                    src={url}
+                                    alt={`Foto ${i + 1}`}
+                                    className="h-14 w-14 rounded-lg border border-line object-cover"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      ) : (
-                        <p className="text-[11px] text-fg-dim">Nenhum registro ainda</p>
-                      )}
-
-                      <div className="mt-3 flex gap-2">
-                        <input
-                          type="text"
-                          value={commentByTicket[ticket.id] || ''}
-                          onChange={(e) =>
-                            setCommentByTicket((prev) => ({ ...prev, [ticket.id]: e.target.value }))
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleComment(ticket)
-                          }}
-                          placeholder="Escrever um comentário..."
-                          className="min-w-0 flex-1 rounded-lg border border-line bg-card px-3 py-2 text-xs text-fg placeholder:text-fg-dim focus:border-emerald-500 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleComment(ticket)}
-                          disabled={!(commentByTicket[ticket.id] || '').trim()}
-                          className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Comentar
-                        </button>
-                      </div>
-                      {commentError && <p className="mt-1.5 text-[10px] text-red-500">{commentError}</p>}
+                      ))}
                     </div>
+                  ) : (
+                    <p className="text-[11px] text-fg-dim">Nenhum registro ainda</p>
                   )}
                 </div>
-              )
-            })}
+              )}
+            </div>
           </div>
         </>
       )}

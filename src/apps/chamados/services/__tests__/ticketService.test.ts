@@ -171,16 +171,6 @@ describe('ticketService — API', () => {
     )
   })
 
-  it('submitFeedback: POST com nota e comentário', async () => {
-    mockFetchOk({ ticket: makeTicket({ feedbackRating: 5, feedbackComment: 'Ótimo' }) })
-    const t = await ticketService.submitFeedback('t1', 5, 'Ótimo')
-    expect(t.feedbackRating).toBe(5)
-    expect(fetch).toHaveBeenCalledWith(
-      '/api/chamados/t1/feedback',
-      expect.objectContaining({ method: 'POST' }),
-    )
-  })
-
   it('getEvents / addEvent', async () => {
     mockFetchOk({ events: [{ id: 'ev-1', type: 'comentario', content: 'ok', author: 'A', photos: [], createdAt: 'x' }] })
     const events = await ticketService.getEvents('t1')

@@ -125,7 +125,7 @@ export function TicketForm() {
     setSubmitError('')
 
     try {
-      const ticket = await ticketService.create({
+      const { ticket, trackingToken } = await ticketService.createWithToken({
         workspace_id: campusId,
         roomId: room!.id,
         roomName: room!.name,
@@ -142,7 +142,12 @@ export function TicketForm() {
       })
 
       if (!ticket.id) throw new Error('Chamado criado sem ID')
-      navigate(`/chamados-publico/success/${ticket.id}`)
+      try {
+        localStorage.setItem(`chamado_token_${ticket.id}`, trackingToken)
+      } catch {
+        // Storage indisponível — token segue apenas na URL.
+      }
+      navigate(`/chamados-publico/success/${ticket.id}?token=${encodeURIComponent(trackingToken)}`)
     } catch {
       setSubmitError('Não foi possível abrir o chamado. Verifique sua conexão e tente novamente.')
       setSubmitting(false)

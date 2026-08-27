@@ -1,4 +1,4 @@
-import sys, os, re, secrets, hashlib, json, socket, ipaddress, time
+import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools
 from datetime import datetime, timedelta, timezone, date
 from io import BytesIO
 from urllib.parse import urlparse, parse_qs, quote, urljoin
@@ -47,6 +47,74 @@ def _check_rate_limit(ip: str, max_requests: int | None = None) -> bool:
         return False
     _rate_limit_store[ip].append(now)
     return True
+
+
+# ── Tracking token público (acesso limitado do professor a um chamado) ──
+#
+# O professor NÃO tem conta autenticada. Cada chamado gera um token
+# criptograficamente aleatório cujo hash SHA-256 fica no banco. O token dá
+# acesso SOMENTE ao chamado associado — nunca ao workspace nem a APIs internas.
+#
+# Rate limiting separado (por IP + hash de token) para os endpoints públicos,
+# para mitigar enumeração e abuso. In-memory — adequado a single-worker;
+# em multi-worker o Redis seria a evolução natural (já disponível p/ push).
+
+_TRACKING_RATE_STORE: dict[str, list[float]] = defaultdict(list)
+TRACKING_RATE_WINDOW = 60             # 60 segundos
+TRACKING_RATE_MAX = 30                # 30 requisições por janela por chave (IP/hash)
+
+
+def _check_tracking_rate_limit(key: str) -> bool:
+    """Rate limit específico para endpoints públicos do tracking token."""
+    now = datetime.now(timezone.utc).timestamp()
+    window_start = now - TRACKING_RATE_WINDOW
+    _TRACKING_RATE_STORE[key] = [t for t in _TRACKING_RATE_STORE[key] if t > window_start]
+    if len(_TRACKING_RATE_STORE[key]) >= TRACKING_RATE_MAX:
+        return False
+    _TRACKING_RATE_STORE[key].append(now)
+    return True
+
+
+def require_tracking_token(f):
+    """Decorator: valida o tracking token do chamado público.
+
+    O token é lido de:
+      - rota ``/api/public/chamados/<tracking_token>`` (view_args)
+      - header ``X-Tracking-Token``
+
+    NÃO aceita token por query string (evita vazar segredo em URL/histórico).
+    Calcula o hash SHA-256, consulta o chamado pelo hash e expõe SOMENTE
+    ``g.tracking_ticket`` (id, workspace_id, status) — escopo mínimo.
+    Rejeita com 403 se ausente ou inválido (sem distinguir motivos).
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        token = (
+            request.headers.get('X-Tracking-Token')
+            or request.view_args.get('tracking_token')
+        )
+        if not token:
+            return _forbidden('Tracking token inválido')
+
+        token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+        client_ip = _get_client_ip()
+        rate_key = f'{client_ip}:{token_hash}'
+        if not _check_tracking_rate_limit(rate_key):
+            return jsonify({'error': 'Muitas requisições. Tente novamente mais tarde.'}), 429
+
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?tracking_token_hash=eq.{quote(token_hash)}'
+            f'&select=id,workspace_id,status',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not resp.ok or not resp.json():
+            return _forbidden('Tracking token inválido')
+
+        g.tracking_ticket = resp.json()[0]
+        return f(*args, **kwargs)
+    return wrapper
 
 
 def _get_client_ip() -> str:
@@ -1815,6 +1883,13 @@ def chamados_create():
         ticket_number = (num_rows[0].get('ticketNumber') if num_rows else 0) + 1
 
         now = datetime.now(timezone.utc).isoformat()
+
+        # Gera o tracking token (credential de escopo limitado do professor).
+        # O token cru é entregue ao professor APENAS nesta resposta; somente o
+        # hash SHA-256 é persistido no banco. Nunca logado nem devolvido de novo.
+        tracking_token = secrets.token_urlsafe(32)
+        tracking_token_hash = hashlib.sha256(tracking_token.encode('utf-8')).hexdigest()
+
         payload = {
             'workspace_id': workspace_id,
             'roomId': str(body.get('roomId') or '').strip(),
@@ -1834,6 +1909,7 @@ def chamados_create():
             'assignedToUserId': str(body.get('assignedToUserId') or ''),
             'photos': photos,
             'ticketNumber': ticket_number,
+            'tracking_token_hash': tracking_token_hash,
             'createdAt': now,
             'updatedAt': now,
             'resolvedAt': None,
@@ -1863,7 +1939,12 @@ def chamados_create():
         # Evento, não agendamento — não depende de cron nenhum (próprio app).
         _notify_new_ticket(ticket)
 
-        return jsonify({'ticket': ticket})
+        # O token cru NUNCA entra na resposta persistida (ticket); vai apenas no
+        # campo tracking_token desta única resposta, para o professor guardar.
+        # O tracking_token_hash (SHA-256) também não é devolvido ao cliente:
+        # é segredo interno usado apenas na autenticação por token.
+        ticket.pop('tracking_token_hash', None)
+        return jsonify({'ticket': ticket, 'tracking_token': tracking_token})
 
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
@@ -1945,7 +2026,7 @@ def chamados_manage(ticket_id):
         if request.method == 'DELETE':
             # Verify workspace ownership before delete
             fetch = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id',
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id,photos',
                 headers=_supabase_headers(),
                 timeout=10,
             )
@@ -1958,6 +2039,32 @@ def chamados_manage(ticket_id):
             if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
                 return jsonify({'error': 'Acesso negado a este chamado'}), 403
 
+            # A1: coleta as fotos (Cloudinary) antes de apagar, para
+            # limpeza best-effort após a remoção do registro.
+            cloud_urls = []
+            ticket_photo = str(rows[0].get('photos') or '').strip()
+            if ticket_photo and ticket_photo.startswith('https://res.cloudinary.com/'):
+                cloud_urls.append(ticket_photo)
+            if rows[0].get('photos'):
+                try:
+                    ev_resp = requests.get(
+                        f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}&select=photo_urls',
+                        headers=_supabase_headers(),
+                        timeout=10,
+                    )
+                    if ev_resp.ok:
+                        for ev in (ev_resp.json() or []):
+                            try:
+                                urls = json.loads(ev.get('photo_urls') or '[]')
+                            except (TypeError, ValueError):
+                                urls = []
+                            cloud_urls.extend(
+                                u for u in urls
+                                if isinstance(u, str) and u.startswith('https://res.cloudinary.com/')
+                            )
+                except Exception as e:
+                    logger.warning('DELETE chamado: falha ao consultar eventos fotos: %s', e)
+
             resp = requests.delete(
                 f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}',
                 headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
@@ -1965,7 +2072,17 @@ def chamados_manage(ticket_id):
             )
             if not resp.ok:
                 return jsonify({'error': 'Erro ao remover chamado'}), 502
-            return jsonify({'success': True})
+
+            # Limpeza best-effort sequencial (nunca falha a resposta do DELETE).
+            # O registro já foi removido; se a foto falhar, o purge diário é a 2ª camada
+            # (porém não há mais ticket para achá-la — envio de log para rastreio).
+            destroyed = 0
+            for u in dict.fromkeys(cloud_urls):
+                if _cloudinary_destroy(u):
+                    destroyed += 1
+                else:
+                    logger.warning('DELETE chamado %s: falha ao apagar foto no Cloudinary: %s', ticket_id, u)
+            return jsonify({'success': True, 'photos_destroyed': destroyed})
 
         # PATCH: Verify workspace ownership before any update
         fetch_ws = requests.get(
@@ -2001,6 +2118,21 @@ def chamados_manage(ticket_id):
                 return jsonify({'error': 'Foto muito grande'}), 400
             if photos_val and not _is_valid_photo(photos_val):
                 return jsonify({'error': 'Foto inválida'}), 400
+            # A2: captura a foto atual para, após o PATCH bem-sucedido, apagar
+            # a foto antiga do Cloudinary (nunca apaga a nova).
+            try:
+                fetch_photos = requests.get(
+                    f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=photos',
+                    headers=_supabase_headers(),
+                    timeout=10,
+                )
+                if fetch_photos.ok:
+                    _prev_photo = str((fetch_photos.json() or [{}])[0].get('photos') or '').strip()
+                else:
+                    _prev_photo = ''
+            except Exception as e:
+                logger.warning('PATCH chamado: falha ao consultar foto anterior: %s', e)
+                _prev_photo = ''
             updates['photos'] = photos_val
 
         prev = None
@@ -2072,6 +2204,24 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Chamado não encontrado'}), 404
 
         ticket = rows[0]
+
+        # A2: após PATCH bem-sucedido com troca de foto, apaga a foto antiga
+        # do Cloudinary (best-effort, nunca bloqueia o PATCH, nunca apaga a nova).
+        if 'photos' in updates and _prev_photo:
+            new_photo = str(updates.get('photos') or '').strip()
+            if (
+                _prev_photo != new_photo
+                and _prev_photo.startswith('https://res.cloudinary.com/')
+                and _cloudinary_destroy(_prev_photo)
+            ):
+                pass
+            elif _prev_photo != new_photo:
+                logger.warning(
+                    'PATCH chamado %s: falha ao apagar foto antiga no Cloudinary: %s',
+                    ticket_id,
+                    _prev_photo,
+                )
+
         if assignment_changed and ticket.get('assignedToUserId'):
             # Push direto ao técnico atribuído (filtro por user_id no _target_subs).
             _notify_ticket_assigned(ticket)
@@ -2253,34 +2403,154 @@ def chamados_reports():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>/subscribe', methods=['POST'])
-def chamados_subscribe(ticket_id):
-    """Registra o push do professor para um chamado (página pública de sucesso).
+# ──────────────────────────────────────────────────────────────────────────────
+# Endpoints públicos do chamado (acesso do professor via tracking token)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# O professor NÃO é autenticado — ele prova posse do chamado através do
+# tracking token (hash SHA-256 validado pelo decorator). O ticket_id é SEMPRE
+# derivado do token em g.tracking_ticket; nunca confiamos em ticket_id enviado
+# pelo cliente. RLS permanece fechado; estas rotas são a única porta pública.
 
-    Armazena só endpoint/chaves (sem dados de usuário — página pública).
-    Dedupe por endpoint e teto de inscrições por chamado para evitar abuso.
+def _project_public_ticket(t: dict) -> dict:
+    """Projeção segura do chamado para o professor (sem campos internos)."""
+    return {
+        'id': t.get('id'),
+        'ticketNumber': t.get('ticketNumber'),
+        'status': t.get('status'),
+        'roomName': t.get('roomName'),
+        'problemCategory': t.get('problemCategory'),
+        'problemArea': t.get('problemArea'),
+        'problemDescription': t.get('problemDescription'),
+        'reportedBy': t.get('reportedBy'),
+        'photos': t.get('photos'),
+        'feedbackRating': t.get('feedbackRating'),
+        'createdAt': t.get('createdAt'),
+        'updatedAt': t.get('updatedAt'),
+        'closedAt': t.get('closedAt'),
+    }
+
+
+@app.route('/api/public/chamados/<tracking_token>', methods=['GET'])
+@require_tracking_token
+def public_chamados_detail(tracking_token):
+    """Status + dados básicos do chamado, acessível apenas com o token do próprio chamado."""
+    ticket = g.tracking_ticket
+    resp = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}&select=*',
+        headers=_supabase_headers(),
+        timeout=10,
+    )
+    if not resp.ok or not resp.json():
+        return jsonify({'error': 'Chamado não encontrado'}), 404
+    return jsonify({'ticket': _project_public_ticket(resp.json()[0])})
+
+
+@app.route('/api/public/chamados/<tracking_token>/events', methods=['GET'])
+@require_tracking_token
+def public_chamados_events(tracking_token):
+    """Timeline do chamado, acessível apenas com o token do próprio chamado."""
+    ticket = g.tracking_ticket
+    resp = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket["id"])}'
+        f'&order=createdAt.desc&select=id,type,content,author,photo_urls,createdAt',
+        headers=_supabase_headers(),
+        timeout=10,
+    )
+    if not resp.ok:
+        return jsonify({'error': 'Erro ao carregar o histórico'}), 502
+    events = []
+    for ev in (resp.json() or []):
+        try:
+            urls = json.loads(ev.get('photo_urls') or '[]')
+        except (TypeError, ValueError):
+            urls = []
+        events.append({
+            'id': ev.get('id'),
+            'type': ev.get('type'),
+            'content': ev.get('content'),
+            'author': ev.get('author'),
+            'photos': urls if isinstance(urls, list) else [],
+            'createdAt': ev.get('createdAt'),
+        })
+    return jsonify({'events': events})
+
+
+@app.route('/api/public/chamados/<tracking_token>/feedback', methods=['POST'])
+@require_tracking_token
+def public_chamados_feedback(tracking_token):
+    """Registra feedback (1-5) do professor para o próprio chamado.
+    - Só permite quando resolvido/fechado.
+    - Uma única vez por chamado (segunda tentativa → 409).
+    - O ticket é derivado do token, nunca do corpo da requisição.
     """
+    ticket = g.tracking_ticket
+    fetch = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}&select=status,feedbackRating',
+        headers=_supabase_headers(),
+        timeout=10,
+    )
+    if not fetch.ok or not fetch.json():
+        return jsonify({'error': 'Chamado não encontrado'}), 404
+    full = fetch.json()[0]
+
+    if full.get('status') not in ('resolvido', 'fechado'):
+        return jsonify({'error': 'Só é possível avaliar após a resolução do chamado'}), 403
+    if full.get('feedbackRating') is not None:
+        return jsonify({'error': 'Chamado já avaliado'}), 409
+
+    body = request.get_json() or {}
+    raw = body.get('rating')
+    if isinstance(raw, float) and raw != int(raw):
+        rating = 0
+    else:
+        try:
+            rating = int(raw)
+        except (TypeError, ValueError):
+            rating = 0
+    if rating not in (1, 2, 3, 4, 5):
+        return jsonify({'error': 'Nota inválida (1 a 5)'}), 400
+    comment = str(body.get('comment') or '').strip()[:500]
+
+    now = datetime.now(timezone.utc).isoformat()
+    resp = requests.patch(
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}',
+        headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+        json={
+            'feedbackRating': rating,
+            'feedbackComment': comment,
+            'feedbackAt': now,
+            'updatedAt': now,
+        },
+        timeout=10,
+    )
+    if not resp.ok or not resp.json():
+        return jsonify({'error': 'Erro ao registrar o feedback'}), 502
+    return jsonify({'ticket': _project_public_ticket(resp.json()[0])})
+
+
+@app.route('/api/public/chamados/<tracking_token>/subscribe', methods=['POST'])
+@require_tracking_token
+def public_chamados_subscribe(tracking_token):
+    """Registra push do professor para o próprio chamado (escopo limitado ao token)."""
     if not redis:
         return jsonify({'error': 'Redis não configurado'}), 500
-    try:
-        body = request.get_json() or {}
-        endpoint = body.get('endpoint', '')
-        if not endpoint:
-            return jsonify({'error': 'endpoint é obrigatório'}), 400
+    ticket = g.tracking_ticket
+    body = request.get_json() or {}
+    endpoint = body.get('endpoint', '')
+    if not endpoint:
+        return jsonify({'error': 'endpoint é obrigatório'}), 400
 
-        sub = {
-            'key': hashlib.sha256(endpoint.encode()).hexdigest(),
-            'endpoint': endpoint,
-            'expirationTime': body.get('expirationTime'),
-            'keys': body.get('keys') or {},
-        }
-        subs = [s for s in _chamado_subs(ticket_id) if s.get('endpoint') != endpoint]
-        subs.append(sub)
-        _save_chamado_subs(ticket_id, subs)
-        return jsonify({'status': 'ok', 'count': len(subs)})
-    except Exception as e:
-        logger.error("Erro interno na API: %s", e)
-        return jsonify({'error': 'Erro interno'}), 500
+    sub = {
+        'key': hashlib.sha256(endpoint.encode()).hexdigest(),
+        'endpoint': endpoint,
+        'expirationTime': body.get('expirationTime'),
+        'keys': body.get('keys') or {},
+    }
+    subs = [s for s in _chamado_subs(ticket['id']) if s.get('endpoint') != endpoint]
+    subs.append(sub)
+    _save_chamado_subs(ticket['id'], subs)
+    return jsonify({'status': 'ok', 'count': len(subs)})
 
 
 @app.route('/api/chamados/push/test', methods=['POST'])
@@ -2583,66 +2853,6 @@ def admin_app_data_purge():
         return jsonify({'error': 'Não foi possível concluir a limpeza. Nenhum dado foi removido.'}), 500
     except Exception as e:
         logger.error("[app-data] purge error: %s", e)
-        return jsonify({'error': 'Erro interno'}), 500
-
-
-@app.route('/api/chamados/<ticket_id>/feedback', methods=['POST'])
-def chamados_feedback(ticket_id):
-    """Registra o feedback do professor (nota 1-5) após a resolução do chamado."""
-    if not _require_supabase():
-        return jsonify({'error': 'Supabase não configurado'}), 503
-    try:
-        _ensure_chamados_schema()
-
-        fetch = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=*',
-            headers=_supabase_headers(),
-            timeout=10,
-        )
-        if not fetch.ok:
-            return jsonify({'error': 'Erro ao buscar chamado'}), 502
-        rows = fetch.json() or []
-        if not rows:
-            return jsonify({'error': 'Chamado não encontrado'}), 404
-        ticket = rows[0]
-
-        if ticket.get('status') not in ('resolvido', 'fechado'):
-            return jsonify({'error': 'Só é possível avaliar após a resolução do chamado'}), 400
-        if ticket.get('feedbackRating') is not None:
-            return jsonify({'error': 'Chamado já avaliado'}), 400
-
-        body = request.get_json() or {}
-        raw = body.get('rating')
-        if isinstance(raw, float) and raw != int(raw):
-            rating = 0
-        else:
-            try:
-                rating = int(raw)
-            except (TypeError, ValueError):
-                rating = 0
-        if rating not in (1, 2, 3, 4, 5):
-            return jsonify({'error': 'Nota inválida (1 a 5)'}), 400
-        comment = str(body.get('comment') or '').strip()[:500]
-
-        now = datetime.now(timezone.utc).isoformat()
-        updates = {
-            'feedbackRating': rating,
-            'feedbackComment': comment,
-            'feedbackAt': now,
-            'updatedAt': now,
-        }
-        resp = requests.patch(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}',
-            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
-            json=updates,
-            timeout=10,
-        )
-        if not resp.ok:
-            return jsonify({'error': 'Erro ao registrar o feedback'}), 502
-        return jsonify({'ticket': resp.json()[0]})
-
-    except Exception as e:
-        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
 
 
@@ -3004,6 +3214,287 @@ def chamados_photos_purge():
             'photos_deleted': deleted,
         })
 
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Workspace Backups & Audit Logs — backend-only (super_admin)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_BACKUP_TTL_DAYS = 2
+_UUID_RE = re.compile(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+
+def _require_super_admin():
+    """Return None if the current user is super_admin, otherwise a 403 response."""
+    user = getattr(g, 'user', None) or {}
+    if not user.get('is_super_admin'):
+        return _forbidden('Super admin access required')
+    return None
+
+
+@app.route('/api/admin/backups', methods=['GET'])
+@require_auth
+def admin_backups_list():
+    """List non-expired workspace backups. Super_admin only."""
+    admin_err = _require_super_admin()
+    if admin_err:
+        return admin_err
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspace_backups'
+            f'?expires_at=gt.{datetime.now(timezone.utc).isoformat()}'
+            f'&select=*&order=created_at.desc',
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao buscar backups'}), 502
+        return jsonify({'backups': resp.json() or []})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/backups/prune', methods=['POST'])
+@require_auth
+def admin_backups_prune():
+    """Delete expired backups. Super_admin only."""
+    admin_err = _require_super_admin()
+    if admin_err:
+        return admin_err
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        resp = requests.delete(
+            f'{_SUPABASE_URL}/rest/v1/workspace_backups'
+            f'?expires_at=lt.{datetime.now(timezone.utc).isoformat()}',
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao limpar backups'}), 502
+        return jsonify({'ok': True})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/backups/<backup_id>/restore', methods=['POST'])
+@require_auth
+def admin_backups_restore(backup_id):
+    """Restore a workspace from backup. Super_admin only.
+
+    Flow: validate → read backup → check TTL → upsert workspace →
+          audit log → delete consumed backup → return success.
+    """
+    admin_err = _require_super_admin()
+    if admin_err:
+        return admin_err
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not backup_id or not _UUID_RE.match(backup_id):
+        return jsonify({'error': 'ID de backup inválido'}), 400
+    try:
+        # 1. Read backup
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspace_backups'
+            f'?id=eq.{quote(backup_id)}&select=*',
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao buscar backup'}), 502
+        rows = resp.json() or []
+        if not rows:
+            return jsonify({'error': 'Backup não encontrado'}), 404
+
+        backup = rows[0]
+        expires_at = backup.get('expires_at', '')
+        if expires_at and datetime.fromisoformat(expires_at.replace('Z', '+00:00')) < datetime.now(timezone.utc):
+            return jsonify({'error': 'Backup expirado'}), 410
+
+        workspace_data = backup.get('workspace_data')
+        if not workspace_data or not isinstance(workspace_data, dict):
+            return jsonify({'error': 'Dados do backup inválidos'}), 422
+
+        # 2. Restore workspace via upsert
+        upsert_resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/workspaces',
+            headers={**_supabase_headers(), 'Prefer': 'resolution=merge-duplicates,return=minimal'},
+            json=workspace_data,
+            timeout=15,
+        )
+        if not upsert_resp.ok:
+            return jsonify({'error': 'Falha ao restaurar workspace'}), 502
+
+        # 3. Audit log
+        user = g.user or {}
+        actor_name = user.get('name') or user.get('id') or 'desconhecido'
+        requests.post(
+            f'{_SUPABASE_URL}/rest/v1/workspace_audit_logs',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json={
+                'action': 'restore',
+                'workspace_id': workspace_data.get('id'),
+                'workspace_name': workspace_data.get('name'),
+                'actor_id': g.user_id,
+                'actor_name': actor_name,
+            },
+            timeout=15,
+        )
+
+        # 4. Delete consumed backup
+        requests.delete(
+            f'{_SUPABASE_URL}/rest/v1/workspace_backups?id=eq.{quote(backup_id)}',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            timeout=15,
+        )
+
+        return jsonify({'ok': True, 'workspace_id': workspace_data.get('id')})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/backups/<backup_id>', methods=['DELETE'])
+@require_auth
+def admin_backups_delete(backup_id):
+    """Delete a specific backup. Super_admin only."""
+    admin_err = _require_super_admin()
+    if admin_err:
+        return admin_err
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not backup_id or not _UUID_RE.match(backup_id):
+        return jsonify({'error': 'ID de backup inválido'}), 400
+    try:
+        resp = requests.delete(
+            f'{_SUPABASE_URL}/rest/v1/workspace_backups?id=eq.{quote(backup_id)}',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            timeout=15,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao excluir backup'}), 502
+        return jsonify({'ok': True})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/audit-logs', methods=['GET'])
+@require_auth
+def admin_audit_logs_list():
+    """List workspace audit logs (last 100). Super_admin only."""
+    admin_err = _require_super_admin()
+    if admin_err:
+        return admin_err
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspace_audit_logs'
+            f'?select=*&order=created_at.desc&limit=100',
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao buscar logs'}), 502
+        return jsonify({'logs': resp.json() or []})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/workspaces/<workspace_id>/delete', methods=['POST'])
+@require_auth
+def admin_workspace_delete_with_backup(workspace_id):
+    """Delete a workspace with backup + audit. Super_admin only.
+
+    Atomic flow: validate → backup → delete workspace → audit → prune.
+    """
+    admin_err = _require_super_admin()
+    if admin_err:
+        return admin_err
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not workspace_id or not _UUID_RE.match(workspace_id):
+        return jsonify({'error': 'ID de workspace inválido'}), 400
+
+    try:
+        # 1. Fetch workspace data for backup
+        ws_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=*',
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if not ws_resp.ok:
+            return jsonify({'error': 'Erro ao buscar workspace'}), 502
+        ws_rows = ws_resp.json() or []
+        if not ws_rows:
+            return jsonify({'error': 'Workspace não encontrado'}), 404
+
+        ws_data = ws_rows[0]
+        ws_name = ws_data.get('name', '')
+
+        # 2. Create backup
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=_BACKUP_TTL_DAYS)).isoformat()
+        user = g.user or {}
+        actor_name = user.get('name') or user.get('id') or 'desconhecido'
+        backup_resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/workspace_backups',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json={
+                'workspace_id': workspace_id,
+                'workspace_name': ws_name,
+                'workspace_data': ws_data,
+                'deleted_by': g.user_id,
+                'deleted_by_name': actor_name,
+                'expires_at': expires_at,
+            },
+            timeout=15,
+        )
+        if not backup_resp.ok:
+            return jsonify({'error': 'Falha ao criar backup'}), 502
+
+        # 3. Delete workspace
+        del_resp = requests.delete(
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            timeout=15,
+        )
+        if not del_resp.ok:
+            return jsonify({'error': 'Falha ao excluir workspace'}), 502
+
+        # 4. Audit log
+        requests.post(
+            f'{_SUPABASE_URL}/rest/v1/workspace_audit_logs',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json={
+                'action': 'delete',
+                'workspace_id': workspace_id,
+                'workspace_name': ws_name,
+                'actor_id': g.user_id,
+                'actor_name': actor_name,
+            },
+            timeout=15,
+        )
+
+        # 5. Prune expired (best-effort)
+        requests.delete(
+            f'{_SUPABASE_URL}/rest/v1/workspace_backups'
+            f'?expires_at=lt.{datetime.now(timezone.utc).isoformat()}',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            timeout=15,
+        )
+
+        return jsonify({'ok': True, 'backup_name': ws_name})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500

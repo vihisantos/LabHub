@@ -4,16 +4,20 @@ import { Routes, Route } from 'react-router-dom'
 import { renderWithProviders } from '../../../../test/helpers'
 import type { Ticket } from '../../../chamados/types'
 
-const mockGetByIdRemote = vi.hoisted(() => vi.fn())
+const mockGetByToken = vi.hoisted(() => vi.fn())
 const mockGetByIdNoFilter = vi.hoisted(() => vi.fn())
 const mockSubmitFeedback = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../chamados/services/ticketService', () => ({
-  ticketService: {
-    getByIdRemote: mockGetByIdRemote,
-    getByIdNoFilter: mockGetByIdNoFilter,
+  ticketService: { getByIdNoFilter: mockGetByIdNoFilter },
+}))
+
+vi.mock('../../../chamados/services/publicTicketService', () => ({
+  publicTicketService: {
+    getByToken: mockGetByToken,
     submitFeedback: mockSubmitFeedback,
   },
+  toTicket: (p: Ticket) => p,
 }))
 
 import { FeedbackPage } from '../FeedbackPage'
@@ -41,40 +45,57 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   }
 }
 
-function renderFeedback() {
+function renderFeedback(token = 'tok') {
+  window.history.replaceState({}, '', `/chamados-publico/feedback/t-1?token=${token}`)
   return renderWithProviders(
     <Routes>
       <Route path="/chamados-publico" element={<div>inicio</div>} />
       <Route path="/chamados-publico/feedback/:ticketId" element={<FeedbackPage />} />
     </Routes>,
-    { initialEntries: ['/chamados-publico/feedback/t-1'] },
+    { initialEntries: [`/chamados-publico/feedback/t-1?token=${token}`] },
   )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Garante um estado limpo entre os testes (evita token/cache de outro teste)
+  try {
+    localStorage.removeItem(`chamado_token_t-1`)
+  } catch {
+    /* localStorage indisponível */
+  }
 })
 
 describe('FeedbackPage', () => {
   it('mostra carregando enquanto busca o chamado', () => {
-    mockGetByIdRemote.mockReturnValue(new Promise(() => {}))
+    mockGetByToken.mockReturnValue(new Promise(() => {}))
     renderFeedback()
 
     expect(screen.getByText('Carregando...')).toBeInTheDocument()
   })
 
-  it('mostra avaliação do chamado carregado', async () => {
-    mockGetByIdRemote.mockResolvedValue(makeTicket())
+  it('mostra avaliação do chamado carregado via token', async () => {
+    mockGetByToken.mockResolvedValue(makeTicket())
     renderFeedback()
     await act(async () => {})
 
+    expect(mockGetByToken).toHaveBeenCalledWith('tok')
     expect(screen.getByText('Avaliar Atendimento')).toBeInTheDocument()
     expect(screen.getByText('Chamado #5')).toBeInTheDocument()
     expect(screen.getByText('Enviar avaliação')).toBeInTheDocument()
   })
 
+  it('sem token não faz acesso anônimo remoto — usa cache local', async () => {
+    mockGetByIdNoFilter.mockReturnValue(makeTicket())
+    renderFeedback('')
+    await act(async () => {})
+
+    expect(mockGetByToken).not.toHaveBeenCalled()
+    expect(screen.getByText('Avaliar Atendimento')).toBeInTheDocument()
+  })
+
   it('chamado não encontrado', async () => {
-    mockGetByIdRemote.mockRejectedValue(new Error('não encontrado'))
+    mockGetByToken.mockRejectedValue(new Error('não encontrado'))
     mockGetByIdNoFilter.mockReturnValue(null)
     renderFeedback()
     await act(async () => {})
@@ -83,7 +104,7 @@ describe('FeedbackPage', () => {
   })
 
   it('bloqueia avaliação antes da resolução', async () => {
-    mockGetByIdRemote.mockResolvedValue(makeTicket({ status: 'aberto' }))
+    mockGetByToken.mockResolvedValue(makeTicket({ status: 'aberto' }))
     renderFeedback()
     await act(async () => {})
 
@@ -93,7 +114,7 @@ describe('FeedbackPage', () => {
   })
 
   it('mostra avaliação já enviada', async () => {
-    mockGetByIdRemote.mockResolvedValue(
+    mockGetByToken.mockResolvedValue(
       makeTicket({ feedbackRating: 5, feedbackComment: 'Muito bom!', feedbackAt: '2026-06-25T12:00:00Z' }),
     )
     renderFeedback()
@@ -103,8 +124,8 @@ describe('FeedbackPage', () => {
     expect(screen.getByText('Muito bom!')).toBeInTheDocument()
   })
 
-  it('envia a avaliação e mostra agradecimento', async () => {
-    mockGetByIdRemote.mockResolvedValue(makeTicket())
+  it('envia a avaliação via token e mostra agradecimento', async () => {
+    mockGetByToken.mockResolvedValue(makeTicket())
     mockSubmitFeedback.mockResolvedValue(makeTicket({ feedbackRating: 4 }))
     renderFeedback()
     await act(async () => {})
@@ -116,12 +137,12 @@ describe('FeedbackPage', () => {
     fireEvent.click(screen.getByText('Enviar avaliação'))
     await act(async () => {})
 
-    expect(mockSubmitFeedback).toHaveBeenCalledWith('t-1', 4, 'Atendimento rápido')
+    expect(mockSubmitFeedback).toHaveBeenCalledWith('tok', 4, 'Atendimento rápido')
     expect(screen.getByText('Obrigado pelo feedback!')).toBeInTheDocument()
   })
 
   it('mostra erro ao falhar o envio', async () => {
-    mockGetByIdRemote.mockResolvedValue(makeTicket())
+    mockGetByToken.mockResolvedValue(makeTicket())
     mockSubmitFeedback.mockRejectedValue(new Error('Falha de rede'))
     renderFeedback()
     await act(async () => {})

@@ -769,6 +769,55 @@ def test_patch_photos_vazio_remove(client, fake_requests, monkeypatch):
     assert patch_call["kwargs"]["json"]["photos"] == ""
 
 
+def test_patch_troca_foto_destroi_antiga_no_cloudinary(client, fake_requests, monkeypatch, api_module):
+    """A2: ao substituir a foto, apaga a foto antiga do Cloudinary (nunca a nova)."""
+    old_url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"
+    new_url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/b.jpg"
+    headers = _setup_auth(fake_requests, monkeypatch)
+    # ownership + consulta da foto anterior (A2) retornam o ticket com a foto antiga
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto", photos=old_url))
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos=new_url))
+
+    destroyed = []
+    monkeypatch.setattr(
+        api_module,
+        "_cloudinary_destroy",
+        lambda url: (
+            destroyed.append(url) or True
+        ) if url.startswith("https://res.cloudinary.com/") else False,
+    )
+
+    resp = client.patch("/api/chamados/ticket-1", json={"photos": new_url}, headers=headers)
+
+    assert resp.status_code == 200
+    assert destroyed == [old_url], "A foto antiga deve ser destruída"
+    assert new_url not in destroyed, "A foto nova não deve ser destruída"
+    patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
+    assert patch_call["kwargs"]["json"]["photos"] == new_url
+
+
+def test_patch_mesma_foto_nao_destroi(client, fake_requests, monkeypatch, api_module):
+    """A2: se a foto não mudou, não chama destroy (custo/uso desnecessário)."""
+    url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_get_ticket(fake_requests, _make_ticket(status="aberto", photos=url))
+    _route_patch_ticket(fake_requests, _make_ticket(status="aberto", photos=url))
+
+    destroyed = []
+    monkeypatch.setattr(
+        api_module,
+        "_cloudinary_destroy",
+        lambda u: (
+            destroyed.append(u) or True
+        ) if u.startswith("https://res.cloudinary.com/") else False,
+    )
+
+    resp = client.patch("/api/chamados/ticket-1", json={"photos": url}, headers=headers)
+
+    assert resp.status_code == 200
+    assert destroyed == [], "Mesma foto não deve ser destruída"
+
+
 def test_patch_chamado_nao_encontrado_retorna_404(client, fake_requests, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, None)
@@ -789,6 +838,59 @@ def test_delete_chamado(client, fake_requests, monkeypatch):
     assert resp.get_json()["success"] is True
 
 
+def test_delete_chamado_destroi_fotos_cloudinary_best_effort(client, fake_requests, monkeypatch, api_module):
+    """A1: ao remover o chamado, apaga do Cloudinary a foto do ticket e dos eventos."""
+    headers = _setup_auth(fake_requests, monkeypatch)
+    cloud_url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"
+    event_url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/b.jpg"
+    _route_get_ticket(
+        fake_requests,
+        _make_ticket(photos=cloud_url),
+    )
+    # GET dos eventos do chamado vindo de _route_get_ticket? Não — este é um GET
+    # separado em ticket_events (a rota de chamados usa substring "chamados_tickets?id=eq.").
+    fake_requests.route(
+        "GET",
+        "/rest/v1/ticket_events",
+        FakeResponse([{"id": "ev-1", "photo_urls": f'["{event_url}"]'}]),
+    )
+    fake_requests.route("DELETE", "chamados_tickets", FakeResponse({}, ok=True))
+
+    destroyed = []
+    monkeypatch.setattr(
+        api_module,
+        "_cloudinary_destroy",
+        lambda url: (
+            destroyed.append(url) or True
+        ) if url.startswith("https://res.cloudinary.com/") else False,
+    )
+
+    resp = client.delete("/api/chamados/ticket-1", headers=headers)
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["photos_destroyed"] == 2
+    assert set(destroyed) == {cloud_url, event_url}
+    # O DELETE do registro precede a limpeza (best-effort não falha a resposta)
+    delete_calls = fake_requests.calls_for("DELETE", "chamados_tickets")
+    assert len(delete_calls) == 1
+
+
+def test_delete_chamado_falha_destroy_nao_quebra_resposta(client, fake_requests, monkeypatch, api_module):
+    """A1: se o destroy falhar, o DELETE continua retornando sucesso."""
+    headers = _setup_auth(fake_requests, monkeypatch)
+    cloud_url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"
+    _route_get_ticket(fake_requests, _make_ticket(photos=cloud_url))
+    fake_requests.route("DELETE", "chamados_tickets", FakeResponse({}, ok=True))
+
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", lambda url: False)
+
+    resp = client.delete("/api/chamados/ticket-1", headers=headers)
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+    assert resp.get_json()["photos_destroyed"] == 0
+
+
 def test_delete_falha_retorna_502(client, fake_requests, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket())
@@ -797,177 +899,7 @@ def test_delete_falha_retorna_502(client, fake_requests, monkeypatch):
     assert resp.status_code == 502
 
 
-# ── POST /api/chamados/<id>/feedback ──
-
-
-def test_feedback_registra_nota_e_comentario(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido", resolvedAt="2026-06-25T12:05:00Z"))
-    _route_patch_ticket(
-        fake_requests,
-        _make_ticket(status="resolvido", feedbackRating=5, feedbackComment="Ótimo atendimento"),
-    )
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 5, "comment": "  Ótimo atendimento  "})
-
-    assert resp.status_code == 200
-    assert resp.get_json()["ticket"]["feedbackRating"] == 5
-    patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
-    patch = patch_call["kwargs"]["json"]
-    assert patch["feedbackRating"] == 5
-    assert patch["feedbackComment"] == "Ótimo atendimento"
-    assert patch["feedbackAt"]
-
-
-def test_feedback_sem_comentario_envia_vazio(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", feedbackRating=4))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 4})
-
-    assert resp.status_code == 200
-    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
-    assert patch["feedbackComment"] == ""
-
-
-def test_feedback_nota_invalida_retorna_400(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 9})
-
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
-    assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
-
-
-def test_feedback_chamado_aberto_retorna_400(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 5})
-
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "Só é possível avaliar após a resolução do chamado"
-
-
-def test_feedback_chamado_ja_avaliado_retorna_400(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="fechado", feedbackRating=3))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 5})
-
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "Chamado já avaliado"
-
-
-def test_feedback_chamado_inexistente_retorna_404(client, fake_requests):
-    _route_get_ticket(fake_requests, None)
-    resp = client.post("/api/chamados/ticket-unknown/feedback", json={"rating": 5})
-    assert resp.status_code == 404
-    assert resp.get_json()["error"] == "Chamado não encontrado"
-
-
-def test_feedback_falha_ao_persistir_retorna_502(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-    fake_requests.route(
-        "PATCH",
-        "chamados_tickets",
-        FakeResponse({"error": "x"}, status_code=500, ok=False),
-    )
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 5})
-    assert resp.status_code == 502
-
-
-def test_feedback_nota_minima_1_aceita(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", feedbackRating=1))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 1})
-
-    assert resp.status_code == 200
-    assert resp.get_json()["ticket"]["feedbackRating"] == 1
-
-
-def test_feedback_nota_maxima_5_aceita(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", feedbackRating=5))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 5})
-
-    assert resp.status_code == 200
-    assert resp.get_json()["ticket"]["feedbackRating"] == 5
-
-
-def test_feedback_nota_zero_retorna_400(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 0})
-
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
-
-
-def test_feedback_nota_6_retorna_400(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 6})
-
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
-
-
-def test_feedback_nota_decimal_retorna_400(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 3.5})
-
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
-
-
-def test_feedback_nota_negativa_retorna_400(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": -1})
-
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "Nota inválida (1 a 5)"
-
-
-def test_feedback_funciona_sem_autenticacao(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-    _route_patch_ticket(fake_requests, _make_ticket(status="resolvido", feedbackRating=4))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 4})
-
-    assert resp.status_code == 200
-    assert resp.get_json()["ticket"]["feedbackRating"] == 4
-
-
-def test_feedback_chamado_fechado_aceita(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="fechado"))
-    _route_patch_ticket(fake_requests, _make_ticket(status="fechado", feedbackRating=3))
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 3})
-
-    assert resp.status_code == 200
-    assert resp.get_json()["ticket"]["feedbackRating"] == 3
-
-
-def test_feedback_persiste_todos_os_campos(client, fake_requests):
-    _route_get_ticket(fake_requests, _make_ticket(status="resolvido"))
-    _route_patch_ticket(
-        fake_requests,
-        _make_ticket(status="resolvido", feedbackRating=2, feedbackComment="Poderia ser melhor", feedbackAt="2026-08-18T12:00:00Z"),
-    )
-
-    resp = client.post("/api/chamados/ticket-1/feedback", json={"rating": 2, "comment": "Poderia ser melhor"})
-
-    assert resp.status_code == 200
-    ticket = resp.get_json()["ticket"]
-    assert ticket["feedbackRating"] == 2
-    assert ticket["feedbackComment"] == "Poderia ser melhor"
-    assert ticket["feedbackAt"] is not None
-
-
-# ── POST /api/chamados/<id>/subscribe ──
+# ── Helpers de push (inscrições Redis) ──
 
 
 class FakeRedis:
@@ -995,37 +927,6 @@ def _redis_client(api_module, monkeypatch, members=None):
     fake = FakeRedis(members)
     monkeypatch.setattr(api_module, "redis", fake)
     return fake
-
-
-def test_subscribe_sem_redis_retorna_500(api_module, client, monkeypatch):
-    monkeypatch.setattr(api_module, "redis", None)
-    resp = client.post("/api/chamados/ticket-1/subscribe", json=_sub())
-    assert resp.status_code == 500
-    assert resp.get_json()["error"] == "Redis não configurado"
-
-
-def test_subscribe_sem_endpoint_retorna_400(api_module, client, monkeypatch):
-    _redis_client(api_module, monkeypatch)
-    resp = client.post("/api/chamados/ticket-1/subscribe", json={"keys": {}})
-    assert resp.status_code == 400
-    assert resp.get_json()["error"] == "endpoint é obrigatório"
-
-
-def test_subscribe_registra_endpoint(api_module, client, monkeypatch):
-    redis = _redis_client(api_module, monkeypatch)
-    resp = client.post("/api/chamados/ticket-1/subscribe", json=_sub())
-    assert resp.status_code == 200
-    assert resp.get_json()["status"] == "ok"
-    assert resp.get_json()["count"] == 1
-    assert redis.sadds[0][0] == "push:chamado:ticket-1"
-
-
-def test_subscribe_dedupe_por_endpoint(api_module, client, monkeypatch):
-    redis = _redis_client(api_module, monkeypatch, members=[json.dumps(_sub(), ensure_ascii=False)])
-    resp = client.post("/api/chamados/ticket-1/subscribe", json=_sub())
-    assert resp.status_code == 200
-    assert resp.get_json()["count"] == 1
-    assert len([s for s in redis.sadds if s[0] == "push:chamado:ticket-1"]) == 1
 
 
 # ── Push ao professor quando status/mensagem mudam ──

@@ -49,18 +49,14 @@ export async function readPhoto(file: File): Promise<string> {
 
 /**
  * Envia a foto para o Cloudinary (pasta chamados) e retorna a URL.
- * Se o Cloudinary não estiver configurado/indisponível, cai para base64 local.
+ * NÃO usa fallback Base64: se o Cloudinary falhar, o erro é propagado
+ * para a UI, que informa o usuário e permite tentar de novo.
  */
 export async function uploadPhoto(file: File): Promise<string> {
-  try {
-    return await uploadChamadosToCloudinary(file)
-  } catch (e) {
-    console.warn('[chamados] Cloudinary indisponível, usando foto local:', e)
-    return readPhoto(file)
-  }
+  return await uploadChamadosToCloudinary(file)
 }
 
-/** Envia até `max` fotos (padrão 2) e retorna as URLs/valores na mesma ordem. */
+/** Envia até `max` fotos (padrão 2) e retorna as URLs na mesma ordem. */
 export async function uploadPhotos(files: File[], max = 2): Promise<string[]> {
   const accepted = files.slice(0, max)
   return Promise.all(accepted.map((f) => uploadPhoto(f)))
