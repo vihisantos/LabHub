@@ -35,6 +35,14 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   reportedBy: 'Informe seu nome',
 }
 
+function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Storage indisponível — o fluxo segue sem persistência do token.
+  }
+}
+
 export function RoomTicketForm() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -222,10 +230,13 @@ export function RoomTicketForm() {
     }
 
     try {
-      const ticket = await ticketService.create(data)
+      const { ticket, trackingToken } = await ticketService.createWithToken(data)
       markTourDone()
       if (!ticket.id) throw new Error('Chamado criado sem ID')
-      navigate(`/chamados-publico/success/${ticket.id}`)
+      // O tracking token é a credencial do professor (acesso ao próprio chamado).
+      // Persistimos para conveniência e passamos pela URL para o success page.
+      safeLocalStorageSet(`chamado_token_${ticket.id}`, trackingToken)
+      navigate(`/chamados-publico/success/${ticket.id}?token=${encodeURIComponent(trackingToken)}`)
     } catch (err) {
       setSubmitting(false)
       setError(err instanceof Error ? err.message : 'Não foi possível abrir o chamado. Tente novamente.')

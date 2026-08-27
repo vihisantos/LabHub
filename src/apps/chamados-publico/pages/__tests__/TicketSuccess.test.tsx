@@ -5,18 +5,24 @@ import { renderWithProviders } from '../../../../test/helpers'
 import type { Ticket } from '../../../chamados/types'
 
 const mockGetById = vi.hoisted(() => vi.fn())
-const mockGetByIdRemote = vi.hoisted(() => vi.fn())
-const mockSubmitFeedback = vi.hoisted(() => vi.fn())
+const mockGetByToken = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../chamados/services/ticketService', () => ({
   ticketService: {
     getById: mockGetById,
-    getByIdRemote: mockGetByIdRemote,
-    submitFeedback: mockSubmitFeedback,
     getAll: vi.fn().mockReturnValue([]),
     getEvents: vi.fn().mockResolvedValue([]),
     addEvent: vi.fn(),
   },
+}))
+
+vi.mock('../../../chamados/services/publicTicketService', () => ({
+  publicTicketService: {
+    getByToken: mockGetByToken,
+    subscribe: vi.fn().mockResolvedValue(undefined),
+    submitFeedback: vi.fn().mockResolvedValue({}),
+  },
+  toTicket: (p: Ticket) => p,
 }))
 
 vi.mock('../../../../lib/useRealtimeSubscription', () => ({
@@ -49,13 +55,14 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
 }
 
 function renderSuccess() {
+  window.history.replaceState({}, '', '/chamados-publico/ticket/t-1?token=tok')
   return renderWithProviders(
     <Routes>
       <Route path="/chamados-publico" element={<div>inicio</div>} />
       <Route path="/chamados-publico/track" element={<div>acompanhar</div>} />
       <Route path="/chamados-publico/ticket/:ticketId" element={<TicketSuccess />} />
     </Routes>,
-    { initialEntries: ['/chamados-publico/ticket/t-1'] },
+    { initialEntries: ['/chamados-publico/ticket/t-1?token=tok'] },
   )
 }
 
@@ -65,7 +72,12 @@ beforeEach(() => {
     permission: 'default',
     requestPermission: vi.fn().mockResolvedValue('default'),
   })
-  mockGetByIdRemote.mockResolvedValue(makeTicket())
+  try {
+    localStorage.removeItem(`chamado_token_t-1`)
+  } catch {
+    /* localStorage indisponível */
+  }
+  mockGetByToken.mockResolvedValue(makeTicket())
 })
 
 afterEach(() => {
@@ -75,7 +87,7 @@ afterEach(() => {
 describe('TicketSuccess', () => {
   it('chamado não encontrado mostra erro', async () => {
     mockGetById.mockReturnValue(null)
-    mockGetByIdRemote.mockRejectedValue(new Error('não encontrado'))
+    mockGetByToken.mockRejectedValue(new Error('não encontrado'))
     renderSuccess()
     await act(async () => {})
 
@@ -96,21 +108,22 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
   })
 
-  it('atualiza o status ao vivo pelo polling', async () => {
+  it('busca o status pelo token (polling) e atualiza ao vivo', async () => {
     mockGetById.mockReturnValue(makeTicket())
-    mockGetByIdRemote.mockResolvedValue(
+    mockGetByToken.mockResolvedValue(
       makeTicket({ status: 'em_atendimento', statusNote: 'Técnico a caminho' }),
     )
     renderSuccess()
     await act(async () => {})
 
+    expect(mockGetByToken).toHaveBeenCalledWith('tok')
     expect(screen.getByText('Em atendimento')).toBeInTheDocument()
     expect(screen.getByText('Técnico a caminho')).toBeInTheDocument()
   })
 
   it('indica ausência de conexão quando o polling falha', async () => {
     mockGetById.mockReturnValue(makeTicket())
-    mockGetByIdRemote.mockRejectedValue(new Error('offline'))
+    mockGetByToken.mockRejectedValue(new Error('offline'))
     renderSuccess()
     await act(async () => {})
 
@@ -121,7 +134,7 @@ describe('TicketSuccess', () => {
     mockGetById.mockReturnValue(
       makeTicket({ status: 'resolvido', resolvedAt: '2026-06-25T12:00:00Z' }),
     )
-    mockGetByIdRemote.mockResolvedValue(makeTicket({ status: 'resolvido', resolvedAt: '2026-06-25T12:00:00Z' }))
+    mockGetByToken.mockResolvedValue(makeTicket({ status: 'resolvido', resolvedAt: '2026-06-25T12:00:00Z' }))
     renderSuccess()
     await act(async () => {})
 
@@ -256,9 +269,9 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
   })
 
-  it('(I) Polling e realtime atualizam o status', async () => {
+  it('(I) Polling via token atualiza o status', async () => {
     mockGetById.mockReturnValue(makeTicket())
-    mockGetByIdRemote.mockResolvedValue(
+    mockGetByToken.mockResolvedValue(
       makeTicket({ status: 'em_atendimento', statusNote: 'Técnico chegou' }),
     )
     renderSuccess()

@@ -111,6 +111,22 @@ export const ticketService = {
     return ticket
   },
 
+  /**
+   * Cria um chamado e devolve o tracking_token (credencial do professor).
+   * Usar nas páginas públicas — o token é retornado uma única vez.
+   */
+  createWithToken: async (data: TicketFormData): Promise<{ ticket: Ticket; trackingToken: string }> => {
+    const { ticket, tracking_token } = await request<{ ticket: Ticket; tracking_token?: string }>(API_BASE, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    persistLocal(ticket)
+    if (!tracking_token) {
+      throw new Error('Falha ao gerar o código de acompanhamento. Tente novamente.')
+    }
+    return { ticket, trackingToken: tracking_token }
+  },
+
   update: (id: string, data: Partial<Ticket>) => {
     permissionService.requireWrite('chamados')
     const ticket = local.update(id, data)
@@ -159,16 +175,6 @@ export const ticketService = {
       `${API_BASE}?reportedBy=${encodeURIComponent(name)}`,
     )
     return tickets || []
-  },
-
-  /** Registra o feedback do professor (nota 1-5) após a resolução. */
-  submitFeedback: async (id: string, rating: number, comment: string): Promise<Ticket> => {
-    const { ticket } = await request<{ ticket: Ticket }>(`${API_BASE}/${id}/feedback`, {
-      method: 'POST',
-      body: JSON.stringify({ rating, comment }),
-    })
-    persistLocal(ticket)
-    return ticket
   },
 
   /** Histórico (timeline) de eventos de um chamado, do mais novo ao mais antigo. */

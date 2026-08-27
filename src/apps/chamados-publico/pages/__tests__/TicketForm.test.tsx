@@ -9,7 +9,7 @@ vi.mock('../../../chamados/services/roomService', () => ({ roomService: { getAll
 vi.mock('../../../chamados/hooks/useRoomAssets', () => ({ useRoomAssets: vi.fn() }))
 vi.mock('../../../chamados/hooks/useProblemTemplates', () => ({ useProblemTemplates: vi.fn() }))
 vi.mock('../../../chamados/services/ticketService', () => ({
-  ticketService: { create: vi.fn(), getOpenByAsset: vi.fn().mockReturnValue([]) },
+  ticketService: { createWithToken: vi.fn(), create: vi.fn(), getOpenByAsset: vi.fn().mockReturnValue([]) },
 }))
 
 const mockNavigate = vi.fn()
@@ -77,7 +77,10 @@ describe('TicketForm (campus)', () => {
     ;(useProblemTemplates as any).mockReturnValue({
       getByAssetType: () => ({ categories: ['Internet', 'Outro'] }),
     })
-    ;(ticketService.create as any).mockResolvedValue({ id: 't-1', ticketNumber: 1 })
+    ;(ticketService.createWithToken as any).mockResolvedValue({
+      ticket: { id: 't-1', ticketNumber: 1 },
+      trackingToken: 'tok-123',
+    })
   })
 
   it('pré-seleciona o campus da sala quando não vem ?workspace=', () => {
@@ -107,8 +110,8 @@ describe('TicketForm (campus)', () => {
 
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_A }))
-    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-1')
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_A }))
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-1?token=tok-123')
   })
 
   it('envia todos os dados do chamado (equipamento, sala, categoria e professor)', async () => {
@@ -127,7 +130,7 @@ describe('TicketForm (campus)', () => {
 
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(
       expect.objectContaining({
         workspace_id: WS_A,
         roomId: 'r1',
@@ -142,7 +145,7 @@ describe('TicketForm (campus)', () => {
         status: 'aberto',
       })
     )
-    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-1')
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-1?token=tok-123')
   })
 
   it('usa o campus pré-selecionado da sala (sem ?workspace=) no chamado', async () => {
@@ -157,7 +160,7 @@ describe('TicketForm (campus)', () => {
 
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
   })
 
   it('sala sem workspace_id: não usa fallback e exige escolha manual de campus', async () => {
@@ -176,7 +179,7 @@ describe('TicketForm (campus)', () => {
     // Clicking without campus shows errors
     fireEvent.click(submit)
     await act(async () => {})
-    expect(ticketService.create).not.toHaveBeenCalled()
+    expect(ticketService.createWithToken).not.toHaveBeenCalled()
     expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
 
     // Escolhendo um campus manualmente, envia com o campus escolhido
@@ -185,7 +188,7 @@ describe('TicketForm (campus)', () => {
 
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_A }))
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_A }))
   })
 
   it('workspace da URL inexistente (deletado): cai para o workspace da sala quando existe', async () => {
@@ -202,7 +205,7 @@ describe('TicketForm (campus)', () => {
 
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
   })
 
   it('workspace da URL inexistente e sala sem workspace: exige escolha manual', async () => {
@@ -221,7 +224,7 @@ describe('TicketForm (campus)', () => {
     // Clicking without campus shows errors
     fireEvent.click(submit)
     await act(async () => {})
-    expect(ticketService.create).not.toHaveBeenCalled()
+    expect(ticketService.createWithToken).not.toHaveBeenCalled()
     expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
 
     // Escolhendo um campus válido manualmente, envia com ele
@@ -230,6 +233,6 @@ describe('TicketForm (campus)', () => {
 
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS_B }))
   })
 })

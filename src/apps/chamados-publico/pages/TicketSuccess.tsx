@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ticketService } from '../../chamados/services/ticketService'
+import { publicTicketService, toTicket } from '../../chamados/services/publicTicketService'
 import { Stars } from '../../chamados/components/Stars'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types'
@@ -114,6 +115,20 @@ export function TicketSuccess() {
   const [ticket, setTicket] = useState<Ticket | null>(() =>
     ticketId ? (ticketService.getById(ticketId) ?? null) : null,
   )
+  // Tracking token: credencial do professor (acesso ao próprio chamado).
+  // Lido da URL e do localStorage; removido da URL imediatamente (replaceState).
+  const [trackingToken] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlToken = params.get('token')
+    const stored = urlToken || safeLocalStorageGet(`chamado_token_${ticketId ?? ''}`)
+    if (urlToken && ticketId) {
+      safeLocalStorageSet(`chamado_token_${ticketId}`, urlToken)
+    }
+    if (urlToken) {
+      window.history.replaceState({}, '', `/chamados-publico/success/${ticketId ?? ''}`)
+    }
+    return stored || ''
+  })
   const [offline, setOffline] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [pushState, setPushState] = useState<'off' | 'on' | 'denied' | 'loading'>('off')
@@ -165,11 +180,16 @@ export function TicketSuccess() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(vapidKey) as unknown as string,
       })
-      await fetch(`/api/chamados/${ticket.id}/subscribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(subscription.toJSON()),
-      })
+      if (!trackingToken) {
+        // Sem tracking token não há endpoint de inscrição anônimo.
+        setPushState('off')
+        return
+      }
+      // Endpoint público com escopo no chamado (token do professor).
+      await publicTicketService.subscribe(
+        trackingToken,
+        subscription.toJSON() as unknown as Record<string, unknown>,
+      )
       safeLocalStorageSet(`labhub_chamado_push_${ticket.id}`, '1')
       setPushState('on')
     } catch {
@@ -191,8 +211,13 @@ export function TicketSuccess() {
     setRatingSubmitting(true)
     setRatingError('')
     try {
-      const updated = await ticketService.submitFeedback(ticket.id, rating, ratingComment.trim())
-      setTicket(updated)
+      if (!trackingToken) {
+        setRatingError('Código de acompanhamento necessário para avaliar.')
+        setRatingSubmitting(false)
+        return
+      }
+      const pub = await publicTicketService.submitFeedback(trackingToken, rating, ratingComment.trim())
+      setTicket(toTicket(pub))
       setRatingDone(true)
       setTimeout(() => setShowRatingModal(false), 1500)
     } catch (err) {
@@ -203,11 +228,11 @@ export function TicketSuccess() {
 
   useEffect(() => {
     if (!ticketId || ticketId === 'undefined') return
-    const id = ticketId
     let alive = true
     async function poll() {
+      if (!trackingToken) return
       try {
-        const fresh = await ticketService.getByIdRemote(id)
+        const fresh = toTicket(await publicTicketService.getByToken(trackingToken))
         if (!alive) return
         setTicket(fresh)
         setOffline(false)
@@ -231,7 +256,7 @@ export function TicketSuccess() {
       alive = false
       clearInterval(timer)
     }
-  }, [ticketId])
+  }, [trackingToken, ticketId])
 
   useRealtimeSubscription<{ id: string; status: string; statusNote: string; updatedAt: string }>(
     'chamados_tickets',

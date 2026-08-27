@@ -10,7 +10,7 @@ vi.mock('../../../chamados/services/roomService', () => ({
   roomService: { getAllUnfiltered: vi.fn() },
 }))
 vi.mock('../../../chamados/services/ticketService', () => ({
-  ticketService: { create: vi.fn(), query: vi.fn().mockReturnValue([]) },
+  ticketService: { createWithToken: vi.fn(), create: vi.fn(), query: vi.fn().mockReturnValue([]) },
 }))
 vi.mock('../../components/OnboardingTour', () => ({
   OnboardingTour: () => null,
@@ -169,7 +169,10 @@ describe('RoomTicketForm (criação de chamado)', () => {
     })
     ;(useAuth as any).mockReturnValue({ user: { name: 'Professor' } })
     ;(roomService.getAllUnfiltered as any).mockReturnValue(ROOMS)
-    ;(ticketService.create as any).mockResolvedValue({ id: 't-99', ticketNumber: 99 })
+    ;(ticketService.createWithToken as any).mockResolvedValue({
+      ticket: { id: 't-99', ticketNumber: 99 },
+      trackingToken: 'tok-123',
+    })
   })
 
   function fillForm(selectCampus = true) {
@@ -192,7 +195,7 @@ describe('RoomTicketForm (criação de chamado)', () => {
 
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(
       expect.objectContaining({
         workspace_id: WS_A,
         roomName: 'Sala 101',
@@ -203,7 +206,7 @@ describe('RoomTicketForm (criação de chamado)', () => {
         status: 'aberto',
       })
     )
-    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-99')
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/success/t-99?token=tok-123')
   })
 
   it('não cria o chamado sem selecionar o campus e mostra erros', () => {
@@ -212,7 +215,7 @@ describe('RoomTicketForm (criação de chamado)', () => {
 
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
     fireEvent.click(submit)
-    expect(ticketService.create).not.toHaveBeenCalled()
+    expect(ticketService.createWithToken).not.toHaveBeenCalled()
     expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
   })
 
@@ -225,7 +228,7 @@ describe('RoomTicketForm (criação de chamado)', () => {
 
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
     fireEvent.click(submit)
-    expect(ticketService.create).not.toHaveBeenCalled()
+    expect(ticketService.createWithToken).not.toHaveBeenCalled()
     expect(screen.getByText('Preencha os campos obrigatórios:')).toBeInTheDocument()
   })
 
@@ -247,7 +250,7 @@ describe('RoomTicketForm (criação de chamado)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Abrir Chamado' }))
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(
       expect.objectContaining({ photos: 'data:image/jpeg;base64,foto' })
     )
   })
@@ -270,6 +273,6 @@ describe('RoomTicketForm (criação de chamado)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Abrir Chamado' }))
     await act(async () => {})
 
-    expect(ticketService.create).toHaveBeenCalledWith(expect.objectContaining({ photos: '' }))
+    expect(ticketService.createWithToken).toHaveBeenCalledWith(expect.objectContaining({ photos: '' }))
   })
 })

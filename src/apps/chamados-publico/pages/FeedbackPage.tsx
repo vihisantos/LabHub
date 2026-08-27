@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ticketService } from '../../chamados/services/ticketService'
+import { publicTicketService, toTicket } from '../../chamados/services/publicTicketService'
 import { Stars } from '../../chamados/components/Stars'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS } from '../../chamados/types'
@@ -20,6 +21,29 @@ export function FeedbackPage() {
   const { ticketId } = useParams<{ ticketId: string }>()
   const navigate = useNavigate()
 
+  // Tracking token: credencial do professor (acesso ao próprio chamado).
+  // Lido da URL e do localStorage; removido da URL imediatamente.
+  const [trackingToken] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlToken = params.get('token')
+    const stored = urlToken || (() => {
+      try {
+        return localStorage.getItem(`chamado_token_${ticketId ?? ''}`)
+      } catch {
+        return null
+      }
+    })()
+    if (urlToken && ticketId) {
+      try {
+        localStorage.setItem(`chamado_token_${ticketId}`, urlToken)
+      } catch {}
+    }
+    if (urlToken) {
+      window.history.replaceState({}, '', `/chamados-publico/feedback/${ticketId ?? ''}`)
+    }
+    return stored || ''
+  })
+
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -32,13 +56,25 @@ export function FeedbackPage() {
 
   useEffect(() => {
     if (!ticketId || ticketId === 'undefined') return
-    ticketService
-      .getByIdRemote(ticketId)
-      .then((t) => {
-        setTicket(t)
-        if (t.feedbackRating) setRating(t.feedbackRating)
-      })
-      .catch(() => {
+    const load = async () => {
+      try {
+        if (trackingToken) {
+          const pub = await publicTicketService.getByToken(trackingToken)
+          const t = toTicket(pub)
+          setTicket(t)
+          if (t.feedbackRating) setRating(t.feedbackRating)
+        } else {
+          // Sem tracking token não há acesso anônimo remoto ao chamado;
+          // resta apenas o cache local, quando existir.
+          const local = ticketId ? ticketService.getByIdNoFilter(ticketId) : null
+          if (local) {
+            setTicket(local)
+            if (local.feedbackRating) setRating(local.feedbackRating)
+          } else {
+            setNotFound(true)
+          }
+        }
+      } catch {
         const local = ticketId ? ticketService.getByIdNoFilter(ticketId) : null
         if (local) {
           setTicket(local)
@@ -46,18 +82,21 @@ export function FeedbackPage() {
         } else {
           setNotFound(true)
         }
-      })
-      .finally(() => setLoading(false))
-  }, [ticketId])
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [ticketId, trackingToken])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!ticket || rating < 1) return
+    if (!ticket || rating < 1 || !trackingToken) return
     setSubmitting(true)
     setError('')
     try {
-      const updated = await ticketService.submitFeedback(ticket.id, rating, comment.trim())
-      setTicket(updated)
+      const pub = await publicTicketService.submitFeedback(trackingToken, rating, comment.trim())
+      setTicket(toTicket(pub))
       setDone(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível enviar a avaliação. Tente novamente.')
