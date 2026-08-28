@@ -109,6 +109,9 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 | 034 | `034_drop_legacy_rls_policies.sql` | DROP de 14 policies legadas que burlavam o isolamento |
 | 035 | `035_tracking_token.sql` | Chamados: credencial anônima `tracking_token_hash` (acesso limitado a um chamado) + índice único |
 
+> `tests/036_schema_migrations_checks.sql` valida a tabela de histórico
+> do runner (não é uma migration de schema).
+
 ## Regras para novas migrations
 
 1. Nome: `NNN_descricao_snake_case.sql` — próximo número livre.
