@@ -84,9 +84,16 @@ export function WorkspaceGate({
       })
       const body = await resp.json().catch(() => ({}))
       if (!resp.ok) {
-        throw new Error((body as Record<string, unknown>).error || `Erro ${resp.status}`)
+        const errorMessage =
+          typeof body === 'object' &&
+          body !== null &&
+          'error' in body &&
+          typeof body.error === 'string'
+            ? body.error
+            : `Erro ${resp.status}`
+        throw new Error(errorMessage)
       }
-      workspaceService.remove(confirmWs.id)
+      await workspaceService.remove(confirmWs.id)
       setConfirmWs(null)
       setActionWs(null)
       onDeleted?.()
