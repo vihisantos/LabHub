@@ -2,21 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { workspaceBackupService, BACKUP_TTL_DAYS } from '../backupService'
 import type { Workspace } from '../types'
 
-const { db } = vi.hoisted(() => ({ db: { from: vi.fn() } }))
+const mockFetch = vi.fn()
 
-vi.mock('../../../lib/supabase', () => ({ defaultDb: db }))
+vi.mock('../../../lib/supabase', () => ({
+  defaultDb: {
+    auth: {
+      getSession: vi.fn().mockResolvedValue({
+        data: { session: { access_token: 'test-token' } },
+      }),
+    },
+  },
+}))
 
-const insert = vi.fn()
-const deleteLt = vi.fn()
+vi.stubGlobal('fetch', mockFetch)
 
 beforeEach(() => {
   vi.clearAllMocks()
-  insert.mockReturnValue({ error: null, data: null })
-  deleteLt.mockReturnValue({ error: null, data: null })
-  db.from.mockImplementation(() => ({
-    insert: (row: unknown) => insert(row),
-    delete: () => ({ lt: deleteLt }),
-  }))
 })
 
 const ws: Workspace = {
@@ -31,171 +32,134 @@ const ws: Workspace = {
 
 const actor = { id: 'user-1', name: 'Vitor Santos' }
 
-describe('workspaceBackupService.backupWorkspace', () => {
-  it('grava backup com TTL de 2 dias e dados do ator', async () => {
-    const before = Date.now()
-    await workspaceBackupService.backupWorkspace(ws, actor)
-
-    expect(db.from).toHaveBeenCalledWith('workspace_backups')
-    const row = insert.mock.calls[0][0] as Record<string, unknown>
-    expect(row.workspace_id).toBe(ws.id)
-    expect(row.workspace_name).toBe(ws.name)
-    expect(row.workspace_data).toEqual(ws)
-    expect(row.deleted_by).toBe(actor.id)
-    expect(row.deleted_by_name).toBe(actor.name)
-
-    const expires = Date.parse(String(row.expires_at))
-    const ttl = BACKUP_TTL_DAYS * 24 * 60 * 60 * 1000
-    expect(expires).toBeGreaterThanOrEqual(before + ttl)
-    expect(expires).toBeLessThanOrEqual(before + ttl + 1000)
+function mockApiOk(body: unknown) {
+  mockFetch.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve(body),
   })
+}
 
-  it('lança erro quando o insert falha', async () => {
-    insert.mockReturnValue({ error: { message: 'insert failed' } })
-    await expect(workspaceBackupService.backupWorkspace(ws, actor)).rejects.toThrow(/backup/i)
+function mockApiError(status: number, error: string) {
+  mockFetch.mockResolvedValueOnce({
+    ok: false,
+    status,
+    json: () => Promise.resolve({ error }),
+  })
+}
+
+describe('workspaceBackupService.backupWorkspace', () => {
+  it('é noop — backup agora é feito pelo backend', async () => {
+    await workspaceBackupService.backupWorkspace(ws, actor)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })
 
 describe('workspaceBackupService.logDelete', () => {
-  it('registra ação, workspace e quem excluiu', async () => {
+  it('é noop — audit log agora é feito pelo backend', async () => {
     await workspaceBackupService.logDelete(ws, actor)
-
-    expect(db.from).toHaveBeenCalledWith('workspace_audit_logs')
-    const row = insert.mock.calls[0][0] as Record<string, unknown>
-    expect(row.action).toBe('delete')
-    expect(row.workspace_id).toBe(ws.id)
-    expect(row.workspace_name).toBe(ws.name)
-    expect(row.actor_id).toBe(actor.id)
-    expect(row.actor_name).toBe(actor.name)
-  })
-
-  it('lança erro quando o insert falha', async () => {
-    insert.mockReturnValue({ error: { message: 'insert failed' } })
-    await expect(workspaceBackupService.logDelete(ws, actor)).rejects.toThrow(/log/i)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })
 
 describe('workspaceBackupService.pruneExpired', () => {
-  it('remove backups com expires_at anterior a agora', async () => {
+  it('chama POST /api/admin/backups/prune', async () => {
+    mockApiOk({ ok: true })
     await workspaceBackupService.pruneExpired()
-
-    expect(db.from).toHaveBeenCalledWith('workspace_backups')
-    expect(deleteLt).toHaveBeenCalledTimes(1)
-    const [col, value] = deleteLt.mock.calls[0] as [string, string]
-    expect(col).toBe('expires_at')
-    expect(Date.parse(value)).toBeLessThanOrEqual(Date.now())
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/admin/backups/prune',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
-})
-
-const okDb = () => ({
-  insert: () => Promise.resolve({ error: null, data: null }),
-  delete: () => ({ lt: async () => ({ error: null, data: null }), eq: async () => ({ error: null, data: null }) }),
-  select: () => ({
-    gte: () => ({ order: () => Promise.resolve({ data: [], error: null }) }),
-    order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }),
-    eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
-  }),
-  upsert: () => Promise.resolve({ error: null, data: null }),
 })
 
 describe('workspaceBackupService.listBackups', () => {
-  it('lista backups não expirados, mais recentes primeiro', async () => {
-    const rows = [{ id: 'bk-1', workspace_name: 'Escola Teste' }]
-    vi.mocked(db.from).mockReturnValue({
-      ...okDb(),
-      select: () => ({
-        gte: () => ({ order: () => Promise.resolve({ data: rows, error: null }) }),
-        order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }),
-        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
-      }),
-    })
-
+  it('retorna lista de backups do backend', async () => {
+    const backups = [{ id: 'bk-1', workspace_name: 'Escola Teste' }]
+    mockApiOk({ backups })
     const result = await workspaceBackupService.listBackups()
-    expect(db.from).toHaveBeenCalledWith('workspace_backups')
-    expect(result).toEqual(rows)
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/admin/backups',
+      expect.anything(),
+    )
+    expect(result).toEqual(backups)
   })
 
-  it('retorna [] quando a consulta falha', async () => {
-    vi.mocked(db.from).mockReturnValue({
-      ...okDb(),
-      select: () => ({ gte: () => ({ order: () => Promise.resolve({ data: null, error: { message: 'x' } }) }) }),
-    })
+  it('retorna [] quando o backend retorna erro', async () => {
+    mockApiError(500, 'Erro interno')
     const result = await workspaceBackupService.listBackups()
     expect(result).toEqual([])
   })
 })
 
 describe('workspaceBackupService.listAuditLogs', () => {
-  it('lista o histórico de auditoria', async () => {
-    const rows = [{ id: 'log-1', action: 'delete', workspace_name: 'Escola Teste' }]
-    vi.mocked(db.from).mockReturnValue({
-      ...okDb(),
-      select: () => ({
-        gte: () => ({ order: () => Promise.resolve({ data: [], error: null }) }),
-        order: () => ({ limit: () => Promise.resolve({ data: rows, error: null }) }),
-        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
-      }),
-    })
-
+  it('retorna logs de auditoria do backend', async () => {
+    const logs = [{ id: 'log-1', action: 'delete', workspace_name: 'Escola Teste' }]
+    mockApiOk({ logs })
     const result = await workspaceBackupService.listAuditLogs()
-    expect(db.from).toHaveBeenCalledWith('workspace_audit_logs')
-    expect(result).toEqual(rows)
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/admin/audit-logs',
+      expect.anything(),
+    )
+    expect(result).toEqual(logs)
   })
 })
 
 describe('workspaceBackupService.restoreBackup', () => {
-  const backupRow = {
-    id: 'bk-1',
-    workspace_id: ws.id,
-    workspace_name: ws.name,
-    workspace_data: ws,
-    deleted_by: 'user-x',
-    deleted_by_name: 'Outro',
-    created_at: '2026-08-10T00:00:00.000Z',
-    expires_at: '2026-08-15T00:00:00.000Z',
-  }
-
-  it('restaura o workspace, registra auditoria e remove o backup', async () => {
-    const upsert = vi.fn()
-    const insertAudit = vi.fn()
-    const deleteEq = vi.fn()
-    const maybeSingle = vi.fn(async () => ({ data: backupRow, error: null }))
-
-    vi.mocked(db.from).mockReturnValue({
-      insert: (row: unknown) => insertAudit(row) || Promise.resolve({ error: null, data: null }),
-      delete: () => ({ lt: async () => ({ error: null, data: null }), eq: async () => deleteEq() || Promise.resolve({ error: null, data: null }) }),
-      select: () => ({
-        gte: () => ({ order: () => Promise.resolve({ data: [], error: null }) }),
-        order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }),
-        eq: () => ({ maybeSingle }),
-      }),
-      upsert: (row: unknown, opts?: unknown) => upsert(row, opts) || Promise.resolve({ error: null, data: null }),
-    })
-
+  it('chama POST /api/admin/backups/:id/restore', async () => {
+    mockApiOk({ ok: true, workspace_id: 'ws-1' })
     await workspaceBackupService.restoreBackup('bk-1', actor)
-
-    expect(db.from).toHaveBeenCalledWith('workspace_backups')
-    expect(db.from).toHaveBeenCalledWith('workspaces')
-    expect(db.from).toHaveBeenCalledWith('workspace_audit_logs')
-
-    expect(upsert).toHaveBeenCalledTimes(1)
-    expect(upsert.mock.calls[0][0]).toEqual(ws)
-    expect(upsert.mock.calls[0][1]).toEqual({ onConflict: 'id' })
-
-    expect(insertAudit).toHaveBeenCalledTimes(1)
-    const audit = insertAudit.mock.calls[0][0] as Record<string, unknown>
-    expect(audit.action).toBe('restore')
-    expect(audit.workspace_id).toBe(ws.id)
-    expect(audit.actor_id).toBe(actor.id)
-
-    expect(deleteEq).toHaveBeenCalledTimes(1)
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/admin/backups/bk-1/restore',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 
-  it('lança erro quando o backup não existe', async () => {
-    vi.mocked(db.from).mockReturnValue({
-      ...okDb(),
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
-    })
-    await expect(workspaceBackupService.restoreBackup('inexistente', actor)).rejects.toThrow(/não encontrado/i)
+  it('lança erro quando o backend retorna erro', async () => {
+    mockApiError(404, 'Backup não encontrado')
+    await expect(
+      workspaceBackupService.restoreBackup('inexistente', actor),
+    ).rejects.toThrow(/não encontrado/i)
+  })
+
+  it('lança erro quando o backup está expirado', async () => {
+    mockApiError(410, 'Backup expirado')
+    await expect(
+      workspaceBackupService.restoreBackup('bk-expired', actor),
+    ).rejects.toThrow(/expirado/i)
+  })
+})
+
+describe('workspaceBackupService — Authorization', () => {
+  it('envia Authorization header com token JWT', async () => {
+    mockApiOk({ backups: [] })
+    await workspaceBackupService.listBackups()
+    const [, init] = mockFetch.mock.calls[0]
+    expect(init.headers).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer test-token',
+      }),
+    )
+  })
+
+  it('funciona sem token (sessão não autenticada)', async () => {
+    const { defaultDb } = await import('../../../lib/supabase')
+    vi.mocked(defaultDb!.auth.getSession).mockResolvedValueOnce({
+      data: { session: null },
+    } as any)
+    mockApiOk({ backups: [] })
+    await workspaceBackupService.listBackups()
+    const [, init] = mockFetch.mock.calls[0]
+    expect(init.headers).toEqual(
+      expect.not.objectContaining({
+        Authorization: expect.any(String),
+      }),
+    )
+  })
+})
+
+describe('BACKUP_TTL_DAYS', () => {
+  it('é 2 dias', () => {
+    expect(BACKUP_TTL_DAYS).toBe(2)
   })
 })

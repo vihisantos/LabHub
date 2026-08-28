@@ -328,3 +328,255 @@ class TestCrossWorkspaceEventBlocking:
             headers={"Authorization": f"Bearer {_make_jwt({'sub': USER_A})}"},
         )
         assert resp.status_code == 403
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Workspace Backups & Audit Logs — backend-only security tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Backup table fixtures
+BACKUP_ID = "bbbbbbbb-0000-0000-0000-000000000001"
+BACKUP_SAMPLE = {
+    "id": BACKUP_ID,
+    "workspace_id": WS_A,
+    "workspace_name": "Escola Teste",
+    "workspace_data": {"id": WS_A, "name": "Escola Teste"},
+    "deleted_by": USER_A,
+    "deleted_by_name": "User A",
+    "created_at": "2026-01-01T00:00:00Z",
+    "expires_at": "2099-12-31T23:59:59Z",
+}
+AUDIT_SAMPLE = {
+    "id": "audit-1",
+    "action": "delete",
+    "workspace_id": WS_A,
+    "workspace_name": "Escola Teste",
+    "actor_id": USER_A,
+    "actor_name": "User A",
+    "created_at": "2026-01-01T00:00:00Z",
+}
+WS_SAMPLE = {"id": WS_A, "name": "Escola Teste"}
+
+
+# ── Backup: Super admin can list ─────────────────────────────────────────────
+
+class TestBackupAdminCanList:
+    def test_super_admin_lists_backups(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        fake_requests.route("GET", "/rest/v1/workspace_backups", FakeResponse([BACKUP_SAMPLE]))
+        resp = root_client.get(
+            "/api/admin/backups",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["backups"]) == 1
+        assert data["backups"][0]["workspace_name"] == "Escola Teste"
+
+
+# ── Backup: Non-admin cannot list ────────────────────────────────────────────
+
+class TestBackupNonAdminBlocked:
+    def test_user_a_cannot_list_backups(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": USER_A})
+        _patch_supabase_profile(fake_requests, _user_a_profile())
+        resp = root_client.get(
+            "/api/admin/backups",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': USER_A})}"},
+        )
+        assert resp.status_code == 403
+
+
+# ── Backup: ANON cannot list ─────────────────────────────────────────────────
+
+class TestBackupAnonBlocked:
+    def test_anon_cannot_list_backups(self, root_client):
+        resp = root_client.get("/api/admin/backups")
+        assert resp.status_code == 401
+
+
+# ── Backup: Prune expired ────────────────────────────────────────────────────
+
+class TestBackupPruneExpired:
+    def test_super_admin_prunes_expired(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        fake_requests.route("DELETE", "/rest/v1/workspace_backups", FakeResponse(None, 200))
+        resp = root_client.post(
+            "/api/admin/backups/prune",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json().get("ok") is True
+
+    def test_non_admin_cannot_prune(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": USER_A})
+        _patch_supabase_profile(fake_requests, _user_a_profile())
+        resp = root_client.post(
+            "/api/admin/backups/prune",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': USER_A})}"},
+        )
+        assert resp.status_code == 403
+
+
+# ── Backup: Restore validates TTL ────────────────────────────────────────────
+
+class TestBackupRestoreTTL:
+    def test_restore_expired_backup_returns_410(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        expired = {**BACKUP_SAMPLE, "expires_at": "2020-01-01T00:00:00Z"}
+        fake_requests.route("GET", "/rest/v1/workspace_backups", FakeResponse([expired]))
+        resp = root_client.post(
+            f"/api/admin/backups/{BACKUP_ID}/restore",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 410
+        assert "expirado" in resp.get_json().get("error", "").lower()
+
+    def test_restore_missing_backup_returns_404(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        fake_requests.route("GET", "/rest/v1/workspace_backups", FakeResponse([]))
+        resp = root_client.post(
+            f"/api/admin/backups/{BACKUP_ID}/restore",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 404
+
+
+# ── Backup: Delete specific backup ───────────────────────────────────────────
+
+class TestBackupDeleteSingle:
+    def test_super_admin_deletes_backup(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        fake_requests.route("DELETE", "/rest/v1/workspace_backups", FakeResponse(None, 200))
+        resp = root_client.delete(
+            f"/api/admin/backups/{BACKUP_ID}",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json().get("ok") is True
+
+    def test_non_admin_cannot_delete_backup(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": USER_A})
+        _patch_supabase_profile(fake_requests, _user_a_profile())
+        resp = root_client.delete(
+            f"/api/admin/backups/{BACKUP_ID}",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': USER_A})}"},
+        )
+        assert resp.status_code == 403
+
+    def test_anon_cannot_delete_backup(self, root_client):
+        resp = root_client.delete(f"/api/admin/backups/{BACKUP_ID}")
+        assert resp.status_code == 401
+
+    def test_invalid_backup_id_returns_400(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        resp = root_client.delete(
+            "/api/admin/backups/not-a-valid-uuid",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 400
+
+
+# ── Audit logs: Admin can list ───────────────────────────────────────────────
+
+class TestAuditLogsAdminCanList:
+    def test_super_admin_lists_audit_logs(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        fake_requests.route("GET", "/rest/v1/workspace_audit_logs", FakeResponse([AUDIT_SAMPLE]))
+        resp = root_client.get(
+            "/api/admin/audit-logs",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data["logs"]) == 1
+        assert data["logs"][0]["action"] == "delete"
+
+
+# ── Audit logs: Non-admin blocked ────────────────────────────────────────────
+
+class TestAuditLogsNonAdminBlocked:
+    def test_user_a_cannot_list_audit_logs(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": USER_A})
+        _patch_supabase_profile(fake_requests, _user_a_profile())
+        resp = root_client.get(
+            "/api/admin/audit-logs",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': USER_A})}"},
+        )
+        assert resp.status_code == 403
+
+    def test_anon_cannot_list_audit_logs(self, root_client):
+        resp = root_client.get("/api/admin/audit-logs")
+        assert resp.status_code == 401
+
+
+# ── Workspace delete (backup + delete + audit atomic) ────────────────────────
+
+class TestWorkspaceDeleteAtomic:
+    def test_super_admin_deletes_with_backup_and_audit(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([WS_SAMPLE]))
+        fake_requests.route("POST", "/rest/v1/workspace_backups", FakeResponse(None, 201))
+        fake_requests.route("DELETE", "/rest/v1/workspaces", FakeResponse(None, 200))
+        fake_requests.route("POST", "/rest/v1/workspace_audit_logs", FakeResponse(None, 201))
+        resp = root_client.post(
+            f"/api/admin/workspaces/{WS_A}/delete",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data.get("ok") is True
+        assert data.get("backup_name") == "Escola Teste"
+
+    def test_non_admin_cannot_delete_workspace(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": USER_A})
+        _patch_supabase_profile(fake_requests, _user_a_profile())
+        resp = root_client.post(
+            f"/api/admin/workspaces/{WS_A}/delete",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': USER_A})}"},
+        )
+        assert resp.status_code == 403
+
+    def test_anon_cannot_delete_workspace(self, root_client):
+        resp = root_client.post(f"/api/admin/workspaces/{WS_A}/delete")
+        assert resp.status_code == 401
+
+    def test_workspace_not_found_returns_404(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([]))
+        resp = root_client.post(
+            "/api/admin/workspaces/00000000-0000-0000-0000-000000000000/delete",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 404
+
+    def test_invalid_workspace_id_returns_400(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        resp = root_client.post(
+            "/api/admin/workspaces/not-a-valid-uuid/delete",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 400
+
+
+# ── IDOR protection: backup ID injection ─────────────────────────────────────
+
+class TestBackupIDORProtection:
+    def test_sql_injection_in_backup_id_rejected(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": ADMIN})
+        _patch_supabase_profile(fake_requests, _admin_profile())
+        resp = root_client.delete(
+            "/api/admin/backups/'; DROP TABLE workspace_backups; --",
+            headers={"Authorization": f"Bearer {_make_jwt({'sub': ADMIN})}"},
+        )
+        assert resp.status_code == 400
