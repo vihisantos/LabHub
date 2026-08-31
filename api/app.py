@@ -19,6 +19,12 @@ from auth import (
     _is_module_enabled,
     _forbidden,
 )
+from rbac import (
+    require_action as require_action_rbac,
+    rbac_enabled as rbac_two_enabled,
+    rbac_can as rbac_two_can,
+    record_rbac_audit as rbac_record_audit,
+)
 
 import requests
 from collections import defaultdict
@@ -47,6 +53,40 @@ def _check_rate_limit(ip: str, max_requests: int | None = None) -> bool:
         return False
     _rate_limit_store[ip].append(now)
     return True
+
+
+def _require_action_in_handler(action, scope='workspace', resource_type=None, resource_id=None):
+    """In-handler RBAC enforcement para rotas cujo workspace só é conhecido após
+    resolver o recurso (ex.: Chamados `<id>`).
+
+    O contratante DEVE resolver o workspace real do recurso e setar `g.workspace_id`
+    ANTES de chamar (para scope != 'global'). Nunca confiar em workspace fornecido
+    pelo cliente. Respeita RBAC_2_ENABLED (OFF ⇒ no-op, legado preservado);
+    fail-closed; NUNCA transforma erro em allow. Retorna None se permitido ou
+    uma resposta Flask (403) se negado.
+    """
+    user = getattr(g, 'user', None)
+    if not rbac_two_enabled():
+        return None
+    if not user:
+        return _forbidden('Permissão insuficiente')
+    scope_normalized = str(scope or 'workspace').strip()
+    workspace_id = None if scope_normalized == 'global' else getattr(g, 'workspace_id', None)
+    result = rbac_two_can(user, workspace_id, action, scope_normalized)
+    rbac_record_audit(
+        actor_id=user.get('id'),
+        actor_is_super=user.get('is_super_admin'),
+        action=action,
+        workspace_id=workspace_id,
+        scope=scope_normalized,
+        effect='allow' if result else 'deny',
+        outcome='success' if result else 'denied',
+        resource_type=resource_type,
+        resource_id=resource_id,
+    )
+    if not result:
+        return _forbidden('Permissão insuficiente')
+    return None
 
 
 # ── Tracking token público (acesso limitado do professor a um chamado) ──
@@ -943,6 +983,7 @@ def tv_youtube_live():
 @require_auth
 @require_workspace
 @require_module_auth('tv')
+@require_action_rbac('tv.content.manage', scope='workspace')
 def tv_cloudinary_delete():
     """
     Deleta uma imagem do Cloudinary pelo seu secure_url.
@@ -1089,11 +1130,16 @@ def require_module(workspace, module_id):
 
     Retorna None se permitido, ou uma tupla (flask.Response, int) se bloqueado.
     ``workspace`` deve ser o dict já carregado do Supabase (contendo
-    ``disabled_apps`` ou não).  Fail-open: se workspace for None ou vazio,
-    permite a execução.
+    ``disabled_apps`` ou não).  Fail-closed: se workspace for None ou vazio,
+    o módulo não pode ser verificaçado ⇒ bloqueia (403). A autorização
+    nunca deve virar fail-open por falta de contexto de workspace.
     """
     if not workspace:
-        return None
+        return jsonify({
+            'error': 'MODULE_NOT_VERIFIABLE',
+            'module': module_id,
+            'message': 'Não foi possível verificar o módulo para este workspace.',
+        }), 403
     disabled = workspace.get('disabled_apps') or []
     if module_id in disabled:
         return jsonify({
@@ -2021,6 +2067,12 @@ def chamados_manage(ticket_id):
             ticket_ws = rows[0].get('workspace_id') or ''
             if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
                 return jsonify({'error': 'Acesso negado a este chamado'}), 403
+            # Etapa 6 — workspace do recurso resolvido; enforce ticket.view.
+            g.workspace_id = ticket_ws
+            err = _require_action_in_handler('ticket.view', scope='workspace',
+                                             resource_type='ticket', resource_id=ticket_id)
+            if err:
+                return err
             return jsonify({'ticket': rows[0]})
 
         if request.method == 'DELETE':
@@ -2038,6 +2090,13 @@ def chamados_manage(ticket_id):
             ticket_ws = rows[0].get('workspace_id') or ''
             if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
                 return jsonify({'error': 'Acesso negado a este chamado'}), 403
+            # Etapa 6 — workspace do recurso resolvido; enforce ticket.delete
+            # ANTES de qualquer side effect (remoção do registro / Cloudinary).
+            g.workspace_id = ticket_ws
+            err = _require_action_in_handler('ticket.delete', scope='workspace',
+                                             resource_type='ticket', resource_id=ticket_id)
+            if err:
+                return err
 
             # A1: coleta as fotos (Cloudinary) antes de apagar, para
             # limpeza best-effort após a remoção do registro.
@@ -2098,6 +2157,8 @@ def chamados_manage(ticket_id):
         ticket_ws = ws_rows[0].get('workspace_id') or ''
         if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
             return jsonify({'error': 'Acesso negado a este chamado'}), 403
+        # Etapa 6 — workspace do recurso resolvido (nunca o do cliente).
+        g.workspace_id = ticket_ws
 
         body = request.get_json() or {}
         updates = {}
@@ -2134,6 +2195,25 @@ def chamados_manage(ticket_id):
                 logger.warning('PATCH chamado: falha ao consultar foto anterior: %s', e)
                 _prev_photo = ''
             updates['photos'] = photos_val
+
+        # Etapa 6 — PATCH mixed-operation: determinar o conjunto MÍNIMO de Actions
+        # exigido pelas operações efetivamente solicitadas e autorizar TODAS
+        # ANTES de qualquer mutation (atomicidade). Se qualquer Action for negada,
+        # NADA é alterado (403).
+        required_actions = set()
+        if 'status' in updates or 'statusNote' in updates:
+            required_actions.add('ticket.status')
+        if 'assignedTo' in updates or 'assignedToUserId' in updates:
+            required_actions.add('ticket.assign')
+        if any(k in updates for k in (
+            'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'photos'
+        )):
+            required_actions.add('ticket.edit')
+        for act in sorted(required_actions):
+            err = _require_action_in_handler(act, scope='workspace',
+                                             resource_type='ticket', resource_id=ticket_id)
+            if err:
+                return err
 
         prev = None
         assignment_changed = False
@@ -2625,6 +2705,7 @@ WIPE_TABLES = [
 @app.route('/api/admin/wipe', methods=['POST'])
 @require_auth
 @require_admin
+@require_action_rbac('admin.system.wipe', scope='global')
 def admin_wipe():
     """Apaga TODAS as linhas das tabelas operacionais (stock, pcare, chamados, TV).
 
@@ -2690,13 +2771,23 @@ SUPPORTED_PURGE_APPS = ('tv',)
 
 
 def _require_workspace_app_manager():
-    """403 a menos que seja super admin ou admin do workspace autenticado.
+    """403 a menos que o usuário tenha permissão de gerência do app do workspace.
 
-    Espelho exato do predicado SQL can_manage_workspace_apps (migration 031):
-    mesma hierarquia usada para gravar workspace_app_settings — nenhuma nova
-    permissão é criada aqui. Retorna Response de erro ou None.
+    Alinhado à autoridade atual do RBAC 2.0 (Etapa 3):
+    - RBAC ativo ⇒ resolve 'admin.app.purge' no workspace via rbac_can
+      (super admin ⇒ allow; permissões/overrides das tabelas RBAC; default deny).
+    - Legacy (flag off) ⇒ espelho de can_manage_workspace_apps (migration 031):
+      super admin OU membro com profile.role='admin' (compat preservada apenas
+      durante a migração; profile.role NÃO é autoridade do RBAC 2.0).
+
+    Retorna Response de erro ou None.
     """
     user = getattr(g, 'user', None) or {}
+    if rbac_two_enabled():
+        result = rbac_two_can(user, getattr(g, 'workspace_id', None), 'admin.app.purge', scope='workspace')
+        if result:
+            return None
+        return _forbidden('Permissão insuficiente')
     if user.get('is_super_admin'):
         return None
     role = str(user.get('role') or '').strip().lower()
@@ -2741,6 +2832,7 @@ def _supabase_unavailable():
 @require_auth
 @require_workspace
 @require_module_auth('tv')
+@require_action_rbac('admin.app.purge', scope='workspace')
 def admin_app_data_describe():
     """Contagens reais dos dados de conteúdo da TV do workspace autenticado.
 
@@ -2781,6 +2873,7 @@ def admin_app_data_describe():
 @require_auth
 @require_workspace
 @require_module_auth('tv')
+@require_action_rbac('admin.app.purge', scope='workspace')
 def admin_app_data_purge():
     """Limpa os dados de conteúdo da TV do workspace autenticado.
 
@@ -2882,6 +2975,12 @@ def chamados_events_list(ticket_id):
         ticket_ws = t_rows[0].get('workspace_id') or ''
         if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
             return jsonify({'error': 'Acesso negado a este chamado'}), 403
+        # Etapa 6 — workspace do recurso resolvido; enforce ticket.view (timeline).
+        g.workspace_id = ticket_ws
+        err = _require_action_in_handler('ticket.view', scope='workspace',
+                                         resource_type='ticket', resource_id=ticket_id)
+        if err:
+            return err
 
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}&order=createdAt.desc',
@@ -2931,6 +3030,13 @@ def chamados_events_create(ticket_id):
         ticket_ws = ticket.get('workspace_id') or ''
         if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
             return jsonify({'error': 'Acesso negado a este chamado'}), 403
+        # Etapa 6 — workspace do recurso resolvido; enforce ticket.comment ANTES
+        # de criar o evento (timeline auditable).
+        g.workspace_id = ticket_ws
+        err = _require_action_in_handler('ticket.comment', scope='workspace',
+                                         resource_type='ticket', resource_id=ticket_id)
+        if err:
+            return err
 
         body = request.get_json() or {}
         content = str(body.get('content') or '').strip()[:1000]
@@ -3081,6 +3187,7 @@ def _build_weekly_report_html(report, workspace_name):
 @app.route('/api/chamados/reports/weekly-email', methods=['POST'])
 @require_auth
 @require_admin
+@require_action_rbac('ticket.weeklyEmail', scope='global')
 def chamados_reports_weekly_email():
     """Envia por email o resumo semanal de chamados (últimos 7 dias)."""
     if not _require_supabase():
@@ -3264,6 +3371,7 @@ def admin_backups_list():
 
 @app.route('/api/admin/backups/prune', methods=['POST'])
 @require_auth
+@require_action_rbac('admin.backup.delete', scope='global')
 def admin_backups_prune():
     """Delete expired backups. Super_admin only."""
     admin_err = _require_super_admin()
@@ -3288,6 +3396,7 @@ def admin_backups_prune():
 
 @app.route('/api/admin/backups/<backup_id>/restore', methods=['POST'])
 @require_auth
+@require_action_rbac('admin.backup.restore', scope='global')
 def admin_backups_restore(backup_id):
     """Restore a workspace from backup. Super_admin only.
 
@@ -3365,6 +3474,7 @@ def admin_backups_restore(backup_id):
 
 @app.route('/api/admin/backups/<backup_id>', methods=['DELETE'])
 @require_auth
+@require_action_rbac('admin.backup.delete', scope='global')
 def admin_backups_delete(backup_id):
     """Delete a specific backup. Super_admin only."""
     admin_err = _require_super_admin()
@@ -3390,6 +3500,7 @@ def admin_backups_delete(backup_id):
 
 @app.route('/api/admin/audit-logs', methods=['GET'])
 @require_auth
+@require_action_rbac('admin.audit.view', scope='global')
 def admin_audit_logs_list():
     """List workspace audit logs (last 100). Super_admin only."""
     admin_err = _require_super_admin()
@@ -3414,6 +3525,7 @@ def admin_audit_logs_list():
 
 @app.route('/api/admin/workspaces/<workspace_id>/delete', methods=['POST'])
 @require_auth
+@require_action_rbac('admin.workspace.delete', scope='global')
 def admin_workspace_delete_with_backup(workspace_id):
     """Delete a workspace with backup + audit. Super_admin only.
 

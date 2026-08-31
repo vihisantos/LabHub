@@ -34,6 +34,7 @@ from auth import (
     _is_module_enabled,
     _SUPABASE_SERVICE_KEY as _AUTH_SERVICE_KEY,
 )
+from rbac import require_action as require_action_rbac
 
 # Detecta caminho correto quando rodando de exe
 if getattr(sys, 'frozen', False):
@@ -616,6 +617,7 @@ def push_test():
 @app.route('/api/push/send', methods=['POST'])
 @require_auth
 @require_admin
+@require_action_rbac('reservelab.push.manage', scope='global')
 def push_send():
     """Envia um push para os subscribers (filtrando por módulo, workspace, cargo e usuário)."""
     if not redis:

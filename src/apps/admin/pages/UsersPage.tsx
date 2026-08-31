@@ -1,50 +1,41 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { adminService } from '../../../core/auth/adminService'
-import type { User, Accent, ThemeVariant } from '../../../core/auth/types'
+import type { User } from '../../../core/auth/types'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { workspaceService } from '../../../core/workspaces/service'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import type { Workspace } from '../../../core/workspaces/types'
-import { themeStore } from '../../../core/theme/store'
 import { useRoles } from '../../../core/permissions/usePermissions'
-import { APP_ACCESS_LABELS, roleBadgeClass } from '../../../core/permissions/types'
-import type { AppAccessOverride } from '../../../core/permissions/types'
-import { appRegistry } from '../../../appRegistry'
-import { icons } from '../../../lib/icons'
-import { uploadAvatarToCloudinary } from '../../../lib/cloudinary'
+import { roleBadgeClass } from '../../../core/permissions/types'
 import { ApproveUserModal } from '../components/ApproveUserModal'
+import { PersonAvatar, statusStyle } from '../components/personShared'
+import { icons } from '../../../lib/icons'
 
-const ACCENTS: { value: Accent; label: string; color: string }[] = [
-  { value: 'emerald', label: 'Esmeralda', color: '#10b981' },
-  { value: 'cyan', label: 'Ciano', color: '#06b6d4' },
-  { value: 'blue', label: 'Azul', color: '#3b82f6' },
-  { value: 'purple', label: 'Roxo', color: '#a855f7' },
-]
+type Filter = 'all' | 'active' | 'pending' | 'admin'
 
-const THEMES: { value: ThemeVariant; label: string }[] = [
-  { value: 'dark', label: 'Escuro' },
-  { value: 'dim', label: 'Sutil' },
-  { value: 'light', label: 'Claro' },
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'active', label: 'Ativos' },
+  { value: 'pending', label: 'Pendentes' },
+  { value: 'admin', label: 'Admin' },
 ]
 
 export function UsersPage() {
+  const navigate = useNavigate()
   const { user: currentUser } = useAuth()
   const isSuperAdmin = !!currentUser?.is_super_admin
   const [users, setUsers] = useState<User[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState<string>('all')
-  const [editingUser, setEditingUser] = useState<string | null>(null)
+  const [filter, setFilter] = useState<Filter>('all')
   const [approvingUser, setApprovingUser] = useState<User | null>(null)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-  const [uploadingAvatar, setUploadingAvatar] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const { roles: roleList } = useRoles()
   const { workspace } = useWorkspace()
-  const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -62,7 +53,6 @@ export function UsersPage() {
   }, [load])
 
   // Polling: mantém a lista atualizada (aprovações e cargos de outros admins)
-  // refletem rapidamente sem precisar recarregar a página.
   useEffect(() => {
     const refresh = () => {
       if (!saving) load(true)
@@ -80,6 +70,7 @@ export function UsersPage() {
     }
   }, [load, saving])
 
+  // Deep link ?pending=<id> abre o modal de aprovação
   useEffect(() => {
     const pendingId = searchParams.get('pending')
     if (!pendingId || !isSuperAdmin) return
@@ -93,29 +84,40 @@ export function UsersPage() {
   const pendingUsers = users.filter((u) => u.status === 'pending')
   const activeUsers = users.filter((u) => u.status !== 'pending')
 
-  // Escopo por workspace: a lista de ativos mostra só os usuários do workspace
-  // atual. Admin absoluto e usuários sem workspace atribuído aparecem sempre
-  // (estes últimos precisam ser visíveis para receberem atribuição).
+  // Escopo por workspace: ativos só do workspace atual. Admin absoluto e
+  // usuários sem workspace atribuído aparecem sempre.
   const workspaceId = workspace?.id ?? null
-  const scopedActiveUsers = activeUsers.filter((u) => {
-    if (!workspaceId) return true
-    if (u.is_super_admin) return true
-    const ids = u.workspace_ids || []
-    return ids.length === 0 || ids.includes(workspaceId)
-  })
+  const scopedActiveUsers = useMemo(
+    () => activeUsers.filter((u) => {
+      if (!workspaceId) return true
+      if (u.is_super_admin) return true
+      const ids = u.workspace_ids || []
+      return ids.length === 0 || ids.includes(workspaceId)
+    }),
+    [activeUsers, workspaceId],
+  )
 
-  const filteredUsers = scopedActiveUsers.filter((u) => {
-    const matchesSearch = !search
-      || u.name.toLowerCase().includes(search.toLowerCase())
-      || u.email.toLowerCase().includes(search.toLowerCase())
-    const matchesRole = roleFilter === 'all' || u.roleId === roleFilter
-    return matchesSearch && matchesRole
-  })
+  const visiblePeople = useMemo(() => {
+    const all = [...scopedActiveUsers, ...pendingUsers]
+    const scoped = all.filter((u) => {
+      if (filter === 'pending') return u.status === 'pending'
+      if (filter === 'admin') return !!u.is_super_admin
+      if (filter === 'active') return u.status !== 'pending'
+      return true
+    })
+    if (!search) return scoped
+    const q = search.toLowerCase()
+    return scoped.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q),
+    )
+  }, [scopedActiveUsers, pendingUsers, filter, search])
 
   async function handleApprove(
     userId: string,
     roleId: string,
-    appAccess: Record<string, AppAccessOverride>,
+    appAccess: Record<string, never>,
     workspaceIds: string[],
   ): Promise<boolean> {
     setSaving(true)
@@ -126,13 +128,7 @@ export function UsersPage() {
     })
     if (success) {
       setUsers((prev) => prev.map((u) => u.id === userId
-        ? {
-            ...u,
-            status: 'active',
-            roleId,
-            workspace_ids: workspaceIds,
-            app_access: { ...(u.app_access || {}), ...appAccess },
-          }
+        ? { ...u, status: 'active', roleId, workspace_ids: workspaceIds }
         : u))
       setApprovingUser(null)
       setFeedback({ type: 'success', message: `Usuário aprovado como ${roleList.find((r) => r.id === roleId)?.name ?? 'cargo'}` })
@@ -143,143 +139,6 @@ export function UsersPage() {
     setTimeout(() => setFeedback(null), 3000)
     return success
   }
-
-  async function handleReject(userId: string) {
-    setSaving(true)
-    const success = await adminService.rejectUser(userId)
-    if (success) {
-      setUsers((prev) => prev.filter((u) => u.id !== userId))
-      setFeedback({ type: 'success', message: 'Usuário rejeitado e removido' })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao rejeitar usuário' })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
-  }
-
-  async function handleAvatarUpload(userId: string, file: File) {
-    setUploadingAvatar(userId)
-    try {
-      const url = await uploadAvatarToCloudinary(file)
-      const success = await adminService.updateUserProfile(userId, { avatar: url })
-      if (success) {
-        setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, avatar: url } : u))
-        setFeedback({ type: 'success', message: 'Avatar atualizado!' })
-      }
-    } catch (err) {
-      console.error('Erro ao upload avatar:', err)
-      setFeedback({ type: 'error', message: 'Erro ao fazer upload da foto' })
-    }
-    setUploadingAvatar(null)
-    setTimeout(() => setFeedback(null), 3000)
-  }
-
-  async function handleRoleChange(userId: string, newRoleId: string) {
-    setSaving(true)
-    const success = await adminService.updateUserProfile(userId, { roleId: newRoleId })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, roleId: newRoleId } : u))
-      setFeedback({ type: 'success', message: `Cargo alterado para ${roleList.find((r) => r.id === newRoleId)?.name ?? 'novo cargo'}` })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar cargo' })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
-  }
-
-  async function handleAccentChange(userId: string, accent: Accent) {
-    const success = await adminService.updateUserProfile(userId, { accent })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, accent } : u))
-    }
-  }
-
-  async function handleSuperAdminChange(userId: string, isSuperAdmin: boolean) {
-    if (userId === currentUser?.id && !isSuperAdmin) {
-      setFeedback({ type: 'error', message: 'Você não pode remover seu próprio acesso de admin absoluto' })
-      setTimeout(() => setFeedback(null), 3000)
-      return
-    }
-    setSaving(true)
-    const success = await adminService.updateUserProfile(userId, { is_super_admin: isSuperAdmin })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, is_super_admin: isSuperAdmin } : u))
-      setFeedback({ type: 'success', message: isSuperAdmin ? 'Admin absoluto definido' : 'Admin absoluto removido' })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar admin absoluto' })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
-  }
-
-  async function handleThemeChange(userId: string, theme_variant: ThemeVariant) {
-    const success = await adminService.updateUserProfile(userId, { theme_variant })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, theme_variant } : u))
-    }
-  }
-
-  async function toggleWorkspace(userId: string, workspaceId: string) {
-    setSaving(true)
-    const user = users.find((u) => u.id === userId)
-    if (!user) return
-    const current = user.workspace_ids || []
-    const has = current.includes(workspaceId)
-    const newIds = has
-      ? current.filter((id) => id !== workspaceId)
-      : [...current, workspaceId]
-    const success = await adminService.updateUserWorkspaces(userId, newIds)
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, workspace_ids: newIds } : u))
-      setFeedback({ type: 'success', message: has ? 'Acesso removido' : 'Acesso concedido' })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar workspaces' })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
-  }
-
-  function previewAccent(accent: Accent) {
-    themeStore.previewAccent(accent)
-  }
-
-  async function handleAppAccessChange(userId: string, appId: string, override: AppAccessOverride | null) {
-    setSaving(true)
-    const user = users.find((u) => u.id === userId)
-    if (!user) {
-      setSaving(false)
-      return
-    }
-    const current = { ...(user.app_access || {}) }
-    if (override === null) {
-      delete current[appId]
-    } else {
-      current[appId] = override
-    }
-    const success = await adminService.updateUserProfile(userId, { app_access: current })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, app_access: current } : u))
-      setFeedback({
-        type: 'success',
-        message: override === null ? 'Acesso restaurado para o padrão do cargo' : 'Acesso individual atualizado',
-      })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar acesso' })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
-  }
-
-  const userCounts = {
-    total: scopedActiveUsers.length,
-    pending: pendingUsers.length,
-    superAdmin: scopedActiveUsers.filter((u) => u.is_super_admin).length,
-  }
-
-  const roleCounts = roleList.map((role) => ({
-    role,
-    count: scopedActiveUsers.filter((u) => u.roleId === role.id).length,
-  }))
 
   if (loading) {
     return (
@@ -294,34 +153,13 @@ export function UsersPage() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-bold text-fg">Usuários</h2>
-        <p className="mt-1 text-sm text-fg-muted">
-          {userCounts.total} usuário{userCounts.total !== 1 ? 's' : ''}{workspace ? ` em ${workspace.name}` : ' no sistema'}
+      <div>
+        <h1 className="text-2xl font-black tracking-tight text-fg">Pessoas</h1>
+        <p className="text-[11px] text-fg-muted mt-1">
+          {scopedActiveUsers.length} pessoa{scopedActiveUsers.length !== 1 ? 's' : ''}
+          {workspace ? ` em ${workspace.name}` : ' no sistema'}
+          {pendingUsers.length > 0 && ` · ${pendingUsers.length} pendente${pendingUsers.length !== 1 ? 's' : ''}`}
         </p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
-          <p className="text-lg font-bold text-fg">{userCounts.total}</p>
-          <p className="text-[10px] text-fg-muted">Total</p>
-        </div>
-        {userCounts.pending > 0 && (
-          <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center ring-1 ring-amber-500/30">
-            <p className="text-lg font-bold text-amber-500">{userCounts.pending}</p>
-            <p className="text-[10px] text-amber-500/70">Pendentes</p>
-          </div>
-        )}
-        <div className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
-          <p className="text-lg font-bold text-fg">{userCounts.superAdmin}</p>
-          <p className="text-[10px] text-fg-muted">Admin absoluto</p>
-        </div>
-        {roleCounts.map(({ role, count }) => (
-          <div key={role.id} className="rounded-xl bg-card p-3 shadow-[var(--shadow-card)] text-center">
-            <p className="text-lg font-bold text-fg">{count}</p>
-            <p className={`text-[10px] ${roleBadgeClass(role)} rounded-full px-1.5`}>{role.name}</p>
-          </div>
-        ))}
       </div>
 
       {feedback && (
@@ -334,337 +172,111 @@ export function UsersPage() {
         </div>
       )}
 
-      {/* Pending Users Section — apenas o admin absoluto aprova */}
       {isSuperAdmin && pendingUsers.length > 0 && (
-        <div className="rounded-xl bg-card shadow-[var(--shadow-card)] overflow-hidden">
-          <div className="border-b border-line px-4 py-3 flex items-center gap-2">
-            <icons.ui.inbox size={14} className="text-amber-500" />
-            <h3 className="text-xs font-semibold text-fg-muted">
-              Aprovações Pendentes ({pendingUsers.length})
-            </h3>
+        <button
+          type="button"
+          onClick={() => navigate('/admin/requests')}
+          className="w-full rounded-xl bg-amber-500/10 p-4 text-left ring-1 ring-amber-500/20 transition-colors hover:bg-amber-500/15"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500">
+              <icons.ui.inbox size={18} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-fg">Solicitações de acesso</p>
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                {pendingUsers.length} aguardando revisão
+              </p>
+            </div>
+            <icons.ui.chevronRight size={16} className="text-fg-muted" />
           </div>
-          <div className="divide-y divide-line">
-            {pendingUsers.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">
-                  <icons.ui.user size={18} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-fg">{u.name}</p>
-                  <p className="text-[11px] text-fg-muted">{u.email}</p>
-                </div>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setApprovingUser(u)}
-                    disabled={saving}
-                    className="rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
-                  >
-                    Aprovar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleReject(u.id)}
-                    disabled={saving}
-                    className="rounded-lg bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                  >
-                    Rejeitar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        </button>
       )}
 
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <icons.ui.search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+      {/* Busca + filtros */}
+      <div className="space-y-2.5">
+        <div className="relative">
+          <icons.ui.search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome ou email..."
-            className="w-full rounded-xl border border-line bg-surface pl-9 pr-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-slate-500 focus:outline-none"
+            placeholder="Buscar por nome ou e-mail..."
+            className="w-full rounded-xl border border-line bg-card py-2.5 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim focus:border-slate-500 focus:outline-none"
           />
         </div>
-        <select
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
-          className="rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg focus:border-slate-500 focus:outline-none"
-        >
-          <option value="all">Todos</option>
-          {roleList.map((role) => (
-            <option key={role.id} value={role.id}>{role.name}</option>
+        <div className="flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setFilter(f.value)}
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                filter === f.value
+                  ? 'bg-fg text-surface'
+                  : 'bg-card text-fg-muted hover:text-fg'
+              }`}
+            >
+              {f.label}
+            </button>
           ))}
-        </select>
+        </div>
       </div>
 
-      <div className="space-y-2">
-        {filteredUsers.length === 0 ? (
-          <div className="rounded-xl bg-card p-8 text-center">
-            <p className="text-sm text-fg-muted">Nenhum usuário encontrado</p>
+      {/* Lista de pessoas */}
+      {visiblePeople.length === 0 ? (
+        <div className="rounded-xl bg-card p-10 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-input text-fg-muted empty-state-icon">
+            <icons.ui.user size={22} />
           </div>
-        ) : (
-          filteredUsers.map((u) => {
-            const isOpen = editingUser === u.id
-            const accentColor = ACCENTS.find((a) => a.value === u.accent)?.color || '#10b981'
-            const userWsNames = (u.workspace_ids || [])
-              .map((id) => workspaces.find((w) => w.id === id))
-              .filter(Boolean) as Workspace[]
-            const userRole = roleList.find((r) => r.id === u.roleId)
-            const isAbsUser = !!u.is_super_admin
-
+          <p className="text-sm font-medium text-fg-muted">
+            {search ? 'Nenhuma pessoa encontrada' : 'Nenhuma pessoa aqui ainda'}
+          </p>
+          {search && (
+            <p className="mt-1 text-[11px] text-fg-dim">Ajuste a busca ou os filtros.</p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {visiblePeople.map((u) => {
+            const st = statusStyle(u.status)
+            const role = roleList.find((r) => r.id === u.roleId)
             return (
-              <div key={u.id} className="rounded-xl bg-card shadow-[var(--shadow-card)] overflow-hidden transition-all">
-                <div className="flex items-center gap-3 p-4">
-                  {/* Avatar */}
-                  <div className="relative group">
-                    {u.avatar ? (
-                      <img
-                        src={u.avatar}
-                        alt={u.name}
-                        className="h-10 w-10 shrink-0 rounded-xl object-cover"
-                      />
-                    ) : (
-                      <div
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                        style={{ backgroundColor: accentColor + '15', color: accentColor }}
-                      >
-                        <icons.ui.user size={18} />
-                      </div>
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => navigate(`/admin/users/${u.id}`)}
+                className="flex w-full items-center gap-3 rounded-xl bg-card p-3 text-left shadow-[var(--shadow-card)] transition-colors hover:bg-input"
+              >
+                <PersonAvatar user={u} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-sm font-semibold text-fg">{u.name}</p>
+                    {u.is_super_admin && (
+                      <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-purple-500">
+                        ADMIN
+                      </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const input = document.createElement('input')
-                        input.type = 'file'
-                        input.accept = 'image/*'
-                        input.onchange = (e) => {
-                          const file = (e.target as HTMLInputElement).files?.[0]
-                          if (file) handleAvatarUpload(u.id, file)
-                        }
-                        input.click()
-                      }}
-                      disabled={uploadingAvatar === u.id}
-                      className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                      title="Alterar foto"
-                    >
-                      {uploadingAvatar === u.id ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                      ) : (
-                        <icons.ui.camera size={14} className="text-white" />
-                      )}
-                    </button>
                   </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-fg truncate">{u.name}</p>
-                        {isAbsUser && (
-                          <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-purple-500">
-                            ADMIN ABS
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-fg-muted truncate">{u.email}</p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setEditingUser(isOpen ? null : u.id)}
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition-opacity hover:opacity-80 ${roleBadgeClass(userRole)}`}
-                    >
-                      {userRole?.name ?? 'Sem cargo'}
-                      <icons.ui.chevronDown size={10} className="ml-1 inline" />
-                    </button>
+                  <p className="truncate text-[11px] text-fg-muted">{u.email}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${st.chip}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+                      {st.label}
+                    </span>
+                    {role && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${roleBadgeClass(role)}`}>
+                        {role.name}
+                      </span>
+                    )}
+                  </div>
                 </div>
-
-                {isOpen && (
-                  <div className="border-t border-line px-4 py-3 space-y-3">
-                    {isSuperAdmin && (
-                      <div>
-                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Cargo</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {roleList.map((role) => (
-                            <button
-                              key={role.id}
-                              type="button"
-                              onClick={() => handleRoleChange(u.id, role.id)}
-                              disabled={saving || role.id === u.roleId}
-                              className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
-                                role.id === u.roleId
-                                  ? `${roleBadgeClass(role)} ring-1 ring-slate-500/30`
-                                  : 'bg-input text-fg-muted hover:text-fg'
-                              } disabled:opacity-50`}
-                            >
-                              {saving && role.id !== u.roleId ? '...' : role.name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {isSuperAdmin && u.id !== currentUser?.id && (
-                      <div>
-                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Admin absoluto</p>
-                        <button
-                          type="button"
-                          onClick={() => handleSuperAdminChange(u.id, !isAbsUser)}
-                          disabled={saving}
-                          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all ${
-                            isAbsUser
-                              ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/30'
-                              : 'bg-input text-fg-muted hover:text-fg'
-                          } disabled:opacity-50`}
-                        >
-                          <icons.ui.shield size={12} />
-                          {isAbsUser ? 'Remover admin absoluto' : 'Conceder admin absoluto'}
-                        </button>
-                      </div>
-                    )}
-
-                    <div>
-                      <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Cor do app</p>
-                      <div className="flex gap-2">
-                        {ACCENTS.map((a) => (
-                          <button
-                            key={a.value}
-                            type="button"
-                            onClick={() => handleAccentChange(u.id, a.value)}
-                            onMouseEnter={() => previewAccent(a.value)}
-                            onMouseLeave={() => themeStore.resetAccent()}
-                            disabled={saving}
-                            className={`relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all ${
-                              u.accent === a.value
-                                ? 'ring-2 ring-offset-1 ring-offset-card'
-                                : 'opacity-60 hover:opacity-100'
-                            } disabled:opacity-50`}
-                            style={{ backgroundColor: a.color + '15', color: a.color }}
-                            title={a.label}
-                          >
-                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: a.color }} />
-                            {a.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Tema</p>
-                      <div className="flex gap-1.5">
-                        {THEMES.map((t) => (
-                          <button
-                            key={t.value}
-                            type="button"
-                            onClick={() => handleThemeChange(u.id, t.value)}
-                            disabled={saving}
-                            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
-                              u.theme_variant === t.value
-                                ? 'bg-slate-500/20 text-fg ring-1 ring-slate-500/30'
-                                : 'bg-input text-fg-muted hover:text-fg'
-                            } disabled:opacity-50`}
-                          >
-                            {t.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Workspace section - only for non-absolute users */}
-                    {!isAbsUser && (
-                      <div>
-                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
-                          Workspaces ({userWsNames.length} de {workspaces.length})
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {workspaces.map((ws) => {
-                            const hasAccess = (u.workspace_ids || []).includes(ws.id)
-                            return (
-                              <button
-                                key={ws.id}
-                                type="button"
-                                onClick={() => toggleWorkspace(u.id, ws.id)}
-                                disabled={saving || !isSuperAdmin}
-                                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
-                                  hasAccess
-                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/30'
-                                    : 'bg-input text-fg-muted hover:text-fg'
-                                } disabled:opacity-50`}
-                              >
-                                {hasAccess ? (
-                                  <><icons.ui.check size={10} className="inline mr-1" />{ws.name}</>
-                                ) : (
-                                  <><icons.ui.plus size={10} className="inline mr-1" />{ws.name}</>
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Per-app access override - only for non-absolute users */}
-                    {!isAbsUser && (
-                      <div>
-                        <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
-                          Acesso por aplicativo (sobrescreve o cargo)
-                        </p>
-                        <div className="space-y-1.5">
-                          {editableApps.map((app) => {
-                            const current = u.app_access?.[app.id] ?? null
-                            const roleLevel = userRole?.appAccess?.[app.id]
-                            return (
-                              <div key={app.id} className="flex items-center gap-3 rounded-lg border border-line px-2.5 py-2">
-                                <div
-                                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${current === 'none' ? 'opacity-40 grayscale' : ''}`}
-                                  style={{ backgroundColor: app.color + '15', color: app.color }}
-                                >
-                                  <app.icon size={15} />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-medium text-fg">{app.name}</p>
-                                  <p className="text-[10px] text-fg-dim">
-                                    Cargo: {roleLevel ? APP_ACCESS_LABELS[roleLevel] : 'Sem acesso'}
-                                  </p>
-                                </div>
-                                <select
-                                  value={current ?? 'inherit'}
-                                  onChange={(e) => {
-                                    const v = e.target.value
-                                    handleAppAccessChange(u.id, app.id, v === 'inherit' ? null : (v as AppAccessOverride))
-                                  }}
-                                  disabled={saving || !isSuperAdmin}
-                                  className="rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-fg focus:outline-none disabled:opacity-50"
-                                >
-                                  <option value="inherit">Padrão do cargo</option>
-                                  <option value="none">Sem acesso</option>
-                                  <option value="dash">Dashboard</option>
-                                  <option value="read">Só leitura</option>
-                                  <option value="full">Acesso total</option>
-                                </select>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {isAbsUser && (
-                      <div className="rounded-lg bg-purple-500/5 px-3 py-2">
-                        <p className="text-[10px] font-medium text-purple-500">
-                          <icons.ui.shield size={10} className="inline mr-1" />
-                          Admin absoluto — acesso total a todos os workspaces e usuários
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                <icons.ui.chevronRight size={16} className="shrink-0 text-fg-dim" />
+              </button>
             )
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
       {approvingUser && (
         <ApproveUserModal

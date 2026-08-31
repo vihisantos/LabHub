@@ -1,26 +1,14 @@
 import { useState, useCallback, useMemo } from 'react'
-import { Link, Outlet, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
-import { LiquidBottomNav } from '../../../lib/components/LiquidBottomNav'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { useNotifications } from '../../../core/notifications/useNotifications'
 import { useFastSync } from '../../../lib/useFastSync'
 import { WorkspaceSelectionPage } from '../pages/WorkspaceSelectionPage'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
-
-const NAV_ITEMS = [
-  { to: '/admin', label: 'Dashboard', icon: icons.nav.dashboard },
-  { to: '/admin/users', label: 'Usuários', icon: icons.ui.user },
-  { to: '/admin/roles', label: 'Permissões', icon: icons.ui.sliders },
-  { to: '/admin/notifications', label: 'Notificações', icon: icons.ui.inbox },
-  { to: '/admin/settings', label: 'Configurações', icon: icons.nav.settings },
-]
-
-const NAV_OVERFLOW = [
-  { to: '/admin/backups', label: 'Backups', icon: icons.ui.hardDrive },
-]
+import { AdminBottomNav } from '../components/AdminBottomNav'
 
 const WS_BG_GRADIENTS = [
   'from-indigo-500/10 via-purple-500/5 to-transparent',
@@ -33,12 +21,18 @@ const WS_BG_GRADIENTS = [
 
 export function AdminLayout() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, signOut } = useAuth()
   const { workspace, workspaces } = useWorkspace()
   const { unreadCount } = useNotifications()
   useFastSync(['notifications'], 10000)
   // O gate global já garante um workspace — seletor só aparece ao trocar de ambiente
   const [showSelector, setShowSelector] = useState(false)
+
+  // No Dashboard o Hero já apresenta o Workspace; aqui omitimos o bloco grande
+  // com o nome do Workspace para evitar duplicação. Nas demais páginas o nome
+  // grande permanece, pois não possuem Hero próprio.
+  const isDashboard = location.pathname === '/admin'
 
   const handleSelect = useCallback(() => {
     setShowSelector(false)
@@ -107,7 +101,8 @@ export function AdminLayout() {
             </div>
           </div>
 
-          {/* Big artistic workspace name */}
+          {/* Big artistic workspace name (omitido no Dashboard — o Hero já apresenta o Workspace) */}
+          {!isDashboard && (
           <div className="flex items-end justify-between">
             <div className="min-w-0 flex-1">
               {workspace && (
@@ -154,6 +149,7 @@ export function AdminLayout() {
               Admin Panel
             </motion.p>
           </div>
+          )}
         </div>
       </header>
 
@@ -165,11 +161,7 @@ export function AdminLayout() {
       </main>
 
       {/* Bottom Nav — flutuante, redonda, blur, liquid glass */}
-      <LiquidBottomNav
-        items={NAV_ITEMS}
-        overflowItems={NAV_OVERFLOW}
-        getBadge={(to) => (to === '/admin/notifications' ? unreadCount : 0)}
-      />
+      <AdminBottomNav unreadCount={unreadCount} />
 
       <PushNotificationButton />
     </div>
