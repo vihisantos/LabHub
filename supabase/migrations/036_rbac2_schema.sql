@@ -467,6 +467,7 @@ END $$;
 DO $$
 DECLARE
   v_placement integer := 0;     -- memberships created
+  v_ct        integer := 0;     -- ROW_COUNT temporário por INSERT (acumula em v_placement)
   v_no_ws     integer := 0;     -- profiles with empty/null workspace_ids
   v_no_role   integer := 0;     -- rows with unknown/null role
 BEGIN
@@ -488,7 +489,8 @@ BEGIN
   JOIN public.roles r ON r.slug = 'vis'
   WHERE p.role = 'viewer'
   ON CONFLICT (profile_id, workspace_id) DO NOTHING;
-  GET DIAGNOSTICS v_placement = v_placement + ROW_COUNT;
+  GET DIAGNOSTICS v_ct = ROW_COUNT;
+  v_placement := v_placement + v_ct;
 
   -- Admin de Workspace (legacy role='admin')
   INSERT INTO public.memberships (profile_id, workspace_id, role_id, status)
@@ -498,7 +500,8 @@ BEGIN
   JOIN public.roles r ON r.slug = 'adm'
   WHERE p.role = 'admin'
   ON CONFLICT (profile_id, workspace_id) DO NOTHING;
-  GET DIAGNOSTICS v_placement = v_placement + ROW_COUNT;
+  GET DIAGNOSTICS v_ct = ROW_COUNT;
+  v_placement := v_placement + v_ct;
 
   -- Count profiles with empty/null workspace_ids (contribute 0 memberships).
   SELECT COUNT(*) INTO v_no_ws FROM public.profiles
