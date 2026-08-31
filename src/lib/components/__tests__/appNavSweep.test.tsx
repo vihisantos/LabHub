@@ -210,14 +210,17 @@ describe('varredura de rotas — aba ativa', () => {
 
   it('Admin: aba ativa correta em todas as rotas', () => {
     runSweep(<AdminLayout />, [
-      ['/admin', 'Dashboard'],
-      ['/admin/users', 'Usuários'],
-      ['/admin/roles', 'Permissões'],
-      ['/admin/workspaces', 'Dashboard'],
-      ['/admin/notifications', 'Notificações'],
-      ['/admin/settings', 'Configurações'],
-      ['/admin/backups', 'Backups'],
-      ['/admin/profile', 'Dashboard'],
+      ['/admin', 'Início'],
+      ['/admin/users', 'Pessoas'],
+      ['/admin/requests', 'Pessoas'],
+      ['/admin/users/u-1', 'Pessoas'],
+      ['/admin/roles', 'Acesso'],
+      ['/admin/workspaces', 'Mais'],
+      ['/admin/notifications', 'Alertas'],
+      ['/admin/logs', 'Alertas'],
+      ['/admin/settings', 'Mais'],
+      ['/admin/backups', 'Mais'],
+      ['/admin/profile', 'Mais'],
     ])
   })
 

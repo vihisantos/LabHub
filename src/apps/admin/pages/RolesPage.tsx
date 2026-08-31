@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRoles } from '../../../core/permissions/usePermissions'
 import {
-  APP_ACCESS_LEVELS,
+  APP_ACCESS_DESCRIPTIONS,
   APP_ACCESS_LABELS,
-  roleBadgeClass,
+  APP_ACCESS_LEVELS,
   type AppAccessLevel,
   type Role,
 } from '../../../core/permissions/types'
@@ -12,23 +12,38 @@ import type { User } from '../../../core/auth/types'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
+import { PersonAvatar } from '../components/personShared'
 
-const LEVEL_BADGES: Record<AppAccessLevel, { active: string; dot: string }> = {
-  dash: { active: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' },
-  read: { active: 'bg-blue-500/15 text-blue-600 dark:text-blue-400', dot: 'bg-blue-500' },
-  full: { active: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' },
+const LEVEL_BADGES: Record<'none' | AppAccessLevel, { chip: string; dot: string }> = {
+  none: { chip: 'bg-input text-fg-muted', dot: 'bg-fg-muted/40' },
+  dash: { chip: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' },
+  read: { chip: 'bg-blue-500/15 text-blue-600 dark:text-blue-400', dot: 'bg-blue-500' },
+  full: { chip: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' },
 }
 
-function MemberAvatar({ user }: { user: User }) {
-  if (user.avatar) {
-    return <img src={user.avatar} alt={user.name} className="h-9 w-9 shrink-0 rounded-full object-cover" />
-  }
-  return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-fg-muted/15 text-fg-muted">
-      <icons.ui.user size={16} />
-    </div>
-  )
+interface LevelOption {
+  value: AppAccessLevel | null
+  label: string
+  desc: string
 }
+
+const LEVEL_OPTIONS: LevelOption[] = [
+  { value: null, label: 'Sem acesso', desc: 'Não enxerga nem utiliza o aplicativo' },
+  ...APP_ACCESS_LEVELS.map((lvl) => ({
+    value: lvl as AppAccessLevel | null,
+    label: APP_ACCESS_LABELS[lvl],
+    desc: APP_ACCESS_DESCRIPTIONS[lvl],
+  })),
+]
+
+interface LevelPickerState {
+  roleId: string
+  appId: string
+  appName: string
+  level: AppAccessLevel | null
+}
+
+const ACCESSIBLE_APPS = appRegistry.filter((app) => app.id !== 'admin')
 
 export function RolesPage() {
   const { roles, loading, update, create, remove } = useRoles()
@@ -38,11 +53,18 @@ export function RolesPage() {
   const [profiles, setProfiles] = useState<User[]>([])
   const [profilesLoading, setProfilesLoading] = useState(true)
 
+  // Nível de acesso por aplicativo (bottom sheet)
+  const [picking, setPicking] = useState<LevelPickerState | null>(null)
+  const [draftLevel, setDraftLevel] = useState<AppAccessLevel | null>(null)
+
   // Novo cargo
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [newLeaderId, setNewLeaderId] = useState('')
+
+  // Confirmação de exclusão
+  const [deleting, setDeleting] = useState<Role | null>(null)
 
   const loadProfiles = useCallback(async () => {
     setProfilesLoading(true)
@@ -74,19 +96,26 @@ export function RolesPage() {
     [activeUsers, workspaceId],
   )
 
-  async function setAppAccess(roleId: string, appId: string, level: AppAccessLevel | null) {
-    const role = roles.find((r) => r.id === roleId)
-    if (!role) return
+  function openLevelPicker(role: Role, appId: string) {
+    const app = appRegistry.find((a) => a.id === appId)
+    const level = (role.appAccess || {})[appId] ?? null
+    setPicking({ roleId: role.id, appId, appName: app?.name ?? appId, level })
+    setDraftLevel(level)
+  }
 
+  async function applyLevel() {
+    if (!picking) return
+    const { roleId, appId } = picking
     setSaving(roleId)
-    const next = { ...(role.appAccess || {}) }
-    if (level === null) {
+    const next = { ...(roles.find((r) => r.id === roleId)?.appAccess || {}) }
+    if (draftLevel === null) {
       delete next[appId]
     } else {
-      next[appId] = level
+      next[appId] = draftLevel
     }
     update(roleId, { appAccess: next })
     setSaving(null)
+    setPicking(null)
   }
 
   async function handleSetLeader(role: Role, leaderId: string | null) {
@@ -120,17 +149,19 @@ export function RolesPage() {
   }
 
   async function handleDelete(role: Role) {
-    const members = activeUsers.filter((u) => u.roleId === role.id)
+    const members = scopedActiveUsers.filter((u) => u.roleId === role.id)
     if (role.isDefault) {
+      setDeleting(null)
       window.alert('O cargo padrão não pode ser excluído.')
       return
     }
     if (members.length > 0) {
+      setDeleting(null)
       window.alert(`Este cargo tem ${members.length} usuário(s). Reatribua os cargos antes de excluir.`)
       return
     }
-    if (!window.confirm(`Excluir o cargo "${role.name}"?`)) return
     remove(role.id)
+    setDeleting(null)
   }
 
   if (loading) {
@@ -149,9 +180,9 @@ export function RolesPage() {
       <div className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-fg">Cargos</h2>
+            <h2 className="text-lg font-bold text-fg">Cargos &amp; Acesso</h2>
             <p className="mt-1 text-sm text-fg-muted">
-              Cada cargo define o nível de acesso aos aplicativos, o líder do setor e seus subordinados.
+              Defina como os diferentes tipos de usuários utilizam os recursos deste Workspace.
             </p>
           </div>
           <button
@@ -165,212 +196,251 @@ export function RolesPage() {
         </div>
       </div>
 
-      {roles.map((role) => {
-        const access = role.appAccess || {}
-        const grantedCount = appRegistry.filter((app) => access[app.id]).length
-        const isExpanded = expandedRole === role.id
-        const leader = scopedActiveUsers.find((u) => u.id === role.leaderId)
-        const members = scopedActiveUsers.filter((u) => u.roleId === role.id)
+      <div className="space-y-3">
+        {roles.map((role) => {
+          const access = role.appAccess || {}
+          const isExpanded = expandedRole === role.id
+          const leader = scopedActiveUsers.find((u) => u.id === role.leaderId)
+          const members = scopedActiveUsers.filter((u) => u.roleId === role.id)
 
-        return (
-          <div key={role.id} className="rounded-xl bg-card shadow-[var(--shadow-card)] overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setExpandedRole(isExpanded ? null : role.id)}
-              className="flex w-full items-center justify-between px-4 py-4 text-left transition-colors hover:bg-input/50"
-            >
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-fg">{role.name}</p>
-                  {role.isDefault && (
-                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-500">
-                      Padrão
-                    </span>
-                  )}
-                  <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${roleBadgeClass(role)}`}>
+          return (
+            <div key={role.id} className="overflow-hidden rounded-xl bg-card shadow-[var(--shadow-card)]">
+              <button
+                type="button"
+                onClick={() => setExpandedRole(isExpanded ? null : role.id)}
+                className="flex w-full items-center gap-4 px-4 py-4 text-left transition-colors hover:bg-input/40"
+              >
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-fg-muted/10 text-fg-muted">
+                  <icons.ui.shield size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-fg">{role.name}</p>
+                    {role.isDefault && (
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-500">
+                        Padrão
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 truncate text-[11px] text-fg-muted">{role.description}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-[10px] text-fg-muted">
                     {members.length} membro{members.length !== 1 ? 's' : ''}
                   </span>
+                  <icons.ui.chevronDown
+                    size={16}
+                    className={`text-fg-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                  />
                 </div>
-                <p className="text-[11px] text-fg-muted">{role.description}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-fg-muted">{grantedCount} de {appRegistry.length} apps</span>
-                <icons.ui.chevronDown
-                  size={16}
-                  className={`text-fg-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                />
-              </div>
-            </button>
+              </button>
 
-            {isExpanded && (
-              <div className="border-t border-line px-4 py-4 space-y-4">
-                {/* Líder do setor */}
-                <div>
-                  <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Líder do setor</p>
-                  <div className="flex items-center gap-2.5">
-                    {leader ? (
-                      <>
-                        <MemberAvatar user={leader} />
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-fg truncate">{leader.name}</p>
-                          <p className="text-[10px] text-fg-muted truncate">{leader.email}</p>
+              {isExpanded && (
+                <div className="border-t border-line px-4 py-4 lg:grid lg:grid-cols-2 lg:gap-6">
+                  {/* Coluna: informações do cargo */}
+                  <div className="space-y-5">
+                    {/* Pessoas */}
+                    <section>
+                      <p className="mb-2 text-[10px] font-semibold text-fg-muted">
+                        Pessoas com este cargo ({members.length})
+                      </p>
+                      {members.length === 0 ? (
+                        <p className="rounded-lg bg-input/40 px-3 py-2.5 text-[11px] text-fg-dim">
+                          Nenhum usuário com este cargo ainda. Atribua o cargo em Pessoas.
+                        </p>
+                      ) : (
+                        <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-input/20">
+                          {members.map((u) => (
+                            <div key={u.id} className="flex items-center gap-3 px-3 py-2.5">
+                              <PersonAvatar user={u} size="sm" />
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-medium text-fg">{u.name}</p>
+                                <p className="truncate text-[10px] text-fg-muted">{u.email}</p>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      </>
-                    ) : (
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-fg-muted/15 text-fg-muted">
-                        <icons.ui.user size={16} />
+                      )}
+                    </section>
+
+                    {/* Recursos adicionais */}
+                    <section>
+                      <p className="mb-2 text-[10px] font-semibold text-fg-muted">Recursos adicionais</p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-input/30 px-3 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500">
+                              <icons.ui.qrCode size={16} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-fg">Gerar QR de salas</p>
+                              <p className="text-[10px] text-fg-muted">
+                                Independente do nível no app Chamados.
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setManageQr(role, !role.manageQr)}
+                            disabled={saving === role.id}
+                            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${role.manageQr ? 'bg-emerald-500' : 'bg-input'}`}
+                            title={role.manageQr ? 'Revogar QR' : 'Conceder QR'}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${role.manageQr ? 'left-[1.375rem]' : 'left-0.5'}`}
+                            />
+                          </button>
+                        </div>
+
+                        <div className="rounded-xl border border-line bg-input/30 px-3 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-500">
+                                <icons.ui.user size={16} />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-fg">Líder do setor</p>
+                                <p className="text-[10px] text-fg-muted">
+                                  {leader ? leader.name : 'Sem líder definido'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          <select
+                            value={role.leaderId ?? ''}
+                            onChange={(e) => handleSetLeader(role, e.target.value || null)}
+                            disabled={saving === role.id || profilesLoading}
+                            className="mt-3 w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-xs text-fg focus:outline-none disabled:opacity-50"
+                          >
+                            <option value="">Sem líder</option>
+                            {scopedActiveUsers.map((u) => (
+                              <option key={u.id} value={u.id}>{u.name}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
+                    </section>
+
+                    {!role.isDefault && (
+                      <section className="lg:col-span-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeleting(role)}
+                          disabled={saving === role.id}
+                          className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                        >
+                          <icons.ui.trash size={13} />
+                          Excluir cargo
+                        </button>
+                      </section>
                     )}
-                    <select
-                      value={role.leaderId ?? ''}
-                      onChange={(e) => handleSetLeader(role, e.target.value || null)}
-                      disabled={saving === role.id || profilesLoading}
-                      className="ml-auto rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-fg focus:outline-none disabled:opacity-50"
-                    >
-                      <option value="">Sem líder</option>
-                      {scopedActiveUsers.map((u) => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
-                      ))}
-                    </select>
                   </div>
-                </div>
 
-                {/* Subordinados */}
-                <div>
-                  <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
-                    Subordinados ({members.length})
-                  </p>
-                  {members.length === 0 ? (
-                    <p className="rounded-lg bg-input/40 px-3 py-2 text-[11px] text-fg-dim">
-                      Nenhum usuário com este cargo ainda. Atribua o cargo em Usuários.
+                  {/* Coluna: acesso aos aplicativos */}
+                  <section>
+                    <p className="mb-1 text-[10px] font-semibold text-fg-muted">Acesso aos aplicativos</p>
+                    <p className="mb-2.5 text-[10px] text-fg-dim">
+                      O nível define como quem usa este cargo enxerga cada aplicativo. Overrides individuais são
+                      ajustados em Pessoas.
                     </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {members.map((u) => (
-                        <div
-                          key={u.id}
-                          className="flex items-center gap-1.5 rounded-lg bg-input/50 px-2 py-1.5"
-                          title={`${u.name} · ${u.email}`}
-                        >
-                          <MemberAvatar user={u} />
-                          <span className="max-w-[10rem] truncate text-[11px] font-medium text-fg">{u.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Acesso por aplicativo */}
-                <div>
-                  <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Acesso por aplicativo</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {appRegistry.filter((app) => app.id !== 'admin').map((app) => {
-                      const level = access[app.id] || null
-                      const isOn = level !== null
-                      return (
-                        <div
-                          key={app.id}
-                          className={`rounded-xl border p-3 transition-colors ${isOn ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-line bg-input/30'}`}
-                        >
-                          <div className="flex items-center gap-3">
+                    <div className="space-y-2.5">
+                      {ACCESSIBLE_APPS.map((app) => {
+                        const level = access[app.id] ?? null
+                        const badge = LEVEL_BADGES[level ?? 'none']
+                        return (
+                          <button
+                            key={app.id}
+                            type="button"
+                            onClick={() => openLevelPicker(role, app.id)}
+                            disabled={saving === role.id}
+                            className="flex w-full items-center gap-3 rounded-xl border border-line bg-input/20 px-3 py-3 text-left transition-colors hover:bg-input/40 disabled:opacity-50"
+                          >
                             <div
-                              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-opacity ${isOn ? '' : 'opacity-40 grayscale'}`}
+                              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
                               style={{ backgroundColor: app.color + '15', color: app.color }}
                             >
-                              <app.icon size={20} />
+                              <app.icon size={18} />
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-fg">{app.name}</p>
-                              <p className="text-[10px] text-fg-muted truncate">{app.description}</p>
+                              <p className="text-xs font-semibold text-fg">{app.name}</p>
+                              <p className="text-[10px] text-fg-muted">Acesso do cargo</p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setAppAccess(role.id, app.id, isOn ? null : 'full')}
-                              disabled={saving === role.id}
-                              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${isOn ? 'bg-emerald-500' : 'bg-input'}`}
-                              title={isOn ? 'Remover acesso' : 'Conceder acesso'}
-                            >
-                              <span
-                                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${isOn ? 'left-[1.375rem]' : 'left-0.5'}`}
-                              />
-                            </button>
-                          </div>
-
-                          {isOn && (
-                            <div className="mt-3 flex items-center gap-1.5">
-                              {APP_ACCESS_LEVELS.map((lvl) => {
-                                const isActive = level === lvl
-                                return (
-                                  <button
-                                    key={lvl}
-                                    type="button"
-                                    onClick={() => setAppAccess(role.id, app.id, lvl)}
-                                    disabled={saving === role.id}
-                                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-semibold transition-colors disabled:opacity-50 ${
-                                      isActive ? LEVEL_BADGES[lvl].active : 'text-fg-muted hover:bg-input hover:text-fg'
-                                    }`}
-                                    title={APP_ACCESS_LABELS[lvl]}
-                                  >
-                                    <span className={`h-1.5 w-1.5 rounded-full ${isActive ? LEVEL_BADGES[lvl].dot : 'bg-fg-muted/40'}`} />
-                                    {APP_ACCESS_LABELS[lvl]}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Permissões extras */}
-                <div>
-                  <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Permissões extras</p>
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-input/30 px-3 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500">
-                        <icons.ui.qrCode size={16} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-fg">Gerar QR de salas</p>
-                        <p className="text-[10px] text-fg-muted">
-                          Permite imprimir/copiar o QR das salas, independente do nível no app Chamados.
-                        </p>
-                      </div>
+                            <span className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-semibold ${badge.chip}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
+                              {LEVEL_OPTIONS.find((o) => o.value === level)?.label ?? 'Sem acesso'}
+                            </span>
+                            <icons.ui.chevronRight size={14} className="shrink-0 text-fg-dim" />
+                          </button>
+                        )
+                      })}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setManageQr(role, !role.manageQr)}
-                      disabled={saving === role.id}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${role.manageQr ? 'bg-emerald-500' : 'bg-input'}`}
-                      title={role.manageQr ? 'Revogar QR' : 'Conceder QR'}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${role.manageQr ? 'left-[1.375rem]' : 'left-0.5'}`}
-                      />
-                    </button>
-                  </div>
-                </div>
 
-                {!role.isDefault && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(role)}
-                      disabled={saving === role.id}
-                      className="flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                    >
-                      <icons.ui.trash size={13} />
-                      Excluir cargo
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+                    {/* Futuro: Ações permitidas (ausente até existirem dados reais) */}
+                  </section>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Bottom sheet: nível de acesso por aplicativo */}
+      {picking && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
+          onClick={() => setPicking(null)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-2xl border border-line bg-card shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-line px-4 py-3">
+              <h3 className="text-sm font-semibold text-fg">{picking.appName}</h3>
+              <p className="text-[11px] text-fg-muted">Nível de acesso</p>
+            </div>
+            <div className="space-y-1 p-3">
+              {LEVEL_OPTIONS.map((opt) => {
+                const isActive = draftLevel === opt.value
+                const badge = LEVEL_BADGES[opt.value ?? 'none']
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => setDraftLevel(opt.value)}
+                    className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                      isActive ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line bg-input/20 hover:bg-input/40'
+                    }`}
+                  >
+                    <span className={`h-3 w-3 shrink-0 rounded-full border-2 ${isActive ? `border-emerald-500 ${badge.dot}` : 'border-fg-muted/40'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-fg">{opt.label}</p>
+                      <p className="text-[10px] text-fg-muted">{opt.desc}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex gap-2 border-t border-line p-3">
+              <button
+                type="button"
+                onClick={() => setPicking(null)}
+                disabled={saving === picking.roleId}
+                className="flex-1 rounded-xl bg-input py-2.5 text-xs font-semibold text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={applyLevel}
+                disabled={saving === picking.roleId}
+                className="flex-1 rounded-xl bg-emerald-500 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                Aplicar
+              </button>
+            </div>
           </div>
-        )
-      })}
+        </div>
+      )}
 
       {creating && (
         <div
@@ -421,14 +491,14 @@ export function RolesPage() {
                   className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-xs text-fg focus:outline-none"
                 >
                   <option value="">Selecione o líder...</option>
-                  {activeUsers.map((u) => (
+                  {scopedActiveUsers.map((u) => (
                     <option key={u.id} value={u.id}>{u.name}</option>
                   ))}
                 </select>
               </div>
               <p className="rounded-lg bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-600 dark:text-emerald-400">
-                Depois de criar, defina o acesso por aplicativo expandindo o cargo. Os subordinados são os usuários
-                atribuídos a este cargo.
+                Depois de criar, defina o acesso por aplicativo tocando no cargo. As pessoas com este cargo são
+                definidas em Pessoas.
               </p>
               <div className="flex gap-2 pt-1">
                 <button
@@ -448,6 +518,49 @@ export function RolesPage() {
                   {saving === 'new' ? 'Criando...' : 'Criar cargo'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleting && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
+          onClick={() => setDeleting(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-line bg-card p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col items-center gap-3 pt-1 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+                <icons.ui.trash size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-fg">Excluir cargo?</h3>
+                <p className="mt-1 text-[11px] text-fg-muted">
+                  Excluir o cargo "{deleting.name}" remove esta definição de acesso. Os usuários que usam este
+                  cargo passarão ao cargo padrão.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleting(null)}
+                disabled={saving === deleting.id}
+                className="flex-1 rounded-xl bg-input py-2.5 text-xs font-semibold text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(deleting)}
+                disabled={saving === deleting.id}
+                className="flex-1 rounded-xl bg-red-500 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                Excluir
+              </button>
             </div>
           </div>
         </div>

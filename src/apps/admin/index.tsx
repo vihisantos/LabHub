@@ -2,12 +2,15 @@ import { Routes, Route } from 'react-router-dom'
 import { AdminLayout } from './layouts/AdminLayout'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { UsersPage } from './pages/UsersPage'
+import { UserDetailPage } from './pages/UserDetailPage'
+import { RequestsPage } from './pages/RequestsPage'
 import { RolesPage } from './pages/RolesPage'
 import { WorkspacesPage } from './pages/WorkspacesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { BackupsPage } from './pages/BackupsPage'
+import { LogsPage } from '../../platform/Admin/LogsPage'
 
 export function AdminApp() {
   return (
@@ -15,9 +18,12 @@ export function AdminApp() {
       <Route element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="users/:id" element={<UserDetailPage />} />
+        <Route path="requests" element={<RequestsPage />} />
         <Route path="roles" element={<RolesPage />} />
         <Route path="workspaces" element={<WorkspacesPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="logs" element={<LogsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="backups" element={<BackupsPage />} />
         <Route path="profile" element={<ProfilePage />} />

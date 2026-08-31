@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '../../../../test/helpers'
 
 vi.mock('../../../../core/auth/AuthContext', () => ({
@@ -51,73 +51,100 @@ function isActive(label: string): boolean {
 }
 
 describe('AdminLayout', () => {
-  it('renderiza os itens de navegação e o menu "Mais"', () => {
+  it('renderiza as cinco áreas principais da navegação', () => {
     renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
 
-    expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('Usuários')).toBeInTheDocument()
-    expect(screen.getByText('Permissões')).toBeInTheDocument()
-    expect(screen.getByText('Notificações')).toBeInTheDocument()
-    expect(screen.getByText('Configurações')).toBeInTheDocument()
-    expect(screen.getByLabelText('Mais opções')).toBeInTheDocument()
+    expect(screen.getByLabelText('Início')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pessoas')).toBeInTheDocument()
+    expect(screen.getByLabelText('Acesso')).toBeInTheDocument()
+    expect(screen.getByLabelText('Alertas')).toBeInTheDocument()
+    expect(screen.getByLabelText('Mais')).toBeInTheDocument()
   })
 
-  it('destaca somente o Dashboard na raiz /admin', () => {
+  it('destaca somente Início na raiz /admin', () => {
     renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
 
-    expect(isActive('Dashboard')).toBe(true)
-    expect(isActive('Usuários')).toBe(false)
-    expect(isActive('Permissões')).toBe(false)
-    expect(isActive('Notificações')).toBe(false)
-    expect(isActive('Configurações')).toBe(false)
+    expect(isActive('Início')).toBe(true)
+    expect(isActive('Pessoas')).toBe(false)
+    expect(isActive('Acesso')).toBe(false)
+    expect(isActive('Alertas')).toBe(false)
+    expect(isActive('Mais')).toBe(false)
   })
 
-  it('em /admin/users destaca somente Usuários (Dashboard não fica selecionado)', () => {
-    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin/users'] })
-
-    expect(isActive('Usuários')).toBe(true)
-    expect(isActive('Dashboard')).toBe(false)
-    expect(isActive('Permissões')).toBe(false)
-    expect(isActive('Notificações')).toBe(false)
-    expect(isActive('Configurações')).toBe(false)
+  it('em /admin/users destaca Pessoas (e também em subrotas/users/:id e requests)', () => {
+    for (const route of ['/admin/users', '/admin/users/u-1', '/admin/requests']) {
+      const { unmount } = renderWithProviders(<AdminLayout />, { initialEntries: [route] })
+      expect(isActive('Pessoas'), `rota ${route}`).toBe(true)
+      expect(isActive('Início')).toBe(false)
+      unmount()
+    }
   })
 
-  it('em /admin/roles destaca somente Permissões', () => {
+  it('em /admin/roles destaca somente Acesso', () => {
     renderWithProviders(<AdminLayout />, { initialEntries: ['/admin/roles'] })
 
-    expect(isActive('Permissões')).toBe(true)
-    expect(isActive('Dashboard')).toBe(false)
-    expect(isActive('Usuários')).toBe(false)
-    expect(isActive('Notificações')).toBe(false)
-    expect(isActive('Configurações')).toBe(false)
+    expect(isActive('Acesso')).toBe(true)
+    expect(isActive('Início')).toBe(false)
+    expect(isActive('Pessoas')).toBe(false)
+    expect(isActive('Alertas')).toBe(false)
+    expect(isActive('Mais')).toBe(false)
   })
 
-  it('em /admin/notifications destaca somente Notificações', () => {
-    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin/notifications'] })
-
-    expect(isActive('Notificações')).toBe(true)
-    expect(isActive('Dashboard')).toBe(false)
-    expect(isActive('Usuários')).toBe(false)
-    expect(isActive('Permissões')).toBe(false)
-    expect(isActive('Configurações')).toBe(false)
+  it('em /admin/notifications e /admin/logs destaca somente Alertas', () => {
+    for (const route of ['/admin/notifications', '/admin/logs']) {
+      const { unmount } = renderWithProviders(<AdminLayout />, { initialEntries: [route] })
+      expect(isActive('Alertas'), `rota ${route}`).toBe(true)
+      expect(isActive('Início')).toBe(false)
+      unmount()
+    }
   })
 
-  it('em /admin/settings destaca somente Configurações', () => {
-    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin/settings'] })
-
-    expect(isActive('Configurações')).toBe(true)
-    expect(isActive('Dashboard')).toBe(false)
-    expect(isActive('Usuários')).toBe(false)
-    expect(isActive('Permissões')).toBe(false)
-    expect(isActive('Notificações')).toBe(false)
+  it('em /admin/settings, /admin/backups, /admin/workspaces e /admin/profile destaca Mais', () => {
+    for (const route of ['/admin/settings', '/admin/backups', '/admin/workspaces', '/admin/profile']) {
+      const { unmount } = renderWithProviders(<AdminLayout />, { initialEntries: [route] })
+      expect(isActive('Mais'), `rota ${route}`).toBe(true)
+      expect(isActive('Início')).toBe(false)
+      unmount()
+    }
   })
 
-  it('em rota do menu "Mais" mostra o item ativo no botão e desativa o Dashboard', () => {
-    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin/backups'] })
+  it('o menu Mais lista Configurações, Workspaces, Backups e Perfil', () => {
+    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
 
-    const moreBtn = screen.getByLabelText('Mais opções')
-    expect(moreBtn).toHaveTextContent('Backups')
-    expect(moreBtn.classList.contains('text-indigo-500')).toBe(true)
-    expect(isActive('Dashboard')).toBe(false)
+    fireEvent.click(screen.getByLabelText('Mais'))
+    expect(screen.getByText('Configurações')).toBeInTheDocument()
+    expect(screen.getByText('Workspaces')).toBeInTheDocument()
+    expect(screen.getByText('Backups')).toBeInTheDocument()
+    expect(screen.getByText('Perfil')).toBeInTheDocument()
+  })
+
+  it('o menu Pessoas lista Usuários e Solicitações', () => {
+    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
+
+    fireEvent.click(screen.getByLabelText('Pessoas'))
+    expect(screen.getByText('Usuários')).toBeInTheDocument()
+    expect(screen.getByText('Solicitações')).toBeInTheDocument()
+  })
+
+  it('o menu Alertas lista Notificações e Auditoria', () => {
+    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
+
+    fireEvent.click(screen.getByLabelText('Alertas'))
+    expect(screen.getByText('Notificações')).toBeInTheDocument()
+    expect(screen.getByText('Auditoria')).toBeInTheDocument()
+  })
+
+  it('no Dashboard (/admin) o nome do Workspace não se repete (Hero assume a apresentação)', () => {
+    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
+
+    expect(screen.queryByText('Lab A')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sala 101')).not.toBeInTheDocument()
+  })
+
+  it('nas demais páginas o nome do Workspace permanece no header', () => {
+    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin/users'] })
+
+    expect(screen.getByText('Lab A')).toBeInTheDocument()
+    expect(screen.getByText('Sala 101')).toBeInTheDocument()
   })
 })

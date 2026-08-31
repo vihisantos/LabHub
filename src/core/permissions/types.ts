@@ -20,10 +20,11 @@ export interface Role {
 
 export const APP_ACCESS_LEVELS: AppAccessLevel[] = ['dash', 'read', 'full']
 
-export const APP_ACCESS_LABELS: Record<AppAccessLevel, string> = {
+export const APP_ACCESS_LABELS: Record<AppAccessOverride, string> = {
   dash: 'Dashboard',
   read: 'Só leitura',
   full: 'Acesso total',
+  none: 'Sem acesso',
 }
 
 export const APP_ACCESS_DESCRIPTIONS: Record<AppAccessLevel, string> = {

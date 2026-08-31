@@ -22,7 +22,6 @@ const TvApp = lazy(() => import('./apps/tv').then(m => ({ default: m.TvApp })))
 const ChamadosApp = lazy(() => import('./apps/chamados').then(m => ({ default: m.ChamadosApp })))
 const ChamadosPublicApp = lazy(() => import('./apps/chamados-publico').then(m => ({ default: m.ChamadosPublicApp })))
 const AdminApp = lazy(() => import('./apps/admin').then(m => ({ default: m.AdminApp })))
-const LogsPage = lazy(() => import('./platform/Admin/LogsPage').then(m => ({ default: m.LogsPage })))
 
 function RouteFallback() {
   return (
@@ -129,15 +128,6 @@ function AppRoutes() {
           <AdminGuard>
             <AppGuard appId="admin">
               <AdminApp />
-            </AppGuard>
-          </AdminGuard>
-        </AuthGuard>
-      } />
-      <Route path="admin/logs" element={
-        <AuthGuard>
-          <AdminGuard>
-            <AppGuard appId="admin">
-              <LogsPage />
             </AppGuard>
           </AdminGuard>
         </AuthGuard>

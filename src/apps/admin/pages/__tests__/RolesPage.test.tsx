@@ -182,3 +182,122 @@ describe('RolesPage escopo por workspace', () => {
     expect(screen.getByText('2 membros')).toBeInTheDocument()
   })
 })
+
+describe('RolesPage — nivel de acesso por aplicativo (bottom sheet)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+    mockWorkspaceCtx.workspace = null
+    mockUseRoles.roles = roles
+    mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser])
+  })
+
+  it('abre o bottom sheet ao tocar em um aplicativo e aplica o novo nivel', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Técnico')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Técnico'))
+
+    const pcCareCard = await screen.findByText('PC Care')
+    fireEvent.click(pcCareCard)
+
+    expect(screen.getByText('Nível de acesso')).toBeInTheDocument()
+    expect(screen.getAllByText('Sem acesso').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Só leitura').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Acesso total').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByText('Só leitura'))
+    fireEvent.click(screen.getByText('Aplicar'))
+
+    expect(mockUseRoles.update).toHaveBeenCalledWith('role-technician', {
+      appAccess: { 'pc-care': 'read', stock: 'full' },
+    })
+  })
+
+  it('cancelar fecha o bottom sheet sem mudar nada', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Técnico')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Técnico'))
+
+    const pcCareCard = await screen.findByText('PC Care')
+    fireEvent.click(pcCareCard)
+    fireEvent.click(screen.getByText('Cancelar'))
+
+    expect(screen.queryByText('Nível de acesso')).not.toBeInTheDocument()
+    expect(mockUseRoles.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('RolesPage — criar cargo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+    mockWorkspaceCtx.workspace = null
+    mockUseRoles.roles = roles
+    mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser])
+  })
+
+  it('novo cargo cria com os campos atuais', async () => {
+    renderPage()
+    fireEvent.click(screen.getByText('Novo cargo'))
+
+    fireEvent.change(screen.getByPlaceholderText('Ex.: Coordenador de T.I.'), {
+      target: { value: 'Consultor' },
+    })
+    fireEvent.click(screen.getByText('Criar cargo'))
+
+    expect(mockUseRoles.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Consultor', appAccess: {}, manageQr: false, isDefault: false }),
+    )
+  })
+})
+
+describe('RolesPage — excluir cargo', () => {
+  const customRole = {
+    id: 'role-custom',
+    key: 'custom',
+    name: 'Consultor',
+    description: 'Cargo personalizado de teste',
+    appAccess: {},
+    manageQr: false,
+    isDefault: false,
+    leaderId: null,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+    mockWorkspaceCtx.workspace = null
+    mockUseRoles.roles = [customRole]
+    mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser])
+  })
+
+  it('confirmação de exclusão remove o cargo quando não há membros', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Consultor')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Consultor'))
+
+    fireEvent.click(screen.getByText('Excluir cargo'))
+    expect(screen.getByText(/Excluir o cargo/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Excluir'))
+    expect(mockUseRoles.remove).toHaveBeenCalledWith('role-custom')
+  })
+
+  it('cancelar na confirmação não remove o cargo', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Consultor')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Consultor'))
+
+    fireEvent.click(screen.getByText('Excluir cargo'))
+    fireEvent.click(screen.getByText('Cancelar'))
+    expect(mockUseRoles.remove).not.toHaveBeenCalled()
+  })
+})
