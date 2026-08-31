@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted
+Accepted (superseded by RBAC 2.0 for backend enforcement)
+
+> **Note:** RBAC 2.0 (migration 036) introduces action-based authorization on the backend.
+> The legacy three-layer model is preserved as a fallback when `RBAC_2_ENABLED=0`.
+> See [RBAC 2.0 Specification](../architecture/rbac2.0-specification.md) for the current model.
 
 ## Context
 

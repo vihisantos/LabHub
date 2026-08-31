@@ -29,7 +29,10 @@
 | [Data Layer](architecture/data-layer.md) | Three-tier data architecture |
 | [Realtime](architecture/realtime.md) | WebSocket subscriptions and live updates |
 | [Authentication](architecture/authentication.md) | User auth flow and profile management |
-| [Authorization](architecture/authorization.md) | Three-layer access control model |
+| [Authorization](architecture/authorization.md) | Access control model (RBAC 2.0 + legacy) |
+| [RBAC 2.0 Specification](architecture/rbac2.0-specification.md) | RBAC 2.0 technical specification |
+| [RBAC 2.0 Actions Catalog](architecture/rbac2.0-actions-catalog.md) | Complete list of authorized Actions |
+| [RBAC 2.0 Activation](architecture/rbac2.0-etapa7-activation.md) | Activation decisions and runbook |
 
 ## Module Documentation
 

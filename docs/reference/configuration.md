@@ -22,6 +22,7 @@
 |----------|----------|-------------|
 | `SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_SERVICE_KEY` | Yes | Service role key |
+| `RBAC_2_ENABLED` | No | Enable RBAC 2.0 (`1` = ON, default OFF) |
 | `UPSTASH_REDIS_REST_URL` | No | Redis URL for push + cache |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Redis auth token |
 | `VAPID_PUBLIC_KEY` | No | Web Push public key |

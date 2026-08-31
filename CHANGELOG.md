@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file. See [standa
 
 ## [Unreleased]
 
+### Features
+
+* **rbac2:** RBAC 2.0 engine, schema 036, and end-to-end backend enforcement — action-based authorization with deny-by-default, super_admin bypass, membership-based role resolution, per-action overrides, and append-only audit trail (`rbac_audit_logs`)
+* **rbac2:** 5 system roles (tec/vis/est/opv/adm), 55 role_permissions, 8 memberships backfilled from legacy model
+* **rbac2:** decorator `require_action_rbac` applied to 11 production routes (admin, backups, push, TV, chamados reports)
+* **rbac2:** in-handler enforcement `_require_action_in_handler` for 5 chamados endpoints (view/delete/edit/status/assign/comment)
+* **rbac2:** feature flag `RBAC_2_ENABLED` — OFF preserves all legacy behavior, ON enables RBAC enforcement
+* **rbac2:** activation runbook and decisions document (Etapa 7)
+
+### Fixed
+
+* **migration:** fix invalid `GET DIAGNOSTICS` syntax in 036 backfill (intermediate variable for ROW_COUNT accumulation)
+
+### Docs
+
+* **rbac2:** authorization.md updated with RBAC 2.0 model
+* **rbac2:** backend.md updated with RBAC route protection matrix
+* **rbac2:** monitoring.md updated with audit log queries
+* **rbac2:** configuration.md updated with `RBAC_2_ENABLED` env var
+* **rbac2:** ADR-008 updated to reference RBAC 2.0 as current model
+
 ## [2.1.0](https://github.com/vihisantos/LabHub/compare/v2.0.0...v2.1.0) (2026-08-16)
 
 ### Features
