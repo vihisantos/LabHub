@@ -80,7 +80,7 @@ export function UserDetailPage() {
   async function handleApprove(
     userId: string,
     roleId: string,
-    appAccess: Record<string, never>,
+    appAccess: Record<string, AppAccessOverride>,
     workspaceIds: string[],
   ): Promise<boolean> {
     setSaving(true)

@@ -6,6 +6,7 @@ import { useAuth } from '../../../core/auth/AuthContext'
 import { workspaceService } from '../../../core/workspaces/service'
 import type { Workspace } from '../../../core/workspaces/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
+import type { AppAccessOverride } from '../../../core/permissions/types'
 import { ApproveUserModal } from '../components/ApproveUserModal'
 import { PersonAvatar, formatAge } from '../components/personShared'
 import { icons } from '../../../lib/icons'
@@ -55,7 +56,7 @@ export function RequestsPage() {
   async function handleApprove(
     userId: string,
     roleId: string,
-    appAccess: Record<string, never>,
+    appAccess: Record<string, AppAccessOverride>,
     workspaceIds: string[],
   ): Promise<boolean> {
     setSaving(true)

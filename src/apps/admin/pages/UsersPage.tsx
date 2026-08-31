@@ -8,6 +8,7 @@ import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import type { Workspace } from '../../../core/workspaces/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
 import { roleBadgeClass } from '../../../core/permissions/types'
+import type { AppAccessOverride } from '../../../core/permissions/types'
 import { ApproveUserModal } from '../components/ApproveUserModal'
 import { PersonAvatar, statusStyle } from '../components/personShared'
 import { icons } from '../../../lib/icons'
@@ -117,7 +118,7 @@ export function UsersPage() {
   async function handleApprove(
     userId: string,
     roleId: string,
-    appAccess: Record<string, never>,
+    appAccess: Record<string, AppAccessOverride>,
     workspaceIds: string[],
   ): Promise<boolean> {
     setSaving(true)

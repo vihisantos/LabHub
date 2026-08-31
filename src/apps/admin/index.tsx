@@ -10,7 +10,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { BackupsPage } from './pages/BackupsPage'
-import { LogsPage } from '../../../platform/Admin/LogsPage'
+import { LogsPage } from '../../platform/Admin/LogsPage'
 
 export function AdminApp() {
   return (
