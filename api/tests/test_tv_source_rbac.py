@@ -17,6 +17,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 import requests as requests_lib
@@ -365,7 +366,7 @@ class TestRBACFlagOn:
 
         _setup_auth(fr)
         _setup_rbac_allow(fr)
-        fr.route_pred("GET", lambda url, kw: "example.com" in url or "planilha" in url, FakeDownload(xlsx))
+        fr.route_pred("GET", lambda url, kw: urlsplit(url).hostname == "files.example.com" or "planilha" in url, FakeDownload(xlsx))
         client = _client(fr, root_api_module, monkeypatch)
         monkeypatch.setenv("RBAC_2_ENABLED", "1")
         resp = _fetch(client, headers=AUTH_HEADERS())

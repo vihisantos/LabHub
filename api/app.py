@@ -1496,7 +1496,7 @@ def tv_activation_redeem():
                 token_hash, auth_user_id = _provision_tv_device_session(device_id)
             except RuntimeError as e:
                 logger.error("Erro ao provisionar identidade da TV: %s", e)
-                return jsonify({'error': str(e)}), 502
+                return jsonify({'error': 'Falha ao provisionar identidade da TV'}), 502
 
             device_name = (
                 str(body.get('device_name') or '').strip()[:60]
@@ -1605,7 +1605,7 @@ def tv_device_provision():
             token_hash, auth_user_id = _provision_tv_device_session(device_id)
         except RuntimeError as e:
             logger.error("Erro ao provisionar identidade da TV: %s", e)
-            return jsonify({'error': str(e)}), 502
+            return jsonify({'error': 'Falha ao provisionar identidade da TV'}), 502
 
         device_name = str(body.get('device_name') or '').strip()[:60] or 'TV Desktop'
         if not _upsert_tv_device_row(device_id, device_name, workspace_id, auth_user_id):
