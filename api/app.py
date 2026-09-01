@@ -844,6 +844,7 @@ def _tv_source_response(payload, status_code=200):
 @require_auth
 @require_workspace
 @require_module_auth('tv')
+@require_action_rbac('tv.content.manage', scope='workspace')
 def tv_source_fetch():
     """Testa/normaliza a fonte configurada do workspace autenticado.
 
@@ -1034,9 +1035,170 @@ def tv_health():
 # ── TV: Código de ativação do app desktop ──
 
 def _generate_activation_code():
-    """Código de 6 caracteres sem caracteres ambíguos (0/O, 1/I)."""
+    """Código de 6 caracteres sem caracteres ambíguos (0/O, 1/I).
+
+    Espaço: 32 símbolos -> 32^6 ≈ 1.07e9 (~30 bits). A entropia é aceitável no
+    modelo de ameaça local (humano digitando códigos num kiosk) porque as
+    tentativas são limitadas por IP E por código (lockout) — ver
+    ``ACTIVATION_*`` abaixo. Não aumentar para 8+ caracteres: o custo de UX
+    (digitação em TV) não é justificado dado o rate limiting + lockout.
+    """
     alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
     return ''.join(secrets.choice(alphabet) for _ in range(6))
+
+
+# ── TV: anti brute-force / lockout por código de ativação ─────────────────────
+#
+# O rate limit por IP (in-memory) não cobre pool de IPs atacando o MESMO
+# código. Adicionamos um contador de falhas POR CÓDIGO (chave = hash SHA-256
+# truncado do código, nunca o plaintext). Quando excede o limite em uma janela,
+# o código entra em lockout. O lockout tem TTL limitado (não é permanente),
+# portanto não vira DoS contra códigos legítimos: após a janela expira, o
+# dispositivo legítimo pode tentar novamente.
+#
+# Armazenamento: Redis (Upstash) quando disponível (multi-worker, seguro);
+# fallback em memória (dict) para single-worker/testes. Contador NUNCA vai para
+# o Postgres (evita abound de escrita e mantém o state volátil fora do RLS).
+#
+# Concorrência: um lock transitório por código serializa o redeem inteiro
+# (check -> provision -> consume), garantindo que duas requisições simultâneas
+# com o mesmo código não criem dois devices/sessões.
+
+ACTIVATION_LOCK_MAX_ATTEMPTS = 5      # falhas por código antes do lockout
+ACTIVATION_LOCK_WINDOW = 900          # TTL do lockout (segundos) = 15 min
+ACTIVATION_PROCESS_LOCK_TTL = 120     # TTL do lock transitório de processamento
+_ACTIVATION_FAILURES: dict[str, list[float]] = defaultdict(list)
+_ACTIVATION_LOCKS: dict[str, float] = {}
+_ACTIVATION_STATE_LOCK = __import__('threading').Lock()
+
+
+def _activation_digest(code: str) -> str:
+    """Hash não-reversível (do ponto de vista de enumeração) de correlação.
+
+    Usa SHA-256 truncado a 16 hex chars. Serve de chave de rate/lockout e de
+    identificador de auditoria — nunca expõe o código completo.
+    """
+    return hashlib.sha256(str(code).strip().upper().encode('utf-8')).hexdigest()[:16]
+
+
+def _activation_failure_count(digest: str) -> int:
+    now = datetime.now(timezone.utc).timestamp()
+    if redis:
+        try:
+            raw = redis.get(f'activation:failures:{digest}')
+            return int(raw or 0)
+        except Exception:
+            pass
+    with _ACTIVATION_STATE_LOCK:
+        _ACTIVATION_FAILURES[digest] = [
+            t for t in _ACTIVATION_FAILURES[digest] if t > now - ACTIVATION_LOCK_WINDOW
+        ]
+        return len(_ACTIVATION_FAILURES[digest])
+
+
+def _activation_register_failure(digest: str):
+    now = datetime.now(timezone.utc).timestamp()
+    if redis:
+        try:
+            key = f'activation:failures:{digest}'
+            if not redis.get(key):
+                redis.setex(key, ACTIVATION_LOCK_WINDOW, 1)
+            else:
+                redis.incr(key)
+                redis.expire(key, ACTIVATION_LOCK_WINDOW)
+            return
+        except Exception:
+            pass
+    with _ACTIVATION_STATE_LOCK:
+        _ACTIVATION_FAILURES[digest] = [
+            t for t in _ACTIVATION_FAILURES[digest] if t > now - ACTIVATION_LOCK_WINDOW
+        ]
+        _ACTIVATION_FAILURES[digest].append(now)
+
+
+def _activation_reset_failures(digest: str):
+    if redis:
+        try:
+            redis.delete(f'activation:failures:{digest}')
+            return
+        except Exception:
+            pass
+    with _ACTIVATION_STATE_LOCK:
+        _ACTIVATION_FAILURES.pop(digest, None)
+
+
+def _activation_acquire_lock(digest: str) -> bool:
+    if redis:
+        try:
+            return bool(redis.set(f'activation:lock:{digest}', '1', nx=True, ex=ACTIVATION_PROCESS_LOCK_TTL))
+        except Exception:
+            pass
+    now = datetime.now(timezone.utc).timestamp()
+    with _ACTIVATION_STATE_LOCK:
+        held_until = _ACTIVATION_LOCKS.get(digest, 0)
+        if held_until > now:
+            return False
+        _ACTIVATION_LOCKS[digest] = now + ACTIVATION_PROCESS_LOCK_TTL
+        return True
+
+
+def _activation_release_lock(digest: str):
+    if redis:
+        try:
+            redis.delete(f'activation:lock:{digest}')
+            return
+        except Exception:
+            pass
+    with _ACTIVATION_STATE_LOCK:
+        _ACTIVATION_LOCKS.pop(digest, None)
+
+
+def _activation_audit(event, code_digest=None, device_id=None, workspace_id=None, reason=None):
+    """Auditoria das tentativas de redeem (side-channel, best-effort).
+
+    Reutiliza ``rbac_audit_logs`` (mecanismo de auditoria existente; append-only,
+    legível apenas por super admin). NUNCA grava o código em plaintext — apenas o
+    hash de correlação (``code_digest``) e campos não-secretos. Falhas de escrita
+    de auditoria nunca afetam a decisão do fluxo.
+    """
+    try:
+        meta = {'event': event}
+        if code_digest:
+            meta['code_hash'] = code_digest
+        if device_id:
+            meta['device_id'] = device_id
+        if reason:
+            meta['reason'] = reason
+        ok = event == 'success'
+        rbac_record_audit(
+            actor_id=None,
+            actor_is_super=False,
+            action='activation.redeem',
+            workspace_id=workspace_id,
+            scope='workspace',
+            effect='allow' if ok else 'deny',
+            outcome='success' if ok else 'denied',
+            resource_type='tv_activation_code',
+            resource_id=code_digest,
+            meta=meta,
+        )
+    except Exception:
+        pass
+
+
+# Resposta uniforme para todo código inutilizável (inválido/expirou/foi usado).
+# Evita que o endpoint vire oracle de existência de código.
+GENERIC_ACTIVATION_ERROR = 'Código de ativação inválido ou expirado.'
+
+
+def _activation_expired(expires_at) -> bool:
+    if not expires_at:
+        return False
+    try:
+        exp = datetime.fromisoformat(str(expires_at).replace('Z', '+00:00'))
+        return exp < datetime.now(timezone.utc)
+    except Exception:
+        return False
 
 
 def _require_supabase():
@@ -1151,12 +1313,17 @@ def require_module(workspace, module_id):
 
 
 @app.route('/api/tv/activation/create', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
+@require_action_rbac('tv.device.manage', scope='workspace')
 def tv_activation_create():
     """
     Gera um código de ativação para o app desktop da TV.
     Requer o token de acesso do usuário logado (Supabase) via Bearer.
-    O código é vinculado ao primeiro workspace do usuário (ou ao escolhido,
-    se super admin), tem validade de 24h e uso único.
+    O código é vinculado ao workspace autenticado (g.workspace_id, resolvido
+    server-side via require_workspace + validado pelo RBAC tv.device.manage),
+    tem validade de 24h e uso único.
     """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
@@ -1190,15 +1357,13 @@ def tv_activation_create():
         workspace_ids = profile.get('workspace_ids') or []
         is_super_admin = bool(profile.get('is_super_admin'))
 
-        # 3. Workspace alvo
-        body = request.get_json() or {}
-        workspace_id = None
-        if is_super_admin and body.get('workspace_id'):
-            workspace_id = body.get('workspace_id')
-        elif workspace_ids:
-            workspace_id = workspace_ids[0]
+        # 3. Workspace alvo — autoridade SERVER-SIDE: g.workspace_id (definido
+        #    por require_workspace a partir do request validado) + RBAC
+        #    tv.device.manage já avaliado pelo decorator. Nunca deriva o
+        #    workspace do body como autoridade.
+        workspace_id = getattr(g, 'workspace_id', None)
         if not workspace_id:
-            return jsonify({'error': 'Este usuário não tem workspace atribuído'}), 400
+            return jsonify({'error': 'Workspace não resolvido'}), 400
 
         ws_resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}',
@@ -1260,7 +1425,11 @@ def tv_activation_redeem():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        if not _check_rate_limit(f'tv-redeem:{_get_client_ip()}'):
+        client_ip = _get_client_ip()
+
+        # 1) Rate limit por IP (mitiga brute-force na origem).
+        if not _check_rate_limit(f'tv-redeem:{client_ip}'):
+            _activation_audit('rate_limited', device_id=None, reason='ip_rate_limit')
             return jsonify({'error': 'Muitas tentativas. Aguarde alguns minutos.'}), 429
 
         body = request.get_json() or {}
@@ -1271,71 +1440,100 @@ def tv_activation_redeem():
         if not device_id:
             return jsonify({'error': 'device_id inválido'}), 400
 
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/tv_activation_codes?code=eq.{quote(code)}&select=*',
-            headers=_supabase_headers(),
-            timeout=10,
-        )
-        if not resp.ok:
-            return jsonify({'error': 'Erro ao validar o código'}), 502
-        rows = resp.json()
-        if not rows:
-            return jsonify({'error': 'Código inválido. Verifique e tente novamente.'}), 404
+        digest = _activation_digest(code)
 
-        row = rows[0]
-        if row.get('status') != 'pending':
-            return jsonify({'error': 'Código já utilizado'}), 400
+        # 2) Lockout POR CÓDIGO: limita falhas contra o mesmo código, mesmo que
+        #    o atacante rotacione IP. Chave é hash do código (nunca plaintext).
+        if _activation_failure_count(digest) >= ACTIVATION_LOCK_MAX_ATTEMPTS:
+            _activation_audit('blocked', code_digest=digest, device_id=device_id, reason='lockout')
+            return jsonify({'error': 'Muitas tentativas. Aguarde alguns minutos.'}), 429
 
-        expires_at = row.get('expires_at')
-        if expires_at:
-            try:
-                exp = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                if exp < datetime.now(timezone.utc):
-                    return jsonify({'error': 'Código expirado. Gere um novo no painel.'}), 400
-            except Exception:
-                pass
+        # 3) Serializa o redeem inteiro POR CÓDIGO: duas requisições simultâneas
+        #    com o mesmo código não podem ambas provisionar. Lock transitório
+        #    com TTL (não bloqueia permanentemente códigos legítimos).
+        if not _activation_acquire_lock(digest):
+            _activation_audit('blocked', code_digest=digest, device_id=device_id, reason='concurrent')
+            return jsonify({'error': 'Tentativa em andamento. Tente novamente.'}), 429
 
-        workspace_id = row.get('workspace_id')
-        ws_resp = requests.get(
-            f"{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}",
-            headers=_supabase_headers(),
-            timeout=10,
-        )
-        workspace = ws_resp.json()[0] if ws_resp.ok and ws_resp.json() else None
-        if not workspace:
-            return jsonify({'error': 'Workspace do código não encontrado'}), 500
-
-        # Provisiona identidade ANTES de consumir o código: se a infra falhar,
-        # o código permanece utilizável.
         try:
-            token_hash, auth_user_id = _provision_tv_device_session(device_id)
-        except RuntimeError as e:
-            logger.error("Erro ao provisionar identidade da TV: %s", e)
-            return jsonify({'error': str(e)}), 502
+            resp = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/tv_activation_codes?code=eq.{quote(code)}&select=*',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not resp.ok:
+                return jsonify({'error': 'Erro ao validar o código'}), 502
+            rows = resp.json()
+            if not rows:
+                _activation_register_failure(digest)
+                _activation_audit('invalid', code_digest=digest, device_id=device_id, reason='not_found')
+                return jsonify({'error': GENERIC_ACTIVATION_ERROR}), 400
 
-        device_name = (
-            str(body.get('device_name') or '').strip()[:60]
-            or (row.get('device_name') or '').strip()
-            or 'TV Desktop'
-        )
-        if not _upsert_tv_device_row(device_id, device_name, workspace_id, auth_user_id):
-            return jsonify({'error': 'Falha ao registrar o dispositivo'}), 502
+            row = rows[0]
 
-        # Consome o código (uso único)
-        requests.patch(
-            f"{_SUPABASE_URL}/rest/v1/tv_activation_codes?id=eq.{quote(row['id'])}",
-            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
-            json={'status': 'used', 'used_at': datetime.now(timezone.utc).isoformat()},
-            timeout=10,
-        )
+            # Usabilidade uniforme (anti-oracle): não distinguir inválido x
+            # expirado x já usado — toda falha devolve a mesma mensagem/status.
+            if row.get('status') != 'pending' or _activation_expired(row.get('expires_at')):
+                _activation_register_failure(digest)
+                reason = 'expired' if _activation_expired(row.get('expires_at')) else 'already_used'
+                _activation_audit('invalid', code_digest=digest, device_id=device_id, reason=reason)
+                return jsonify({'error': GENERIC_ACTIVATION_ERROR}), 400
 
-        return jsonify({
-            'success': True,
-            'code': code,
-            'workspace': workspace,
-            'device_name': device_name,
-            'token_hash': token_hash,
-        })
+            # workspace_id SEMPRE vem do registro server-side — nunca do client.
+            workspace_id = row.get('workspace_id')
+            ws_resp = requests.get(
+                f"{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}",
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            workspace = ws_resp.json()[0] if ws_resp.ok and ws_resp.json() else None
+            if not workspace:
+                return jsonify({'error': 'Workspace do código não encontrado'}), 500
+
+            # Provisiona identidade ANTES de consumir o código: se a infra
+            # falhar, o código permanece utilizável.
+            try:
+                token_hash, auth_user_id = _provision_tv_device_session(device_id)
+            except RuntimeError as e:
+                logger.error("Erro ao provisionar identidade da TV: %s", e)
+                return jsonify({'error': str(e)}), 502
+
+            device_name = (
+                str(body.get('device_name') or '').strip()[:60]
+                or (row.get('device_name') or '').strip()
+                or 'TV Desktop'
+            )
+            if not _upsert_tv_device_row(device_id, device_name, workspace_id, auth_user_id):
+                return jsonify({'error': 'Falha ao registrar o dispositivo'}), 502
+
+            # 4) Consumo ATÔMICO e protegido: pending -> used com guarda
+            #    condicional (id + status=eq.pending). Se outra requisição já
+            #    consumiu (row vazia na resposta), aborta sem retornar sucesso.
+            consume = requests.patch(
+                f"{_SUPABASE_URL}/rest/v1/tv_activation_codes?id=eq.{quote(row['id'])}&status=eq.pending",
+                headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+                json={'status': 'used', 'used_at': datetime.now(timezone.utc).isoformat()},
+                timeout=10,
+            )
+            consumed_rows = consume.json() if consume.ok else []
+            if not consumed_rows:
+                _activation_register_failure(digest)
+                _activation_audit('lost_race', code_digest=digest, device_id=device_id,
+                                  workspace_id=workspace_id, reason='not_consumed')
+                return jsonify({'error': GENERIC_ACTIVATION_ERROR}), 400
+
+            _activation_reset_failures(digest)
+            _activation_audit('success', code_digest=digest, device_id=device_id,
+                              workspace_id=workspace_id, reason='provisioned')
+            return jsonify({
+                'success': True,
+                'code': code,
+                'workspace': workspace,
+                'device_name': device_name,
+                'token_hash': token_hash,
+            })
+        finally:
+            _activation_release_lock(digest)
 
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
@@ -1343,12 +1541,16 @@ def tv_activation_redeem():
 
 
 @app.route('/api/tv/devices/provision', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
+@require_action_rbac('tv.device.manage', scope='workspace')
 def tv_device_provision():
     """
     Provisiona identidade + sessão de kiosk a partir do painel web
-    (fluxo de configuração com login humano). Requer Bearer do usuário;
-    autorização igual à geração de códigos (super admin em qualquer
-    workspace; membro apenas no próprio).
+    (fluxo de configuração com login humano). Bearer do usuário; o workspace
+    é o autenticado (g.workspace_id via require_workspace) e o RBAC
+    tv.device.manage já foi avaliado pelo decorator.
     """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
@@ -1380,7 +1582,9 @@ def tv_device_provision():
         is_super_admin = bool(profile.get('is_super_admin'))
 
         body = request.get_json() or {}
-        workspace_id = body.get('workspace_id')
+        # Workspace autoritativo SERVER-SIDE: g.workspace_id (require_workspace +
+        # RBAC tv.device.manage). O workspace_id do body nunca é autoridade.
+        workspace_id = getattr(g, 'workspace_id', None)
         device_id = _validate_device_id(body.get('device_id'))
         if not workspace_id or not device_id:
             return jsonify({'error': 'workspace_id e device_id são obrigatórios'}), 400
@@ -1452,12 +1656,13 @@ def _resolve_tv_device_workspace(user_id) -> str | None:
     """Resolve o workspace do kiosk pelo vínculo persistido tv_devices.user_id.
 
     Retorna o workspace_id ou None quando a sessão não corresponde a um
-    dispositivo registrado ou o device está sem vínculo válido de workspace.
+    dispositivo registrado, o device está sem vínculo válido de workspace,
+    ou o device foi revogado (revoked_at IS NOT NULL).
     """
     try:
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/tv_devices'
-            f'?user_id=eq.{quote(str(user_id))}&select=id,workspace_id&limit=1',
+            f'?user_id=eq.{quote(str(user_id))}&select=id,workspace_id,revoked_at&limit=1',
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -1465,6 +1670,9 @@ def _resolve_tv_device_workspace(user_id) -> str | None:
     except Exception:
         return None
     if not rows:
+        return None
+    # Etapa 9.6: device revogado não pode acessar recursos
+    if rows[0].get('revoked_at'):
         return None
     workspace_id = rows[0].get('workspace_id')
     return str(workspace_id) if workspace_id else None
@@ -1812,30 +2020,12 @@ def _notify_new_ticket(ticket):
         logger.error("[chamados] push error: %s", e)
 
 
-def _ensure_chamados_schema():
-    """Cria a tabela de chamados se não existir (mesmo padrão do _ensure_stock_schema)."""
-    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
-        return
-    headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
-    try:
-        resp = requests.post(
-            f'{_SUPABASE_URL}/rest/v1/rpc/pg_sql',
-            json={'query': CHAMADOS_TABLE_SQL},
-            headers=headers,
-            timeout=10,
-        )
-        print(f"[chamados] pg_sql: {resp.status_code} {resp.text[:200]}")
-    except Exception as e:
-        logger.error("[chamados] pg_sql error: %s", e)
-
-
 @app.route('/api/chamados/workspaces', methods=['GET'])
 def chamados_workspaces():
     """Lista os campi (workspaces) para o formulário público. Público, service role."""
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/workspaces?select=id,name,slug,location&order=name',
             headers=_supabase_headers(),
@@ -1860,7 +2050,6 @@ def chamados_create():
         if not _check_rate_limit(client_ip):
             return jsonify({'error': 'Muitas requisições. Tente novamente em mais de 1 hora.'}), 429
 
-        _ensure_chamados_schema()
         body = request.get_json() or {}
 
         workspace_id = str(body.get('workspace_id') or '').strip()
@@ -2004,7 +2193,6 @@ def chamados_list():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
         is_super_admin = bool(user.get('is_super_admin'))
@@ -2048,7 +2236,6 @@ def chamados_manage(ticket_id):
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
         user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
@@ -2435,7 +2622,6 @@ def chamados_reports():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
         user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
@@ -2956,7 +3142,6 @@ def chamados_events_list(ticket_id):
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
         user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
@@ -3010,7 +3195,6 @@ def chamados_events_create(ticket_id):
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         fetch = requests.get(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=id,workspace_id,status',
             headers=_supabase_headers(),
@@ -3193,7 +3377,6 @@ def chamados_reports_weekly_email():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         now = datetime.now(timezone.utc)
         from_iso = (now - timedelta(days=7)).isoformat()
         to_iso = now.isoformat()
@@ -3225,6 +3408,17 @@ def chamados_reports_weekly_email():
         )
         if workspace_id:
             url += f'&workspace_id=eq.{quote(workspace_id)}'
+        elif not is_super_admin:
+            # Etapa 8: non-super-admin must be scoped to their workspaces.
+            if not user_ws_ids:
+                report = _aggregate_ticket_reports([])
+                report['period'] = {'from': from_iso, 'to': to_iso}
+                return jsonify({'ok': True, 'total': 0, 'report': report})
+            if len(user_ws_ids) == 1:
+                url += f'&workspace_id=eq.{quote(user_ws_ids[0])}'
+            else:
+                ws_filter = ','.join(f'"{w}"' for w in user_ws_ids)
+                url += f'&workspace_id=in.({quote(ws_filter)})'
         resp = requests.get(url, headers=_supabase_headers(), timeout=15)
         if not resp.ok:
             return jsonify({'error': 'Erro ao gerar o resumo'}), 502
@@ -3254,7 +3448,6 @@ def chamados_photos_purge():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
@@ -3607,6 +3800,64 @@ def admin_workspace_delete_with_backup(workspace_id):
         )
 
         return jsonify({'ok': True, 'backup_name': ws_name})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/tv/devices/<device_id>/revoke', methods=['POST'])
+@require_auth
+@require_action_rbac('tv.device.manage', scope='workspace')
+def tv_device_revoke(device_id):
+    """Revoga um device TV. Device revogado recebe 403 em todas as rotas protegidas.
+
+    Idempotente: revogar um device já revogado não altera revoked_at.
+    Não deleta o usuário GoTrue — manter registro para auditoria.
+    """
+    admin_err = _require_super_admin()
+    if admin_err:
+        return admin_err
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not device_id or not _UUID_RE.match(device_id):
+        return jsonify({'error': 'ID de device inválido'}), 400
+
+    try:
+        # 1. Buscar device
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_devices'
+            f'?id=eq.{quote(device_id)}&select=id,workspace_id,revoked_at',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao buscar device'}), 502
+        rows = resp.json() or []
+        if not rows:
+            return jsonify({'error': 'Device não encontrado'}), 404
+
+        device = rows[0]
+        device_ws = device.get('workspace_id') or ''
+
+        # 2. Verificar se já está revogado (idempotente)
+        if device.get('revoked_at'):
+            return jsonify({'success': True, 'already_revoked': True, 'revoked_at': device['revoked_at']})
+
+        # 3. Revogar
+        now_iso = datetime.now(timezone.utc).isoformat()
+        patch_resp = requests.patch(
+            f'{_SUPABASE_URL}/rest/v1/tv_devices?id=eq.{quote(device_id)}',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json={'revoked_at': now_iso},
+            timeout=10,
+        )
+        if not patch_resp.ok:
+            logger.error(f"Revoke device error: {patch_resp.status_code} {patch_resp.text[:300]}")
+            return jsonify({'error': f'Erro ao revogar device: {patch_resp.status_code}'}), 502
+
+        logger.info(f"Device revoked: {device_id[:8]}... ws={device_ws[:8] if device_ws else '?'}")
+        return jsonify({'success': True, 'revoked_at': now_iso})
+
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500

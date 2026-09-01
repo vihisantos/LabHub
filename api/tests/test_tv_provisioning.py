@@ -105,6 +105,7 @@ def client(api_module, fake_requests, monkeypatch):
     monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(api_module, "requests", fake_requests)
     monkeypatch.setattr(api_module, "_get_client_ip", lambda: "test-ip")
+    monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
     api_module._rate_limit_store.clear()
     return api_module.app.test_client()
 
@@ -142,7 +143,10 @@ def _route_happy_path(fake_requests):
         }),
     )
     fake_requests.route("POST", "/rest/v1/tv_devices", FakeResponse([]))
-    fake_requests.route("PATCH", "tv_activation_codes?id=eq.", FakeResponse([]))
+    fake_requests.route(
+        "PATCH", "tv_activation_codes?id=eq.",
+        FakeResponse([dict(ACTIVATION_ROW, status="used")]),
+    )
 
 
 # ── Redeem (fluxo anon do desktop) ──
@@ -255,6 +259,10 @@ MEMBER_PROFILE = {
 
 
 def _setup_auth(fake_requests, monkeypatch, profile):
+    auth_mod = sys.modules.get("auth")
+    monkeypatch.setattr(auth_mod, "requests", fake_requests)
+    monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
+    monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": profile["id"]})
     fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
     fake_requests.route("GET", "/auth/v1/user", FakeResponse({"id": profile["id"]}))

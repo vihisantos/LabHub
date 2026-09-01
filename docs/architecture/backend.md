@@ -133,6 +133,51 @@ if err:
 
 Both mechanisms are **fail-closed**: any error in the authorization engine results in DENY, never ALLOW.
 
+---
+
+## RBAC 2.0 Enforcement Matrix (canonical)
+
+Source of truth is `api/app.py`. Counts are **reconciled to the current code** (measured, not historical):
+
+- **19 RBAC enforcement points** = **14** `@require_action_rbac` decorators (each on a distinct, single-path, single-method handler) + **5** `_require_action_in_handler` call sites.
+- These 19 points protect **17 distinct routes** (`chamados_manage` contributes 3 points: GET/DELETE/PATCH).
+- **Total routes: 35.**
+
+### Category totals
+
+| Category | # | Routes / notes |
+|---|---|---|
+| **USER_RBAC** (decorator, workspace-scoped) | 7 | `tv.content.manage` (source/fetch, cloudinary/delete), `tv.device.manage` (activation/create, devices/provision, devices/revoke), `admin.app.purge` (app-data/describe, app-data/purge) |
+| **USER_RBAC** (in-handler `_require_action_in_handler`) | 3 routes / 5 points | `chamados/<id>` GET/DELETE/PATCH (ticket.view/delete/status·assign·edit), `chamados/<id>/events` GET (ticket.view) & POST (ticket.comment) |
+| **ADMIN_RBAC** (decorator, global-scoped) | 7 | `admin.system.wipe` (wipe), `ticket.weeklyEmail` (reports/weekly-email), `admin.backup.delete` (backups/prune, backups del), `admin.backup.restore` (backups restore), `admin.audit.view` (audit-logs), `admin.workspace.delete` (workspaces delete) |
+| **PUBLIC** (no auth, no RBAC) | 7 | `tv/youtube/fetch`, `tv/youtube/search`, `tv/youtube/live`, `tv/calendar/extract`, `tv/health`, `chamados/workspaces`, `chamados` POST |
+| **PROVISIONING_FLOW** (anonymous, no RBAC) | 1 | `tv/activation/redeem` |
+| **DEVICE_IDENTITY** (device-session, no RBAC) | 1 | `tv/chamados/display` |
+| **LEGACY** (`@require_auth` only, no RBAC action) | 4 | `chamados` GET, `chamados/reports` GET, `chamados/push/test` (+`@require_admin`), `admin/backups` GET (+ in-handler `_require_super_admin`) |
+| **LEGACY_ACCEPTED** (`@require_tracking_token` public token) | 4 | `public/chamados/<token>`, `/<token>/events`, `/<token>/feedback`, `/<token>/subscribe` |
+| **CRON** (`@require_cron`) | 1 | `chamados/photos/purge` |
+
+### RBAC Actions (decorator) and scopes
+
+| Action | Scope | Handlers |
+|---|---|---|
+| `tv.content.manage` | workspace | `tv_source_fetch`, `tv_cloudinary_delete` |
+| `tv.device.manage` | workspace | `tv_activation_create`, `tv_device_provision`, `tv_device_revoke` |
+| `admin.app.purge` | workspace | `admin_app_data_describe`, `admin_app_data_purge` |
+| `admin.system.wipe` | global | `admin_wipe` |
+| `ticket.weeklyEmail` | global | `chamados_reports_weekly_email` |
+| `admin.backup.delete` | global | `admin_backups_prune`, `admin_backups_delete` |
+| `admin.backup.restore` | global | `admin_backups_restore` |
+| `admin.audit.view` | global | `admin_audit_logs_list` |
+| `admin.workspace.delete` | global | `admin_workspace_delete_with_backup` |
+
+### In-handler Actions (via `_require_action_in_handler`, workspace-scoped)
+
+- `ticket.view` — `chamados_manage` GET, `chamados_events_list` GET
+- `ticket.delete` — `chamados_manage` DELETE
+- `ticket.status` / `ticket.assign` / `ticket.edit` — `chamados_manage` PATCH (all required atomically)
+- `ticket.comment` — `chamados_events_create` POST
+
 ## Security
 
 - **RBAC 2.0**: Action-based authorization (when `RBAC_2_ENABLED=1`)

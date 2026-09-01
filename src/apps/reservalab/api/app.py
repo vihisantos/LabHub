@@ -694,6 +694,7 @@ def _supabase_headers():
 @app.route('/api/push/action', methods=['POST'])
 @require_auth
 @require_admin
+@require_action_rbac('admin.user.approve', scope='global')
 def push_action():
     """Aprova ou rejeita um usuário pendente. Requer super admin."""
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
@@ -906,8 +907,12 @@ def _get_key(obj, *keys):
 @require_auth
 @require_module_auth('stock')
 def push_notify_loan():
-    """Notify stock subscribers about a loan. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
+    """Notify stock subscribers about a loan. Auth required, stock module required.
+
+    Etapa 8: workspace_id is derived from the stock item resource when possible,
+    never trusted blindly from the client body. The client-provided workspace_id
+    is validated against user membership and used only as fallback.
+    """
     if request.is_json:
         body_json = request.get_json(silent=True) or {}
         ws_id = body_json.get('workspace_id')
@@ -926,7 +931,24 @@ def push_notify_loan():
         if expected_return:
             msg += f" — Devolução até {expected_return[:10]}"
 
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
+        # Etapa 8: derive workspace from stock item resource when possible.
+        item_id = body.get('itemId') or body.get('item_id') or ''
+        resource_ws = None
+        if item_id and _SUPABASE_URL and _SUPABASE_SERVICE_KEY:
+            try:
+                item_resp = requests.get(
+                    f"{_SUPABASE_URL}/rest/v1/stock_items?id=eq.{quote(item_id)}&select=id,workspace_id",
+                    headers={**_supabase_headers(), 'Accept-Profile': 'stock'},
+                    timeout=5,
+                )
+                if item_resp.ok and item_resp.json():
+                    resource_ws = _get_key(item_resp.json()[0], 'workspace_id', 'workspaceId') or None
+            except Exception:
+                pass
+        # Prefer resource-derived workspace; fall back to client-provided (already validated).
+        effective_ws = resource_ws or body.get('workspace_id')
+
+        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=effective_ws)
         for sub in subs:
             push_notify(sub, title, msg)
 
@@ -941,8 +963,10 @@ def push_notify_loan():
 @require_auth
 @require_module_auth('stock')
 def push_notify_return():
-    """Notify stock subscribers about a return. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
+    """Notify stock subscribers about a return. Auth required, stock module required.
+
+    Etapa 8: workspace_id is derived from the stock item resource when possible.
+    """
     if request.is_json:
         body_json = request.get_json(silent=True) or {}
         ws_id = body_json.get('workspace_id')
@@ -958,7 +982,23 @@ def push_notify_return():
         title = f"✅ Devolução: {item_name}"
         msg = f"Devolvido por {returned_by}"
 
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
+        # Etapa 8: derive workspace from stock item resource when possible.
+        item_id = body.get('itemId') or body.get('item_id') or ''
+        resource_ws = None
+        if item_id and _SUPABASE_URL and _SUPABASE_SERVICE_KEY:
+            try:
+                item_resp = requests.get(
+                    f"{_SUPABASE_URL}/rest/v1/stock_items?id=eq.{quote(item_id)}&select=id,workspace_id",
+                    headers={**_supabase_headers(), 'Accept-Profile': 'stock'},
+                    timeout=5,
+                )
+                if item_resp.ok and item_resp.json():
+                    resource_ws = _get_key(item_resp.json()[0], 'workspace_id', 'workspaceId') or None
+            except Exception:
+                pass
+        effective_ws = resource_ws or body.get('workspace_id')
+
+        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=effective_ws)
         for sub in subs:
             push_notify(sub, title, msg)
 
@@ -1057,7 +1097,6 @@ def _internal_push_check_overdue():
             return {'error': 'Supabase query failed'}
 
         all_loans = resp.json()
-        subs = _target_subs(module='stock')
         sent = 0
         found = 0
 
@@ -1085,6 +1124,10 @@ def _internal_push_check_overdue():
             if redis.get(f'push:sent:{nid}'):
                 continue
 
+            # Etapa 8: scope push per workspace — never send cross-workspace data.
+            loan_ws = _get_key(loan, 'workspace_id', 'workspaceId') or ''
+            subs = _target_subs(module='stock', workspace_id=loan_ws)
+
             item_name = loan.get('itemname', 'Item')
             borrowed_by = loan.get('borrowedby', 'Alguém')
 
@@ -1096,6 +1139,8 @@ def _internal_push_check_overdue():
             redis.setex(f'push:sent:{nid}', 43200, '1')
             sent += 1
             logger.info(f"Overdue notify: {item_name}")
+
+        return {'checked': True, 'sent': sent, 'found': found}
 
         return {'checked': True, 'sent': sent, 'found': found, 'subscribers': len(subs)}
     except Exception as e:
@@ -1130,8 +1175,11 @@ def _internal_push_check_pcare():
         amanha_str = (agora + timedelta(days=1)).strftime('%Y-%m-%d')
 
         base_headers = {'apikey': supabase_key, 'Authorization': f'Bearer {supabase_key}'}
-        subs = _target_subs(module='pc-care')
         sent = 0
+
+        # Etapa 8.1: scope push per workspace — never send cross-workspace data.
+        # Each part/maintenance record carries workspace_id; subscribers are
+        # filtered to only those whose workspace_ids includes the record's ws.
 
         # ── Estoque baixo de peças ──
         parts_headers = {**base_headers, 'Accept-Profile': 'pcare'}
@@ -1148,13 +1196,23 @@ def _internal_push_check_pcare():
                         nid = hashlib.md5(f"pcare|part|{part['id']}".encode()).hexdigest()
                         if redis.get(f'push:sent:{nid}'):
                             continue
+                        part_ws = _get_key(part, 'workspace_id', 'workspaceId') or ''
+                        if not part_ws:
+                            logger.warning(f"Low stock: {part.get('name')} — no workspace_id, skipping (fail-closed)")
+                            redis.setex(f'push:sent:{nid}', 86400, '1')
+                            continue
+                        subs = _target_subs(module='pc-care', workspace_id=part_ws)
+                        if not subs:
+                            logger.info(f"Low stock: {part.get('name')} — no subscribers in workspace {part_ws}, skipping")
+                            redis.setex(f'push:sent:{nid}', 86400, '1')
+                            continue
                         title = f"🔧 Estoque baixo: {part.get('name', 'Peça')}"
                         msg = f"Quantidade: {qty} | Mínimo: {min_qty}"
                         for sub in subs:
                             push_notify(sub, title, msg)
                         redis.setex(f'push:sent:{nid}', 86400, '1')
                         sent += 1
-                        logger.info(f"Low stock: {part.get('name')}")
+                        logger.info(f"Low stock: {part.get('name')} (ws={part_ws})")
         except Exception as e:
             logger.error(f"check-pcare parts error: {e}")
 
@@ -1173,17 +1231,27 @@ def _internal_push_check_pcare():
                     nid = hashlib.md5(f"pcare|maint|{m['id']}".encode()).hexdigest()
                     if redis.get(f'push:sent:{nid}'):
                         continue
+                    maint_ws = _get_key(m, 'workspace_id', 'workspaceId') or ''
+                    if not maint_ws:
+                        logger.warning(f"Maintenance: {m.get('pcnumber')} — no workspace_id, skipping (fail-closed)")
+                        redis.setex(f'push:sent:{nid}', 86400, '1')
+                        continue
+                    subs = _target_subs(module='pc-care', workspace_id=maint_ws)
+                    if not subs:
+                        logger.info(f"Maintenance: {m.get('pcnumber')} — no subscribers in workspace {maint_ws}, skipping")
+                        redis.setex(f'push:sent:{nid}', 86400, '1')
+                        continue
                     title = f"🔧 Manutenção: {m.get('pcnumber', 'PC')}"
                     msg = f"{m.get('labname', 'Lab')} — {m.get('type', '')} — {m.get('scheduleddate', '')[:10]}"
                     for sub in subs:
                         push_notify(sub, title, msg)
                     redis.setex(f'push:sent:{nid}', 86400, '1')
                     sent += 1
-                    logger.info(f"Maintenance: {m.get('pcnumber')}")
+                    logger.info(f"Maintenance: {m.get('pcnumber')} (ws={maint_ws})")
         except Exception as e:
             logger.error(f"check-pcare maintenance error: {e}")
 
-        return {'checked': True, 'sent': sent, 'subscribers': len(subs)}
+        return {'checked': True, 'sent': sent}
     except Exception as e:
         logger.error("check-pcare error: %s", e)
         return {'error': 'Erro ao verificar manutenções do PC Care'}

@@ -459,3 +459,86 @@ class TestSecurity:
                           query_string={"workspace_id": "ws-fake-other"}, headers=_auth_headers())
         assert resp.status_code == 200
         assert calls and calls[-1]["workspace_id"] == "ws-real"
+
+
+# ── WARNING 3 — weekly-email workspace authority (ETAPA 10.2) ────────────────
+#
+# `ticket.weeklyEmail` é scope=global: o endpoint só é alcançável por super admin
+# (require_admin + RBAC global negam não-super). O `workspace_id` do body é apenas
+# um FILTRO operacional — NUNCA altera o contexto de autorização. Estes testes
+# travam essa semântica (global Action + workspace como filtro autorizado).
+class TestWeeklyEmailWorkspaceAuthority:
+    def test_global_action_invalid_workspace_is_filter_only(
+        self, client, fake_requests, monkeypatch, rbac_module
+    ):
+        # Super admin + workspace inexistente: autorização é global; workspace é
+        # filtro operacional. Sem escalada porque super já está autorizado a tudo.
+        _patch_supabase_profile(fake_requests, _profile(is_super=True))
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([]))
+        fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([]))
+        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+        monkeypatch.setattr(sys.modules["root_api"], "_send_email_via_resend",
+                            lambda *a, **k: (True, ""))
+        calls = _capture_can(monkeypatch, rbac_module, {"ticket.weeklyEmail": True})
+        resp = client.post("/api/chamados/reports/weekly-email",
+                           json={"workspace_id": "ws-inexistente", "to": "x@y.com"},
+                           headers=_auth_headers())
+        assert resp.status_code == 200
+        assert calls and calls[0]["action"] == "ticket.weeklyEmail"
+        assert calls[0]["scope"] == "global"
+
+    def test_non_admin_denied_even_with_belonging_workspace(
+        self, client, fake_requests, monkeypatch, rbac_module
+    ):
+        # Não-super com workspace pertencente ainda é negado: require_admin e RBAC
+        # global governam; o SEC-01 de membership no handler é inalcançável.
+        _patch_supabase_profile(fake_requests, _profile(is_super=False, ws=["ws-test"]))
+        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+        calls = _capture_can(monkeypatch, rbac_module, {"ticket.weeklyEmail": True})
+        resp = client.post("/api/chamados/reports/weekly-email",
+                           json={"workspace_id": "ws-test"}, headers=_auth_headers())
+        assert resp.status_code == 403
+        assert calls == []
+
+    def test_off_denies_non_admin_via_legacy_admin_gate(
+        self, client, fake_requests, monkeypatch, rbac_module
+    ):
+        # OFF ⇒ require_action é no-op; require_admin (legado, super-only) governa.
+        _patch_supabase_profile(fake_requests, _profile(is_super=False, ws=["ws-test"]))
+        calls = _capture_can(monkeypatch, rbac_module, {})
+        resp = client.post("/api/chamados/reports/weekly-email",
+                           json={"workspace_id": "ws-test"}, headers=_auth_headers())
+        assert resp.status_code == 403
+        assert resp.get_json()["error"] == "Super admin access required"
+        assert calls == []
+
+    def test_body_manipulation_cannot_let_non_super_reach_handler(
+        self, client, fake_requests, monkeypatch, rbac_module
+    ):
+        # Manipular workspace_id do body p/ outro workspace não confere acesso a
+        # não-super: o endpoint é super-only (require_admin + global).
+        _patch_supabase_profile(fake_requests, _profile(is_super=False, ws=["ws-test"]))
+        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+        calls = _capture_can(monkeypatch, rbac_module, {"ticket.weeklyEmail": True})
+        resp = client.post("/api/chamados/reports/weekly-email",
+                           json={"workspace_id": "ws-outro"}, headers=_auth_headers())
+        assert resp.status_code == 403
+        assert calls == []
+
+    def test_super_workspace_filter_does_not_constrain_scope(
+        self, client, fake_requests, monkeypatch, rbac_module
+    ):
+        # Super pode apontar workspace que não está na própria lista; a ação global
+        # permite (workspace é filtro, não limite de autorização).
+        _patch_supabase_profile(fake_requests, _profile(is_super=True))
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([]))
+        fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([]))
+        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+        monkeypatch.setattr(sys.modules["root_api"], "_send_email_via_resend",
+                            lambda *a, **k: (True, ""))
+        calls = _capture_can(monkeypatch, rbac_module, {"ticket.weeklyEmail": True})
+        resp = client.post("/api/chamados/reports/weekly-email",
+                           json={"workspace_id": "ws-unrelated", "to": "x@y.com"},
+                           headers=_auth_headers())
+        assert resp.status_code == 200
+        assert calls and calls[0]["scope"] == "global"

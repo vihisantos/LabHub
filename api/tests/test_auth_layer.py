@@ -185,6 +185,7 @@ def root_client(root_api_module, fake_requests, monkeypatch):
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
+    monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
     root_api_module._rate_limit_store.clear()
     return root_api_module.app.test_client()
 
@@ -965,6 +966,7 @@ def jwks_client(root_api_module, fake_requests, monkeypatch):
     """Client configured with mock JWKS endpoint (no SUPABASE_JWT_SECRET)."""
     # IMPORTANT: do NOT set SUPABASE_JWT_SECRET — tests JWKS path only
     monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
     monkeypatch.setattr(root_api_module, "_SUPABASE_URL", SUPABASE_URL)
     monkeypatch.setattr(root_api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(root_api_module, "requests", fake_requests)

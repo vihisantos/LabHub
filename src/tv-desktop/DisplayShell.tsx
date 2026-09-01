@@ -6,6 +6,7 @@ import { MusicPlayerProvider } from '../apps/tv/contexts/MusicPlayerContext'
 import { ScreenRenderer } from './ScreenRenderer'
 import { workspaceStore } from '../core/workspaces/store'
 import { startHeartbeat, openAdminPanel } from './deviceService'
+import { defaultDb as supabase } from '../lib/supabase'
 import type { DeviceConfig } from './config'
 
 interface DisplayShellProps {
@@ -91,7 +92,12 @@ export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
               </button>
               <button
                 style={{ ...mainButtonStyle, color: '#fca5a5' }}
-                onClick={() => window.desktop?.quit?.()}
+                onClick={async () => {
+                  try {
+                    if (supabase) await supabase.auth.signOut()
+                  } catch { /* best-effort */ }
+                  window.desktop?.quit?.()
+                }}
               >
                 <LogOut size={15} /> Encerrar aplicativo
               </button>

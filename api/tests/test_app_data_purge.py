@@ -188,6 +188,7 @@ def purge_env(root_api_module, monkeypatch):
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
 
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
+    monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
     root_api_module._rate_limit_store.clear()
     return fake
 
