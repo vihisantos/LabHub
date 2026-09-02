@@ -147,6 +147,16 @@ export function useTickets() {
     return update(id, updates)
   }, [update])
 
+  /**
+   * COMEÇAR ATENDIMENTO — assume o chamado para o usuário atual.
+   * Lança erro 409 se outro técnico assumiu primeiro.
+   */
+  const claim = useCallback(async (id: string) => {
+    const ticket = await ticketService.claim(id)
+    setTickets((prev) => prev.map((t) => (t.id === id ? ticket : t)))
+    return ticket
+  }, [])
+
   const remove = useCallback((id: string) => {
     const ok = ticketService.remove(id)
     if (ok) {
@@ -157,5 +167,5 @@ export function useTickets() {
 
   const reload = useCallback(() => syncRemote(false), [syncRemote])
 
-  return { tickets, loading, syncing, create, update, updateStatus, remove, reload }
+  return { tickets, loading, syncing, create, update, updateStatus, claim, remove, reload }
 }

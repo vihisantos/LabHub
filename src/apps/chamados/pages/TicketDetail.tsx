@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTicketsContext } from '../contexts/TicketsContext'
 import {
@@ -41,10 +41,14 @@ function slaConfigFor(ticket: Ticket) {
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { tickets, update, updateStatus, create } = useTicketsContext()
+  const { tickets, update, updateStatus, create, claim } = useTicketsContext()
   const { isFullAccess } = useAppAccess()
   const { user } = useAuth()
   const canWrite = isFullAccess('chamados')
+  // Líder: quem pode atribuir/reatribuir responsável. Frontend usa o admin
+  // absoluto (is_super_admin) como sinal; o backend é a autoridade final e
+  // também permite o papel legacy `admin` com RBAC OFF.
+  const isLeader = user?.is_super_admin === true
   const ticket = tickets.find((t) => t.id === id)
   const [noteInput, setNoteInput] = useState('')
   const [lightbox, setLightbox] = useState<string | null>(null)
@@ -54,6 +58,8 @@ export function TicketDetail() {
   const [commentError, setCommentError] = useState('')
   const [sending, setSending] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [claimError, setClaimError] = useState('')
+  const [claiming, setClaiming] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -110,19 +116,18 @@ export function TicketDetail() {
     update(ticket.id, { assignedTo: name, assignedToUserId: userId })
   }
 
-  function handleAssignToMe() {
-    if (!ticket || !user) return
-    const profile = userService.getByUserId(user.id)
-    handleAssign(user.id, profile?.displayName || user.name)
+  async function handleClaim() {
+    if (!ticket || claiming) return
+    setClaiming(true)
+    setClaimError('')
+    try {
+      await claim(ticket.id)
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : 'Não foi possível assumir o chamado.')
+    } finally {
+      setClaiming(false)
+    }
   }
-
-  const history = useMemo(() => {
-    if (!ticket) return []
-    return tickets
-      .filter((t) => t.assetId === ticket.assetId && t.assetSource === ticket.assetSource && t.id !== ticket.id)
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-      .slice(0, 5)
-  }, [ticket, tickets])
 
   if (!ticket) {
     return (
@@ -139,15 +144,17 @@ export function TicketDetail() {
   const slaInfo = getSlaInfo(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
 
   const claimedByMe = (ticket.assignedToUserId || '') === (user?.id || '')
-  const claimedByOther =
-    !!ticket.assignedTo && !claimedByMe && (ticket.status === 'a_caminho' || ticket.status === 'em_atendimento')
+  // Quem pode operar (comentar, mudar status, prioridade...): o responsável do
+  // chamado OU o líder/assigner. Isolamento: técnico comum não opera chamado de outro.
+  const canOperate = isLeader || claimedByMe
+  const unassigned = !ticket.assignedToUserId
+  const inOpenFlow = ticket.status === 'aberto' || ticket.status === 'a_caminho' || ticket.status === 'em_atendimento'
+  // Chamado assumido por outro técnico — quem não é responsável nem líder vê só leitura.
+  const lockedByOther = canWrite && !isLeader && !claimedByMe && !!ticket.assignedToUserId && inOpenFlow
 
   function handleAdvanceStatus() {
-    if (!nextStatus || !ticket) return
-    if (nextStatus === 'a_caminho') {
-      const profile = userService.getByUserId(user?.id || '')
-      update(ticket.id, { status: nextStatus, assignedTo: profile?.displayName || user?.name, assignedToUserId: user?.id })
-    } else if (nextStatus === 'fechado') {
+    if (!nextStatus || !ticket || !canOperate) return
+    if (nextStatus === 'fechado') {
       update(ticket.id, {
         status: nextStatus,
         archived: true,
@@ -267,7 +274,7 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canWrite &&
+      {canOperate &&
         (ticket.status === 'aberto' || ticket.status === 'a_caminho' || ticket.status === 'em_atendimento') && (
           <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-2 text-xs font-semibold text-fg-muted">Mensagem para o professor</h3>
@@ -320,9 +327,9 @@ export function TicketDetail() {
           </div>
         )}
 
-      {canWrite && (
+      {isLeader && (
         <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-          <h3 className="mb-2 text-xs font-semibold text-fg-muted">Atribuição</h3>
+          <h3 className="mb-2 text-xs font-semibold text-fg-muted">Responsável</h3>
           <div className="flex gap-2">
             <select
               value={ticket.assignedToUserId ?? ''}
@@ -340,14 +347,12 @@ export function TicketDetail() {
                 <option key={a.id} value={a.userId}>{a.displayName}</option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={handleAssignToMe}
-              className="shrink-0 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-400"
-            >
-              Pegar para mim
-            </button>
           </div>
+          {ticket.assignedToUserId && (
+            <p className="mt-2 text-[11px] text-fg-muted">
+              Atribuído a <span className="font-medium text-fg">{ticket.assignedTo}</span>
+            </p>
+          )}
         </div>
       )}
 
@@ -360,7 +365,7 @@ export function TicketDetail() {
               {ticket.closedBy ? ` por ${ticket.closedBy}` : ''}
             </p>
           </div>
-          {canWrite && (
+          {canOperate && (
             <div className="mt-3 space-y-2">
               <button
                 type="button"
@@ -393,7 +398,7 @@ export function TicketDetail() {
         <div className="mb-4 space-y-3 rounded-xl bg-surface p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-fg-muted">Prioridade</span>
-            {canWrite ? (
+            {canOperate ? (
               <div className="flex gap-1">
                 {TICKET_PRIORITIES.map((priority) => (
                   <button
@@ -536,7 +541,7 @@ export function TicketDetail() {
 
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h3 className="mb-3 text-xs font-semibold text-fg-muted">Histórico</h3>
-        {canWrite && (
+        {canOperate && (
           <div className="mb-4 rounded-xl border border-line bg-surface p-3">
             <textarea
               value={comment}
@@ -655,40 +660,41 @@ export function TicketDetail() {
         </div>
       </div>
 
-      {canWrite && claimedByOther && (
+      {lockedByOther && (
         <div className="flex items-center gap-2 rounded-xl bg-input/60 px-4 py-3">
-          <icons.ui.userCheck size={16} className="shrink-0 text-fg-muted" />
-          <p className="text-xs text-fg-muted">{ticket.assignedTo} já está atendendo este chamado</p>
+          <icons.ui.alertCircle size={16} className="shrink-0 text-fg-muted" />
+          <p className="text-xs text-fg-muted">
+            Este chamado está sendo atendido por {ticket.assignedTo}. Você não pode alterá-lo.
+          </p>
         </div>
       )}
 
-      {canWrite && nextStatus && !claimedByOther && (
+      {canWrite && !isLeader && unassigned && inOpenFlow && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleClaim}
+            disabled={claiming}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <icons.ui.userCheck size={16} />
+            {claiming ? 'Assumindo...' : 'Começar Atendimento'}
+          </button>
+          {claimError && <p className="text-center text-[11px] text-red-500">{claimError}</p>}
+        </div>
+      )}
+
+      {canOperate && nextStatus && !lockedByOther && (
         <button
           type="button"
           onClick={handleAdvanceStatus}
           className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
         >
-          {nextStatus === 'a_caminho' && 'Assumir chamado'}
+          {nextStatus === 'a_caminho' && 'Ir ao local'}
           {nextStatus === 'em_atendimento' && 'Iniciar Atendimento'}
           {nextStatus === 'resolvido' && 'Marcar como Resolvido'}
           {nextStatus === 'fechado' && 'Fechar Chamado'}
         </button>
-      )}
-
-      {history.length > 0 && (
-        <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-          <h3 className="mb-3 text-xs font-semibold text-fg-muted">Histórico deste equipamento</h3>
-          <div className="space-y-2">
-            {history.map((t) => (
-              <div key={t.id} className="flex items-center justify-between text-sm">
-                <span className="text-fg-muted">#{t.ticketNumber} — {t.problemCategory}</span>
-                <span className="text-[10px] text-fg-dim">
-                  {(() => { const d = new Date(t.createdAt); return isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR') })()}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
 
       {lightbox && (

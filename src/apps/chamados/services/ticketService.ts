@@ -183,6 +183,28 @@ export const ticketService = {
     return events || []
   },
 
+  /**
+   * COMEÇAR ATENDIMENTO — o técnico assume o chamado para si de forma atômica
+   * no servidor. Lança erro 409 se outro técnico já assumiu o chamado.
+   */
+  claim: async (id: string): Promise<Ticket> => {
+    const ticket = await request<{ ticket: Ticket }>(`${API_BASE}/${id}/claim`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).then((res) => res.ticket)
+    persistLocal(ticket)
+    logService.log({
+      userId: 'system',
+      userName: 'Sistema',
+      action: 'updated',
+      entity: 'ticket',
+      entityId: ticket.id,
+      entityLabel: `#${ticket.ticketNumber}`,
+      details: { newOwner: ticket.assignedTo, claimed: true },
+    })
+    return ticket
+  },
+
   /** Adiciona um comentário ao chamado (máx 2 fotos por evento). */
   addEvent: async (id: string, data: TicketEventInput): Promise<TicketEvent> => {
     const { event } = await request<{ event: TicketEvent }>(`${API_BASE}/${id}/events`, {

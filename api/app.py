@@ -89,6 +89,72 @@ def _require_action_in_handler(action, scope='workspace', resource_type=None, re
     return None
 
 
+# ── Ownership de atendimento (independente do RBAC_2_ENABLED) ────────────────
+#
+# Estas regras implementam o fluxo operacional definitivo de Chamados e valem
+# SEMPRE, com RBAC_2_ENABLED=0 OU =1 (a flag controla a granularidade das Actions
+# RBAC 2.0; a regra de ownership é de negócio e nunca é desativada):
+#
+#   - Técnico comum NÃO pode atribuir/reatribuir responsável (nem escolher outro).
+#   - Técnico comum só pode COMEÇAR ATENDIMENTO em chamado SEM responsável.
+#   - Depois de atribuído a X, os demais técnicos não podem operar (comentar,
+#     mudar status, editar, assumir); apenas o responsável, o líder/assigner e o
+#     super admin podem.
+#
+# "Quem é o líder/assigner" depende do modo:
+#   - RBAC ON : quem tem a Action `ticket.assign` no workspace (role/override).
+#   - RBAC OFF: profile.role legado == 'admin' OU is_super_admin.
+# O "tech comum" é qualquer membro que não seja assigner nem super admin.
+
+
+
+def _is_assigner(user, workspace_id):
+    """Pode atribuir/reatribuir responsável de chamados no workspace?
+
+    RBAC ON  → Action `ticket.assign` (scope workspace).
+    RBAC OFF → profile.role == 'admin' (legado) ou is_super_admin.
+    """
+    if not user:
+        return False
+    if user.get('is_super_admin'):
+        return True
+    if rbac_two_enabled():
+        return bool(rbac_two_can(user, workspace_id, 'ticket.assign', 'workspace'))
+    return str(user.get('role') or '') == 'admin'
+
+
+def _ticket_owner(ticket):
+    """Id do usuário que detém o atendimento (string vazia ⇒ sem responsável)."""
+    return str(ticket.get('assignedToUserId') or '').strip()
+
+
+def _can_operate_ticket(actor, ticket, workspace_id):
+    """Ownership: o ator pode executar operações operacionais no chamado?
+
+    Retorna True quando o chamado não tem responsável, ou o ator é o
+    responsável, ou é um assigner (líder/admin/super). O check de assigner só
+    é consultado quando o chamado tem responsável de outro — evita custo RBAC
+    desnecessário quando ainda não há dono.
+    """
+    if not actor:
+        return False
+    if actor.get('is_super_admin'):
+        return True
+    owner = _ticket_owner(ticket)
+    if not owner:
+        return True
+    if str(actor.get('id') or '') == owner:
+        return True
+    return _is_assigner(actor, workspace_id)
+
+
+def _enforce_ownership(actor, ticket, workspace_id, resource_id):
+    """Retorna resposta Flask (403) se o ator não pode operar o chamado, senão None."""
+    if _can_operate_ticket(actor, ticket, workspace_id):
+        return None
+    return _forbidden('Este chamado está sendo atendido por outro técnico')
+
+
 # ── Tracking token público (acesso limitado do professor a um chamado) ──
 #
 # O professor NÃO tem conta autenticada. Cada chamado gera um token
@@ -1782,6 +1848,54 @@ def _notify_ticket_assigned(ticket):
         logger.error("[chamados] push atribuição error: %s", e)
 
 
+def _notify_ticket_claimed(ticket, claimer_name):
+    """Notifica a assunção de um chamado.
+
+    - Ao técnico que assumiu: "Você assumiu o chamado #N."
+    - Aos demais técnicos do mesmo workspace: "O chamado #N foi assumido por X."
+
+    Não cria tempestade de notificações: cada subscriber recebe exatamente uma
+    das duas mensagens. Falhas de push não quebram o fluxo de claim.
+    """
+    try:
+        claimer_id = str(ticket.get('assignedToUserId') or '').strip()
+        if not claimer_id:
+            return
+        num = ticket.get('ticketNumber')
+        url = f"/chamados/tickets/{ticket.get('id')}"
+        ws = ticket.get('workspace_id')
+
+        # 1. Push direto a quem assumiu.
+        own_subs = _target_subs(module='chamados', workspace_id=ws, user_id=claimer_id)
+        own_title = f"Você assumiu o chamado #{num}"
+        own_body = ' · '.join(
+            str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
+        )
+        sent_own = 0
+        for sub in (own_subs or []):
+            if push_notify(sub, own_title, own_body, url=url, user_id=claimer_id):
+                sent_own += 1
+
+        # 2. Demais técnicos do workspace: informação de indisponibilidade.
+        others = _target_subs(module='chamados', workspace_id=ws)
+        other_title = f"O chamado #{num} foi assumido por {claimer_name or 'um técnico'}"
+        other_body = ' · '.join(
+            str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
+        )
+        sent_other = 0
+        for sub in (others or []):
+            u = (sub.get('user') or {})
+            if u.get('id') == claimer_id:
+                continue
+            if push_notify(sub, other_title, other_body, url=url):
+                sent_other += 1
+        print(
+            f"[chamados] push claim #{num}: {sent_own} p/ responsável, {sent_other} p/ demais técnicos"
+        )
+    except Exception as e:
+        logger.error("[chamados] push claim error: %s", e)
+
+
 def _notify_new_ticket(ticket):
     """Dispara push imediato para o TI quando um chamado é aberto.
 
@@ -2145,7 +2259,7 @@ def chamados_manage(ticket_id):
 
         # PATCH: Verify workspace ownership before any update
         fetch_ws = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id',
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id,status,assignedToUserId',
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -2159,6 +2273,18 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Acesso negado a este chamado'}), 403
         # Etapa 6 — workspace do recurso resolvido (nunca o do cliente).
         g.workspace_id = ticket_ws
+
+        # Ownership (sempre ativo): um técnico comum não pode operar um chamado
+        # já atribuído a outro técnico. O responsável, o líder/assigner e o super
+        # admin podem. Aplicado ANTES de qualquer mutation.
+        _current_ticket = {
+            'workspace_id': ticket_ws,
+            'status': ws_rows[0].get('status'),
+            'assignedToUserId': ws_rows[0].get('assignedToUserId') or '',
+        }
+        err = _enforce_ownership(user, _current_ticket, ticket_ws, ticket_id)
+        if err:
+            return err
 
         body = request.get_json() or {}
         updates = {}
@@ -2214,6 +2340,14 @@ def chamados_manage(ticket_id):
                                              resource_type='ticket', resource_id=ticket_id)
             if err:
                 return err
+
+        # Atribuição/reatribuição/remoção de responsável = privilégio de assigner.
+        # O técnico comum NÃO pode escolher outro técnico, nem remover responsável,
+        # nem (por esta rota) auto-atribuir-se — a auto-atribuição (claim) tem rota
+        # dedicada e atômica. Bloqueamos inclusive com RBAC_2_ENABLED=0.
+        if 'assignedTo' in updates or 'assignedToUserId' in updates:
+            if not _is_assigner(user, ticket_ws):
+                return _forbidden('Permissão insuficiente para atribuir responsável')
 
         prev = None
         assignment_changed = False
@@ -3012,7 +3146,7 @@ def chamados_events_create(ticket_id):
     try:
         _ensure_chamados_schema()
         fetch = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=id,workspace_id,status',
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=id,workspace_id,status,assignedToUserId',
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -3035,6 +3169,12 @@ def chamados_events_create(ticket_id):
         g.workspace_id = ticket_ws
         err = _require_action_in_handler('ticket.comment', scope='workspace',
                                          resource_type='ticket', resource_id=ticket_id)
+        if err:
+            return err
+
+        # Ownership (sempre ativo): outro técnico não pode comentar/operar um
+        # chamado que já pertence a outro técnico. Líder/admin/super podem.
+        err = _enforce_ownership(user, ticket, ticket_ws, ticket_id)
         if err:
             return err
 
@@ -3070,6 +3210,121 @@ def chamados_events_create(ticket_id):
             event['photos'] = []
         return jsonify({'event': event}), 201
 
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/chamados/<ticket_id>/claim', methods=['POST'])
+@require_auth
+def chamados_claim(ticket_id):
+    """COMEÇAR ATENDIMENTO — técnico assume o chamado para si.
+
+    Modelo definitivo de atribuição:
+      - Um técnico comum SÓ pode assumir um chamado SEM responsável.
+      - A assunção é ATÔMICA no banco: a atualização só alcança linhas com
+        assignedToUserId IS NULL. Se outro técnico assumiu primeiro, a atualização
+        afeta 0 linhas e este request recebe 409 (já assumido).
+      - Não altera o status (o responsável segue o fluxo de status depois).
+      - Registra evento de atribuição + auditoria + notificações.
+
+    Autorização:
+      - Precisa ser membro do workspace do chamado.
+      - RBAC ON  → exige Action `ticket.claim` (técnico tem; líder/super passam).
+      - RBAC OFF → qualquer membro autenticado do workspace pode claim (legado).
+      - Apenas o responsável, o líder/assigner ou o super admin podem claim de um
+        chamado já atribuído (geralmente desnecessário, mas a rota rejeita se não).
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
+
+        fetch = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=id,workspace_id,status,assignedTo,assignedToUserId,ticketNumber,roomName,problemCategory',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        rows = fetch.json() or []
+        if not rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        ticket = rows[0]
+        ticket_ws = ticket.get('workspace_id') or ''
+        if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
+
+        g.workspace_id = ticket_ws
+
+        # RBAC ON → Action `ticket.claim`. OFF → no-op (legado).
+        err = _require_action_in_handler('ticket.claim', scope='workspace',
+                                         resource_type='ticket', resource_id=ticket_id)
+        if err:
+            return err
+
+        # Ownership: se já tem responsável, só o próprio responsável, o
+        # líder/assigner ou o super admin podem (re)assumir.
+        err = _enforce_ownership(user, ticket, ticket_ws, ticket_id)
+        if err:
+            return err
+
+        claimer_id = str(user.get('id') or '').strip()
+        claimer_name = str(user.get('name') or '').strip() or 'Técnico'
+        if not claimer_id:
+            return jsonify({'error': 'Usuário inválido'}), 400
+
+        # UPDATE ATÔMICO: só alcança linhas SEM responsável. 0 linhas ⇒ já assumido.
+        now = datetime.now(timezone.utc).isoformat()
+        upd_resp = requests.patch(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+            f'?id=eq.{quote(ticket_id)}&assignedToUserId=is.null',
+            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+            json={
+                'assignedToUserId': claimer_id,
+                'assignedTo': claimer_name,
+                'updatedAt': now,
+            },
+            timeout=10,
+        )
+        if not upd_resp.ok:
+            return jsonify({'error': 'Erro ao assumir chamado'}), 502
+        updated_rows = upd_resp.json() or []
+        if not updated_rows:
+            # Chamado já foi assumido por outro técnico (race perdida).
+            return jsonify({'error': 'Este chamado já foi assumido por outro técnico'}), 409
+
+        updated = updated_rows[0]
+
+        # Evento de atribuição no histórico.
+        _record_ticket_event(
+            ticket_id,
+            ticket_ws,
+            'atribuicao',
+            content=f'{claimer_name} iniciou o atendimento',
+            author=claimer_name,
+        )
+
+        # Auditoria do claim (side-channel RBAC).
+        rbac_record_audit(
+            actor_id=claimer_id,
+            actor_is_super=user.get('is_super_admin'),
+            action='ticket.claim',
+            workspace_id=ticket_ws,
+            scope='workspace',
+            effect='allow',
+            outcome='success',
+            resource_type='ticket',
+            resource_id=ticket_id,
+            meta={'prev_owner': str(ticket.get('assignedToUserId') or ''), 'new_owner': claimer_id},
+        )
+
+        # Notifica quem assumiu e os demais técnicos do workspace.
+        _notify_ticket_claimed(updated, claimer_name)
+
+        return jsonify({'ticket': updated})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
