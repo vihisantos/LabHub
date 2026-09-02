@@ -1,14 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
 const mockUpdate = vi.hoisted(() => vi.fn())
 const mockUpdateStatus = vi.hoisted(() => vi.fn())
 const mockCreate = vi.hoisted(() => vi.fn())
+const mockClaim = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
 const mockGetEvents = vi.hoisted(() => vi.fn())
 const mockAddEvent = vi.hoisted(() => vi.fn())
 const mockGetAll = vi.hoisted(() => vi.fn())
-const mockGetByUserId = vi.hoisted(() => vi.fn())
+
+// Usuário do componente (useAuth) — controlável por teste via `state.user`.
+const state = vi.hoisted(() => ({
+  user: { id: 'test-admin', name: 'Técnico 1', is_super_admin: false } as any,
+}))
 
 const TICKET = vi.hoisted(() => ({
   id: 'ticket-1',
@@ -50,16 +55,17 @@ vi.mock('../../contexts/TicketsContext', () => ({
     update: mockUpdate,
     updateStatus: mockUpdateStatus,
     create: mockCreate,
+    claim: mockClaim,
   }),
 }))
 vi.mock('../../services/ticketService', () => ({
   ticketService: { getEvents: mockGetEvents, addEvent: mockAddEvent },
 }))
 vi.mock('../../../../core/auth/useAuth', () => ({
-  useAuth: () => ({ user: { id: 'test-admin', name: 'Técnico 1' } }),
+  useAuth: () => ({ user: state.user }),
 }))
 vi.mock('../../../../core/users/service', () => ({
-  userService: { getAll: mockGetAll, getByUserId: mockGetByUserId },
+  userService: { getAll: mockGetAll, getByUserId: () => undefined },
 }))
 vi.mock('../../utils/photo', () => ({
   uploadPhotos: vi.fn(),
@@ -97,17 +103,27 @@ const PROFILE_OTHER = {
   updatedAt: '',
 }
 
+function resetTicket() {
+  Object.assign(TICKET, {
+    status: 'em_atendimento',
+    assignedTo: '',
+    assignedToUserId: '',
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
-  TICKET.assignedTo = ''
-  TICKET.assignedToUserId = ''
+  resetTicket()
+  state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: false }
   mockGetEvents.mockResolvedValue([])
   mockGetAll.mockReturnValue([PROFILE_ME, PROFILE_OTHER])
-  mockGetByUserId.mockReturnValue(PROFILE_ME)
 })
 
-describe('TicketDetail — Histórico e comentários', () => {
+describe('TicketDetail — Histórico e comentários (técnico responsável)', () => {
   beforeEach(() => {
+    // O técnico é o responsável do chamado → pode operar.
+    TICKET.assignedToUserId = 'test-admin'
+    TICKET.assignedTo = 'Admin Teste'
     mockGetEvents.mockResolvedValue([
       {
         id: 'ev-1',
@@ -185,8 +201,75 @@ describe('TicketDetail — Histórico e comentários', () => {
   })
 })
 
-describe('TicketDetail — atribuição de responsável', () => {
-  it('mostra o seletor de responsáveis com os usuários ativos', async () => {
+describe('TicketDetail — Começar Atendimento (claim)', () => {
+  beforeEach(() => {
+    TICKET.status = 'aberto'
+    TICKET.assignedTo = ''
+    TICKET.assignedToUserId = ''
+  })
+
+  it('técnico vê o botão e assume o chamado (claim)', async () => {
+    mockClaim.mockResolvedValue({ ...TICKET, assignedToUserId: 'test-admin', assignedTo: 'Técnico 1' })
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    const btn = screen.getByRole('button', { name: 'Começar Atendimento' })
+    expect(btn).toBeInTheDocument()
+
+    fireEvent.click(btn)
+    await act(async () => {})
+
+    expect(mockClaim).toHaveBeenCalledWith('ticket-1')
+  })
+
+  it('mostra erro se outro técnico já assumiu (409)', async () => {
+    mockClaim.mockRejectedValue(new Error('Este chamado já foi assumido por outro técnico'))
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Começar Atendimento' }))
+    await act(async () => {})
+
+    expect(screen.getByText('Este chamado já foi assumido por outro técnico')).toBeInTheDocument()
+  })
+})
+
+describe('TicketDetail — isolamento de atendimento', () => {
+  it('técnico não operar chamado de outro: sem claim, sem avançar, aviso de bloqueio', async () => {
+    TICKET.assignedToUserId = 'user-2'
+    TICKET.assignedTo = 'Técnico 2'
+    TICKET.status = 'em_atendimento'
+
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    // Não é dele: não pode continuar o fluxo nem assumir.
+    expect(screen.queryByRole('button', { name: 'Começar Atendimento' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Marcar como Resolvido' })).not.toBeInTheDocument()
+    expect(screen.getByText(/sendo atendido por Técnico 2/)).toBeInTheDocument()
+  })
+
+  it('técnico responsável pode avançar o status do próprio chamado', async () => {
+    TICKET.assignedToUserId = 'test-admin'
+    TICKET.assignedTo = 'Técnico 1'
+    TICKET.status = 'aberto'
+
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    const btn = screen.getByRole('button', { name: 'Ir ao local' })
+    fireEvent.click(btn)
+    expect(mockUpdateStatus).toHaveBeenCalledWith('ticket-1', 'a_caminho')
+  })
+})
+
+describe('TicketDetail — responsável (líder)', () => {
+  beforeEach(() => {
+    // Líder = is_super_admin.
+    state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: true }
+  })
+
+  it('líder vê o seletor de responsável com os usuários ativos', async () => {
     render(<TicketDetail />)
     await act(async () => {})
 
@@ -194,22 +277,9 @@ describe('TicketDetail — atribuição de responsável', () => {
     expect(select).toBeInTheDocument()
     expect(screen.getByText('Admin Teste')).toBeInTheDocument()
     expect(screen.getByText('Técnico 2')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Pegar para mim' })).toBeInTheDocument()
   })
 
-  it('atribui a mim via "Pegar para mim"', async () => {
-    render(<TicketDetail />)
-    await act(async () => {})
-
-    fireEvent.click(screen.getByRole('button', { name: 'Pegar para mim' }))
-
-    expect(mockUpdate).toHaveBeenCalledWith('ticket-1', {
-      assignedTo: 'Admin Teste',
-      assignedToUserId: 'test-admin',
-    })
-  })
-
-  it('atribui outro técnico pelo seletor', async () => {
+  it('líder atribui outro técnico pelo seletor', async () => {
     render(<TicketDetail />)
     await act(async () => {})
 
@@ -221,7 +291,7 @@ describe('TicketDetail — atribuição de responsável', () => {
     })
   })
 
-  it('limpa a atribuição com "Sem responsável"', async () => {
+  it('líder limpa a atribuição com "Sem responsável"', async () => {
     TICKET.assignedToUserId = 'user-2'
     TICKET.assignedTo = 'Técnico 2'
     render(<TicketDetail />)
@@ -236,8 +306,9 @@ describe('TicketDetail — atribuição de responsável', () => {
   })
 })
 
-describe('TicketDetail — reabrir com novo número', () => {
+describe('TicketDetail — reabrir com novo número (líder)', () => {
   beforeEach(() => {
+    state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: true }
     TICKET.status = 'fechado'
     TICKET.archived = true
     TICKET.closedAt = '2026-06-25T13:00:00Z'
@@ -247,6 +318,10 @@ describe('TicketDetail — reabrir com novo número', () => {
     TICKET.assetName = 'PC-02'
     TICKET.assetPatrimony = 'P-001'
     mockCreate.mockResolvedValue({ id: 'ticket-novo', ticketNumber: 7 })
+  })
+
+  afterEach(() => {
+    TICKET.archived = false
   })
 
   it('cria um novo chamado com a mesma sala/equipamento/problema e navega', async () => {

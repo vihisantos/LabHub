@@ -55,7 +55,7 @@ export function ChamadosLayout() {
 
   useOnlineSync()
 
-  const { tickets, loading, syncing, reload, create, update, updateStatus, remove } = useTickets()
+  const { tickets, loading, syncing, reload, create, update, updateStatus, claim, remove } = useTickets()
   const { workspace } = useWorkspace()
   const openCount = tickets.filter(
     (t) => t.workspace_id === workspace?.id && t.status !== 'fechado' && t.status !== 'resolvido' && !t.archived,
@@ -68,7 +68,7 @@ export function ChamadosLayout() {
   }
 
   return (
-    <TicketsContext.Provider value={{ tickets, loading, syncing, reload, create, update, updateStatus, remove }}>
+    <TicketsContext.Provider value={{ tickets, loading, syncing, reload, create, update, updateStatus, claim, remove }}>
       <div className="flex min-h-dvh flex-col bg-surface text-fg">
         <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/80 px-4 py-3.5 backdrop-blur-xl">
           {detail && (

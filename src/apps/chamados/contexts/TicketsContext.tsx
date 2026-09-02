@@ -9,6 +9,7 @@ export interface TicketsContextValue {
   create: (data: TicketFormData) => Promise<Ticket>
   update: (id: string, data: Partial<Ticket>) => Ticket | undefined
   updateStatus: (id: string, status: TicketStatus) => Ticket | undefined
+  claim: (id: string) => Promise<Ticket>
   remove: (id: string) => boolean
 }
 
