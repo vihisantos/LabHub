@@ -1141,8 +1141,6 @@ def _internal_push_check_overdue():
             logger.info(f"Overdue notify: {item_name}")
 
         return {'checked': True, 'sent': sent, 'found': found}
-
-        return {'checked': True, 'sent': sent, 'found': found, 'subscribers': len(subs)}
     except Exception as e:
         logger.error("check-overdue error: %s", e)
         return {'error': 'Erro ao verificar itens em atraso'}

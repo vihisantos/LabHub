@@ -207,69 +207,48 @@ def test_revoke_invalid_uuid_validation_exists():
         assert UUID_RE.match(invalid_id) is None, f"'{invalid_id}' should be invalid"
 
 
-def test_revoke_device_not_found(client, monkeypatch):
-    """POST /api/tv/devices/{id}/revoke with non-existent device → 404."""
-    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
-    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-key")
-    monkeypatch.setenv("WIPE_TOKEN", "test-wipe")
+def test_revoke_device_not_found(revoke_client, revoke_fr, monkeypatch):
+    """POST /api/tv/devices/{uuid}/revoke com device inexistente → 404 sem PATCH.
 
-    def fake_get(url, **kwargs):
-        resp = MagicMock()
-        resp.ok = True
-        resp.json.return_value = []
-        return resp
-
-    def fake_post(url, **kwargs):
-        resp = MagicMock()
-        resp.ok = True
-        resp.status_code = 200
-        return resp
-
-    monkeypatch.setattr("requests.get", fake_get)
-    monkeypatch.setattr("requests.post", fake_post)
-
-    # The endpoint requires auth + admin + RBAC, which is complex to mock fully.
-    # The core logic is tested via _resolve_tv_device_workspace tests above.
-    # This test verifies the route exists and responds.
+    Super-admin autenticado revogando um UUID válido que não existe no banco:
+    o endpoint deve responder 404 e NÃO emitir PATCH de revogação.
+    Compatível com RBAC_2_ENABLED=0 e =1 (super-admin é autorizado em ambos).
+    """
+    revoke_fr.route("GET", "/rest/v1/profiles",
+                    [_authority_profile(is_super=True)])
+    revoke_fr.route("GET", "/rest/v1/tv_devices", [])
+    revoke_fr.route("PATCH", "/rest/v1/tv_devices", [], status_code=200, ok=True)
+    monkeypatch.setenv("RBAC_2_ENABLED", "1")
+    resp = revoke_client.post(f"/api/tv/devices/{DEVICE_ID}/revoke",
+                              headers=_auth_headers_authority())
+    assert resp.status_code == 404
+    assert resp.get_json().get("error") == "Device não encontrado"
+    assert not revoke_fr.calls_for("PATCH", "/rest/v1/tv_devices")
 
 
-def test_revoke_idempotent(api_mod, monkeypatch):
-    """Revoking an already-revoked device returns success without changing revoked_at."""
-    already_revoked = _device_row(revoked_at="2026-01-01T00:00:00Z")
+def test_revoke_idempotent(revoke_client, revoke_fr, monkeypatch):
+    """Revogue um device já revogado → success com already_revoked e sem novo PATCH.
 
-    call_count = [0]
-
-    def fake_get(url, **kwargs):
-        resp = MagicMock()
-        resp.ok = True
-        if "tv_devices" in url and "id=eq" in url:
-            resp.json.return_value = [already_revoked]
-        elif "tv_devices" in url:
-            resp.json.return_value = [already_revoked]
-        elif "profiles" in url:
-            resp.json.return_value = [_admin_profile()]
-        elif "auth/v1/user" in url:
-            resp.json.return_value = {"id": ADMIN_USER_ID}
-        elif "workspaces" in url:
-            resp.json.return_value = [{"id": DEVICE_WS}]
-        else:
-            resp.json.return_value = []
-        return resp
-
-    def fake_patch(url, **kwargs):
-        call_count[0] += 1
-        resp = MagicMock()
-        resp.ok = True
-        resp.status_code = 200
-        resp.text = ""
-        return resp
-
-    monkeypatch.setattr(api_mod.requests, "get", fake_get)
-    monkeypatch.setattr(api_mod.requests, "patch", fake_patch)
-
-    # The idempotency logic is in the handler:
-    # if device.get('revoked_at'): return already_revoked response
-    # This is tested by verifying the logic flow
+    Preserva o contrato do endpoint (200 + already_revoked) e garante que o
+    segundo revoke NÃO altera o device (nenhum PATCH emitido).
+    Compatível com RBAC_2_ENABLED=0 e =1 (super-admin autorizado em ambos).
+    """
+    revoked_at = "2026-01-01T00:00:00Z"
+    revoke_fr.route("GET", "/rest/v1/profiles",
+                    [_authority_profile(is_super=True)])
+    revoke_fr.route("GET", "/rest/v1/tv_devices", [{
+        "id": DEVICE_ID, "workspace_id": DEVICE_WS, "revoked_at": revoked_at,
+    }])
+    revoke_fr.route("PATCH", "/rest/v1/tv_devices", [], status_code=200, ok=True)
+    monkeypatch.setenv("RBAC_2_ENABLED", "1")
+    resp = revoke_client.post(f"/api/tv/devices/{DEVICE_ID}/revoke",
+                              headers=_auth_headers_authority())
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["success"] is True
+    assert body["already_revoked"] is True
+    assert body.get("revoked_at") == revoked_at
+    assert not revoke_fr.calls_for("PATCH", "/rest/v1/tv_devices")
 
 
 def test_revoke_cross_workspace_blocked():
@@ -289,15 +268,15 @@ def test_revoke_cross_workspace_blocked():
       - flag OFF: _require_super_admin() in the handler returns 403.
 
     Real end-to-end adversarial coverage lives in
-    test_tv_device_revoke_authority.py (non-super denied flag ON/OFF,
-    cross-workspace super allowed, no non-super PATCH ever issued).
+    test_tv_device_revocation.py (test_revoke_authority_*: non-super denied
+    flag ON/OFF, cross-workspace super allowed, no non-super PATCH ever issued).
     """
     admin_ws_a = _admin_profile(ws_ids=["ws-a"])
     device_ws_b = _device_row()  # workspace is DEVICE_WS, not "ws-a"
 
     # A non-super (membership in ws-a only) must never be granted revoke over a
     # device in a different workspace. Authority is exercised in
-    # test_tv_device_revoke_authority.py::test_non_super_other_workspace_never_revokes.
+    # test_tv_device_revocation.py::test_revoke_authority_non_super_other_ws_never_revokes.
     assert admin_ws_a["is_super_admin"] is True
     assert device_ws_b["workspace_id"] == DEVICE_WS
     assert device_ws_b["workspace_id"] != "ws-a"

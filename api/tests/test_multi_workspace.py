@@ -390,8 +390,14 @@ class TestCaso4WorkspaceTampering:
             json={"workspace_id": WS_C, "status": "resolvido"},
             headers=_auth_header(_profile_single_ws()),
         )
-        # Should succeed (workspace comes from resource, not body)
-        assert resp.status_code in (200, 400, 403)
+        # Should succeed (workspace comes from resource, not body): exigimos 200
+        # e que nenhum PATCH tenha sido direcionado ao workspace de tampering.
+        assert resp.status_code == 200
+        patch_calls = fake_requests.calls_for("PATCH", "chamados_tickets")
+        assert patch_calls, "esperado ao menos um PATCH em chamados_tickets"
+        assert all(WS_C not in c["url"] for c in patch_calls), (
+            "workspace_id de tampering não pode vazar para o target do PATCH"
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
