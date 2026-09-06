@@ -54,8 +54,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () =>
       workspaces.filter((w) => {
         if (!user) return true
+        if (user.status === 'pending') return false
         if (user.is_super_admin) return true
-        return user.workspace_ids.length === 0 || user.workspace_ids.includes(w.id)
+        return user.workspace_ids.includes(w.id)
       }),
     [workspaces, user],
   )
@@ -82,9 +83,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     const assigned = all.filter((w) => {
       if (!user) return true
+      if (user.status === 'pending') return false
       if (user.is_super_admin) return true
-      return user.workspace_ids.length === 0 || user.workspace_ids.includes(w.id)
+      return user.workspace_ids.includes(w.id)
     })
+
+    if (user?.status === 'pending') {
+      // Firewall Etapa 7: usuário ainda aguardando aprovação NUNCA chega ao
+      // gate de seleção de workspace (a tela de espera é renderizada pelo
+      // AuthGuard no App). workspace_ids vazio + filtro estrito já dariam o
+      // estado seguro; aqui garantimos explicitamente, independente de dados.
+      setWorkspaceState(null)
+      setPendingSelection(false)
+      setLoading(false)
+      return
+    }
 
     if (user) {
       // Nova sessão (primeiro load ou troca de usuário) → volta a exigir seleção

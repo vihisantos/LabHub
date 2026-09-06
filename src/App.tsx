@@ -1,11 +1,11 @@
-import { lazy, Suspense, useState, type ReactNode } from 'react'
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
 import { MarkNotificationsReadOnVisit } from './core/notifications/MarkNotificationsReadOnVisit'
-import { SplashScreen } from './platform/Splash/SplashScreen'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
-import { AuthProvider, useAuth } from './core/auth/AuthContext'
+import { AuthProvider } from './core/auth/AuthContext'
+import { AuthGuard } from './core/auth/AuthGuard'
 import { AdminGuard } from './core/auth/AdminGuard'
 import { AppGuard } from './core/auth/AppGuard'
 import { ThemeProvider } from './lib/ThemeContext'
@@ -34,89 +34,76 @@ function RouteFallback() {
   )
 }
 
-function AuthGuard({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth()
-  const [booted, setBooted] = useState(false)
-
-  if (loading || !booted) {
-    return <SplashScreen ready={!loading} onDone={() => setBooted(true)} />
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />
-  }
-
-  return <>{children}</>
-}
+const AUTH_FALLBACK = <Navigate to="/login" replace />
 
 function AppRoutes() {
   return (
     <Routes>
       <Route path="login" element={<LoginPage />} />
       <Route index element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <HomePage />
         </AuthGuard>
       } />
       <Route path="dashboard" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="dashboard">
             <DashboardPage />
           </AppGuard>
         </AuthGuard>
       } />
       <Route path="launcher" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <HomePage />
         </AuthGuard>
       } />
       <Route path="roadmap" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <Roadmap />
         </AuthGuard>
       } />
       <Route path="pedir-musica" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <MusicRequestPage />
         </AuthGuard>
       } />
       <Route path="pc-care/*" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="pc-care">
             <PCCareApp />
           </AppGuard>
         </AuthGuard>
       } />
       <Route path="stock/*" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="stock">
             <StockApp />
           </AppGuard>
         </AuthGuard>
       } />
       <Route path="general-stock/*" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="stock">
             <StockApp />
           </AppGuard>
         </AuthGuard>
       } />
       <Route path="reservalab/*" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="reservalab">
             <ReservaLabApp />
           </AppGuard>
         </AuthGuard>
       } />
       <Route path="tv/*" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="tv">
             <TvApp />
           </AppGuard>
         </AuthGuard>
       } />
       <Route path="chamados/*" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="chamados">
             <ChamadosApp />
           </AppGuard>
@@ -124,7 +111,7 @@ function AppRoutes() {
       } />
       <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
       <Route path="admin/*" element={
-        <AuthGuard>
+        <AuthGuard fallback={AUTH_FALLBACK}>
           <AdminGuard>
             <AppGuard appId="admin">
               <AdminApp />

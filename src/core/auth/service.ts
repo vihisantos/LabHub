@@ -293,12 +293,16 @@ export const authService = {
     if (!profile) return currentUser
 
     // Only update and notify if something actually changed
+    const workspaceIdsChanged =
+      profile.workspace_ids.length !== prev.workspace_ids.length ||
+      !profile.workspace_ids.every((id, i) => id === prev.workspace_ids[i])
     const changed =
       profile.status !== prev.status ||
       profile.roleId !== prev.roleId ||
       profile.is_super_admin !== prev.is_super_admin ||
       profile.theme_variant !== prev.theme_variant ||
-      profile.accent !== prev.accent
+      profile.accent !== prev.accent ||
+      workspaceIdsChanged
 
     if (changed) {
       currentUser = profile
