@@ -66,6 +66,9 @@ DROP POLICY IF EXISTS "Inserir reservas"     ON public.tablet_reservations;
 DROP POLICY IF EXISTS "Atualizar reservas"   ON public.tablet_reservations;
 DROP POLICY IF EXISTS "Excluir reservas"     ON public.tablet_reservations;
 
+-- Idempotência para replay limpo: a 028 já cria estas policies (com guarda),
+-- então recriá-las aqui sem DROP IF EXISTS quebraria banco novo (42710).
+DROP POLICY IF EXISTS "tablet_reservations_select" ON public.tablet_reservations;
 CREATE POLICY "tablet_reservations_select"
   ON public.tablet_reservations FOR SELECT
   USING (
@@ -73,6 +76,7 @@ CREATE POLICY "tablet_reservations_select"
     OR user_belongs_to_workspace(workspace_id)
   );
 
+DROP POLICY IF EXISTS "tablet_reservations_insert" ON public.tablet_reservations;
 CREATE POLICY "tablet_reservations_insert"
   ON public.tablet_reservations FOR INSERT
   WITH CHECK (
@@ -80,6 +84,7 @@ CREATE POLICY "tablet_reservations_insert"
     OR user_belongs_to_workspace(workspace_id)
   );
 
+DROP POLICY IF EXISTS "tablet_reservations_update" ON public.tablet_reservations;
 CREATE POLICY "tablet_reservations_update"
   ON public.tablet_reservations FOR UPDATE
   USING (
@@ -91,6 +96,7 @@ CREATE POLICY "tablet_reservations_update"
     OR user_belongs_to_workspace(workspace_id)
   );
 
+DROP POLICY IF EXISTS "tablet_reservations_delete" ON public.tablet_reservations;
 CREATE POLICY "tablet_reservations_delete"
   ON public.tablet_reservations FOR DELETE
   USING (
@@ -116,19 +122,24 @@ DROP POLICY IF EXISTS "notifications_all_access" ON stock.notifications;
 DROP POLICY IF EXISTS "notifications_all_authenticated" ON public.notifications;
 
 -- Criar policies workspace-scoped para public.notifications
+-- (idempotente: guarda DROP IF EXISTS para replay limpo)
+DROP POLICY IF EXISTS "notifications_select" ON public.notifications;
 CREATE POLICY "notifications_select"
   ON public.notifications FOR SELECT
   USING (is_super_admin() OR user_belongs_to_workspace(workspace_id));
 
+DROP POLICY IF EXISTS "notifications_insert" ON public.notifications;
 CREATE POLICY "notifications_insert"
   ON public.notifications FOR INSERT
   WITH CHECK (is_super_admin() OR user_belongs_to_workspace(workspace_id));
 
+DROP POLICY IF EXISTS "notifications_update" ON public.notifications;
 CREATE POLICY "notifications_update"
   ON public.notifications FOR UPDATE
   USING (is_super_admin() OR user_belongs_to_workspace(workspace_id))
   WITH CHECK (is_super_admin() OR user_belongs_to_workspace(workspace_id));
 
+DROP POLICY IF EXISTS "notifications_delete" ON public.notifications;
 CREATE POLICY "notifications_delete"
   ON public.notifications FOR DELETE
   USING (is_super_admin());

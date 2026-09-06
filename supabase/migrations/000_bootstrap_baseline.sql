@@ -600,6 +600,27 @@ ALTER TABLE public.ticket_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC;
 REVOKE ALL ON public.ticket_events FROM anon, authenticated, PUBLIC;
 
+-- public.notifications: criada manualmente em PROD (fora do versionamento).
+-- A 034 e o app dependem dela; necessaria em banco novo (replay limpo).
+-- Espelha a estrutura da PROD (workspace_id TEXT, RLS habilitado). Policies
+-- ficam a cargo da 034 (notifications_select/insert/update/delete).
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id            text PRIMARY KEY,
+  title         text NOT NULL,
+  body          text NOT NULL,
+  type          text NOT NULL,
+  severity      text NOT NULL,
+  module        text NOT NULL,
+  "actionUrl"   text,
+  "read"        boolean NOT NULL DEFAULT false,
+  "createdAt"   timestamptz NOT NULL DEFAULT now(),
+  audience      text,
+  "targetRole"  text,
+  workspace_id  text,
+  "targetUserId" text
+);
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
 -- ============================================================================
 -- 8. GRANTS — estado FINAL (pos-018/026). Anon sem acesso a stock/pcare.
 -- ============================================================================
