@@ -141,14 +141,33 @@ describe('WorkspaceContext — usuários e seus workspaces', () => {
     expect(mockGateProps.current).toBeNull()
   })
 
-  it('usuário com workspace_ids vazio (legado) vê todos os workspaces', async () => {
+  it('usuário com workspace_ids vazio NÃO vê workspaces (estado seguro — CASO 3, RBAC 2.0)', async () => {
     mockUseAuth.mockReturnValue({ user: makeUser({ workspace_ids: [] }) })
 
     renderProvider()
 
-    const props = await waitForGate()
-    expect(idsOf(props.workspaces)).toBe('ws-sjc,ws-mooca')
-    expect(props.canCreate).toBe(false)
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
+    // A existência de workspaces no banco NÃO concede acesso: sem workspace
+    // aprovado → sem gate, sem workspace ativo (estado seguro/bloqueado).
+    expect(mockGateProps.current).toBeNull()
+    expect(screen.getByTestId('probe').dataset.pending).toBe('false')
+    expect(screen.getByTestId('probe').dataset.workspace).toBe('')
+    expect(screen.getByTestId('probe').dataset.assigned).toBe('')
+  })
+
+  it('usuário pendente NUNCA chega ao gate de workspace, mesmo com workspace_ids preenchidos', async () => {
+    mockUseAuth.mockReturnValue({
+      user: makeUser({ status: 'pending', workspace_ids: ['ws-sjc', 'ws-mooca'] }),
+    })
+
+    renderProvider()
+
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
+    // Pendente espera a aprovação na tela do AuthGuard — nada de seletor.
+    expect(mockGateProps.current).toBeNull()
+    expect(screen.getByTestId('probe').dataset.pending).toBe('false')
+    expect(screen.getByTestId('probe').dataset.workspace).toBe('')
+    expect(screen.getByTestId('probe').dataset.assigned).toBe('')
   })
 
   it('usuário com exatamente 1 workspace atribuído entra direto nele (sem gate)', async () => {
