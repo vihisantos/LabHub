@@ -366,6 +366,15 @@ Três camadas distintas (não criar " líder" como cargo global mágico):
 - **Proposta:** liderança como relação na membership (não atributo global), permitindo delegar certas Actions.
 - Regra já decidida: **ninguém pode conceder o que não possui.**
 
+### Coordenador Multiunidade (cargo implantado, migration 040)
+- **Função:** gestão operacional de **múltiplas unidades**. Escopo = `all_assigned`: o coordenador tem **uma membership por workspace** (`UNIQUE(profile_id, workspace_id)`, 036), e cada membership contribui com as Actions do cargo naquele workspace. Não é cargo/scope global.
+- **Representação:** slug `coordinator` (Backend/RBAC 2.0, migration 040) e `role-coordinator` (frontend `DEFAULT_ROLES`, `types.ts`) com App Access `chamados: full`, `pc-care/stock/tv: read`, `manageQr: true`.
+- **Capabilities (escopo `workspace`, exact-match):** `ticket.view`, `ticket.edit`, `ticket.status`, `ticket.assign`, `ticket.comment`, `ticket.close`, `ticket.reopen`, `ticket.report`, `ticket.qr`, `stock.export`, `pcare.export`. Leitura de estoque/PC Care/TV é implícita ao App Access.
+- **Linhas vermelhas (não recebe, garantido por seed + teste estático):** `ticket.delete`, `ticket.weeklyEmail`, **nenhuma** `admin.*`, `tv.purge`/`tv.device.manage`/`tv.settings.manage`, nenhuma escrita/gestão de estoque ou PC Care (`stock.item.*`, `stock.movement.*`, `pcare.asset.*`, `pcare.part.*`, `pcare.import`, …), `reservelab.push.manage`. **Nenhum wildcard.**
+- **Fronteira com Super Admin:** Super Admin NÃO é cargo (é `is_super_admin`, capacidade global, bypass na 1ª regra do motor). O coordenador jamais alcança scope `global`.
+- **Backend:** motor `rbac.py` + seed 040 consomem estas Actions quando `RBAC_2_ENABLED=on` (flag de rollout; enforcement ativo hoje só em endpoints marcados). UI `canAccessApp` NÃO é mecanismo de segurança.
+- **Backfill:** profiles com `role IN ('coordinator','role-coordinator')` geram memberships p/ cada `workspace_ids` (idempotente).
+
 ---
 
 ## 11. Delegação

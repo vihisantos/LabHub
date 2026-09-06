@@ -67,6 +67,20 @@ export const DEFAULT_ROLES: Role[] = [
     manageQr: false,
     isDefault: true,
   },
+  {
+    id: 'role-coordinator',
+    key: 'coordinator',
+    name: 'Coordenador Multiunidade',
+    description: 'Gestão operacional de múltiplas unidades, sem acesso administrativo global',
+    appAccess: {
+      'pc-care': 'read',
+      stock: 'read',
+      tv: 'read',
+      chamados: 'full',
+    },
+    manageQr: true,
+    isDefault: false,
+  },
 ]
 
 /** Mapeamento de valores legados da coluna profiles.role → id de cargo. Admin virou técnico. */
@@ -74,6 +88,7 @@ export const LEGACY_ROLE_TO_ID: Record<string, string> = {
   admin: 'role-technician',
   technician: 'role-technician',
   viewer: 'role-viewer',
+  coordinator: 'role-coordinator',
 }
 
 /** Normaliza qualquer referência de cargo (id novo ou valor legado) para o id estável. */

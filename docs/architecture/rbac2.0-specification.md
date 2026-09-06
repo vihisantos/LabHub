@@ -201,6 +201,7 @@ A **granularidade de linha** continua sendo responsabilidade do RLS (workspace `
 | **Visualizador**      | `*.read` / `*.view` / `dashboard.*`                                           | workspace |
 | **Gestor de Estoque** | `stock.*` (full) + `reports.*` + `export.*`                                   | workspace |
 | **Operador TV**       | `tv.content.*`, `music.*` (moderar fila)                                      | workspace |
+| **Coordenador Multiunidade** | `ticket.*` (operacional: view/edit/status/assign/comment/close/reopen/report/qr), `stock.export`, `pcare.export` — **exceto** `ticket.delete`, `ticket.weeklyEmail`, `admin.*` e escritas de estoque/PC Care | workspace (várias memberships = `all_assigned`) |
 | **Admin de Workspace**| `workspace.*`, `membership.*`, `appSettings.*`, `backup.*`, `purge.*`         | workspace |
 | **Super Admin (global)**| `*.*` (todas via capabilidade `is_super_admin`)                              | all |
 
@@ -208,6 +209,8 @@ A **granularidade de linha** continua sendo responsabilidade do RLS (workspace `
 > Quick Actions (`ticket.create`, `music.request`, `reservelab.tablet.reserve` — catálogo) são **derivadas** das Actions (conceito fechado) e aparecem na UI **apenas** se a Action raiz for permitida.
 
 **Regra de maior-privilégio:** a concessão efetiva é a **união** de todas as memberships do usuário no workspace (o prompt fecha "uma role por membership"; um usuário pode ter múltiplas memberships em workspaces distintos, mas **uma por (profile, workspace)** — `UNIQUE(profile_id, workspace_id)` garante).
+
+> **Coordenador Multiunidade (040):** seu escopo operacional é a **soma das memberships** nas unidades em que está ativo (`all_assigned`). Nenhuma membership é global; cada ação resolve no workspace corrente (motor resolve por `workspace_id` da requisição). O coordenador não recebe nenhuma Action de plataforma (todas são scope `global`, concedidas só a `is_super_admin`).
 
 ---
 

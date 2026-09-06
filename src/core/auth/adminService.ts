@@ -11,6 +11,7 @@ const ROLE_ID_TO_DB: Record<string, string> = {
   'role-technician': 'technician',
   'role-viewer': 'viewer',
   'role-admin': 'admin',
+  'role-coordinator': 'coordinator',
 }
 
 function toDbUser(data: Record<string, unknown>): Record<string, unknown> {
