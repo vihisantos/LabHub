@@ -37,10 +37,17 @@ export const permissionService = {
 
   /**
    * Migração de cargos:
+   * - semeia cargos padrão ausentes (novos defaults como o Coordenador
+   *   Multiunidade entram também em dispositivos que já tinham a coleção);
    * - remove o cargo 'admin' (não existe mais — acesso admin é só is_super_admin);
    * - garante que cargos legados ganhem `key` e `appAccess`.
    */
   migrate: () => {
+    for (const def of DEFAULT_ROLES) {
+      if (!service.query((r) => r.id === def.id)[0]) {
+        service.create(serialize({ ...def }))
+      }
+    }
     const existing = service.getAll()
     for (const role of existing) {
       if (role.key === 'admin' || role.id === 'role-admin') {

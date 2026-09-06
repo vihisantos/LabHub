@@ -126,5 +126,20 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       })
       expect(payload.roleId).toBeUndefined()
     })
+
+    it('persiste o coordenador multiunidade como role canonical "coordinator"', async () => {
+      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+
+      const ok = await adminService.updateUserProfile('u-1', {
+        roleId: 'role-coordinator',
+        workspace_ids: ['ws-a', 'ws-b'],
+      })
+
+      expect(ok).toBe(true)
+      const [payload] = chain.update.mock.calls[0]
+      expect(payload.role).toBe('coordinator')
+      expect(payload.roleId).toBeUndefined()
+      expect(payload.workspace_ids).toEqual(['ws-a', 'ws-b'])
+    })
   })
 })
