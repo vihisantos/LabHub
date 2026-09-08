@@ -51,7 +51,7 @@ function setAuth(overrides: Partial<ReturnType<typeof defaultAuth>> = {}) {
 
 function defaultAuth() {
   return {
-    user: activeUser,
+    user: activeUser as User | null,
     loading: false,
     isConfigured: true,
   }
