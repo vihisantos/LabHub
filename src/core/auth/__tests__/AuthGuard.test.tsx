@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { User } from '../types'
 import { AuthGuard } from '../AuthGuard'
 
 const { mockUseAuth, mockRefreshProfile } = vi.hoisted(() => ({
@@ -24,23 +25,27 @@ vi.mock('framer-motion', () => ({
   }),
 }))
 
-const activeUser = {
+const activeUser: User = {
   id: 'u-1',
   email: 'user@labhub.com',
   name: 'User',
   roleId: 'role-viewer',
-  status: 'active' as const,
+  status: 'active',
   is_super_admin: false,
   workspace_ids: ['ws-1'],
+  accent: 'blue',
+  theme_variant: 'light',
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
 }
 
-const pendingUser = {
+const pendingUser: User = {
   ...activeUser,
-  status: 'pending' as const,
+  status: 'pending',
   workspace_ids: [],
 }
 
-function setAuth(overrides: Partial<ReturnType<typeof defaultAuth>>) {
+function setAuth(overrides: Partial<ReturnType<typeof defaultAuth>> = {}) {
   mockUseAuth.mockReturnValue({ ...defaultAuth(), ...overrides })
 }
 
