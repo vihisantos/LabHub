@@ -43,7 +43,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@supabase/supabase-js": "^2.115.0",
     "@zxing/browser": "^0.0.7",
-    "@zxing/library": "^0.22.0",
+    "@zxing/library": "^0.23.0",
     "class-variance-authority": "^0.7.1",
     "es-toolkit": "^1.51.0",
     "file-saver": "^2.0.5",
