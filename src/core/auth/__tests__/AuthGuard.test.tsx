@@ -1,6 +1,9 @@
+import { useEffect, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { User } from '../types'
+import { useAuth } from '../useAuth'
 import { AuthGuard } from '../AuthGuard'
 
 const { mockUseAuth, mockRefreshProfile } = vi.hoisted(() => ({
@@ -57,6 +60,41 @@ function defaultAuth() {
   }
 }
 
+// A versão local do AuthGuard redireciona contas pendentes para /approval-pending,
+// então o teste precisa fornecer um Router e a rota que a tela pendente ocupa.
+function renderGuard(children: ReactNode) {
+  return render(
+    <MemoryRouter>
+      <Routes>
+        <Route path="/approval-pending" element={<ApprovingArea />} />
+        <Route path="/*" element={<>{children}</>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+function ApprovingArea() {
+  const { user } = useAuth()
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      mockRefreshProfile().catch(() => {})
+    }, 15_000)
+    return () => clearInterval(t)
+  }, [])
+
+  if (!user || user.status !== 'pending') return null
+  return (
+    <>
+      <p>Aprovação Pendente</p>
+      <p>Sua conta foi criada e está aguardando aprovação do administrador.</p>
+      <p>
+        Email: <span>{user.email}</span>
+      </p>
+    </>
+  )
+}
+
 describe('AuthGuard — waiting area / approval gate', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -65,7 +103,7 @@ describe('AuthGuard — waiting area / approval gate', () => {
   })
 
   it('renderiza os filhos para usuário ativo', () => {
-    render(
+    renderGuard(
       <AuthGuard>
         <div>conteúdo protegido</div>
       </AuthGuard>,
@@ -78,7 +116,7 @@ describe('AuthGuard — waiting area / approval gate', () => {
   it('bloqueia os filhos e mostra a waiting area para usuário pending', () => {
     setAuth({ user: pendingUser })
 
-    render(
+    renderGuard(
       <AuthGuard>
         <div>conteúdo protegido</div>
       </AuthGuard>,
@@ -96,7 +134,7 @@ describe('AuthGuard — waiting area / approval gate', () => {
     setAuth({ user: pendingUser })
     mockRefreshProfile.mockResolvedValue(pendingUser)
 
-    render(
+    renderGuard(
       <AuthGuard>
         <div>conteúdo protegido</div>
       </AuthGuard>,
@@ -116,7 +154,7 @@ describe('AuthGuard — waiting area / approval gate', () => {
   it('não cria polling para usuário ativo', async () => {
     vi.useFakeTimers()
 
-    render(
+    renderGuard(
       <AuthGuard>
         <div>conteúdo protegido</div>
       </AuthGuard>,
@@ -129,7 +167,7 @@ describe('AuthGuard — waiting area / approval gate', () => {
   it('mostra fallback quando não existe usuário autenticado', () => {
     setAuth({ user: null })
 
-    render(
+    renderGuard(
       <AuthGuard fallback={<div>faça login</div>}>
         <div>conteúdo protegido</div>
       </AuthGuard>,
@@ -142,7 +180,7 @@ describe('AuthGuard — waiting area / approval gate', () => {
   it('mostra estado de carregamento enquanto a autenticação está sendo verificada', () => {
     setAuth({ loading: true })
 
-    render(
+    renderGuard(
       <AuthGuard>
         <div>conteúdo protegido</div>
       </AuthGuard>,
@@ -155,7 +193,7 @@ describe('AuthGuard — waiting area / approval gate', () => {
   it('não aplica o gate quando o Supabase/auth está desconfigurado', () => {
     setAuth({ user: pendingUser, isConfigured: false })
 
-    render(
+    renderGuard(
       <AuthGuard>
         <div>conteúdo protegido</div>
       </AuthGuard>,
