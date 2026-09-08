@@ -90,7 +90,15 @@ Portanto:
 | Push notify loan/return | legado |
 | `ticket.weeklyEmail` | global, reproduz gate super-admin |
 | `admin` → `adm` | decidido como canônico para RBAC; legado preservado até cutover da UI |
-| `RBAC_2_ENABLED` | **OFF** |
+| `RBAC_2_ENABLED` | **ativado em PROD (2026-09-07) e Preview** |
+
+> **Atualização pós-ativação (2026-09-07):** a ativação em produção foi executada (`RBAC_2_ENABLED=1` em Production e Preview) e a auditoria pós-produção concluiu com veredito **HEALTHY WITH OBSERVATIONS**. RBAC 2.0 permanece ativo.
+>
+> Observações relevantes — débito técnico RLS pré-existente e roles sem membros reais — já estão registradas nesta etapa e nos Issues #158/#159.
+>
+> **Limitação documental:** não há, neste momento, relatório formal publicado no repositório específico para a auditoria pós-produção do RBAC 2.0. Isso é uma ausência documental registrada, não um bloqueio desta release.
+>
+> A auditoria de segurança relacionada ao RLS para `profiles` e `workspaces` é independente e está documentada em [`docs/audits/architecture/rbac2.0-rls-hardening-044-prod-audit-2026-09.md`](../audits/architecture/rbac2.0-rls-hardening-044-prod-audit-2026-09.md).
 
 Não há mais `NEEDS_DECISION` implícito: os itens acima são decisões de rollout documentadas.
 
