@@ -16,6 +16,27 @@ export interface Role {
   isDefault: boolean
   /** Id do usuário (profile) que lidera o setor do cargo */
   leaderId?: string
+  /**
+   * FASE 4/5 (RBAC 2.0): classificação do CARGO como de liderança.
+   * Independe de appAccess/manageQr — "liderar" é propriedade do cargo.
+   * Ausente em cargos antigos até o migrate() backfill.
+   */
+  isLeadership?: boolean
+  /** Nível hierárquico para ordenação entre cargos de liderança (0 executante, 1 líder, 2 coordenador). */
+  leadershipLevel?: number
+}
+
+/** Níveis de liderança do RBAC 2.0. (const object — erasableSyntaxOnly não permite enum) */
+export const LeadershipLevel = {
+  None: 0,
+  Leader: 1,
+  Coordinator: 2,
+} as const
+
+export const LEADERSHIP_LEVEL_LABELS: Record<number, string> = {
+  [LeadershipLevel.None]: 'Executante',
+  [LeadershipLevel.Leader]: 'Líder de unidade',
+  [LeadershipLevel.Coordinator]: 'Coordenador multiunidades',
 }
 
 export const APP_ACCESS_LEVELS: AppAccessLevel[] = ['dash', 'read', 'full']
@@ -52,6 +73,8 @@ export const DEFAULT_ROLES: Role[] = [
     },
     manageQr: true,
     isDefault: false,
+    isLeadership: false,
+    leadershipLevel: LeadershipLevel.None,
   },
   {
     id: 'role-viewer',
@@ -66,6 +89,23 @@ export const DEFAULT_ROLES: Role[] = [
     },
     manageQr: false,
     isDefault: true,
+    isLeadership: false,
+    leadershipLevel: LeadershipLevel.None,
+  },
+  {
+    id: 'role-lider',
+    key: 'lider',
+    name: 'Líder',
+    description: 'Gestão da unidade, sem acesso administrativo global',
+    appAccess: {
+      'pc-care': 'read',
+      stock: 'read',
+      chamados: 'full',
+    },
+    manageQr: true,
+    isDefault: false,
+    isLeadership: true,
+    leadershipLevel: LeadershipLevel.Leader,
   },
   {
     id: 'role-coordinator',
@@ -80,6 +120,8 @@ export const DEFAULT_ROLES: Role[] = [
     },
     manageQr: true,
     isDefault: false,
+    isLeadership: true,
+    leadershipLevel: LeadershipLevel.Coordinator,
   },
 ]
 
@@ -88,6 +130,7 @@ export const LEGACY_ROLE_TO_ID: Record<string, string> = {
   admin: 'role-technician',
   technician: 'role-technician',
   viewer: 'role-viewer',
+  lider: 'role-lider',
   coordinator: 'role-coordinator',
 }
 
