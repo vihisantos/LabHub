@@ -1,8 +1,15 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { permissionService } from '../../core/permissions/service'
-import type { CoordinatedLeader } from '../../core/permissions/coordinatorService'
-import type { TeamMemberProfile } from '../../core/permissions/membership'
+import {
+  getLastCoordinatorServiceError,
+  setCoordinatorManager,
+  type CoordinatedLeader,
+  type CoordinatedUnit,
+} from '../../core/permissions/coordinatorService'
+import type { TeamMember, TeamMemberProfile } from '../../core/permissions/membership'
 import { icons } from '../../lib/icons'
 
 function initials(name: string): string {
@@ -18,7 +25,155 @@ function roleLabel(profile: TeamMemberProfile | null | undefined): string {
   return role?.name ?? profile.roleId
 }
 
-function LeaderBlock({ leader }: { leader: CoordinatedLeader }) {
+export interface ManagerOption {
+  membershipId: string
+  label: string
+  note: string
+}
+
+/**
+ * Fase 8.2: gestores que o RPC 047 aceita para um membro NESTA unidade — a
+ * própria membership de coordenação OU uma liderança já subordinada direta a
+ * ela. Espelha exatamente o check de escopo do servidor ("manager is outside
+ * the coordinator scope"): a UI restringe visualmente ao mesmo conjunto e o
+ * Postgres continua a autoridade (nada de regra nova no frontend).
+ */
+export function managerOptionsForMember(unit: CoordinatedUnit, member: TeamMember): ManagerOption[] {
+  const current = member.membership.managed_by
+  const options: ManagerOption[] = [
+    {
+      membershipId: unit.coordination.id,
+      label: 'Coordenador(a) desta unidade',
+      note: 'Equipe vinculada direto à coordenação',
+    },
+  ]
+  for (const leader of unit.leaders) {
+    if (leader.leadership.id === member.membership.id) continue
+    if (leader.leadership.id === current) continue
+    options.push({
+      membershipId: leader.leadership.id,
+      label: leader.profile?.name ?? 'Membro sem perfil',
+      note: leader.profile?.email ?? 'Liderança da unidade',
+    })
+  }
+  return options
+}
+
+interface AssignManagerSheetProps {
+  target: { member: TeamMember; currentManagerLabel: string; unit: CoordinatedUnit } | null
+  selected: string | null
+  busy: boolean
+  error: string | null
+  onSelect: (id: string) => void
+  onConfirm: () => void
+  onClose: () => void
+}
+
+function AssignManagerSheet({
+  target,
+  selected,
+  busy,
+  error,
+  onSelect,
+  onConfirm,
+  onClose,
+}: AssignManagerSheetProps) {
+  const options = target ? managerOptionsForMember(target.unit, target.member) : []
+  return (
+    <AnimatePresence>
+      {target && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          onClick={busy ? undefined : onClose}
+        >
+          <motion.div
+            initial={{ scale: 0.92, opacity: 0, y: 16 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.92, opacity: 0, y: 16 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+            className="w-full max-w-md rounded-2xl bg-card p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Vincular membro a gestor"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-violet-500">
+                <icons.ui.userCheck size={18} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-bold text-fg">Vincular membro a gestor</h2>
+                <p className="truncate text-xs text-fg-muted">
+                  {target.member.profile?.name ?? 'Membro'} • sob {target.currentManagerLabel}
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-4 flex flex-col gap-2">
+              {options.map((option) => (
+                <label
+                  key={option.membershipId}
+                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 transition-colors has-[:checked]:border-violet-500/60 has-[:checked]:bg-violet-500/5"
+                >
+                  <input
+                    type="radio"
+                    name="manager-option"
+                    value={option.membershipId}
+                    checked={selected === option.membershipId}
+                    onChange={() => onSelect(option.membershipId)}
+                    disabled={busy}
+                    className="h-4 w-4 accent-violet-500"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-fg">{option.label}</span>
+                    <span className="block truncate text-[10px] text-fg-muted">{option.note}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            {error && <p className="mb-4 text-xs text-red-500">{error}</p>}
+            <p className="mb-4 text-[10px] leading-relaxed text-fg-muted">
+              A criação de memberships e a alteração de cargos continuam restritas ao administrador.
+              O Postgres valida este vínculo.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-input disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={onConfirm}
+                disabled={busy || selected === null}
+                className="flex-1 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-400 disabled:opacity-50"
+              >
+                {busy ? 'Vinculando...' : 'Vincular'}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+interface LeaderBlockProps {
+  leader: CoordinatedLeader
+  disabled: boolean
+  onAssign: (member: TeamMember) => void
+  onRemove: (member: TeamMember) => void
+}
+
+function LeaderBlock({ leader, disabled, onAssign, onRemove }: LeaderBlockProps) {
   const name = leader.profile?.name ?? 'Membro sem perfil'
   return (
     <div
@@ -49,11 +204,31 @@ function LeaderBlock({ leader }: { leader: CoordinatedLeader }) {
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fg-muted/10 text-[9px] font-bold text-fg-muted">
                   {initials(memberName)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-fg">
-                  {memberName}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-[11px] text-fg">{memberName}</span>
                 <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[9px] font-semibold text-fg-dim">
                   {roleLabel(member.profile)}
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    title="Vincular a gestor"
+                    aria-label={`Vincular ${memberName} a gestor`}
+                    disabled={disabled}
+                    onClick={() => onAssign(member)}
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
+                  >
+                    <icons.ui.plusCircle size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Remover da equipe"
+                    aria-label={`Remover ${memberName} da equipe`}
+                    disabled={disabled}
+                    onClick={() => onRemove(member)}
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40"
+                  >
+                    <icons.ui.minus size={13} />
+                  </button>
                 </span>
               </li>
             )
@@ -66,24 +241,86 @@ function LeaderBlock({ leader }: { leader: CoordinatedLeader }) {
   )
 }
 
+interface AssignTarget {
+  member: TeamMember
+  currentManagerLabel: string
+  unit: CoordinatedUnit
+}
+
 /**
- * RBAC 2.0 (Fase 8): ÁREA DO COORDENADOR (scope coordination).
+ * RBAC 2.0 (Fase 8.2): ÁREA DO COORDENADOR com GESTÃO REAL da relação de
+ * gestão.
  *
- * O escopo vem do servidor (RPCs 047 fail-closed por auth.uid()): unidades onde
- * o usuário tem membership ATIVA de coordenação → lideranças/subordinações
- * diretas → equipes. Nada de dados inventados: o que renderiza aqui é real.
- * A escrita escopada (`coordinator_set_manager`) é capacidade do serviço; a UI
- * de gestão (vincular/remover) não tem botões falsos — chega em fase própria.
+ * O escopo continua vindo do servidor (RPCs 047 fail-closed por auth.uid()):
+ * unidades → lideranças → equipes. A escrita usa `coordinator_set_manager`
+ * (SECURITY DEFINER, autorização explícita) re-parentando `managed_by` — a UI
+ * NÃO decide autorização e não tem regra própria: apenas oferece como gestor o
+ * mesmo conjunto que o RPC aceita (coordenação da unidade OU liderança já
+ * subordinada direta), deixa o Postgres (RPC 047 + guard 046) validar e mostra
+ * o erro com honestidade quando ele negar.
+ *
+ * Sem criação de memberships e sem alteração de cargos: só `managed_by`.
  */
 export function CoordinatorHome() {
   const navigate = useNavigate()
   const { units, loading, failed, refresh } = useCoordinator()
+
+  const [pending, setPending] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [sheetTarget, setSheetTarget] = useState<AssignTarget | null>(null)
+  const [sheetManager, setSheetManager] = useState<string | null>(null)
+  const [sheetBusy, setSheetBusy] = useState(false)
+  const [sheetError, setSheetError] = useState<string | null>(null)
 
   const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
   const memberCount = units.reduce(
     (acc, u) => acc + u.leaders.reduce((a, l) => a + l.members.length, 0),
     0,
   )
+
+  const openAssignSheet = (unit: CoordinatedUnit, leader: CoordinatedLeader, member: TeamMember) => {
+    setSheetTarget({
+      member,
+      currentManagerLabel: leader.profile?.name ?? 'Liderança',
+      unit,
+    })
+    setSheetManager(null)
+    setSheetError(null)
+    setActionError(null)
+  }
+
+  const confirmAssign = async () => {
+    if (!sheetTarget || sheetManager === null) return
+    setSheetBusy(true)
+    setSheetError(null)
+    setPending(`assign-${sheetTarget.member.membership.id}`)
+    const ok = await setCoordinatorManager(sheetTarget.member.membership.id, sheetManager)
+    if (ok) {
+      setSheetTarget(null)
+      setSheetManager(null)
+      await refresh()
+    } else {
+      setSheetError(
+        getLastCoordinatorServiceError() ?? 'Não foi possível vincular o membro a este gestor.',
+      )
+    }
+    setSheetBusy(false)
+    setPending(null)
+  }
+
+  const confirmRemove = async (member: TeamMember) => {
+    setPending(`remove-${member.membership.id}`)
+    setActionError(null)
+    const ok = await setCoordinatorManager(member.membership.id, null)
+    if (ok) {
+      await refresh()
+    } else {
+      setActionError(
+        getLastCoordinatorServiceError() ?? 'Não foi possível remover o membro da equipe.',
+      )
+    }
+    setPending(null)
+  }
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
@@ -181,6 +418,21 @@ export function CoordinatorHome() {
               </div>
             </div>
 
+            {actionError && (
+              <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5">
+                <icons.ui.alertTriangle size={14} className="mt-0.5 shrink-0 text-red-500" />
+                <p className="flex-1 text-[11px] leading-relaxed text-red-500">{actionError}</p>
+                <button
+                  type="button"
+                  aria-label="Fechar aviso"
+                  onClick={() => setActionError(null)}
+                  className="shrink-0 text-red-500/70 transition-colors hover:text-red-500"
+                >
+                  <icons.ui.close size={13} />
+                </button>
+              </div>
+            )}
+
             <div className="mb-6 flex flex-col gap-3">
               {units.map((unit) => (
                 <section
@@ -201,7 +453,13 @@ export function CoordinatorHome() {
                   ) : (
                     <div className="mt-3 flex flex-col gap-2">
                       {unit.leaders.map((leader) => (
-                        <LeaderBlock key={leader.leadership.id} leader={leader} />
+                        <LeaderBlock
+                          key={leader.leadership.id}
+                          leader={leader}
+                          disabled={pending !== null}
+                          onAssign={(member) => openAssignSheet(unit, leader, member)}
+                          onRemove={(member) => void confirmRemove(member)}
+                        />
                       ))}
                     </div>
                   )}
@@ -211,13 +469,29 @@ export function CoordinatorHome() {
 
             <div className="rounded-2xl border border-dashed border-line bg-card p-5 text-center">
               <p className="text-[10px] leading-relaxed text-fg-muted">
-                As ações de gestão desta estrutura (vincular/remover lideranças e membros) ainda
-                não foram liberadas na interface. A sua visão de alcance é esta: unidades →
-                lideranças → equipes dentro do seu escopo de coordenação.
+                Nesta tela você vincula membros a um gestor da unidade (ou direto à coordenação) e
+                remove membros da equipe. A criação de memberships e a alteração de cargos seguem
+                restritas ao administrador; o Postgres valida cada vínculo.
               </p>
             </div>
           </>
         )}
+
+        <AssignManagerSheet
+          target={sheetTarget}
+          selected={sheetManager}
+          busy={sheetBusy}
+          error={sheetError}
+          onSelect={setSheetManager}
+          onConfirm={() => void confirmAssign()}
+          onClose={() => {
+            if (!sheetBusy) {
+              setSheetTarget(null)
+              setSheetManager(null)
+              setSheetError(null)
+            }
+          }}
+        />
 
         <footer className="mt-6 text-center">
           <p className="text-[10px] text-fg-dim">
