@@ -54,6 +54,8 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
   it('resolveRoleId aceita coordinator novo e legado sem quebrar regressões', () => {
     expect(resolveRoleId('coordinator')).toBe('role-coordinator')
     expect(resolveRoleId('role-coordinator')).toBe('role-coordinator')
+    expect(resolveRoleId('lider')).toBe('role-lider')
+    expect(resolveRoleId('role-lider')).toBe('role-lider')
     expect(resolveRoleId('technician')).toBe('role-technician')
     expect(resolveRoleId('viewer')).toBe('role-viewer')
     expect(resolveRoleId('admin')).toBe('role-technician') // legado preservado
@@ -71,7 +73,7 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(permissionService.getById('role-coordinator')?.name).toBe('Coordenador Multiunidade')
 
     permissionService.migrate()
-    expect(permissionService.getAll()).toHaveLength(3)
+    expect(permissionService.getAll()).toHaveLength(4)
   })
 
   it('resolveAppAccess: coordenador lê/apps de operação e full em chamados', () => {
