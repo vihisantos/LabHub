@@ -98,13 +98,84 @@ def test_tablets_cleanup_deleta_so_canceladas_antigas(push_module, monkeypatch):
         calls['url'] = url
         return FakeResp()
 
+    def fake_patch(url, **kwargs):
+        return FakeResp()
+
     monkeypatch.setattr(push_module.requests, 'delete', fake_delete)
+    monkeypatch.setattr(push_module.requests, 'patch', fake_patch)
     monkeypatch.setenv('PUSH_TABLET_RETENTION_DAYS', '30')
 
     result = push_module._internal_tablets_cleanup()
-    assert result == {'checked': True, 'removed': 2, 'retention_days': 30}
+    assert result == {'checked': True, 'removed': 2, 'stamped': 2, 'retention_days': 30}
     assert 'status=eq.cancelada' in calls['url']
     assert 'cancelled_at=lt.' in calls['url']
+
+
+def test_tablets_cleanup_backfill_carimba_canceladas_sem_cancelled_at(push_module, monkeypatch):
+    """Canceladas sem cancelled_at (pré-051/cliente sem carimbo) recebem now()
+    antes do DELETE — a retenção passa a contar a partir da primeira varredura."""
+    calls = {}
+
+    class FakeResp:
+        ok = True
+        status_code = 200
+        @staticmethod
+        def json():
+            return []
+
+    def fake_delete(url, **kwargs):
+        calls['deleted'] = True
+        return FakeResp()
+
+    def fake_patch(url, **kwargs):
+        calls['patch_url'] = url
+        calls['patch_body'] = kwargs.get('json')
+        return FakeResp()
+
+    monkeypatch.setattr(push_module.requests, 'delete', fake_delete)
+    monkeypatch.setattr(push_module.requests, 'patch', fake_patch)
+
+    result = push_module._internal_tablets_cleanup()
+    assert result['checked'] is True
+    assert result['stamped'] == 0
+    assert result['removed'] == 0
+    assert 'cancelled_at=is.null' in calls['patch_url']
+    assert 'status=eq.cancelada' in calls['patch_url']
+    assert 'cancelled_at' in calls['patch_body']
+    assert calls['deleted'] is True  # DELETE roda depois do backfill
+
+
+def test_tablets_cleanup_backfill_falha_nao_bloqueia_delete(push_module, monkeypatch):
+    """Se o backfill falhar, o DELETE de retenção ainda executa."""
+    calls = {}
+
+    class FakeResp:
+        ok = True
+        status_code = 200
+        @staticmethod
+        def json():
+            return []
+
+    def fake_delete(url, **kwargs):
+        calls['deleted'] = True
+        return FakeResp()
+
+    def fake_patch(url, **kwargs):
+        class Err:
+            ok = False
+            status_code = 500
+            @staticmethod
+            def json():
+                return {}
+        return Err()
+
+    monkeypatch.setattr(push_module.requests, 'delete', fake_delete)
+    monkeypatch.setattr(push_module.requests, 'patch', fake_patch)
+
+    result = push_module._internal_tablets_cleanup()
+    assert result['checked'] is True
+    assert result['stamped'] == 0
+    assert calls['deleted'] is True
 
 
 @pytest.mark.parametrize('endpoint', CHECK_ENDPOINTS)

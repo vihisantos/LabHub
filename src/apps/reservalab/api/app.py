@@ -1384,13 +1384,38 @@ def _internal_tablets_cleanup():
     if not (supabase_url and supabase_key):
         return {'checked': False, 'skipped': 'Supabase not configured'}
     try:
+        agora_iso = get_now_sp().isoformat()
+        headers_cron = {
+            'apikey': supabase_key,
+            'Authorization': f'Bearer {supabase_key}',
+        }
+        # Backfill defensivo: canceladas sem cancelled_at (pré-051 ou cliente
+        # sem carimbo) recebem now() como melhor aproximação — a retenção
+        # passa a contar a partir daqui em vez de nunca se aplicar.
+        stamped = 0
+        try:
+            resp_bf = requests.patch(
+                f'{supabase_url}/rest/v1/tablet_reservations'
+                f'?status=eq.{quote("cancelada")}&cancelled_at=is.null',
+                headers={**headers_cron, 'Prefer': 'return=representation'},
+                json={'cancelled_at': agora_iso},
+                timeout=15,
+            )
+            if resp_bf.ok:
+                stamped = len(resp_bf.json() or [])
+                if stamped:
+                    logger.info(f"Tablet cleanup backfill: {stamped} canceladas sem cancelled_at carimbadas com now()")
+            else:
+                logger.warning("Tablet cleanup backfill falhou (%s)", resp_bf.status_code)
+        except Exception as e:
+            logger.warning("Tablet cleanup backfill error: %s", e)
+
         cutoff = (get_now_sp() - timedelta(days=_tablet_retention_days())).isoformat()
         resp = requests.delete(
             f'{supabase_url}/rest/v1/tablet_reservations'
             f'?status=eq.{quote("cancelada")}&cancelled_at=lt.{quote(cutoff)}',
             headers={
-                'apikey': supabase_key,
-                'Authorization': f'Bearer {supabase_key}',
+                **headers_cron,
                 'Prefer': 'return=representation',
                 'Range': '0-499',
             },
@@ -1401,7 +1426,7 @@ def _internal_tablets_cleanup():
         removed = len(resp.json() or [])
         if removed:
             logger.info(f"Tablet cleanup: {removed} reservas canceladas há mais de {_tablet_retention_days()}d removidas")
-        return {'checked': True, 'removed': removed, 'retention_days': _tablet_retention_days()}
+        return {'checked': True, 'removed': removed, 'stamped': stamped, 'retention_days': _tablet_retention_days()}
     except Exception as e:
         logger.error("tablets cleanup error: %s", e)
         return {'error': 'Erro ao limpar reservas canceladas'}
