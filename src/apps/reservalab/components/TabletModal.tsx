@@ -40,18 +40,18 @@ export function TabletModal({ reservation, onClose }: TabletModalProps) {
         animate={{ scale: 1, opacity: 1 }}
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#ffffff', borderRadius: '1rem', padding: '1.5rem',
+          background: 'var(--bg-card)', borderRadius: '1rem', padding: '1.5rem',
           maxWidth: '400px', width: '100%',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0a0a0a' }}>{reservation.sala}</h3>
-            <p style={{ fontSize: '0.85rem', color: '#6366f1', fontWeight: 500, marginTop: '2px' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>{reservation.sala}</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--accent)', fontWeight: 500, marginTop: '2px' }}>
               {formatDate(reservation.horario_inicio)}
             </p>
           </div>
-          <button onClick={onClose} style={{ padding: '10px', borderRadius: '50%', border: 'none', background: '#f5f5f5', cursor: 'pointer', minHeight: '44px', minWidth: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={onClose} style={{ padding: '10px', borderRadius: '50%', border: 'none', background: 'var(--bg-input)', cursor: 'pointer', minHeight: '44px', minWidth: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <X size={20} />
           </button>
         </div>
@@ -71,9 +71,9 @@ export function TabletModal({ reservation, onClose }: TabletModalProps) {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
-      <span style={{ fontSize: '0.8rem', color: '#71717a' }}>{label}</span>
-      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>{value}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right' }}>{value}</span>
     </div>
   )
 }

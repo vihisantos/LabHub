@@ -71,7 +71,7 @@ export function PushNotificationButton() {
           zIndex: 200,
         }}
       >
-        <div className="rounded-2xl border border-line bg-card p-4" style={{ boxShadow: '0 12px 40px rgba(0, 0, 0, 0.18)' }}>
+        <div className="rounded-2xl border border-line bg-card p-4" style={{ boxShadow: 'var(--shadow-elevated)' }}>
           {/* Header */}
           <div className="flex items-start gap-3">
             <div
@@ -79,10 +79,10 @@ export function PushNotificationButton() {
               style={{
                 background: isDenied
                   ? 'linear-gradient(135deg, #ef4444, #f97316)'
-                  : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  : 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))',
                 boxShadow: isDenied
                   ? '0 6px 16px rgba(239, 68, 68, 0.35)'
-                  : '0 6px 16px rgba(99, 102, 241, 0.35)',
+                  : '0 6px 16px var(--accent-ring)',
               }}
             >
               <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>
@@ -135,8 +135,8 @@ export function PushNotificationButton() {
               style={{
                 background: isDenied
                   ? 'linear-gradient(135deg, #ef4444, #f97316)'
-                  : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                boxShadow: '0 6px 16px rgba(99, 102, 241, 0.28)',
+                  : 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))',
+                boxShadow: '0 6px 16px var(--accent-ring)',
               }}
             >
               {loading ? 'Ativando...' : isDenied ? 'Reativar' : 'Ativar Notificações'}

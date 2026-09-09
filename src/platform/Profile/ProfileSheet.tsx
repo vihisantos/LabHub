@@ -204,13 +204,14 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                       type="text"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-indigo-500 focus:outline-none"
+                      className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-[var(--accent)] focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={handleSave}
                       disabled={saving || name.trim() === user.name}
-                      className="shrink-0 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-400 disabled:opacity-50"
+                      className="shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-50"
+                      style={{ backgroundColor: accent }}
                     >
                       {saving ? '...' : 'Salvar'}
                     </button>
@@ -254,11 +255,12 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                           key={t.value}
                           type="button"
                           onClick={() => handleThemeChange(t.value)}
-                          className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all ${
-                            isActive
-                              ? 'bg-indigo-500/10 text-indigo-500 ring-1 ring-indigo-500/30'
-                              : 'bg-input text-fg-muted hover:text-fg'
-                          }`}
+                        className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-all ${
+                          isActive
+                            ? 'ring-1 ring-offset-2 ring-offset-card'
+                            : 'bg-input text-fg-muted hover:text-fg'
+                        }`}
+                        style={isActive ? { backgroundColor: accent + '1a', color: accent, borderColor: accent } : undefined}
                         >
                           <Icon size={15} />
                           {t.label}

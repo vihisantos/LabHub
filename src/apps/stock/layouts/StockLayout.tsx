@@ -2,12 +2,10 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useRef, useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { StockBottomNav } from '../components/StockBottomNav'
-import { useTheme } from '../../../lib/ThemeContext'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { useExpiryAlerts } from '../hooks/useExpiryAlerts'
 import { icons } from '../../../lib/icons'
-import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 import { STOCK_PREFIXES, stockPrefix, stockNavPath, normalizeStockPath } from '../utils/stockPath'
 
@@ -102,7 +100,7 @@ export function StockLayout() {
   const title = getPageTitle(location.pathname)
   const detail = isDetailPage(location.pathname)
   const mainRef = useRef<HTMLDivElement>(null)
-  const { theme, toggle } = useTheme()
+  // Tema centralizado no perfil do app principal — sem controle local aqui
 
   useSwipeBack()
   useOnlineSync()
@@ -120,22 +118,18 @@ export function StockLayout() {
       title={title}
       detail={detail}
       mainRef={mainRef}
-      theme={theme}
-      toggle={toggle}
       scrollToTop={scrollToTop}
     />
   )
 }
 
 function StockLayoutInner({
-  location, title, detail, mainRef, theme, toggle, scrollToTop,
+  location, title, detail, mainRef, scrollToTop,
 }: {
   location: ReturnType<typeof useLocation>
   title: string
   detail: boolean
   mainRef: React.RefObject<HTMLDivElement | null>
-  theme: ReturnType<typeof useTheme>['theme']
-  toggle: ReturnType<typeof useTheme>['toggle']
   scrollToTop: () => void
 }) {
   const navigate = useNavigate()
@@ -207,25 +201,6 @@ function StockLayoutInner({
           </div>
         </button>
 
-        <div className="ml-auto flex items-center gap-1">
-          <TooltipProvider>
-            <TooltipRoot>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={toggle}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-                  aria-label="Alternar tema"
-                >
-                  {theme === 'light' ? <icons.ui.moon size={18} /> : <icons.ui.sun size={18} />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
-              </TooltipContent>
-            </TooltipRoot>
-          </TooltipProvider>
-        </div>
       </header>
 
       <main ref={mainRef} className="flex-1 overflow-y-auto pb-28" style={{ paddingBottom: 'max(7rem, calc(4rem + env(safe-area-inset-bottom)))' }}>

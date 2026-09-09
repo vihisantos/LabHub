@@ -99,7 +99,7 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
         onClick={(e) => e.stopPropagation()}
         className="modal-grid-2"
         style={{
-          background: '#ffffff',
+          background: 'var(--bg-card)',
           borderRadius: '1rem',
           maxWidth: '800px',
           width: '100%',
@@ -111,10 +111,10 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
             <div>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0a0a0a', marginBottom: '0.25rem' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
                 {reservation.subject}
               </h3>
-              <span style={{ fontSize: '0.85rem', color: '#6366f1', fontWeight: 500 }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--accent)', fontWeight: 500 }}>
                 {reservation.isLive ? '🟢 Ativo agora' : reservation.isEmBreve ? '🟡 Começa em breve' : reservation.isEnded ? '⚫ Encerrada' : '🔵 Agendada'}
               </span>
             </div>
@@ -123,13 +123,13 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
                 onClick={() => { navigate(buildTvUrl()); onClose() }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '4px',
-                  padding: '6px 12px', borderRadius: '0.5rem', border: '1px solid #e2e8f0',
-                  background: '#fff', cursor: 'pointer', color: '#6366f1',
+                  padding: '6px 12px', borderRadius: '0.5rem', border: '1px solid var(--border)',
+                  background: 'var(--bg-card)', cursor: 'pointer', color: 'var(--accent)',
                   fontSize: '0.75rem', fontWeight: 500, whiteSpace: 'nowrap',
                   transition: 'all 0.15s',
                 }}
-                onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = '#f5f3ff' }}
-                onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = '#fff' }}
+                onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = 'var(--accent-soft)' }}
+                onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-card)' }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
@@ -140,7 +140,7 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
                 onClick={onClose}
                 style={{
                   padding: '10px', borderRadius: '50%', border: 'none',
-                  background: '#f5f5f5', cursor: 'pointer',
+                  background: 'var(--bg-input)', cursor: 'pointer',
                   minHeight: '44px', minWidth: '44px',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
@@ -157,42 +157,42 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
             gap: '0.75rem',
             marginBottom: '1.5rem',
           }}>
-            <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#71717a', fontSize: '0.75rem', marginBottom: '4px' }}>
+            <div style={{ padding: '0.75rem', background: 'var(--bg-input)', borderRadius: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '4px' }}>
                 <ClockSVG /> Horário
               </div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a' }}>{reservation.time}</p>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{reservation.time}</p>
             </div>
-            <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#71717a', fontSize: '0.75rem', marginBottom: '4px' }}>
+            <div style={{ padding: '0.75rem', background: 'var(--bg-input)', borderRadius: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '4px' }}>
                 <UserSVG /> Professor
               </div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a' }}>{reservation.professor || '—'}</p>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{reservation.professor || '—'}</p>
             </div>
-            <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#71717a', fontSize: '0.75rem', marginBottom: '4px' }}>
+            <div style={{ padding: '0.75rem', background: 'var(--bg-input)', borderRadius: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '4px' }}>
                 <UsersSVG /> Alunos
               </div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a' }}>{reservation.alunos}</p>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{reservation.alunos}</p>
             </div>
-            <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#71717a', fontSize: '0.75rem', marginBottom: '4px' }}>
+            <div style={{ padding: '0.75rem', background: 'var(--bg-input)', borderRadius: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '4px' }}>
                 <UserSVG /> Reservado por
               </div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a' }}>{reservation.reservaFeitaPor || '—'}</p>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{reservation.reservaFeitaPor || '—'}</p>
             </div>
           </div>
 
           {/* Desk Map */}
           <div>
-            <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', marginBottom: '0.75rem' }}>
+            <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
               Mapa de Carteiras
             </h4>
             <div style={{
               display: 'grid',
               gridTemplateColumns: `repeat(${DESK_COLS}, 1fr)`,
               gap: '4px',
-              background: '#f8fafc',
+              background: 'var(--bg-input)',
               padding: '0.75rem',
               borderRadius: '0.75rem',
             }}>
@@ -208,8 +208,8 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
                     justifyContent: 'center',
                     fontSize: '0.55rem',
                     fontWeight: 600,
-                    background: desk.pcd ? '#6366f1' : '#e2e8f0',
-                    color: desk.pcd ? '#ffffff' : '#94a3b8',
+                    background: desk.pcd ? 'var(--accent)' : 'var(--bg-segmented)',
+                    color: desk.pcd ? '#ffffff' : 'var(--text-muted)',
                     cursor: 'default',
                   }}
                 >
@@ -217,12 +217,12 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#e2e8f0', display: 'inline-block' }} /> Livre
+                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: 'var(--bg-segmented)', display: 'inline-block' }} /> Livre
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: '#6366f1', display: 'inline-block' }} /> PCD
+                <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: 'var(--accent)', display: 'inline-block' }} /> PCD
               </span>
             </div>
           </div>

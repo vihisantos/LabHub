@@ -22,7 +22,7 @@ const donutColors: Record<StockSection, string> = {
   adaptadores: '#14b8a6',
   equipamentos: '#ec4899',
   cabos: '#a855f7',
-  outros: '#64748b',
+  outros: 'var(--text-muted)',
 }
 
 const sectionIcons: Record<StockSection, typeof icons.ui.package> = {
@@ -108,7 +108,7 @@ export function StockDashboard() {
     return (Object.keys(allStatuses) as string[]).map((s) => ({
       label: statusLabels[s] || s,
       value: allStatuses[s],
-      color: statusColors[s] || '#64748b',
+      color: statusColors[s] || 'var(--text-muted)',
     }))
   }, [allStatuses])
 
@@ -392,7 +392,7 @@ export function StockDashboard() {
               <ChartCard title="Movimentações (6 meses)" subtitle="Total de movimentações por mês">
                 {movementTrends.some((m) => m.count > 0) ? (
                   <BarChart
-                    data={movementTrends.map((m) => ({ label: m.label, value: m.count, color: '#10b981' }))}
+                    data={movementTrends.map((m) => ({ label: m.label, value: m.count, color: 'var(--color-chart-bar)' }))}
                     layout="vertical"
                     height={180}
                   />

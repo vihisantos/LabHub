@@ -102,12 +102,12 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
           padding: '4px 6px',
           maxWidth: '90vw',
           overflow: 'hidden',
-          background: 'rgba(15, 23, 42, 0.7)',
+          background: 'color-mix(in srgb, var(--bg-card) 78%, transparent)',
           backdropFilter: 'blur(32px) saturate(180%)',
           WebkitBackdropFilter: 'blur(32px) saturate(180%)',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
+          border: '1px solid var(--border)',
           borderRadius: '9999px',
-          boxShadow: '0 4px 32px rgba(0, 0, 0, 0.15)',
+          boxShadow: 'var(--shadow-elevated)',
           gap: '2px',
         }}
       >
@@ -123,7 +123,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
                 border: 'none',
                 background: 'transparent',
                 cursor: 'pointer',
-                color: 'rgba(255,255,255,0.5)',
+                color: 'var(--text-muted)',
                 fontSize: '10px',
                 fontWeight: 500,
                 transition: 'color 0.2s',
@@ -151,7 +151,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
                 border: 'none',
                 background: 'transparent',
                 cursor: 'pointer',
-                color: isActive ? '#6366f1' : 'rgba(255,255,255,0.7)',
+                color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
                 fontSize: '10px',
                 fontWeight: isActive ? 700 : 500,
                 position: 'relative',
@@ -167,7 +167,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
                   style={{
                     position: 'absolute',
                     inset: 0,
-                    background: 'rgba(99, 102, 241, 0.2)',
+                    background: 'var(--accent-soft)',
                     borderRadius: '9999px',
                   }}
                 />
@@ -197,12 +197,12 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
         alignItems: 'center',
         gap: '4px',
         padding: '6px 12px',
-        background: 'rgba(15, 23, 42, 0.7)',
+        background: 'color-mix(in srgb, var(--bg-card) 78%, transparent)',
         backdropFilter: 'blur(32px) saturate(180%)',
         WebkitBackdropFilter: 'blur(32px) saturate(180%)',
-        border: '1px solid rgba(255, 255, 255, 0.15)',
+        border: '1px solid var(--border)',
         borderRadius: '9999px',
-        boxShadow: '0 4px 32px rgba(0, 0, 0, 0.1)',
+        boxShadow: 'var(--shadow-elevated)',
       }}
     >
       {/* Home */}
@@ -217,7 +217,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
           border: 'none',
           background: 'transparent',
           cursor: 'pointer',
-          color: 'rgba(255,255,255,0.5)',
+          color: 'var(--text-muted)',
           transition: 'color 0.2s',
           marginRight: '4px',
         }}
@@ -237,14 +237,14 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
         <span className="logo-text" style={{
           fontSize: '14px',
           fontWeight: 700,
-          color: '#ffffff',
+          color: 'var(--text-primary)',
           letterSpacing: '-0.02em',
         }}>
           ReservasLab
         </span>
       </div>
 
-      <div className="nav-separator" style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.15)' }} />
+      <div className="nav-separator" style={{ width: '1px', height: '24px', background: 'var(--border)' }} />
 
       {visibleTabs.map((tab) => {
         const isActive = activeTab === tab.id
@@ -261,7 +261,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
               border: 'none',
               background: 'transparent',
               cursor: 'pointer',
-              color: '#ffffff',
+              color: 'var(--text-primary)',
               fontSize: '13px',
               fontWeight: isActive ? 600 : 500,
               whiteSpace: 'nowrap',
@@ -275,7 +275,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  background: 'rgba(99, 102, 241, 0.6)',
+                  background: 'color-mix(in srgb, var(--accent) 25%, transparent)',
                   borderRadius: '9999px',
                 }}
               />
@@ -296,7 +296,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
         marginLeft: '12px',
         padding: '4px 12px',
         borderRadius: '9999px',
-        background: 'rgba(0,0,0,0.2)',
+        background: 'var(--bg-input)',
       }}>
         <span style={{
           width: '6px',
@@ -304,7 +304,7 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
           borderRadius: '50%',
           background: statusAPI === 'online' ? '#22c55e' : '#ef4444',
         }} />
-        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
           {statusAPI === 'online' ? 'Online' : statusAPI === 'offline' ? 'Offline' : '...'}
         </span>
       </div>

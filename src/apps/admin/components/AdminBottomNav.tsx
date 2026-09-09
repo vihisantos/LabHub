@@ -47,12 +47,11 @@ const MAIS: AdminNavMenuTab = {
   id: 'mais',
   label: 'Mais',
   icon: 'moreHorizontal',
-  routes: ['/admin/settings', '/admin/workspaces', '/admin/backups', '/admin/profile'],
+  routes: ['/admin/settings', '/admin/workspaces', '/admin/backups'],
   items: [
     { to: '/admin/settings', label: 'Configurações', icon: 'sliders' },
     { to: '/admin/workspaces', label: 'Workspaces', icon: 'mapPin' },
     { to: '/admin/backups', label: 'Backups', icon: 'hardDrive' },
-    { to: '/admin/profile', label: 'Perfil', icon: 'user' },
   ],
 }
 

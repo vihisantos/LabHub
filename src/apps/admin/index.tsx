@@ -7,7 +7,6 @@ import { RequestsPage } from './pages/RequestsPage'
 import { RolesPage } from './pages/RolesPage'
 import { WorkspacesPage } from './pages/WorkspacesPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { BackupsPage } from './pages/BackupsPage'
 import { LogsPage } from '../../platform/Admin/LogsPage'
@@ -26,7 +25,6 @@ export function AdminApp() {
         <Route path="logs" element={<LogsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="backups" element={<BackupsPage />} />
-        <Route path="profile" element={<ProfilePage />} />
       </Route>
     </Routes>
   )

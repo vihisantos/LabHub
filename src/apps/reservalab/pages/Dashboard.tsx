@@ -70,7 +70,7 @@ export function DashboardView() {
   // ── Ocupação da semana por lab (horas reservadas / horas disponíveis) ──
   // Janela de 7 dias × 15h de funcionamento (7h–22h) = 105h por lab
   const HORAS_SEMANA = 7 * 15
-  const OCC_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#0ea5e9', '#8b5cf6', '#ec4899', '#84cc16', '#f97316', '#14b8a6']
+  const OCC_COLORS = ['var(--accent)', '#f59e0b', '#10b981', '#ef4444', '#0ea5e9', '#8b5cf6', '#ec4899', '#84cc16', '#f97316', '#14b8a6']
   const labOccupancy = labsDisponiveis.map((lab) => {
     const horas = (data.reservas_semana || [])
       .filter((r) => r.labs?.includes(lab) || normalizeLabName(r.lab) === lab)
@@ -165,8 +165,8 @@ export function DashboardView() {
       title: 'Reservas Hoje',
       value: reservasToday,
       subtitle: labsDisponiveis.map((lab) => `${lab.replace(/^LAB/, 'Lab ')}: ${reservasHojePorLab(lab)}`).join(' • ') + (tabletsLoaded ? ` • Tablet: ${tabletHoje}` : ''),
-      icon: <Users size={20} color="#6366f1" />,
-      color: '#6366f1',
+      icon: <Users size={20} color="var(--accent)" />,
+      color: 'var(--accent)',
     },
     {
       title: 'Total da Semana',
@@ -191,7 +191,7 @@ export function DashboardView() {
     },
   ]
 
-  const lab01Color = '#6366f1'
+  const lab01Color = 'var(--accent)'
   const tabletColor = '#10b981'
 
   return (
@@ -204,7 +204,7 @@ export function DashboardView() {
         padding: isMobile ? '6rem 1rem 5rem' : '9rem 1.5rem 6rem',
         background: 'transparent',
         minHeight: '100vh',
-        color: '#0a0a0a',
+        color: 'var(--text-primary)',
         position: 'relative',
         zIndex: 1,
       }}
@@ -221,19 +221,19 @@ export function DashboardView() {
             width: isMobile ? '2.25rem' : '3rem',
             height: isMobile ? '2.25rem' : '3rem',
             borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            background: 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)',
+            boxShadow: '0 4px 12px var(--accent-ring)',
           }}>
             <BarChart3 size={isMobile ? 16 : 20} color="#fff" />
           </div>
           <div>
-            <h2 style={{ fontSize: isMobile ? '1.25rem' : '2rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
+            <h2 style={{ fontSize: isMobile ? '1.25rem' : '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>
               Visão Geral
             </h2>
-            <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginTop: '2px' }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '2px' }}>
               Métricas em tempo real — {today}
             </p>
           </div>
@@ -247,9 +247,9 @@ export function DashboardView() {
             gap: '6px',
             padding: '0.5rem 1rem',
             borderRadius: '0.5rem',
-            border: '1px solid rgba(99, 102, 241, 0.2)',
-            background: 'rgba(99, 102, 241, 0.05)',
-            color: '#6366f1',
+            border: '1px solid var(--accent-ring)',
+            background: 'var(--accent-soft)',
+            color: 'var(--accent)',
             fontSize: '0.875rem',
             fontWeight: 500,
             cursor: 'pointer',
@@ -287,10 +287,10 @@ export function DashboardView() {
             <div style={{ height: isMobile ? '140px' : '200px', width: '100%', marginBottom: isMobile ? '0.5rem' : '1.5rem' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={weeklyUsageData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                  <Tooltip contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }} />
                   {labsDisponiveis.map((lab, i) => (
                     <Bar key={lab} dataKey={lab} fill={OCC_COLORS[i % OCC_COLORS.length]} radius={[6, 6, 0, 0]} maxBarSize={24} />
                   ))}
@@ -305,12 +305,12 @@ export function DashboardView() {
               {labOccupancy.map((o, i) => (
                 <div key={o.lab}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155' }}>{o.label}</span>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{o.label}</span>
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: OCC_COLORS[i % OCC_COLORS.length] }}>
                       {o.pct}%{o.horas > 0 ? ` · ${o.horas}h` : ''}
                     </span>
                   </div>
-                  <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${o.pct}%` }}
@@ -321,7 +321,7 @@ export function DashboardView() {
                 </div>
               ))}
               {labOccupancy.length === 0 && (
-                <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Sem dados de reserva para esta semana</p>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sem dados de reserva para esta semana</p>
               )}
             </div>
           </ChartContainer>
@@ -336,9 +336,9 @@ export function DashboardView() {
                       <stop offset="95%" stopColor={lab01Color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
-                  <Tooltip contentStyle={{ backgroundColor: '#ffffff', border: '1px solid red', borderRadius: '12px' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} dy={10} />
+                  <Tooltip contentStyle={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px' }} />
                   <Area type="monotone" dataKey="ocupacao" stroke={lab01Color} strokeWidth={2.5} fillOpacity={1} fill="url(#colorOcupacao)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -352,18 +352,18 @@ export function DashboardView() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, duration: 0.5 }}
           style={{
-            background: 'rgba(255, 255, 255, 0.8)',
+            background: 'color-mix(in srgb, var(--bg-card) 85%, transparent)',
             backdropFilter: 'blur(12px)',
             borderRadius: '1rem',
-            border: '1px solid rgba(99, 102, 241, 0.15)',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            border: '1px solid var(--border)',
+            boxShadow: 'var(--shadow-card)',
             padding: isMobile ? '1rem' : '1.5rem',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Zap size={20} color="#6366f1" />
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>Agora</h3>
+              <Zap size={20} color="var(--accent)" />
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Agora</h3>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <motion.span
@@ -371,11 +371,11 @@ export function DashboardView() {
                 transition={totalGeralNow > 0 ? { duration: 2, repeat: Infinity, ease: 'easeInOut' } : {}}
                 style={{
                   width: '8px', height: '8px', borderRadius: '50%',
-                  background: totalGeralNow > 0 ? '#22c55e' : '#94a3b8',
+                  background: totalGeralNow > 0 ? '#22c55e' : 'var(--text-muted)',
                   display: 'block',
                 }}
               />
-              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 {totalGeralNow > 0 ? 'Ao vivo' : 'Vazio'}
               </span>
             </div>
@@ -387,25 +387,25 @@ export function DashboardView() {
                 <>
                   <div style={{ marginBottom: '1.25rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b' }}>Lab 01</span>
-                      <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#6366f1' }}>{lab1Now}</span>
+                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>Lab 01</span>
+                      <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--accent)' }}>{lab1Now}</span>
                     </div>
-                    <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: '100%', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${(lab1Now / maxNow) * 100}%` }}
                         transition={{ duration: 0.8, delay: 0.4, ease: 'easeOut' }}
-                        style={{ height: '100%', borderRadius: '4px', background: 'linear-gradient(90deg, #6366f1, #8b5cf6)' }}
+                        style={{ height: '100%', borderRadius: '4px', background: 'linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))' }}
                       />
                     </div>
                   </div>
 
                   <div style={{ marginBottom: '1.25rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b' }}>Lab 02</span>
+                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>Lab 02</span>
                       <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#f59e0b' }}>{lab2Now}</span>
                     </div>
-                    <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: '100%', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${(lab2Now / maxNow) * 100}%` }}
@@ -421,18 +421,18 @@ export function DashboardView() {
                 <div style={{ marginBottom: '1.25rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.75rem' }}>
                     <Monitor size={14} color="#10b981" />
-                    <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       Tablets
                     </span>
                   </div>
                   {tabletAgoraList.map((r) => (
-                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #f8fafc' }}>
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                         <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'block', flexShrink: 0 }} />
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#1e293b' }}>{r.sala}</span>
-                          {r.finalidade && <span style={{ fontSize: '0.65rem', color: '#94a3b8', marginLeft: '6px' }}>{r.finalidade}</span>}
-                          <div style={{ fontSize: '0.6rem', color: '#94a3b8', marginTop: '1px' }}>
+                          <span style={{ fontSize: '0.825rem', fontWeight: 600, color: 'var(--text-primary)' }}>{r.sala}</span>
+                          {r.finalidade && <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginLeft: '6px' }}>{r.finalidade}</span>}
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '1px' }}>
                             <User size={8} style={{ display: 'inline', marginRight: '2px', verticalAlign: 'middle' }} />
                             {r.reservado_por}
                           </div>
@@ -446,29 +446,29 @@ export function DashboardView() {
                 </div>
               )}
 
-              <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   {String(currentHour).padStart(2, '0')}h — {String(currentHour + 1).padStart(2, '0')}h
                 </span>
                 <div style={{ display: 'flex', gap: '16px', textAlign: 'right' }}>
                   <div>
-                    <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
                       {lab1Now + lab2Now}
                     </span>
-                    <span style={{ fontSize: '0.65rem', fontWeight: 500, color: '#94a3b8', marginLeft: '4px' }}>labs</span>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 500, color: 'var(--text-muted)', marginLeft: '4px' }}>labs</span>
                   </div>
                   {tabletAgora > 0 && (
                     <div>
-                      <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{tabletAgora}</span>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 500, color: '#94a3b8', marginLeft: '4px' }}>{tabletAgora === 1 ? 'sala' : 'salas'}</span>
-                      <span style={{ fontSize: '0.6rem', fontWeight: 400, color: '#cbd5e1', marginLeft: '4px' }}>({tabletUnidadesAgora} {tabletUnidadesAgora === 1 ? 'tablet' : 'tablets'})</span>
+                      <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{tabletAgora}</span>
+                      <span style={{ fontSize: '0.65rem', fontWeight: 500, color: 'var(--text-muted)', marginLeft: '4px' }}>{tabletAgora === 1 ? 'sala' : 'salas'}</span>
+                      <span style={{ fontSize: '0.6rem', fontWeight: 400, color: 'var(--text-muted)', marginLeft: '4px' }}>({tabletUnidadesAgora} {tabletUnidadesAgora === 1 ? 'tablet' : 'tablets'})</span>
                     </div>
                   )}
                 </div>
               </div>
             </>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem 0', color: '#94a3b8' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem 0', color: 'var(--text-muted)' }}>
               <Clock size={32} style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
               <p style={{ fontSize: '0.875rem', fontWeight: 500 }}>Nenhuma reserva ativa</p>
               <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>

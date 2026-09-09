@@ -35,7 +35,7 @@ export function TimeInput({ label, placeholder = '00h00', value, onChange }: Tim
         display: 'block',
         fontSize: '13px',
         fontWeight: 600,
-        color: '#52525b',
+        color: 'var(--text-secondary)',
         marginBottom: '4px',
       }}>
         {label}
@@ -51,13 +51,13 @@ export function TimeInput({ label, placeholder = '00h00', value, onChange }: Tim
           width: '100%',
           padding: '10px 12px',
           borderRadius: '8px',
-          border: '1px solid #e4e4e7',
-          background: '#ffffff',
+          border: '1px solid var(--border)',
+          background: 'var(--bg-input)',
           fontSize: '14px',
           outline: 'none',
           boxSizing: 'border-box',
           transition: 'border-color 0.2s, box-shadow 0.2s',
-          ...(focused ? { borderColor: '#6366f1', boxShadow: '0 0 0 3px rgba(99, 102, 241, 0.1)' } : {}),
+          ...(focused ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px var(--accent-ring)' } : {}),
         }}
       />
     </div>

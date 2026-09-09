@@ -2,11 +2,11 @@ const LOADER_SVG = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <defs>
     <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366f1"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+      <stop offset="0%" stop-color="var(--accent)"/>
+      <stop offset="100%" stop-color="color-mix(in srgb, var(--accent) 55%, #7c3aed)"/>
     </linearGradient>
   </defs>
-  <circle cx="100" cy="100" r="80" fill="none" stroke="#e4e4e7" stroke-width="8"/>
+  <circle cx="100" cy="100" r="80" fill="none" stroke="var(--border)" stroke-width="8"/>
   <path d="M 100 20 A 80 80 0 0 1 180 100" fill="none" stroke="url(#lg)" stroke-width="8" stroke-linecap="round">
     <animateTransform attributeName="transform" type="rotate" from="0 100 100" to="360 100 100" dur="1s" repeatCount="indefinite"/>
   </path>
@@ -26,7 +26,7 @@ export function Loader({ fullScreen = true, size = 48 }: { fullScreen?: boolean;
         dangerouslySetInnerHTML={{ __html: LOADER_SVG }}
         style={{ width: size, height: size }}
       />
-      <p style={{ color: '#94a3b8', fontSize: '14px', fontWeight: 500 }}>
+      <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: 500 }}>
         Carregando...
       </p>
     </div>
@@ -41,7 +41,7 @@ export function Loader({ fullScreen = true, size = 48 }: { fullScreen?: boolean;
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: '#f0f4ff',
+      background: 'var(--bg-primary)',
       zIndex: 9999,
     }}>
       {content}

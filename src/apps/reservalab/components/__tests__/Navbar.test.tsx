@@ -107,9 +107,9 @@ describe('Navbar', () => {
     const reservas = screen.getByText('Reservas').closest('button')!
     const tablets = screen.getByText('Tablets').closest('button')!
 
-    expect(dashboard).toHaveStyle({ color: '#6366f1' })
-    expect(reservas).toHaveStyle({ color: 'rgba(255,255,255,0.7)' })
-    expect(tablets).toHaveStyle({ color: 'rgba(255,255,255,0.7)' })
+    expect(dashboard).toHaveStyle({ color: 'var(--accent)' })
+    expect(reservas).toHaveStyle({ color: 'var(--text-secondary)' })
+    expect(tablets).toHaveStyle({ color: 'var(--text-secondary)' })
   })
 })
 

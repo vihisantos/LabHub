@@ -103,7 +103,7 @@ export function Dashboard() {
     return [
       { name: 'Prontos', value: feitos, color: '#10b981' },
       { name: 'Andamento', value: andamento, color: '#f59e0b' },
-      { name: 'Pendentes', value: pendentes, color: '#94a3b8' },
+      { name: 'Pendentes', value: pendentes, color: 'var(--text-muted)' },
     ]
   }, [statusSummary])
 
@@ -143,7 +143,7 @@ export function Dashboard() {
           style={{
             width: '500px', height: '500px',
             top: '-10%', right: '-15%',
-            background: 'radial-gradient(circle, rgba(139, 92, 246, 0.15), transparent 70%)',
+            background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 15%, transparent), transparent 70%)',
             animation: 'blob-float-slow 8s ease-in-out infinite',
           }}
         />
@@ -152,7 +152,7 @@ export function Dashboard() {
           style={{
             width: '400px', height: '400px',
             bottom: '-5%', left: '-10%',
-            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.12), transparent 70%)',
+            background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%)',
             animation: 'blob-float-slow-2 10s ease-in-out infinite',
           }}
         />
@@ -161,7 +161,7 @@ export function Dashboard() {
           style={{
             width: '300px', height: '300px',
             top: '40%', left: '50%',
-            background: 'radial-gradient(circle, rgba(168, 85, 247, 0.08), transparent 70%)',
+            background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%)',
             animation: 'blob-float-slow 12s ease-in-out infinite',
           }}
         />
@@ -251,7 +251,7 @@ export function Dashboard() {
                 data={maintenanceByMonth}
                 layout="vertical"
                 height={160}
-                defaultColor="#f43f5e"
+                defaultColor="var(--color-chart-bar)"
               />
             </ChartCard>
           )}

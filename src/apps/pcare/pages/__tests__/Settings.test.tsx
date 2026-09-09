@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom'
 vi.mock('../../hooks/usePCs', () => ({ usePCs: vi.fn() }))
 vi.mock('../../hooks/useParts', () => ({ useParts: vi.fn() }))
 vi.mock('../../hooks/useOnlineSync', () => ({ useOnlineSync: vi.fn() }))
-vi.mock('../../../../lib/ThemeContext', () => ({ useTheme: vi.fn() }))
 
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async () => {
@@ -13,7 +12,6 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
-import { useTheme } from '../../../../lib/ThemeContext'
 import { useOnlineSync } from '../../hooks/useOnlineSync'
 import { usePCs } from '../../hooks/usePCs'
 import { useParts } from '../../hooks/useParts'
@@ -32,32 +30,11 @@ describe('Settings', () => {
       online: true, syncing: false, syncError: null, lastSync: null,
       pendingChanges: 0, triggerSync: vi.fn(), syncLog: [],
     })
-    ;(useTheme as any).mockReturnValue({ theme: 'dark', accent: 'cyan', setTheme: vi.fn(), setAccent: vi.fn() })
   })
 
   it('renderiza título', () => {
     renderSettings()
     expect(screen.getByText('Configurações')).toBeInTheDocument()
-  })
-
-  it('exibe seção Aparência', () => {
-    renderSettings()
-    expect(screen.getByText('Aparência')).toBeInTheDocument()
-  })
-
-  it('exibe opções de tema (Escuro, Suave, Claro)', () => {
-    renderSettings()
-    expect(screen.getByText('Escuro')).toBeInTheDocument()
-    expect(screen.getByText('Suave')).toBeInTheDocument()
-    expect(screen.getByText('Claro')).toBeInTheDocument()
-  })
-
-  it('exibe opções de cor de destaque', () => {
-    renderSettings()
-    expect(screen.getByText('Verde')).toBeInTheDocument()
-    expect(screen.getByText('Ciano')).toBeInTheDocument()
-    expect(screen.getByText('Azul')).toBeInTheDocument()
-    expect(screen.getByText('Roxo')).toBeInTheDocument()
   })
 
   it('exibe seção Exportar Dados', () => {
