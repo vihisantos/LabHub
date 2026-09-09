@@ -61,6 +61,20 @@ async function ensureSw(): Promise<ServiceWorkerRegistration> {
 }
 
 /**
+ * Chave estável do payload de segmentação (apps/workspaces/preferências).
+ * Mudou = o snapshot guardado no backend está velho e precisa ser reenviado.
+ */
+function userSegmentationKey(user?: PushUserInfo | null): string {
+  if (!user) return ''
+  return JSON.stringify({
+    is_super_admin: user.is_super_admin ?? false,
+    workspace_ids: user.workspace_ids ?? [],
+    apps: user.apps ?? {},
+    notify_settings: user.notify_settings ?? {},
+  })
+}
+
+/**
  * Hook de push notifications.
  *
  * @param subscribeUrl  URL do endpoint POST de inscrição (ex.: '/api/push/subscribe').
@@ -74,6 +88,8 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
     loading: true,
     error: null,
   })
+
+  const segmentationKey = userSegmentationKey(user)
 
   useEffect(() => {
     let cancelled = false
@@ -113,6 +129,51 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
     detect()
     return () => { cancelled = true }
   }, [])
+
+  /**
+   * Reenvia a inscrição quando a segmentação muda (cargo/acesso/workspaces/
+   * preferências). O backend guarda um snapshot por endpoint: sem isto, quem
+   * ganhou/perdeu acesso — ou entrou/saiu de um workspace — continuaria
+   * recebendo conforme o snapshot antigo (ou deixando de receber).
+   * Best-effort: falha não desativa a inscrição existente.
+   */
+  useEffect(() => {
+    if (!segmentationKey || !user) return
+    let cancelled = false
+
+    async function refreshSubscriptionPayload() {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        const subscription = await registration.pushManager.getSubscription()
+        if (!subscription || cancelled) return
+
+        const payload: Record<string, unknown> = { ...subscription.toJSON(), user }
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        try {
+          const { defaultDb } = await import('./supabase')
+          if (defaultDb) {
+            const { data } = await defaultDb.auth.getSession()
+            const token = data.session?.access_token
+            if (token) headers['Authorization'] = `Bearer ${token}`
+          }
+        } catch {
+          /* Sem sessão: segue sem header; o backend responde 401. */
+        }
+
+        await fetch(subscribeUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        })
+      } catch {
+        /* best-effort — o snapshot antigo permanece até o próximo subscribe */
+      }
+    }
+
+    refreshSubscriptionPayload()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps — `segmentationKey` cobre os campos usados
+  }, [segmentationKey, subscribeUrl])
 
   const subscribe = useCallback(async () => {
     if (state.supported === false) {

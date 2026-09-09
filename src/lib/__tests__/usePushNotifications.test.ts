@@ -91,6 +91,64 @@ describe('usePushNotifications', () => {
     expect(result.current.subscribed).toBe(false)
   })
 
+  it('reenvia a inscrição quando a segmentação do usuário muda', async () => {
+    // Subscription existente: o snapshot guardado no backend precisa ser atualizado
+    mockGetSubscription.mockResolvedValue({
+      endpoint: 'https://fcm/send/abc',
+      toJSON: () => ({ endpoint: 'https://fcm/send/abc', keys: { p256dh: 'k', auth: 'a' } }),
+    })
+
+    const initialUser = { id: 'u1', name: 'U', role: 'r', apps: { chamados: false } } as any
+    const { rerender } = renderHook(
+      ({ user }) => usePushNotifications('/api/push/subscribe', user),
+      { initialProps: { user: initialUser } },
+    )
+    await flushDetect()
+    await act(async () => {}) // deixa o effect de refresh completar
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const firstBody = JSON.parse((fetch as any).mock.calls[0][1].body)
+    expect(firstBody.user.apps.chamados).toBe(false)
+
+    // Usuário ganhou acesso ao chamados → snapshot deve ser reenviado
+    rerender({ user: { ...initialUser, apps: { chamados: 'full' } } as any })
+    await act(async () => {})
+
+    expect(fetch).toHaveBeenCalledTimes(2)
+    const secondBody = JSON.parse((fetch as any).mock.calls[1][1].body)
+    expect(secondBody.user.apps.chamados).toBe('full')
+    expect(secondBody.endpoint).toBe('https://fcm/send/abc')
+  })
+
+  it('não reenvia quando a segmentação não mudou', async () => {
+    mockGetSubscription.mockResolvedValue({
+      endpoint: 'https://fcm/send/abc',
+      toJSON: () => ({ endpoint: 'https://fcm/send/abc', keys: { p256dh: 'k', auth: 'a' } }),
+    })
+    const user = { id: 'u1', name: 'U', role: 'r', apps: { chamados: 'full' } } as any
+    const { rerender } = renderHook(
+      ({ user }) => usePushNotifications('/api/push/subscribe', user),
+      { initialProps: { user } },
+    )
+    await flushDetect()
+    await act(async () => {})
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    // Mesma segmentação, outra instância de objeto → não deve reenviar
+    rerender({ user: { ...user } as any })
+    await act(async () => {})
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('não tenta atualizar snapshot quando não há subscription', async () => {
+    mockGetSubscription.mockResolvedValue(null)
+    const user = { id: 'u1', name: 'U', role: 'r', apps: { chamados: 'full' } } as any
+    renderHook(() => usePushNotifications('/api/push/subscribe', user))
+    await flushDetect()
+    await act(async () => {})
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('error é null inicialmente', async () => {
     const { result } = renderHook(() => usePushNotifications())
     await flushDetect()

@@ -2769,9 +2769,14 @@ def public_chamados_subscribe(tracking_token):
 
 @app.route('/api/chamados/push/test', methods=['POST'])
 @require_auth
-@require_admin
 def chamados_push_test():
-    """Envia uma push de teste para o próprio usuário logado (módulo chamados)."""
+    """Envia uma push de teste para o próprio usuário logado (módulo chamados).
+
+    Qualquer usuário autenticado pode testar o PRÓPRIO dispositivo — o envio é
+    estritamente pessoal (user_id do JWT, escopo do módulo chamados) e não
+    expõe dados de outros usuários nem dispara pushes em massa. Os gates de
+    super admin continuam em /api/push/send e /api/push/test (envio global).
+    """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
