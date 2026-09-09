@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Tablet as TabletIcon, Plus, X, User } from 'lucide-react'
 import { TimeInput } from '../components/TimeInput'
+import { TabletCalendar, type CalendarDay } from '../components/TabletCalendar'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
@@ -50,6 +51,12 @@ export function TabletsView() {
   const { workspace } = useWorkspace()
   const canEdit = getLevel('reservalab') === 'full'
 
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear())
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [monthReservas, setMonthReservas] = useState<TabletReserva[]>([])
+  const [loadingCalendar, setLoadingCalendar] = useState(false)
+
   // Auto-fill reservado_por with logged-in user whenever form opens
   useEffect(() => {
     if (showForm && user?.name) {
@@ -76,8 +83,76 @@ export function TabletsView() {
     // Re-carrega quando o workspace (campus) muda — antes ficava com o valor antigo
   }, [workspace?.id])
 
+  // Busca reservas do mês exibido no calendário (inclui meses passados)
+  useEffect(() => {
+    let mounted = true
+    const loadMonth = async () => {
+      setLoadingCalendar(true)
+      try {
+        const primeiro = new Date(calYear, calMonth, 1)
+        primeiro.setHours(0, 0, 0, 0)
+        const ultimo = new Date(calYear, calMonth + 1, 1)
+        ultimo.setHours(0, 0, 0, 0)
+        const rows = await fetchTabletReservas(primeiro, ultimo, workspace?.id)
+        if (mounted) setMonthReservas(rows)
+      } catch {
+        // ignore
+      } finally {
+        if (mounted) setLoadingCalendar(false)
+      }
+    }
+    loadMonth()
+    return () => { mounted = false }
+  }, [calYear, calMonth, workspace?.id])
+
   const hoje = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }, [])
   const amanha = useMemo(() => { const d = new Date(hoje); d.setDate(d.getDate() + 1); return d }, [hoje])
+
+  const calendarDays = useMemo<CalendarDay[]>(() => {
+    const firstDay = new Date(calYear, calMonth, 1).getDay()
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+    const todayKey = new Date().toISOString().slice(0, 10)
+
+    const byDay = new Map<string, TabletReserva[]>()
+    monthReservas.forEach((r) => {
+      const key = new Date(r.horario_inicio).toISOString().slice(0, 10)
+      if (!byDay.has(key)) byDay.set(key, [])
+      byDay.get(key)!.push(r)
+    })
+
+    const days: CalendarDay[] = []
+    for (let i = 0; i < firstDay; i++) {
+      days.push({ date: '', day: 0, isToday: false, isOther: true, items: [] })
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      days.push({ date, day: d, isToday: date === todayKey, isOther: false, items: byDay.get(date) || [] })
+    }
+    return days
+  }, [calYear, calMonth, monthReservas])
+
+  const selectedDayItems = useMemo(
+    () => (selectedDay ? monthReservas.filter((r) => new Date(r.horario_inicio).toISOString().slice(0, 10) === selectedDay) : []),
+    [selectedDay, monthReservas]
+  )
+
+  function prevMonth() {
+    setSelectedDay(null)
+    if (calMonth === 0) { setCalMonth(11); setCalYear((y) => y - 1) }
+    else setCalMonth((m) => m - 1)
+  }
+
+  function nextMonth() {
+    setSelectedDay(null)
+    if (calMonth === 11) { setCalMonth(0); setCalYear((y) => y + 1) }
+    else setCalMonth((m) => m + 1)
+  }
+
+  function goToToday() {
+    setCalYear(new Date().getFullYear())
+    setCalMonth(new Date().getMonth())
+    setSelectedDay(new Date().toISOString().slice(0, 10))
+  }
 
   const reservasHoje = useMemo(
     () => reservas.filter((r) => {
@@ -347,6 +422,22 @@ export function TabletsView() {
             </button>
           </form>
         )}
+
+      <div className="mb-6">
+        <TabletCalendar
+          calYear={calYear}
+          calMonth={calMonth}
+          selectedDay={selectedDay}
+          calendarDays={calendarDays}
+          onPrevMonth={prevMonth}
+          onNextMonth={nextMonth}
+          onToday={goToToday}
+          onSelectDay={setSelectedDay}
+          selectedDayItems={selectedDayItems}
+          loadingCalendar={loadingCalendar}
+          formatTime={formatTimeDisplay}
+        />
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {mostrarTodas
