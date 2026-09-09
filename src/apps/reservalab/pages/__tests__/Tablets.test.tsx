@@ -40,6 +40,19 @@ vi.mock('../../components/TimeInput', () => ({
   ),
 }))
 
+// Mock modais
+vi.mock('../../components/CancelReservationModal', () => ({
+  CancelReservationModal: ({ onConfirm }: any) => (
+    <div data-testid="cancel-reservation-modal">
+      <button onClick={onConfirm}>Confirmar cancelamento</button>
+    </div>
+  ),
+}))
+
+vi.mock('../../components/TabletModal', () => ({
+  TabletModal: () => <div data-testid="tablet-modal" />,
+}))
+
 import { fetchTabletReservas, deleteTabletReserva } from '../../services/supabase'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
@@ -112,11 +125,21 @@ describe('TabletsView', () => {
     expect(cancelBtns.length).toBe(2)
   })
 
-  it('remove reserva ao clicar em "Cancelar"', async () => {
+  it('abre modal de confirmação ao clicar em "Cancelar"', async () => {
+    renderTablets()
+    const cancelBtns = await screen.findAllByText('Cancelar')
+    fireEvent.click(cancelBtns[0])
+    await waitFor(() => {
+      expect(screen.getByTestId('cancel-reservation-modal')).toBeInTheDocument()
+    })
+  })
+
+  it('remove reserva somente após confirmar no modal', async () => {
     ;(deleteTabletReserva as any).mockResolvedValue(undefined)
     renderTablets()
     const cancelBtns = await screen.findAllByText('Cancelar')
     fireEvent.click(cancelBtns[0])
+    fireEvent.click(screen.getByText('Confirmar cancelamento'))
     await waitFor(() => {
       expect(deleteTabletReserva).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
     })
