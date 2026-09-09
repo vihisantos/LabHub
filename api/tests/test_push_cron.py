@@ -165,3 +165,84 @@ def test_target_subs_sem_workspace_atinge_todos(push_module, monkeypatch):
     ids = sorted(s['user']['id'] for s in out)
 
     assert ids == ['u-a', 'u-b']
+
+
+# ── Filtro por nível mínimo (full) no push de reservas ─────────────────────
+
+
+def test_target_subs_min_level_somente_full(push_module, monkeypatch):
+    """Push de reserva só chega para quem tem nível 'full' no reservalab.
+
+    Usuários 'read'/'dash' assinam o push (para outros módulos), mas não
+    recebem o alerta de reserva deste app.
+    """
+    full = {'id': 'u-full', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'full'}, 'notify_settings': {}}
+    read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
+    dash = {'id': 'u-dash', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'dash'}, 'notify_settings': {}}
+    sem = {'id': 'u-sem', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': False}, 'notify_settings': {}}
+
+    fake = FakeRedis({
+        json.dumps(_push_sub(full), ensure_ascii=False),
+        json.dumps(_push_sub(read), ensure_ascii=False),
+        json.dumps(_push_sub(dash), ensure_ascii=False),
+        json.dumps(_push_sub(sem), ensure_ascii=False),
+    })
+    monkeypatch.setattr(push_module, 'redis', fake)
+
+    out = push_module._target_subs(module='reservalab', min_level='full')
+    ids = sorted(s['user']['id'] for s in out)
+
+    assert ids == ['u-full']
+
+
+def test_target_subs_min_level_full_considera_legado_true(push_module, monkeypatch):
+    """Inscrição legada com `apps.reservalab: true` (pré-níveis) é tratada como full."""
+    legado = {'id': 'u-legado', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
+
+    fake = FakeRedis({
+        json.dumps(_push_sub(legado), ensure_ascii=False),
+        json.dumps(_push_sub(read), ensure_ascii=False),
+    })
+    monkeypatch.setattr(push_module, 'redis', fake)
+
+    out = push_module._target_subs(module='reservalab', min_level='full')
+    ids = sorted(s['user']['id'] for s in out)
+
+    assert ids == ['u-legado']
+
+
+def test_target_subs_min_level_super_admin_sempre_recebe(push_module, monkeypatch):
+    """Super admin recebe o push de reservas mesmo sem nível resolvido no payload."""
+    admin = {'id': 'u-admin', 'role': 'coordinator', 'is_super_admin': True, 'workspace_ids': [], 'apps': {}, 'notify_settings': {}}
+    read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
+
+    fake = FakeRedis({
+        json.dumps(_push_sub(admin), ensure_ascii=False),
+        json.dumps(_push_sub(read), ensure_ascii=False),
+    })
+    monkeypatch.setattr(push_module, 'redis', fake)
+
+    out = push_module._target_subs(module='reservalab', min_level='full')
+    ids = sorted(s['user']['id'] for s in out)
+
+    assert ids == ['u-admin']
+
+
+def test_target_subs_min_level_read_atinge_read_e_full(push_module, monkeypatch):
+    """min_level='read' inclui 'read' e 'full' (só 'dash' fica de fora)."""
+    full = {'id': 'u-full', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'full'}, 'notify_settings': {}}
+    read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
+    dash = {'id': 'u-dash', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'dash'}, 'notify_settings': {}}
+
+    fake = FakeRedis({
+        json.dumps(_push_sub(full), ensure_ascii=False),
+        json.dumps(_push_sub(read), ensure_ascii=False),
+        json.dumps(_push_sub(dash), ensure_ascii=False),
+    })
+    monkeypatch.setattr(push_module, 'redis', fake)
+
+    out = push_module._target_subs(module='reservalab', min_level='read')
+    ids = sorted(s['user']['id'] for s in out)
+
+    assert ids == ['u-full', 'u-read']

@@ -649,11 +649,14 @@ def push_send():
         return jsonify({'error': 'Erro ao enviar notificação push'}), 500
 
 
-def _target_subs(module=None, workspace_id=None, user_id=None, role=None):
+def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None):
     """Filtra os subscribers pela segmentação de notificações.
 
     - módulo: usuário precisa ter acesso resolvido ao app (campo `apps` da inscrição).
       Inscrições legadas (sem `apps`) continuam recebendo de todos os módulos.
+    - min_level: nível mínimo de acesso ao módulo para receber o push
+      (ex.: 'full'). Super admin sempre passa; inscrição legada com valor
+      booleano `true` (anterior à segmentação por nível) é tratada como full.
     - workspace: super admin vê todos; demais precisam ter o workspace na lista.
     - notify_settings: mudo global e canal `push` por app são respeitados.
     """
@@ -666,7 +669,7 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None):
         if role and u.get('role') != role:
             continue
         if module:
-            if u.get('role') != 'admin':
+            if u.get('role') != 'admin' and not u.get('is_super_admin'):
                 apps = u.get('apps')
                 if apps is not None and not apps.get(module):
                     continue
@@ -676,11 +679,32 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None):
             ch = (ns.get('apps') or {}).get(module)
             if ch is not None and not ch.get('push', True):
                 continue
+            if min_level and not u.get('is_super_admin'):
+                if _resolve_push_level((u.get('apps') or {}).get(module)) < _PUSH_LEVEL_RANK.get(min_level):
+                    continue
         if workspace_id:
             if not u.get('is_super_admin') and workspace_id not in (u.get('workspace_ids') or []):
                 continue
         out.append(s)
     return out
+
+
+# Rank de níveis de acesso para segmentação de push por nível mínimo.
+_PUSH_LEVEL_RANK = {'dash': 1, 'read': 2, 'full': 3}
+
+
+def _resolve_push_level(value):
+    """Rank do nível de acesso enviado na inscrição.
+
+    - novo payload (buildPushUser): string ('dash' | 'read' | 'full');
+    - inscrição legada: booleano `true` = tinha acesso (tratado como full);
+    - sem acesso / booleano `false`: rank 0.
+    """
+    if value is True:
+        return _PUSH_LEVEL_RANK['full']
+    if isinstance(value, str):
+        return _PUSH_LEVEL_RANK.get(value, 0)
+    return 0
 
 
 def _supabase_headers():
@@ -771,7 +795,7 @@ def _internal_push_check():
         if not subs_raw:
             return jsonify({'message': 'No subscribers', 'sent': 0})
 
-        subs = _target_subs(module='reservalab')
+        subs = _target_subs(module='reservalab', min_level='full')
         sent = 0
         
         for r in reservas_hoje:
@@ -864,9 +888,10 @@ def _internal_push_check():
                             body += f" — {t.get('quantidade_tablets', '?')} tablets"
                             
                             # Alerta do campus → só quem tem acesso àquele workspace
-                            # (super admin vê todos; reserva sem workspace vai para todos)
+                            # (super admin vê todos; reserva sem workspace vai para todos).
+                            # Só nível 'full' do reservalab recebe push de reserva.
                             ws_id = t.get('workspace_id')
-                            target = _target_subs(module='reservalab', workspace_id=ws_id) if ws_id else subs
+                            target = _target_subs(module='reservalab', workspace_id=ws_id, min_level='full') if ws_id else subs
                             for sub in target:
                                 push_notify(sub, title, body)
                             
