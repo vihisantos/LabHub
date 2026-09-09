@@ -226,8 +226,9 @@ export function TabletsView() {
     try {
       await deleteTabletReserva(id)
       setReservas((prev) => prev.filter((r) => r.id !== id))
+      setMonthReservas((prev) => prev.filter((r) => r.id !== id))
     } catch (err) {
-      console.error('Erro ao excluir reserva:', err)
+      console.error('Erro ao cancelar reserva:', err)
     }
   }
 
