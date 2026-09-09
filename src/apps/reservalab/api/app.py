@@ -938,6 +938,51 @@ def _get_subs():
     return [json.loads(s) if isinstance(s, str) else s for s in raw]
 
 
+@app.route('/api/push/admin/subscriptions', methods=['GET'])
+@require_auth
+@require_admin
+def push_admin_subscriptions():
+    """Auditoria das inscrições push por usuário/workspace (super admin).
+
+    Devolve todas as inscrições com o payload de segmentação que o backend
+    usa ao filtrar envios (_target_subs): apps, workspace_ids, notify_settings
+    e o workspace do dispositivo. Sem dispositivo nunca é exposto o endpoint
+    bruto (chaves de criptografia ficam no registro, não na resposta).
+    """
+    if not redis:
+        return jsonify({'error': 'Redis not configured'}), 500
+    try:
+        user_filter = (request.args.get('user_id') or '').strip()
+        ws_filter = (request.args.get('workspace_id') or '').strip()
+
+        subs = _get_subs()
+        out = []
+        for s in subs:
+            u = s.get('user') or {}
+            uid = u.get('id') or ''
+            if user_filter and uid != user_filter:
+                continue
+            ws_ids = u.get('workspace_ids') or []
+            if ws_filter and not u.get('is_super_admin') and ws_filter not in ws_ids:
+                continue
+            out.append({
+                'key': s.get('key', ''),
+                'user_id': uid,
+                'name': u.get('name') or '',
+                'role': u.get('role') or '',
+                'is_super_admin': bool(u.get('is_super_admin')),
+                'workspace_ids': ws_ids,
+                'apps': u.get('apps') or {},
+                'notify_settings': u.get('notify_settings') or {},
+                'expirationTime': s.get('expirationTime'),
+            })
+        out.sort(key=lambda r: (str(r.get('name') or '').lower(), str(r.get('key') or '')))
+        return jsonify({'total': len(out), 'subscriptions': out})
+    except Exception as e:
+        logger.error("Push admin subscriptions error: %s", e)
+        return jsonify({'error': 'Erro ao listar inscrições de push'}), 500
+
+
 def _get_key(obj, *keys):
     """Busca valor em dict ignorando casing das chaves (PostgREST varia conforme o schema)."""
     if not isinstance(obj, dict):

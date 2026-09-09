@@ -1536,6 +1536,29 @@ def test_push_test_token_invalido_retorna_401(client, fake_requests, monkeypatch
     assert resp.get_json()["error"] == "Invalid or expired token"
 
 
+TECH_PROFILE = {
+    **SUPER_ADMIN_PROFILE,
+    "is_super_admin": False,
+}
+
+
+def test_push_test_nao_exige_super_admin(client, fake_requests, api_module, monkeypatch):
+    """Qualquer usuário autenticado pode testar o PRÓPRIO dispositivo.
+
+    O teste é pessoal (user_id do JWT) e não expõe dados de terceiros — não
+    há razão para exigir super admin. Envios globais continuam em /api/push/send
+    e /api/push/test, ambos gated por require_admin.
+    """
+    headers = _setup_auth(fake_requests, monkeypatch, profile=TECH_PROFILE)
+    sent, target_kwargs = _push_test_fixture(api_module, monkeypatch)
+
+    resp = client.post("/api/chamados/push/test", headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"sent": 1, "total": 1}
+    assert target_kwargs and target_kwargs[0]["user_id"] == "user-1"
+
+
 def test_push_test_sem_inscricoes_retorna_aviso(client, fake_requests, api_module, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch)
     monkeypatch.setattr(api_module, "_target_subs", lambda **kw: [])
