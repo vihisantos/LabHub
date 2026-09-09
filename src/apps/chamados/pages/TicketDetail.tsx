@@ -144,10 +144,15 @@ export function TicketDetail() {
   const slaInfo = getSlaInfo(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
 
   const claimedByMe = (ticket.assignedToUserId || '') === (user?.id || '')
-  // Quem pode operar (comentar, mudar status, prioridade...): o responsável do
-  // chamado OU o líder/assigner. Isolamento: técnico comum não opera chamado de outro.
-  const canOperate = isLeader || claimedByMe
+  // Quem pode operar (comentar, mudar status, prioridade...):
+  //   - o responsável do chamado;
+  //   - o líder/assigner (isLeader);
+  //   - qualquer usuário com nível full quando o chamado AINDA NÃO TEM
+  //     responsável (mesma regra do backend `_can_operate_ticket`: sem dono,
+  //     qualquer técnico do workspace pode operar/assumir).
+  // Isolamento: técnico comum não opera chamado atribuído a outro.
   const unassigned = !ticket.assignedToUserId
+  const canOperate = isLeader || claimedByMe || (canWrite && unassigned)
   const inOpenFlow = ticket.status === 'aberto' || ticket.status === 'a_caminho' || ticket.status === 'em_atendimento'
   // Chamado assumido por outro técnico — quem não é responsável nem líder vê só leitura.
   const lockedByOther = canWrite && !isLeader && !claimedByMe && !!ticket.assignedToUserId && inOpenFlow

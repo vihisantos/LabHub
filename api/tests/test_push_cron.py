@@ -58,7 +58,53 @@ def test_check_all_aceita_header_correto(client, monkeypatch):
 
 # ── Proteção por CRON_SECRET nos demais endpoints de check ────────────────
 
-CHECK_ENDPOINTS = ['/api/push/check', '/api/push/check-overdue', '/api/push/check-pcare']
+CHECK_ENDPOINTS = ['/api/push/check', '/api/push/check-overdue', '/api/push/check-pcare', '/api/push/tablets/cleanup']
+
+
+# ── Cleanup de reservas de tablets canceladas (retention 1 mês) ───────────
+
+
+def test_tablets_cleanup_sem_supabase_skips(push_module, monkeypatch):
+    """Sem SUPABASE_URL/KEY configurados, o cleanup não falha — retorna skipped."""
+    monkeypatch.delenv('SUPABASE_URL', raising=False)
+    monkeypatch.delenv('SUPABASE_SERVICE_KEY', raising=False)
+    result = push_module._internal_tablets_cleanup()
+    assert result.get('checked') is False
+    assert 'skipped' in result
+
+
+def test_tablets_cleanup_retention_default_30_dias(push_module, monkeypatch):
+    """Default de retenção é 30 dias (1 mês); env invalido cai no default."""
+    monkeypatch.delenv('PUSH_TABLET_RETENTION_DAYS', raising=False)
+    assert push_module._tablet_retention_days() == 30
+    monkeypatch.setenv('PUSH_TABLET_RETENTION_DAYS', 'abc')
+    assert push_module._tablet_retention_days() == 30
+    monkeypatch.setenv('PUSH_TABLET_RETENTION_DAYS', '7')
+    assert push_module._tablet_retention_days() == 7
+
+
+def test_tablets_cleanup_deleta_so_canceladas_antigas(push_module, monkeypatch):
+    """DELETE usa status=cancelada e cancelled_at < cutoff (soft-deletes antigos)."""
+    calls = {}
+
+    class FakeResp:
+        ok = True
+        status_code = 200
+        @staticmethod
+        def json():
+            return [{'id': 'r1'}, {'id': 'r2'}]
+
+    def fake_delete(url, **kwargs):
+        calls['url'] = url
+        return FakeResp()
+
+    monkeypatch.setattr(push_module.requests, 'delete', fake_delete)
+    monkeypatch.setenv('PUSH_TABLET_RETENTION_DAYS', '30')
+
+    result = push_module._internal_tablets_cleanup()
+    assert result == {'checked': True, 'removed': 2, 'retention_days': 30}
+    assert 'status=eq.cancelada' in calls['url']
+    assert 'cancelled_at=lt.' in calls['url']
 
 
 @pytest.mark.parametrize('endpoint', CHECK_ENDPOINTS)

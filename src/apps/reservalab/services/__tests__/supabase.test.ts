@@ -6,11 +6,12 @@ import type { TabletReserva } from '../../types'
  * Cada método retorna o próprio builder (mockReturnThis).
  * `then` torna o builder "thenable" para o `await` funcionar.
  */
-const { mockCreateClient, mockFrom, mockQueryBuilder } = vi.hoisted(() => {
+const { mockCreateClient, mockFrom, mockQueryBuilder, mockAuthGetSession } = vi.hoisted(() => {
   const mockQueryBuilder = {
     select: vi.fn().mockReturnThis(),
     gte: vi.fn().mockReturnThis(),
     lt: vi.fn().mockReturnThis(),
+    gt: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     insert: vi.fn().mockReturnThis(),
@@ -19,12 +20,20 @@ const { mockCreateClient, mockFrom, mockQueryBuilder } = vi.hoisted(() => {
     then: vi.fn().mockImplementation((resolve: (v: unknown) => void) => resolve({ data: [] })),
   }
   const mockFrom = vi.fn().mockReturnValue(mockQueryBuilder)
-  const mockCreateClient = vi.fn(() => ({ from: mockFrom }))
-  return { mockCreateClient, mockFrom, mockQueryBuilder }
+  const mockAuthGetSession = vi.fn(async () => ({ data: { session: null } }))
+  const mockCreateClient = vi.fn(() => ({
+    from: mockFrom,
+    auth: { getSession: mockAuthGetSession },
+  }))
+  return { mockCreateClient, mockFrom, mockQueryBuilder, mockAuthGetSession }
 })
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: mockCreateClient,
+}))
+
+vi.mock('../../../../lib/supabase', () => ({
+  defaultDb: { auth: { getSession: mockAuthGetSession } },
 }))
 
 vi.mock('../../../../core/workspaces/store', () => ({
@@ -138,7 +147,7 @@ describe('supabase service', () => {
 
     describe('createTabletReserva', () => {
       it('insere reserva na tabela tablet_reservations', async () => {
-        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve(undefined))
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve({ error: null }))
         const values = {
           sala: 'Sala 303',
           quantidade_tablets: 8,
@@ -153,13 +162,17 @@ describe('supabase service', () => {
         await supabaseModule.createTabletReserva(values)
 
         expect(mockFrom).toHaveBeenCalledWith('tablet_reservations')
-        expect(mockQueryBuilder.insert).toHaveBeenCalledWith({ ...values, workspace_id: 'ws-test-reservalab' })
+        expect(mockQueryBuilder.insert).toHaveBeenCalledWith({
+          ...values,
+          workspace_id: 'ws-test-reservalab',
+          created_at: expect.any(String),
+        })
       })
     })
 
     describe('updateTabletReserva', () => {
       it('atualiza reserva na tabela com id específico', async () => {
-        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve(undefined))
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve({ error: null }))
         const values = { sala: 'Sala 404', professor: 'Novo Professor' }
 
         await supabaseModule.updateTabletReserva('11111111-1111-4111-8111-111111111111', values)
@@ -172,19 +185,24 @@ describe('supabase service', () => {
 
     describe('deleteTabletReserva', () => {
       it('cancela a reserva (soft delete) com status cancelada para o id específico', async () => {
-        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve(undefined))
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve({ error: null }))
 
         await supabaseModule.deleteTabletReserva('55555555-5555-4555-8555-555555555555')
 
         expect(mockFrom).toHaveBeenCalledWith('tablet_reservations')
-        expect(mockQueryBuilder.update).toHaveBeenCalledWith({ status: 'cancelada' })
+        expect(mockQueryBuilder.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: 'cancelada',
+            cancelled_at: expect.any(String),
+          }),
+        )
         expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', '55555555-5555-4555-8555-555555555555')
       })
     })
 
     describe('cleanupOldCancelledTablets', () => {
-      it('deleta reservas canceladas com mais de 7 dias', async () => {
-        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve(undefined))
+      it('deleta reservas canceladas com mais de 1 mês (30 dias)', async () => {
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve({ error: null }))
 
         await supabaseModule.cleanupOldCancelledTablets()
 
@@ -192,6 +210,50 @@ describe('supabase service', () => {
         expect(mockQueryBuilder.delete).toHaveBeenCalled()
         expect(mockQueryBuilder.eq).toHaveBeenCalledWith('status', 'cancelada')
         expect(mockQueryBuilder.lt).toHaveBeenCalledWith('horario_inicio', expect.any(String))
+      })
+    })
+
+    describe('checkTabletCapacity', () => {
+      it('retorna null quando a soma de tablets não ultrapassa o inventário', async () => {
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) =>
+          resolve({ data: [{ id: 'a', quantidade_tablets: 20 }, { id: 'b', quantidade_tablets: 15 }] }))
+
+        const err = await supabaseModule.checkTabletCapacity({
+          inicio: new Date('2026-06-25T08:00:00Z'),
+          fim: new Date('2026-06-25T10:00:00Z'),
+          quantidade: 10,
+        })
+
+        expect(err).toBeNull()
+      })
+
+      it('retorna mensagem de erro quando ultrapassa o inventário (50)', async () => {
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) =>
+          resolve({ data: [{ id: 'a', quantidade_tablets: 30 }, { id: 'b', quantidade_tablets: 15 }] }))
+
+        const err = await supabaseModule.checkTabletCapacity({
+          inicio: new Date('2026-06-25T08:00:00Z'),
+          fim: new Date('2026-06-25T10:00:00Z'),
+          quantidade: 10,
+        })
+
+        expect(err).toContain('Capacidade excedida')
+        expect(err).toContain('45')
+      })
+
+      it('ignora a própria reserva na edição (ignoreId)', async () => {
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) =>
+          resolve({ data: [{ id: 'minha-reserva', quantidade_tablets: 45 }, { id: 'outra', quantidade_tablets: 3 }] }))
+
+        const err = await supabaseModule.checkTabletCapacity({
+          inicio: new Date('2026-06-25T08:00:00Z'),
+          fim: new Date('2026-06-25T10:00:00Z'),
+          quantidade: 5,
+          ignoreId: 'minha-reserva',
+        })
+
+        // 3 (outra) + 5 (nova qtd) = 8 <= 50 → ok
+        expect(err).toBeNull()
       })
     })
   })

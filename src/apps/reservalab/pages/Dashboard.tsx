@@ -14,7 +14,7 @@ import { normalizeLabName } from '../utils/labUtils'
 import { parseHorario } from '../utils/timeUtils'
 import { fetchReservas } from '../services/api'
 import { fetchTabletReservas } from '../services/supabase'
-import type { ReservasAPIResponse, TabletReserva } from '../types'
+import type { LaboratorioReserva, ReservasAPIResponse, TabletReserva } from '../types'
 
 export function DashboardView() {
   const isMobile = useIsMobile()
@@ -57,19 +57,20 @@ export function DashboardView() {
   const reservasToday = lab1Today + lab2Today
   const totalWeek = data?.reservas_semana?.length || 0
 
-  const lab1Week = data.reservas_semana?.filter((r) =>
-    r.labs?.includes('LAB01') || normalizeLabName(r.lab) === 'LAB01'
-  ).length || 0
+  // Labs do workspace (lab_count configurável) — fallback legado LAB01/LAB02
+  const labsDisponiveis = data.labs?.length ? data.labs : ['LAB01', 'LAB02']
 
-  const lab2Week = data.reservas_semana?.filter((r) =>
-    r.labs?.includes('LAB02') || normalizeLabName(r.lab) === 'LAB02'
-  ).length || 0
+  const reservasSemanaPorLab = (lab: string) =>
+    data.reservas_semana?.filter((r) => r.labs?.includes(lab) || normalizeLabName(r.lab) === lab).length || 0
+
+  const reservasHojePorLab = (lab: string) =>
+    (data.lab_reservas?.[lab] as LaboratorioReserva[] | undefined)?.length ??
+    (lab === 'LAB01' ? lab1Today : lab === 'LAB02' ? lab2Today : 0)
 
   // ── Ocupação da semana por lab (horas reservadas / horas disponíveis) ──
   // Janela de 7 dias × 15h de funcionamento (7h–22h) = 105h por lab
   const HORAS_SEMANA = 7 * 15
   const OCC_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#0ea5e9', '#8b5cf6', '#ec4899', '#84cc16', '#f97316', '#14b8a6']
-  const labsDisponiveis = data.labs?.length ? data.labs : ['LAB01', 'LAB02']
   const labOccupancy = labsDisponiveis.map((lab) => {
     const horas = (data.reservas_semana || [])
       .filter((r) => r.labs?.includes(lab) || normalizeLabName(r.lab) === lab)
@@ -96,15 +97,16 @@ export function DashboardView() {
       const date = new Date(y, m - 1, d)
       return weekDaysMap[date.getDay()] === day
     }) || []
-    return {
-      name: day,
-      Lab01: dayReservas.filter((r) => r.labs?.includes('LAB01') || normalizeLabName(r.lab) === 'LAB01').length,
-      Lab02: dayReservas.filter((r) => r.labs?.includes('LAB02') || normalizeLabName(r.lab) === 'LAB02').length,
-      Tablets: tabletSemana.filter((r) => {
-        const date = new Date(r.horario_inicio)
-        return weekDaysMap[date.getDay()] === day
-      }).length,
+    // Uma série por lab do workspace (dinâmico por lab_count) + Tablets
+    const byLab: Record<string, number | string> = {}
+    for (const lab of labsDisponiveis) {
+      byLab[lab] = dayReservas.filter((r) => r.labs?.includes(lab) || normalizeLabName(r.lab) === lab).length
     }
+    byLab['Tablets'] = tabletSemana.filter((r) => {
+      const date = new Date(r.horario_inicio)
+      return weekDaysMap[date.getDay()] === day
+    }).length
+    return { name: day, ...byLab }
   })
 
   const allReservas = [
@@ -162,14 +164,14 @@ export function DashboardView() {
     {
       title: 'Reservas Hoje',
       value: reservasToday,
-      subtitle: `Lab01: ${lab1Today} • Lab02: ${lab2Today}${tabletsLoaded ? ` • Tablet: ${tabletHoje}` : ''}`,
+      subtitle: labsDisponiveis.map((lab) => `${lab.replace(/^LAB/, 'Lab ')}: ${reservasHojePorLab(lab)}`).join(' • ') + (tabletsLoaded ? ` • Tablet: ${tabletHoje}` : ''),
       icon: <Users size={20} color="#6366f1" />,
       color: '#6366f1',
     },
     {
       title: 'Total da Semana',
       value: totalWeek,
-      subtitle: `Lab01: ${lab1Week} • Lab02: ${lab2Week}${tabletsLoaded ? ` • Tablet: ${tabletSemana.length}` : ''}`,
+      subtitle: labsDisponiveis.map((lab) => `${lab.replace(/^LAB/, 'Lab ')}: ${reservasSemanaPorLab(lab)}`).join(' • ') + (tabletsLoaded ? ` • Tablet: ${tabletSemana.length}` : ''),
       icon: <BookOpen size={20} color="#0ea5e9" />,
       color: '#0ea5e9',
     },
@@ -190,7 +192,6 @@ export function DashboardView() {
   ]
 
   const lab01Color = '#6366f1'
-  const lab02Color = '#f59e0b'
   const tabletColor = '#10b981'
 
   return (
@@ -290,8 +291,9 @@ export function DashboardView() {
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
                   <Tooltip contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px' }} />
-                  <Bar dataKey="Lab01" fill={lab01Color} radius={[6, 6, 0, 0]} maxBarSize={24} />
-                  <Bar dataKey="Lab02" fill={lab02Color} radius={[6, 6, 0, 0]} maxBarSize={24} />
+                  {labsDisponiveis.map((lab, i) => (
+                    <Bar key={lab} dataKey={lab} fill={OCC_COLORS[i % OCC_COLORS.length]} radius={[6, 6, 0, 0]} maxBarSize={24} />
+                  ))}
                   <Bar dataKey="Tablets" fill={tabletColor} radius={[6, 6, 0, 0]} maxBarSize={24} />
                 </BarChart>
               </ResponsiveContainer>

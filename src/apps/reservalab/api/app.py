@@ -497,7 +497,15 @@ def parse_horario_inicio(horario):
     return None
 
 @app.route('/api/push/subscribe', methods=['POST'])
+@require_auth
 def push_subscribe():
+    """Registra inscrição de push do dispositivo.
+
+    Requer JWT (Authorization: Bearer): a identidade do usuário NÃO é mais
+    aceita do body — o `g.user` vem do token verificado no servidor e o perfil
+    é re-buscado no Supabase (SEC-03). O cliente envia apenas o payload da
+    subscription + preferências de notificação (notify_settings).
+    """
     if not redis:
         return jsonify({'error': 'Redis not configured'}), 500
     try:
@@ -506,14 +514,14 @@ def push_subscribe():
         if not endpoint:
             return jsonify({'error': 'Missing endpoint'}), 400
 
+        # Identidade autoritativa: JWT (g.user) → profiles no servidor.
+        # Client-supplied `user` é ignorado para id/role/workspaces.
         user = body.get('user') or {}
-        user_id = str(user.get('id', '') or '')
+        user_id = str((g.user or {}).get('id', '') or '')
 
-        # SEC-03: Do NOT trust client-supplied role/is_super_admin/workspace_ids.
-        # Fetch authoritative values from Supabase profiles when user_id is present.
         server_user = {
             'id': user_id,
-            'name': str(user.get('name', '') or ''),
+            'name': str((g.user or {}).get('name', '') or user.get('name', '') or ''),
             'role': '',
             'is_super_admin': False,
             'workspace_ids': [],
@@ -772,11 +780,28 @@ def push_action():
 @app.route('/api/push/check', methods=['GET'])
 @require_cron
 def push_check():
-    """Check de reservas próximas (15 min). Protegido por CRON_SECRET."""
+    """Check de reservas próximas (janela configurável, default 15 min). Protegido por CRON_SECRET."""
     result = _internal_push_check()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
     return jsonify(result)
+
+
+# ── Configuração da janela/dedup do push (env, com defaults históricos) ──
+# PUSH_ADVANCE_MINUTES: aviso antecedido de reserva (minutos antes do início)
+# PUSH_DEDUP_SECONDS:   TTL da chave de deduplicação `push:sent:{id}` no Redis
+def _push_advance_minutes() -> int:
+    try:
+        return max(1, int(os.environ.get('PUSH_ADVANCE_MINUTES', '15')))
+    except (TypeError, ValueError):
+        return 15
+
+
+def _push_dedup_seconds() -> int:
+    try:
+        return max(60, int(os.environ.get('PUSH_DEDUP_SECONDS', '7200')))
+    except (TypeError, ValueError):
+        return 7200
 
 
 def _internal_push_check():
@@ -786,11 +811,11 @@ def _internal_push_check():
     try:
         today = get_today_sp()
         reservas_hoje, _ = get_reservas()
-        
+
         agora = get_now_sp()
         agora_min = agora.hour * 60 + agora.minute
-        limite_min = agora_min + 15
-        
+        limite_min = agora_min + _push_advance_minutes()
+
         subs_raw = redis.smembers('push:subscribers')
         if not subs_raw:
             return jsonify({'message': 'No subscribers', 'sent': 0})
@@ -831,7 +856,7 @@ def _internal_push_check():
                 for sub in subs:
                     push_notify(sub, title, body)
                 
-                redis.setex(f'push:sent:{notify_id}', 7200, '1')
+                redis.setex(f'push:sent:{notify_id}', _push_dedup_seconds(), '1')
                 sent += 1
                 logger.info(f"Push sent for {title} at {r['horario']}")
         
@@ -895,7 +920,7 @@ def _internal_push_check():
                             for sub in target:
                                 push_notify(sub, title, body)
                             
-                            redis.setex(f'push:sent:{notify_id}', 7200, '1')
+                            redis.setex(f'push:sent:{notify_id}', _push_dedup_seconds(), '1')
                             sent += 1
                             logger.info(f"Push sent for tablet: {title} at {inicio_str}")
             except Exception as e:
@@ -1327,6 +1352,61 @@ def _check_stock_expiry():
         return {'error': 'Erro ao verificar validade de itens'}
 
 
+@app.route('/api/push/tablets/cleanup', methods=['GET'])
+@require_cron
+def push_tablets_cleanup():
+    """Remove reservas de tablets canceladas há mais de 1 mês (retention).
+
+    Histórico: o frontend tinha `cleanupOldCancelledTablets()` (7 dias) montado
+    nas páginas, mas foi removido dos mounts (bde8221) — as linhas canceladas
+    passaram a se acumular no banco. A limpeza agora é responsabilidade do
+    backend, com janela de retenção de 1 mês (PUSH_TABLET_RETENTION_DAYS).
+    Protegido por CRON_SECRET e registrado no check-all.
+    """
+    result = _internal_tablets_cleanup()
+    if isinstance(result, dict) and 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+def _tablet_retention_days() -> int:
+    """Retenção de reservas canceladas (dias). Default: 30 (1 mês)."""
+    try:
+        return max(1, int(os.environ.get('PUSH_TABLET_RETENTION_DAYS', '30')))
+    except (TypeError, ValueError):
+        return 30
+
+
+def _internal_tablets_cleanup():
+    """DELETE de tablet_reservations canceladas + 1 mês. Nunca levanta."""
+    supabase_url = os.environ.get('SUPABASE_URL', '')
+    supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+    if not (supabase_url and supabase_key):
+        return {'checked': False, 'skipped': 'Supabase not configured'}
+    try:
+        cutoff = (get_now_sp() - timedelta(days=_tablet_retention_days())).isoformat()
+        resp = requests.delete(
+            f'{supabase_url}/rest/v1/tablet_reservations'
+            f'?status=eq.{quote("cancelada")}&cancelled_at=lt.{quote(cutoff)}',
+            headers={
+                'apikey': supabase_key,
+                'Authorization': f'Bearer {supabase_key}',
+                'Prefer': 'return=representation',
+                'Range': '0-499',
+            },
+            timeout=15,
+        )
+        if not resp.ok:
+            return {'error': f'Erro ao limpar reservas canceladas ({resp.status_code})'}
+        removed = len(resp.json() or [])
+        if removed:
+            logger.info(f"Tablet cleanup: {removed} reservas canceladas há mais de {_tablet_retention_days()}d removidas")
+        return {'checked': True, 'removed': removed, 'retention_days': _tablet_retention_days()}
+    except Exception as e:
+        logger.error("tablets cleanup error: %s", e)
+        return {'error': 'Erro ao limpar reservas canceladas'}
+
+
 @app.route('/api/push/check-all', methods=['GET'])
 @require_cron
 def push_check_all():
@@ -1343,6 +1423,7 @@ def push_check_all():
         ('pcare', _internal_push_check_pcare),
         ('pendentes', _check_pending_users),
         ('validade', _check_stock_expiry),
+        ('tablets_cleanup', _internal_tablets_cleanup),
     ]:
         try:
             out = fn()
