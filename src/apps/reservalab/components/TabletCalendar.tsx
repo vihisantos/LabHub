@@ -23,6 +23,7 @@ interface TabletCalendarProps {
   selectedDayItems: TabletReserva[]
   loadingCalendar: boolean
   formatTime: (iso: string) => string
+  onSelectReservation?: (reservation: TabletReserva) => void
 }
 
 const MONTHS = [
@@ -50,6 +51,7 @@ export function TabletCalendar({
   selectedDayItems,
   loadingCalendar,
   formatTime,
+  onSelectReservation,
 }: TabletCalendarProps) {
   const todayKey = new Date().toISOString().slice(0, 10)
   const isCurrentMonth =
@@ -191,7 +193,12 @@ export function TabletCalendar({
                   ) : (
                     <div className="flex flex-col gap-2">
                       {selectedDayItems.map((r) => (
-                        <DayReservationRow key={r.id} reservation={r} formatTime={formatTime} />
+                        <DayReservationRow
+                          key={r.id}
+                          reservation={r}
+                          formatTime={formatTime}
+                          onClick={onSelectReservation ? () => onSelectReservation(r) : undefined}
+                        />
                       ))}
                     </div>
                   )}
@@ -211,9 +218,12 @@ export function TabletCalendar({
   )
 }
 
-function DayReservationRow({ reservation, formatTime }: { reservation: TabletReserva; formatTime: (iso: string) => string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-line bg-card/60 p-3">
+function DayReservationRow({ reservation, formatTime, onClick }: { reservation: TabletReserva; formatTime: (iso: string) => string; onClick?: () => void }) {
+  const row = (
+    <div className={cn(
+      'flex items-center gap-3 rounded-xl border border-line bg-card/60 p-3',
+      onClick && 'cursor-pointer transition-colors hover:bg-input'
+    )}>
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/10">
         <TabletIcon size={16} className="text-indigo-600 dark:text-indigo-400" />
       </div>
@@ -247,5 +257,12 @@ function DayReservationRow({ reservation, formatTime }: { reservation: TabletRes
         {reservation.horario_inicio < new Date().toISOString() ? 'Passada' : 'Ativa'}
       </span>
     </div>
+  )
+
+  if (!onClick) return row
+  return (
+    <button type="button" onClick={onClick} className="w-full rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+      {row}
+    </button>
   )
 }

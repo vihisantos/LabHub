@@ -60,6 +60,7 @@ function renderCalendar({
   onNextMonth = vi.fn(),
   onToday = vi.fn(),
   formatTime = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+  onSelectReservation = vi.fn(),
 }: Partial<{
   selectedDay: string | null
   calendarDays: CalendarDay[]
@@ -72,6 +73,7 @@ function renderCalendar({
   onNextMonth: () => void
   onToday: () => void
   formatTime: (iso: string) => string
+  onSelectReservation: (reservation: TabletReserva) => void
 }> = {}) {
   return render(
     <TabletCalendar
@@ -86,6 +88,7 @@ function renderCalendar({
       selectedDayItems={selectedDayItems}
       loadingCalendar={loadingCalendar}
       formatTime={formatTime}
+      onSelectReservation={onSelectReservation}
     />
   )
 }
@@ -175,5 +178,14 @@ describe('TabletCalendar', () => {
   it('mostra spinner quando carregando', () => {
     renderCalendar({ loadingCalendar: true })
     expect(screen.getByText('Carregando reservas...')).toBeInTheDocument()
+  })
+
+  it('chama onSelectReservation ao clicar num evento do dia', () => {
+    const onSelectReservation = vi.fn()
+    const reserva = makeReserva()
+    renderCalendar({ selectedDay: '2026-06-25', selectedDayItems: [reserva], onSelectReservation })
+    fireEvent.click(screen.getByText('Sala 1'))
+    expect(onSelectReservation).toHaveBeenCalledTimes(1)
+    expect(onSelectReservation).toHaveBeenCalledWith(reserva)
   })
 })

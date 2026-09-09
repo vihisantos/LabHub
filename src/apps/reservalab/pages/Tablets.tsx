@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { Tablet as TabletIcon, Plus, X, User } from 'lucide-react'
 import { TimeInput } from '../components/TimeInput'
 import { TabletCalendar, type CalendarDay } from '../components/TabletCalendar'
+import { CancelReservationModal } from '../components/CancelReservationModal'
+import { TabletModal } from '../components/TabletModal'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
@@ -56,6 +58,9 @@ export function TabletsView() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [monthReservas, setMonthReservas] = useState<TabletReserva[]>([])
   const [loadingCalendar, setLoadingCalendar] = useState(false)
+  const [canceling, setCanceling] = useState<TabletReserva | null>(null)
+  const [cancelingSubmit, setCancelingSubmit] = useState(false)
+  const [detailsReserva, setDetailsReserva] = useState<TabletReserva | null>(null)
 
   // Auto-fill reservado_por with logged-in user whenever form opens
   useEffect(() => {
@@ -223,14 +228,21 @@ export function TabletsView() {
   }
 
   const handleCancel = async (id: string) => {
+    setCancelingSubmit(true)
     try {
       await deleteTabletReserva(id)
       setReservas((prev) => prev.filter((r) => r.id !== id))
       setMonthReservas((prev) => prev.filter((r) => r.id !== id))
+      setCanceling(null)
     } catch (err) {
       console.error('Erro ao cancelar reserva:', err)
+      setCanceling(null)
+    } finally {
+      setCancelingSubmit(false)
     }
   }
+
+  const openCancelModal = (reservation: TabletReserva) => setCanceling(reservation)
 
   const formatTimeDisplay = (iso: string) => {
     const d = new Date(iso)
@@ -437,6 +449,7 @@ export function TabletsView() {
           selectedDayItems={selectedDayItems}
           loadingCalendar={loadingCalendar}
           formatTime={formatTimeDisplay}
+          onSelectReservation={setDetailsReserva}
         />
       </div>
 
@@ -449,13 +462,13 @@ export function TabletsView() {
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {items.map((r) => (
-                    <ReservationRow key={r.id} reservation={r} onCancel={handleCancel} formatTime={formatTimeDisplay} canCancel={canEdit} />
+                    <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} />
                   ))}
                 </div>
               </div>
             ))
           : reservasHoje.map((r) => (
-              <ReservationRow key={r.id} reservation={r} onCancel={handleCancel} formatTime={formatTimeDisplay} canCancel={canEdit} />
+              <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} />
             ))}
         {reservas.length === 0 && (
           <div style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
@@ -464,6 +477,19 @@ export function TabletsView() {
           </div>
         )}
       </div>
+
+      {detailsReserva && (
+        <TabletModal reservation={detailsReserva} onClose={() => setDetailsReserva(null)} />
+      )}
+
+      {canceling && (
+        <CancelReservationModal
+          reservation={canceling}
+          loading={cancelingSubmit}
+          onClose={() => setCanceling(null)}
+          onConfirm={() => handleCancel(canceling.id)}
+        />
+      )}
     </div>
   )
 }
