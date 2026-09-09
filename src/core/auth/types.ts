@@ -1,4 +1,5 @@
 import type { AppAccessOverride } from '../permissions/types'
+import type { Membership } from '../permissions/membership'
 
 export type Accent = 'emerald' | 'cyan' | 'blue' | 'purple'
 export type ThemeVariant = 'dark' | 'dim' | 'light'
@@ -35,6 +36,18 @@ export interface User {
   /** Admin absoluto — vê todos os workspaces e administra usuários */
   is_super_admin?: boolean
   workspace_ids: string[]
+  /**
+   * RBAC 2.0 (Fase 9.2) — memberships do usuário (tabela `public.memberships`).
+   * Semântica de carregamento EXPLÍCITA: `undefined` nunca é tratado como lista
+   * vazia nem como acesso legado.
+   *   - `membershipsLoaded === true` ⇒ `memberships` é sempre um array (pode ser `[]`);
+   *   - `membershipsLoaded` ausente/false (query pendente ou falhou) ⇒ NENHUMA
+   *     decisão de visibilidade/escopo é tomada;
+   *   - `profiles.workspace_ids` é compat de dados e NUNCA decide acesso.
+   * Publicado apenas por `authService.fetchUserProfile`/`refreshProfile` (design 9.2, §3.3).
+   */
+  memberships?: Membership[]
+  membershipsLoaded?: boolean
   accent: Accent
   theme_variant: ThemeVariant
   /** Override individual de acesso por aplicativo — sobrescreve o cargo */

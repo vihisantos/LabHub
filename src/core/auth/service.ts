@@ -2,6 +2,7 @@ import { defaultDb } from '../../lib/supabase'
 import type { User, AuthCredentials, SignUpData } from './types'
 import { themeStore } from '../theme/store'
 import { resolveRoleId } from '../permissions/types'
+import { membershipService, areMembershipsEqual } from '../memberships/service'
 
 let currentUser: User | null = null
 let authListeners: Array<(user: User | null) => void> = []
@@ -45,6 +46,36 @@ function sameUser(a: User | null, b: User | null): boolean {
 
 function requireDb() {
   if (!defaultDb) throw new Error('Supabase não configurado. Verifique as variáveis de ambiente.')
+}
+
+/**
+ * Carrega perfil + memberships em paralelo e monta o `User` com o estado de
+ * carregamento EXPLÍCITO de memberships (design 9.2, §3.3): memberships só é
+ * publicado quando as duas queries concluírem; falha em memberships ⇒
+ * `membershipsLoaded=false` (nunca `[]` por falha, nunca fallback de workspace_ids).
+ */
+async function loadUser(userId: string): Promise<User | null> {
+  if (!defaultDb) return null
+
+  const [profileRes, ownMemberships] = await Promise.all([
+    defaultDb.from('profiles').select('*').eq('id', userId).maybeSingle(),
+    membershipService.getMine().catch(() => null),
+  ])
+
+  const { data, error } = profileRes as {
+    data: Record<string, unknown> | null
+    error: { message?: string } | null
+  }
+  if (error || !data) return null
+
+  const user = fromDbUser(data) as unknown as User
+  if (ownMemberships !== null) {
+    user.memberships = ownMemberships
+    user.membershipsLoaded = true
+  } else {
+    user.membershipsLoaded = false
+  }
+  return user
 }
 
 export const authService = {
@@ -213,16 +244,7 @@ export const authService = {
   },
 
   fetchUserProfile: async (userId: string): Promise<User | null> => {
-    if (!defaultDb) return null
-
-    const { data, error } = await defaultDb
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
-
-    if (error || !data) return null
-    return fromDbUser(data) as unknown as User
+    return loadUser(userId)
   },
 
   createProfile: async (userId: string, email: string, name: string): Promise<User | null> => {
@@ -292,17 +314,20 @@ export const authService = {
     const profile = await authService.fetchUserProfile(prev.id)
     if (!profile) return currentUser
 
-    // Only update and notify if something actually changed
-    const workspaceIdsChanged =
-      profile.workspace_ids.length !== prev.workspace_ids.length ||
-      !profile.workspace_ids.every((id, i) => id === prev.workspace_ids[i])
+    // Detecção de mudança POR MEMBERSHIPS (design 9.2, §3.3): `workspace_ids` não é
+    // usado na detecção; antes do carregamento (loaded=false nos dois lados) nenhum
+    // evento é emitido.
+    const membershipsChanged =
+      profile.membershipsLoaded !== prev.membershipsLoaded ||
+      (profile.membershipsLoaded &&
+        !areMembershipsEqual(profile.memberships ?? [], prev.memberships ?? []))
     const changed =
       profile.status !== prev.status ||
       profile.roleId !== prev.roleId ||
       profile.is_super_admin !== prev.is_super_admin ||
       profile.theme_variant !== prev.theme_variant ||
       profile.accent !== prev.accent ||
-      workspaceIdsChanged
+      membershipsChanged
 
     if (changed) {
       currentUser = profile

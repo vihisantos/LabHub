@@ -32,6 +32,18 @@ export interface Membership {
   updated_at: string
 }
 
+/** Alias semântico: membership do usuário logado (mesmo shape da tabela `memberships`). */
+export type UserMembership = Membership
+
+/**
+ * A ÚNICA concessão de visibilidade/escopo do RBAC 2.0 no frontend.
+ * `pending/suspended/removed` ⇒ sem workspace, sem listagem, sem push (fail-closed).
+ * Pertencimento NUNCA vem de `profiles.workspace_ids` — essa coluna é só compat de dados.
+ */
+export function isActive(membership: Pick<Membership, 'status'>): boolean {
+  return membership.status === 'active'
+}
+
 /** Perfil resumido de um membro da equipe (vindo de `profiles`, visível por RLS). */
 export interface TeamMemberProfile {
   id: string
