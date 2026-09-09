@@ -1,11 +1,12 @@
 # RBAC 2.0 — Fase 9.1: Desenho Técnico (Membership & Workspace Integrity)
 
-> **Status: PROPOSTA PARA REVISÃO** — este é o desenho técnico da Fase 9.1.
+> **Status: APROVADO COM AJUSTES — versão revisada (v2, aguardando autorização do SQL).**
 > **NENHUMA ALTERAÇÃO foi feita:** nenhuma migration foi criada, nenhuma migration
 > existente foi editada, nenhum código foi alterado, nada foi aplicado no DEV,
 > nenhum banco foi tocado, nenhuma alteração de push foi feita.
 > **Fase 9.2 (migração do frontend) fica FORA deste documento.**
 > **Fonte:** `docs/audits/rbac2.0-fase-9.0-membership-workspace-audit.md` (commit `ba801a1`).
+> **Commit do design inicial:** `5a4d3d5`.
 > **Data:** 2026-09-08
 
 ---
@@ -151,12 +152,41 @@ public.trg_purge_workspace_ids();` — não altera dados existentes (é idempote
 
 ### 2.9 Casos de teste (9.1-A)
 
+**Cenário integrado obrigatório (workspace A em uso):**
+
+```
+workspace A
+├── profiles.workspace_ids contém A
+├── membership em A
+└── managed_by configurado
+
+DELETE A
+
+resultado esperado:
+├── profiles.workspace_ids NÃO contém A
+├── memberships relacionadas seguem a política definida (CASCADE remove;
+│   nenhuma membership fantasma é recriada)
+├── managed_by não fica apontando para entidade inválida (ON DELETE SET NULL
+│   nas memberships cujo gestor era do workspace removido)
+└── nenhum workspace/membership fantasma é recriado
+```
+
+Testes individuais:
+
 1. `DELETE` de workspace existente em `profiles.workspace_ids` → UUID removido de todos os perfis.
+   (Cobrir o caso onde o workspace tem membership e a membership tinha `managed_by` apontando para
+   ela e PARA ela.)
 2. `DELETE` de workspace não referenciado → nenhuma linha de `profiles` muda.
 3. Perfil com `workspace_ids = NULL` → não quebra (COALESCE).
 4. Após delete, `user_belongs_to_workspace` (nova versão 9.1-B) retorna `false` para o UUID morto.
 5. `memberships` do workspace deletado não são recriadas pelo re-disparo do 041.
-6. Rollback: `DROP TRIGGER/FUNCTION` volta ao comportamento anterior, sem efeito colateral.
+6. **Ordem de execução no PostgreSQL (não apenas teórica):** verificar no comportamento real a
+   sequência `CASCADE`/`ON DELETE SET NULL` vs `AFTER DELETE` do trigger:
+   - o CASCADE remove as memberships do workspace e o SET NULL limpa `managed_by` das órfãs;
+   - o `FOR EACH STATEMENT` do trigger roda **depois** do delete completar, fazendo a limpeza
+     do array em `profiles` baseada no estado já consistente de `memberships`.
+   Registrar o plano de execução (`EXPLAIN`) e o resultado real do delete como evidência.
+7. Rollback: `DROP TRIGGER/FUNCTION` volta ao comportamento anterior, sem efeito colateral.
 
 ---
 
@@ -279,15 +309,34 @@ GRANT EXECUTE ON FUNCTION public.user_belongs_to_workspace(text) TO authenticate
 
 ### 3.6 Riscos específicos
 
-**Risco de circularidade/recursão com RLS:**
+**Risco de circularidade/recursão com RLS — TESTE OBRIGATÓRIO, NÃO PROVA TEÓRICA:**
+
+A cadeia potencial:
+
+```
+RLS memberships
+   ↓
+memberships_select (036)
+   ↓
+user_belongs_to_workspace()   ← nova implementação lê memberships
+   ↓
+SELECT memberships            ← sob o owner da função (DEFINER)
+   ↓
+RLS memberships               ← reavaliaria? (depende de como o Postgres resolve)
+```
+
+Análise teórica:
 - `user_belongs_to_workspace` é `SECURITY DEFINER` (owner = postgres/owner da migration), então
-  lê `memberships` **ignorando RLS** de memberships. Não reavalia policies → sem loop.
-- `memberships` tem policy `SELECT` para `is_super_admin OR user_belongs_to_workspace(workspace_id)`.
-  Como a função é DEFINER, ela lê direto; **não** entra em ciclo com a policy de `memberships`.
-- ⚠️ A verificar em revisão: `memberships_select` (036) usa `user_belongs_to_workspace`. Após a
-  mudança, essa policy passaria a (transitivamente) depender de `memberships` via função DEFINER —
-  já era o caso com `profile_visible_to_me` (044). Sem RECURSION pois definer ignora RLS. **Confirmar**
-  com teste adversarial que nenhum `WITH CHECK`/`USING` cai em loop.
+  lê `memberships` **ignorando RLS** de memberships (o owner é `bypassrls`). Por isso não há
+  reavaliação recursiva das policies de `memberships`.
+- `memberships_select` (036) é `is_super_admin OR user_belongs_to_workspace(workspace_id)` — a
+  chamada da política ocorre no contexto da QUERY da policy (invoker), mas a função por ser
+  DEFINER foge à RLS da própria tabela ao executar `SELECT memberships`.
+- Não há `WITH CHECK` recursivo (a policy é SELECT-only).
+- ⚠️ **`SECURITY DEFINER` NÃO é prova suficiente isoladamente.** A semântica de RLS em
+  Postgres pode variar conforme o plano (ex.: reescrita da query/inlining de função `sql
+  STABLE`). A única prova aceitável é **teste real no banco** cobrindo os cenários do §3.7,
+  incluindo a leitura de uma tabela cuja policy depende indiretamente da função.
 
 **Comportamento de super-adm:** inalterado — as policies continuam fazendo
 `is_super_admin() OR user_belongs_to_workspace(...)`. A função não concede nada extra a super admin.
@@ -300,31 +349,65 @@ GRANT EXECUTE ON FUNCTION public.user_belongs_to_workspace(text) TO authenticate
 
 ### 3.7 Testes adversariais (9.1-B)
 
-1. Usuário com membership `active` no workspace → `true`.
-2. Usuário com membership `suspended`/`removed`/`pending` no workspace → `false`.
-3. Usuário **sem** membership no workspace → `false` (mesmo se `workspace_ids` contém o UUID).
-4. Super admin **sem** membership → função retorna `false` (bypass é das policies, não da função).
-5. `ws_id = NULL` / `''` → `false` (033).
-6. Ao consultar como o dono do workspace (via policy), sem deadlock/loop de RLS.
-7. Após `DELETE` do workspace (com 9.1-A), função retorna `false`.
-8. Cross-workspace: usuário `A` de `ws1` não vê nada de `ws2`; `B` de `ws2` não vê `ws1`.
+Grupos de cenários (todos executados no banco real, não apenas teóricos):
+
+**Leitura / RLS de `memberships` (circularidade):**
+1. Usuário comum lendo a **própria** membership → `true`, sem erro de policy/recursão.
+2. Usuário lendo membership de **outro** usuário no mesmo workspace → vê (policy atual permite
+   `is_super_admin OR user_belongs_to_workspace(workspace_id)`).
+3. Usuário em workspace A tentando acessar membership de B em workspace B → **nenhum vazamento
+   cross-workspace** (USING=false).
+4. Usuário **sem membership** → não vê nada; função retorna `false`.
+
+**Status de membership:**
+5. Membership `suspended` no workspace → função `false`; RLS bloqueia.
+6. Membership `removed` no workspace → função `false`; RLS bloqueia.
+7. Membership `pending` no workspace → função `false`; RLS bloqueia (regra `active` only).
+
+**Super-admin:**
+8. Super admin **não tem membership** (regra 041) → a função sozinha retorna `false`; o acesso
+   garantido vem das policies que contêm `is_super_admin() OR helper`.
+9. Super admin consultando workspace próprio/qualquer → funcional via bypass das policies,
+   sem depender da função.
+
+**Função direta / indireta:**
+10. Chamada **direta** da função (como super admin e como comum) — sem erro.
+11. Acesso a uma tabela cuja policy **depende indiretamente** da função (ex.: `chamados_tickets`
+    via 027/028/033) → sem |recursão|/loop, filtro correto.
+
+**Integração com 9.1-A:**
+12. Após `DELETE` do workspace (com 9.1-A aplicado), função retorna `false` para o UUID morto.
+13. Cross-workspace: usuário `A` de `ws1` não vê nada de `ws2`; `B` de `ws2` não vê `ws1`.
+
+**Critério de aceite (§7):** nenhuma recursão, erro de policy, vazamento cross-workspace ou falso
+positivo em qualquer cenário acima.
 
 ---
 
 ## 4. Ordem exata de execução (após revisão e aprovação)
 
+> **Regra de isolamento:** 9.1-A e 9.1-B são tratados como **mudanças logicamente separadas**,
+> mesmo convivendo no mesmo ciclo de migration. Se o teste de `user_belongs_to_workspace()`
+> revelar comportamento inesperado, conseguimos isolar exatamente qual mudança causou o problema.
+> Autorização é concedida **por item**: implementar 9.1-A primeiro; 9.1-B só após a validação da
+> 9.1-A.
+
 ```
-9.1 revisão de segurança (usuário)
+9.1 revisão de segurança (usuário) — versão v2 do desenho
    ↓
-[aprovação]
+[autorização da 9.1-A (usuário)]
    ↓
-9.1-A migration 048 (trigger purge) + teste de regressão SQL
+9.1-A migration 048 (trigger purge de workspace_ids)
+   + teste de regressão SQL (cenário workspace A + ordem CASCADE/SET NULL)
    ↓
-validação no DEV (runner + testes estáticos + testes SQL)
+validação no DEV (runner + testes estáticos + testes SQL + EXPLAIN do delete)
    ↓
-9.1-B migration 049 (reescrever user_belongs_to_workspace) + testes adversariais
+[autorização da 9.1-B (usuário)]
    ↓
-validação no DEV (suíte + RLS adversarial)
+9.1-B migration 049 (reescrever user_belongs_to_workspace)
+   + testes adversariais de RLS (circularidade, cross-workspace, status)
+   ↓
+validação no DEV (suíte + RLS adversarial + invariantes 1–6)
    ↓
 commit separado por item (9.1-A, 9.1-B)
    ↓
@@ -347,7 +430,37 @@ revisão + push controlado
 
 ---
 
-## 6. Critérios objetivos de aceite
+## 6. Invariantes pós-migration
+
+Estes invariantes guiam a validação de 9.1-A e 9.1-B (novos testes + regressão).
+
+**INVARIANTE 1**
+Nenhum `profiles.workspace_ids` pode apontar para um workspace inexistente.
+
+**INVARIANTE 2**
+`user_belongs_to_workspace(U,W) = true` somente quando `U` possui membership
+`active` em `W`.
+
+**INVARIANTE 3**
+Super-admin continua autorizado pelas policies que **explicitamente** possuem o
+bypass `is_super_admin()`.
+
+**INVARIANTE 4**
+Nenhuma policy passa a depender de uma cadeia recursiva de RLS.
+
+**INVARIANTE 5**
+Nenhuma operação cross-workspace ganha acesso como efeito colateral.
+
+**INVARIANTE 6**
+`managed_by` não é alterado pela limpeza de `workspace_ids`.
+
+> Nota: a normalização semântica de `memberships.status` (suspenso/removido) fica
+> **fora** da 9.1 — decidido na revisão. A regra permanece fail-closed:
+> `active` → acesso; qualquer outro status/sem membership → sem acesso.
+
+---
+
+## 7. Critérios objetivos de aceite
 
 **9.1-A:**
 1. DELETE de workspace remove o UUID de todos os `profiles.workspace_ids`.
@@ -365,7 +478,7 @@ revisão + push controlado
 
 ---
 
-## 7. Riscos residuais
+## 8. Riscos residuais
 
 - **Performance (9.1-A):** delete em massa de workspaces faz uma UPDATE em `profiles`
   (FOR EACH STATEMENT) — aceitável; validar em DEV.
@@ -376,7 +489,7 @@ revisão + push controlado
 
 ---
 
-## 8. Próximos passos
+## 9. Próximos passos
 
 - Aguardar **revisão de segurança** do usuário sobre o desenho acima.
 - Após aprovação: criar migrations 048 (9.1-A) e 049 (9.1-B) **separadamente**, com testes.
