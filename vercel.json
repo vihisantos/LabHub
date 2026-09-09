@@ -3,6 +3,12 @@
     { "src": "api/app.py", "use": "@vercel/python" },
     { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } }
   ],
+  "crons": [
+    {
+      "path": "/api/push/tablets/cleanup",
+      "schedule": "0 6 * * *"
+    }
+  ],
   "routes": [
     { "src": "/api/(.*)", "dest": "api/app.py" },
     { "handle": "filesystem" },

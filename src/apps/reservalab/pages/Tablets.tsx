@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Tablet as TabletIcon, Plus, X, User } from 'lucide-react'
+import { Tablet as TabletIcon, Plus, X, User, Pencil } from 'lucide-react'
 import { TimeInput } from '../components/TimeInput'
 import { TabletCalendar, type CalendarDay } from '../components/TabletCalendar'
 import { CancelReservationModal } from '../components/CancelReservationModal'
@@ -8,7 +8,13 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { fetchTabletReservas, createTabletReserva, deleteTabletReserva } from '../services/supabase'
+import {
+  fetchTabletReservas,
+  createTabletReserva,
+  updateTabletReserva,
+  deleteTabletReserva,
+  checkTabletCapacity,
+} from '../services/supabase'
 import type { TabletReserva } from '../types'
 
 const SALAS_PRESET = [
@@ -38,6 +44,18 @@ function parseTime(timeStr: string): string | null {
   return `${m[1]}:${m[2]}:00`
 }
 
+/** ISO (da reserva) → "YYYY-MM-DD" para o input date. */
+function isoToDateInput(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** ISO (da reserva) → "HHhMM" para o TimeInput. */
+function isoToTimeInput(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}h${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export function TabletsView() {
   const isMobile = useIsMobile()
   const [reservas, setReservas] = useState<TabletReserva[]>([])
@@ -61,6 +79,8 @@ export function TabletsView() {
   const [canceling, setCanceling] = useState<TabletReserva | null>(null)
   const [cancelingSubmit, setCancelingSubmit] = useState(false)
   const [detailsReserva, setDetailsReserva] = useState<TabletReserva | null>(null)
+  // Edição: reserva em edição (null = formulário em modo criação)
+  const [editing, setEditing] = useState<TabletReserva | null>(null)
 
   // Auto-fill reservado_por with logged-in user whenever form opens
   useEffect(() => {
@@ -201,30 +221,88 @@ export function TabletsView() {
     if (!fimTime) { setFormError('Horário de fim inválido (use 09h20)'); return }
     setFormError('')
 
+    const quantidade = parseInt(String(form.quantidade_tablets)) || 1
+    const inicioDate = new Date(`${form.data}T${inicioTime}`)
+    const fimDate = new Date(`${form.data}T${fimTime}`)
+
     setSubmitting(true)
     try {
-      await createTabletReserva({
+      // Capacidade: soma os tablets já reservados no intervalo e compara com
+      // o inventário (50). Sobreposição de sala/horário é permitida enquanto
+      // não ultrapassar o inventário — acima disso, barra com aviso.
+      const capacityError = await checkTabletCapacity({
+        inicio: inicioDate,
+        fim: fimDate,
+        quantidade,
+        workspaceId: workspace?.id,
+        ignoreId: editing?.id,
+      })
+      if (capacityError) {
+        setFormError(capacityError)
+        return
+      }
+
+      const payload = {
         sala: form.sala,
-        quantidade_tablets: parseInt(String(form.quantidade_tablets)) || 1,
+        quantidade_tablets: quantidade,
         professor: form.professor,
-        horario_inicio: new Date(`${form.data}T${inicioTime}`).toISOString(),
-        horario_fim: new Date(`${form.data}T${fimTime}`).toISOString(),
+        horario_inicio: inicioDate.toISOString(),
+        horario_fim: fimDate.toISOString(),
         finalidade: form.finalidade || '',
         reservado_por: form.reservado_por || '',
-        status: 'ativa',
-      }, workspace?.id)
+      }
+
+      if (editing) {
+        await updateTabletReserva(editing.id, payload)
+      } else {
+        await createTabletReserva({ ...payload, status: 'ativa' }, workspace?.id)
+      }
       setForm(initialForm)
       setFormError('')
       setShowForm(false)
+      setEditing(null)
       const hoje2 = new Date(); hoje2.setHours(0, 0, 0, 0)
       const rows = await fetchTabletReservas(hoje2, undefined, workspace?.id)
       setReservas(rows)
+      setLoadingCalendar(true)
+      const primeiro = new Date(calYear, calMonth, 1); primeiro.setHours(0, 0, 0, 0)
+      const ultimo = new Date(calYear, calMonth + 1, 1); ultimo.setHours(0, 0, 0, 0)
+      setMonthReservas(await fetchTabletReservas(primeiro, ultimo, workspace?.id))
+      setLoadingCalendar(false)
     } catch (err) {
-      console.error('Erro ao criar reserva:', err)
-      setFormError('Erro ao criar reserva. Tente novamente.')
+      console.error('Erro ao salvar reserva:', err)
+      setFormError(err instanceof Error && err.message
+        ? `Erro ao salvar reserva: ${err.message}`
+        : 'Erro ao salvar reserva. Tente novamente.')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  /** Abre o formulário em modo edição, preenchido com a reserva. */
+  function openEditModal(r: TabletReserva) {
+    setEditing(r)
+    setForm({
+      sala: r.sala,
+      quantidade_tablets: r.quantidade_tablets,
+      professor: r.professor,
+      data: isoToDateInput(r.horario_inicio),
+      inicio: isoToTimeInput(r.horario_inicio),
+      fim: isoToTimeInput(r.horario_fim),
+      finalidade: r.finalidade || '',
+      reservado_por: r.reservado_por || '',
+    })
+    setFormError('')
+    setShowForm(true)
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  /** Fecha o formulário e volta para o modo criação. */
+  function closeForm() {
+    setShowForm(false)
+    setEditing(null)
+    setForm(initialForm)
+    setFormError('')
   }
 
   const handleCancel = async (id: string) => {
@@ -296,7 +374,7 @@ export function TabletsView() {
           )}
           {canEdit && (
             <button
-              onClick={() => { setShowForm(!showForm); setFormError('') }}
+              onClick={() => { if (showForm) closeForm(); else { setEditing(null); setShowForm(true); setFormError('') } }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '10px 20px', borderRadius: '9999px', border: 'none',
@@ -314,6 +392,7 @@ export function TabletsView() {
       {showForm && (
           <form
             onSubmit={handleSubmit}
+            aria-label={editing ? 'Editar reserva' : 'Nova reserva'}
             style={{
               background: 'rgba(255, 255, 255, 0.7)',
               backdropFilter: 'blur(12px)',
@@ -431,7 +510,7 @@ export function TabletsView() {
                 opacity: submitting ? 0.6 : 1,
               }}
             >
-              {submitting ? 'Salvando...' : 'Criar Reserva'}
+              {submitting ? 'Salvando...' : editing ? 'Salvar Alterações' : 'Criar Reserva'}
             </button>
           </form>
         )}
@@ -462,13 +541,13 @@ export function TabletsView() {
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {items.map((r) => (
-                    <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} />
+                    <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} onEdit={() => openEditModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} canEdit={canEdit} />
                   ))}
                 </div>
               </div>
             ))
           : reservasHoje.map((r) => (
-              <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} />
+              <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} onEdit={() => openEditModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} canEdit={canEdit} />
             ))}
         {reservas.length === 0 && (
           <div style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
@@ -519,16 +598,21 @@ const dropdownStyle: React.CSSProperties = {
 function ReservationRow({
   reservation,
   onCancel,
+  onEdit,
   formatTime,
   canCancel,
+  canEdit,
 }: {
   reservation: TabletReserva
   onCancel: (id: string) => void
+  onEdit: (r: TabletReserva) => void
   formatTime: (iso: string) => string
   canCancel: boolean
+  canEdit: boolean
 }) {
   return (
     <div
+      data-testid="reservation-row"
       style={{
         padding: '1rem', borderRadius: '1rem',
         background: 'rgba(255, 255, 255, 0.7)', backdropFilter: 'blur(12px)',
@@ -558,18 +642,35 @@ function ReservationRow({
           </p>
         </div>
       </div>
-      {canCancel && (
-        <button
-          onClick={() => onCancel(reservation.id)}
-          style={{
-            padding: '8px 16px', borderRadius: '9999px', border: '1px solid #fecaca',
-            background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
-            fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', minHeight: '36px',
-          }}
-        >
-          Cancelar
-        </button>
-      )}
+      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+        {canEdit && (
+          <button
+            onClick={() => onEdit(reservation)}
+            title="Editar reserva"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '8px 16px', borderRadius: '9999px', border: '1px solid #c7d2fe',
+              background: '#eef2ff', color: '#6366f1', cursor: 'pointer',
+              fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', minHeight: '36px',
+            }}
+          >
+            <Pencil size={12} />
+            Editar
+          </button>
+        )}
+        {canCancel && (
+          <button
+            onClick={() => onCancel(reservation.id)}
+            style={{
+              padding: '8px 16px', borderRadius: '9999px', border: '1px solid #fecaca',
+              background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
+              fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', minHeight: '36px',
+            }}
+          >
+            Cancelar
+          </button>
+        )}
+      </div>
     </div>
   )
 }

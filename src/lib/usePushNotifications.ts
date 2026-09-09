@@ -148,14 +148,30 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
       }
 
       // Um único POST para o backend (dedupe por endpoint no servidor)
+      // O backend exige JWT (@require_auth): a identidade vem do token, não do body.
       const payload: Record<string, unknown> = { ...subscription.toJSON() }
       if (user) payload.user = user
 
-      await fetch(subscribeUrl, {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      try {
+        const { defaultDb } = await import('./supabase')
+        if (defaultDb) {
+          const { data } = await defaultDb.auth.getSession()
+          const token = data.session?.access_token
+          if (token) headers['Authorization'] = `Bearer ${token}`
+        }
+      } catch {
+        // Sem sessão: segue sem header; o backend responde 401.
+      }
+
+      const res = await fetch(subscribeUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       })
+      if (!res.ok) {
+        throw new Error(`Falha ao registrar notificações (${res.status})`)
+      }
 
       setState((s) => ({
         ...s,
