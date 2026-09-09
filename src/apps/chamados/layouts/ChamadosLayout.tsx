@@ -2,7 +2,6 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChamadosBottomNav } from '../components/ChamadosBottomNav'
-import { useTheme } from '../../../lib/ThemeContext'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { icons } from '../../../lib/icons'
 import { isAlertsMuted, setAlertsMuted } from '../services/ticketAlerts'
@@ -44,7 +43,7 @@ export function ChamadosLayout() {
   const title = getPageTitle(location.pathname)
   const detail = isDetailPage(location.pathname)
   const mainRef = useRef<HTMLDivElement>(null)
-  const { theme, toggle } = useTheme()
+  // Tema centralizado no perfil do app principal — sem controle local aqui
   const [alertsMuted, setAlertsMutedState] = useState(() => isAlertsMuted())
 
   const toggleAlertsMuted = () => {
@@ -104,14 +103,6 @@ export function ChamadosLayout() {
               title={alertsMuted ? 'Ativar alertas sonoros' : 'Silenciar alertas sonoros'}
             >
               {alertsMuted ? <icons.ui.volumeX size={18} /> : <icons.ui.volume2 size={18} />}
-            </button>
-            <button
-              type="button"
-              onClick={toggle}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              aria-label="Alternar tema"
-            >
-              {theme === 'light' ? <icons.ui.moon size={18} /> : <icons.ui.sun size={18} />}
             </button>
           </div>
         </header>

@@ -108,14 +108,14 @@ describe('AdminLayout', () => {
     }
   })
 
-  it('o menu Mais lista Configurações, Workspaces, Backups e Perfil', () => {
+  it('o menu Mais lista Configurações, Workspaces e Backups (perfil é o sheet global)', () => {
     renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
 
     fireEvent.click(screen.getByLabelText('Mais'))
     expect(screen.getByText('Configurações')).toBeInTheDocument()
     expect(screen.getByText('Workspaces')).toBeInTheDocument()
     expect(screen.getByText('Backups')).toBeInTheDocument()
-    expect(screen.getByText('Perfil')).toBeInTheDocument()
+    expect(screen.queryByText('Perfil')).not.toBeInTheDocument()
   })
 
   it('o menu Pessoas lista Usuários e Solicitações', () => {

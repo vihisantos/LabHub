@@ -21,8 +21,8 @@ interface ReservationCardProps {
 function getStatusBadge(res: TransformedReservation): { label: string; color: string; bg: string } | null {
   if (res.isLive) return { label: 'AGORA', color: '#dc2626', bg: 'rgba(239,68,68,0.1)' }
   if (res.isEmBreve) return { label: 'EM BREVE', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' }
-  if (res.isEnded) return { label: 'ENCERRADA', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' }
-  return { label: 'OCUPADO', color: '#6366f1', bg: 'rgba(99,102,241,0.1)' }
+  if (res.isEnded) return { label: 'ENCERRADA', color: 'var(--text-muted)', bg: 'rgba(148,163,184,0.12)' }
+  return { label: 'OCUPADO', color: 'var(--accent)', bg: 'var(--accent-soft)' }
 }
 
 export function ReservationCard({ reservation, onClick }: ReservationCardProps) {
@@ -42,10 +42,10 @@ export function ReservationCard({ reservation, onClick }: ReservationCardProps) 
         borderRadius: '1rem',
         border: isLive
           ? '1px solid rgba(239,68,68,0.5)'
-          : '1px solid rgba(99,102,241,0.15)',
+          : '1px solid var(--border)',
         background: isLive
-          ? 'rgba(255,255,255,0.6)'
-          : 'rgba(255,255,255,0.55)',
+          ? 'color-mix(in srgb, var(--bg-card) 65%, transparent)'
+          : 'color-mix(in srgb, var(--bg-card) 60%, transparent)',
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
         cursor: 'pointer',
@@ -72,7 +72,7 @@ export function ReservationCard({ reservation, onClick }: ReservationCardProps) 
 
       {/* Header: Time + Status */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', fontSize: '0.875rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
           <ClockSVG />
           {reservation.time}
         </div>
@@ -95,7 +95,7 @@ export function ReservationCard({ reservation, onClick }: ReservationCardProps) 
       <p style={{
         fontSize: '1rem',
         fontWeight: 700,
-        color: '#0f172a',
+        color: 'var(--text-primary)',
         marginBottom: '0.75rem',
         lineHeight: 1.3,
       }}>
@@ -103,13 +103,13 @@ export function ReservationCard({ reservation, onClick }: ReservationCardProps) 
       </p>
 
       {/* Professor */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.8rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
         <UserSVG />
         <span>{reservation.professor || '—'}</span>
       </div>
 
       {/* Alunos */}
-      <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+      <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
         {reservation.alunos} alunos
       </div>
     </motion.div>

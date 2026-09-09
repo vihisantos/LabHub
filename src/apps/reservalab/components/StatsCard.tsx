@@ -43,10 +43,10 @@ export function StatsCard({ title, value, subtitle, icon, color, index, isMobile
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 * index, duration: 0.4 }}
       style={{
-        background: 'rgba(255, 255, 255, 0.8)',
+        background: 'color-mix(in srgb, var(--bg-card) 85%, transparent)',
         backdropFilter: 'blur(12px)',
         borderRadius: '1rem',
-        border: '1px solid rgba(99, 102, 241, 0.15)',
+        border: '1px solid var(--border)',
         padding: isMobile ? '1rem' : '1.5rem',
         position: 'relative',
         overflow: 'hidden',
@@ -65,13 +65,13 @@ export function StatsCard({ title, value, subtitle, icon, color, index, isMobile
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <p style={{ fontSize: isMobile ? '0.75rem' : '0.85rem', color: '#71717a', fontWeight: 500, marginBottom: '0.5rem' }}>
+          <p style={{ fontSize: isMobile ? '0.75rem' : '0.85rem', color: 'var(--text-muted)', fontWeight: 500, marginBottom: '0.5rem' }}>
             {title}
           </p>
           <p style={{
             fontSize: isMobile ? '1.5rem' : '2rem',
             fontWeight: 800,
-            color: '#0f172a',
+            color: 'var(--text-primary)',
             fontVariantNumeric: 'tabular-nums',
             lineHeight: 1.1,
           }}>
@@ -91,7 +91,7 @@ export function StatsCard({ title, value, subtitle, icon, color, index, isMobile
           {icon}
         </div>
       </div>
-      <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {subtitle}
       </p>
     </motion.div>

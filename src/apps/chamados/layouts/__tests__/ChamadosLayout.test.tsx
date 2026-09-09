@@ -81,9 +81,9 @@ describe('ChamadosLayout', () => {
     expect(screen.getByLabelText('Ativar alertas sonoros')).toBeInTheDocument()
   })
 
-  it('botão de alternar tema presente', () => {
+  it('sem controle de tema local (tema é centralizado no perfil)', () => {
     renderLayout('/chamados')
-    expect(screen.getByLabelText('Alternar tema')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Alternar tema')).not.toBeInTheDocument()
   })
 
   // ── Badge workspace filtering ──────────────────────────────────────────────

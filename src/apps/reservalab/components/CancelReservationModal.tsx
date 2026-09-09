@@ -43,7 +43,7 @@ export function CancelReservationModal({ reservation, onClose, onConfirm, loadin
         animate={{ scale: 1, opacity: 1 }}
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#ffffff', borderRadius: '1rem', padding: '1.5rem',
+          background: 'var(--bg-card)', borderRadius: '1rem', padding: '1.5rem',
           maxWidth: '400px', width: '100%',
         }}
       >
@@ -56,13 +56,13 @@ export function CancelReservationModal({ reservation, onClose, onConfirm, loadin
               <TabletIcon size={20} color="#dc2626" />
             </div>
             <div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0a0a0a' }}>Cancelar reserva de tablets</h3>
-              <p style={{ fontSize: '0.85rem', color: '#6366f1', fontWeight: 500, marginTop: '2px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Cancelar reserva de tablets</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--accent)', fontWeight: 500, marginTop: '2px' }}>
                 {formatDate(reservation.horario_inicio)}
               </p>
             </div>
           </div>
-          <button onClick={loading ? undefined : onClose} style={{ padding: '10px', borderRadius: '50%', border: 'none', background: '#f5f5f5', cursor: loading ? 'not-allowed' : 'pointer', minHeight: '44px', minWidth: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: loading ? 0.5 : 1 }}>
+          <button onClick={loading ? undefined : onClose} style={{ padding: '10px', borderRadius: '50%', border: 'none', background: 'var(--bg-input)', cursor: loading ? 'not-allowed' : 'pointer', minHeight: '44px', minWidth: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: loading ? 0.5 : 1 }}>
             <X size={20} />
           </button>
         </div>
@@ -75,7 +75,7 @@ export function CancelReservationModal({ reservation, onClose, onConfirm, loadin
           {reservation.reservado_por && <InfoRow label="Reservado por" value={reservation.reservado_por} />}
         </div>
 
-        <p style={{ fontSize: '0.85rem', color: '#52525b', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
           Tem certeza que deseja cancelar esta reserva de tablets? Esta ação não pode ser desfeita.
         </p>
 
@@ -84,8 +84,8 @@ export function CancelReservationModal({ reservation, onClose, onConfirm, loadin
             onClick={onClose}
             disabled={loading}
             style={{
-              flex: 1, padding: '12px 16px', borderRadius: '9999px', border: '1px solid #e4e4e7',
-              background: '#ffffff', color: '#52525b', cursor: loading ? 'not-allowed' : 'pointer',
+              flex: 1, padding: '12px 16px', borderRadius: '9999px', border: '1px solid var(--border)',
+              background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: loading ? 'not-allowed' : 'pointer',
               fontSize: '14px', fontWeight: 600, minHeight: '44px', opacity: loading ? 0.5 : 1,
             }}
           >
@@ -96,7 +96,7 @@ export function CancelReservationModal({ reservation, onClose, onConfirm, loadin
             disabled={loading}
             style={{
               flex: 1, padding: '12px 16px', borderRadius: '9999px', border: 'none',
-              background: '#dc2626', color: '#ffffff', cursor: loading ? 'not-allowed' : 'pointer',
+              background: '#ef4444', color: '#ffffff', cursor: loading ? 'not-allowed' : 'pointer',
               fontSize: '14px', fontWeight: 600, minHeight: '44px', opacity: loading ? 0.6 : 1,
             }}
           >
@@ -110,9 +110,9 @@ export function CancelReservationModal({ reservation, onClose, onConfirm, loadin
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid #f1f5f9' }}>
-      <span style={{ fontSize: '0.8rem', color: '#71717a' }}>{label}</span>
-      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>{value}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', textAlign: 'right' }}>{value}</span>
     </div>
   )
 }

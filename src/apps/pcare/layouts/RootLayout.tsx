@@ -8,7 +8,6 @@ import { ToastContainer } from '../components/ToastContainer'
 import { useSwipeBack } from '../hooks/useSwipeBack'
 import { useSyncToasts } from '../hooks/useSyncToasts'
 import { useOnlineSync } from '../hooks/useOnlineSync'
-import { useTheme } from '../../../lib/ThemeContext'
 import { useNavigateWithTransition } from '../../../lib/useNavigateWithTransition'
 import { useFocusMode, FocusModeProvider } from '../hooks/useFocusMode'
 import { useActiveLab } from '../../../lib/useLabContext'
@@ -102,7 +101,7 @@ export function RootLayout() {
   const mainRef = useRef<HTMLDivElement>(null)
 
   useSwipeBack()
-  const { theme, toggle } = useTheme()
+  // Tema centralizado no perfil do app principal — sem controle local aqui
 
   function scrollToTop() {
     if (mainRef.current && mainRef.current.scrollTop > 0) {
@@ -117,8 +116,6 @@ export function RootLayout() {
         navigate={navigate}
         title={title}
         detail={detail}
-        theme={theme}
-        toggle={toggle}
         mainRef={mainRef}
         scrollToTop={scrollToTop}
       />
@@ -127,14 +124,12 @@ export function RootLayout() {
 }
 
 function RootLayoutInner({
-  location, navigate, title, detail, theme, toggle, mainRef, scrollToTop,
+  location, navigate, title, detail, mainRef, scrollToTop,
 }: {
   location: ReturnType<typeof useLocation>
   navigate: ReturnType<typeof useNavigateWithTransition>
   title: string
   detail: boolean
-  theme: ReturnType<typeof useTheme>['theme']
-  toggle: ReturnType<typeof useTheme>['toggle']
   mainRef: React.RefObject<HTMLDivElement | null>
   scrollToTop: () => void
 }) {
@@ -290,21 +285,6 @@ function RootLayoutInner({
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   {focusMode ? 'Sair do modo foco' : 'Modo foco'}
-                </TooltipContent>
-              </TooltipRoot>
-              <TooltipRoot>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={toggle}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg"
-                    aria-label="Alternar tema"
-                  >
-                    {theme === 'light' ? <icons.ui.moon size={16} /> : <icons.ui.sun size={16} />}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {theme === 'dark' ? 'Escuro → Suave' : theme === 'dim' ? 'Suave → Claro' : 'Claro → Escuro'}
                 </TooltipContent>
               </TooltipRoot>
             </TooltipProvider>

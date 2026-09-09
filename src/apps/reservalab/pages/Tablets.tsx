@@ -329,7 +329,7 @@ export function TabletsView() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem', color: '#71717a' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem', color: 'var(--text-muted)' }}>
         Carregando...
       </div>
     )
@@ -342,20 +342,20 @@ export function TabletsView() {
         margin: '0 auto',
         padding: isMobile ? '6rem 1.5rem 5rem' : '9rem 1.5rem 6rem',
         minHeight: '100vh',
-        color: '#0a0a0a',
+        color: 'var(--text-primary)',
         position: 'relative',
         zIndex: 1,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <TabletIcon size={28} style={{ color: '#6366f1' }} />
+          <TabletIcon size={28} style={{ color: 'var(--accent)' }} />
           <div>
-            <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#1e293b' }}>Reserva de Tablets</h2>
-            <p style={{ color: '#71717a', fontSize: '1rem' }}>
+            <h2 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)' }}>Reserva de Tablets</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>
               {reservasHoje.length} reserva{reservasHoje.length !== 1 ? 's' : ''} hoje
               {reservas.length > reservasHoje.length && !mostrarTodas && (
-                <span style={{ color: '#a1a1aa' }}> · {reservas.length} no total</span>
+                <span style={{ color: 'var(--text-muted)' }}> · {reservas.length} no total</span>
               )}
             </p>
           </div>
@@ -365,8 +365,8 @@ export function TabletsView() {
             <button
               onClick={() => setMostrarTodas(!mostrarTodas)}
               style={{
-                padding: '10px 20px', borderRadius: '9999px', border: '1px solid #e4e4e7',
-                background: '#ffffff', cursor: 'pointer', fontSize: '13px', fontWeight: 500, minHeight: '44px',
+                padding: '10px 20px', borderRadius: '9999px', border: '1px solid var(--border)',
+                background: 'var(--bg-card)', cursor: 'pointer', fontSize: '13px', fontWeight: 500, minHeight: '44px',
               }}
             >
               {mostrarTodas ? 'Só hoje' : 'Todas'}
@@ -378,7 +378,7 @@ export function TabletsView() {
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '10px 20px', borderRadius: '9999px', border: 'none',
-                background: showForm ? '#dc2626' : '#6366f1',
+                background: showForm ? '#ef4444' : 'var(--accent)',
                 color: '#ffffff', cursor: 'pointer', fontSize: '14px', fontWeight: 600, minHeight: '44px',
               }}
             >
@@ -394,11 +394,11 @@ export function TabletsView() {
             onSubmit={handleSubmit}
             aria-label={editing ? 'Editar reserva' : 'Nova reserva'}
             style={{
-              background: 'rgba(255, 255, 255, 0.7)',
+              background: 'color-mix(in srgb, var(--bg-card) 75%, transparent)',
               backdropFilter: 'blur(12px)',
               borderRadius: '1rem',
               padding: '1.5rem',
-              border: '1px solid rgba(99, 102, 241, 0.15)',
+              border: '1px solid var(--border)',
               marginBottom: '2rem',
               overflow: 'hidden',
             }}
@@ -421,7 +421,7 @@ export function TabletsView() {
                         key={sala}
                         type="button"
                         onMouseDown={() => { setForm((f) => ({ ...f, sala })); setShowSalaDropdown(false) }}
-                        style={{ width: '100%', padding: '10px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: '14px', color: '#1e293b' }}
+                        style={{ width: '100%', padding: '10px 12px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: '14px', color: 'var(--text-primary)' }}
                       >
                         {sala}
                       </button>
@@ -449,15 +449,15 @@ export function TabletsView() {
               </FormField>
 
               <div style={{ position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#52525b', marginBottom: '4px' }}>Reservado por</label>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Reservado por</label>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '6px',
                   width: '100%', padding: '10px 12px', borderRadius: '8px',
-                  border: '1px solid #e4e4e7', background: '#f8fafc', fontSize: '14px',
-                  color: '#1e293b', boxSizing: 'border-box', opacity: 0.7,
+                  border: '1px solid var(--border)', background: 'var(--bg-input)', fontSize: '14px',
+                  color: 'var(--text-primary)', boxSizing: 'border-box', opacity: 0.7,
                 }}>
-                  <User size={14} style={{ color: '#6366f1', flexShrink: 0 }} />
-                  <span>{form.reservado_por || <span style={{ color: '#94a3b8' }}>Você (logado)</span>}</span>
+                  <User size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                  <span>{form.reservado_por || <span style={{ color: 'var(--text-muted)' }}>Você (logado)</span>}</span>
                 </div>
               </div>
 
@@ -495,7 +495,7 @@ export function TabletsView() {
             </div>
 
             {formError && (
-              <p style={{ marginTop: '1rem', color: '#dc2626', fontSize: '0.85rem', fontWeight: 500 }}>
+              <p style={{ marginTop: '1rem', color: '#ef4444', fontSize: '0.85rem', fontWeight: 500 }}>
                 {formError}
               </p>
             )}
@@ -505,7 +505,7 @@ export function TabletsView() {
               disabled={submitting}
               style={{
                 marginTop: '1rem', padding: '12px 24px', borderRadius: '9999px', border: 'none',
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#ffffff',
+                background: 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))', color: '#ffffff',
                 fontSize: '14px', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer',
                 opacity: submitting ? 0.6 : 1,
               }}
@@ -536,7 +536,7 @@ export function TabletsView() {
         {mostrarTodas
           ? grupos.map(([key, items]) => (
               <div key={key}>
-                <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#6366f1', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   {formatGroupLabel(key)}
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -550,7 +550,7 @@ export function TabletsView() {
               <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} onEdit={() => openEditModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} canEdit={canEdit} />
             ))}
         {reservas.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
+          <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
             <TabletIcon size={48} style={{ opacity: 0.3, marginBottom: '1rem' }} />
             <p>Nenhuma reserva encontrada</p>
           </div>
@@ -576,7 +576,7 @@ export function TabletsView() {
 function FormField({ label, children, style: containerStyle }: { label: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{ position: 'relative', ...containerStyle }}>
-      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#52525b', marginBottom: '4px' }}>{label}</label>
+      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>{label}</label>
       {children}
     </div>
   )
@@ -584,15 +584,15 @@ function FormField({ label, children, style: containerStyle }: { label: string; 
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '10px 12px', borderRadius: '8px',
-  border: '1px solid #e4e4e7', background: '#ffffff', fontSize: '14px',
+  border: '1px solid var(--border)', background: 'var(--bg-card)', fontSize: '14px',
   outline: 'none', boxSizing: 'border-box',
 }
 
 const dropdownStyle: React.CSSProperties = {
   position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
-  background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '8px',
+  background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px',
   marginTop: '4px', maxHeight: '200px', overflowY: 'auto',
-  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+  boxShadow: 'var(--shadow-elevated)',
 }
 
 function ReservationRow({
@@ -615,8 +615,8 @@ function ReservationRow({
       data-testid="reservation-row"
       style={{
         padding: '1rem', borderRadius: '1rem',
-        background: 'rgba(255, 255, 255, 0.7)', backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(99, 102, 241, 0.15)',
+        background: 'color-mix(in srgb, var(--bg-card) 75%, transparent)', backdropFilter: 'blur(12px)',
+        border: '1px solid var(--border)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         flexWrap: 'wrap', gap: '0.75rem',
       }}
@@ -624,19 +624,19 @@ function ReservationRow({
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
         <div style={{
           width: '40px', height: '40px', borderRadius: '0.75rem',
-          background: 'rgba(99, 102, 241, 0.1)', display: 'flex',
+          background: 'var(--accent-soft)', display: 'flex',
           alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}>
-          <TabletIcon size={18} color="#6366f1" />
+          <TabletIcon size={18} color="var(--accent)" />
         </div>
         <div style={{ minWidth: 0 }}>
-          <p style={{ fontSize: '0.95rem', fontWeight: 600, color: '#0f172a' }}>{reservation.sala}</p>
-          <p style={{ fontSize: '0.8rem', color: '#64748b' }}>
+          <p style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>{reservation.sala}</p>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
             {formatTime(reservation.horario_inicio)} — {formatTime(reservation.horario_fim)}
             <span style={{ marginLeft: '8px' }}>{new Date(reservation.horario_inicio).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</span>
           </p>
-          <p style={{ fontSize: '0.8rem', color: '#64748b' }}>{reservation.professor}</p>
-          <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px' }}>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{reservation.professor}</p>
+          <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
             <User size={10} style={{ display: 'inline', marginRight: '3px', verticalAlign: 'middle' }} />
             {reservation.reservado_por}
           </p>
@@ -649,8 +649,8 @@ function ReservationRow({
             title="Editar reserva"
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
-              padding: '8px 16px', borderRadius: '9999px', border: '1px solid #c7d2fe',
-              background: '#eef2ff', color: '#6366f1', cursor: 'pointer',
+              padding: '8px 16px', borderRadius: '9999px', border: '1px solid var(--accent-ring)',
+              background: 'var(--accent-soft)', color: 'var(--accent)', cursor: 'pointer',
               fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', minHeight: '36px',
             }}
           >
@@ -662,8 +662,8 @@ function ReservationRow({
           <button
             onClick={() => onCancel(reservation.id)}
             style={{
-              padding: '8px 16px', borderRadius: '9999px', border: '1px solid #fecaca',
-              background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
+              padding: '8px 16px', borderRadius: '9999px', border: '1px solid rgba(239,68,68,0.35)',
+              background: 'rgba(239,68,68,0.08)', color: '#ef4444', cursor: 'pointer',
               fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', minHeight: '36px',
             }}
           >

@@ -34,7 +34,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <p style={{ fontWeight: 600, marginBottom: '0.5rem' }}>
             {this.props.fallback || 'Erro ao carregar componente'}
           </p>
-          <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             {this.state.error?.message}
           </p>
         </div>

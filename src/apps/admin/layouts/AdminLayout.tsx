@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react'
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { icons } from '../../../lib/icons'
 import { useAuth } from '../../../core/auth/AuthContext'
@@ -9,6 +9,7 @@ import { useFastSync } from '../../../lib/useFastSync'
 import { WorkspaceSelectionPage } from '../pages/WorkspaceSelectionPage'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 import { AdminBottomNav } from '../components/AdminBottomNav'
+import { ProfileSheet } from '../../../platform/Profile/ProfileSheet'
 
 const WS_BG_GRADIENTS = [
   'from-indigo-500/10 via-purple-500/5 to-transparent',
@@ -20,7 +21,6 @@ const WS_BG_GRADIENTS = [
 ]
 
 export function AdminLayout() {
-  const navigate = useNavigate()
   const location = useLocation()
   const { user, signOut } = useAuth()
   const { workspace, workspaces } = useWorkspace()
@@ -28,6 +28,7 @@ export function AdminLayout() {
   useFastSync(['notifications'], 10000)
   // O gate global já garante um workspace — seletor só aparece ao trocar de ambiente
   const [showSelector, setShowSelector] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
 
   // No Dashboard o Hero já apresenta o Workspace; aqui omitimos o bloco grande
   // com o nome do Workspace para evitar duplicação. Nas demais páginas o nome
@@ -74,7 +75,7 @@ export function AdminLayout() {
               {user && (
                 <button
                   type="button"
-                  onClick={() => navigate('/admin/profile')}
+                  onClick={() => setProfileOpen(true)}
                   className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-input hover:text-fg"
                 >
                   <div
@@ -164,6 +165,9 @@ export function AdminLayout() {
       <AdminBottomNav unreadCount={unreadCount} />
 
       <PushNotificationButton />
+
+      {/* Perfil único — o mesmo sheet global usado no Launcher/Dashboard */}
+      <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   )
 }

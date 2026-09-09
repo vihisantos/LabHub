@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { BackgroundAI } from '../components/BackgroundAI'
 import { Navbar } from '../components/Navbar'
@@ -9,10 +8,8 @@ export function ReservaLabLayout() {
   const location = useLocation()
   const { getLevel } = useAppAccess()
 
-  useEffect(() => {
-    document.documentElement.classList.remove('dark')
-    document.documentElement.classList.remove('dim')
-  }, [])
+  // Tema: o sub app NÃO manipula as classes do <html> — o tema escolhido no
+  // perfil (dark/dim/light, gerido pelo themeStore no app principal) manda aqui.
 
   // Cargo com acesso 'dash' vê somente o dashboard (verificação de quantidades)
   if (
