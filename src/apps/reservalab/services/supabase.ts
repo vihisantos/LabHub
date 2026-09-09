@@ -51,7 +51,10 @@ export async function updateTabletReserva(id: string, values: Record<string, unk
 
 export async function deleteTabletReserva(id: string): Promise<void> {
   if (!supabase) return
-  await supabase.from('tablet_reservations').delete().eq('id', id)
+  await supabase
+    .from('tablet_reservations')
+    .update({ status: 'cancelada' } as never)
+    .eq('id', id)
 }
 
 export async function cleanupOldCancelledTablets(): Promise<void> {

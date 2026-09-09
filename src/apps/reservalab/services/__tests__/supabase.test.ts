@@ -171,13 +171,13 @@ describe('supabase service', () => {
     })
 
     describe('deleteTabletReserva', () => {
-      it('deleta reserva da tabela com id específico', async () => {
+      it('cancela a reserva (soft delete) com status cancelada para o id específico', async () => {
         mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve(undefined))
 
         await supabaseModule.deleteTabletReserva('55555555-5555-4555-8555-555555555555')
 
         expect(mockFrom).toHaveBeenCalledWith('tablet_reservations')
-        expect(mockQueryBuilder.delete).toHaveBeenCalled()
+        expect(mockQueryBuilder.update).toHaveBeenCalledWith({ status: 'cancelada' })
         expect(mockQueryBuilder.eq).toHaveBeenCalledWith('id', '55555555-5555-4555-8555-555555555555')
       })
     })
