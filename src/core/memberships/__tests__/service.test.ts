@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { isActive } from '../types'
 import type { Membership, MembershipStatus, UserMembership } from '../types'
+import type { User } from '../../auth/types'
+import type { Workspace } from '../../workspaces/types'
 
 const { mockFrom } = vi.hoisted(() => ({ mockFrom: vi.fn() }))
 
@@ -248,5 +250,62 @@ describe('getActiveMembershipWorkspaceIds / isActiveMember — fonte do Workspac
     expect(isActiveMember(rows, 'ws-2')).toBe(false)
     expect(isActiveMember(rows, 'ws-9')).toBe(false)
     expect(isActiveMember(undefined, 'ws-1')).toBe(false)
+  })
+})
+
+describe('selectAssignedWorkspaces / assignedWorkspaceIds — fonte única §3.2', () => {
+  const WS = [{ id: 'ws-1' }, { id: 'ws-2' }] as Workspace[]
+
+  async function loadSelectors() {
+    vi.resetModules()
+    const mod = await import('../service')
+    return {
+      selectAssignedWorkspaces: mod.selectAssignedWorkspaces,
+      assignedWorkspaceIds: mod.assignedWorkspaceIds,
+    }
+  }
+
+  function userWith(overrides: Partial<User> = {}): User {
+    return {
+      id: 'u-1',
+      email: 'a@labhub.com',
+      name: 'A',
+      roleId: 'role-viewer',
+      status: 'active',
+      is_super_admin: false,
+      workspace_ids: [],
+      memberships: [],
+      membershipsLoaded: true,
+      accent: 'blue',
+      theme_variant: 'dark',
+      created_at: '',
+      updated_at: '',
+      ...overrides,
+    } as User
+  }
+
+  it('sem usuário ⇒ todos; pendente ⇒ nenhum; super admin ⇒ todos', async () => {
+    const { selectAssignedWorkspaces } = await loadSelectors()
+    expect(selectAssignedWorkspaces(WS, null).map((w) => w.id)).toEqual(['ws-1', 'ws-2'])
+    expect(selectAssignedWorkspaces(WS, userWith({ status: 'pending' }))).toEqual([])
+    expect(selectAssignedWorkspaces(WS, userWith({ is_super_admin: true }))).toHaveLength(2)
+  })
+
+  it('membro: só memberships ativas; não carregado ⇒ vazio (nunca workspace_ids)', async () => {
+    const { selectAssignedWorkspaces, assignedWorkspaceIds } = await loadSelectors()
+    const member = userWith({
+      memberships: [
+        makeMembership({ workspace_id: 'ws-1', status: 'active' }),
+        makeMembership({ id: 'm-2', workspace_id: 'ws-2', status: 'suspended' }),
+      ],
+      workspace_ids: ['ws-2'],
+    })
+    expect(selectAssignedWorkspaces(WS, member).map((w) => w.id)).toEqual(['ws-1'])
+    expect(assignedWorkspaceIds(member)).toEqual(['ws-1'])
+
+    const notLoaded = userWith({ memberships: undefined, membershipsLoaded: false, workspace_ids: ['ws-1'] })
+    expect(selectAssignedWorkspaces(WS, notLoaded)).toEqual([])
+    expect(assignedWorkspaceIds(notLoaded)).toEqual([])
+    expect(assignedWorkspaceIds(null)).toEqual([])
   })
 })

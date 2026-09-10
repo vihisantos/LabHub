@@ -1,6 +1,8 @@
 import { defaultDb } from '../../lib/supabase'
 import type { Membership } from './types'
 import { isActive } from './types'
+import type { User } from '../auth/types'
+import type { Workspace } from '../workspaces/types'
 
 const ACTIVE = 'active'
 
@@ -38,6 +40,27 @@ export function isActiveMember(
   return memberships.some(
     (m) => m.workspace_id === workspaceId && m.status === ACTIVE,
   )
+}
+
+/**
+ * Seleção de workspaces atribuídos — FONTE ÚNICA de visibilidade (design 9.2,
+ * §3.2). Pertencimento = membership ATIVA; `membershipsLoaded !== true` ⇒ nada
+ * visível. `profiles.workspace_ids` nunca participa (compat, nunca autorização).
+ */
+export function selectAssignedWorkspaces(all: Workspace[], user: User | null): Workspace[] {
+  return all.filter((w) => {
+    if (!user) return true
+    if (user.status === 'pending') return false
+    if (user.is_super_admin) return true
+    if (user.membershipsLoaded !== true) return false
+    return isActiveMember(user.memberships, w.id)
+  })
+}
+
+/** Ids ativos para alimentar filtros/stores (mesma fonte de §3.2). */
+export function assignedWorkspaceIds(user: User | null | undefined): string[] {
+  if (!user || user.membershipsLoaded !== true) return []
+  return getActiveMembershipWorkspaceIds(user.memberships)
 }
 
 /**
