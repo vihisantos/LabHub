@@ -1,0 +1,49 @@
+name: RBAC 9.3-D Drift Watch
+
+# Janela de observação do espelho workspace_ids x memberships (trigger 041 off).
+# Read-only: o script só executa SELECTs; divergência inesperada falha o job
+# (exit 2) para registro/investigação — nunca auto-corrige.
+on:
+  schedule:
+    - cron: '20 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  drift:
+    name: Mirror drift check (DEV)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: secrets
+        env:
+          DRIFT_SUPABASE_URL: ${{ secrets.DRIFT_SUPABASE_URL }}
+          DRIFT_SUPABASE_SERVICE_KEY: ${{ secrets.DRIFT_SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ -z "$DRIFT_SUPABASE_URL" ] || [ -z "$DRIFT_SUPABASE_SERVICE_KEY" ]; then
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+            echo "DRIFT_SUPABASE_URL/DRIFT_SUPABASE_SERVICE_KEY ausentes — pulando (adicionar secrets p/ ativar)."
+          else
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Monitoring not enabled notice
+        if: steps.secrets.outputs.missing == 'true'
+        run: |
+          echo "::warning::Drift monitor SKIPPED — DRIFT_SUPABASE_URL/DRIFT_SUPABASE_SERVICE_KEY not configured. Monitoring is NOT active until these secrets exist."
+
+      - uses: actions/setup-python@v5
+        if: steps.secrets.outputs.missing == 'false'
+        with:
+          python-version: '3.12'
+
+      - name: Run drift monitor (read-only)
+        if: steps.secrets.outputs.missing == 'false'
+        env:
+          SUPABASE_URL: ${{ secrets.DRIFT_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.DRIFT_SUPABASE_SERVICE_KEY }}
+          DRIFT_LABEL: ci-dev
+        run: |
+          pip install requests
+          python scripts/check_membership_mirror_drift.py --label ci-dev
