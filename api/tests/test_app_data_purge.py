@@ -261,6 +261,10 @@ def install_profile(fake, *, user_id=ADMIN_U1, workspaces, role="admin", is_supe
         "is_super_admin": is_super_admin,
         "workspace_ids": workspaces,
     }]))
+    fake.route("GET", "/rest/v1/memberships", FakeResponse([
+        {"profile_id": user_id, "workspace_id": w, "status": "active"}
+        for w in workspaces
+    ]))
     fake.route_fn("GET", lambda url, kw: ws_lookup(url, kw) if "/rest/v1/workspaces" in url else None)
 
 

@@ -252,6 +252,9 @@ def install_happy_world(fake):
         "id": "u1", "status": "active", "is_super_admin": False,
         "workspace_ids": [WS_A_ID],
     }]))
+    fake.route("GET", "/rest/v1/memberships", FakeResponse([
+        {"profile_id": "u1", "workspace_id": WS_A_ID, "status": "active"},
+    ]))
     fake.route_pred(
         "GET",
         lambda url, kw: "/rest/v1/workspaces" in url,
@@ -284,6 +287,9 @@ class TestAuth:
             "id": "u1", "status": "active", "is_super_admin": False,
             "workspace_ids": ["99999999-9999-9999-9999-999999999999"],
         }]))
+        tv_env.route("GET", "/rest/v1/memberships", FakeResponse([
+            {"profile_id": "u1", "workspace_id": "99999999-9999-9999-9999-999999999999", "status": "active"},
+        ]))
         tv_env.route_pred(
             "GET",
             lambda url, kw: "/rest/v1/workspaces" in url,
@@ -297,6 +303,9 @@ class TestAuth:
             "id": "u1", "status": "active", "is_super_admin": False,
             "workspace_ids": [WS_A_ID],
         }]))
+        tv_env.route("GET", "/rest/v1/memberships", FakeResponse([
+            {"profile_id": "u1", "workspace_id": WS_A_ID, "status": "active"},
+        ]))
         tv_env.route_pred(
             "GET",
             lambda url, kw: "/rest/v1/workspaces" in url,
@@ -629,6 +638,9 @@ class TestFonteNaoConfigurada:
             "id": "u1", "status": "active", "is_super_admin": False,
             "workspace_ids": [WS_A_ID],
         }]))
+        fake.route("GET", "/rest/v1/memberships", FakeResponse([
+            {"profile_id": "u1", "workspace_id": WS_A_ID, "status": "active"},
+        ]))
         fake.route_pred(
             "GET",
             lambda url, kw: "/rest/v1/workspaces" in url,
