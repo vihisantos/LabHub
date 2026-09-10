@@ -3325,7 +3325,9 @@ def chamados_claim(ticket_id):
 
     Modelo definitivo de atribuição:
       - Um técnico comum SÓ pode assumir um chamado SEM responsável.
-      - Super admin NÃO pode assumir chamados (gestão não opera).
+      - Super admin também pode assumir, atuando como técnico (o chamado fica
+        travado pelo nome/matrícula dele como responsável, igual a qualquer
+        técnico — o cargo de super admin NÃO aparece como responsável).
       - A assunção é ATÔMICA no banco: a atualização só alcança linhas com
         assignedToUserId IS NULL. Se outro técnico assumiu primeiro, a atualização
         afeta 0 linhas e este request recebe 409 (já assumido).
@@ -3344,8 +3346,6 @@ def chamados_claim(ticket_id):
     try:
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
-        if is_super_admin:
-            return jsonify({'error': 'Super administradores não assumem chamados'}), 403
         user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
 
         fetch = requests.get(

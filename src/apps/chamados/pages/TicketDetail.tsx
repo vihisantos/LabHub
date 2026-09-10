@@ -692,7 +692,7 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canWrite && !isLeader && unassigned && inOpenFlow && (
+      {canWrite && unassigned && inOpenFlow && (
         <div className="space-y-2">
           <button
             type="button"

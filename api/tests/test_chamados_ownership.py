@@ -242,16 +242,22 @@ def test_claim_sem_responsavel_tecnico_assume(client, fake_requests, monkeypatch
     assert resp.get_json()["ticket"]["status"] == "a_caminho"
 
 
-def test_claim_super_admin_recebe_403(client, fake_requests, monkeypatch):
+def test_claim_super_admin_assume_como_tecnico(client, fake_requests, monkeypatch):
+    """Super admin pode assumir chamado sem responsável, atuando como técnico."""
     headers = _setup_as(client, fake_requests, monkeypatch, SUPER)
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
+    claimed = dict(ticket, assignedToUserId="user-super", assignedTo="User user-super", status="a_caminho")
+    _route_claim_update(fake_requests, [claimed])
+    _route_events(fake_requests)
 
     resp = client.post("/api/chamados/t-1/claim", headers=headers)
 
-    assert resp.status_code == 403
-    # Nenhum UPDATE atômico deve ser disparado para super admin.
-    assert fake_requests.calls_for("PATCH", "assignedToUserId=is.null") == []
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["assignedToUserId"] == "user-super"
+    assert resp.get_json()["ticket"]["status"] == "a_caminho"
+    # O update atômico foi disparado (super admin não é mais bloqueado).
+    assert len(fake_requests.calls_for("PATCH", "assignedToUserId=is.null")) >= 1
 
 
 def test_claim_chamado_ja_assumido_por_outro_409(client, fake_requests, monkeypatch):
