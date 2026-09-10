@@ -64,6 +64,26 @@ export function assignedWorkspaceIds(user: User | null | undefined): string[] {
 }
 
 /**
+ * Contexto EXCLUSIVAMENTE administrativo: anexa as memberships a uma lista de
+ * usuários (leitura via RLS do token admin — `getByUser`). Falha por usuário ⇒
+ * `membershipsLoaded=false` (nunca `[]` silencioso). Usado pelas telas de
+ * gestão (UsersPage/UserDetailPage) para decidir escopo/exibição por
+ * memberships sem migrar as escritas (9.2-C).
+ */
+export async function attachMemberships(users: User[]): Promise<User[]> {
+  return Promise.all(
+    users.map(async (u) => {
+      try {
+        const rows = await membershipService.getByUser(u.id)
+        return { ...u, memberships: rows, membershipsLoaded: true }
+      } catch {
+        return { ...u, membershipsLoaded: false }
+      }
+    }),
+  )
+}
+
+/**
  * Compara o multiset de memberships ATIVAS de dois usuários (design 9.2, seção 3.3).
  * Antes do carregamento (nada carregado nos dois lados) quaisquer valores são
  * equivalentes — nenhum evento é emitido até as memberships carregarem.

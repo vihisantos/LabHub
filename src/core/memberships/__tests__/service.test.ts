@@ -33,6 +33,12 @@ async function loadMembershipHelpers() {
   }
 }
 
+async function loadAttachMemberships() {
+  vi.resetModules()
+  const mod = await import('../service')
+  return mod.attachMemberships
+}
+
 /** Objeto entãoável (resolve `{ data, error }`) como o spinner do supabase-js. */
 function thenable<T>(json: T) {
   return { then: (resolve: (v: T) => void, reject: (e: unknown) => void) => Promise.resolve(json).then(resolve, reject) }
@@ -250,6 +256,38 @@ describe('getActiveMembershipWorkspaceIds / isActiveMember — fonte do Workspac
     expect(isActiveMember(rows, 'ws-2')).toBe(false)
     expect(isActiveMember(rows, 'ws-9')).toBe(false)
     expect(isActiveMember(undefined, 'ws-1')).toBe(false)
+  })
+})
+
+describe('attachMemberships — enriquecimento administrativo (getByUser por usuário)', () => {
+  function userRow(id: string) {
+    return { id, email: `${id}@x.com` }
+  }
+
+  it('anexa memberships com loaded=true; filtra por profile_id', async () => {
+    const attach = await loadAttachMemberships()
+    dbResult = {
+      data: [makeMembership({ profile_id: 'u-1', workspace_id: 'ws-1' })],
+      error: null,
+    }
+
+    const [enriched] = await attach([userRow('u-1')] as never[])
+
+    expect(enriched.membershipsLoaded).toBe(true)
+    expect(enriched.memberships).toHaveLength(1)
+    expect(lastQuery.table).toBe('memberships')
+    expect(lastQuery.column).toBe('profile_id')
+    expect(lastQuery.value).toBe('u-1')
+  })
+
+  it('falha por usuário ⇒ loaded=false sem memberships (nunca [] silencioso)', async () => {
+    const attach = await loadAttachMemberships()
+    dbResult = { data: null, error: { message: 'denied' } }
+
+    const [enriched] = await attach([userRow('u-1')] as never[])
+
+    expect(enriched.membershipsLoaded).toBe(false)
+    expect(enriched.memberships).toBeUndefined()
   })
 })
 

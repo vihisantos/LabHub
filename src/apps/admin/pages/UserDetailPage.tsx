@@ -9,6 +9,7 @@ import { useRoles } from '../../../core/permissions/usePermissions'
 import { roleBadgeClass, APP_ACCESS_LABELS } from '../../../core/permissions/types'
 import type { AppAccessOverride } from '../../../core/permissions/types'
 import { logService } from '../../../core/logs/service'
+import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
 import { appRegistry } from '../../../appRegistry'
 import { ApproveUserModal } from '../components/ApproveUserModal'
 import { PersonAvatar, statusStyle, formatAge } from '../components/personShared'
@@ -46,7 +47,8 @@ export function UserDetailPage() {
       adminService.listAllProfiles(),
       workspaceService.syncFromSupabase(),
     ])
-    setUsers(u)
+    // Leitura administrativa por memberships (9.2-B5); escritas seguem na 9.2-C.
+    setUsers(await attachMemberships(u))
     setWorkspaces(w)
     setLoading(false)
   }, [])
@@ -69,7 +71,10 @@ export function UserDetailPage() {
 
   const scopeLabel = useMemo(() => {
     if (!person) return null
-    const ids = person.workspace_ids || []
+    if (person.membershipsLoaded !== true) return 'Carregando workspaces…'
+    const ids = (person.memberships ?? [])
+      .filter((m) => m.status === 'active')
+      .map((m) => m.workspace_id)
     if (ids.length === 0) return 'Sem workspace atribuído'
     const names = ids
       .map((wid) => workspaces.find((w) => w.id === wid)?.name)
@@ -390,7 +395,9 @@ export function UserDetailPage() {
 
               <div>
                 <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
-                  Workspaces ({person.workspace_ids?.length ?? 0} de {workspaces.length})
+                  {person.membershipsLoaded === true
+                    ? `Workspaces (${(person.memberships ?? []).filter((m) => m.status === 'active').length} de ${workspaces.length})`
+                    : `Workspaces (… de ${workspaces.length})`}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {workspaces.length === 0 ? (
@@ -399,13 +406,17 @@ export function UserDetailPage() {
                     </p>
                   ) : (
                     workspaces.map((ws) => {
-                      const hasAccess = (person.workspace_ids || []).includes(ws.id)
+                      // Exibição por memberships (9.2-B5); a escrita do toggle
+                      // segue na coluna legada até a 9.2-C.
+                      const hasAccess = person.membershipsLoaded === true
+                        && isActiveMember(person.memberships, ws.id)
+                      const unknownAccess = person.membershipsLoaded !== true
                       return (
                         <button
                           key={ws.id}
                           type="button"
                           onClick={() => toggleWorkspace(person.id, ws.id)}
-                          disabled={saving}
+                          disabled={saving || unknownAccess}
                           className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all disabled:opacity-50 ${
                             hasAccess
                               ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/40'

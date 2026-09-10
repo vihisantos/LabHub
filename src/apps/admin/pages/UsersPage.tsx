@@ -11,6 +11,7 @@ import { roleBadgeClass } from '../../../core/permissions/types'
 import type { AppAccessOverride } from '../../../core/permissions/types'
 import { ApproveUserModal } from '../components/ApproveUserModal'
 import { PersonAvatar, statusStyle } from '../components/personShared'
+import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
 import { icons } from '../../../lib/icons'
 
 type Filter = 'all' | 'active' | 'pending' | 'admin'
@@ -44,7 +45,8 @@ export function UsersPage() {
       adminService.listAllProfiles(),
       workspaceService.syncFromSupabase(),
     ])
-    setUsers(u)
+    // Leitura administrativa por memberships (9.2-B5); escritas seguem na 9.2-C.
+    setUsers(await attachMemberships(u))
     setWorkspaces(w)
     if (!silent) setLoading(false)
   }, [])
@@ -85,15 +87,19 @@ export function UsersPage() {
   const pendingUsers = users.filter((u) => u.status === 'pending')
   const activeUsers = users.filter((u) => u.status !== 'pending')
 
-  // Escopo por workspace: ativos só do workspace atual. Admin absoluto e
-  // usuários sem workspace atribuído aparecem sempre.
+  // Escopo por workspace (memberships ativas): admin absoluto, quem não tem
+  // membership ativa em lugar nenhum (precisa ser atribuído) e quem ainda está
+  // carregando (linha em "carregando", nunca decidido por workspace_ids)
+  // aparecem sempre; os demais só com membership ativa no workspace atual.
   const workspaceId = workspace?.id ?? null
   const scopedActiveUsers = useMemo(
     () => activeUsers.filter((u) => {
       if (!workspaceId) return true
       if (u.is_super_admin) return true
-      const ids = u.workspace_ids || []
-      return ids.length === 0 || ids.includes(workspaceId)
+      if (u.membershipsLoaded !== true) return true
+      const actives = (u.memberships ?? []).filter((m) => m.status === 'active')
+      if (actives.length === 0) return true
+      return isActiveMember(u.memberships, workspaceId)
     }),
     [activeUsers, workspaceId],
   )
@@ -268,6 +274,11 @@ export function UsersPage() {
                     {role && (
                       <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${roleBadgeClass(role)}`}>
                         {role.name}
+                      </span>
+                    )}
+                    {u.membershipsLoaded !== true && (
+                      <span className="rounded-full bg-input px-1.5 py-0.5 text-[9px] font-semibold text-fg-dim">
+                        acessos…
                       </span>
                     )}
                   </div>
