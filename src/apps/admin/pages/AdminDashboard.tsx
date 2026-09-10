@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { useLogs } from '../../../core/logs/useLogs'
+import { useWorkspaceLogs } from '../../../core/logs/useServerLogs'
 import { useNotifications } from '../../../core/notifications/useNotifications'
 import { useUsers } from '../../../core/users/useUsers'
 import { adminService } from '../../../core/auth/adminService'
@@ -30,6 +30,12 @@ const ACTION_LABELS: Record<string, string> = {
   created: 'Criou',
   updated: 'Atualizou',
   deleted: 'Removeu',
+  claim: 'Assumiu',
+  commented: 'Comentou em',
+  membership_added: 'Adicionou',
+  membership_removed: 'Removeu',
+  membership_changed: 'Alterou acesso de',
+  role_changed: 'Mudou cargo de',
   status_changed: 'Alterou status de',
   viewed: 'Visualizou',
   exported: 'Exportou',
@@ -61,7 +67,7 @@ export function AdminDashboard() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { workspace } = useWorkspace()
-  const { logs } = useLogs()
+  const { logs } = useWorkspaceLogs(workspace?.id ?? null)
   const { unreadCount } = useNotifications()
   const { users } = useUsers()
 
@@ -248,9 +254,9 @@ export function AdminDashboard() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-fg leading-relaxed">
-                      <span className="font-semibold">{log.userName}</span>
+                      <span className="font-semibold">{log.actor_name || 'Sistema'}</span>
                       <span className="text-fg-muted"> {getActionLabel(log.action)} </span>
-                      <span className="font-medium text-fg">{log.entityLabel}</span>
+                      <span className="font-medium text-fg">{log.entity_label}</span>
                     </p>
                     <p className="text-[10px] text-fg-dim mt-0.5">
                       {formatAge(log.timestamp)}

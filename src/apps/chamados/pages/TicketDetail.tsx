@@ -15,8 +15,8 @@ import { ticketService } from '../services/ticketService'
 import { Stars } from '../components/Stars'
 import { icons } from '../../../lib/icons'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { getWorkspaceAssignees, type WorkspaceAssignee } from '../../../core/permissions/workspaceAssigneesService'
 import { useAuth } from '../../../core/auth/useAuth'
-import { userService } from '../../../core/users/service'
 import { uploadPhotos } from '../utils/photo'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
 import type { TicketEvent } from '../types'
@@ -108,7 +108,25 @@ export function TicketDetail() {
     { channelName: `chamados:events:${id ?? 'none'}`, enabled: !!id },
   )
 
-  const assignees = userService.getAll()
+  const [assignees, setAssignees] = useState<WorkspaceAssignee[]>([])
+
+  // Responsáveis possíveis: membros ATIVOS do workspace do chamado, direto do
+  // servidor (RPC não — leitura via RLS 036/044: memberships + profiles).
+  useEffect(() => {
+    if (!isLeader || !ticket?.workspace_id) {
+      setAssignees([])
+      return
+    }
+    let alive = true
+    getWorkspaceAssignees(ticket.workspace_id)
+      .then((list) => {
+        if (alive) setAssignees(list)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [isLeader, ticket?.workspace_id])
 
   function handleAssign(userId: string, name: string) {
     if (!ticket) return
@@ -341,7 +359,7 @@ export function TicketDetail() {
               onChange={(e) => {
                 const userId = e.target.value
                 const name = userId
-                  ? (assignees.find((a) => a.userId === userId)?.displayName ?? '')
+                  ? (assignees.find((a) => a.userId === userId)?.name ?? '')
                   : ''
                 handleAssign(userId, name)
               }}
@@ -349,7 +367,7 @@ export function TicketDetail() {
             >
               <option value="">Sem responsável</option>
               {assignees.map((a) => (
-                <option key={a.id} value={a.userId}>{a.displayName}</option>
+                <option key={a.profileId} value={a.userId}>{a.name}</option>
               ))}
             </select>
           </div>
@@ -689,13 +707,12 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canOperate && nextStatus && !lockedByOther && (
+      {canOperate && nextStatus && nextStatus !== 'a_caminho' && !lockedByOther && (
         <button
           type="button"
           onClick={handleAdvanceStatus}
           className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
         >
-          {nextStatus === 'a_caminho' && 'Ir ao local'}
           {nextStatus === 'em_atendimento' && 'Iniciar Atendimento'}
           {nextStatus === 'resolvido' && 'Marcar como Resolvido'}
           {nextStatus === 'fechado' && 'Fechar Chamado'}

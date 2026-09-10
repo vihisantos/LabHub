@@ -8,7 +8,7 @@ import type { Workspace } from '../../../core/workspaces/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
 import { roleBadgeClass, APP_ACCESS_LABELS } from '../../../core/permissions/types'
 import type { AppAccessOverride } from '../../../core/permissions/types'
-import { logService } from '../../../core/logs/service'
+import { useActorLogs } from '../../../core/logs/useServerLogs'
 import { attachMemberships, isActiveMember, membershipService } from '../../../core/memberships/service'
 import { appRegistry } from '../../../appRegistry'
 import { ApproveUserModal } from '../components/ApproveUserModal'
@@ -19,6 +19,14 @@ const ACTION_META: Record<string, { icon: keyof typeof icons.ui; color: string; 
   created: { icon: 'plus', color: 'text-emerald-500 bg-emerald-500/10', label: 'Criou' },
   updated: { icon: 'edit', color: 'text-blue-500 bg-blue-500/10', label: 'Atualizou' },
   deleted: { icon: 'trash', color: 'text-red-500 bg-red-500/10', label: 'Removeu' },
+  claim: { icon: 'userCheck', color: 'text-emerald-500 bg-emerald-500/10', label: 'Assumiu' },
+  commented: { icon: 'messageSquareWarning', color: 'text-blue-500 bg-blue-500/10', label: 'Comentou em' },
+  membership_added: { icon: 'userCheck', color: 'text-violet-500 bg-violet-500/10', label: 'Foi adicionado a' },
+  membership_removed: { icon: 'close', color: 'text-red-500 bg-red-500/10', label: 'Foi removido de' },
+  membership_changed: { icon: 'sliders', color: 'text-violet-500 bg-violet-500/10', label: 'Teve acesso alterado' },
+  role_changed: { icon: 'shield', color: 'text-purple-500 bg-purple-500/10', label: 'Cargo alterado' },
+  super_admin_toggled: { icon: 'shield', color: 'text-purple-500 bg-purple-500/10', label: 'Super admin alterado' },
+  app_access_changed: { icon: 'alertCircle', color: 'text-amber-500 bg-amber-500/10', label: 'Acesso por app alterado' },
   status_changed: { icon: 'dot', color: 'text-amber-500 bg-amber-500/10', label: 'Alterou status de' },
   viewed: { icon: 'dot', color: 'text-slate-500 bg-slate-500/10', label: 'Visualizou' },
   exported: { icon: 'download', color: 'text-violet-500 bg-violet-500/10', label: 'Exportou' },
@@ -29,6 +37,7 @@ export function UserDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user: currentUser } = useAuth()
   const { roles: roleList } = useRoles()
+  const { logs: activity } = useActorLogs(id ?? '')
   const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
   const [users, setUsers] = useState<User[]>([])
@@ -61,11 +70,6 @@ export function UserDetailPage() {
     () => users.find((u) => u.id === id) ?? null,
     [users, id],
   )
-
-  const activity = useMemo(() => {
-    if (!person) return []
-    return logService.getByUser(person.id).slice(0, 15)
-  }, [person])
 
   const role = roleList.find((r) => r.id === person?.roleId)
 
@@ -495,7 +499,7 @@ export function UserDetailPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-fg leading-relaxed">
-                      {meta.label} <span className="font-medium text-fg">{log.entityLabel}</span>
+                      {meta.label} <span className="font-medium text-fg">{log.entity_label}</span>
                     </p>
                     <p className="text-[10px] text-fg-dim mt-0.5">{formatAge(log.timestamp)}</p>
                   </div>

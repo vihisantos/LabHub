@@ -1,22 +1,34 @@
-import { useState } from 'react'
-import { useLogs } from '../../core/logs/useLogs'
+import { useEffect, useMemo, useState } from 'react'
+import { useWorkspaceLogs } from '../../core/logs/useServerLogs'
 import { icons } from '../../lib/icons'
-import type { AuditLog, LogAction } from '../../core/logs/types'
+import type { ServerAuditLog } from '../../core/logs/serverAuditService'
+import { workspaceService } from '../../core/workspaces/service'
 
-const ACTION_FILTERS: { value: LogAction | ''; label: string }[] = [
+const ACTION_FILTERS: { value: string; label: string }[] = [
   { value: '', label: 'Todas' },
   { value: 'created', label: 'Criações' },
   { value: 'updated', label: 'Edições' },
   { value: 'deleted', label: 'Exclusões' },
-  { value: 'status_changed', label: 'Mudanças de Status' },
+  { value: 'claim', label: 'Assunções' },
+  { value: 'commented', label: 'Comentários' },
+  { value: 'membership_added', label: 'Membros' },
+  { value: 'role_changed', label: 'Cargos' },
 ]
 
-function LogItem({ log }: { log: AuditLog }) {
+function LogItem({ log }: { log: ServerAuditLog }) {
   const actionIcons: Record<string, React.ReactNode> = {
     created: <icons.ui.plus size={12} />,
     updated: <icons.ui.edit size={12} />,
     deleted: <icons.ui.trash size={12} />,
+    claim: <icons.ui.userCheck size={12} />,
+    commented: <icons.ui.messageSquareWarning size={12} />,
+    membership_added: <icons.ui.userCheck size={12} />,
+    membership_removed: <icons.ui.close size={12} />,
+    membership_changed: <icons.ui.sliders size={12} />,
+    role_changed: <icons.ui.shield size={12} />,
     status_changed: <icons.ui.refresh size={12} />,
+    super_admin_toggled: <icons.ui.shield size={12} />,
+    app_access_changed: <icons.ui.alertCircle size={12} />,
     viewed: <icons.ui.search size={12} />,
     exported: <icons.ui.download size={12} />,
   }
@@ -25,7 +37,15 @@ function LogItem({ log }: { log: AuditLog }) {
     created: 'Criou',
     updated: 'Editou',
     deleted: 'Excluiu',
-    status_changed: 'Atualizou status',
+    claim: 'Assumiu',
+    commented: 'Comentou em',
+    membership_added: 'Adicionou',
+    membership_removed: 'Removeu',
+    membership_changed: 'Alterou acesso de',
+    role_changed: 'Mudou cargo de',
+    status_changed: 'Atualizou status de',
+    super_admin_toggled: 'Alterou super admin de',
+    app_access_changed: 'Alterou acesso de',
     viewed: 'Visualizou',
     exported: 'Exportou',
   }
@@ -37,6 +57,8 @@ function LogItem({ log }: { log: AuditLog }) {
     user: 'Usuário',
   }
 
+  const hasMeta = log.meta && Object.keys(log.meta).length > 0
+
   return (
     <div className="flex items-start gap-3 rounded-xl p-4 transition-colors hover:bg-input">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-input text-fg-muted">
@@ -44,10 +66,10 @@ function LogItem({ log }: { log: AuditLog }) {
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm text-fg">
-          <span className="font-medium">{log.userName}</span>
+          <span className="font-medium">{log.actor_name || 'Sistema'}</span>
           {' '}<span className="text-fg-muted">{actionLabels[log.action] || log.action}</span>{' '}
           <span className="font-medium">{entityLabels[log.entity] || log.entity}</span>
-          {' '}<span className="text-fg-muted">{log.entityLabel}</span>
+          {' '}<span className="text-fg-muted">{log.entity_label}</span>
         </p>
         <div className="mt-1 flex items-center gap-3">
           <span className="text-[10px] text-fg-dim">
@@ -57,9 +79,12 @@ function LogItem({ log }: { log: AuditLog }) {
             {log.entity}
           </span>
         </div>
-        {log.details && (
-          <pre className="mt-2 rounded-lg bg-input p-2 text-[10px] text-fg-dim overflow-x-auto">
-            {JSON.stringify(log.details, null, 2)}
+        {hasMeta && (
+          <pre
+            className="mt-2 rounded-lg bg-input p-2 text-[10px] text-fg-dim overflow-x-auto"
+            data-testid="log-meta"
+          >
+            {JSON.stringify(log.meta, null, 2)}
           </pre>
         )}
       </div>
@@ -68,43 +93,70 @@ function LogItem({ log }: { log: AuditLog }) {
 }
 
 export function LogsPage() {
-  const { logs, loading, clearAll } = useLogs()
-  const [actionFilter, setActionFilter] = useState<LogAction | ''>('')
+  const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([])
+  const [workspaceId, setWorkspaceId] = useState<string>('')
+  const { logs, loading, reload } = useWorkspaceLogs(workspaceId || null)
+  const [actionFilter, setActionFilter] = useState('')
   const [search, setSearch] = useState('')
 
-  const filteredLogs = logs.filter((log) => {
-    if (actionFilter && log.action !== actionFilter) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (
-        !log.userName.toLowerCase().includes(q) &&
-        !log.entityLabel.toLowerCase().includes(q) &&
-        !log.entity.toLowerCase().includes(q)
-      ) return false
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      await workspaceService.syncFromSupabase()
+      if (!mounted) return
+      setWorkspaces(workspaceService.getAll().map((w) => ({ id: w.id, name: w.name })))
+    })()
+    return () => {
+      mounted = false
     }
-    return true
-  })
+  }, [])
+
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      if (actionFilter && log.action !== actionFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        if (
+          !log.actor_name.toLowerCase().includes(q) &&
+          !log.entity_label.toLowerCase().includes(q) &&
+          !log.entity.toLowerCase().includes(q)
+        ) return false
+      }
+      return true
+    })
+  }, [logs, actionFilter, search])
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
       <div className="mx-auto max-w-lg px-5 pt-8 pb-8">
         <header className="mb-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold text-fg">Logs de Auditoria</h1>
-              <p className="text-sm text-fg-muted">{logs.length} registro{logs.length !== 1 ? 's' : ''}</p>
+              <p className="text-sm text-fg-muted">{filteredLogs.length} registro{filteredLogs.length !== 1 ? 's' : ''}</p>
             </div>
-            <button
-              type="button"
-              onClick={clearAll}
-              className="rounded-lg bg-card px-3 py-2 text-xs font-medium text-fg-dim transition-colors hover:bg-input"
+            <span
+              className="shrink-0 rounded-lg bg-input px-3 py-2 text-[10px] font-medium text-fg-muted"
+              title="Registro append-only no servidor, imutável por design (LGPD)."
             >
-              Limpar
-            </button>
+              Imutável
+            </span>
           </div>
         </header>
 
         <div className="mb-4 space-y-3">
+          <select
+            value={workspaceId}
+            onChange={(e) => setWorkspaceId(e.target.value)}
+            aria-label="Workspace"
+            className="w-full rounded-xl border border-line bg-card px-3 py-2.5 text-sm text-fg focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Workspace ativo</option>
+            {workspaces.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+
           <div className="relative">
             <icons.ui.search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
             <input
@@ -132,6 +184,14 @@ export function LogsPage() {
               </button>
             ))}
           </div>
+
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="flex items-center gap-2 rounded-lg bg-card px-3 py-2 text-xs font-medium text-fg-dim transition-colors hover:bg-input"
+          >
+            <icons.ui.refresh size={12} /> Atualizar
+          </button>
         </div>
 
         {loading ? (

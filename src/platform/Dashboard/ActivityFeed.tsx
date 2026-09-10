@@ -1,13 +1,21 @@
-import { useLogs } from '../../core/logs/useLogs'
+import { useMyLogs } from '../../core/logs/useServerLogs'
 import { icons } from '../../lib/icons'
-import type { AuditLog } from '../../core/logs/types'
+import type { ServerAuditLog } from '../../core/logs/serverAuditService'
 
-function LogItem({ log }: { log: AuditLog }) {
+function LogItem({ log }: { log: ServerAuditLog }) {
   const actionIcons: Record<string, React.ReactNode> = {
     created: <icons.ui.plus size={12} />,
     updated: <icons.ui.edit size={12} />,
     deleted: <icons.ui.trash size={12} />,
+    claim: <icons.ui.userCheck size={12} />,
+    commented: <icons.ui.messageSquareWarning size={12} />,
+    membership_added: <icons.ui.userCheck size={12} />,
+    membership_removed: <icons.ui.close size={12} />,
+    membership_changed: <icons.ui.sliders size={12} />,
+    role_changed: <icons.ui.shield size={12} />,
     status_changed: <icons.ui.refresh size={12} />,
+    super_admin_toggled: <icons.ui.shield size={12} />,
+    app_access_changed: <icons.ui.alertCircle size={12} />,
     viewed: <icons.ui.search size={12} />,
     exported: <icons.ui.download size={12} />,
   }
@@ -16,7 +24,15 @@ function LogItem({ log }: { log: AuditLog }) {
     created: 'criou',
     updated: 'editou',
     deleted: 'excluiu',
+    claim: 'assumiu',
+    commented: 'comentou em',
+    membership_added: 'adicionou',
+    membership_removed: 'removeu',
+    membership_changed: 'alterou o acesso de',
+    role_changed: 'mudou o cargo de',
     status_changed: 'atualizou status de',
+    super_admin_toggled: 'alterou super admin de',
+    app_access_changed: 'alterou o acesso de',
     viewed: 'visualizou',
     exported: 'exportou',
   }
@@ -35,10 +51,10 @@ function LogItem({ log }: { log: AuditLog }) {
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-fg">
-          <span className="font-medium">{log.userName}</span>
+          <span className="font-medium">{log.actor_name || 'Sistema'}</span>
           {' '}{actionLabels[log.action] || log.action}{' '}
           <span className="font-medium">{entityLabels[log.entity] || log.entity}</span>
-          {' '}<span className="text-fg-muted">{log.entityLabel}</span>
+          {' '}<span className="text-fg-muted">{log.entity_label}</span>
         </p>
         <p className="mt-0.5 text-[10px] text-fg-dim">
           {new Date(log.timestamp).toLocaleString('pt-BR', {
@@ -54,7 +70,7 @@ function LogItem({ log }: { log: AuditLog }) {
 }
 
 export function ActivityFeed({ limit = 10 }: { limit?: number }) {
-  const { logs, loading } = useLogs()
+  const { logs, loading } = useMyLogs()
 
   if (loading) {
     return (

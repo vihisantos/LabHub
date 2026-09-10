@@ -221,6 +221,7 @@ def _route_events(fake_requests):
 TEC_A = _profile("user-a", role="technician")
 TEC_B = _profile("user-b", role="technician")
 LEADER = _profile("user-leader", role="admin")
+SUPER = _profile("user-super", role="admin", is_super=True)
 
 
 # ── CLAIM ─────────────────────────────────────────────────────────────────────
@@ -229,7 +230,7 @@ def test_claim_sem_responsavel_tecnico_assume(client, fake_requests, monkeypatch
     headers = _setup_as(client, fake_requests, monkeypatch, TEC_A)
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
-    claimed = dict(ticket, assignedToUserId="user-a", assignedTo="User user-a")
+    claimed = dict(ticket, assignedToUserId="user-a", assignedTo="User user-a", status="a_caminho")
     _route_claim_update(fake_requests, [claimed])
     _route_events(fake_requests)
 
@@ -237,6 +238,20 @@ def test_claim_sem_responsavel_tecnico_assume(client, fake_requests, monkeypatch
 
     assert resp.status_code == 200
     assert resp.get_json()["ticket"]["assignedToUserId"] == "user-a"
+    # Ao assumir, o status já vai direto para 'a_caminho' (etapa manual removida).
+    assert resp.get_json()["ticket"]["status"] == "a_caminho"
+
+
+def test_claim_super_admin_recebe_403(client, fake_requests, monkeypatch):
+    headers = _setup_as(client, fake_requests, monkeypatch, SUPER)
+    ticket = _make_ticket(assignedTo="", assignedToUserId="")
+    _route_ticket(fake_requests, ticket)
+
+    resp = client.post("/api/chamados/t-1/claim", headers=headers)
+
+    assert resp.status_code == 403
+    # Nenhum UPDATE atômico deve ser disparado para super admin.
+    assert fake_requests.calls_for("PATCH", "assignedToUserId=is.null") == []
 
 
 def test_claim_chamado_ja_assumido_por_outro_409(client, fake_requests, monkeypatch):

@@ -80,10 +80,14 @@ function mockMembershipsFromFixtures(users: { id: string; memberships?: unknown[
   })
 }
 
-import { logService } from '../../../../core/logs/service'
+const mockGetActorLogs = vi.hoisted(() => vi.fn())
 
-vi.mock('../../../../core/logs/service', () => ({
-  logService: { getByUser: vi.fn() },
+vi.mock('../../../../core/logs/useServerLogs', () => ({
+  useActorLogs: (actorId: string) => ({
+    logs: mockGetActorLogs(actorId) ?? [],
+    loading: false,
+    reload: vi.fn(),
+  }),
 }))
 
 import { UserDetailPage } from '../UserDetailPage'
@@ -142,7 +146,7 @@ describe('UserDetailPage', () => {
     ])
     mockAdminService.setUserMemberships.mockResolvedValue([])
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
-    vi.mocked(logService.getByUser).mockReturnValue([])
+    mockGetActorLogs.mockReturnValue([])
   })
 
   it('mostra o cabeçalho da pessoa com nome, e-mail, status e cargo', async () => {

@@ -8,7 +8,7 @@ const mockClaim = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
 const mockGetEvents = vi.hoisted(() => vi.fn())
 const mockAddEvent = vi.hoisted(() => vi.fn())
-const mockGetAll = vi.hoisted(() => vi.fn())
+const mockGetAssignees = vi.hoisted(() => vi.fn())
 
 // Usuário do componente (useAuth) — controlável por teste via `state.user`.
 const state = vi.hoisted(() => ({
@@ -64,8 +64,8 @@ vi.mock('../../services/ticketService', () => ({
 vi.mock('../../../../core/auth/useAuth', () => ({
   useAuth: () => ({ user: state.user }),
 }))
-vi.mock('../../../../core/users/service', () => ({
-  userService: { getAll: mockGetAll, getByUserId: () => undefined },
+vi.mock('../../../../core/permissions/workspaceAssigneesService', () => ({
+  getWorkspaceAssignees: mockGetAssignees,
 }))
 vi.mock('../../utils/photo', () => ({
   uploadPhotos: vi.fn(),
@@ -82,25 +82,17 @@ import { uploadPhotos } from '../../utils/photo'
 import { TicketDetail } from '../TicketDetail'
 
 const PROFILE_ME = {
-  id: 'p1',
   userId: 'test-admin',
-  displayName: 'Admin Teste',
-  department: 'TI',
+  profileId: 'p1',
+  name: 'Admin Teste',
   roleId: 'r1',
-  active: true,
-  createdAt: '',
-  updatedAt: '',
 }
 
 const PROFILE_OTHER = {
-  id: 'p2',
   userId: 'user-2',
-  displayName: 'Técnico 2',
-  department: 'TI',
+  profileId: 'p2',
+  name: 'Técnico 2',
   roleId: 'r1',
-  active: true,
-  createdAt: '',
-  updatedAt: '',
 }
 
 function resetTicket() {
@@ -116,7 +108,7 @@ beforeEach(() => {
   resetTicket()
   state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: false }
   mockGetEvents.mockResolvedValue([])
-  mockGetAll.mockReturnValue([PROFILE_ME, PROFILE_OTHER])
+  mockGetAssignees.mockResolvedValue([PROFILE_ME, PROFILE_OTHER])
 })
 
 describe('TicketDetail — Histórico e comentários (técnico responsável)', () => {
@@ -249,17 +241,20 @@ describe('TicketDetail — isolamento de atendimento', () => {
     expect(screen.getByText(/sendo atendido por Técnico 2/)).toBeInTheDocument()
   })
 
-  it('técnico responsável pode avançar o status do próprio chamado', async () => {
+  it('técnico responsável avança o próprio chamado sem o botão "Ir ao local"', async () => {
     TICKET.assignedToUserId = 'test-admin'
     TICKET.assignedTo = 'Técnico 1'
-    TICKET.status = 'aberto'
+    TICKET.status = 'a_caminho'
 
     render(<TicketDetail />)
     await act(async () => {})
 
-    const btn = screen.getByRole('button', { name: 'Ir ao local' })
+    // Botão manual de "a caminho" não existe mais — claim já leva a a_caminho.
+    expect(screen.queryByRole('button', { name: 'Ir ao local' })).not.toBeInTheDocument()
+
+    const btn = screen.getByRole('button', { name: 'Iniciar Atendimento' })
     fireEvent.click(btn)
-    expect(mockUpdateStatus).toHaveBeenCalledWith('ticket-1', 'a_caminho')
+    expect(mockUpdateStatus).toHaveBeenCalledWith('ticket-1', 'em_atendimento')
   })
 })
 

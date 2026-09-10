@@ -1789,6 +1789,42 @@ def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author
         return None
 
 
+def record_app_audit(workspace_id=None, actor_id=None, actor_name=None, action='',
+                     entity='user', entity_id='', entity_label='', meta=None):
+    """Auditoria de ações do app em `public.app_audit_logs` (migration 054).
+
+    Append-only; escrita via service-role (bypassa RLS). É best-effort por
+    design: falha loga e segue — auditoria NUNCA derruba a ação principal.
+    `meta` NUNCA deve conter segredos, JWTs ou chaves (LGPD/auditoria).
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    try:
+        payload = {
+            'workspace_id': workspace_id or None,
+            'actor_id': actor_id or None,
+            'actor_name': str(actor_name or '')[:120],
+            'action': str(action or ''),
+            'entity': str(entity or 'user')[:80],
+            'entity_id': str(entity_id or '')[:255],
+            'entity_label': str(entity_label or '')[:255],
+            'meta': meta or {},
+        }
+        resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/app_audit_logs',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json=payload,
+            timeout=10,
+        )
+        if not resp.ok:
+            logger.error(
+                "[audit] Falha ao gravar app_audit_logs (%s): %s %s",
+                action, resp.status_code, resp.text[:200],
+            )
+    except Exception as e:
+        logger.error("[audit] Erro ao gravar app_audit_logs: %s", e)
+
+
 def _notify_ticket_status(ticket):
     """Push ao professor (inscrições do próprio chamado) quando status/mensagem mudam."""
     try:
@@ -2103,6 +2139,19 @@ def chamados_create():
         # Evento, não agendamento — não depende de cron nenhum (próprio app).
         _notify_new_ticket(ticket)
 
+        # Auditoria do app (tabela 054): criação pública (sem actor autenticado,
+        # actora é o solicitante).
+        record_app_audit(
+            workspace_id=ticket.get('workspace_id'),
+            actor_id=None,
+            actor_name=reported_by,
+            action='created',
+            entity='ticket',
+            entity_id=ticket.get('id'),
+            entity_label=f'#{ticket_number} · {room_name}',
+            meta={'status': 'aberto', 'priority': priority, 'problemCategory': problem_category},
+        )
+
         # O token cru NUNCA entra na resposta persistida (ticket); vai apenas no
         # campo tracking_token desta única resposta, para o professor guardar.
         # O tracking_token_hash (SHA-256) também não é devolvido ao cliente:
@@ -2196,7 +2245,7 @@ def chamados_manage(ticket_id):
         if request.method == 'DELETE':
             # Verify workspace ownership before delete
             fetch = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id,photos',
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id,photos,ticketNumber,roomName',
                 headers=_supabase_headers(),
                 timeout=10,
             )
@@ -2259,6 +2308,18 @@ def chamados_manage(ticket_id):
                     destroyed += 1
                 else:
                     logger.warning('DELETE chamado %s: falha ao apagar foto no Cloudinary: %s', ticket_id, u)
+
+            # Auditoria do app: remoção de chamado (best-effort).
+            record_app_audit(
+                workspace_id=ticket_ws,
+                actor_id=user.get('id'),
+                actor_name=user.get('name'),
+                action='deleted',
+                entity='ticket',
+                entity_id=ticket_id,
+                entity_label=f"#{rows[0].get('ticketNumber', '')} · {rows[0].get('roomName', '')}",
+                meta={'status': rows[0].get('status') or ''},
+            )
             return jsonify({'success': True, 'photos_destroyed': destroyed})
 
         # PATCH: Verify workspace ownership before any update
@@ -2422,6 +2483,29 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Chamado não encontrado'}), 404
 
         ticket = rows[0]
+
+        # Auditoria do app: atualização do chamado (best-effort). Meta descreve
+        # os campos alterados sem segredos.
+        changed_fields = [
+            k for k in ('status', 'statusNote', 'assignedToUserId', 'assignedTo',
+                        'priority', 'problemDescription', 'archived', 'photos')
+            if k in updates
+        ]
+        record_app_audit(
+            workspace_id=ticket_ws,
+            actor_id=user.get('id'),
+            actor_name=user.get('name'),
+            action='updated',
+            entity='ticket',
+            entity_id=ticket_id,
+            entity_label=f"#{ticket.get('ticketNumber') or ''} · {ticket.get('roomName') or ''}",
+            meta={
+                'changes': changed_fields,
+                'status': ticket.get('status'),
+                'assignedToUserId': ticket.get('assignedToUserId') or '',
+                'reassigned': assignment_changed,
+            },
+        )
 
         # A2: após PATCH bem-sucedido com troca de foto, apaga a foto antiga
         # do Cloudinary (best-effort, nunca bloqueia o PATCH, nunca apaga a nova).
@@ -3217,6 +3301,16 @@ def chamados_events_create(ticket_id):
             event['photos'] = json.loads(event.get('photo_urls') or '[]')
         except (TypeError, ValueError):
             event['photos'] = []
+        record_app_audit(
+            workspace_id=ticket.get('workspace_id'),
+            actor_id=user.get('id'),
+            actor_name=user.get('name'),
+            action='commented',
+            entity='ticket',
+            entity_id=ticket_id,
+            entity_label=f'#{ticket.get("ticketNumber") or ""} · {ticket.get("roomName") or ""}',
+            meta={'len': len(content), 'photos': len(photos)},
+        )
         return jsonify({'event': event}), 201
 
     except Exception as e:
@@ -3231,24 +3325,27 @@ def chamados_claim(ticket_id):
 
     Modelo definitivo de atribuição:
       - Um técnico comum SÓ pode assumir um chamado SEM responsável.
+      - Super admin NÃO pode assumir chamados (gestão não opera).
       - A assunção é ATÔMICA no banco: a atualização só alcança linhas com
         assignedToUserId IS NULL. Se outro técnico assumiu primeiro, a atualização
         afeta 0 linhas e este request recebe 409 (já assumido).
-      - Não altera o status (o responsável segue o fluxo de status depois).
+      - Ao assumir, o status vai direto para 'a_caminho' (etapa manual removida).
       - Registra evento de atribuição + auditoria + notificações.
 
     Autorização:
       - Precisa ser membro do workspace do chamado.
-      - RBAC ON  → exige Action `ticket.claim` (técnico tem; líder/super passam).
+      - RBAC ON  → exige Action `ticket.claim` (técnico tem; líder passa).
       - RBAC OFF → qualquer membro autenticado do workspace pode claim (legado).
-      - Apenas o responsável, o líder/assigner ou o super admin podem claim de um
-        chamado já atribuído (geralmente desnecessário, mas a rota rejeita se não).
+      - Apenas o responsável ou o líder/assigner podem (re)assumir um chamado
+        já atribuído (geralmente desnecessário, mas a rota rejeita se não).
     """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
+        if is_super_admin:
+            return jsonify({'error': 'Super administradores não assumem chamados'}), 403
         user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
 
         fetch = requests.get(
@@ -3286,6 +3383,7 @@ def chamados_claim(ticket_id):
             return jsonify({'error': 'Usuário inválido'}), 400
 
         # UPDATE ATÔMICO: só alcança linhas SEM responsável. 0 linhas ⇒ já assumido.
+        # Já leva o status para 'a_caminho' (etapa manual removida da UI).
         now = datetime.now(timezone.utc).isoformat()
         upd_resp = requests.patch(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
@@ -3294,6 +3392,7 @@ def chamados_claim(ticket_id):
             json={
                 'assignedToUserId': claimer_id,
                 'assignedTo': claimer_name,
+                'status': 'a_caminho',
                 'updatedAt': now,
             },
             timeout=10,
@@ -3312,8 +3411,20 @@ def chamados_claim(ticket_id):
             ticket_id,
             ticket_ws,
             'atribuicao',
-            content=f'{claimer_name} iniciou o atendimento',
+            content=f'{claimer_name} assumiu o chamado e está a caminho',
             author=claimer_name,
+        )
+
+        # Auditoria do app (tabela 054): assunção — quem assumiu quando.
+        record_app_audit(
+            workspace_id=ticket_ws,
+            actor_id=claimer_id,
+            actor_name=claimer_name,
+            action='claim',
+            entity='ticket',
+            entity_id=ticket_id,
+            entity_label=f"#{ticket.get('ticketNumber') or ''} · {ticket.get('roomName') or ''}",
+            meta={'prev_owner': str(ticket.get('assignedToUserId') or ''), 'new_owner': claimer_id},
         )
 
         # Auditoria do claim (side-channel RBAC).
