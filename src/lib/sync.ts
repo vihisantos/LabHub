@@ -290,8 +290,8 @@ export async function syncAll(onItem?: (collection: string, current: number, tot
   return { synced, failed }
 }
 
-export function createSyncService<T extends { id: string }>(collection: string) {
-  const local = createLocalService<T>(collection)
+export function createSyncService<T extends { id: string }>(collection: string, enableWorkspaceFilter = true) {
+  const local = createLocalService<T>(collection, enableWorkspaceFilter)
 
   return {
     getAll: local.getAll,
