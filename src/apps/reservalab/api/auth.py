@@ -162,7 +162,7 @@ def _get_user_profile(user_id: str) -> dict | None:
             f'{_SUPABASE_URL}/rest/v1/profiles',
             params={
                 'id': f'eq.{user_id}',
-                'select': 'id,email,name,role,is_super_admin,workspace_ids,status',
+                'select': 'id,email,name,role,is_super_admin,status',
             },
             headers={
                 'apikey': _SUPABASE_SERVICE_KEY,
