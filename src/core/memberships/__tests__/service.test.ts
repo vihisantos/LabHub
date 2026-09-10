@@ -22,6 +22,15 @@ async function loadAreMembershipsEqual() {
   return mod.areMembershipsEqual
 }
 
+async function loadMembershipHelpers() {
+  vi.resetModules()
+  const mod = await import('../service')
+  return {
+    getActiveMembershipWorkspaceIds: mod.getActiveMembershipWorkspaceIds,
+    isActiveMember: mod.isActiveMember,
+  }
+}
+
 /** Objeto entãoável (resolve `{ data, error }`) como o spinner do supabase-js. */
 function thenable<T>(json: T) {
   return { then: (resolve: (v: T) => void, reject: (e: unknown) => void) => Promise.resolve(json).then(resolve, reject) }
@@ -210,5 +219,34 @@ describe('areMembershipsEqual — multiset das ativas (detecção de mudança do
   it('troca de cargo muda o multiset ⇒ detectado', async () => {
     const equal = await loadAreMembershipsEqual()
     expect(equal([ws1], [{ workspace_id: 'ws-1', role_id: 'r-c', status: 'active' }])).toBe(false)
+  })
+})
+
+describe('getActiveMembershipWorkspaceIds / isActiveMember — fonte do WorkspaceContext', () => {
+  it('deriva workspaces só de memberships ativas; undefined ⇒ []', async () => {
+    const { getActiveMembershipWorkspaceIds } = await loadMembershipHelpers()
+    expect(
+      getActiveMembershipWorkspaceIds([
+        makeMembership({ workspace_id: 'ws-1', status: 'active' }),
+        makeMembership({ id: 'm-2', workspace_id: 'ws-2', status: 'active' }),
+        makeMembership({ id: 'm-3', workspace_id: 'ws-3', status: 'suspended' }),
+        makeMembership({ id: 'm-4', workspace_id: 'ws-4', status: 'pending' }),
+        makeMembership({ id: 'm-5', workspace_id: 'ws-5', status: 'removed' }),
+      ]).sort(),
+    ).toEqual(['ws-1', 'ws-2'])
+    expect(getActiveMembershipWorkspaceIds(undefined)).toEqual([])
+    expect(getActiveMembershipWorkspaceIds([])).toEqual([])
+  })
+
+  it('isActiveMember: só active concede; undefined ⇒ false', async () => {
+    const { isActiveMember } = await loadMembershipHelpers()
+    const rows = [
+      makeMembership({ workspace_id: 'ws-1', status: 'active' }),
+      makeMembership({ id: 'm-2', workspace_id: 'ws-2', status: 'suspended' }),
+    ]
+    expect(isActiveMember(rows, 'ws-1')).toBe(true)
+    expect(isActiveMember(rows, 'ws-2')).toBe(false)
+    expect(isActiveMember(rows, 'ws-9')).toBe(false)
+    expect(isActiveMember(undefined, 'ws-1')).toBe(false)
   })
 })
