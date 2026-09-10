@@ -115,15 +115,32 @@ INSERT INTO public.workspaces (id, name, slug) VALUES
 INSERT INTO auth.users (id, email) VALUES
 {USERS_SQL};
 
-UPDATE public.profiles SET status='active', role='technician', workspace_ids=ARRAY['{WS_A}','{WS_B}']::uuid[] WHERE id='{P["tec"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids=ARRAY['{WS_A}']::uuid[]          WHERE id='{P["tec2"]}';
-UPDATE public.profiles SET status='active', role='viewer',     workspace_ids=ARRAY['{WS_A}']::uuid[]          WHERE id='{P["view"]}';
-UPDATE public.profiles SET status='active', role='viewer',     workspace_ids=ARRAY['{WS_A}']::uuid[]          WHERE id='{P["view2"]}';
-UPDATE public.profiles SET status='active', role='viewer',     workspace_ids=ARRAY['{WS_B}']::uuid[]          WHERE id='{P["bonly"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids=ARRAY['{WS_A}','{WS_C}']::uuid[] WHERE id='{P["multi"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["tec"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["tec2"]}';
+UPDATE public.profiles SET status='active', role='viewer'     WHERE id='{P["view"]}';
+UPDATE public.profiles SET status='active', role='viewer'     WHERE id='{P["view2"]}';
+UPDATE public.profiles SET status='active', role='viewer'     WHERE id='{P["bonly"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["multi"]}';
 UPDATE public.profiles SET status='active', role='viewer',     workspace_ids=NULL                           WHERE id='{P["nullws"]}';
 UPDATE public.profiles SET status='active', role='admin',      workspace_ids=ARRAY['{WS_A}']::uuid[], is_super_admin=true WHERE id='{P["super"]}';
-UPDATE public.profiles SET status='active', role='lider',      workspace_ids=ARRAY['{WS_A}']::uuid[]          WHERE id='{P["lider"]}';
+UPDATE public.profiles SET status='active', role='lider'       WHERE id='{P["lider"]}';
+
+-- Memberships diretas (9.3-C: sem trigger 041; mesmo conjunto de antes).
+-- super fica sem membership (by design); nullws testa coluna NULL.
+INSERT INTO public.memberships (profile_id, workspace_id, role_id, status)
+SELECT v.pid::uuid, v.ws::uuid, r.id, 'active'
+FROM (VALUES
+  ('{P["tec"]}',   '{WS_A}', 'tec'), ('{P["tec"]}',   '{WS_B}', 'tec'),
+  ('{P["tec2"]}',  '{WS_A}', 'tec'),
+  ('{P["view"]}',  '{WS_A}', 'vis'),
+  ('{P["view2"]}', '{WS_A}', 'vis'),
+  ('{P["bonly"]}', '{WS_B}', 'vis'),
+  ('{P["multi"]}', '{WS_A}', 'tec'), ('{P["multi"]}', '{WS_C}', 'tec'),
+  ('{P["lider"]}', '{WS_A}', 'lider')
+) AS v(pid, ws, slug)
+JOIN public.roles r ON r.slug = v.slug
+ON CONFLICT (profile_id, workspace_id) DO UPDATE SET
+  role_id = EXCLUDED.role_id, status = 'active', updated_at = now();
 
 -- Relação de gestão em A (guardas 045/046: mesmo ws, gestor ativo, sob cargo de liderança, sem self)
 UPDATE public.memberships SET managed_by = (

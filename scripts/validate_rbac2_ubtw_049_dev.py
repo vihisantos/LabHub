@@ -206,16 +206,34 @@ INSERT INTO public.workspaces (id, name, slug) VALUES
 INSERT INTO auth.users (id, email) VALUES
 {USERS_SQL};
 
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_A + ',' + WS_B)} WHERE id='{P["joe"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_A)} WHERE id='{P["jane"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_B)} WHERE id='{P["bob"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_C)} WHERE id='{P["cal"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_C)} WHERE id='{P["dora"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_A)} WHERE id='{P["sus"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_A)} WHERE id='{P["rem"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_A)} WHERE id='{P["pend"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids=ARRAY[]::uuid[] WHERE id='{P["nobm"]}';
-UPDATE public.profiles SET status='active', role='technician', workspace_ids={_literal_uuid_list(WS_A)}, is_super_admin=true WHERE id='{P["super"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["joe"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["jane"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["bob"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["cal"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["dora"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["sus"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["rem"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["pend"]}';
+UPDATE public.profiles SET status='active', role='technician' WHERE id='{P["nobm"]}';
+UPDATE public.profiles SET status='active', role='technician', is_super_admin=true WHERE id='{P["super"]}';
+
+-- Memberships diretas (9.3-C: sem trigger 041; mesmo conjunto de antes).
+-- super fica sem membership (by design, como o sync fazia).
+INSERT INTO public.memberships (profile_id, workspace_id, role_id, status)
+SELECT v.pid::uuid, v.ws::uuid, r.id, 'active'
+FROM (VALUES
+  ('{P["joe"]}', '{WS_A}', 'tec'), ('{P["joe"]}', '{WS_B}', 'tec'),
+  ('{P["jane"]}', '{WS_A}', 'tec'),
+  ('{P["bob"]}', '{WS_B}', 'tec'),
+  ('{P["cal"]}', '{WS_C}', 'tec'),
+  ('{P["dora"]}', '{WS_C}', 'tec'),
+  ('{P["sus"]}', '{WS_A}', 'tec'),
+  ('{P["rem"]}', '{WS_A}', 'tec'),
+  ('{P["pend"]}', '{WS_A}', 'tec')
+) AS v(pid, ws, slug)
+JOIN public.roles r ON r.slug = v.slug
+ON CONFLICT (profile_id, workspace_id) DO UPDATE SET
+  role_id = EXCLUDED.role_id, status = 'active', updated_at = now();
 
 -- Dead-letter de status de membership (normalização fora do escopo 9.1): o
 -- drift fica em memberships.status, NÃO em profiles — invariavelmente o objetivo.

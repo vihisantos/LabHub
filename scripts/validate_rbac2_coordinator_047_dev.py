@@ -8,7 +8,7 @@ zero resíduo no banco (mesmo padrão do validate_rbac2_trigger_dev.py).
 Cenário (Fase 8 — matriz adversarial):
   coord_a  : coordenador wsA+wsB  (ator principal / multiunidade)
   coord_b  : coordenador só wsA   (par na unidade, SEM wsB)
-  coord_z  : coordenador SEM unidade (workspace_ids vazio -> 0 memberships)
+  coord_z  : coordenador SEM unidade (sem memberships)
   lider1/2 : líderes wsA (subordinados diretos de coord_a via RPC)
   tec1     : técnico wsA na equipe do lider1
   tec2     : técnico wsA solto (sem gestor)
@@ -124,7 +124,7 @@ SELECT set_config('request.jwt.claim.sub', '__COORD_A__'::text, true),
        set_config('request.jwt.claims',
          '{"sub":"__COORD_A__","role":"authenticated"}'::jsonb::text, true);
 
--- ---------------- fixtures (fluxo real: signup + aprovação 041)
+-- ---------------- fixtures (signup + status/role; memberships diretas, 9.3-C)
 INSERT INTO public.workspaces (id, name, slug) VALUES
   ('__WS_A__', 'WS Alpha TEST', 'ws-alpha-test'),
   ('__WS_B__', 'WS Beta TEST',  'ws-beta-test');
@@ -132,15 +132,34 @@ INSERT INTO public.workspaces (id, name, slug) VALUES
 INSERT INTO auth.users (id, email) VALUES
   __USERS__;
 
-UPDATE public.profiles SET status='active', role='coordinator', workspace_ids=ARRAY['__WS_A__','__WS_B__']::uuid[] WHERE id='__COORD_A__';
-UPDATE public.profiles SET status='active', role='coordinator', workspace_ids=ARRAY['__WS_A__']::uuid[]          WHERE id='__COORD_B__';
-UPDATE public.profiles SET status='active', role='coordinator', workspace_ids=ARRAY[]::uuid[]                      WHERE id='__COORD_Z__';
-UPDATE public.profiles SET status='active', role='lider',       workspace_ids=ARRAY['__WS_A__']::uuid[]          WHERE id='__LIDER1__';
-UPDATE public.profiles SET status='active', role='lider',       workspace_ids=ARRAY['__WS_A__']::uuid[]          WHERE id='__LIDER2__';
-UPDATE public.profiles SET status='active', role='technician',  workspace_ids=ARRAY['__WS_A__']::uuid[]          WHERE id='__TEC1__';
-UPDATE public.profiles SET status='active', role='technician',  workspace_ids=ARRAY['__WS_A__']::uuid[]          WHERE id='__TEC2__';
-UPDATE public.profiles SET status='active', role='technician',  workspace_ids=ARRAY['__WS_B__']::uuid[]          WHERE id='__TECB__';
-UPDATE public.profiles SET status='active', role='technician',  workspace_ids=ARRAY['__WS_A__']::uuid[]          WHERE id='__USER_PLN__';
+UPDATE public.profiles SET status='active', role='coordinator' WHERE id='__COORD_A__';
+UPDATE public.profiles SET status='active', role='coordinator' WHERE id='__COORD_B__';
+UPDATE public.profiles SET status='active', role='coordinator' WHERE id='__COORD_Z__';
+UPDATE public.profiles SET status='active', role='lider'       WHERE id='__LIDER1__';
+UPDATE public.profiles SET status='active', role='lider'       WHERE id='__LIDER2__';
+UPDATE public.profiles SET status='active', role='technician'  WHERE id='__TEC1__';
+UPDATE public.profiles SET status='active', role='technician'  WHERE id='__TEC2__';
+UPDATE public.profiles SET status='active', role='technician'  WHERE id='__TECB__';
+UPDATE public.profiles SET status='active', role='technician'  WHERE id='__USER_PLN__';
+
+-- Memberships diretas (9.3-C: sem trigger 041; mesmo conjunto de antes).
+-- coord_z fica sem membership (coordenador sem unidade).
+INSERT INTO public.memberships (profile_id, workspace_id, role_id, status)
+SELECT v.pid::uuid, v.ws::uuid, r.id, 'active'
+FROM (VALUES
+  ('__COORD_A__', '__WS_A__', 'coordinator'),
+  ('__COORD_A__', '__WS_B__', 'coordinator'),
+  ('__COORD_B__', '__WS_A__', 'coordinator'),
+  ('__LIDER1__',  '__WS_A__', 'lider'),
+  ('__LIDER2__',  '__WS_A__', 'lider'),
+  ('__TEC1__',    '__WS_A__', 'tec'),
+  ('__TEC2__',    '__WS_A__', 'tec'),
+  ('__TECB__',    '__WS_B__', 'tec'),
+  ('__USER_PLN__','__WS_A__', 'tec')
+) AS v(pid, ws, slug)
+JOIN public.roles r ON r.slug = v.slug
+ON CONFLICT (profile_id, workspace_id) DO UPDATE SET
+  role_id = EXCLUDED.role_id, status = 'active', updated_at = now();
 
 INSERT INTO _m(key, mid)
 SELECT s.key, m.id
