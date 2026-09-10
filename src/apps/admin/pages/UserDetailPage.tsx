@@ -135,14 +135,18 @@ export function UserDetailPage() {
   }
 
   async function toggleWorkspace(userId: string, workspaceId: string) {
-    if (!person) return
+    if (!person || person.membershipsLoaded !== true) return
     setSaving(true)
-    const current = person.workspace_ids || []
+    const current = (person.memberships ?? [])
+      .filter((m) => m.status === 'active')
+      .map((m) => m.workspace_id)
     const has = current.includes(workspaceId)
     const newIds = has ? current.filter((id) => id !== workspaceId) : [...current, workspaceId]
-    const success = await adminService.updateUserWorkspaces(userId, newIds)
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, workspace_ids: newIds } : u))
+    // Escrita atômica via servidor (9.2-C); o retorno já traz as memberships.
+    const rows = await adminService.setUserMemberships(userId, newIds, person.roleId)
+    if (rows) {
+      const mirror = rows.filter((m) => m.status === 'active').map((m) => m.workspace_id)
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, workspace_ids: mirror, memberships: rows, membershipsLoaded: true } : u))
       setFeedback({ type: 'success', message: has ? 'Acesso removido' : 'Acesso concedido' })
     } else {
       setFeedback({ type: 'error', message: 'Erro ao atualizar workspaces' })
