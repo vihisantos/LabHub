@@ -1,5 +1,5 @@
 import type { Role, AppAccessLevel, AppAccessOverride } from './types'
-import { DEFAULT_ROLES, resolveRoleId } from './types'
+import { DEFAULT_ROLES, LeadershipLevel, resolveRoleId } from './types'
 import { createSyncService } from '../../lib/sync'
 import { authService } from '../auth/service'
 
@@ -62,6 +62,15 @@ export const permissionService = {
       if (!role.key) patch.key = keyFor(role)
       if (!role.appAccess || Object.keys(role.appAccess).length === 0) {
         patch.appAccess = defaultAccessFor(role)
+      }
+      // Backfill Fase 4/5: classificação de liderança ausente volta ao canônico
+      // (cargo default) ou a executante (custom) — fail-closed, nunca sobrescreve
+      // valor explícito.
+      if (role.isLeadership === undefined) {
+        patch.isLeadership = DEFAULT_ROLES.find((d) => d.id === role.id)?.isLeadership ?? false
+      }
+      if (role.leadershipLevel === undefined) {
+        patch.leadershipLevel = DEFAULT_ROLES.find((d) => d.id === role.id)?.leadershipLevel ?? LeadershipLevel.None
       }
       if (Object.keys(patch).length > 0) service.update(role.id, patch)
     }
