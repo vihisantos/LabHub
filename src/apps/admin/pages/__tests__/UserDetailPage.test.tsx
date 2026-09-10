@@ -58,6 +58,7 @@ vi.mock('../../../../core/memberships/service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../core/memberships/service')>()
   return {
     ...actual,
+    membershipService: { ...actual.membershipService, getByUser: mockGetByUser },
     attachMemberships: async (users: any[]) =>
       Promise.all(
         users.map(async (u) => {
@@ -133,6 +134,12 @@ describe('UserDetailPage', () => {
     mockAdminService.listAllProfiles.mockResolvedValue([activeUser])
     mockMembershipsFromFixtures([activeUser])
     mockAdminService.updateUserProfile.mockResolvedValue(true)
+    mockAdminService.setUserMemberships.mockResolvedValue([
+      {
+        id: 'm-u-123-ws-mooca', profile_id: 'u-123', workspace_id: 'ws-mooca',
+        role_id: 'r-b', status: 'active', managed_by: null, created_at: '', updated_at: '',
+      },
+    ])
     mockAdminService.setUserMemberships.mockResolvedValue([])
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
     vi.mocked(logService.getByUser).mockReturnValue([])
@@ -184,7 +191,27 @@ describe('UserDetailPage', () => {
     await waitFor(() => {
       expect(mockAdminService.updateUserProfile).toHaveBeenCalledWith('u-123', { roleId: 'role-viewer' })
     })
+    // Propaga às memberships via endpoint (9.3-C: sem trigger)
+    await waitFor(() => {
+      expect(mockAdminService.setUserMemberships).toHaveBeenCalledWith('u-123', ['ws-mooca'], 'role-viewer')
+    })
     expect(screen.getByText('Cargo alterado para Visualizador')).toBeInTheDocument()
+  })
+
+  it('falha na propagação mantém o cargo e avisa para tentar de novo', async () => {
+    mockAdminService.setUserMemberships.mockResolvedValue(null)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Visualizador' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Cargo salvo, mas memberships não propagadas — tente de novo')).toBeInTheDocument()
+    })
   })
 
   it('mostra aprovação/rejeição para usuário pendente', async () => {

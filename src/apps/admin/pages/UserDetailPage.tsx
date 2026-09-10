@@ -9,7 +9,7 @@ import { useRoles } from '../../../core/permissions/usePermissions'
 import { roleBadgeClass, APP_ACCESS_LABELS } from '../../../core/permissions/types'
 import type { AppAccessOverride } from '../../../core/permissions/types'
 import { logService } from '../../../core/logs/service'
-import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
+import { attachMemberships, isActiveMember, membershipService } from '../../../core/memberships/service'
 import { appRegistry } from '../../../appRegistry'
 import { ApproveUserModal } from '../components/ApproveUserModal'
 import { PersonAvatar, statusStyle, formatAge } from '../components/personShared'
@@ -122,13 +122,35 @@ export function UserDetailPage() {
   }
 
   async function handleRoleChange(userId: string, newRoleId: string) {
+    if (!person) return
     setSaving(true)
-    const success = await adminService.updateUserProfile(userId, { roleId: newRoleId })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, roleId: newRoleId } : u))
+    const okProfile = await adminService.updateUserProfile(userId, { roleId: newRoleId })
+    if (!okProfile) {
+      setFeedback({ type: 'error', message: 'Erro ao atualizar cargo' })
+      setSaving(false)
+      setTimeout(() => setFeedback(null), 3000)
+      return
+    }
+    // Propaga o cargo às memberships via endpoint 052 (9.3-C: sem trigger).
+    // Endpoint por último vence com ou sem trigger ativo (idempotente).
+    let rows = null
+    try {
+      const current = await membershipService.getByUser(userId)
+      const ws = [...new Set(
+        current.filter((m) => m.status === 'active').map((m) => m.workspace_id),
+      )]
+      rows = await adminService.setUserMemberships(userId, ws, newRoleId)
+    } catch {
+      rows = null
+    }
+    if (rows) {
+      setUsers((prev) => prev.map((u) => u.id === userId
+        ? { ...u, roleId: newRoleId, workspace_ids: rows.filter((m) => m.status === 'active').map((m) => m.workspace_id), memberships: rows, membershipsLoaded: true }
+        : u))
       setFeedback({ type: 'success', message: `Cargo alterado para ${roleList.find((r) => r.id === newRoleId)?.name ?? 'novo cargo'}` })
     } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar cargo' })
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, roleId: newRoleId } : u))
+      setFeedback({ type: 'error', message: 'Cargo salvo, mas memberships não propagadas — tente de novo' })
     }
     setSaving(false)
     setTimeout(() => setFeedback(null), 3000)
