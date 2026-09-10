@@ -3872,6 +3872,71 @@ def admin_workspace_delete_with_backup(workspace_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
+# ── Admin: memberships do usuário (RBAC 2.0 9.2-C) ──
+
+# Cargo do frontend (roleId) → slug estável de public.roles. Cargos
+# personalizados não têm representação no servidor (o trigger 041 também os
+# ignora) — nesses casos o endpoint responde 400 em vez de atribuir errado.
+_ROLE_ID_TO_SLUG = {
+    'role-technician': 'tec',
+    'role-viewer': 'vis',
+    'role-admin': 'adm',
+    'role-coordinator': 'coordinator',
+    'role-lider': 'lider',
+}
+
+
+@app.route('/api/admin/users/<user_id>/memberships', methods=['POST'])
+@require_auth
+@require_admin
+def admin_set_user_memberships(user_id):
+    """Define os workspaces de um usuário de forma ATÔMICA (migration 052).
+
+    Body: {"workspace_ids": [uuid...], "role": "role-technician"}.
+    Executa admin_set_user_memberships via RPC (service_role): memberships +
+    espelho profiles.workspace_ids na mesma transação; managed_by preservado,
+    concessões reativadas como active. Super-admin-only (plataforma).
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not user_id or not _UUID_RE.match(user_id):
+        return jsonify({'error': 'ID de usuário inválido'}), 400
+    try:
+        body = request.get_json(silent=True) or {}
+        workspace_ids = body.get('workspace_ids') or []
+        if not isinstance(workspace_ids, list) or any(
+            not isinstance(w, str) or not _UUID_RE.match(w) for w in workspace_ids
+        ):
+            return jsonify({'error': 'workspace_ids inválidos'}), 400
+        slug = _ROLE_ID_TO_SLUG.get(str(body.get('role') or ''))
+        if not slug:
+            return jsonify({'error': 'Cargo desconhecido ou sem representação no servidor'}), 400
+
+        resp = _rpc('admin_set_user_memberships', {
+            'p_user_id': user_id,
+            'p_workspace_ids': [str(w) for w in workspace_ids],
+            'p_role_slug': slug,
+        })
+        if resp.status_code != 200:
+            try:
+                msg = (resp.json() or {}).get('message') or ''
+            except Exception:
+                msg = ''
+            logger.error("[admin] set_memberships rpc %s: %s", resp.status_code, (resp.text or '')[:300])
+            if 'profile not found' in msg:
+                return jsonify({'error': 'Usuário não encontrado'}), 404
+            return jsonify({'error': 'Não foi possível gravar as memberships'}), 502
+        rows = resp.json() or []
+        return jsonify({
+            'ok': True,
+            'memberships': rows,
+            'workspace_ids': [r.get('workspace_id') for r in rows if r.get('workspace_id')],
+        })
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
 

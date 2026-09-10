@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 const mockAdminService = vi.hoisted(() => ({
   listAllProfiles: vi.fn(),
   updateUserProfile: vi.fn(),
-  updateUserWorkspaces: vi.fn(),
+  setUserMemberships: vi.fn(),
   rejectUser: vi.fn(),
 }))
 
@@ -129,7 +129,7 @@ describe('UserDetailPage', () => {
     mockAdminService.listAllProfiles.mockResolvedValue([activeUser])
     mockMembershipsFromWorkspaceIds([activeUser])
     mockAdminService.updateUserProfile.mockResolvedValue(true)
-    mockAdminService.updateUserWorkspaces.mockResolvedValue(true)
+    mockAdminService.setUserMemberships.mockResolvedValue([])
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
     vi.mocked(logService.getByUser).mockReturnValue([])
   })
@@ -222,5 +222,38 @@ describe('UserDetailPage', () => {
     const byFullText = (t: string) => (_c: string, el: Element | null) => el?.textContent === t
     expect(screen.getByText(byFullText('Workspaces (… de 1)'))).toBeInTheDocument()
     expect(screen.getByText('Carregando workspaces…')).toBeInTheDocument()
+  })
+
+  it('toggle chama o endpoint atômico e atualiza a exibição', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+
+    // Maria tem membership ativa em ws-mooca → toggle remove
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
+
+    await waitFor(() => {
+      expect(mockAdminService.setUserMemberships).toHaveBeenCalledWith('u-123', [], 'role-technician')
+    })
+    expect(screen.getByText('Acesso removido')).toBeInTheDocument()
+  })
+
+  it('toggle com falha mostra erro e mantém a exibição', async () => {
+    mockAdminService.setUserMemberships.mockResolvedValue(null)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Erro ao atualizar workspaces')).toBeInTheDocument()
+    })
   })
 })
