@@ -68,12 +68,14 @@ function membershipRows(userId: string, wsIds: string[]) {
 
 const userA = {
   id: 'u-a', name: 'Ana', email: 'a@x.com', roleId: 'role-technician',
-  status: 'active', is_super_admin: false, workspace_ids: ['ws-a'],
+  status: 'active', is_super_admin: false, workspace_ids: [],
+  memberships: membershipRows('u-a', ['ws-a']), membershipsLoaded: true,
   accent: 'blue', theme_variant: 'dark', created_at: '', updated_at: '',
 }
 const userB = {
   id: 'u-b', name: 'Beto', email: 'b@x.com', roleId: 'role-technician',
-  status: 'active', is_super_admin: false, workspace_ids: ['ws-b'],
+  status: 'active', is_super_admin: false, workspace_ids: [],
+  memberships: membershipRows('u-b', ['ws-b']), membershipsLoaded: true,
   accent: 'blue', theme_variant: 'dark', created_at: '', updated_at: '',
 }
 
@@ -90,7 +92,7 @@ beforeEach(() => {
   mockAdminService.listAllProfiles.mockResolvedValue([userA, userB])
   mockGetByUser.mockImplementation(async (userId: string) => {
     const u = [userA, userB].find((x) => x.id === userId)
-    return membershipRows(userId, u?.workspace_ids ?? [])
+    return (u?.memberships ?? []) as never[]
   })
 })
 

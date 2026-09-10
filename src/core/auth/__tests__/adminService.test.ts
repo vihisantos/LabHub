@@ -192,13 +192,12 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
   })
 
   describe('updateUserProfile', () => {
-    it('converte roleId → role e mantém os demais campos', async () => {
+    it('converte roleId → role e mantém os demais campos (sem workspace_ids: 9.3-B)', async () => {
       const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
 
       const ok = await adminService.updateUserProfile('u-1', {
         roleId: 'role-admin',
         name: 'Novo Nome',
-        workspace_ids: ['ws-1'],
         is_super_admin: true,
       })
 
@@ -207,9 +206,9 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       expect(payload).toMatchObject({
         role: 'admin',
         name: 'Novo Nome',
-        workspace_ids: ['ws-1'],
         is_super_admin: true,
       })
+      expect(payload).not.toHaveProperty('workspace_ids')
       expect(payload.roleId).toBeUndefined()
     })
 
@@ -218,14 +217,13 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
 
       const ok = await adminService.updateUserProfile('u-1', {
         roleId: 'role-coordinator',
-        workspace_ids: ['ws-a', 'ws-b'],
       })
 
       expect(ok).toBe(true)
       const [payload] = chain.update.mock.calls[0]
       expect(payload.role).toBe('coordinator')
       expect(payload.roleId).toBeUndefined()
-      expect(payload.workspace_ids).toEqual(['ws-a', 'ws-b'])
+      expect(payload).not.toHaveProperty('workspace_ids')
     })
   })
 })

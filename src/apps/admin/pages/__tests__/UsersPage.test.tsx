@@ -96,7 +96,7 @@ vi.mock('../../../../core/memberships/service', async (importOriginal) => {
   }
 })
 
-function membershipRows(userId: string, wsIds: string[]) {
+function membershipRows(userId: string, wsIds: string[]): Membership[] {
   return wsIds.map((ws) => ({
     id: `m-${userId}-${ws}`,
     profile_id: userId,
@@ -106,18 +106,21 @@ function membershipRows(userId: string, wsIds: string[]) {
     managed_by: null,
     created_at: '',
     updated_at: '',
-  }))
+  })) as Membership[]
 }
 
-function mockMembershipsFromWorkspaceIds(users: { id: string; workspace_ids?: string[] }[]) {
+// Fixtures carregam memberships diretas (9.3-B); workspace_ids fica só pelo
+// tipo User (coluna sai na 9.3-F) e nunca decide.
+function mockMembershipsFromFixtures(users: { id: string; memberships?: unknown[] }[]) {
   mockGetByUser.mockImplementation(async (userId: string) => {
     const u = users.find((x) => x.id === userId)
-    return membershipRows(userId, u?.workspace_ids ?? [])
+    return (u?.memberships ?? []) as never[]
   })
 }
 
 import { UsersPage } from '../UsersPage'
 import type { User } from '../../../../core/auth/types'
+import type { Membership } from '../../../../core/memberships/types'
 
 const pendingUser: User = {
   id: 'u-123',
@@ -150,7 +153,7 @@ describe('UsersPage deep link (aprovação)', () => {
     vi.useRealTimers()
     currentSearchParams = new URLSearchParams()
     mockAdminService.listAllProfiles.mockResolvedValue([pendingUser])
-    mockMembershipsFromWorkspaceIds([pendingUser])
+    mockMembershipsFromFixtures([pendingUser])
     mockAdminService.approveUser.mockResolvedValue(true)
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
   })
@@ -223,7 +226,9 @@ describe('UsersPage listagem (Pessoas)', () => {
     email: 'maria@mooca.edu.br',
     status: 'active',
     roleId: 'role-technician',
-    workspace_ids: ['ws-mooca'],
+    workspace_ids: [],
+    memberships: membershipRows('u-mooca', ['ws-mooca']),
+    membershipsLoaded: true,
   }
   const sjcUser: User = {
     ...pendingUser,
@@ -232,7 +237,9 @@ describe('UsersPage listagem (Pessoas)', () => {
     email: 'jose@sjc.edu.br',
     status: 'active',
     roleId: 'role-technician',
-    workspace_ids: ['ws-sjc'],
+    workspace_ids: [],
+    memberships: membershipRows('u-sjc', ['ws-sjc']),
+    membershipsLoaded: true,
   }
   const unassignedUser: User = {
     ...pendingUser,
@@ -242,6 +249,8 @@ describe('UsersPage listagem (Pessoas)', () => {
     status: 'active',
     roleId: 'role-viewer',
     workspace_ids: [],
+    memberships: [],
+    membershipsLoaded: true,
   }
   const superAdminUser: User = {
     ...pendingUser,
@@ -252,6 +261,8 @@ describe('UsersPage listagem (Pessoas)', () => {
     roleId: 'role-technician',
     is_super_admin: true,
     workspace_ids: [],
+    memberships: [],
+    membershipsLoaded: true,
   }
 
   beforeEach(() => {
@@ -260,7 +271,7 @@ describe('UsersPage listagem (Pessoas)', () => {
     currentSearchParams = new URLSearchParams()
     mockWorkspaceCtx.workspace = null
     mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser, unassignedUser, superAdminUser])
-    mockMembershipsFromWorkspaceIds([moocaUser, sjcUser, unassignedUser, superAdminUser])
+    mockMembershipsFromFixtures([moocaUser, sjcUser, unassignedUser, superAdminUser])
     mockAdminService.approveUser.mockResolvedValue(true)
     mockAdminService.rejectUser.mockResolvedValue(true)
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
@@ -350,7 +361,8 @@ describe('UsersPage listagem (Pessoas)', () => {
     mockGetByUser.mockImplementation(async (userId: string) => {
       if (userId === 'u-mooca') return membershipRows(userId, ['ws-sjc'])
       const u = [sjcUser, unassignedUser, superAdminUser].find((x) => x.id === userId)
-      return membershipRows(userId, u?.workspace_ids ?? [])
+      const ws = ((u?.memberships ?? []) as { workspace_id: string }[]).map((m) => m.workspace_id)
+      return membershipRows(userId, ws)
     })
     mockWorkspaceCtx.workspace = workspaces[0] // Campus Mooca
 

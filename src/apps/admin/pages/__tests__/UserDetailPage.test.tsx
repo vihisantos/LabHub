@@ -72,19 +72,10 @@ vi.mock('../../../../core/memberships/service', async (importOriginal) => {
   }
 })
 
-function mockMembershipsFromWorkspaceIds(users: { id: string; workspace_ids?: string[] }[]) {
+function mockMembershipsFromFixtures(users: { id: string; memberships?: unknown[] }[]) {
   mockGetByUser.mockImplementation(async (userId: string) => {
     const u = users.find((x) => x.id === userId)
-    return (u?.workspace_ids ?? []).map((ws) => ({
-      id: `m-${userId}-${ws}`,
-      profile_id: userId,
-      workspace_id: ws,
-      role_id: 'r-a',
-      status: 'active',
-      managed_by: null,
-      created_at: '',
-      updated_at: '',
-    }))
+    return (u?.memberships ?? []) as never[]
   })
 }
 
@@ -103,7 +94,20 @@ const activeUser: User = {
   name: 'Maria Mooca',
   roleId: 'role-technician',
   status: 'active',
-  workspace_ids: ['ws-mooca'],
+  workspace_ids: [],
+  memberships: [
+    {
+      id: 'm-u-123-ws-mooca',
+      profile_id: 'u-123',
+      workspace_id: 'ws-mooca',
+      role_id: 'r-a',
+      status: 'active',
+      managed_by: null,
+      created_at: '',
+      updated_at: '',
+    },
+  ],
+  membershipsLoaded: true,
   accent: 'emerald',
   theme_variant: 'dark',
   created_at: '2024-01-10T00:00:00.000Z',
@@ -127,7 +131,7 @@ describe('UserDetailPage', () => {
     vi.clearAllMocks()
     vi.useRealTimers()
     mockAdminService.listAllProfiles.mockResolvedValue([activeUser])
-    mockMembershipsFromWorkspaceIds([activeUser])
+    mockMembershipsFromFixtures([activeUser])
     mockAdminService.updateUserProfile.mockResolvedValue(true)
     mockAdminService.setUserMemberships.mockResolvedValue([])
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
