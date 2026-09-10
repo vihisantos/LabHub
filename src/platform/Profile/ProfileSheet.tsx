@@ -15,6 +15,7 @@ import { AvatarIcon } from './UserAvatar'
 import { SecuritySheet } from './SecuritySheet'
 import { usePushNotifications } from '../../lib/usePushNotifications'
 import { buildPushUser } from '../../lib/buildPushUser'
+import { defaultDb as supabase } from '../../lib/supabase'
 
 interface ProfileSheetProps {
   open: boolean
@@ -40,6 +41,40 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
     '/api/push/subscribe',
     pushUser,
   )
+  const [testingPush, setTestingPush] = useState(false)
+  const [pushTestResult, setPushTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const pushActive = subscribed && permission === 'granted'
+
+  async function handleTestPush() {
+    setTestingPush(true)
+    setPushTestResult(null)
+    try {
+      if (!supabase) throw new Error('Supabase não configurado')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Sessão expirada. Faça login novamente.')
+      const res = await fetch('/api/chamados/push/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao enviar a notificação de teste')
+      if (data.total === 0) {
+        setPushTestResult({ ok: false, message: data.message || 'Nenhuma inscrição encontrada para este usuário' })
+      } else if (data.sent > 0) {
+        setPushTestResult({ ok: true, message: `Push de teste enviado (${data.sent}/${data.total}) — confira a notificação!` })
+      } else {
+        setPushTestResult({ ok: false, message: 'O envio falhou. Verifique as permissões do navegador.' })
+      }
+    } catch (e) {
+      setPushTestResult({ ok: false, message: e instanceof Error ? e.message : 'Erro ao testar a notificação' })
+    } finally {
+      setTestingPush(false)
+    }
+  }
 
   if (!user) return null
 
@@ -359,8 +394,23 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                         {permission === 'denied' ? 'Reativar' : 'Ativar'}
                       </button>
                     )}
+                    {!pushLoading && supported && pushActive && (
+                      <button
+                        type="button"
+                        onClick={handleTestPush}
+                        disabled={testingPush}
+                        className="shrink-0 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-input disabled:opacity-60"
+                      >
+                        {testingPush ? 'Enviando…' : 'Testar notificação'}
+                      </button>
+                    )}
                   </div>
                   {pushError && <p className="mt-2 text-[11px] text-red-500">{pushError}</p>}
+                  {pushTestResult && (
+                    <p className={`mt-2 text-[11px] ${pushTestResult.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                      {pushTestResult.message}
+                    </p>
+                  )}
                 </div>
 
                 {/* Workspace switch */}

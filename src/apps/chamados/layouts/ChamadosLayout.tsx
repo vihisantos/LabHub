@@ -12,7 +12,6 @@ import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 function getPageTitle(pathname: string): string {
   if (pathname === '/chamados' || pathname.startsWith('/chamados/dashboard')) return 'Dashboard'
   if (pathname.startsWith('/chamados/tickets')) return 'Chamados'
-  if (pathname.startsWith('/chamados/qr')) return 'QR Code'
   if (pathname.startsWith('/chamados/reports')) return 'Relatórios'
   if (pathname.startsWith('/chamados/ranking')) return 'Ranking de Salas'
   if (pathname.startsWith('/chamados/settings')) return 'Configurações'

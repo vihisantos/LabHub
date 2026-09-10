@@ -121,7 +121,6 @@ const LOCAL_ONLY_COLLECTIONS = [
   'assets',
   'chamados',
   'rooms',
-  'problem_templates',
   'sla_configs',
   'audit_logs',
   'user_profiles',

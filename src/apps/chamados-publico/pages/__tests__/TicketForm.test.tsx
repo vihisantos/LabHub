@@ -7,7 +7,6 @@ vi.mock('../../../../core/workspaces/store', () => ({
 }))
 vi.mock('../../../chamados/services/roomService', () => ({ roomService: { getAllUnfiltered: vi.fn() } }))
 vi.mock('../../../chamados/hooks/useRoomAssets', () => ({ useRoomAssets: vi.fn() }))
-vi.mock('../../../chamados/hooks/useProblemTemplates', () => ({ useProblemTemplates: vi.fn() }))
 vi.mock('../../../chamados/services/ticketService', () => ({
   ticketService: { createWithToken: vi.fn(), create: vi.fn(), getOpenByAsset: vi.fn().mockReturnValue([]) },
 }))
@@ -35,7 +34,6 @@ vi.mock('react-router-dom', async () => {
 import { usePublicWorkspaces } from '../../hooks/usePublicWorkspaces'
 import { roomService } from '../../../chamados/services/roomService'
 import { useRoomAssets } from '../../../chamados/hooks/useRoomAssets'
-import { useProblemTemplates } from '../../../chamados/hooks/useProblemTemplates'
 import { ticketService } from '../../../chamados/services/ticketService'
 import { TicketForm } from '../TicketForm'
 
@@ -74,9 +72,6 @@ describe('TicketForm (campus)', () => {
     })
     ;(roomService.getAllUnfiltered as any).mockReturnValue(ROOMS)
     ;(useRoomAssets as any).mockReturnValue({ assets: [ASSET] })
-    ;(useProblemTemplates as any).mockReturnValue({
-      getByAssetType: () => ({ categories: ['Internet', 'Outro'] }),
-    })
     ;(ticketService.createWithToken as any).mockResolvedValue({
       ticket: { id: 't-1', ticketNumber: 1 },
       trackingToken: 'tok-123',
@@ -101,7 +96,7 @@ describe('TicketForm (campus)', () => {
     renderForm()
 
     fireEvent.click(screen.getByText('Campus A'))
-    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.click(screen.getByText('Outro'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
@@ -119,7 +114,7 @@ describe('TicketForm (campus)', () => {
     renderForm()
 
     fireEvent.click(screen.getByText('Campus A'))
-    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.click(screen.getByText('Outro'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
     fireEvent.change(screen.getByPlaceholderText(/O computador não liga/i), {
       target: { value: 'PC não liga após queda de luz' },
@@ -139,7 +134,7 @@ describe('TicketForm (campus)', () => {
         assetSource: 'stock',
         assetName: 'PC Aluno 01',
         assetPatrimony: 'P-001',
-        problemCategory: 'Internet',
+        problemCategory: 'Outro',
         problemDescription: 'PC não liga após queda de luz',
         reportedBy: 'Prof. Maria',
         status: 'aberto',
@@ -152,7 +147,7 @@ describe('TicketForm (campus)', () => {
     mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock' })
     renderForm()
 
-    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.click(screen.getByText('Outro'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
     const submit = screen.getByRole('button', { name: 'Abrir Chamado' })
@@ -170,7 +165,7 @@ describe('TicketForm (campus)', () => {
     mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock' })
     renderForm()
 
-    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.click(screen.getByText('Outro'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
     // Sem ?workspace= e sem workspace na sala, o campus fica vazio
@@ -195,7 +190,7 @@ describe('TicketForm (campus)', () => {
     mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock', workspace: 'ws-deletado' })
     renderForm()
 
-    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.click(screen.getByText('Outro'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
     // Campus da URL não existe → o chamado NÃO vai para ele; a sala manda (WS_B)
@@ -215,7 +210,7 @@ describe('TicketForm (campus)', () => {
     mockSearchParams.setParams({ room: 'r1', asset: 'pc-1', source: 'stock', workspace: 'ws-deletado' })
     renderForm()
 
-    fireEvent.click(screen.getByText('Internet'))
+    fireEvent.click(screen.getByText('Outro'))
     fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. Maria' } })
 
     // Sem fonte confiável (URL inválida + sala sem workspace) → campus vazio

@@ -7,7 +7,6 @@ export interface HasWorkspaceId {
 
 export interface DuplicateStructureResult {
   rooms: number
-  problemTemplates: number
   checklistTemplates: number
 }
 
@@ -18,12 +17,11 @@ type StructureSource = {
 
 const STRUCTURE_SOURCES: StructureSource[] = [
   { collection: 'rooms', uniqueKey: (r) => String((r as any).name || r.id) },
-  { collection: 'problem_templates', uniqueKey: (t) => String((t as any).assetType || t.id) },
   { collection: 'checklist_templates', uniqueKey: (t) => String((t as any).name || t.id) },
 ]
 
 /**
- * Copia a estrutura (salas, categorias de problema, templates de checklist)
+ * Copia a estrutura (salas, templates de checklist)
  * de um workspace de origem para um de destino.
  * - Só itens explicitamente vinculados ao workspace de origem são copiados
  *   (itens globais, sem workspace_id, já aparecem em todos os ambientes).
@@ -34,7 +32,7 @@ export function duplicateWorkspaceStructure(
   sourceWorkspaceId: string,
   targetWorkspaceId: string,
 ): DuplicateStructureResult {
-  const result: DuplicateStructureResult = { rooms: 0, problemTemplates: 0, checklistTemplates: 0 }
+  const result: DuplicateStructureResult = { rooms: 0, checklistTemplates: 0 }
 
   for (const source of STRUCTURE_SOURCES) {
     const all = getCol<HasWorkspaceId>(source.collection)
@@ -62,7 +60,6 @@ export function duplicateWorkspaceStructure(
 
     if (copied > 0) setCol(source.collection, all)
     if (source.collection === 'rooms') result.rooms = copied
-    if (source.collection === 'problem_templates') result.problemTemplates = copied
     if (source.collection === 'checklist_templates') result.checklistTemplates = copied
   }
 

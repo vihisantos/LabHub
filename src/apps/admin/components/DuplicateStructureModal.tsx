@@ -13,7 +13,6 @@ interface DuplicateStructureModalProps {
 
 interface Result {
   rooms: number
-  problemTemplates: number
   checklistTemplates: number
 }
 
@@ -44,7 +43,7 @@ export function DuplicateStructureModal({ open, target, workspaces, onClose }: D
   }
 
   const total = result
-    ? result.rooms + result.problemTemplates + result.checklistTemplates
+    ? result.rooms + result.checklistTemplates
     : 0
 
   return (
@@ -132,7 +131,6 @@ export function DuplicateStructureModal({ open, target, workspaces, onClose }: D
                   <p className="text-sm font-semibold text-fg">{total} itens copiados</p>
                   <div className="mt-2 space-y-1 text-xs text-fg-muted">
                     <p>• Salas: {result.rooms}</p>
-                    <p>• Categorias de problema: {result.problemTemplates}</p>
                     <p>• Templates de checklist: {result.checklistTemplates}</p>
                   </div>
                   {total === 0 && (

@@ -47,7 +47,6 @@ const roles = [
     name: 'Técnico',
     description: 'Acesso aos aplicativos de operação',
     appAccess: { 'pc-care': 'full', stock: 'full' },
-    manageQr: true,
     isDefault: false,
     leaderId: null,
   },
@@ -57,7 +56,6 @@ const roles = [
     name: 'Visualizador',
     description: 'Somente leitura',
     appAccess: {},
-    manageQr: false,
     isDefault: true,
     leaderId: null,
   },
@@ -250,7 +248,7 @@ describe('RolesPage — criar cargo', () => {
     fireEvent.click(screen.getByText('Criar cargo'))
 
     expect(mockUseRoles.create).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Consultor', appAccess: {}, manageQr: false, isDefault: false }),
+      expect.objectContaining({ name: 'Consultor', appAccess: {}, isDefault: false }),
     )
   })
 })
@@ -262,7 +260,6 @@ describe('RolesPage — excluir cargo', () => {
     name: 'Consultor',
     description: 'Cargo personalizado de teste',
     appAccess: {},
-    manageQr: false,
     isDefault: false,
     leaderId: null,
   }
