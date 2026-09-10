@@ -258,6 +258,11 @@ def _setup_auth(fake_requests, monkeypatch, profile):
     monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": profile["id"]})
     fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
     fake_requests.route("GET", "/auth/v1/user", FakeResponse({"id": profile["id"]}))
+    auth_mod = sys.modules.get("auth")
+    if auth_mod is not None:
+        monkeypatch.setattr(auth_mod, "requests", fake_requests)
+        monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
+        monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     return {"Authorization": f"Bearer {_make_jwt({'sub': profile['id']})}"}
 
 
@@ -301,6 +306,7 @@ def test_provision_with_login_super_admin(client, fake_requests, monkeypatch):
 
 def test_provision_with_login_member_of_workspace(client, fake_requests, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
     _route_provision_backend(fake_requests)
     res = client.post(
         "/api/tv/devices/provision",
@@ -312,6 +318,7 @@ def test_provision_with_login_member_of_workspace(client, fake_requests, monkeyp
 
 def test_provision_with_login_member_other_workspace_forbidden(client, fake_requests, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
     res = client.post(
         "/api/tv/devices/provision",
         json={"workspace_id": "ws-outro", "device_id": DEVICE_ID},
@@ -327,3 +334,71 @@ def test_provision_requires_auth(client):
         json={"workspace_id": "ws-a", "device_id": DEVICE_ID},
     )
     assert res.status_code == 401
+
+
+# ── Provision/activation decidem por memberships (9.2-D.1-TV) ─────────────────
+
+def _memberships(fake_requests, uid, ws_ids):
+    fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
+        {"profile_id": uid, "workspace_id": w, "status": "active"} for w in ws_ids
+    ]))
+
+
+def test_provision_segue_memberships_nao_a_coluna(client, fake_requests, monkeypatch):
+    """Legado diz ws-a, membership ativa é ws-b → ws-b permite, ws-a nega."""
+    profile = dict(MEMBER_PROFILE, workspace_ids=["ws-a"])
+    headers = _setup_auth(fake_requests, monkeypatch, profile)
+    _memberships(fake_requests, profile["id"], ["ws-b"])
+    _route_provision_backend(fake_requests)
+    ok = client.post(
+        "/api/tv/devices/provision",
+        json={"workspace_id": "ws-b", "device_id": DEVICE_ID},
+        headers=headers,
+    )
+    assert ok.status_code == 200
+    denied = client.post(
+        "/api/tv/devices/provision",
+        json={"workspace_id": "ws-a", "device_id": DEVICE_ID},
+        headers=headers,
+    )
+    assert denied.status_code == 403
+
+
+def test_provision_sem_membership_nega_mesmo_com_coluna(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], [])
+    res = client.post(
+        "/api/tv/devices/provision",
+        json={"workspace_id": "ws-a", "device_id": DEVICE_ID},
+        headers=headers,
+    )
+    assert res.status_code == 403
+    assert not fake_requests.calls_for("POST", "/auth/v1/admin/users")
+
+
+def test_activation_create_usa_primeira_membership_ativa(client, fake_requests, monkeypatch):
+    """Código vinculado ao workspace da membership, não ao da coluna."""
+    profile = dict(MEMBER_PROFILE, workspace_ids=["ws-legado"])
+    headers = _setup_auth(fake_requests, monkeypatch, profile)
+    _memberships(fake_requests, profile["id"], ["ws-b"])
+    fake_requests.route(
+        "GET", "/rest/v1/workspaces",
+        FakeResponse([{"id": "ws-b", "name": "WS B", "slug": "b"}]),
+    )
+    fake_requests.route(
+        "POST", "/rest/v1/tv_activation_codes",
+        FakeResponse([{"code": "ABC123", "expires_at": "2026-01-01T00:00:00Z"}]),
+    )
+    res = client.post("/api/tv/activation/create", json={}, headers=headers)
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["workspace_id"] == "ws-b"
+    posts = fake_requests.calls_for("POST", "/rest/v1/tv_activation_codes")
+    assert posts and posts[0]["kwargs"]["json"]["workspace_id"] == "ws-b"
+
+
+def test_activation_create_sem_membership_retorna_400(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], [])
+    res = client.post("/api/tv/activation/create", json={}, headers=headers)
+    assert res.status_code == 400

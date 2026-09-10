@@ -37,6 +37,43 @@ vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
   useWorkspace: () => ({ workspace: mockWorkspaceCtx.workspace }),
 }))
 
+const mockGetByUser = vi.hoisted(() => vi.fn())
+
+// Isola a leitura de memberships (RLS); funções puras seguem reais.
+vi.mock('../../../../core/memberships/service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../core/memberships/service')>()
+  return {
+    ...actual,
+    attachMemberships: async (users: any[]) =>
+      Promise.all(
+        users.map(async (u) => {
+          try {
+            const rows = await mockGetByUser(u.id)
+            return { ...u, memberships: rows, membershipsLoaded: true }
+          } catch {
+            return { ...u, membershipsLoaded: false }
+          }
+        }),
+      ),
+  }
+})
+
+function mockMembershipsFromWorkspaceIds(users: { id: string; workspace_ids?: string[] }[]) {
+  mockGetByUser.mockImplementation(async (userId: string) => {
+    const u = users.find((x) => x.id === userId)
+    return (u?.workspace_ids ?? []).map((ws) => ({
+      id: `m-${userId}-${ws}`,
+      profile_id: userId,
+      workspace_id: ws,
+      role_id: 'r-a',
+      status: 'active',
+      managed_by: null,
+      created_at: '',
+      updated_at: '',
+    }))
+  })
+}
+
 import { RolesPage } from '../RolesPage'
 import type { User } from '../../../../core/auth/types'
 
@@ -104,6 +141,7 @@ describe('RolesPage escopo por workspace', () => {
     mockAdminService.listAllProfiles.mockResolvedValue([
       moocaUser, sjcUser, unassignedUser, superAdminUser,
     ])
+    mockMembershipsFromWorkspaceIds([moocaUser, sjcUser, unassignedUser, superAdminUser])
   })
 
   it('mostra apenas os membros do workspace atual (admin absoluto e sem workspace sempre visíveis)', async () => {

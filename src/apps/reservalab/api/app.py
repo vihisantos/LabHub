@@ -29,6 +29,7 @@ from auth import (
     _verify_jwt,
     _get_token_from_request,
     _get_user_profile,
+    _get_user_workspace_ids,
     _get_workspace,
     _user_in_workspace,
     _is_module_enabled,
@@ -534,7 +535,7 @@ def push_subscribe():
                     f'{_SUPABASE_URL}/rest/v1/profiles',
                     params={
                         'id': f'eq.{user_id}',
-                        'select': 'role,is_super_admin,workspace_ids',
+                        'select': 'role,is_super_admin',
                     },
                     headers={
                         'apikey': _SUPABASE_SERVICE_KEY,
@@ -548,7 +549,9 @@ def push_subscribe():
                         p = rows[0]
                         server_user['role'] = p.get('role') or ''
                         server_user['is_super_admin'] = bool(p.get('is_super_admin'))
-                        server_user['workspace_ids'] = list(p.get('workspace_ids') or [])
+                        # Inscrição espelha memberships ativas (9.2-D.1); a coluna
+                        # legada nunca decide o targeting de push.
+                        server_user['workspace_ids'] = _get_user_workspace_ids(user_id)
             except Exception:
                 pass
 

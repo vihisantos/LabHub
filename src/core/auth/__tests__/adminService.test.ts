@@ -171,6 +171,24 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       expect(await adminService.setUserMemberships('u-1', ['ws-a'], 'role-technician')).toBeNull()
       expect(mockFetch).not.toHaveBeenCalled()
     })
+
+    it('nunca escreve memberships direto no client (só via RPC transacional)', async () => {
+      mockFrom.mockClear()
+      await adminService.setUserMemberships('u-1', ['ws-a'], 'role-technician')
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('memberships')
+    })
+
+    it('approveUser também nunca escreve memberships direto (só endpoint + PATCH status/cargo)', async () => {
+      makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+      mockFrom.mockClear()
+
+      await adminService.approveUser('u-1', { roleId: 'role-technician', workspace_ids: ['ws-a'] })
+
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('memberships')
+      expect(tables).toContain('profiles')
+    })
   })
 
   describe('updateUserProfile', () => {

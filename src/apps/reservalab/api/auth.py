@@ -162,7 +162,7 @@ def _get_user_profile(user_id: str) -> dict | None:
             f'{_SUPABASE_URL}/rest/v1/profiles',
             params={
                 'id': f'eq.{user_id}',
-                'select': 'id,email,name,role,is_super_admin,workspace_ids,status',
+                'select': 'id,email,name,role,is_super_admin,status',
             },
             headers={
                 'apikey': _SUPABASE_SERVICE_KEY,
@@ -255,7 +255,12 @@ def _get_user_workspace_ids(user_id: str | None) -> list:
         )
         if resp.ok:
             rows = resp.json() or []
-            return [r.get('workspace_id') for r in rows if r.get('workspace_id')]
+            # O filtro status=eq.active já vai na query; revalidado aqui em
+            # defesa em profundidade (nunca confiar no transporte).
+            return [
+                r.get('workspace_id') for r in rows
+                if r.get('workspace_id') and r.get('status', 'active') == 'active'
+            ]
     except Exception:
         pass
     return []

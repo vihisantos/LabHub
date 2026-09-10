@@ -14,6 +14,7 @@ from auth import (
     _verify_jwt,
     _get_token_from_request,
     _get_user_profile,
+    _get_user_workspace_ids,
     _get_workspace,
     _user_in_workspace,
     _is_module_enabled,
@@ -1253,16 +1254,18 @@ def tv_activation_create():
         if not prof_resp.ok or not prof_resp.json():
             return jsonify({'error': 'Perfil não encontrado'}), 404
         profile = prof_resp.json()[0]
-        workspace_ids = profile.get('workspace_ids') or []
         is_super_admin = bool(profile.get('is_super_admin'))
+        # Workspaces pela mesma fonte membership-based do auth layer
+        # (9.2-D.1-TV); a coluna legada nunca decide. Fail-closed: vazio ⇒ 400.
+        member_ws_ids = _get_user_workspace_ids(user_id)
 
         # 3. Workspace alvo
         body = request.get_json() or {}
         workspace_id = None
         if is_super_admin and body.get('workspace_id'):
             workspace_id = body.get('workspace_id')
-        elif workspace_ids:
-            workspace_id = workspace_ids[0]
+        elif member_ws_ids:
+            workspace_id = member_ws_ids[0]
         if not workspace_id:
             return jsonify({'error': 'Este usuário não tem workspace atribuído'}), 400
 
@@ -1442,7 +1445,8 @@ def tv_device_provision():
         if not prof_resp.ok or not prof_resp.json():
             return jsonify({'error': 'Perfil não encontrado'}), 404
         profile = prof_resp.json()[0]
-        workspace_ids = profile.get('workspace_ids') or []
+        # Mesma fonte membership-based do auth layer (9.2-D.1-TV); fail-closed.
+        member_ws_ids = _get_user_workspace_ids(user_id)
         is_super_admin = bool(profile.get('is_super_admin'))
 
         body = request.get_json() or {}
@@ -1451,7 +1455,7 @@ def tv_device_provision():
         if not workspace_id or not device_id:
             return jsonify({'error': 'workspace_id e device_id são obrigatórios'}), 400
 
-        if not is_super_admin and workspace_id not in workspace_ids:
+        if not is_super_admin and workspace_id not in member_ws_ids:
             return jsonify({'error': 'Sem permissão neste workspace'}), 403
 
         ws_resp = requests.get(
