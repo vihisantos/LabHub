@@ -24,6 +24,7 @@ const ChamadosApp = lazy(() => import('./apps/chamados').then(m => ({ default: m
 const ChamadosPublicApp = lazy(() => import('./apps/chamados-publico').then(m => ({ default: m.ChamadosPublicApp })))
 const AdminApp = lazy(() => import('./apps/admin').then(m => ({ default: m.AdminApp })))
 const LiderHome = lazy(() => import('./platform/Lider/LiderHome').then(m => ({ default: m.LiderHome })))
+const ApprovalRoute = lazy(() => import('./platform/Approval/ApprovalWaitingPage').then(m => ({ default: m.ApprovalRoute })))
 
 function RouteFallback() {
   return (
@@ -119,6 +120,7 @@ function AppRoutes() {
           </LeadershipAreaGuard>
         </AuthGuard>
       } />
+      <Route path="approval-pending" element={<ApprovalRoute />} />
       <Route path="admin/*" element={
         <AuthGuard fallback={AUTH_FALLBACK}>
           <AdminGuard>
