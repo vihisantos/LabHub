@@ -5,6 +5,7 @@ import { Database, LogOut, ShieldCheck, UserCheck } from 'lucide-react'
 import { Mascot } from '../../core/mascot/Mascot'
 import { useAuth } from '../../core/auth/useAuth'
 import { authService } from '../../core/auth/service'
+import { useRealtimeSubscription } from '../../lib/useRealtimeSubscription'
 
 export interface ApprovalWaitingPageProps {
   status?: 'loading' | 'waiting' | 'approved' | 'rejected'
@@ -329,7 +330,8 @@ function playApprovalSound() {
  * - Sem sessão → /login.
  * - Usuário ativo que abriu a URL diretamente → / (sem celebração).
  * - Transição real pending → active → celebra ~3s com o mascote e entra no LabHub.
- * - Permanece pendente → página de espera (com poll de 15s + realtime já existente).
+ * - Permanece pendente → página de espera (realtime na própria linha de `profiles`
+ *   como primário + poll de 15s como fallback).
  */
 export function ApprovalRoute() {
   const navigate = useNavigate()
@@ -338,6 +340,22 @@ export function ApprovalRoute() {
   const [phase, setPhase] = useState<'checking' | 'waiting' | 'celebrating' | 'no-session'>('checking')
   const [countdown, setCountdown] = useState(3)
   const wasPendingRef = useRef<boolean | null>(null)
+
+  // Realtime primário: a RLS de `profiles_select` (id = auth.uid()) entrega ao
+  // pendente os UPDATEs da própria linha; ao aprovar, o refresh publica o novo
+  // status e o fluxo abaixo celebra automaticamente. Eventos de outras linhas
+  // visíveis são ignorados (defesa em profundidade).
+  useRealtimeSubscription(
+    'profiles',
+    'UPDATE',
+    (payload) => {
+      const row = (payload.new ?? {}) as { id?: string }
+      if (user && row.id === user.id) {
+        authService.refreshProfile().catch(() => { /* sessão inválida é tratada pelo AuthContext */ })
+      }
+    },
+    { enabled: !!user && user.status === 'pending' },
+  )
 
   useEffect(() => {
     if (loading) return

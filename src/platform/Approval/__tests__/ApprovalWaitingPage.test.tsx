@@ -18,6 +18,8 @@ vi.mock('framer-motion', () => ({
 }))
 
 const mockUseAuth = vi.hoisted(() => vi.fn())
+const mockRefreshProfile = vi.hoisted(() => vi.fn())
+const mockRealtimeSub = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../core/auth/useAuth', () => ({
   useAuth: () => mockUseAuth(),
@@ -25,9 +27,13 @@ vi.mock('../../../core/auth/useAuth', () => ({
 
 vi.mock('../../../core/auth/service', () => ({
   authService: {
-    refreshProfile: vi.fn().mockResolvedValue({ status: 'pending' }),
+    refreshProfile: (...args: unknown[]) => mockRefreshProfile(...args),
     signOut: vi.fn().mockResolvedValue(undefined),
   },
+}))
+
+vi.mock('../../../lib/useRealtimeSubscription', () => ({
+  useRealtimeSubscription: (...args: unknown[]) => mockRealtimeSub(...args),
 }))
 
 function makeUser(overrides: Partial<User> = {}): User {
@@ -119,6 +125,7 @@ describe('ApprovalWaitingPage — página de aprovação', () => {
 describe('ApprovalRoute — roteamento da página de aprovação', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRefreshProfile.mockResolvedValue({ status: 'pending' })
   })
 
   it('sessão pendente permanece na página de espera', () => {
@@ -165,5 +172,42 @@ describe('ApprovalRoute — roteamento da página de aprovação', () => {
     render(routeTree())
 
     expect(screen.getByText('Página de Login')).toBeInTheDocument()
+  })
+
+  it('realtime: UPDATE na própria linha dispara refreshProfile (primário)', () => {
+    mockUseAuth.mockReturnValue({ user: makeUser(), loading: false })
+    render(routeTree())
+
+    expect(mockRealtimeSub).toHaveBeenCalledWith(
+      'profiles',
+      'UPDATE',
+      expect.any(Function),
+      { enabled: true },
+    )
+    const onUpdate = mockRealtimeSub.mock.calls[0][2] as (payload: unknown) => void
+
+    onUpdate({ new: { id: 'u-pending' } })
+    expect(mockRefreshProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('realtime: UPDATE de outra linha é ignorado', () => {
+    mockUseAuth.mockReturnValue({ user: makeUser(), loading: false })
+    render(routeTree())
+
+    const onUpdate = mockRealtimeSub.mock.calls[0][2] as (payload: unknown) => void
+    onUpdate({ new: { id: 'u-outro' } })
+    expect(mockRefreshProfile).not.toHaveBeenCalled()
+  })
+
+  it('realtime: desabilitado quando o usuário já está ativo', () => {
+    mockUseAuth.mockReturnValue({ user: makeUser({ status: 'active', workspace_ids: ['ws-1'] }), loading: false })
+    render(routeTree())
+
+    expect(mockRealtimeSub).toHaveBeenCalledWith(
+      'profiles',
+      'UPDATE',
+      expect.any(Function),
+      { enabled: false },
+    )
   })
 })
