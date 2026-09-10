@@ -842,6 +842,38 @@ class TestPushSubscribeUntrusted:
         profile_calls = [c for c in fake_requests.calls if "/rest/v1/profiles" in c["url"]]
         assert len(profile_calls) >= 1, "user.id deve vir do JWT e disparar o lookup de perfil (require_auth + subscribe)"
 
+    def test_subscribe_grava_memberships_na_inscricao(self, reservalab_module, reservalab_client, fake_requests, monkeypatch):
+        """Inscrição usa memberships ativas — ignora coluna legada e body do cliente."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([
+            {"id": "user-1", "role": "technician", "is_super_admin": False, "workspace_ids": ["ws-legado"]}
+        ]))
+        fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
+            {"profile_id": "user-1", "workspace_id": "ws-a", "status": "active"},
+            {"profile_id": "user-1", "workspace_id": "ws-b", "status": "suspended"},
+        ]))
+        saved = {}
+
+        class FakeRedis:
+            def sadd(self, _k, v):
+                saved["sub"] = json.loads(v)
+                return 1
+
+            def smembers(self, _k):
+                return []
+
+            def delete(self, _k):
+                return 1
+
+        monkeypatch.setattr(reservalab_module, "redis", FakeRedis())
+        resp = reservalab_client.post("/api/push/subscribe", json={
+            "endpoint": "https://fcm.googleapis.com/test3",
+            "keys": {"p256dh": "test3", "auth": "test3"},
+            "user": {"id": "user-1", "workspace_ids": ["ws-body"]},
+        }, headers=self._auth_headers())
+        assert resp.status_code == 200
+        assert saved["sub"]["user"]["workspace_ids"] == ["ws-a"]
+
 
 # ── Tests: Cloudinary delete requires workspace (SEC-04) ────────────────────
 

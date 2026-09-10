@@ -4,6 +4,7 @@ import { permissionService } from '../../../core/permissions/service'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { adminService } from '../../../core/auth/adminService'
 import type { User, UserNotifySettings, NotifyChannelSettings } from '../../../core/auth/types'
+import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
 import type { Role } from '../../../core/permissions/types'
 import { appRegistry } from '../../../appRegistry'
 import { Switch } from '../../../lib/components/ui/switch'
@@ -22,7 +23,10 @@ function userHasAppAccess(user: User, roles: Role[], appId: string): boolean {
 function inWorkspaceScope(user: User, workspaceFilter: string): boolean {
   if (workspaceFilter === 'all') return true
   if (user.is_super_admin) return true
-  return (user.workspace_ids || []).includes(workspaceFilter)
+  if (user.membershipsLoaded !== true) return true
+  const actives = (user.memberships ?? []).filter((m) => m.status === 'active')
+  if (actives.length === 0) return true
+  return isActiveMember(user.memberships, workspaceFilter)
 }
 
 export function NotificationRulesTab() {
@@ -36,9 +40,10 @@ export function NotificationRulesTab() {
 
   useEffect(() => {
     let active = true
-    adminService.listAllProfiles().then((users) => {
+    adminService.listAllProfiles().then(async (users) => {
       if (active) {
-        setProfiles(users.filter((u) => u.status === 'active'))
+        // Leitura administrativa por memberships (9.2-D.1).
+        setProfiles((await attachMemberships(users)).filter((u) => u.status === 'active'))
         setLoading(false)
       }
     })

@@ -9,6 +9,7 @@ import {
 } from '../../../core/permissions/types'
 import { adminService } from '../../../core/auth/adminService'
 import type { User } from '../../../core/auth/types'
+import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
@@ -69,7 +70,8 @@ export function RolesPage() {
   const loadProfiles = useCallback(async () => {
     setProfilesLoading(true)
     const list = await adminService.listAllProfiles()
-    setProfiles(list.filter((u) => u.status === 'active'))
+    // Leitura administrativa por memberships (9.2-D.1).
+    setProfiles((await attachMemberships(list)).filter((u) => u.status === 'active'))
     setProfilesLoading(false)
   }, [])
 
@@ -82,16 +84,19 @@ export function RolesPage() {
     [profiles],
   )
 
-  // Escopo por workspace (mesmo critério da página de Usuários): membros, líder
-  // e seletor de líder refletem o workspace atual. Admin absoluto e usuários sem
-  // workspace atribuído aparecem sempre (estes precisam ser atribuídos).
+  // Escopo por workspace (mesmo critério da página de Usuários, por memberships
+  // ativas): membros, líder e seletor de líder refletem o workspace atual.
+  // Admin absoluto, quem não tem membership ativa em lugar nenhum e quem ainda
+  // está carregando aparecem sempre (nunca decidido por workspace_ids).
   const workspaceId = workspace?.id ?? null
   const scopedActiveUsers = useMemo(
     () => activeUsers.filter((u) => {
       if (!workspaceId) return true
       if (u.is_super_admin) return true
-      const ids = u.workspace_ids || []
-      return ids.length === 0 || ids.includes(workspaceId)
+      if (u.membershipsLoaded !== true) return true
+      const actives = (u.memberships ?? []).filter((m) => m.status === 'active')
+      if (actives.length === 0) return true
+      return isActiveMember(u.memberships, workspaceId)
     }),
     [activeUsers, workspaceId],
   )
