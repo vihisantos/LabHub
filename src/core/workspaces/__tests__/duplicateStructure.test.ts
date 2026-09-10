@@ -55,20 +55,6 @@ describe('duplicateWorkspaceStructure', () => {
     expect(target.map((r) => r.name).sort()).toEqual(['Lab 101', 'Lab 102'])
   })
 
-  it('copia categorias de problema (por assetType)', () => {
-    seedCollection('problem_templates', [
-      { id: 'p1', assetType: 'Desktop', categories: ['Não liga'], workspace_id: WS_A, createdAt: '', updatedAt: '' },
-      { id: 'p2', assetType: 'Notebook', categories: ['Bateria'], workspace_id: WS_A, createdAt: '', updatedAt: '' },
-    ])
-
-    const result = duplicateWorkspaceStructure(WS_A, WS_B)
-
-    expect(result.problemTemplates).toBe(2)
-    const target = getCol<any>('problem_templates').filter((t) => t.workspace_id === WS_B)
-    expect(target.map((t) => t.assetType).sort()).toEqual(['Desktop', 'Notebook'])
-    expect(target[0].categories).toEqual(['Não liga'])
-  })
-
   it('copia templates de checklist (por nome)', () => {
     seedCollection('checklist_templates', [
       { id: 'c1', name: 'Limpeza PC', labName: 'Lab A', items: [], workspace_id: WS_A, createdAt: '', updatedAt: '' },
@@ -88,7 +74,7 @@ describe('duplicateWorkspaceStructure', () => {
 
     const result = duplicateWorkspaceStructure(WS_A, WS_B)
 
-    expect(result).toEqual({ rooms: 0, problemTemplates: 0, checklistTemplates: 0 })
+    expect(result).toEqual({ rooms: 0, checklistTemplates: 0 })
   })
 
   it('idempotente: rodar duas vezes não duplica', () => {

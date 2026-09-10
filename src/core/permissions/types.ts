@@ -11,14 +11,12 @@ export interface Role {
   description: string
   /** Nível de acesso por aplicativo (id do appRegistry) — ausente = sem acesso */
   appAccess: Partial<Record<string, AppAccessLevel>>
-  /** Permissão separada: gera QR de salas mesmo sem acesso full ao app */
-  manageQr?: boolean
   isDefault: boolean
   /** Id do usuário (profile) que lidera o setor do cargo */
   leaderId?: string
   /**
    * FASE 4/5 (RBAC 2.0): classificação do CARGO como de liderança.
-   * Independe de appAccess/manageQr — "liderar" é propriedade do cargo.
+   * Independe de appAccess — "liderar" é propriedade do cargo.
    * Ausente em cargos antigos até o migrate() backfill.
    */
   isLeadership?: boolean
@@ -71,7 +69,6 @@ export const DEFAULT_ROLES: Role[] = [
       reservalab: 'read',
       chamados: 'full',
     },
-    manageQr: true,
     isDefault: false,
     isLeadership: false,
     leadershipLevel: LeadershipLevel.None,
@@ -87,7 +84,6 @@ export const DEFAULT_ROLES: Role[] = [
       reservalab: 'dash',
       chamados: 'read',
     },
-    manageQr: false,
     isDefault: true,
     isLeadership: false,
     leadershipLevel: LeadershipLevel.None,
@@ -102,7 +98,6 @@ export const DEFAULT_ROLES: Role[] = [
       stock: 'read',
       chamados: 'full',
     },
-    manageQr: true,
     isDefault: false,
     isLeadership: true,
     leadershipLevel: LeadershipLevel.Leader,
@@ -118,7 +113,6 @@ export const DEFAULT_ROLES: Role[] = [
       tv: 'read',
       chamados: 'full',
     },
-    manageQr: true,
     isDefault: false,
     isLeadership: true,
     leadershipLevel: LeadershipLevel.Coordinator,

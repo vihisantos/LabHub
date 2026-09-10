@@ -73,9 +73,5 @@ export function useAppAccess() {
     return getLevel(appId) === 'full'
   }, [getLevel])
 
-  const canManageQr = useCallback((): boolean => {
-    return permissionService.canManageQr(role, user)
-  }, [role, user])
-
-  return { role, canAccessApp, getLevel, isFullAccess, canManageQr }
+  return { role, canAccessApp, getLevel, isFullAccess }
 }

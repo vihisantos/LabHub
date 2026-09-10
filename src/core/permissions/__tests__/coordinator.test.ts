@@ -36,7 +36,6 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(role).toBeDefined()
     expect(role.key).toBe('coordinator')
     expect(role.isDefault).toBe(false)
-    expect(role.manageQr).toBe(true)
     expect(role.appAccess).toMatchObject({
       chamados: 'full',
       stock: 'read',
@@ -99,12 +98,6 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(
       permissionService.resolveAppAccess(role, { app_access: { chamados: 'read' } }, 'chamados'),
     ).toBe('read')
-  })
-
-  it('canManageQr: coordenador e super admin; visualizador não', () => {
-    expect(permissionService.canManageQr(coordinatorRole(), plainUser())).toBe(true)
-    expect(permissionService.canManageQr(viewerRole(), plainUser())).toBe(false)
-    expect(permissionService.canManageQr(viewerRole(), { is_super_admin: true })).toBe(true)
   })
 
   it('canWriteApp: separa Super Admin (bypass) do coordenador', () => {

@@ -6,8 +6,6 @@ export {
   PROBLEM_AREA_LABELS,
   TICKET_PROBLEM_CATEGORIES,
 } from './ticket'
-export type { ProblemTemplate, ProblemTemplateFormData } from './problemTemplate'
-export { DEFAULT_PROBLEM_TEMPLATES } from './problemTemplate'
 export type { TicketPriority } from './ticket'
 export {
   TICKET_PRIORITIES,

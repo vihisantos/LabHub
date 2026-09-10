@@ -50,11 +50,9 @@ describe('ChamadosBottomNav', () => {
 
     fireEvent.click(screen.getByLabelText('Mais opções'))
     expect(screen.getByText('Relatórios')).toBeInTheDocument()
-    expect(screen.getByText('QR Code')).toBeInTheDocument()
     expect(screen.getByText('Config')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Relatórios'))
-    expect(screen.queryByText('QR Code')).not.toBeInTheDocument()
     expect(screen.getAllByText('Relatórios')).toHaveLength(1)
   })
 })

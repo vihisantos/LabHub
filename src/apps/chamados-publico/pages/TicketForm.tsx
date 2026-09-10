@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
-import { useProblemTemplates } from '../../chamados/hooks/useProblemTemplates'
 import { roomService } from '../../chamados/services/roomService'
 import { ticketService } from '../../chamados/services/ticketService'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
@@ -30,8 +29,6 @@ export function TicketForm() {
   const { assets } = useRoomAssets(room?.name || '')
   const asset = assets.find((a) => a.id === assetId && a.source === assetSource)
 
-  const { getByAssetType } = useProblemTemplates()
-
   const {
     workspaces,
     loading: loadingWorkspaces,
@@ -53,12 +50,7 @@ export function TicketForm() {
     }
   }, [campusId, workspaces, loadingWorkspaces])
 
-  const template = useMemo(() => {
-    if (!asset) return null
-    return getByAssetType(asset.type)
-  }, [asset, getByAssetType])
-
-  const categories = template?.categories || ['Outro']
+  const categories = ['Outro']
 
   const [selectedCategory, setSelectedCategory] = useState('')
   const [description, setDescription] = useState('')

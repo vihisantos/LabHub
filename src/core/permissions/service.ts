@@ -63,10 +63,6 @@ export const permissionService = {
       if (!role.appAccess || Object.keys(role.appAccess).length === 0) {
         patch.appAccess = defaultAccessFor(role)
       }
-      if (role.manageQr === undefined) {
-        // Migração: quem já tinha acesso full ao chamados passa a gerar QR.
-        patch.manageQr = role.appAccess?.chamados === 'full'
-      }
       if (Object.keys(patch).length > 0) service.update(role.id, patch)
     }
   },
@@ -120,16 +116,6 @@ export const permissionService = {
     if (user.is_super_admin) return true
     const role = permissionService.getRoleForUser(user.roleId)
     return permissionService.resolveAppAccess(role, user, appId) === 'full'
-  },
-
-  /** Permissão separada de QR: independe do nível do app. Super admin sempre pode. */
-  canManageQr: (
-    role: Role | undefined,
-    user: { is_super_admin?: boolean } | null | undefined,
-  ): boolean => {
-    if (!user) return false
-    if (user.is_super_admin) return true
-    return role?.manageQr === true
   },
 
   /** Lança erro se o usuário atual não puder escrever no app. */
