@@ -259,12 +259,57 @@ def test_target_subs_filtra_por_workspace(push_module, monkeypatch):
         json.dumps(_push_sub(tech_b), ensure_ascii=False),
     })
     monkeypatch.setattr(push_module, 'redis', fake)
+    _mock_memberships(push_module, monkeypatch, {'u-a': ['a'], 'u-b': ['b']})
 
     out = push_module._target_subs(module='reservalab', workspace_id='a')
     ids = sorted(s['user']['id'] for s in out)
 
     # Admin absoluto vê todos; tech do campus B fica de fora
     assert ids == ['u-a', 'u-admin']
+
+
+def test_target_subs_workspace_resolvido_por_memberships(push_module, monkeypatch):
+    """O payload gravado é ignorado: manda quem tem membership ativa (9.3-B)."""
+    tech = {'id': 'u-a', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['stale'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+
+    fake = FakeRedis({json.dumps(_push_sub(tech), ensure_ascii=False)})
+    monkeypatch.setattr(push_module, 'redis', fake)
+    _mock_memberships(push_module, monkeypatch, {'u-a': ['a']})
+
+    out = push_module._target_subs(module='reservalab', workspace_id='a')
+    assert [s['user']['id'] for s in out] == ['u-a']
+
+    out = push_module._target_subs(module='reservalab', workspace_id='stale')
+    assert out == []
+
+
+def _mock_memberships(push_module, monkeypatch, by_user):
+    """Fake de requests servindo memberships ativas por usuário (9.3-B)."""
+
+    class _Resp:
+        ok = True
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def _fake_get(url, **kwargs):
+        rows = []
+        for uid, ws_ids in by_user.items():
+            for ws in ws_ids:
+                rows.append({'profile_id': uid, 'workspace_id': ws, 'status': 'active'})
+        return _Resp(rows)
+
+    class _Requests:
+        @staticmethod
+        def get(url, **kwargs):
+            return _fake_get(url, **kwargs)
+
+    monkeypatch.setattr(push_module, '_SUPABASE_URL', 'https://test.supabase.co')
+    monkeypatch.setattr(push_module, '_SUPABASE_SERVICE_KEY', 'test-service-key')
+    monkeypatch.setattr(push_module, 'requests', _Requests())
 
 
 def test_target_subs_sem_workspace_atinge_todos(push_module, monkeypatch):

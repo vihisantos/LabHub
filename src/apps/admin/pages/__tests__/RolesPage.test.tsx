@@ -58,23 +58,15 @@ vi.mock('../../../../core/memberships/service', async (importOriginal) => {
   }
 })
 
-function mockMembershipsFromWorkspaceIds(users: { id: string; workspace_ids?: string[] }[]) {
+function mockMembershipsFromFixtures(users: { id: string; memberships?: unknown[] }[]) {
   mockGetByUser.mockImplementation(async (userId: string) => {
     const u = users.find((x) => x.id === userId)
-    return (u?.workspace_ids ?? []).map((ws) => ({
-      id: `m-${userId}-${ws}`,
-      profile_id: userId,
-      workspace_id: ws,
-      role_id: 'r-a',
-      status: 'active',
-      managed_by: null,
-      created_at: '',
-      updated_at: '',
-    }))
+    return (u?.memberships ?? []) as never[]
   })
 }
 
 import { RolesPage } from '../RolesPage'
+import type { Membership } from '../../../../core/memberships/types'
 import type { User } from '../../../../core/auth/types'
 
 const roles = [
@@ -111,17 +103,34 @@ function makeUser(partial: Partial<User> & Pick<User, 'id' | 'name' | 'email'>):
   } as User
 }
 
+function membershipRows(userId: string, wsIds: string[]): Membership[] {
+  return wsIds.map((ws) => ({
+    id: `m-${userId}-${ws}`,
+    profile_id: userId,
+    workspace_id: ws,
+    role_id: 'r-a',
+    status: 'active',
+    managed_by: null,
+    created_at: '',
+    updated_at: '',
+  })) as Membership[]
+}
+
 const moocaUser = makeUser({
-  id: 'u-mooca', name: 'Maria Mooca', email: 'maria@mooca.edu.br', workspace_ids: ['ws-mooca'],
+  id: 'u-mooca', name: 'Maria Mooca', email: 'maria@mooca.edu.br', workspace_ids: [],
+  memberships: membershipRows('u-mooca', ['ws-mooca']), membershipsLoaded: true,
 })
 const sjcUser = makeUser({
-  id: 'u-sjc', name: 'José São José', email: 'jose@sjc.edu.br', workspace_ids: ['ws-sjc'],
+  id: 'u-sjc', name: 'José São José', email: 'jose@sjc.edu.br', workspace_ids: [],
+  memberships: membershipRows('u-sjc', ['ws-sjc']), membershipsLoaded: true,
 })
 const unassignedUser = makeUser({
   id: 'u-sem-ws', name: 'Paulo Semworkspace', email: 'paulo@semws.edu.br', roleId: 'role-viewer', workspace_ids: [],
+  memberships: [], membershipsLoaded: true,
 })
 const superAdminUser = makeUser({
   id: 'u-abs', name: 'Ana Absoluta', email: 'ana@labhub.com', is_super_admin: true, workspace_ids: [],
+  memberships: [], membershipsLoaded: true,
 })
 
 function renderPage() {
@@ -141,7 +150,7 @@ describe('RolesPage escopo por workspace', () => {
     mockAdminService.listAllProfiles.mockResolvedValue([
       moocaUser, sjcUser, unassignedUser, superAdminUser,
     ])
-    mockMembershipsFromWorkspaceIds([moocaUser, sjcUser, unassignedUser, superAdminUser])
+    mockMembershipsFromFixtures([moocaUser, sjcUser, unassignedUser, superAdminUser])
   })
 
   it('mostra apenas os membros do workspace atual (admin absoluto e sem workspace sempre visíveis)', async () => {

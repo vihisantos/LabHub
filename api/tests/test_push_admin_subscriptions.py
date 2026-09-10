@@ -86,6 +86,32 @@ def _auth(push_module, monkeypatch, profile):
     return {'Authorization': 'Bearer token-valido'}
 
 
+def _mock_memberships(push_module, monkeypatch, by_user):
+    """Memberships ativas por usuário para resolução direta (9.3-B)."""
+
+    class _Resp:
+        ok = True
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Requests:
+        @staticmethod
+        def get(url, **kwargs):
+            rows = []
+            for uid, ws_ids in by_user.items():
+                for ws in ws_ids:
+                    rows.append({'profile_id': uid, 'workspace_id': ws, 'status': 'active'})
+            return _Resp(rows)
+
+    monkeypatch.setattr(push_module, '_SUPABASE_URL', 'https://test.supabase.co')
+    monkeypatch.setattr(push_module, '_SUPABASE_SERVICE_KEY', 'test-service-key')
+    monkeypatch.setattr(push_module, 'requests', _Requests())
+
+
 def test_sem_token_retorna_401(push_module, monkeypatch):
     client = push_module.app.test_client()
     resp = client.get('/api/push/admin/subscriptions')
@@ -128,10 +154,11 @@ def test_carrega_segmentacao_para_diagnostico(push_module, monkeypatch):
     """O diagnóstico do 'por que não recebe' precisa dos campos de filtro."""
     client = push_module.app.test_client()
     headers = _auth(push_module, monkeypatch, SUPER_ADMIN)
+    _mock_memberships(push_module, monkeypatch, {'milena-1': ['ws-a']})
     resp = client.get('/api/push/admin/subscriptions', headers=headers)
     milena = [s for s in resp.get_json()['subscriptions'] if s['name'] == 'milenaossuna'][0]
     assert milena['apps'] == {'chamados': False}  # ← causa raiz clássica
-    assert milena['workspace_ids'] == ['ws-a']
+    assert milena['workspace_ids'] == ['ws-a']  # resolvido na hora, não do registro
     assert milena['is_super_admin'] is False
 
 
@@ -148,6 +175,7 @@ def test_filtro_por_workspace_inclui_super_admin(push_module, monkeypatch):
     """Mesma semântica do _target_subs: super admin recebe de qualquer workspace."""
     client = push_module.app.test_client()
     headers = _auth(push_module, monkeypatch, SUPER_ADMIN)
+    _mock_memberships(push_module, monkeypatch, {'milena-1': ['ws-a']})
     resp = client.get('/api/push/admin/subscriptions?workspace_id=ws-a', headers=headers)
     body = resp.get_json()
     ids = {s['user_id'] for s in body['subscriptions']}

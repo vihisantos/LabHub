@@ -525,7 +525,9 @@ def push_subscribe():
             'name': str((g.user or {}).get('name', '') or user.get('name', '') or ''),
             'role': '',
             'is_super_admin': False,
-            'workspace_ids': [],
+            # 9.3-B: workspace_ids NÃO é mais persistido (resolução direta por
+            # memberships em _target_subs/auditoria); apps/notify_settings
+            # seguem no registro (preferências e níveis conhecidos no ato).
             'apps': user.get('apps') or {},
             'notify_settings': user.get('notify_settings') or {},
         }
@@ -660,6 +662,41 @@ def push_send():
         return jsonify({'error': 'Erro ao enviar notificação push'}), 500
 
 
+def _resolve_batch_memberships(subs):
+    """Workspaces ativos por user id, resolvidos na hora via memberships.
+
+    9.3-B: o targeting de push não lê mais o campo gravado na inscrição
+    (payload legado); resolve memberships ativas por lote (service_role).
+    Falha ⇒ {} (fail-closed: sem workspace resolvido, sem envio).
+    """
+    ids = sorted({str((s.get('user') or {}).get('id') or '') for s in subs})
+    ids = [i for i in ids if i]
+    if not ids or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return {}
+    try:
+        in_list = ','.join(f'"{i}"' for i in ids)
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/memberships'
+            f'?profile_id=in.({quote(in_list)})&status=eq.active'
+            '&select=profile_id,workspace_id',
+            headers={
+                'apikey': _SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            return {}
+        out = {}
+        for r in (resp.json() or []):
+            uid, ws = r.get('profile_id'), r.get('workspace_id')
+            if uid and ws and r.get('status', 'active') == 'active':
+                out.setdefault(str(uid), set()).add(str(ws))
+        return out
+    except Exception:
+        return {}
+
+
 def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None):
     """Filtra os subscribers pela segmentação de notificações.
 
@@ -668,10 +705,12 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
     - min_level: nível mínimo de acesso ao módulo para receber o push
       (ex.: 'full'). Super admin sempre passa; inscrição legada com valor
       booleano `true` (anterior à segmentação por nível) é tratada como full.
-    - workspace: super admin vê todos; demais precisam ter o workspace na lista.
+    - workspace: super admin vê todos; demais precisam de membership ATIVA
+      resolvida na hora (9.3-B — o campo gravado na inscrição não é lido).
     - notify_settings: mudo global e canal `push` por app são respeitados.
     """
     subs = _get_subs()
+    member_ws = _resolve_batch_memberships(subs) if workspace_id else {}
     out = []
     for s in subs:
         u = s.get('user') or {}
@@ -694,7 +733,7 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
                 if _resolve_push_level((u.get('apps') or {}).get(module)) < _PUSH_LEVEL_RANK.get(min_level):
                     continue
         if workspace_id:
-            if not u.get('is_super_admin') and workspace_id not in (u.get('workspace_ids') or []):
+            if not u.get('is_super_admin') and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
                 continue
         out.append(s)
     return out
@@ -959,13 +998,16 @@ def push_admin_subscriptions():
         ws_filter = (request.args.get('workspace_id') or '').strip()
 
         subs = _get_subs()
+        # Diagnóstico fiel ao envio: workspaces resolvidos na hora (9.3-B),
+        # não o que foi gravado na inscrição.
+        member_ws = _resolve_batch_memberships(subs)
         out = []
         for s in subs:
             u = s.get('user') or {}
             uid = u.get('id') or ''
             if user_filter and uid != user_filter:
                 continue
-            ws_ids = u.get('workspace_ids') or []
+            ws_ids = sorted(member_ws.get(uid, set()))
             if ws_filter and not u.get('is_super_admin') and ws_filter not in ws_ids:
                 continue
             out.append({
