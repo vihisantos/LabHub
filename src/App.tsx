@@ -8,6 +8,7 @@ import { AuthProvider } from './core/auth/AuthContext'
 import { AuthGuard } from './core/auth/AuthGuard'
 import { AdminGuard } from './core/auth/AdminGuard'
 import { AppGuard } from './core/auth/AppGuard'
+import { LeadershipAreaGuard } from './core/permissions/LeadershipAreaGuard'
 import { ThemeProvider } from './lib/ThemeContext'
 
 const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ default: m.LoginPage })))
@@ -22,6 +23,7 @@ const TvApp = lazy(() => import('./apps/tv').then(m => ({ default: m.TvApp })))
 const ChamadosApp = lazy(() => import('./apps/chamados').then(m => ({ default: m.ChamadosApp })))
 const ChamadosPublicApp = lazy(() => import('./apps/chamados-publico').then(m => ({ default: m.ChamadosPublicApp })))
 const AdminApp = lazy(() => import('./apps/admin').then(m => ({ default: m.AdminApp })))
+const LiderHome = lazy(() => import('./platform/Lider/LiderHome').then(m => ({ default: m.LiderHome })))
 
 function RouteFallback() {
   return (
@@ -110,6 +112,13 @@ function AppRoutes() {
         </AuthGuard>
       } />
       <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
+      <Route path="lider" element={
+        <AuthGuard fallback={AUTH_FALLBACK}>
+          <LeadershipAreaGuard scope="team">
+            <LiderHome />
+          </LeadershipAreaGuard>
+        </AuthGuard>
+      } />
       <Route path="admin/*" element={
         <AuthGuard fallback={AUTH_FALLBACK}>
           <AdminGuard>
