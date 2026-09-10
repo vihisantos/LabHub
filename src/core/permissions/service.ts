@@ -3,7 +3,11 @@ import { DEFAULT_ROLES, resolveRoleId } from './types'
 import { createSyncService } from '../../lib/sync'
 import { authService } from '../auth/service'
 
-const service = createSyncService<Role>('roles')
+// Cargos são globais (não têm workspace_id) — nunca filtrar por workspace.
+// Com o filtro ativo, usuários com workspace ativo "perdiam" o cargo na leitura
+// (getRoleForUser/hasAppAccess retornavam undefined) e notificações por módulo
+// eram descartadas.
+const service = createSyncService<Role>('roles', false)
 
 function serialize(data: Omit<Role, 'id'>): Role {
   return { ...data, id: (data as Partial<Role>).id ?? crypto.randomUUID() } as Role

@@ -27,10 +27,17 @@ export function notificationAppliesTo(n: AppNotification, user: User | null): bo
   const settings = user.notify_settings
   if (settings?.muted) return false
 
-  // Segmentação por app: módulos do appRegistry exigem acesso ao app
+  // Segmentação por app: módulos do appRegistry exigem acesso ao app — mas apenas
+  // para público "app"/"workspace" (broadcast). Destino explícito (user/role) é
+  // entregue independente do acesso do destinatário ao módulo.
   const isAppModule = !!n.module && appRegistry.some((app) => app.id === n.module)
-  if (isAppModule) {
+  const isExplicitTarget = n.audience === 'user' || n.audience === 'role'
+  if (isAppModule && !isExplicitTarget) {
     if (!hasAppAccess(user, n.module)) return false
+  }
+
+  // Preferência de canal in-app por módulo vale para todos os públicos (mudo pontual)
+  if (isAppModule) {
     const channel = settings?.apps?.[n.module]
     if (channel && channel.inapp === false) return false
   }
