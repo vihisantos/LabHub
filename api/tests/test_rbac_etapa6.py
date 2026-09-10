@@ -115,6 +115,10 @@ def root_api_module():
 
 def _patch_supabase_profile(fr, profile):
     fr.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
+    fr.route("GET", "/rest/v1/memberships", FakeResponse([
+        {"profile_id": profile.get("id"), "workspace_id": w, "status": "active"}
+        for w in (profile.get("workspace_ids") or [])
+    ]))
 
 
 def _auth_headers(user_id="user-1"):

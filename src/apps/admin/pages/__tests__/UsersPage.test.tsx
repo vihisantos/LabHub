@@ -74,6 +74,48 @@ vi.mock('../../../../core/permissions/usePermissions', () => ({
   }),
 }))
 
+const mockGetByUser = vi.hoisted(() => vi.fn())
+
+// Isola a leitura de memberships (RLS). Nos fixtures, memberships derivam de
+// workspace_ids (espelha o trigger 041); o código de produção nunca faz isso.
+vi.mock('../../../../core/memberships/service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../core/memberships/service')>()
+  return {
+    ...actual,
+    attachMemberships: async (users: any[]) =>
+      Promise.all(
+        users.map(async (u) => {
+          try {
+            const rows = await mockGetByUser(u.id)
+            return { ...u, memberships: rows, membershipsLoaded: true }
+          } catch {
+            return { ...u, membershipsLoaded: false }
+          }
+        }),
+      ),
+  }
+})
+
+function membershipRows(userId: string, wsIds: string[]) {
+  return wsIds.map((ws) => ({
+    id: `m-${userId}-${ws}`,
+    profile_id: userId,
+    workspace_id: ws,
+    role_id: 'r-a',
+    status: 'active',
+    managed_by: null,
+    created_at: '',
+    updated_at: '',
+  }))
+}
+
+function mockMembershipsFromWorkspaceIds(users: { id: string; workspace_ids?: string[] }[]) {
+  mockGetByUser.mockImplementation(async (userId: string) => {
+    const u = users.find((x) => x.id === userId)
+    return membershipRows(userId, u?.workspace_ids ?? [])
+  })
+}
+
 import { UsersPage } from '../UsersPage'
 import type { User } from '../../../../core/auth/types'
 
@@ -108,6 +150,7 @@ describe('UsersPage deep link (aprovação)', () => {
     vi.useRealTimers()
     currentSearchParams = new URLSearchParams()
     mockAdminService.listAllProfiles.mockResolvedValue([pendingUser])
+    mockMembershipsFromWorkspaceIds([pendingUser])
     mockAdminService.approveUser.mockResolvedValue(true)
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
   })
@@ -217,6 +260,7 @@ describe('UsersPage listagem (Pessoas)', () => {
     currentSearchParams = new URLSearchParams()
     mockWorkspaceCtx.workspace = null
     mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser, unassignedUser, superAdminUser])
+    mockMembershipsFromWorkspaceIds([moocaUser, sjcUser, unassignedUser, superAdminUser])
     mockAdminService.approveUser.mockResolvedValue(true)
     mockAdminService.rejectUser.mockResolvedValue(true)
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
@@ -299,5 +343,37 @@ describe('UsersPage listagem (Pessoas)', () => {
 
     fireEvent.click(screen.getByText('Solicitações de acesso'))
     expect(mockNavigate).toHaveBeenCalledWith('/admin/requests')
+  })
+
+  it('escopo segue memberships, não workspace_ids (autoridade)', async () => {
+    // Maria tem ws-mooca na coluna legada, mas membership ativa em ws-sjc.
+    mockGetByUser.mockImplementation(async (userId: string) => {
+      if (userId === 'u-mooca') return membershipRows(userId, ['ws-sjc'])
+      const u = [sjcUser, unassignedUser, superAdminUser].find((x) => x.id === userId)
+      return membershipRows(userId, u?.workspace_ids ?? [])
+    })
+    mockWorkspaceCtx.workspace = workspaces[0] // Campus Mooca
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Paulo Semworkspace')).toBeInTheDocument()
+    })
+    // Maria some da Mooca (membership manda) e José continua fora
+    expect(screen.queryByText('Maria Mooca')).not.toBeInTheDocument()
+    expect(screen.queryByText('José São José')).not.toBeInTheDocument()
+    expect(screen.getByText('Ana Absoluta')).toBeInTheDocument()
+  })
+
+  it('falha nas memberships mantém a linha visível com estado de carregamento', async () => {
+    mockGetByUser.mockRejectedValue(new Error('RLS: denied'))
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Maria Mooca')).toBeInTheDocument()
+    })
+    // Nenhuma decisão por workspace_ids: linha mostra "acessos…" em vez de sumir
+    expect(screen.getAllByText('acessos…').length).toBeGreaterThan(0)
   })
 })

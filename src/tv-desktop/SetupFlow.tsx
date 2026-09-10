@@ -3,6 +3,7 @@ import { Tv, ArrowLeft, Check, KeyRound } from 'lucide-react'
 import type { Workspace } from '../core/workspaces/types'
 import type { User } from '../core/auth/types'
 import { authService } from '../core/auth/service'
+import { selectAssignedWorkspaces } from '../core/memberships/service'
 import { defaultDb as supabase } from '../lib/supabase'
 import { redeemActivationCode, provisionWithLogin } from './deviceService'
 import type { DeviceConfig } from './config'
@@ -40,10 +41,8 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
     if (!supabase) return
     const { data } = await supabase.from('workspaces').select('*').order('name')
     const all = (data as Workspace[]) || []
-    let assigned = all
-    if (!u.is_super_admin && u.workspace_ids.length > 0) {
-      assigned = all.filter((w) => u.workspace_ids.includes(w.id))
-    }
+    // Fonte única: memberships ativas (fail-closed — pendente/sem load ⇒ vazio).
+    const assigned = selectAssignedWorkspaces(all, u)
     setWorkspaces(assigned)
     if (assigned.length === 1) {
       setSelectedWorkspace(assigned[0])

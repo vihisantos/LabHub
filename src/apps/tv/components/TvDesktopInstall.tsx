@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Download, KeyRound, Copy, Check, Monitor, Clock, ExternalLink } from 'lucide-react'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { authService } from '../../../core/auth/service'
+import { assignedWorkspaceIds } from '../../../core/memberships/service'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { tvApi } from '../utils/apiBase'
 
@@ -30,7 +31,7 @@ export function TvDesktopInstall() {
   const user = authService.getCurrentUser()
   const { workspaces } = useWorkspace()
   const [workspaceId, setWorkspaceId] = useState(
-    () => user?.is_super_admin ? (workspaces[0]?.id ?? '') : (user?.workspace_ids?.[0] ?? ''),
+    () => user?.is_super_admin ? (workspaces[0]?.id ?? '') : (assignedWorkspaceIds(user)[0] ?? ''),
   )
   const [deviceName, setDeviceName] = useState('')
   const [generating, setGenerating] = useState(false)

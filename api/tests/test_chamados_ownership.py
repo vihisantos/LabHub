@@ -183,6 +183,10 @@ def _setup_as(client, fake_requests, monkeypatch, profile, rbac_on=False):
     if auth_mod is not None:
         monkeypatch.setattr(auth_mod, "_verify_jwt", lambda t: {"sub": profile["id"]})
     fake_requests.route("GET", f"/rest/v1/profiles?id=eq.{profile['id']}", FakeResponse([profile]))
+    fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
+        {"profile_id": profile["id"], "workspace_id": w, "status": "active"}
+        for w in (profile.get("workspace_ids") or [])
+    ]))
     if rbac_on:
         monkeypatch.setenv("RBAC_2_ENABLED", "1")
     else:

@@ -231,11 +231,41 @@ def _get_workspace_by_slug(slug: str) -> dict | None:
     return None
 
 
+def _get_user_workspace_ids(user_id: str | None) -> list:
+    """Active workspace IDs from memberships (service_role, fonte RBAC).
+
+    Fail-closed: qualquer falha/ausência retorna [] (nega acesso).
+    `profiles.workspace_ids` nunca é lido aqui (compat de dados).
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY or not user_id:
+        return []
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/memberships',
+            params={
+                'profile_id': f'eq.{user_id}',
+                'status': 'eq.active',
+                'select': 'workspace_id',
+            },
+            headers={
+                'apikey': _SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
+            },
+            timeout=5,
+        )
+        if resp.ok:
+            rows = resp.json() or []
+            return [r.get('workspace_id') for r in rows if r.get('workspace_id')]
+    except Exception:
+        pass
+    return []
+
+
 def _user_in_workspace(profile: dict, workspace_id: str) -> bool:
-    """Check if user belongs to workspace."""
+    """Check if user belongs to workspace (memberships ativas, via service_role)."""
     if profile.get('is_super_admin'):
         return True
-    ws_ids = profile.get('workspace_ids') or []
+    ws_ids = _get_user_workspace_ids(profile.get('id'))
     return str(workspace_id) in [str(w) for w in ws_ids]
 
 
@@ -302,6 +332,10 @@ def require_auth(f):
 
         g.user = profile
         g.user_id = user_id
+        # Uniformização 9.2-B4: o campo segue no dict como compat, mas DERIVADO
+        # de memberships ativas — todas as leituras abaixo (gates e regras de
+        # negócio) passam a decidir por memberships sem mudar cada ponto.
+        g.user['workspace_ids'] = _get_user_workspace_ids(user_id)
         return f(*args, **kwargs)
     return wrapper
 

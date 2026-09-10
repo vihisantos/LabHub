@@ -5,6 +5,7 @@ import type { Workspace } from './types'
 import { workspaceService } from './service'
 import { workspaceStore } from './store'
 import { WorkspaceGate } from '../../platform/WorkspaceGate/WorkspaceGate'
+import { assignedWorkspaceIds, selectAssignedWorkspaces } from '../memberships/service'
 
 interface WorkspaceContextValue {
   workspace: Workspace | null
@@ -51,13 +52,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   })
 
   const assignedWorkspaces = useMemo(
-    () =>
-      workspaces.filter((w) => {
-        if (!user) return true
-        if (user.status === 'pending') return false
-        if (user.is_super_admin) return true
-        return user.workspace_ids.includes(w.id)
-      }),
+    () => selectAssignedWorkspaces(workspaces, user),
     [workspaces, user],
   )
 
@@ -81,12 +76,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const all = workspaceService.getAll()
     setWorkspaces(all)
 
-    const assigned = all.filter((w) => {
-      if (!user) return true
-      if (user.status === 'pending') return false
-      if (user.is_super_admin) return true
-      return user.workspace_ids.includes(w.id)
-    })
+    const assigned = selectAssignedWorkspaces(all, user)
 
     if (user?.status === 'pending') {
       // Firewall Etapa 7: usuário ainda aguardando aprovação NUNCA chega ao
@@ -96,6 +86,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setWorkspaceState(null)
       setPendingSelection(false)
       setLoading(false)
+      return
+    }
+
+    if (user && user.membershipsLoaded !== true) {
+      // Memberships ainda não carregadas (ou falha): o gate permanece em
+      // `loading` e nenhuma visibilidade é decidida (§3.2). A re-tentativa vem
+      // pelo ciclo de auth (refreshProfile republica ao carregar).
+      setWorkspaceState(null)
+      setPendingSelection(false)
       return
     }
 
@@ -154,12 +153,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     load()
   }, [load])
 
-  // Sync workspace store (used by storage layer for filtering)
+  // Sync workspace store (used by storage layer for filtering) — mesma fonte (§3.2)
   useEffect(() => {
     workspaceStore.set(
       workspace,
       user?.is_super_admin || false,
-      user?.workspace_ids || [],
+      assignedWorkspaceIds(user),
     )
   }, [workspace, user])
 

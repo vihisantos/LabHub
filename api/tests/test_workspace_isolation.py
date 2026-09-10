@@ -85,6 +85,10 @@ def _make_jwt(payload, secret=SUPABASE_JWT_SECRET):
 
 def _patch_supabase_profile(fake_requests, profile):
     fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
+    fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
+        {"profile_id": profile.get("id"), "workspace_id": w, "status": "active"}
+        for w in (profile.get("workspace_ids") or [])
+    ]))
 
 
 @pytest.fixture(scope="session")

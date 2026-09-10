@@ -137,11 +137,23 @@ def fake_requests():
 
 
 def _patch_supabase_profile(fake_requests, profile):
-    """Set up fake_requests to return a user profile when queried."""
+    """Set up fake_requests to return a user profile when queried.
+
+    Deriva memberships ativas de profile["workspace_ids"] (espelha o trigger
+    041): o gate agora lê memberships, e os fixtures legados seguem válidos.
+    """
     fake_requests.route(
         "GET",
         "/rest/v1/profiles",
         FakeResponse([profile]),
+    )
+    fake_requests.route(
+        "GET",
+        "/rest/v1/memberships",
+        FakeResponse([
+            {"profile_id": profile.get("id"), "workspace_id": w, "status": "active"}
+            for w in (profile.get("workspace_ids") or [])
+        ]),
     )
 
 
@@ -678,6 +690,54 @@ class TestCrossWorkspaceIsolation:
         ]))
         resp = root_client.get("/api/chamados/t1", headers=headers)
         assert resp.status_code == 200
+
+
+# ── Tests: membership authority over workspace_ids (RBAC 2.0 9.2-B4) ──────────
+
+class TestMembershipAuthority:
+    """_user_in_workspace lê memberships ativas; workspace_ids nunca decide."""
+
+    def _headers(self, monkeypatch, sub="user-1"):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": sub})
+        return {"Authorization": f"Bearer {_make_jwt({'sub': sub})}"}
+
+    def test_workspace_ids_ignorado_quando_memberships_divergem(self, root_client, fake_requests, monkeypatch):
+        """Coluna legada diz ws-b, mas membership ativa é ws-a → ws-b nega, ws-a permite."""
+        headers = self._headers(monkeypatch)
+        fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([{
+            "id": "user-1", "email": "a@test.com", "name": "A", "role": "technician",
+            "is_super_admin": False, "workspace_ids": ["ws-b"], "status": "active",
+        }]))
+        fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
+            {"profile_id": "user-1", "workspace_id": "ws-a", "status": "active"},
+        ]))
+        fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
+            {"id": "t1", "workspace_id": "ws-a", "status": "aberto"}
+        ]))
+        assert root_client.get("/api/chamados?workspace_id=ws-b", headers=headers).status_code == 403
+        assert root_client.get("/api/chamados?workspace_id=ws-a", headers=headers).status_code == 200
+
+    def test_memberships_vazias_negam_mesmo_com_workspace_ids(self, root_client, fake_requests, monkeypatch):
+        """Sem membership ativa → 403, mesmo com a coluna legada preenchida."""
+        headers = self._headers(monkeypatch)
+        fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([{
+            "id": "user-1", "email": "a@test.com", "name": "A", "role": "technician",
+            "is_super_admin": False, "workspace_ids": ["ws-a"], "status": "active",
+        }]))
+        fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([]))
+        resp = root_client.get("/api/chamados?workspace_id=ws-a", headers=headers)
+        assert resp.status_code == 403
+
+    def test_falha_na_query_de_memberships_nega_sem_fallback(self, root_client, fake_requests, monkeypatch):
+        """Erro no banco ao ler memberships → 403 (fail-closed, sem fallback legado)."""
+        headers = self._headers(monkeypatch)
+        fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([{
+            "id": "user-1", "email": "a@test.com", "name": "A", "role": "technician",
+            "is_super_admin": False, "workspace_ids": ["ws-a"], "status": "active",
+        }]))
+        fake_requests.route("GET", "/rest/v1/memberships", FakeResponse(None, status_code=500, ok=False))
+        resp = root_client.get("/api/chamados?workspace_id=ws-a", headers=headers)
+        assert resp.status_code == 403
 
 
 # ── Tests: Cron fail-closed (SEC-02) ───────────────────────────────────────

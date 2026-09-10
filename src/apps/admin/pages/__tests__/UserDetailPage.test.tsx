@@ -51,6 +51,43 @@ vi.mock('../../../../core/permissions/usePermissions', () => ({
   }),
 }))
 
+const mockGetByUser = vi.hoisted(() => vi.fn())
+
+// Isola a leitura de memberships (RLS); funções puras seguem reais.
+vi.mock('../../../../core/memberships/service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../core/memberships/service')>()
+  return {
+    ...actual,
+    attachMemberships: async (users: any[]) =>
+      Promise.all(
+        users.map(async (u) => {
+          try {
+            const rows = await mockGetByUser(u.id)
+            return { ...u, memberships: rows, membershipsLoaded: true }
+          } catch {
+            return { ...u, membershipsLoaded: false }
+          }
+        }),
+      ),
+  }
+})
+
+function mockMembershipsFromWorkspaceIds(users: { id: string; workspace_ids?: string[] }[]) {
+  mockGetByUser.mockImplementation(async (userId: string) => {
+    const u = users.find((x) => x.id === userId)
+    return (u?.workspace_ids ?? []).map((ws) => ({
+      id: `m-${userId}-${ws}`,
+      profile_id: userId,
+      workspace_id: ws,
+      role_id: 'r-a',
+      status: 'active',
+      managed_by: null,
+      created_at: '',
+      updated_at: '',
+    }))
+  })
+}
+
 import { logService } from '../../../../core/logs/service'
 
 vi.mock('../../../../core/logs/service', () => ({
@@ -90,6 +127,7 @@ describe('UserDetailPage', () => {
     vi.clearAllMocks()
     vi.useRealTimers()
     mockAdminService.listAllProfiles.mockResolvedValue([activeUser])
+    mockMembershipsFromWorkspaceIds([activeUser])
     mockAdminService.updateUserProfile.mockResolvedValue(true)
     mockAdminService.updateUserWorkspaces.mockResolvedValue(true)
     mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
@@ -154,5 +192,35 @@ describe('UserDetailPage', () => {
       expect(screen.getByRole('button', { name: 'Aprovar' })).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: 'Recusar solicitação' })).toBeInTheDocument()
+  })
+
+  it('exibe os workspaces a partir das memberships ativas', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+
+    // Contador e chip derivam de memberships, não da coluna legada
+    const byFullText = (t: string) => (_c: string, el: Element | null) => el?.textContent === t
+    expect(screen.getByText(byFullText('Workspaces (1 de 1)'))).toBeInTheDocument()
+    // Nome aparece no scopeLabel e no chip do toggle
+    expect(screen.getAllByText('Campus Mooca').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('falha nas memberships mostra carregamento e desabilita os toggles', async () => {
+    mockGetByUser.mockRejectedValue(new Error('RLS: denied'))
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
+
+    const byFullText = (t: string) => (_c: string, el: Element | null) => el?.textContent === t
+    expect(screen.getByText(byFullText('Workspaces (… de 1)'))).toBeInTheDocument()
+    expect(screen.getByText('Carregando workspaces…')).toBeInTheDocument()
   })
 })

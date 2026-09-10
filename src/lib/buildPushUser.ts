@@ -1,6 +1,7 @@
 import type { User } from '../core/auth/types'
 import type { PushUserInfo } from './usePushNotifications'
 import { permissionService } from '../core/permissions/service'
+import { assignedWorkspaceIds } from '../core/memberships/service'
 import { appRegistry } from '../appRegistry'
 
 /**
@@ -29,7 +30,9 @@ export function buildPushUser(user: User): PushUserInfo {
     name: user.name,
     role: user.roleId,
     is_super_admin: user.is_super_admin,
-    workspace_ids: user.workspace_ids,
+    // Compat de payload (o backend filtra por este campo): origem = memberships
+    // ativas, nunca a coluna legada.
+    workspace_ids: assignedWorkspaceIds(user),
     apps,
     notify_settings: user.notify_settings,
   }

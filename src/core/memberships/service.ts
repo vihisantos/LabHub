@@ -1,6 +1,8 @@
 import { defaultDb } from '../../lib/supabase'
 import type { Membership } from './types'
 import { isActive } from './types'
+import type { User } from '../auth/types'
+import type { Workspace } from '../workspaces/types'
 
 const ACTIVE = 'active'
 
@@ -10,6 +12,76 @@ function requireDb() {
 
 /** Campos que participam da comparação de pertencimento ativo. */
 type ActiveMembershipRow = Pick<Membership, 'workspace_id' | 'role_id' | 'status'>
+
+/**
+ * Workspaces com membership ATIVA — autorização efetiva do usuário.
+ * `undefined` (não carregado) ⇒ `[]`: nunca decide visibilidade.
+ */
+export function getActiveMembershipWorkspaceIds(
+  memberships: Pick<Membership, 'workspace_id' | 'status'>[] | undefined,
+): string[] {
+  if (!memberships) return []
+  return [
+    ...new Set(
+      memberships.filter((m) => m.status === ACTIVE).map((m) => m.workspace_id),
+    ),
+  ]
+}
+
+/**
+ * Pertencimento ATIVO a um workspace. `undefined` ⇒ false (fail-closed).
+ * `profiles.workspace_ids` nunca participa (compat de dados).
+ */
+export function isActiveMember(
+  memberships: Pick<Membership, 'workspace_id' | 'status'>[] | undefined,
+  workspaceId: string,
+): boolean {
+  if (!memberships) return false
+  return memberships.some(
+    (m) => m.workspace_id === workspaceId && m.status === ACTIVE,
+  )
+}
+
+/**
+ * Seleção de workspaces atribuídos — FONTE ÚNICA de visibilidade (design 9.2,
+ * §3.2). Pertencimento = membership ATIVA; `membershipsLoaded !== true` ⇒ nada
+ * visível. `profiles.workspace_ids` nunca participa (compat, nunca autorização).
+ */
+export function selectAssignedWorkspaces(all: Workspace[], user: User | null): Workspace[] {
+  return all.filter((w) => {
+    if (!user) return true
+    if (user.status === 'pending') return false
+    if (user.is_super_admin) return true
+    if (user.membershipsLoaded !== true) return false
+    return isActiveMember(user.memberships, w.id)
+  })
+}
+
+/** Ids ativos para alimentar filtros/stores (mesma fonte de §3.2). */
+export function assignedWorkspaceIds(user: User | null | undefined): string[] {
+  if (!user || user.membershipsLoaded !== true) return []
+  return getActiveMembershipWorkspaceIds(user.memberships)
+}
+
+/**
+ * Contexto EXCLUSIVAMENTE administrativo: anexa as memberships a uma lista de
+ * usuários (leitura via RLS do token admin — `getByUser`). Falha por usuário ⇒
+ * `membershipsLoaded=false` (nunca `[]` silencioso). Usado pelas telas de
+ * gestão (UsersPage/UserDetailPage) para decidir escopo/exibição por
+ * memberships sem migrar as escritas (9.2-C).
+ */
+export async function attachMemberships(users: User[]): Promise<User[]> {
+  return Promise.all(
+    users.map(async (u) => {
+      try {
+        const rows = await membershipService.getByUser(u.id)
+        return { ...u, memberships: rows, membershipsLoaded: true }
+      } catch {
+        return { ...u, membershipsLoaded: false }
+      }
+    }),
+  )
+}
 
 /**
  * Compara o multiset de memberships ATIVAS de dois usuários (design 9.2, seção 3.3).
