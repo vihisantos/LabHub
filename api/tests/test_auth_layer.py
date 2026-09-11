@@ -1221,3 +1221,69 @@ class TestJWKSVerification:
         # We just assert the endpoint doesn't crash:
         assert resp.status_code in (200, 401, 403, 502)
 
+
+# ── Tests: notificações in-app (app_notifications) ───────────────────────────
+
+class TestAppNotifications:
+    def _auth(self, fake_requests, monkeypatch, is_super=True, workspaces=None):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        profile = {
+            "id": "user-1",
+            "email": "x@y.com",
+            "name": "Admin",
+            "role": "admin",
+            "is_super_admin": is_super,
+            "workspace_ids": workspaces or ["ws-a"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        return {"Authorization": "Bearer tok"}
+
+    def test_persist_in_app(self, root_client, fake_requests, monkeypatch):
+        headers = self._auth(fake_requests, monkeypatch, is_super=True)
+        resp = root_client.post(
+            "/api/app-notifications",
+            json={"id": "ntf-1", "title": "Olá", "body": "Mundo", "type": "system", "severity": "info", "module": "stock"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        posts = fake_requests.calls_for("POST", "/rest/v1/app_notifications")
+        assert len(posts) == 1
+        assert posts[0]["kwargs"]["json"]["id"] == "ntf-1"
+        assert posts[0]["kwargs"]["json"]["type"] == "system"
+
+    def test_persist_requires_admin(self, root_client, fake_requests, monkeypatch):
+        headers = self._auth(fake_requests, monkeypatch, is_super=False)
+        resp = root_client.post("/api/app-notifications", json={"id": "ntf-1", "title": "x", "body": "y"}, headers=headers)
+        assert resp.status_code == 403
+
+    def test_list_super_admin_retorna_todas(self, root_client, fake_requests, monkeypatch):
+        headers = self._auth(fake_requests, monkeypatch, is_super=True)
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "a", "workspace_id": None, "title": "Global", "created_at": "2026-01-01T00:00:00Z"},
+                {"id": "b", "workspace_id": "ws-x", "title": "Scoped", "created_at": "2026-01-01T00:00:00Z"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        assert len(resp.get_json()["notifications"]) == 2
+
+    def test_list_filtra_por_workspace(self, root_client, fake_requests, monkeypatch):
+        headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "a", "workspace_id": None, "title": "Global", "created_at": "2026-01-01T00:00:00Z"},
+                {"id": "b", "workspace_id": "ws-a", "title": "Minha", "created_at": "2026-01-01T00:00:00Z"},
+                {"id": "c", "workspace_id": "ws-b", "title": "Outra", "created_at": "2026-01-01T00:00:00Z"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        ids = [n["id"] for n in resp.get_json()["notifications"]]
+        assert set(ids) == {"a", "b"}
+

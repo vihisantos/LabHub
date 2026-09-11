@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppNotification, NotificationFormData } from './types'
-import { notificationService } from './service'
+import { notificationService, appNotificationFromRow } from './service'
 import { authService } from '../auth/service'
+import { defaultDb } from '../../lib/supabase'
 import { workspaceStore } from '../workspaces/store'
 import { notificationAppliesTo } from './visibility'
 import type { User } from '../auth/types'
@@ -80,6 +81,39 @@ export function useNotifications() {
     const timer = setInterval(() => load(true), 10000)
     return () => clearInterval(timer)
   }, [load])
+
+  // Polling do servidor: puxa notificações in-app enviadas por outros dispositivos.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    async function pollRemote() {
+      try {
+        if (!defaultDb) return
+        const { data } = await defaultDb.auth.getSession()
+        const token = data.session?.access_token
+        if (!token || cancelled) return
+        const res = await fetch('/api/app-notifications', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok || cancelled) return
+        const payload = await res.json()
+        const rows = (payload?.notifications ?? []) as Record<string, unknown>[]
+        let changed = false
+        for (const row of rows) {
+          if (notificationService.ingestRemote(appNotificationFromRow(row))) changed = true
+        }
+        if (changed) load(true)
+      } catch {
+        // falha de rede não afeta o sino
+      }
+    }
+    pollRemote()
+    const timer = setInterval(pollRemote, 10000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [user, load])
 
   // Segue o usuário logado e o workspace ativo para re-aplicar o filtro
   useEffect(() => {

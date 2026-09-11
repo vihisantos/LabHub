@@ -10,6 +10,7 @@ import type {
 import type { User } from '../../../core/auth/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
 import { adminService } from '../../../core/auth/adminService'
+import { defaultDb } from '../../../lib/supabase'
 import { icons } from '../../../lib/icons'
 
 const MODULES = appRegistry.filter((app) => app.id !== 'admin')
@@ -80,7 +81,7 @@ export function NotificationSendTab() {
     }
 
     try {
-      create({
+      const ntf = create({
         title: title.trim(),
         body: body.trim(),
         type,
@@ -92,26 +93,57 @@ export function NotificationSendTab() {
         workspace_id: workspaceId,
       })
 
-      // Push para o mesmo segmento (o backend filtra por módulo/workspace/cargo)
-      // Mesma base da API usada pelos demais apps; vazio = mesmo domínio (Vercel)
+      // Persist + push: broadcast no sino (in-app) e push no segmento.
+      // Base vazia = mesmo domínio do frontend (Vercel serve a API sob /api/*).
       const pushBase = (import.meta.env.VITE_RESERVALAB_API_URL as string) || ''
-      if (pushBase) {
-        fetch(`${pushBase}/api/push/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: title.trim(),
-            body: body.trim(),
-            url: '/',
-            module: moduleId,
-            workspace_id: workspaceId,
-            role,
-            userId,
-          }),
-        }).catch(() => {})
+      const { data: sessionData } = await defaultDb.auth.getSession()
+      const token = sessionData?.session?.access_token ?? ''
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      }
+      const notificationPayload = {
+        id: ntf.id,
+        title: title.trim(),
+        body: body.trim(),
+        type,
+        severity,
+        module: moduleId,
+        audience,
+        targetRole: role,
+        targetUserId: userId,
+        workspace_id: workspaceId,
+        actionUrl: '/',
       }
 
-      setFeedback({ ok: true, text: 'Notificação enviada (in-app + push).' })
+      // 1. Broadcast in-app (persiste no servidor para os demais dispositivos).
+      const persistRes = await fetch(`${pushBase}/api/app-notifications`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(notificationPayload),
+      })
+      if (!persistRes.ok) {
+        setFeedback({ ok: false, text: `Falha ao salvar notificação (${persistRes.status}).` })
+        return
+      }
+
+      // 2. Push do segmento (o backend filtra por módulo/workspace/cargo).
+      const pushRes = await fetch(`${pushBase}/api/push/send`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...notificationPayload, url: '/', role, userId }),
+      })
+      const pushPayload = (await pushRes.json().catch(() => ({}))) as {
+        sent?: number
+        total?: number
+        error?: string
+      }
+      if (!pushRes.ok) {
+        setFeedback({ ok: false, text: `Push falhou (${pushRes.status}): ${pushPayload.error || 'erro'}` })
+        return
+      }
+
+      setFeedback({ ok: true, text: `Enviada: in-app + ${pushPayload.sent ?? 0}/${pushPayload.total ?? 0} push.` })
       setTitle('')
       setBody('')
     } catch {
