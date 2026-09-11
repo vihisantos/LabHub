@@ -2,21 +2,33 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 vi.mock('framer-motion', () => ({
-  motion: { div: ({ children, ...p }: any) => <div {...p}>{children}</div> },
+  motion: {
+    div: ({ children, ...p }: any) => <div {...p}>{children}</div>,
+    form: ({ children, ...p }: any) => <form {...p}>{children}</form>,
+  },
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-vi.mock('../../../lib/components/ui', () => ({
-  TooltipProvider: ({ children }: { children: React.ReactNode }) =>
-    <span data-testid="tooltip-provider">{children}</span>,
-  TooltipRoot: ({ children, dataTestId, ...p }: any) =>
-    <span data-testid={dataTestId ?? 'tooltip-root'} {...p}>{children}</span>,
-  TooltipTrigger: ({ children, ...p }: any) => <span {...p}>{children}</span>,
-  TooltipContent: ({ children, ...p }: any) => <span {...p}>{children}</span>,
-}))
+vi.mock('../../../../lib/components/ui', () => {
+  const Passthrough = ({ children, ...p }: any) => <span {...p}>{children}</span>
+  return {
+    TooltipProvider: Passthrough,
+    TooltipRoot: ({ children, ...p }: any) => <span {...p}>{children}</span>,
+    TooltipTrigger: Passthrough,
+    TooltipContent: Passthrough,
+    AlertDialog: ({ children, ...p }: any) => <span data-testid="alert-dialog" {...p}>{children}</span>,
+    AlertDialogContent: Passthrough,
+    AlertDialogHeader: Passthrough,
+    AlertDialogFooter: Passthrough,
+    AlertDialogTitle: Passthrough,
+    AlertDialogDescription: Passthrough,
+    AlertDialogAction: Passthrough,
+    AlertDialogCancel: Passthrough,
+  }
+})
 
 import { EventManager } from '../EventManager'
-import type { TvDevice } from '../../types'
+import type { TvDevice, TvEvent } from '../../types'
 
 function device(name: string): TvDevice {
   return {
@@ -29,18 +41,45 @@ function device(name: string): TvDevice {
   }
 }
 
+function makeEvent(overrides: Partial<TvEvent> = {}): TvEvent {
+  return {
+    id: 'ev-1',
+    title: 'Evento A',
+    description: null,
+    image_url: null,
+    pdf_url: null,
+    start_date: null,
+    end_date: null,
+    is_active: true,
+    sort_order: 0,
+    created_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function renderManager(devices: TvDevice[], events: TvEvent[]) {
+  render(
+    <EventManager
+      devices={devices}
+      events={events}
+      onAdd={vi.fn()}
+      onEdit={vi.fn()}
+      onDelete={vi.fn()}
+    />,
+  )
+}
+
 describe('EventManager with devices', () => {
-  it('does not overflow the badge slot', () => {
-    render(
-      <EventManager
-        devices={[device('TV do Lab 3')]}
-        events={[]}
-        onAdd={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-      />,
-    )
-    const badge = screen.getByText('TV do Lab 3', { selector: 'span.p-2, span.px-2, span.flex-1, span.block' }).closest('*[class*="truncate"]');
-    expect(badge).not.toBeNull();
+  it('mostra o nome da TV de destino no badge do evento', () => {
+    const dev = device('TV do Lab 3')
+    renderManager([dev], [makeEvent({ device_id: dev.id })])
+
+    expect(screen.getByText('TV do Lab 3')).toBeInTheDocument()
+  })
+
+  it('mostra "Todo o campus" quando o evento não tem device_id', () => {
+    renderManager([device('TV do Lab 3')], [makeEvent({ device_id: null })])
+
+    expect(screen.getByText('Todo o campus')).toBeInTheDocument()
   })
 })
