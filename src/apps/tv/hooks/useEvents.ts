@@ -5,7 +5,7 @@ import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
 import type { TvEvent } from '../types'
 
-export function useEvents() {
+export function useEvents(deviceId?: string | null) {
   const [events, setEvents] = useState<TvEvent[]>([])
   const [loading, setLoading] = useState(true)
   const { addToast } = useToast()
@@ -13,14 +13,14 @@ export function useEvents() {
   const load = useCallback(async (silent?: boolean) => {
     try {
       if (!silent) setLoading(true)
-      const data = await fetchEvents()
+      const data = await fetchEvents(deviceId)
       setEvents(data)
     } catch {
       if (!silent) addToast('error', 'Erro ao carregar eventos')
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [addToast])
+  }, [addToast, deviceId])
 
   useEffect(() => { load() }, [load])
 

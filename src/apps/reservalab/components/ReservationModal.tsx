@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
 import type { TransformedReservation } from '../types'
+import { CreateTvEventModal, type TvEventDraft } from './CreateTvEventModal'
 
 const X = ({ size = 24 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -38,42 +39,32 @@ const DESK_ROWS = 8
 const PCD_INDEX = 54
 
 export function ReservationModal({ reservation, onClose }: ReservationModalProps) {
-  const navigate = useNavigate()
+  const [showTvModal, setShowTvModal] = useState(false)
   const desks = Array.from({ length: DESK_COLS * DESK_ROWS }, (_, i) => {
     if (i === PCD_INDEX) return { label: 'PCD', pcd: true }
     return { label: `${Math.floor(i / DESK_COLS) + 1}.${(i % DESK_COLS) + 1}`, pcd: false }
   })
 
-  const buildTvUrl = () => {
-    const params = new URLSearchParams()
-    params.set('tab', 'events')
-    params.set('title', reservation.subject)
+  const toIso = (minutes: number): string | null => {
+    if (!reservation.data) return null
+    const [dia, mes, ano] = reservation.data.split('/').map(Number)
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    return new Date(ano, mes - 1, dia, h, m).toISOString()
+  }
 
-    // Build description from available data
+  const buildDraft = (): TvEventDraft => {
     const parts: string[] = []
     if (reservation.data) parts.push(`Data: ${reservation.data}`)
     if (reservation.professor) parts.push(`Professor: ${reservation.professor}`)
     if (reservation.reservaFeitaPor) parts.push(`Reservado por: ${reservation.reservaFeitaPor}`)
     parts.push(reservation.time)
-    params.set('description', parts.join(' | '))
-
-    // Build ISO dates from data + time
-    if (reservation.data && reservation.horario_inicio != null) {
-      const [dia, mes, ano] = reservation.data.split('/').map(Number)
-      const h = Math.floor(reservation.horario_inicio / 60)
-      const m = reservation.horario_inicio % 60
-      const start = new Date(ano, mes - 1, dia, h, m)
-      params.set('start_date', start.toISOString())
+    return {
+      title: reservation.subject || 'Reserva',
+      description: parts.join(' | '),
+      startDate: reservation.horario_inicio != null ? toIso(reservation.horario_inicio) : null,
+      endDate: reservation.horario_fim != null ? toIso(reservation.horario_fim) : null,
     }
-    if (reservation.data && reservation.horario_fim != null) {
-      const [dia, mes, ano] = reservation.data.split('/').map(Number)
-      const h = Math.floor(reservation.horario_fim / 60)
-      const m = reservation.horario_fim % 60
-      const end = new Date(ano, mes - 1, dia, h, m)
-      params.set('end_date', end.toISOString())
-    }
-
-    return `/tv?${params.toString()}`
   }
 
   return (
@@ -120,7 +111,7 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <button
-                onClick={() => { navigate(buildTvUrl()); onClose() }}
+                onClick={() => setShowTvModal(true)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '4px',
                   padding: '6px 12px', borderRadius: '0.5rem', border: '1px solid var(--border)',
@@ -228,6 +219,9 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
           </div>
         </div>
       </motion.div>
+      {showTvModal && (
+        <CreateTvEventModal draft={buildDraft()} onClose={() => setShowTvModal(false)} />
+      )}
     </motion.div>
   )
 }

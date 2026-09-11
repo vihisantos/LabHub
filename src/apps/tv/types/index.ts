@@ -11,6 +11,8 @@ export interface TvEvent {
   show_countdown?: boolean
   has_welcome?: boolean
   workspace_id?: string | null
+  /** TV (tv_devices) de destino. NULL = evento do campus (todas as TVs). */
+  device_id?: string | null
   created_at: string
 }
 

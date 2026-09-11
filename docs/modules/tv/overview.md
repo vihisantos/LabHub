@@ -11,7 +11,7 @@ The TV module powers digital signage displays in IT labs — showing events, vid
 
 ## Key Features
 
-- **Events management** — create, edit, activate campus events
+- **Events management** — create, edit, activate campus events; events may target a specific TV (`tv_events.device_id`) or the whole campus (`NULL`, shown on every TV). ReservaLab creates a reservation event directly for a chosen TV.
 - **Video playlists** — YouTube integration with metadata fetch
 - **Music queues** — background audio for displays
 - **Announcements** — scrolling text announcements

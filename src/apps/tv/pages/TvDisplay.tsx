@@ -31,8 +31,8 @@ type Phase =
   | { type: 'countdown'; eventId: string }
   | { type: 'welcome'; eventId?: string }
 
-export function TvDisplay({ deviceName }: { deviceName?: string }) {
-  const { events, loading: eventsLoading } = useEvents()
+export function TvDisplay({ deviceName, deviceId }: { deviceName?: string; deviceId?: string | null }) {
+  const { events, loading: eventsLoading } = useEvents(deviceId)
   const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
   const { galleries: activeGalleries, photosMap, loading: galleryLoading } = useActiveGalleries()
   const { activeAnnouncement } = useUrgentAnnouncements()

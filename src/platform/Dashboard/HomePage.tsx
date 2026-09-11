@@ -1,6 +1,7 @@
 import { useAppAccess } from '../../core/permissions/usePermissions'
 import { DashboardPage } from './DashboardPage'
 import { Launcher } from '../Launcher/Launcher'
+import { UpcomingReservationPopup } from '../../apps/reservalab/components/UpcomingReservationPopup'
 
 /**
  * Tela inicial do app.
@@ -11,5 +12,11 @@ import { Launcher } from '../Launcher/Launcher'
  */
 export function HomePage() {
   const { canAccessApp } = useAppAccess()
-  return canAccessApp('dashboard') ? <DashboardPage /> : <Launcher />
+  return (
+    <>
+      {/* Aviso de reserva chegando para quem tem acesso full ao ReservaLab. */}
+      <UpcomingReservationPopup />
+      {canAccessApp('dashboard') ? <DashboardPage /> : <Launcher />}
+    </>
+  )
 }

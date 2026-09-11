@@ -101,6 +101,41 @@ describe('fetchEvents', () => {
   })
 })
 
+describe('fetchEvents — escopo por TV', () => {
+  it('mostra evento do campus (device_id null) para qualquer TV', async () => {
+    state.result = {
+      data: [{ id: 'campus', title: 'Campus', device_id: null }],
+      error: null,
+    }
+    const out = await fetchEvents('tv-a')
+    expect(out.map((e: any) => e.id)).toEqual(['campus'])
+  })
+
+  it('esconde evento de outra TV e mostra o da própria TV', async () => {
+    state.result = {
+      data: [
+        { id: 'a', title: 'A', device_id: 'tv-a' },
+        { id: 'b', title: 'B', device_id: 'tv-b' },
+      ],
+      error: null,
+    }
+    const out = await fetchEvents('tv-a')
+    expect(out.map((e: any) => e.id)).toEqual(['a'])
+  })
+
+  it('sem deviceId retorna tudo (painel/legado)', async () => {
+    state.result = {
+      data: [
+        { id: 'a', title: 'A', device_id: 'tv-a' },
+        { id: 'b', title: 'B', device_id: 'tv-b' },
+      ],
+      error: null,
+    }
+    const out = await fetchEvents()
+    expect(out.map((e: any) => e.id)).toEqual(['a', 'b'])
+  })
+})
+
 describe('fetchAllEvents', () => {
   it('retorna todos os eventos sem filtro is_active', async () => {
     const mockData = [{ id: '1', title: 'A' }, { id: '2', title: 'B' }]

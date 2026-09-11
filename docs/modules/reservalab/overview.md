@@ -14,7 +14,7 @@ ReservaLab manages reservations for computer labs and tablets. Lab reservations 
 - **Lab reservations** — calendar view from SharePoint Excel
 - **Tablet reservations** — full CRUD in Supabase
 - **Dashboard** — occupancy charts and statistics
-- **Push notifications** — 15-minute advance reminders
+- **Push notifications** — advance reminders (default 30 min; lab + tablet), scoped per campus
 - **Multi-lab support** — configurable per campus (`lab_count`)
 
 ## Data Sources

@@ -21,5 +21,5 @@ export function ScreenRenderer({ config }: ScreenRendererProps) {
     return <CallsDashboardScreen />
   }
 
-  return <TvDisplay deviceName={config.name} />
+  return <TvDisplay deviceName={config.name} deviceId={config.deviceId} />
 }

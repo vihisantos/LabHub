@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, AreaChart, Area,
 } from 'recharts'
-import { Users, BookOpen, Clock, Activity, ArrowUpRight, BarChart3, Package, Monitor, Zap, User } from 'lucide-react'
+import { Users, BookOpen, Clock, Activity, BarChart3, Monitor, Zap, User } from 'lucide-react'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { StatsCard } from '../components/StatsCard'
 import { ChartContainer } from '../components/ChartContainer'
@@ -18,7 +17,6 @@ import type { LaboratorioReserva, ReservasAPIResponse, TabletReserva } from '../
 
 export function DashboardView() {
   const isMobile = useIsMobile()
-  const navigate = useNavigate()
   const { workspace } = useWorkspace()
   const today = new Date().toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })
 
@@ -238,28 +236,6 @@ export function DashboardView() {
             </p>
           </div>
         </div>
-        <motion.button
-          whileHover={{ x: 2 }}
-          onClick={() => navigate('/stock')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '0.5rem 1rem',
-            borderRadius: '0.5rem',
-            border: '1px solid var(--accent-ring)',
-            background: 'var(--accent-soft)',
-            color: 'var(--accent)',
-            fontSize: '0.875rem',
-            fontWeight: 500,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Package size={16} />
-          Inventário
-          <ArrowUpRight size={14} />
-        </motion.button>
       </div>
 
       {/* Stats Grid */}
