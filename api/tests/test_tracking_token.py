@@ -274,6 +274,41 @@ def test_create_retorna_tracking_token_e_nao_persiste_token_cru(client, fake_req
 
 # ── B1.3/B1.10 — autenticação por token ────────────────────────────────────
 
+def test_create_vincula_autor_logado_reportedByUserId(client, fake_requests, api_module, monkeypatch):
+    """Com JWT válido, o INSERT grava reportedByUserId (vínculo autor logado)."""
+    fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([SUPER_ADMIN_PROFILE]))
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=9)
+    created = _make_ticket(tid="ticket-A", ticketNumber=10)
+    _route_create_insert(fake_requests, created)
+
+    monkeypatch.setattr(api_module, "_get_token_from_request", lambda: "fake-token")
+    monkeypatch.setattr(api_module, "_verify_jwt", lambda _t: {"sub": "user-123"})
+
+    resp = client.post("/api/chamados", json=_valid_payload(), headers=_auth_headers())
+
+    assert resp.status_code == 200
+    insert = fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")[0]["kwargs"]["json"]
+    assert insert.get("reportedByUserId") == "user-123"
+
+
+def test_create_sem_jwt_nao_vincula_autor(client, fake_requests, api_module, monkeypatch):
+    """Sem JWT (anônimo/professor), reportedByUserId fica NULL."""
+    fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([SUPER_ADMIN_PROFILE]))
+    _route_workspace_ok(fake_requests)
+    _route_ticket_number(fake_requests, last=9)
+    created = _make_ticket(tid="ticket-A", ticketNumber=10)
+    _route_create_insert(fake_requests, created)
+
+    monkeypatch.setattr(api_module, "_get_token_from_request", lambda: None)
+
+    resp = client.post("/api/chamados", json=_valid_payload())
+
+    assert resp.status_code == 200
+    insert = fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")[0]["kwargs"]["json"]
+    assert insert.get("reportedByUserId") is None
+
+
 def test_token_valido_permite_ver_proprio_ticket(client, fake_requests):
     _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A")
     _route_ticket_full(fake_requests, _make_ticket(tid="ticket-A"))

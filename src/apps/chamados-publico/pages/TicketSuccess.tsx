@@ -6,6 +6,7 @@ import { Stars } from '../../chamados/components/Stars'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
+import { useAuth } from '../../../core/auth/useAuth'
 import type { Ticket, TicketStatus } from '../../chamados/types'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
@@ -112,6 +113,10 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 export function TicketSuccess() {
   const { ticketId } = useParams<{ ticketId: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  // Logado: já recebe a evolução do chamado pela inscrição de app — não precisa
+  // da inscrição anônima por-chamado (botão "notificações deste chamado" só p/ anônimo).
+  const isLoggedIn = !!user
   const [ticket, setTicket] = useState<Ticket | null>(() =>
     ticketId ? (ticketService.getById(ticketId) ?? null) : null,
   )
@@ -390,7 +395,7 @@ export function TicketSuccess() {
         </p>
       </div>
 
-      {isPushSupported() && !concluded && (
+      {isPushSupported() && !concluded && !isLoggedIn && (
         <div className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card px-4 py-3">
           {pushState === 'on' ? (
             <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -411,7 +416,7 @@ export function TicketSuccess() {
                 className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <icons.ui.bellRing size={14} />
-                {pushState === 'loading' ? 'Ativando...' : pushState === 'denied' ? 'Reativar' : 'Ativar notificações'}
+                {pushState === 'loading' ? 'Ativando...' : 'Receber notificação deste chamado'}
               </button>
             </>
           )}

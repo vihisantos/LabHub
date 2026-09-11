@@ -25,6 +25,7 @@ class FakeRedis:
 
     def __init__(self):
         self._store: dict[str, set[str]] = {}
+        self.expires: list[tuple[str, int]] = []
 
     def smembers(self, key: str) -> set[str]:
         return set(self._store.get(key, set()))
@@ -46,6 +47,10 @@ class FakeRedis:
             self._store[key].discard(value)
             return 1
         return 0
+
+    def expire(self, key: str, seconds: int) -> bool:
+        self.expires.append((key, seconds))
+        return True
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -459,3 +464,57 @@ def test_notify_ticket_status_url_feedback_para_resolvido(api_module, monkeypatc
     assert len(sent) == 1
     assert "/chamados-publico/feedback/ticket-r" in sent[0]["url"]
     assert "⭐" in sent[0]["title"]
+
+
+def test_notify_ticket_status_notifica_autor_logado(api_module, monkeypatch):
+    """Com reportedByUserId, notifica o autor pela inscrição de APP (sem 2ª inscrição)."""
+    redis = FakeRedis()
+    monkeypatch.setattr(api_module, "redis", redis)
+
+    sent = []
+    monkeypatch.setattr(
+        api_module,
+        "_target_subs",
+        lambda **kw: [{"endpoint": "https://fcm/reporter"}],
+    )
+    monkeypatch.setattr(
+        api_module,
+        "push_notify",
+        lambda sub, *a, **kw: sent.append(sub["endpoint"]) or True,
+    )
+
+    ticket = {
+        "id": "ticket-x",
+        "ticketNumber": 5,
+        "status": "em_atendimento",
+        "statusNote": "",
+        "roomName": "Sala 1",
+        "problemCategory": "Rede",
+        "reportedByUserId": "user-r",
+    }
+
+    api_module._notify_ticket_status(ticket)
+
+    assert sent == ["https://fcm/reporter"]
+
+
+def test_notify_ticket_status_revoga_anonimos_apos_conclusao(api_module, monkeypatch):
+    """Ao concluir (resolvido/fechado), as inscrições anônimas ganham TTL de 10 min."""
+    redis = FakeRedis()
+    monkeypatch.setattr(api_module, "redis", redis)
+    monkeypatch.setattr(api_module, "push_notify", lambda *a, **kw: True)
+
+    api_module._save_chamado_subs("ticket-y", [_sub("https://fcm/anon")])
+
+    ticket = {
+        "id": "ticket-y",
+        "ticketNumber": 9,
+        "status": "fechado",
+        "statusNote": "",
+        "roomName": "Sala 2",
+        "problemCategory": "Rede",
+    }
+
+    api_module._notify_ticket_status(ticket)
+
+    assert redis.expires == [("push:chamado:ticket-y", 600)]
