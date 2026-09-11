@@ -29,6 +29,11 @@ vi.mock('../../../../lib/useRealtimeSubscription', () => ({
   useRealtimeSubscription: () => {},
 }))
 
+const authState = vi.hoisted(() => ({ user: null as null | { id: string } }))
+vi.mock('../../../../core/auth/useAuth', () => ({
+  useAuth: () => ({ user: authState.user }),
+}))
+
 import { TicketSuccess } from '../TicketSuccess'
 
 function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
@@ -68,6 +73,7 @@ function renderSuccess() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  authState.user = null
   vi.stubGlobal('Notification', {
     permission: 'default',
     requestPermission: vi.fn().mockResolvedValue('default'),
@@ -175,7 +181,7 @@ describe('TicketSuccess', () => {
     await act(async () => {})
 
     expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
-    expect(screen.queryByText('Ativar notificações')).not.toBeInTheDocument()
+    expect(screen.queryByText('Receber notificação deste chamado')).not.toBeInTheDocument()
     expect(screen.queryByText('Receba um aviso quando o status mudar')).not.toBeInTheDocument()
 
     if (originalPushManager) {
@@ -232,7 +238,7 @@ describe('TicketSuccess', () => {
     await act(async () => {})
 
     expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
-    expect(screen.getByText('Ativar notificações')).toBeInTheDocument()
+    expect(screen.getByText('Receber notificação deste chamado')).toBeInTheDocument()
 
     delete (window as unknown as Record<string, unknown>).PushManager
   })
@@ -267,6 +273,23 @@ describe('TicketSuccess', () => {
     await act(async () => {})
 
     expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
+  })
+
+  it('logado não vê o botão "notificação deste chamado" (recebe pela inscrição de app)', async () => {
+    authState.user = { id: 'u-1' }
+    vi.stubGlobal('Notification', {
+      permission: 'granted',
+      requestPermission: vi.fn().mockResolvedValue('granted'),
+    })
+    ;(window as unknown as Record<string, unknown>).PushManager = class {}
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+
+    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.queryByText('Receber notificação deste chamado')).not.toBeInTheDocument()
+
+    delete (window as unknown as Record<string, unknown>).PushManager
   })
 
   it('(I) Polling via token atualiza o status', async () => {

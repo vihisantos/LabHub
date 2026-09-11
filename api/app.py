@@ -1826,18 +1826,23 @@ def record_app_audit(workspace_id=None, actor_id=None, actor_name=None, action='
 
 
 def _notify_ticket_status(ticket):
-    """Push ao professor (inscrições do próprio chamado) quando status/mensagem mudam."""
+    """Push de status do chamado para o autor (logado e/ou anônimo).
+
+    - Autor logado (reportedByUserId): notifica pela inscrição de APP dele
+      (sem "segunda inscrição" por chamado).
+    - Anônimo (professor): notifica pelas inscrições por-chamado (token).
+    - Ao concluir (resolvido/fechado), as inscrições anônimas ganham TTL de
+      10 min (auto-revogação).
+    """
     try:
-        subs = _chamado_subs(ticket.get('id', ''))
-        if not subs:
-            return
+        ticket_id = ticket.get('id', '')
         status = ticket.get('status', '')
         note = (ticket.get('statusNote') or '').strip()
 
         if status == 'resolvido':
             title = 'Como foi seu atendimento? ⭐'
             body = f"O chamado #{ticket.get('ticketNumber')} foi resolvido. Avalie o atendimento da equipe de TI."
-            url = f"/chamados-publico/feedback/{ticket.get('id')}"
+            url = f"/chamados-publico/feedback/{ticket_id}"
         else:
             label = CHAMADOS_STATUS_LABELS.get(status, status)
             msg = f'{label} — {note}' if note else label
@@ -1845,14 +1850,33 @@ def _notify_ticket_status(ticket):
             body = ' · '.join(
                 str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
             )
-            url = f"/chamados-publico/success/{ticket.get('id')}"
+            url = f"/chamados-publico/success/{ticket_id}"
 
+        # a) Autor logado — inscrição de app (identidade via reportedByUserId).
+        reporter_id = str(ticket.get('reportedByUserId') or '').strip()
+        sent_reporter = 0
+        if reporter_id:
+            for sub in _target_subs(module='chamados', user_id=reporter_id):
+                if push_notify(sub, title, body, url=url):
+                    sent_reporter += 1
+
+        # b) Inscrições anônimas por-chamado (professor sem login).
+        subs = _chamado_subs(ticket_id)
         keep = []
         for sub in subs:
             if push_notify(sub, title, body, url=url):
                 keep.append(sub)
-        _save_chamado_subs(ticket.get('id', ''), keep)
-        print(f"[chamados] push status #{ticket.get('ticketNumber')}: {len(keep)}/{len(subs)} enviados")
+        _save_chamado_subs(ticket_id, keep)
+
+        # c) Concluído: auto-revoga as inscrições anônimas em 10 min.
+        if status in ('resolvido', 'fechado'):
+            try:
+                if redis:
+                    redis.expire(f'push:chamado:{ticket_id}', 600)
+            except Exception:
+                pass
+
+        print(f"[chamados] push status #{ticket.get('ticketNumber')}: rep={sent_reporter} anon={len(keep)}/{len(subs)}")
     except Exception as e:
         logger.error("[chamados] push status error: %s", e)
 
@@ -1871,6 +1895,7 @@ def _notify_ticket_assigned(ticket):
             module='chamados',
             workspace_id=ticket.get('workspace_id'),
             user_id=user_id,
+            min_level='full',
         )
         if not subs:
             return
@@ -1906,7 +1931,7 @@ def _notify_ticket_claimed(ticket, claimer_name):
         ws = ticket.get('workspace_id')
 
         # 1. Push direto a quem assumiu.
-        own_subs = _target_subs(module='chamados', workspace_id=ws, user_id=claimer_id)
+        own_subs = _target_subs(module='chamados', workspace_id=ws, user_id=claimer_id, min_level='full')
         own_title = f"Você assumiu o chamado #{num}"
         own_body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
@@ -1917,7 +1942,7 @@ def _notify_ticket_claimed(ticket, claimer_name):
                 sent_own += 1
 
         # 2. Demais técnicos do workspace: informação de indisponibilidade.
-        others = _target_subs(module='chamados', workspace_id=ws)
+        others = _target_subs(module='chamados', workspace_id=ws, min_level='full')
         other_title = f"O chamado #{num} foi assumido por {claimer_name or 'um técnico'}"
         other_body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
@@ -1945,7 +1970,7 @@ def _notify_new_ticket(ticket):
     Falha de push não impede a criação do chamado.
     """
     try:
-        subs = _target_subs(module='chamados', workspace_id=ticket.get('workspace_id'))
+        subs = _target_subs(module='chamados', workspace_id=ticket.get('workspace_id'), min_level='full')
         if not subs:
             return
         title = f"Novo chamado #{ticket.get('ticketNumber')}"
@@ -2040,6 +2065,16 @@ def chamados_create():
         if priority not in CHAMADOS_PRIORITIES:
             return jsonify({'error': 'Prioridade inválida'}), 400
 
+        # Vínculo opcional ao autor logado: se a requisição trouxer um JWT
+        # válido (sessão ativa), gravamos o id do autor; senão o chamado fica
+        # anônimo (professor). Best-effort: JWT ausente/inválido ⇒ NULL.
+        reporter_user_id = None
+        _token = _get_token_from_request()
+        if _token:
+            _payload = _verify_jwt(_token)
+            if isinstance(_payload, dict) and _payload.get('sub'):
+                reporter_user_id = _payload.get('sub')
+
         # Validação de tamanho de texto
         field_lengths = {
             'workspace_id': workspace_id, 'roomName': room_name,
@@ -2105,6 +2140,7 @@ def chamados_create():
             'priority': priority,
             'reportedBy': reported_by,
             'reportedByEmail': str(body.get('reportedByEmail') or '').strip(),
+            'reportedByUserId': reporter_user_id,
             'assignedTo': str(body.get('assignedTo') or ''),
             'assignedToUserId': str(body.get('assignedToUserId') or ''),
             'photos': photos,
