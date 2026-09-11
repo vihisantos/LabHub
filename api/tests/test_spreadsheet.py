@@ -31,6 +31,7 @@ def _make_workbook(today: date) -> bytes:
     ws.append(['Ana', 'Prof. C', 'c@x', today + timedelta(days=10), '10h00', 10, '', None, 'Lab 02'])
     ws.append(['Sem data', 'Prof. D', 'd@x', None, '11h00', 5, '', None, 'Lab 01'])
     ws.append(['Carlos', 'Prof. E', 'e@x', '2026-06-27', '13h30', 20, '', None, 'Lab 02'])
+    ws.append(['Bruno', 'Prof. F', 'f@x', today + timedelta(days=40), '15h00', 12, '', None, 'Lab 01'])
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -62,7 +63,7 @@ def _route_download(spread_module, monkeypatch, workbook_bytes):
 # ── Parser da planilha ──
 
 
-def test_parse_spreadsheet_filtra_hoje_e_semana(spread_module, monkeypatch):
+def test_parse_spreadsheet_filtra_hoje_e_proximos_30_dias(spread_module, monkeypatch):
     today = date(2026, 6, 25)
     monkeypatch.setattr(spread_module, 'get_today_sp', lambda: today)
     _route_download(spread_module, monkeypatch, _make_workbook(today))
@@ -75,10 +76,10 @@ def test_parse_spreadsheet_filtra_hoje_e_semana(spread_module, monkeypatch):
     assert reservas_hoje[0]['labs'] == ['LAB01']
     assert reservas_hoje[0]['origem'] == 'planilha'
 
-    # Semana: hoje < data <= hoje+7 (exclui a de +10 dias e a sem data)
-    assert len(reservas_semana) == 2
+    # Janela: hoje < data <= hoje+30 (exclui a de +40 dias e a sem data)
+    assert len(reservas_semana) == 3
     profs = {r['responsavel'] for r in reservas_semana}
-    assert profs == {'Prof. B', 'Prof. E'}
+    assert profs == {'Prof. B', 'Prof. C', 'Prof. E'}
     # "Lab 01 e 02" vira os dois labs; data em string também é aceita
     joao = next(r for r in reservas_semana if r['responsavel'] == 'Prof. B')
     assert joao['labs'] == ['LAB01', 'LAB02']

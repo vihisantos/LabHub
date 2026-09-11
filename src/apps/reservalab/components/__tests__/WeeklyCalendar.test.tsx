@@ -71,9 +71,9 @@ function renderCalendar(weekData = makeWeekData()) {
 }
 
 describe('WeeklyCalendar', () => {
-  it('renderiza título "Próximos 7 Dias"', () => {
+  it('renderiza título "Próximos 30 Dias"', () => {
     renderCalendar()
-    expect(screen.getByText('Próximos 7 Dias')).toBeInTheDocument()
+    expect(screen.getByText('Próximos 30 Dias')).toBeInTheDocument()
   })
 
   it('renderiza dias da semana', () => {

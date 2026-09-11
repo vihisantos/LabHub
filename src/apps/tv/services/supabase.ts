@@ -15,14 +15,18 @@ function scoped<T extends { workspace_id?: string | null }>(rows: T[]): T[] {
 
 /* ── Events ── */
 
-export async function fetchEvents(): Promise<TvEvent[]> {
+export async function fetchEvents(deviceId?: string | null): Promise<TvEvent[]> {
   if (!supabase) return []
   const { data } = await supabase
     .from('tv_events')
     .select('*')
     .eq('is_active', true)
     .order('sort_order', { ascending: true })
-  return scoped((data as TvEvent[]) || [])
+  const rows = scoped((data as TvEvent[]) || [])
+  // Evento do campus (device_id NULL) aparece em todas as TVs; evento com
+  // device_id aparece só na TV de destino.
+  if (!deviceId) return rows
+  return rows.filter((e) => !e.device_id || e.device_id === deviceId)
 }
 
 export async function fetchAllEvents(): Promise<TvEvent[]> {
@@ -380,6 +384,17 @@ export async function fetchDevices(): Promise<TvDevice[]> {
   if (!supabase) return []
   const { data } = await supabase.from('tv_devices').select('*').order('created_at', { ascending: true })
   return scoped((data as TvDevice[]) || [])
+}
+
+/** TVs (dispositivos) registradas em um workspace específico. */
+export async function fetchWorkspaceDevices(workspaceId: string): Promise<TvDevice[]> {
+  if (!supabase || !workspaceId) return []
+  const { data } = await supabase
+    .from('tv_devices')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true })
+  return (data as TvDevice[]) || []
 }
 
 export async function fetchDeviceById(id: string): Promise<TvDevice | null> {

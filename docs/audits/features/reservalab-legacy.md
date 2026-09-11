@@ -47,7 +47,7 @@
 - Cadastro com modal e erros inline (sem `alert()`)
 
 ### Notificacoes Push
-- Notificacoes automaticas (janela configuravel via `PUSH_ADVANCE_MINUTES`, default 15 minutos) antes do inicio da reserva
+- Notificacoes automaticas (janela configuravel via `PUSH_ADVANCE_MINUTES`, default 30 minutos) antes do inicio da reserva (lab e tablet; lab escopado por campus)
 - Limpeza automatica de reservas de tablets canceladas ha mais de 1 mes (`/api/push/tablets/cleanup`, default 30 dias via `PUSH_TABLET_RETENTION_DAYS`)
 - Alerta de tablets filtrado por campus: so recebe quem tem acesso ao workspace da reserva (super admin ve todos)
 - Suporte a Web Push (VAPID)
@@ -140,7 +140,7 @@ src/apps/reservalab/
 2. **Planilha e leitura-only.** Reservas de labs vem da planilha; NUNCA escreva nela. Escrita no banco e exclusiva dos tablets (`tablet_reservations`).
 3. **Cache por workspace e OBRIGATORIO.** `get_reservas(workspace_slug)` usa a chave `reservas_{slug}` no Redis (Upstash) com fallback em arquivo — nunca deixe um campus receber o cache de outro.
 4. **`load_workbook` com `read_only=True, data_only=True`** — nunca carregue o workbook inteiro em memoria.
-5. **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`. NUNCA coloque valores fixos no codigo. Opcionais: `PUSH_ADVANCE_MINUTES` (janela de aviso, default 15), `PUSH_DEDUP_SECONDS` (dedup, default 7200) e `PUSH_TABLET_RETENTION_DAYS` (retencao de canceladas, default 30).
+5. **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`. NUNCA coloque valores fixos no codigo. Opcionais: `PUSH_ADVANCE_MINUTES` (janela de aviso, default 30), `PUSH_DEDUP_SECONDS` (dedup, default 7200) e `PUSH_TABLET_RETENTION_DAYS` (retencao de canceladas, default 30).
 6. **Endpoints de cron** sao protegidos por `CRON_SECRET`.
 7. **Modulos novos sao funcoes puras** (sem Flask); nunca levante excecao — retorne dict com `error`; use `DateEncoder` para serializar datas.
 8. **Frontend:** cada tela busca seus proprios dados; nao centralize fetches. Novos componentes vao em `src/apps/reservalab/components/`.

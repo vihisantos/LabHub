@@ -243,6 +243,90 @@ def _push_sub(user):
     }
 
 
+# ── Janela de antecedência (default 30 min, unificada lab+tablet) ──────────
+
+
+def test_push_advance_minutes_default_30(push_module, monkeypatch):
+    """Default da janela de aviso é 30 min; env inválida cai no default."""
+    monkeypatch.delenv('PUSH_ADVANCE_MINUTES', raising=False)
+    assert push_module._push_advance_minutes() == 30
+    monkeypatch.setenv('PUSH_ADVANCE_MINUTES', 'abc')
+    assert push_module._push_advance_minutes() == 30
+    monkeypatch.setenv('PUSH_ADVANCE_MINUTES', '10')
+    assert push_module._push_advance_minutes() == 10
+
+
+def test_workspaces_with_spreadsheet_sem_supabase_retorna_vazio(push_module, monkeypatch):
+    """Sem Supabase configurado, não há como escopar por campus → [] (fallback)."""
+    monkeypatch.setattr(push_module, '_SUPABASE_URL', '')
+    monkeypatch.setattr(push_module, '_SUPABASE_SERVICE_KEY', '')
+    assert push_module._workspaces_with_spreadsheet() == []
+
+
+def test_push_check_reserva_de_lab_mira_so_o_campus(push_module, monkeypatch):
+    """Reserva de lab de um campus deve mirar apenas os assinantes daquele
+    workspace — não vazar para campi vizinhos."""
+    from datetime import date, datetime
+
+    class CampusRedis(FakeRedis):
+        def __init__(self):
+            super().__init__({'x'})
+
+    class Resp:
+        ok = True
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if 'select=id,slug,spreadsheet_url' in url:
+            return Resp([{'id': 'ws-a', 'slug': 'campus-a', 'spreadsheet_url': 'https://share.example/a.xlsx'}])
+        if 'select=lab_count' in url:
+            return Resp([{'lab_count': 2}])
+        raise AssertionError(f'URL inesperada: {url}')
+
+    class CampusRequests:
+        @staticmethod
+        def get(url, **kwargs):
+            return fake_get(url, **kwargs)
+
+    monkeypatch.setattr(push_module, 'redis', CampusRedis())
+    monkeypatch.setattr(push_module, 'requests', CampusRequests())
+    monkeypatch.setattr(push_module, '_SUPABASE_URL', 'https://test.supabase.co')
+    monkeypatch.setattr(push_module, '_SUPABASE_SERVICE_KEY', 'test-service-key')
+    monkeypatch.delenv('SUPABASE_URL', raising=False)
+    monkeypatch.delenv('SUPABASE_SERVICE_KEY', raising=False)
+    monkeypatch.setattr(push_module, 'get_today_sp', lambda: date(2026, 9, 11))
+    monkeypatch.setattr(push_module, 'get_now_sp', lambda: datetime(2026, 9, 11, 7, 20))
+
+    reserva = {
+        'lab': 'LAB01', 'labs': ['LAB01'], 'horario': '07h30 às 09h20',
+        'responsavel': 'Prof. A', 'observacao': 'Matemática', 'alunos': '30',
+        'data': '11/09/2026',
+    }
+    monkeypatch.setattr(push_module, 'get_reservas', lambda *a, **k: ([dict(reserva)], []))
+
+    campus_sub = {'key': 'k', 'endpoint': 'https://push.example/a', 'keys': {}, 'user': {'id': 'u-a'}}
+    calls = []
+
+    def fake_target_subs(**kw):
+        calls.append(kw)
+        return [campus_sub] if kw.get('workspace_id') == 'ws-a' else []
+
+    monkeypatch.setattr(push_module, '_target_subs', fake_target_subs)
+    sent = []
+    monkeypatch.setattr(push_module, 'push_notify', lambda sub, title, body: sent.append((sub['user']['id'], title, body)))
+
+    result = push_module._internal_push_check()
+
+    assert result['sent'] == 1
+    assert [s[0] for s in sent] == ['u-a']
+    assert any(c.get('workspace_id') == 'ws-a' for c in calls)
+
+
 def test_target_subs_filtra_por_workspace(push_module, monkeypatch):
     """Alerta de tablets de um campus só chega para quem tem acesso àquele workspace.
 

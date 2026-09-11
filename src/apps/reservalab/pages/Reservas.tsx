@@ -7,10 +7,11 @@ import { ReservationModal } from '../components/ReservationModal'
 import { TabletReservationCard } from '../components/TabletReservationCard'
 import { TabletModal } from '../components/TabletModal'
 import { WeeklyCalendar } from '../components/WeeklyCalendar'
+import { UpcomingReservationBanner } from '../components/UpcomingReservationBanner'
 import { fetchReservas } from '../services/api'
 import { fetchTabletReservas } from '../services/supabase'
 import { diasSemana, getPeriodo, isReservaAtiva, isReservaEmBreve, isReservaEncerrada } from '../utils/timeUtils'
-import { getLabDisplayName } from '../utils/labUtils'
+import { buildWeeklyData } from '../utils/weeklyData'
 import type { ReservasAPIResponse, TabletReserva, TransformedReservation, WeekDayData } from '../types'
 
 function FigmaLabSection({
@@ -182,10 +183,10 @@ export function ReservasView() {
     try {
       const hoje = new Date()
       hoje.setHours(0, 0, 0, 0)
-      const daqui7 = new Date(hoje)
-      daqui7.setDate(daqui7.getDate() + 7)
+      const daqui30 = new Date(hoje)
+      daqui30.setDate(daqui30.getDate() + 30)
 
-      const rows = await fetchTabletReservas(hoje, daqui7, workspace?.id)
+      const rows = await fetchTabletReservas(hoje, daqui30, workspace?.id)
 
       if (rows.length > 0) {
         const ativas = rows
@@ -310,50 +311,6 @@ export function ReservasView() {
     ]
   }, [data])
 
-  const transformWeeklyData = (): WeekDayData[] => {
-    if (!data.reservas_semana) return []
-
-    const grouped: Record<string, any[]> = {}
-    data.reservas_semana.forEach((r) => {
-      if (!grouped[r.data]) grouped[r.data] = []
-      grouped[r.data].push({ ...r, tipo: 'lab' })
-    })
-
-    tabletWeekData.forEach((day) => {
-      if (!grouped[day.date]) grouped[day.date] = []
-      day.reservations.forEach((r) => {
-        grouped[day.date].push({
-          tipo: 'tablet',
-          lab: r.lab,
-          time: r.time,
-          subject: r.subject,
-          professor: r.professor,
-          reservaFeitaPor: r.reservaFeitaPor,
-          observacao: r.observacao || '',
-        })
-      })
-    })
-
-    return Object.entries(grouped)
-      .map(([date, reservas]) => {
-        const [dia, mes, ano] = date.split('/').map(Number)
-        const d = new Date(ano, mes - 1, dia)
-        return {
-          date,
-          dayName: diasSemana[d.getDay()],
-          reservations: reservas.map((r: any) => ({
-            tipo: r.tipo,
-            lab: r.tipo === 'lab' ? getLabDisplayName(r.lab) || r.lab : r.lab,
-            time: r.tipo === 'lab' ? r.horario : r.time,
-            subject: r.tipo === 'lab' ? (r.responsavel || r.observacao || 'Disciplina') : r.subject,
-            professor: r.responsavel || r.professor,
-            reservaFeitaPor: r.reservaFeitaPor,
-            observacao: r.observacao || '',
-          })),
-        }
-      })
-      .slice(0, 7)
-  }
 
   return (
     <motion.div
@@ -439,6 +396,13 @@ export function ReservasView() {
         )}
       </motion.div>
 
+      <UpcomingReservationBanner
+        labReservas={labSections.flatMap((s) =>
+          s.reservations.map((r) => ({ label: s.labName, horario: r.time, responsavel: r.professor })),
+        )}
+        tabletReservas={tabletReservas}
+      />
+
       {/* Lab Sections */}
       {labSections.map((section) => (
         <FigmaLabSection
@@ -520,7 +484,7 @@ export function ReservasView() {
         <TabletModal reservation={selectedTablet} onClose={() => setSelectedTablet(null)} />
       )}
 
-      <WeeklyCalendar weekData={transformWeeklyData()} />
+      <WeeklyCalendar weekData={buildWeeklyData(data.reservas_semana, tabletWeekData)} />
     </motion.div>
   )
 }

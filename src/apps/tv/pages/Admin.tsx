@@ -360,6 +360,7 @@ export function AdminView() {
                       onEdit={editEvent}
                       onDelete={deleteEvent}
                       initialValues={initialEventValues}
+                      devices={devices}
                     />
                   )}
                   {activeTab === 'playlists' && (

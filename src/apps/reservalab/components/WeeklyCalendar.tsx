@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
 import type { WeekDayData } from '../types'
 import { diasSemana, parseHorario } from '../utils/timeUtils'
+import { CreateTvEventModal, type TvEventDraft } from './CreateTvEventModal'
 
 interface WeeklyCalendarProps {
   weekData: WeekDayData[]
@@ -60,21 +60,27 @@ function parseTimeToISO(time: string, date: string): { start: string | null; end
   return { start: null, end: null }
 }
 
-function buildTvUrl(subject: string, professor: string, time: string, date: string, observacao: string): string {
-  const params = new URLSearchParams()
-  params.set('tab', 'events')
-  params.set('title', subject || observacao || 'Reserva')
-  const description = [`Professor: ${professor}`, observacao].filter(Boolean).join(' | ')
-  if (description) params.set('description', description)
-  const iso = parseTimeToISO(time, date)
-  if (iso.start) params.set('start_date', iso.start)
-  if (iso.end) params.set('end_date', iso.end)
-  return `/tv?${params.toString()}`
+function buildTvDraft(
+  reservation: WeekDayData['reservations'][number],
+  date: string,
+): TvEventDraft {
+  const iso = parseTimeToISO(reservation.time, date)
+  const description = [
+    reservation.professor && `Professor: ${reservation.professor}`,
+    reservation.reservaFeitaPor && `Reservado por: ${reservation.reservaFeitaPor}`,
+    reservation.observacao,
+  ].filter(Boolean).join(' | ')
+  return {
+    title: reservation.subject || reservation.observacao || 'Reserva',
+    description,
+    startDate: iso.start,
+    endDate: iso.end,
+  }
 }
 
 export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
-  const navigate = useNavigate()
   const [selectedDay, setSelectedDay] = useState<WeekDayData | null>(null)
+  const [tvDraft, setTvDraft] = useState<TvEventDraft | null>(null)
   const [filtroTipo, setFiltroTipo] = useState<'lab' | 'tablet' | 'todas'>('todas')
   const [filtroPeriodo, setFiltroPeriodo] = useState('todos')
 
@@ -114,7 +120,7 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
       transition={{ delay: 0.3 }}
     >
       <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem', color: 'var(--text-primary)' }}>
-        Próximos 7 Dias
+        Próximos 30 Dias
       </h3>
 
       <div
@@ -139,7 +145,7 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
               key={day.date}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 * i }}
+              transition={{ delay: Math.min(0.1 * i, 0.4) }}
               onClick={() => setSelectedDay(day)}
               style={{
                 padding: '1rem',
@@ -320,7 +326,7 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
                         </div>
                       )}
                       <button
-                        onClick={() => { setSelectedDay(null); navigate(buildTvUrl(r.subject, r.professor, r.time, selectedDay.date, r.observacao)) }}
+                        onClick={() => setTvDraft(buildTvDraft(r, selectedDay.date))}
                         style={{
                           marginTop: '0.5rem',
                           display: 'flex', alignItems: 'center', gap: '4px',
@@ -348,6 +354,10 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {tvDraft && (
+        <CreateTvEventModal draft={tvDraft} onClose={() => setTvDraft(null)} />
+      )}
     </motion.div>
   )
 }

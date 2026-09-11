@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Pencil, Trash2, X, ChevronUp, ChevronDown, Calendar, Image, FileText } from 'lucide-react'
-import type { TvEvent } from '../types'
+import type { TvEvent, TvDevice } from '../types'
 import { CloudinaryUpload } from './CloudinaryUpload'
 import {
   AlertDialog,
@@ -21,9 +21,17 @@ interface EventManagerProps {
   onEdit: (id: string, values: Partial<TvEvent>) => Promise<void>
   onDelete: (id: string) => Promise<void>
   initialValues?: { title?: string; description?: string; start_date?: string; end_date?: string }
+  /** TVs do workspace — usadas para exibir o destino de cada evento. */
+  devices?: TvDevice[]
 }
 
-export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }: EventManagerProps) {
+export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, devices }: EventManagerProps) {
+  /** Nome da TV de destino do evento (NULL = todas as TVs do campus). */
+  const eventDeviceLabel = (e: TvEvent): string => {
+    if (!e.device_id) return 'Todo o campus'
+    return devices?.find((d) => d.id === e.device_id)?.name ?? 'TV específica'
+  }
+
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<TvEvent | null>(null)
   const [title, setTitle] = useState(initialValues?.title ?? '')
@@ -329,6 +337,14 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues }:
                     <span className="block truncate text-xs text-slate-500">{e.description}</span>
                   )}
                 </div>
+                <span
+                  className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium sm:block ${
+                    e.device_id ? 'bg-violet-50 text-violet-600' : 'bg-slate-100 text-slate-400'
+                  }`}
+                  title={e.device_id ? 'Evento direcionado a uma TV' : 'Evento exibido em todas as TVs do campus'}
+                >
+                  {eventDeviceLabel(e)}
+                </span>
                 {e.start_date && (
                   <span className="hidden shrink-0 text-[11px] text-slate-400 sm:block">
                     {new Date(e.start_date).toLocaleDateString('pt-BR')}

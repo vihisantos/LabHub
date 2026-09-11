@@ -121,11 +121,10 @@ describe('DashboardView', () => {
     })
   })
 
-  it('exibe link para Inventário que navega para /stock', async () => {
+  it('não exibe mais o botão Inventário no dashboard', async () => {
     renderDashboard()
-    const btn = await screen.findByText('Inventário')
-    btn.click()
-    expect(mockNavigate).toHaveBeenCalledWith('/stock')
+    await screen.findByText('Visão Geral')
+    expect(screen.queryByText('Inventário')).not.toBeInTheDocument()
   })
 
   it('exibe data formatada no header', async () => {

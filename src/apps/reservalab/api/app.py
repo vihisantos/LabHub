@@ -313,7 +313,8 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
             logger.error("Aba 'RESERVA LAB. INFORMÁTICA' não encontrada")
             return reservas_hoje, reservas_semana
         hoje = get_today_sp()
-        fim_semana = hoje + timedelta(days=7)
+        # Janela do calendário exibido no app: próximos 30 dias (antes eram 7).
+        fim_janela = hoje + timedelta(days=30)
         for row in ws.iter_rows(min_row=2, values_only=True):
             try:
                 reserva_feita_por = row[0]
@@ -357,7 +358,7 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                 }
                 if data == hoje:
                     reservas_hoje.append(reserva)
-                elif hoje < data <= fim_semana:
+                elif hoje < data <= fim_janela:
                     reservas_semana.append(reserva)
             except Exception as e:
                 logger.warning(f"Erro processando linha: {e}")
@@ -822,7 +823,7 @@ def push_action():
 @app.route('/api/push/check', methods=['GET'])
 @require_cron
 def push_check():
-    """Check de reservas próximas (janela configurável, default 15 min). Protegido por CRON_SECRET."""
+    """Check de reservas próximas (janela configurável, default 30 min). Protegido por CRON_SECRET."""
     result = _internal_push_check()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
@@ -830,13 +831,13 @@ def push_check():
 
 
 # ── Configuração da janela/dedup do push (env, com defaults históricos) ──
-# PUSH_ADVANCE_MINUTES: aviso antecedido de reserva (minutos antes do início)
+# PUSH_ADVANCE_MINUTES: aviso antecedido de reserva (minutos antes do início; default 30)
 # PUSH_DEDUP_SECONDS:   TTL da chave de deduplicação `push:sent:{id}` no Redis
 def _push_advance_minutes() -> int:
     try:
-        return max(1, int(os.environ.get('PUSH_ADVANCE_MINUTES', '15')))
+        return max(1, int(os.environ.get('PUSH_ADVANCE_MINUTES', '30')))
     except (TypeError, ValueError):
-        return 15
+        return 30
 
 
 def _push_dedup_seconds() -> int:
@@ -846,21 +847,74 @@ def _push_dedup_seconds() -> int:
         return 7200
 
 
+def _workspaces_with_spreadsheet():
+    """Workspaces com planilha própria configurada (id, slug, spreadsheet_url).
+
+    Usado para direcionar o alerta de reserva de lab apenas aos assinantes do
+    campus. Retorna [] se o Supabase não estiver configurado ou a consulta
+    falhar — nesse caso o check usa o fallback legado da planilha global.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return []
+    try:
+        headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
+        url = (
+            f"{_SUPABASE_URL}/rest/v1/workspaces"
+            f"?select=id,slug,spreadsheet_url"
+            f"&spreadsheet_url=not.is.null"
+        )
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.ok and isinstance(resp.json(), list):
+            return [
+                {'id': w.get('id'), 'slug': w.get('slug'), 'spreadsheet_url': w.get('spreadsheet_url')}
+                for w in resp.json()
+                if w.get('id') and w.get('slug') and w.get('spreadsheet_url')
+            ]
+    except Exception as e:
+        logger.error("Erro ao listar workspaces com planilha: %s", e)
+    return []
+
+
 def _internal_push_check():
     """Core logic for push check — reservas + tablets. Returns dict."""
     if not redis:
         return {'error': 'Redis not configured'}
     try:
         today = get_today_sp()
-        reservas_hoje, _ = get_reservas()
+
+        subs_raw = redis.smembers('push:subscribers')
+        if not subs_raw:
+            return {'message': 'No subscribers', 'sent': 0}
+
+        # Reserva de lab: a planilha é POR CAMPUS. Quando há workspaces com
+        # planilha própria, agrega as reservas de hoje de cada campus e marca
+        # os assinantes daquele campus em `_subs`. Sem nenhum workspace
+        # configurado, mantém o fallback legado da planilha global.
+        reservas_hoje = []
+        _lab_workspaces = _workspaces_with_spreadsheet()
+        if _lab_workspaces:
+            for _ws in _lab_workspaces:
+                _ws_subs = _target_subs(module='reservalab', workspace_id=_ws['id'], min_level='full')
+                if not _ws_subs:
+                    continue
+                try:
+                    _lab_count = _get_workspace_lab_count(_ws['slug'])
+                    _reservas_ws, _ = get_reservas(
+                        _ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count,
+                    )
+                except Exception as e:
+                    logger.error("Push check: falha ao ler planilha do campus %s: %s", _ws.get('slug'), e)
+                    continue
+                for _r in _reservas_ws:
+                    _r['_subs'] = _ws_subs
+                    _r['_scope'] = _ws['id']
+                reservas_hoje.extend(_reservas_ws)
+        else:
+            reservas_hoje, _ = get_reservas()
 
         agora = get_now_sp()
         agora_min = agora.hour * 60 + agora.minute
         limite_min = agora_min + _push_advance_minutes()
-
-        subs_raw = redis.smembers('push:subscribers')
-        if not subs_raw:
-            return jsonify({'message': 'No subscribers', 'sent': 0})
 
         subs = _target_subs(module='reservalab', min_level='full')
         sent = 0
@@ -880,7 +934,7 @@ def _internal_push_check():
                 continue
             
             if agora_min <= inicio <= limite_min:
-                notify_id = hashlib.md5(f"{r['lab']}|{r['horario']}|{r.get('responsavel','')}".encode()).hexdigest()
+                notify_id = hashlib.md5(f"{r.get('_scope') or ''}|{r['lab']}|{r['horario']}|{r.get('responsavel','')}".encode()).hexdigest()
                 
                 already = redis.get(f'push:sent:{notify_id}')
                 if already:
@@ -895,7 +949,7 @@ def _internal_push_check():
                 if alunos:
                     body += f" — {alunos} alunos"
                 
-                for sub in subs:
+                for sub in (r.get('_subs') or subs):
                     push_notify(sub, title, body)
                 
                 redis.setex(f'push:sent:{notify_id}', _push_dedup_seconds(), '1')
@@ -928,7 +982,7 @@ def _internal_push_check():
                     tablets_hoje = tablet_resp.json()
                     agora = get_now_sp()
                     agora_min = agora.hour * 60 + agora.minute
-                    limite_min = agora_min + 15
+                    limite_min = agora_min + _push_advance_minutes()
                     
                     for t in tablets_hoje:
                         inicio_str = t.get('horario_inicio', '')
