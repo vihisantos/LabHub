@@ -3384,10 +3384,14 @@ def chamados_claim(ticket_id):
 
         # UPDATE ATÔMICO: só alcança linhas SEM responsável. 0 linhas ⇒ já assumido.
         # Já leva o status para 'a_caminho' (etapa manual removida da UI).
+        # "Sem responsável" é gravado como string VAZIA (schema TEXT DEFAULT '',
+        # formulário público grava ''), não NULL — logo o guard cobre '' e NULL
+        # para não devolver 409 em chamado recém-aberto.
         now = datetime.now(timezone.utc).isoformat()
         upd_resp = requests.patch(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
-            f'?id=eq.{quote(ticket_id)}&assignedToUserId=is.null',
+            f'?id=eq.{quote(ticket_id)}'
+            f'&or=(assignedToUserId.is.null,assignedToUserId.eq.)',
             headers={**_supabase_headers(), 'Prefer': 'return=representation'},
             json={
                 'assignedToUserId': claimer_id,

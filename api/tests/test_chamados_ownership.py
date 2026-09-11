@@ -195,13 +195,13 @@ def _setup_as(client, fake_requests, monkeypatch, profile, rbac_on=False):
 
 
 def _route_claim_update(fake_requests, updated_rows):
-    """Roteia o PATCH atômico do claim (condição assignedToUserId is.null).
+    """Roteia o PATCH atômico do claim (guard "sem responsável" = '' ou NULL).
 
     `updated_rows` vazio ⇒ simula que outra transação assumiu primeiro (0 linhas).
     """
     fake_requests.route(
         "PATCH",
-        "assignedToUserId=is.null",
+        "or=(assignedToUserId.is.null,assignedToUserId.eq.)",
         FakeResponse(updated_rows),
     )
 
@@ -257,7 +257,7 @@ def test_claim_super_admin_assume_como_tecnico(client, fake_requests, monkeypatc
     assert resp.get_json()["ticket"]["assignedToUserId"] == "user-super"
     assert resp.get_json()["ticket"]["status"] == "a_caminho"
     # O update atômico foi disparado (super admin não é mais bloqueado).
-    assert len(fake_requests.calls_for("PATCH", "assignedToUserId=is.null")) >= 1
+    assert len(fake_requests.calls_for("PATCH", "or=(assignedToUserId.is.null,assignedToUserId.eq.)")) >= 1
 
 
 def test_claim_chamado_ja_assumido_por_outro_409(client, fake_requests, monkeypatch):
@@ -387,7 +387,7 @@ def test_tecnico_comum_nao_pode_atribuir_para_outro(client, fake_requests, monke
                         headers=headers)
 
     assert resp.status_code == 403
-    assert not fake_requests.calls_for("PATCH", "chamados_tickets?id=eq.&assignedToUserId=is.null")
+    assert not fake_requests.calls_for("PATCH", "or=(assignedToUserId.is.null,assignedToUserId.eq.)")
 
 
 # ── RBAC ON ainda protege ────────────────────────────────────────────────────
