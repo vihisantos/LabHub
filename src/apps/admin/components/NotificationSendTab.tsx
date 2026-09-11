@@ -96,8 +96,11 @@ export function NotificationSendTab() {
       // Persist + push: broadcast no sino (in-app) e push no segmento.
       // Base vazia = mesmo domínio do frontend (Vercel serve a API sob /api/*).
       const pushBase = (import.meta.env.VITE_RESERVALAB_API_URL as string) || ''
-      const { data: sessionData } = await defaultDb.auth.getSession()
-      const token = sessionData?.session?.access_token ?? ''
+      let token = ''
+      if (defaultDb) {
+        const { data } = await defaultDb.auth.getSession()
+        token = data.session?.access_token ?? ''
+      }
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
