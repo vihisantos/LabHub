@@ -15,6 +15,7 @@ import { ticketService } from '../services/ticketService'
 import { Stars } from '../components/Stars'
 import { icons } from '../../../lib/icons'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useLeadership } from '../../../core/permissions/useLeadership'
 import { getWorkspaceAssignees, type WorkspaceAssignee } from '../../../core/permissions/workspaceAssigneesService'
 import { useAuth } from '../../../core/auth/useAuth'
 import { uploadPhotos } from '../utils/photo'
@@ -45,10 +46,14 @@ export function TicketDetail() {
   const { isFullAccess } = useAppAccess()
   const { user } = useAuth()
   const canWrite = isFullAccess('chamados')
-  // Líder: quem pode atribuir/reatribuir responsável. Frontend usa o admin
-  // absoluto (is_super_admin) como sinal; o backend é a autoridade final e
-  // também permite o papel legacy `admin` com RBAC OFF.
-  const isLeader = user?.is_super_admin === true
+  // Líder/assigner: quem pode atribuir/reatribuir responsável. Inclui o admin
+  // absoluto e os cargos de liderança RBAC 2.0 (lider/coordinator). O backend
+  // é a autoridade final (Action `ticket.assign`, RBAC ON/OFF).
+  const { isLeadership } = useLeadership()
+  const isLeader = user?.is_super_admin === true || isLeadership
+  // Quem pode ASSUMIR para si (ticket.claim): técnico + super admin. Liderança
+  // (lider/coordinator) gerencia via `ticket.assign`, não executa.
+  const canClaim = user?.is_super_admin === true || !isLeadership
   const ticket = tickets.find((t) => t.id === id)
   const [noteInput, setNoteInput] = useState('')
   const [lightbox, setLightbox] = useState<string | null>(null)
@@ -692,7 +697,7 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canWrite && unassigned && inOpenFlow && (
+      {canWrite && canClaim && unassigned && inOpenFlow && (
         <div className="space-y-2">
           <button
             type="button"
@@ -707,12 +712,13 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canOperate && nextStatus && nextStatus !== 'a_caminho' && !lockedByOther && (
+      {canOperate && nextStatus && !lockedByOther && (nextStatus !== 'a_caminho' || claimedByMe) && (
         <button
           type="button"
           onClick={handleAdvanceStatus}
           className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
         >
+          {nextStatus === 'a_caminho' && 'Ir ao local'}
           {nextStatus === 'em_atendimento' && 'Iniciar Atendimento'}
           {nextStatus === 'resolvido' && 'Marcar como Resolvido'}
           {nextStatus === 'fechado' && 'Fechar Chamado'}

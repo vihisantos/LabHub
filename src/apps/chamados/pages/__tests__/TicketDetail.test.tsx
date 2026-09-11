@@ -64,6 +64,10 @@ vi.mock('../../services/ticketService', () => ({
 vi.mock('../../../../core/auth/useAuth', () => ({
   useAuth: () => ({ user: state.user }),
 }))
+const leadState = vi.hoisted(() => ({ isLeadership: false }))
+vi.mock('../../../../core/permissions/useLeadership', () => ({
+  useLeadership: () => ({ isLeadership: leadState.isLeadership, level: 0, area: null }),
+}))
 vi.mock('../../../../core/permissions/workspaceAssigneesService', () => ({
   getWorkspaceAssignees: mockGetAssignees,
 }))
@@ -107,6 +111,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetTicket()
   state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: false }
+  leadState.isLeadership = false
   mockGetEvents.mockResolvedValue([])
   mockGetAssignees.mockResolvedValue([PROFILE_ME, PROFILE_OTHER])
 })
@@ -226,6 +231,27 @@ describe('TicketDetail — Começar Atendimento (claim)', () => {
   })
 })
 
+describe('TicketDetail — técnico atribuído avança de aberto para a_caminho', () => {
+  beforeEach(() => {
+    TICKET.assignedToUserId = 'test-admin'
+    TICKET.assignedTo = 'Técnico 1'
+    TICKET.status = 'aberto'
+    state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: false }
+  })
+
+  it('vê o botão "Ir ao local" e avança para a_caminho', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    const btn = screen.getByRole('button', { name: 'Ir ao local' })
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    await act(async () => {})
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith('ticket-1', 'a_caminho')
+  })
+})
+
 describe('TicketDetail — isolamento de atendimento', () => {
   it('técnico não operar chamado de outro: sem claim, sem avançar, aviso de bloqueio', async () => {
     TICKET.assignedToUserId = 'user-2'
@@ -262,6 +288,7 @@ describe('TicketDetail — responsável (líder)', () => {
   beforeEach(() => {
     // Líder = is_super_admin.
     state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: true }
+    leadState.isLeadership = false
   })
 
   it('líder vê o seletor de responsável com os usuários ativos', async () => {
@@ -297,6 +324,40 @@ describe('TicketDetail — responsável (líder)', () => {
     expect(mockUpdate).toHaveBeenCalledWith('ticket-1', {
       assignedTo: '',
       assignedToUserId: '',
+    })
+  })
+})
+
+describe('TicketDetail — coordenador/líder RBAC (atribui, não assume)', () => {
+  beforeEach(() => {
+    state.user = { id: 'coord-1', name: 'Coordenador', is_super_admin: false }
+    leadState.isLeadership = true
+    TICKET.status = 'aberto'
+    TICKET.assignedTo = ''
+    TICKET.assignedToUserId = ''
+  })
+
+  afterEach(() => {
+    leadState.isLeadership = false
+  })
+
+  it('coordenador vê o seletor de responsável (atribuir), não o botão de assumir', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Começar Atendimento' })).not.toBeInTheDocument()
+  })
+
+  it('coordenador atribui um técnico pelo seletor', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'user-2' } })
+
+    expect(mockUpdate).toHaveBeenCalledWith('ticket-1', {
+      assignedTo: 'Técnico 2',
+      assignedToUserId: 'user-2',
     })
   })
 })
