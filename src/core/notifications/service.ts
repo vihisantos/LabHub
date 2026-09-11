@@ -1,4 +1,10 @@
-import type { AppNotification, NotificationFormData } from './types'
+import type {
+  AppNotification,
+  NotificationFormData,
+  NotificationType,
+  NotificationSeverity,
+  NotificationAudience,
+} from './types'
 import { createSyncService, markDirty } from '../../lib/sync'
 import { getCol, setCol } from '../../lib/db'
 
@@ -10,6 +16,26 @@ function serialize(data: NotificationFormData): AppNotification {
     id: crypto.randomUUID(),
     read: false,
     createdAt: new Date().toISOString(),
+  }
+}
+
+/** Converte uma linha do backend (app_notifications, snake_case) em AppNotification. */
+export function appNotificationFromRow(row: Record<string, unknown>): AppNotification {
+  return {
+    id: String(row.id ?? ''),
+    title: String(row.title ?? ''),
+    body: String(row.body ?? ''),
+    type: (row.type as NotificationType) || 'system',
+    severity: (row.severity as NotificationSeverity) || 'info',
+    module: String(row.module ?? ''),
+    audience: (row.audience as NotificationAudience) || undefined,
+    targetRole: row.target_role ? String(row.target_role) : undefined,
+    targetSuperAdmin: row.target_super_admin === true ? true : undefined,
+    workspace_id: row.workspace_id ? String(row.workspace_id) : undefined,
+    targetUserId: row.target_user_id ? String(row.target_user_id) : undefined,
+    actionUrl: row.action_url ? String(row.action_url) : undefined,
+    createdAt: row.created_at ? String(row.created_at) : new Date().toISOString(),
+    read: false,
   }
 }
 
@@ -34,6 +60,16 @@ export const notificationService = {
       return item
     }
     return service.create(item)
+  },
+
+  /** Insere uma notificação vinda do servidor sem marcar como nova criação local.
+   *  Retorna true se foi inserida (dedupe por id). */
+  ingestRemote: (item: AppNotification): boolean => {
+    const items = getCol<AppNotification>('notifications')
+    if (items.some((n) => n.id === item.id)) return false
+    items.push(item)
+    setCol('notifications', items)
+    return true
   },
 
   markAsRead: (id: string) => {

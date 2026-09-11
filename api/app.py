@@ -2927,6 +2927,90 @@ def chamados_push_test():
         return jsonify({'error': 'Erro interno'}), 500
 
 
+# ── Notificações in-app (sino) bem-vindo do painel do admin ─────────────────
+
+@app.route('/api/app-notifications', methods=['POST'])
+@require_auth
+@require_admin
+def app_notifications_persist():
+    """Persiste uma notificação in-app (sino) para entrega cross-device.
+
+    Chamado pelo painel do admin junto com /api/push/send (que dispara o push).
+    A leitura acontece no GET /api/app-notifications, escopado por workspace.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        body = request.get_json() or {}
+        ntf_id = str(body.get('id') or '').strip()
+        if not ntf_id:
+            return jsonify({'error': 'id é obrigatório'}), 400
+        payload = {
+            'id': ntf_id,
+            'workspace_id': body.get('workspace_id') or None,
+            'title': str(body.get('title') or ''),
+            'body': str(body.get('body') or ''),
+            'type': body.get('type') or 'system',
+            'severity': body.get('severity') or 'info',
+            'module': body.get('module') or None,
+            'audience': body.get('audience') or None,
+            'target_role': body.get('targetRole') or None,
+            'target_super_admin': body.get('targetSuperAdmin'),
+            'target_user_id': body.get('targetUserId') or None,
+            'action_url': body.get('actionUrl') or '/',
+        }
+        resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/app_notifications',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json=payload,
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify({'error': f'Erro ao persistir notificação: {resp.status_code}'}), 502
+        return jsonify({'status': 'ok', 'id': ntf_id})
+    except Exception as e:
+        logger.error("app notifications persist error: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/app-notifications', methods=['GET'])
+@require_auth
+def app_notifications_list():
+    """Lista as notificações in-app recentes aplicáveis ao usuário logado.
+
+    Escopo (defesa em profundidade):
+      - Super admin vê todas.
+      - Demais veem as globais (workspace_id NULL) + as dos próprios
+        workspaces (memberships ativas). A segmentação fina por audience
+        (role/user) é reaplicada no cliente (notificationAppliesTo).
+    """
+    if not _require_supabase():
+        return jsonify({'notifications': []})
+    try:
+        user = g.user or {}
+        is_super = bool(user.get('is_super_admin'))
+        ws_ids = set(_get_user_workspace_ids(g.user_id)) if not is_super else None
+
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/app_notifications'
+            f'?select=*&order=created_at.desc&limit=200',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        rows = resp.json() if resp.ok else []
+        out = []
+        for r in rows or []:
+            w = r.get('workspace_id')
+            if is_super:
+                out.append(r)
+            elif w is None or (w and str(w) in ws_ids):
+                out.append(r)
+        return jsonify({'notifications': out})
+    except Exception as e:
+        logger.error("app notifications error: %s", e)
+        return jsonify({'notifications': []})
+
+
 # ── Zerar dados (factory reset) ──
 
 WIPE_TOKEN = os.environ.get('WIPE_TOKEN', '')
