@@ -1,0 +1,56 @@
+name: Desktop Release
+
+# Gera o instalador NSIS do Lab Hub TV e publica no GitHub Releases.
+# O feed (latest.yml + app-update.yml) é o que o electron-updater consulta
+# nos kiosks. Só o alvo NSIS suporta auto-update; o portable é distribuído
+# manualmente quando necessário.
+#
+# Importante: o feed só avança se `desktop/package.json#version` for aumentado
+# a cada feature (electron-updater compara versão semântica). Bump antes de push.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "src/tv-desktop/**"
+      - "src/apps/tv/**"
+      - "vite.desktop.config.ts"
+      - "desktop.html"
+      - ".github/workflows/desktop-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish TV desktop (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Install desktop deps
+        run: npm ci
+        working-directory: desktop
+
+      - name: Build renderer
+        run: npm run build:desktop:renderer
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_CLOUDINARY_CLOUD_NAME: horytsxg
+          VITE_CLOUDINARY_UPLOAD_PRESET: tv_events
+
+      - name: Build installer & publish to GitHub Releases
+        run: npx electron-builder --win nsis --publish always
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
 {
   "name": "labhub-tv-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "license": "UNLICENSED",
   "description": "Lab Hub TV — display corporativo em kiosk para TVs (Electron)",
@@ -14,8 +14,12 @@
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
-    "electron": "^33.2.0",
+    "electron": "^39.8.10",
     "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "sql.js": "^1.14.1"
   },
   "build": {
     "appId": "br.com.labhub.tv",
@@ -32,7 +36,7 @@
         "nsis",
         "portable"
       ],
-      "icon": "../public/logo-512.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": true,
@@ -45,9 +49,12 @@
     },
     "portable": {
       "artifactName": "LabHub-TV-${version}-portable.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "vihisantos",
+      "repo": "LabHub",
+      "releaseType": "release"
     }
-  },
-  "dependencies": {
-    "sql.js": "^1.14.1"
   }
 }

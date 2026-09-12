@@ -9,4 +9,15 @@ contextBridge.exposeInMainWorld('desktop', {
     set: (key, value) => ipcRenderer.invoke('store-set', key, value),
     delete: (key) => ipcRenderer.invoke('store-delete', key),
   },
+  updates: {
+    getVersion: () => ipcRenderer.invoke('update-get-version'),
+    check: () => ipcRenderer.invoke('update-check'),
+    download: () => ipcRenderer.invoke('update-download'),
+    install: () => ipcRenderer.invoke('update-install'),
+    onStatus: (callback) => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on('update-status', listener)
+      return () => ipcRenderer.removeListener('update-status', listener)
+    },
+  },
 })

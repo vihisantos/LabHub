@@ -13,6 +13,23 @@ declare global {
         set: (key: string, value: string) => Promise<void>
         delete: (key: string) => Promise<void>
       }
+      /** Auto-update (electron-updater → GitHub Releases) */
+      updates?: {
+        getVersion: () => Promise<string>
+        check: () => Promise<{ version?: string | null; dev?: boolean; message?: string }>
+        download: () => Promise<void>
+        install: () => void
+        onStatus: (callback: (status: UpdateStatus) => void) => () => void
+      }
     }
   }
+}
+
+export interface UpdateStatus {
+  type: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  transferred?: number
+  total?: number
+  message?: string
 }
