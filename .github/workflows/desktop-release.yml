@@ -63,3 +63,9 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Title release as Lab Hub TV
+        shell: bash
+        run: gh release edit "v$(node -p "require('./desktop/package.json').version")" --title "LabHub TV v$(node -p "require('./desktop/package.json').version")"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
