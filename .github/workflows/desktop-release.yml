@@ -49,6 +49,14 @@ jobs:
           VITE_CLOUDINARY_CLOUD_NAME: horytsxg
           VITE_CLOUDINARY_UPLOAD_PRESET: tv_events
 
+      - name: Ensure version tag exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v$(node -p "require('./desktop/package.json').version")"
+          git tag "$VERSION" 2>/dev/null || true
+          gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/$VERSION" -f sha="${{ github.sha }}" 2>/dev/null || true
+
       - name: Build installer & publish to GitHub Releases
         run: npx electron-builder --win nsis --publish always
         working-directory: desktop
