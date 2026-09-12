@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { resolveScreenApp, loadConfig, saveConfig, type DeviceConfig } from '../config'
+import {
+  SCREEN_APP_OPTIONS,
+  screenAppLabel,
+  resolveScreenApp,
+  loadConfig,
+  saveConfig,
+  type DeviceConfig,
+  type ScreenAppId,
+} from '../config'
 import { ScreenRenderer } from '../ScreenRenderer'
 import { DisplayShell } from '../DisplayShell'
 import type { Workspace } from '../../core/workspaces/types'
@@ -124,6 +132,23 @@ describe('resolveScreenApp — fallbacks seguros', () => {
     for (const value of invalid) {
       expect(resolveScreenApp(makeConfig({ screenApp: value }))).toBe('tv')
     }
+  })
+})
+
+describe('SCREEN_APP_OPTIONS — catálogo de módulos (fonte da UI de seleção)', () => {
+  it('cobre exatamente os ids válidos de ScreenAppId, sem duplicatas', () => {
+    const ids = SCREEN_APP_OPTIONS.map((o) => o.id)
+    expect(ids).toEqual(expect.arrayContaining(['tv', 'chamados-dashboard']))
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('rotula todos os módulos com texto não vazio e rotulo desconhecido cai no próprio id', () => {
+    for (const opt of SCREEN_APP_OPTIONS) {
+      expect(screenAppLabel(opt.id)).toBe(opt.label)
+      expect(opt.label.trim()).not.toBe('')
+      expect(opt.description.trim()).not.toBe('')
+    }
+    expect(screenAppLabel('lixo' as ScreenAppId)).toBe('lixo')
   })
 })
 

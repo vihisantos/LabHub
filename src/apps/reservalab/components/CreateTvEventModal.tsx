@@ -74,8 +74,11 @@ export function CreateTvEventModal({ draft, onClose }: CreateTvEventModalProps) 
       })
       const device = devices.find((d) => d.id === selected)
       setCreatedOn(device?.name || 'TV')
-    } catch {
-      setError('Não foi possível criar o evento. Tente novamente.')
+    } catch (err) {
+      console.error('[ReservaLab] Falha ao criar evento na TV:', err)
+      const msg =
+        (err as { message?: string; code?: string; details?: string })?.message ?? ''
+      setError(`Não foi possível criar o evento.${msg ? ` (${msg})` : ''}`)
     } finally {
       setSaving(false)
     }

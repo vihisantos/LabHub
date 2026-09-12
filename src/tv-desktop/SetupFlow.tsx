@@ -1,14 +1,21 @@
 import { useState, type FormEvent, type CSSProperties } from 'react'
-import { Tv, ArrowLeft, Check, KeyRound } from 'lucide-react'
+import { Tv, ArrowLeft, Check, KeyRound, MonitorPlay } from 'lucide-react'
 import type { Workspace } from '../core/workspaces/types'
 import type { User } from '../core/auth/types'
 import { authService } from '../core/auth/service'
 import { selectAssignedWorkspaces } from '../core/memberships/service'
 import { defaultDb as supabase } from '../lib/supabase'
 import { redeemActivationCode, provisionWithLogin } from './deviceService'
-import type { DeviceConfig } from './config'
+import { SCREEN_APP_OPTIONS, type DeviceConfig, type ScreenAppId } from './config'
 
-type Step = 'login' | 'activation' | 'workspace' | 'name' | 'saving'
+type Step = 'login' | 'activation' | 'workspace' | 'name' | 'app' | 'saving'
+
+/** Conteúdo capturado antes da escolha do módulo: só falta o screenApp. */
+interface PendingDevice {
+  deviceId: string
+  name: string
+  workspace: Workspace
+}
 
 const WS_COLORS = [
   'from-red-500 to-rose-600',
@@ -36,6 +43,9 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
   const [saving, setSaving] = useState(false)
   const [activationCode, setActivationCode] = useState('')
   const [activating, setActivating] = useState(false)
+  const [screenApp, setScreenApp] = useState<ScreenAppId>(existing?.screenApp ?? 'tv')
+  const [pending, setPending] = useState<PendingDevice | null>(null)
+  const [flowSource, setFlowSource] = useState<'login' | 'activation'>('login')
 
   const loadWorkspaces = async (u: User) => {
     if (!supabase) return
@@ -80,15 +90,10 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
         deviceId,
         deviceName: deviceName.trim(),
       })
-      onDone({
-        deviceId,
-        name: deviceName.trim(),
-        workspace: selectedWorkspace,
-        createdAt: new Date().toISOString(),
-        // Preserva a preferência local de tela em reconfigurações
-        // (nova instalação fica sem screenApp ⇒ resolve para 'tv').
-        screenApp: existing?.screenApp,
-      })
+      setPending({ deviceId, name: deviceName.trim(), workspace: selectedWorkspace })
+      setFlowSource('login')
+      setSaving(false)
+      setStep('app')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao registrar a TV')
       setSaving(false)
@@ -107,19 +112,26 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
       const deviceId = existing?.deviceId ?? crypto.randomUUID()
       const res = await redeemActivationCode(code, deviceId, deviceName.trim())
       const name = deviceName.trim() || res.device_name || 'TV Desktop'
-      onDone({
-        deviceId,
-        name,
-        workspace: res.workspace,
-        createdAt: new Date().toISOString(),
-        // Preserva a preferência local de tela em reconfigurações
-        // (nova instalação fica sem screenApp ⇒ resolve para 'tv').
-        screenApp: existing?.screenApp,
-      })
+      setPending({ deviceId, name, workspace: res.workspace })
+      setFlowSource('activation')
+      setActivating(false)
+      setStep('app')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao ativar a TV')
       setActivating(false)
     }
+  }
+
+  /** Fecha a configuração com o módulo escolhido — o config final leva screenApp. */
+  const finish = () => {
+    if (!pending) return
+    onDone({
+      deviceId: pending.deviceId,
+      name: pending.name,
+      workspace: pending.workspace,
+      createdAt: new Date().toISOString(),
+      screenApp,
+    })
   }
 
   return (
@@ -329,9 +341,63 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
                 marginTop: '0.25rem',
               }}
             >
-              {saving ? 'Salvando...' : 'Iniciar TV'}
+              {saving ? 'Salvando...' : 'Continuar'}
             </button>
             <button type="button" onClick={() => setStep('workspace')} style={{ ...ghostButtonStyle }}>
+              <ArrowLeft size={14} /> Voltar
+            </button>
+          </div>
+        )}
+
+        {step === 'app' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: 0, textAlign: 'center' }}>
+              Qual app este dispositivo deve exibir?
+            </p>
+            {SCREEN_APP_OPTIONS.map((opt) => {
+              const active = screenApp === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setScreenApp(opt.id)}
+                  style={{
+                    ...rowButtonStyle,
+                    borderColor: active ? '#ef4444' : 'rgba(255,255,255,0.08)',
+                    background: active ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.03)',
+                  }}
+                >
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                    background: 'linear-gradient(135deg, #ef4444, #e11d48)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff',
+                  }}>
+                    <MonitorPlay size={20} />
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
+                    <p style={{ fontSize: '0.9rem', fontWeight: 600, margin: 0, color: '#f1f5f9' }}>{opt.label}</p>
+                    <p style={{ fontSize: '0.72rem', color: '#64748b', margin: 0 }}>{opt.description}</p>
+                  </div>
+                  {active && <Check size={18} color="#ef4444" />}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              disabled={!pending}
+              onClick={finish}
+              style={{
+                ...buttonStyle,
+                background: 'linear-gradient(135deg, #ef4444, #e11d48)',
+                opacity: pending ? 1 : 0.4,
+                cursor: pending ? 'pointer' : 'not-allowed',
+                marginTop: '0.25rem',
+              }}
+            >
+              Iniciar
+            </button>
+            <button type="button" onClick={() => setStep(flowSource)} style={{ ...ghostButtonStyle }}>
               <ArrowLeft size={14} /> Voltar
             </button>
           </div>

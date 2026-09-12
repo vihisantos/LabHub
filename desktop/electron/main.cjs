@@ -3,6 +3,7 @@ const path = require('node:path')
 const http = require('node:http')
 const fs = require('node:fs')
 const initSqlJs = require('sql.js')
+const { autoUpdater } = require('electron-updater')
 
 const LOCAL_DB_KEY = 'labhub_tv_device_config'
 
@@ -261,6 +262,55 @@ function registerStoreIpc() {
   ipcMain.handle('store-set', (_event, key, value) => writeKv(key, value))
   ipcMain.handle('store-delete', (_event, key) => deleteKv(key))
 }
+
+/* ── Auto-update (electron-updater → GitHub Releases) ──
+   O feed é o app-update.yml gerado pelo electron-builder no build (publish.github).
+   Em dev (app.isPackaged === false) não há feed publicado, então check/download/install
+   são no-op controlados — o ciclo real só roda no executável instalado. */
+function sendUpdateStatus(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', payload)
+  }
+}
+
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.logger = console
+
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus({ type: 'checking' }))
+  autoUpdater.on('update-available', (info) => sendUpdateStatus({ type: 'available', version: info.version }))
+  autoUpdater.on('update-not-available', (info) => sendUpdateStatus({ type: 'not-available', version: info.version }))
+  autoUpdater.on('download-progress', (p) => sendUpdateStatus({
+    type: 'progress',
+    percent: Math.round(p.percent),
+    transferred: p.transferred,
+    total: p.total,
+  }))
+  autoUpdater.on('update-downloaded', (info) => sendUpdateStatus({ type: 'downloaded', version: info.version }))
+  autoUpdater.on('error', (err) => sendUpdateStatus({ type: 'error', message: err?.message || String(err) }))
+}
+
+function registerUpdateIpc() {
+  ipcMain.handle('update-get-version', () => app.getVersion())
+  ipcMain.handle('update-check', async () => {
+    if (!app.isPackaged) {
+      return { dev: true, message: 'Modo de desenvolvimento: atualização desabilitada' }
+    }
+    const result = await autoUpdater.checkForUpdates()
+    return { version: result?.updateInfo?.version ?? null }
+  })
+  ipcMain.handle('update-download', async () => {
+    if (!app.isPackaged) throw new Error('Atualização indisponível em modo de desenvolvimento')
+    await autoUpdater.downloadUpdate()
+  })
+  ipcMain.handle('update-install', () => {
+    autoUpdater.quitAndInstall(false, true)
+  })
+}
+
+setupAutoUpdater()
+registerUpdateIpc()
 
 app.on('before-quit', () => {
   if (powerBlockerId !== null && powerSaveBlocker.isStarted(powerBlockerId)) {

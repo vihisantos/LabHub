@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { DisplayShell } from '../DisplayShell'
-import type { DeviceConfig } from '../config'
+import { loadConfig, type DeviceConfig } from '../config'
 
 /* Mock do ScreenRenderer: prova que o DisplayShell delega a decisão de tela
  * a ele (em vez de montar TvDisplay diretamente) e repassa a config inteira. */
@@ -45,5 +45,35 @@ describe('DisplayShell — uso do ScreenRenderer', () => {
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true, altKey: true })
     expect(screen.queryByText('Manutenção')).not.toBeInTheDocument()
+  })
+
+  it('troca o módulo pelo menu de manutenção e persiste a escolha', async () => {
+    render(<DisplayShell config={config} onReconfigure={() => {}} />)
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true, altKey: true })
+    expect(screen.getByText('Painel de Chamados')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /painel de chamados/i }))
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('screen-renderer-stub')).toHaveAttribute(
+        'data-screen-app',
+        'chamados-dashboard',
+      )
+    })
+
+    const loaded = await loadConfig()
+    expect(loaded?.screenApp).toBe('chamados-dashboard')
+  })
+
+  it('trocar de módulo não altera deviceId nem workspace persistidos', async () => {
+    render(<DisplayShell config={config} onReconfigure={() => {}} />)
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true, altKey: true })
+    fireEvent.click(screen.getByRole('button', { name: /tv corporativa/i }))
+
+    const loaded = await loadConfig()
+    expect(loaded?.deviceId).toBe('dev-9')
+    expect(loaded?.workspace?.id).toBe('ws-1')
   })
 })

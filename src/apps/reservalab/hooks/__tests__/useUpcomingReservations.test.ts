@@ -32,8 +32,8 @@ describe('useUpcomingReservations', () => {
     })
     ;(fetchTabletReservas as any).mockResolvedValue([
       { id: 't1', sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. B',
-        horario_inicio: new Date(2026, 8, 11, 7, 10).toISOString(),
-        horario_fim: new Date(2026, 8, 11, 9, 0).toISOString(),
+        horario_inicio: new Date(new Date().setHours(7, 10, 0, 0)).toISOString(),
+        horario_fim: new Date(new Date().setHours(9, 0, 0, 0)).toISOString(),
         finalidade: 'Aula', reservado_por: 'Maria', status: 'ativa' },
     ])
 
@@ -55,10 +55,13 @@ describe('useUpcomingReservations', () => {
     ;(fetchReservas as any).mockResolvedValue({
       lab_reservas: {}, lab1_reservas: [], lab2_reservas: [],
     })
+    const amanha = new Date()
+    amanha.setDate(amanha.getDate() + 1)
+    amanha.setHours(7, 10, 0, 0)
     ;(fetchTabletReservas as any).mockResolvedValue([
       { id: 't1', sala: 'Sala 1', quantidade_tablets: 10, professor: 'Prof. X',
-        horario_inicio: new Date(2026, 8, 12, 7, 10).toISOString(),
-        horario_fim: new Date(2026, 8, 12, 9, 0).toISOString(),
+        horario_inicio: amanha.toISOString(),
+        horario_fim: new Date(amanha.getTime() + 2 * 3600000).toISOString(),
         finalidade: 'Aula', reservado_por: 'Maria', status: 'ativa' },
     ])
 

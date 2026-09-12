@@ -9,7 +9,31 @@ import { localStoreGet, localStoreRemove, localStoreSet } from '../lib/localStor
  */
 export type ScreenAppId = 'tv' | 'chamados-dashboard'
 
-const VALID_SCREEN_APPS: readonly string[] = ['tv', 'chamados-dashboard']
+/** Catálogo de módulos de exibição — a fonte para a UI de seleção.
+ * `id` precisa ser estável (persistido no config); `label`/`description`
+ * são só apresentação local do dispositivo. */
+export const SCREEN_APP_OPTIONS: ReadonlyArray<{
+  id: ScreenAppId
+  label: string
+  description: string
+}> = [
+  {
+    id: 'tv',
+    label: 'TV Corporativa',
+    description: 'Eventos, avisos, galeria, clima e músicas do campus',
+  },
+  {
+    id: 'chamados-dashboard',
+    label: 'Painel de Chamados',
+    description: 'Tela com o status dos chamados abertos do prédio',
+  },
+]
+
+export function screenAppLabel(id: ScreenAppId): string {
+  return SCREEN_APP_OPTIONS.find((o) => o.id === id)?.label ?? id
+}
+
+const VALID_SCREEN_APPS: readonly string[] = SCREEN_APP_OPTIONS.map((o) => o.id)
 
 export interface DeviceConfig {
   deviceId: string
