@@ -54,3 +54,7 @@ venv/
 .playwright-creds
 test-results/
 playwright-report/
+
+# Orçamento do projeto: documento comercial com taxas e totais internos.
+# Não versionar. Mantido apenas localmente, fora do repositório.
+ORCAMENTO.md

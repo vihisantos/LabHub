@@ -1,26 +1,26 @@
-# Testing Guide
+# Testes
 
-> How to write and run tests in LabHub.
+> Como escrever e executar testes no LabHub.
 
-## Test Stack
+## Stack de testes
 
-- **Vitest** — test runner
-- **Testing Library** — component testing utilities
-- **jsdom** — browser environment simulation
+- **Vitest** — executor de testes
+- **Testing Library** — utilitários de teste de componentes
+- **jsdom** — simulação do ambiente de navegador
 
-## Running Tests
+## Executar
 
 ```bash
-npm test                 # Watch mode
-npm run test:run         # Single run
-npm run test:coverage    # With coverage report
+npm test                 # modo watch
+npm run test:run         # execução única
+npm run test:coverage    # com relatório de cobertura
 ```
 
-## Test Structure
+## Estrutura dos testes
 
-Tests live in `__tests__/` directories near the code they test:
+Os testes ficam em diretórios `__tests__/` próximos ao código testado:
 
-```
+```text
 src/apps/chamados/pages/
 ├── TicketDetail.tsx
 └── __tests__/
@@ -28,16 +28,16 @@ src/apps/chamados/pages/
     └── TicketDetailRealtime.test.tsx
 ```
 
-## Writing Tests
+## Escrevendo testes
 
-### Basic Component Test
+### Teste básico de componente
 
 ```typescript
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { MyComponent } from '../MyComponent'
 
-// Mock dependencies
+// Mock de dependências
 vi.mock('../../hooks/useData', () => ({
   useData: () => ({
     data: mockData,
@@ -46,17 +46,17 @@ vi.mock('../../hooks/useData', () => ({
 }))
 
 describe('MyComponent', () => {
-  it('renders correctly', () => {
+  it('renderiza corretamente', () => {
     render(<MyComponent />)
-    expect(screen.getByText('Expected text')).toBeDefined()
+    expect(screen.getByText('Texto esperado')).toBeDefined()
   })
 })
 ```
 
-### Mocking Patterns
+### Padrões de mock
 
 ```typescript
-// Mock a hook
+// Mock de um hook
 vi.mock('../../hooks/useTickets', () => ({
   useTickets: () => ({
     tickets: [TICKET],
@@ -65,48 +65,50 @@ vi.mock('../../hooks/useTickets', () => ({
   }),
 }))
 
-// Mock react-router-dom
+// Mock do react-router-dom
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'ticket-1' }),
   useNavigate: () => mockNavigate,
 }))
 
-// Mock Supabase
+// Mock do Supabase
 vi.mock('../../../lib/supabase', () => ({
   supabase: { from: vi.fn() },
 }))
 ```
 
-### Testing Async Behavior
+### Testando comportamento assíncrono
 
 ```typescript
 import { waitFor } from '@testing-library/react'
 
-it('loads data', async () => {
+it('carrega os dados', async () => {
   render(<MyComponent />)
   await waitFor(() => {
-    expect(screen.getByText('Loaded content')).toBeDefined()
+    expect(screen.getByText('Conteúdo carregado')).toBeDefined()
   })
 })
 ```
 
-## Test Helpers
+> **Nota:** `getByDisplayValue` não normaliza o matcher na Testing Library. Use expressão regular ou função.
 
-Located in `src/test/`:
+## Helpers de teste
 
-- `helpers.tsx` — Custom render with providers
-- `mocks.ts` — Shared mock data
-- `setup.ts` — Test environment setup
+Em `src/test/`:
 
-## Backend Tests (Python)
+- `helpers.tsx` — render personalizado com provedores
+- `mocks.ts` — dados de mock compartilhados
+- `setup.ts` — configuração do ambiente de testes
+
+## Testes de backend (Python)
 
 ```bash
 cd api && python -m pytest tests/ -q
 ```
 
-Tests for the Flask API endpoints.
+Testes dos endpoints da API Flask e das migrations.
 
-## Related
+## Relacionados
 
-- [Development Guide](development.md)
-- [Setup Guide](setup.md)
+- [Desenvolvimento](development.md)
+- [Configuração do ambiente](setup.md)

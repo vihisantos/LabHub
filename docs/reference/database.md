@@ -1,130 +1,129 @@
-# Database Reference
+# Referência do banco de dados
 
-> Supabase PostgreSQL schema reference.
+> Schemas, tabelas, políticas de RLS e migrations de segurança do Supabase.
+
+Para o modelo completo com diagrama entidade-relacionamento, consulte o snapshot datado em [Auditoria: banco de dados — agosto de 2026](../audits/architecture/database-audit-2026-08.md).
 
 ## Schemas
 
-| Schema | Purpose | Access |
-|--------|---------|--------|
-| `public` | Core tables (workspaces, profiles, assets, tickets, TV) | RLS + service_role |
-| `pcare` | PCare data (pcs, parts, maintenance) | Sync engine |
-| `stock` | Stock data (items, movements, kits, inventory) | Sync engine |
+| Schema | Propósito | Acesso |
+|--------|-----------|--------|
+| `public` | Tabelas centrais: workspaces, profiles, ativos, chamados, TV, RBAC | RLS + `service_role` |
+| `pcare` | Dados do PC Care: pcs, parts, maintenance | Engine de sync |
+| `stock` | Dados do Estoque: items, movements, kits, inventory | Engine de sync |
 
-## Tables
+## Tabelas principais
 
 ### public.workspaces
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid PK | Auto-generated |
-| `name` | text | Campus name |
-| `slug` | text UK | URL-friendly identifier |
-| `location` | text | Physical location |
-| `spreadsheet_url` | text | ReservaLab SharePoint URL |
-| `lab_count` | smallint | Number of labs (default 2) |
-| `color` | text | Display color |
-| `disabled_apps` | jsonb | Array of disabled module IDs |
-| `created_at` | timestamptz | Creation timestamp |
-| `updated_at` | timestamptz | Last update timestamp |
+| Coluna | Tipo | Descrição |
+|--------|------|-----------|
+| `id` | uuid (PK) | Gerado automaticamente |
+| `name` | text | Nome do campus |
+| `slug` | text (UK) | Identificador amigável para URL |
+| `location` | text | Localização física |
+| `spreadsheet_url` | text | Link da planilha do ReservaLab |
+| `lab_count` | smallint | Quantidade de laboratórios (padrão 2) |
+| `color` | text | Cor de exibição |
+| `disabled_apps` | jsonb | Aplicações desabilitadas no campus |
+| `created_at` / `updated_at` | timestamptz | Datas de criação e atualização |
 
 ### public.profiles
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid PK | = auth.users.id |
-| `email` | text | User email |
-| `name` | text | Display name |
-| `role` | text | viewer, technician, admin |
-| `status` | text | active, pending |
-| `is_super_admin` | boolean | Super admin flag |
-| `workspace_ids` | uuid[] | Workspace memberships |
-| `app_access` | jsonb | Per-module access overrides |
-| `notify_settings` | jsonb | Notification preferences |
-| `avatar` | text | Avatar URL |
-| `banner` | text | Banner URL |
-| `created_at` | timestamptz | Creation timestamp |
-| `updated_at` | timestamptz | Last update timestamp |
+| Coluna | Tipo | Descrição |
+|--------|------|-----------|
+| `id` | uuid (PK) | Igual a `auth.users.id` |
+| `email` | text | E-mail do usuário |
+| `name` | text | Nome de exibição |
+| `role` | text | Cargo legado: `viewer`, `technician`, `admin` |
+| `status` | text | `active` ou `pending` |
+| `is_super_admin` | boolean | Capacidade de plataforma |
+| `workspace_ids` | uuid[] | Workspaces do usuário no modelo legado |
+| `app_access` | jsonb | Overrides de acesso por aplicação (legado) |
+| `notify_settings` | jsonb | Preferências de notificação |
+| `avatar` / `banner` | text | Imagens de perfil |
+| `created_at` / `updated_at` | timestamptz | Datas de criação e atualização |
 
-### public.assets (Global Asset Registry)
+### public.assets (Registro Global de Ativos)
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid PK | Auto-generated |
-| `workspace_id` | uuid FK | Campus ownership |
-| `asset_tag` | text | Patrimony number (unique per workspace) |
-| `serial_number` | text | Manufacturer serial |
-| `equipment_type` | text | Desktop, Notebook, etc. |
-| `manufacturer` | text | Manufacturer name |
-| `model` | text | Model name |
-| `name` | text | Human-readable name |
-| `status` | text | draft, active, maintenance, retired |
-| `metadata` | jsonb | Module-specific extensions |
-| `created_at` | timestamptz | Creation timestamp |
-| `updated_at` | timestamptz | Last update timestamp |
+| Coluna | Tipo | Descrição |
+|--------|------|-----------|
+| `id` | uuid (PK) | Gerado automaticamente |
+| `workspace_id` | uuid (FK) | Campus proprietário |
+| `asset_tag` | text | Patrimônio, único por workspace |
+| `serial_number` | text | Número de série do fabricante |
+| `equipment_type` | text | Desktop, Notebook etc. |
+| `manufacturer` / `model` / `name` | text | Identificação do equipamento |
+| `location_id` | uuid | Reservado para o futuro registro de localizações |
+| `status` | text | `draft`, `active`, `maintenance`, `retired` |
+| `notes` | text | Observações livres |
+| `metadata` | jsonb | Extensões por aplicação |
+| `created_at` / `updated_at` | timestamptz | Datas de criação e atualização |
 
 ### public.chamados_tickets
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid PK | Auto-generated |
-| `workspace_id` | uuid FK | Campus |
-| `roomName` | text | Location |
-| `ticketNumber` | int | Sequential per workspace |
-| `status` | text | aberto, a_caminho, em_atendimento, resolvido, fechado |
-| `priority` | text | baixa, normal, alta, urgente |
-| `reportedBy` | text | Reporter name |
-| `assignedTo` | text | Assigned technician |
-| `problemCategory` | text | Problem category |
-| `problemDescription` | text | Description |
-| `feedbackRating` | int | 1-5 stars |
-| `feedbackComment` | text | Feedback text |
-| `feedbackAt` | timestamptz | Feedback timestamp |
-| `archived` | boolean | Archive flag |
-| `createdAt` | timestamptz | Creation timestamp |
-| `updatedAt` | timestamptz | Last update timestamp |
+| Coluna | Tipo | Descrição |
+|--------|------|-----------|
+| `id` | uuid (PK) | Gerado automaticamente |
+| `workspace_id` | uuid (FK) | Campus |
+| `roomName` | text | Local do problema |
+| `ticketNumber` | int | Sequencial por workspace |
+| `status` | text | `aberto`, `a_caminho`, `em_atendimento`, `resolvido`, `fechado` |
+| `priority` | text | `baixa`, `normal`, `alta`, `urgente` |
+| `reportedBy` | text | Nome de quem relatou |
+| `assignedTo` | text | Técnico responsável |
+| `problemCategory` | text | Categoria do problema |
+| `problemDescription` | text | Descrição |
+| `feedbackRating` | int | Avaliação de 1 a 5, com constraint `chk_feedback_rating` |
+| `feedbackComment` | text | Comentário da avaliação |
+| `feedbackAt` | timestamptz | Data da avaliação |
+| `archived` | boolean | Marca de arquivamento |
+| `createdAt` / `updatedAt` | timestamptz | Datas de criação e atualização |
 
-### TV Tables
+A tabela tem `REVOKE ALL FROM anon, authenticated`: somente a API Flask (`service_role`) acessa.
 
-Tables in `public` schema:
-- `tv_events` — Corporate events
-- `tv_playlists` — Video/music playlists
-- `tv_music_queues` — Music queue
-- `tv_music_tracks` — Tracks in queue
-- `tv_announcements` — Text announcements
-- `tv_galleries` — Photo galleries
-- `tv_gallery_photos` — Photos in gallery
-- `tv_calendar_cache` — Calendar data cache
-- `tv_urgent_announcements` — Emergency messages
-- `tv_devices` — Registered TV devices
-- `tv_activation_codes` — Device activation
-- `tv_music_requests` — Music requests
+### public.tablet_reservations
 
-### pcare Schema
+Reservas de tablet do ReservaLab: `id` (uuid), `sala`, `quantidade_tablets`, `professor`, `horario_inicio`, `horario_fim`, `finalidade`, `reservado_por`, `status`, `workspace_id`.
 
-- `pcs` — Computer inventory
-- `parts` — Available parts
-- `part_usage` — Parts usage history
-- `maintenance` — Maintenance records
-- `checklist_templates` — Checklist templates
-- `pc_checklists` — Executed checklists
-- `action_logs` — Action history
+### public.workspace_app_settings
 
-### stock Schema
+Configurações de uma aplicação por workspace: `workspace_id`, `app_id`, `settings` (jsonb) e `updated_at`. Criada na migration 031 e acessada diretamente pelo frontend via RLS.
 
-- `stock_items` — Inventory items
-- `stock_movements` — Movement history
-- `stock_kits` — Item kits
-- `stock_maintenance` — Preventive maintenance
-- `stock_inventory_cycles` — Inventory count cycles
-- `stock_inventory_counts` — Individual counts
-- `notifications` — System notifications
+### Tabelas do RBAC 2.0
 
-## RLS Policies
+| Tabela | Conteúdo |
+|--------|----------|
+| `roles` | Roles do sistema (`tec`, `vis`, `est`, `opv`, `adm`) e roles por workspace |
+| `role_permissions` | Concessões de Action por role |
+| `memberships` | Relação perfil × workspace, com `role`, `status` e `managed_by` |
+| `membership_overrides` | Ajustes pontuais de permissão por membership |
+| `rbac_audit_logs` | Registro append-only das decisões de autorização |
 
-All stock/pcare tables use workspace-based RLS with per-operation policies:
+Criadas na migration 036.
+
+### Tabelas da TV (schema `public`)
+
+`tv_events`, `tv_playlists`, `tv_music_queues`, `tv_music_tracks`, `tv_announcements`, `tv_galleries`, `tv_gallery_photos`, `tv_calendar_cache`, `tv_urgent_announcements`, `tv_devices`, `tv_activation_codes`, `tv_music_requests`.
+
+### Tabelas de backup
+
+`app_data_backups` guarda os backups gerados antes do expurgo de dados de uma aplicação por workspace, com data de expiração.
+
+### Schema pcare
+
+`pcs`, `parts`, `part_usage`, `maintenance`, `checklist_templates`, `pc_checklists`, `action_logs`.
+
+### Schema stock
+
+`stock_items`, `stock_movements`, `stock_kits`, `stock_maintenance`, `stock_inventory_cycles`, `stock_inventory_counts`, `notifications`.
+
+## Políticas de RLS
+
+As tabelas de `pcare` e `stock` usam RLS por workspace, com políticas por operação:
 
 ```sql
--- Helper function (migration 027)
+-- Função auxiliar (migration 027)
 CREATE OR REPLACE FUNCTION public.user_belongs_to_workspace(ws_id text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
   SELECT ws_id IS NULL OR ws_id = ''
@@ -133,27 +132,36 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
         FROM public.profiles WHERE id = auth.uid()
       )
 $$;
--- Also has a uuid overload for FK-typed workspace_id columns
+-- Também existe a sobrecarga uuid, para colunas workspace_id com FK
 
--- Per-table policy pattern:
+-- Padrão por tabela:
 CREATE POLICY "{table}_select" ON schema.table FOR SELECT
   USING (is_super_admin() OR user_belongs_to_workspace(workspace_id));
--- Same for INSERT, UPDATE (with WITH CHECK), DELETE
+-- Mesmo padrão para INSERT, UPDATE (com WITH CHECK) e DELETE
 ```
 
-Exceptions:
-- `chamados_tickets` has `REVOKE ALL FROM anon, authenticated` — only service_role access.
-- `pg_sql()` function is `REVOKE`d from anon/authenticated/PUBLIC (migration 025).
+Exceções:
 
-### Security Migrations
+- `chamados_tickets` tem `REVOKE ALL FROM anon, authenticated` — apenas `service_role`
+- A função `pg_sql()` tem `REVOKE` para `anon`, `authenticated` e `PUBLIC` (migration 025)
 
-| Migration | Description |
-|-----------|-------------|
-| 025 | Revoke `pg_sql()` from anon/authenticated/PUBLIC |
-| 026 | Revoke anon from stock/pcare schemas, move notification creation to DB trigger |
-| 027 | Replace permissive RLS with workspace-scoped policies, create `user_belongs_to_workspace()` |
+## Migrations de segurança
 
-## Related
+| Migration | Descrição |
+|-----------|-----------|
+| 025 | Revoga `pg_sql()` de anon, authenticated e PUBLIC |
+| 026 | Revoga anon dos schemas `stock` e `pcare`; move a criação de notificações para um trigger |
+| 027 | Substitui políticas permissivas por políticas escopadas por workspace e cria `user_belongs_to_workspace()` |
+| 029 | Remove policies permissivas legadas que a 027 não cobriu |
+| 034 | Remove 14 policies legadas que burlavam o isolamento |
+| 036 | Cria o schema do RBAC 2.0 (roles, permissões, memberships, overrides, auditoria) |
+| 044 | Hardening das políticas de RLS de `profiles` e `workspaces` |
 
-- [Architecture: Data Layer](../architecture/data-layer.md)
-- [Guides: Database Migrations](../guides/database-migrations.md)
+O índice completo e o status de aplicação de cada migration estão em `supabase/migrations/README.md`.
+
+## Relacionados
+
+- [Camada de dados](../platform/architecture/data-layer.md)
+- [Migrations do banco](../guides/database-migrations.md)
+- [Autorização](../platform/security/authorization.md)
+- [Auditoria: banco de dados — agosto de 2026](../audits/architecture/database-audit-2026-08.md)

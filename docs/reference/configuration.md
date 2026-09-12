@@ -1,87 +1,97 @@
-# Configuration Reference
+# Referência de configuração
 
-> All configuration files and environment variables.
+> Arquivos de configuração, variáveis de ambiente e chaves locais.
 
-## Environment Variables
+## Variáveis de ambiente
 
 ### Frontend (Vite)
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `VITE_SUPABASE_URL` | No | — | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | No | — | Supabase anonymous key |
-| `VITE_APP_VERSION` | No | — | Version string for settings |
-| `VITE_RESERVALAB_API_URL` | No | `/api` | Flask API base URL |
-| `VITE_VAPID_PUBLIC_KEY` | No | — | Web Push public key |
+| Variável | Obrigatória | Padrão | Descrição |
+|----------|-------------|--------|-----------|
+| `VITE_SUPABASE_URL` | Não | — | URL do projeto Supabase |
+| `VITE_SUPABASE_ANON_KEY` | Não | — | Chave anônima do Supabase |
+| `VITE_APP_VERSION` | Não | — | Versão exibida nas configurações |
+| `VITE_RESERVALAB_API_URL` | Não | `/api` | URL base da API Flask |
+| `VITE_VAPID_PUBLIC_KEY` | Não | — | Chave pública de Web Push |
+| `VITE_CLOUDINARY_CLOUD_NAME` | Não | — | Nome da conta Cloudinary |
+| `VITE_CLOUDINARY_UPLOAD_PRESET` | Não | — | Preset de upload do Cloudinary |
 
-> Without Supabase variables, the app runs in local-only mode.
+> Sem as variáveis do Supabase, a aplicação roda em modo somente local.
 
 ### Backend (Flask)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SUPABASE_URL` | Yes | Supabase project URL |
-| `SUPABASE_SERVICE_KEY` | Yes | Service role key |
-| `RBAC_2_ENABLED` | No | Enable RBAC 2.0 (`1` = ON, default OFF) |
-| `UPSTASH_REDIS_REST_URL` | No | Redis URL for push + cache |
-| `UPSTASH_REDIS_REST_TOKEN` | No | Redis auth token |
-| `VAPID_PUBLIC_KEY` | No | Web Push public key |
-| `VAPID_PRIVATE_KEY` | No | Web Push private key |
-| `CRON_SECRET` | Yes | Protects cron endpoints |
-| `YOUTUBE_API_KEY` | Yes (TV) | YouTube Data API v3 |
-| `SHAREPOINT_URL` | No | Legacy fallback spreadsheet URL |
+| Variável | Obrigatória | Descrição |
+|----------|-------------|-----------|
+| `SUPABASE_URL` | Sim | URL do projeto Supabase |
+| `SUPABASE_SERVICE_KEY` | Sim | Chave de serviço (ignora RLS) |
+| `RBAC_2_ENABLED` | Não | Liga o RBAC 2.0 (`1` = ligado; padrão desligado) |
+| `UPSTASH_REDIS_REST_URL` | Não | URL do Redis para push e cache |
+| `UPSTASH_REDIS_REST_TOKEN` | Não | Token do Redis |
+| `VAPID_PUBLIC_KEY` | Não | Chave pública de Web Push |
+| `VAPID_PRIVATE_KEY` | Não | Chave privada de Web Push |
+| `CRON_SECRET` | Sim | Protege os endpoints de cron |
+| `YOUTUBE_API_KEY` | Sim (TV) | YouTube Data API v3 |
+| `SHAREPOINT_URL` | Não | Planilha de reservas de fallback (legado) |
+| `SPREADSHEET_URL_<SLUG>` | Não | Preenche `workspaces.spreadsheet_url` em lote |
+| `PUSH_ADVANCE_MINUTES` | Não | Janela de aviso de reserva (padrão 30) |
+| `PUSH_DEDUP_SECONDS` | Não | Janela de deduplicação de push (padrão 7200) |
+| `PUSH_TABLET_RETENTION_DAYS` | Não | Retenção de reservas de tablet canceladas (padrão 30) |
+| `RESEND_API_KEY` | Não | Chave do Resend para e-mails |
+| `EMAIL_FROM` | Não | Remetente dos e-mails (padrão `LabHub <labhub@resend.dev>`) |
+| `REPORT_EMAIL_TO` | Não | Destinatário padrão do resumo semanal |
 
-## Configuration Files
+## Arquivos de configuração
 
 ### TypeScript
 
-| File | Purpose |
-|------|---------|
-| `tsconfig.json` | Root config (references) |
-| `tsconfig.app.json` | Application code |
-| `tsconfig.node.json` | Build tooling |
+| Arquivo | Propósito |
+|---------|-----------|
+| `tsconfig.json` | Configuração raiz, com referências |
+| `tsconfig.app.json` | Código da aplicação |
+| `tsconfig.node.json` | Ferramentas de build |
 
-### Build
+### Build e deploy
 
-| File | Purpose |
-|------|---------|
-| `vite.config.ts` | Main Vite config |
-| `vite.desktop.config.ts` | Desktop (Tauri) config |
-| `vercel.json` | Vercel deployment config |
+| Arquivo | Propósito |
+|---------|-----------|
+| `vite.config.ts` | Configuração principal do Vite |
+| `vite.desktop.config.ts` | Configuração do build do desktop |
+| `vercel.json` | Builds, rotas, cabeçalhos e cron do deploy |
 
-### Quality
+### Qualidade
 
-| File | Purpose |
-|------|---------|
-| `.oxlintrc.json` | Oxlint configuration |
-| `.github/workflows/ci.yml` | CI pipeline |
+| Arquivo | Propósito |
+|---------|-----------|
+| `.oxlintrc.json` | Configuração do oxlint |
+| `.github/workflows/ci.yml` | Esteira de integração contínua |
 
 ### PWA
 
-| File | Purpose |
-|------|---------|
-| `public/manifest.json` | PWA manifest |
-| `src/sw.ts` | Service Worker |
+| Arquivo | Propósito |
+|---------|-----------|
+| `public/manifest.webmanifest` | Manifesto da PWA |
+| `src/sw.ts` | Service worker da aplicação, incluindo o tratamento de eventos `push` e `notificationclick` |
 
-## localStorage Keys
+## Chaves no localStorage
 
-| Key | Content |
-|-----|---------|
-| `labhub_pcs` | PCare data |
-| `labhub_parts` | PC parts |
-| `labhub_stock_items` | Stock items |
-| `labhub_stock_movements` | Stock movements |
-| `labhub_chamados` | Ticket cache |
-| `labhub_workspaces` | Workspace data |
-| `labhub_dirty_collections` | Pending sync |
-| `labhub_deleted_ids` | Tombstones |
-| `labhub_sync_log` | Sync history |
-| `pcare_theme` | PCare theme |
-| `stock_theme` | Stock theme |
-| `tv_theme` | TV theme |
-| `*_workspace_id` | Active workspace per module |
+| Chave | Conteúdo |
+|-------|----------|
+| `labhub_pcs` | Dados do PC Care |
+| `labhub_parts` | Peças do PC Care |
+| `labhub_stock_items` | Itens do Estoque |
+| `labhub_stock_movements` | Movimentações do Estoque |
+| `labhub_chamados` | Cache de chamados |
+| `labhub_workspaces` | Dados de workspaces |
+| `labhub_dirty_collections` | Coleções com sincronização pendente |
+| `labhub_deleted_ids` | Tombstones para propagação |
+| `labhub_sync_log` | Histórico de sincronizações |
+| `pcare_theme` | Tema do PC Care |
+| `stock_theme` | Tema do Estoque |
+| `tv_theme` | Tema da TV |
+| `*_workspace_id` | Workspace ativo por aplicação |
 
-## Related
+## Relacionados
 
-- [Guides: Setup](../guides/setup.md)
-- [Guides: Deployment](../guides/deployment.md)
+- [Configuração do ambiente](../guides/setup.md)
+- [Deploy](../operations/deployment.md)
+- [Arquitetura de backend](../platform/architecture/backend.md)

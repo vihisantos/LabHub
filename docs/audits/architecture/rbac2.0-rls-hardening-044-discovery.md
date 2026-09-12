@@ -486,7 +486,7 @@ ser isolados. Resolver Q1–Q5 antes da implementacao.
   `033_workspace_isolation_hardening.sql`, `036_rbac2_schema.sql`, `041_rbac2_sync_memberships.sql`,
   `025_security_revoke_pg_sql.sql`, `043_fix_describe_tv_app_data_alias.sql`
 
-**Referencias de produto:** `docs/architecture/authorization.md`, Issue #158, Issue #159.
+**Referencias de produto:** `docs/platform/security/authorization.md`, Issue #158, Issue #159.
 
 ## Apendice B — Contagem de usos
 

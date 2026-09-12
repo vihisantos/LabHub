@@ -7,7 +7,7 @@
 
 - Escopo: auth, workspaces, permissions/roles, membership, aprovação, uml, notificações, logs, localStorage, admin.
 - Legenda: 🟢 reuso / 🟡 remodelagem / 🔴 ausente / ⚠️ risco de conflito.
-- Fontes: `docs/decisions/ADR-008*`, `docs/architecture/authorization.md`, `docs/architecture/authentication.md`, `supabase/migrations/000–035`, código-fonte.
+- Fontes: `docs/platform/decisions/ADR-008*`, `docs/platform/security/authorization.md`, `docs/platform/security/authentication.md`, `supabase/migrations/000–035`, código-fonte.
 
 ---
 
@@ -213,7 +213,7 @@ Modelo-alvo: `USER → MEMBERSHIP → { Workspace, Status, Role, App Access, Act
 - **Persistência:** `src/lib/supabase.ts`, `src/lib/sync.ts`, `src/lib/db.ts`, `src/lib/storage.ts`.
 - **Notificações/logs/people:** `src/core/notifications/{visibility,service}.ts`; `src/core/logs/useLogs.ts`; `src/core/users/{service,useUsers}.ts`.
 - **SQL:** `supabase/migrations/000–035` (chaves: 001, 009, 012, 013, 015, 019, 024, 027, 028, 031, 034); `supabase/archive/manual-sql/*`.
-- **Docs de referência:** `docs/architecture/authorization.md`, `docs/decisions/ADR-008-three-layer-access-control.md`, `docs/architecture/authentication.md`, `docs/decisions/ADR-004-workspace-isolation.md`.
+- **Docs de referência:** `docs/platform/security/authorization.md`, `docs/platform/decisions/ADR-008-three-layer-access-control.md`, `docs/platform/security/authentication.md`, `docs/platform/decisions/ADR-004-workspace-isolation.md`.
 
 ---
 
@@ -230,4 +230,4 @@ Em direção ao modelo `USER → MEMBERSHIP → Workspace/Status/Role/App Access
 7. **Resolver os bugs latentes junto à migração**: coluna `notify_settings` (criar ou remover), e DDL versionada para `public.notifications`/logs se forem mantidos.
 8. **Plano de migração de dados**: script transformando `profiles.workspace_ids` + `profiles.role` + `profiles.app_access` em linhas de `memberships`, com dry-run e validação de consistência antes do cutover.
 
-> **Próximo passo (fora do escopo desta auditoria):** após a decisão do modelo final, elaborar a migração SQL (`memberships`, `roles`), o plano de seed/backfill e as mudanças de `AppGuard`/`adminService`/`WorkspaceContext`. **Nenhuma alteração foi feita nesta auditoria.**
+> **Fora do escopo desta auditoria:** após a decisão do modelo final, elaborar a migração SQL (`memberships`, `roles`), o plano de seed/backfill e as mudanças de `AppGuard`/`adminService`/`WorkspaceContext`. **Nenhuma alteração foi feita nesta auditoria.**

@@ -1,12 +1,12 @@
-# Database Migrations
+# Migrations do banco
 
-> How to create and manage Supabase migrations.
+> Como criar e gerenciar migrations no Supabase.
 
-## Migration Location
+## Local das migrations
 
-All migrations are in `supabase/migrations/`:
+Todas as migrations ficam em `supabase/migrations/`:
 
-```
+```text
 supabase/migrations/
 ├── 001_create_profiles.sql
 ├── 002_seed_admin.sql
@@ -15,30 +15,32 @@ supabase/migrations/
 ├── 025_security_revoke_pg_sql.sql
 ├── 026_security_revoke_anon_stock_pcare.sql
 ├── 027_rls_workspace_isolation.sql
-└── supa/              # Supabase CLI managed
+└── supa/              # gerenciado pela CLI do Supabase
 ```
 
-## Naming Convention
+## Convenção de nomes
 
-```
-NNN_description_in_snake_case.sql
+```text
+NNN_descricao_em_snake_case.sql
 ```
 
-Examples:
+Exemplos:
+
 - `028_add_ticket_notes.sql`
 - `029_create_location_registry.sql`
 
-## Creating a Migration
+O índice das migrations aplicadas e o status de cada uma estão em `supabase/migrations/README.md`.
 
-1. **Write the SQL** in a new file with the next sequence number
-2. **Test in Supabase SQL Editor** before committing
-3. **Include rollback** in a comment at the top
+## Criando uma migration
+
+1. **Escreva o SQL** em um arquivo novo, com o próximo número da sequência
+2. **Teste no SQL Editor do Supabase** antes de versionar
+3. **Inclua o rollback** em um comentário no topo
 
 ```sql
 -- ============================================================
--- 025: Add ticket notes column
+-- 025: Adiciona a coluna de anotações do chamado
 --
--- Adds a notes field to chamados_tickets for internal comments.
 -- Rollback: ALTER TABLE public.chamados_tickets DROP COLUMN IF EXISTS notes;
 -- ============================================================
 
@@ -46,25 +48,28 @@ ALTER TABLE public.chamados_tickets
   ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
 ```
 
-## Best Practices
+## Boas práticas
 
-### Always Use IF NOT EXISTS
+### Sempre use IF NOT EXISTS
+
 ```sql
--- ✅ Safe to re-run
+-- Seguro para reexecução
 CREATE TABLE IF NOT EXISTS public.my_table (...);
 ALTER TABLE public.my_table ADD COLUMN IF NOT EXISTS my_col TEXT;
 
--- ❌ Will fail on re-run
+-- Falha na reexecução
 CREATE TABLE public.my_table (...);
 ALTER TABLE public.my_table ADD COLUMN my_col TEXT;
 ```
 
-### Always Include Rollback
+### Sempre inclua o rollback
+
 ```sql
 -- Rollback: DROP TABLE IF EXISTS public.my_table;
 ```
 
-### RLS Policies
+### Políticas de RLS
+
 ```sql
 ALTER TABLE public.my_table ENABLE ROW LEVEL SECURITY;
 
@@ -74,31 +79,33 @@ CREATE POLICY "my_table_select" ON public.my_table
     public.is_super_admin()
     OR public.user_belongs_to_workspace(workspace_id)
   );
--- Same pattern for INSERT, UPDATE (with WITH CHECK), DELETE
+-- Mesmo padrão para INSERT, UPDATE (com WITH CHECK) e DELETE
 ```
 
-### Indexes
+### Índices
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_my_table_workspace
   ON public.my_table(workspace_id);
 ```
 
-## Schema Organization
+## Organização dos schemas
 
-| Schema | Purpose |
-|--------|---------|
-| `public` | Core tables: workspaces, profiles, assets, tickets, TV |
-| `pcare` | PCare-specific: pcs, parts, maintenance, checklists |
-| `stock` | Stock-specific: items, movements, kits, inventory, notifications |
+| Schema | Propósito |
+|--------|-----------|
+| `public` | Tabelas centrais: workspaces, profiles, assets, chamados, TV |
+| `pcare` | Dados do PC Care: pcs, parts, maintenance, checklists |
+| `stock` | Dados do Estoque: items, movements, kits, inventory, notifications |
 
-## Testing Migrations
+## Testando uma migration
 
-1. Run in Supabase SQL Editor
-2. Verify with `SELECT` queries
-3. Check RLS with different user roles
-4. Test with the app (create/read/update/delete)
+1. Execute no SQL Editor do Supabase
+2. Confirme o resultado com consultas `SELECT`
+3. Verifique o RLS com usuários de cargos diferentes
+4. Teste pela aplicação (criar, ler, atualizar e excluir)
 
-## Related
+## Relacionados
 
-- [Reference: Database](../reference/database.md)
-- [Architecture: Data Layer](../architecture/data-layer.md)
+- [Referência do banco](../reference/database.md)
+- [Camada de dados](../platform/architecture/data-layer.md)
+- [Operações: Recuperação](../operations/recovery.md)

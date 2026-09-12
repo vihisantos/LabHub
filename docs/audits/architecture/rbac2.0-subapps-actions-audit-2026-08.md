@@ -644,4 +644,4 @@ LABHUB (7 apps + chamados-publico)
                      logs: ticket_events (server)
 ```
 
-**Nenhum código foi alterado. Próximo passo:** decidir as perguntas da §16 e, em conjunto, desenhar o catálogo definitivo de Actions + hierarquias antes da migration.
+**Nenhum código foi alterado.** Encaminhamento: decidir as perguntas da §16 e, em conjunto, desenhar o catálogo definitivo de Actions + hierarquias antes da migration.

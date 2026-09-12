@@ -1,16 +1,20 @@
-# Types Reference
+# Referência de tipos
 
-> Key TypeScript types used across LabHub.
+> Principais tipos TypeScript usados no LabHub.
 
-## Core Types
+## Tipos centrais
 
-### Ticket
+### Chamado
+
 ```typescript
 type TicketStatus = 'aberto' | 'a_caminho' | 'em_atendimento' | 'resolvido' | 'fechado'
 type TicketPriority = 'baixa' | 'normal' | 'alta' | 'urgente'
 ```
 
+Definição completa em [Chamados — Referência](../apps/chamados/reference.md).
+
 ### Workspace
+
 ```typescript
 interface Workspace {
   id: string
@@ -26,7 +30,8 @@ interface Workspace {
 }
 ```
 
-### Profile
+### Perfil
+
 ```typescript
 interface Profile {
   id: string
@@ -43,7 +48,8 @@ interface Profile {
 }
 ```
 
-### Asset
+### Ativo
+
 ```typescript
 type AssetStatus = 'draft' | 'active' | 'maintenance' | 'retired'
 
@@ -66,16 +72,18 @@ interface Asset {
 }
 ```
 
-## Module Types
+## Tipos das aplicações
 
-### PCare
+### PC Care
+
 ```typescript
 type CleaningStatus = 'pending' | 'in_progress' | 'done'
 type RestorationStatus = 'pending' | 'in_progress' | 'done'
 type OSType = 'windows10' | 'windows11' | 'linux' | 'macos' | ''
 ```
 
-### Stock
+### Estoque
+
 ```typescript
 type StockItemStatus = 'ativo' | 'em_conserto' | 'descartado' | 'emprestado'
 type MovementType = 'entrada' | 'saida' | 'emprestimo' | 'devolucao' | 'transferencia'
@@ -83,14 +91,16 @@ type KitStatus = 'ok' | 'incompleto' | 'nao_conferido'
 ```
 
 ### TV
+
 ```typescript
 type ContentType = 'video' | 'music' | 'events'
 type AnnouncementSeverity = 'info' | 'warning' | 'danger'
 ```
 
-## Service Types
+## Tipos de serviço
 
-### Sync Service
+### Serviço com sincronização
+
 ```typescript
 interface SyncService<T extends { id: string }> {
   getAll(): T[]
@@ -102,7 +112,8 @@ interface SyncService<T extends { id: string }> {
 }
 ```
 
-### Sync Result
+### Resultado de sincronização
+
 ```typescript
 interface SyncResult {
   synced: number
@@ -110,7 +121,8 @@ interface SyncResult {
 }
 ```
 
-### Sync Log
+### Entrada do log de sincronização
+
 ```typescript
 interface SyncLogEntry {
   collection: string
@@ -120,7 +132,8 @@ interface SyncLogEntry {
 }
 ```
 
-## Related
+## Relacionados
 
-- [Reference: Database](database.md)
-- [Concepts: Glossary](../glossary.md)
+- [Referência do banco](database.md)
+- [Glossário](../glossary.md)
+- [Camada de dados](../platform/architecture/data-layer.md)

@@ -1,43 +1,44 @@
-# Development Guide
+# Desenvolvimento
 
-> Day-to-day development workflow for LabHub.
+> Fluxo de trabalho do dia a dia no LabHub.
 
-## Project Structure
+## Estrutura do projeto
 
-```
+```text
 src/
-├── apps/           # Module sub-apps (lazy-loaded)
-│   ├── chamados/   # Support tickets
-│   ├── pcare/      # Computer inventory
-│   ├── stock/      # Materials management
-│   ├── reservalab/ # Reservations
-│   └── tv/         # Digital signage
-├── core/           # Shared infrastructure
-│   ├── auth/       # Authentication
+├── apps/           # Aplicações (carregadas sob demanda)
+│   ├── chamados/   # Chamados técnicos
+│   ├── pcare/      # Inventário de computadores
+│   ├── stock/      # Materiais e suprimentos
+│   ├── reservalab/ # Reservas
+│   └── tv/         # Murais digitais
+├── core/           # Infraestrutura compartilhada
+│   ├── auth/       # Autenticação
 │   ├── workspaces/ # Multi-tenancy
-│   ├── assets/     # Global asset registry
+│   ├── assets/     # Registro global de ativos
 │   └── ...
-├── lib/            # Shared utilities and hooks
-│   ├── sync.ts     # Sync engine
-│   ├── storage.ts  # localStorage layer
+├── lib/            # Utilitários e hooks compartilhados
+│   ├── sync.ts     # Engine de sincronização
+│   ├── storage.ts  # Camada de localStorage
 │   └── ...
-├── pages/          # Top-level pages (Launcher, Roadmap)
-└── platform/       # Platform-specific code
+├── pages/          # Páginas de topo (launcher, roadmap)
+└── platform/       # Código da plataforma
 ```
 
-## Conventions
+## Convenções
 
-### Module Isolation
-- Modules must NOT import from other modules
-- Shared code goes in `core/` or `lib/`
-- Each module has its own theme, routes, and services
+### Isolamento entre aplicações
 
-### Data Access Pattern
+- Aplicações não importam código de outras aplicações
+- Código compartilhado vai para `core/` ou `lib/`
+- Cada aplicação tem tema, rotas e serviços próprios
+
+### Acesso a dados
+
 ```typescript
-// Use the service layer, never localStorage directly
+// Use a camada de serviço; nunca acesse o localStorage diretamente
 const service = createSyncService<DataType>('collection_name')
 
-// CRUD operations
 service.getAll()
 service.getById(id)
 service.create(data)
@@ -46,48 +47,52 @@ service.remove(id)
 service.query(predicate)
 ```
 
-### Component Pattern
-- One component per file
-- Co-locate tests in `__tests__/` directories
-- Use TypeScript interfaces for props
-- Prefer composition over configuration
+### Componentes
 
-### Styling
-- Tailwind CSS v4 utility classes
-- Theme tokens: `text-fg`, `bg-surface`, `border-line`, etc.
-- Responsive: mobile-first with `sm:`, `md:`, `lg:` breakpoints
+- Um componente por arquivo
+- Testes colocados em diretórios `__tests__/`
+- Interfaces TypeScript para as props
+- Prefira composição a configuração
 
-### Error Handling
-- Never use `alert()` — use inline errors or toast notifications
-- API errors display in the UI, not console only
-- Sync failures are logged and retried automatically
+### Estilos
 
-## Commands
+- Classes utilitárias do Tailwind CSS v4
+- Tokens de tema: `text-fg`, `bg-surface`, `border-line` etc.
+- Responsivo com abordagem mobile-first e breakpoints `sm:`, `md:` e `lg:`
+
+### Tratamento de erros
+
+- Nunca use `alert()` — prefira erros em linha ou avisos por toast
+- Erros de API aparecem na interface, não somente no console
+- Falhas de sincronização são registradas e repetidas automaticamente
+
+## Comandos
 
 ```bash
-# Development
-npm run dev              # Start dev server
-npm run build            # Production build
-npm run preview          # Preview production build
+# Desenvolvimento
+npm run dev              # Servidor de desenvolvimento
+npm run build            # Build de produção
+npm run preview          # Pré-visualização do build
 
-# Quality
-npm run lint             # Run oxlint
-npx tsc -b --noEmit      # Type check
+# Qualidade
+npm run lint             # oxlint
+npx tsc -b --noEmit      # Verificação de tipos
 
-# Tests
-npm test                 # Run all tests
-npm run test:run         # Run tests once (no watch)
+# Testes
+npm test                 # Todos os testes (modo watch)
+npm run test:run         # Execução única
 ```
 
-## Adding Features
+## Como adicionar funcionalidades
 
-1. Check if the feature belongs to an existing module
-2. If yes, add to that module's `pages/`, `components/`, `services/`
-3. If it's cross-cutting, add to `core/` or `lib/`
-4. If it's a new module, follow [Adding a Module](adding-module.md)
+1. Verifique se a funcionalidade pertence a uma aplicação existente
+2. Se pertencer, adicione em `pages/`, `components/` e `services/` daquela aplicação
+3. Se for transversal, adicione em `core/` ou `lib/`
+4. Se for uma aplicação nova, siga [Criar uma nova aplicação](adding-application.md)
 
-## Related
+## Relacionados
 
-- [Setup Guide](setup.md)
-- [Testing Guide](testing.md)
-- [Adding a Module](adding-module.md)
+- [Configuração do ambiente](setup.md)
+- [Testes](testing.md)
+- [Criar uma nova aplicação](adding-application.md)
+- [Arquitetura de frontend](../platform/architecture/frontend.md)

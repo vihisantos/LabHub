@@ -74,12 +74,11 @@ Full documentation is in [`docs/`](docs/README.md):
 
 | Section | Description |
 |---------|-------------|
-| [Concepts](docs/concepts/system-overview.md) | What LabHub is and key domain concepts |
-| [Architecture](docs/architecture/system.md) | How the system works internally |
-| [Modules](docs/modules/chamados/overview.md) | Per-module documentation |
-| [Guides](docs/guides/setup.md) | Development setup and workflows |
-| [Reference](docs/reference/api.md) | API, database, and type reference |
-| [Decisions](docs/decisions/README.md) | Architecture Decision Records |
+| [Platform](docs/platform/README.md) | Architecture, concepts, security, RBAC, decisions |
+| [Applications](docs/apps/README.md) | Per-application documentation |
+| [Guides](docs/guides/README.md) | Development setup and workflows |
+| [Reference](docs/reference/README.md) | API, database, and type reference |
+| [Audits](docs/audits/README.md) | Dated analyses and validations |
 | [Operations](docs/operations/deployment.md) | Deployment, monitoring, recovery |
 
 ## Quick Start
@@ -118,7 +117,7 @@ See the [Setup Guide](docs/guides/setup.md) for full instructions.
 
 ## Contributing
 
-See the [Development Guide](docs/guides/development.md) for conventions and the [Adding a Module Guide](docs/guides/adding-module.md) for creating new modules.
+See the [Development Guide](docs/guides/development.md) for conventions and the [Adding an Application Guide](docs/guides/adding-application.md) for creating new applications.
 
 ## License
 

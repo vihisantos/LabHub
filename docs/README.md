@@ -1,110 +1,144 @@
-# LabHub Documentation
+# Documentação do LabHub
 
-> Modular PWA for managing IT laboratory operations in university campuses.
+> Documentação oficial da plataforma LabHub — PWA modular para gestão de laboratórios de informática em ambientes universitários.
 
-**Version:** 2.1.0 · **Status:** Pre-release
+Esta documentação está organizada em **três blocos principais**:
 
----
+- **Plataforma** — o que vale para o LabHub inteiro (arquitetura, conceitos, segurança, RBAC, infraestrutura compartilhada, decisões).
+- **Aplicações** — o que é específico de cada aplicação (`chamados`, `reservalab`, `pc-care`, `stock`, `tv`).
+- **Recursos transversais** — guias, operações, referência técnica, auditorias e glossário.
 
-## Understand the System
-
-| Document | Description |
-|----------|-------------|
-| [System Overview](concepts/system-overview.md) | What LabHub is and why it exists |
-| [Workspaces](concepts/workspaces.md) | Multi-tenancy and campus isolation |
-| [Modules](concepts/modules.md) | How the system is organized into sub-apps |
-| [Assets](concepts/assets.md) | Global Asset Registry for physical IT assets |
-| [Tickets](concepts/tickets.md) | Support request lifecycle and SLA |
-| [Offline-first](concepts/offline-first.md) | Local-first data strategy |
-| [Synchronization](concepts/synchronization.md) | Data flow between localStorage and Supabase |
-| [Glossary](glossary.md) | Quick reference for LabHub-specific terms |
-
-## Architecture
-
-| Document | Description |
-|----------|-------------|
-| [System Architecture](architecture/system.md) | High-level system design and data flow patterns |
-| [Frontend](architecture/frontend.md) | React structure, components, and patterns |
-| [Backend](architecture/backend.md) | Flask API, routes, and integrations |
-| [Data Layer](architecture/data-layer.md) | Three-tier data architecture |
-| [Realtime](architecture/realtime.md) | WebSocket subscriptions and live updates |
-| [Authentication](architecture/authentication.md) | User auth flow and profile management |
-| [Authorization](architecture/authorization.md) | Access control model (RBAC 2.0 + legacy) |
-| [RBAC 2.0 Specification](architecture/rbac2.0-specification.md) | RBAC 2.0 technical specification |
-| [RBAC 2.0 Actions Catalog](architecture/rbac2.0-actions-catalog.md) | Complete list of authorized Actions |
-| [RBAC 2.0 Activation](architecture/rbac2.0-etapa7-activation.md) | Activation decisions and runbook |
-
-## Module Documentation
-
-| Module | Description |
-|--------|-------------|
-| [Chamados](modules/chamados/overview.md) | Support tickets and service orders |
-| [Assets](modules/assets/overview.md) | Global Asset Registry |
-| [Stock](modules/stock/overview.md) | Materials and supplies management |
-| [PCare](modules/pcare/overview.md) | Computer inventory and maintenance |
-| [ReservaLab](modules/reservalab/overview.md) | Lab and tablet reservations |
-| [TV](modules/tv/overview.md) | Digital signage and corporate channel |
-| [Workspaces](modules/workspaces/overview.md) | Campus management |
-
-## Guides
-
-| Guide | Description |
-|-------|-------------|
-| [Setup](guides/setup.md) | Development environment setup |
-| [Development](guides/development.md) | Day-to-day workflow and conventions |
-| [Testing](guides/testing.md) | Writing and running tests |
-| [Adding a Module](guides/adding-module.md) | Step-by-step module creation |
-| [Database Migrations](guides/database-migrations.md) | Creating Supabase migrations |
-| [Deployment](guides/deployment.md) | CI/CD and release process |
-
-## Technical Reference
-
-| Reference | Description |
-|-----------|-------------|
-| [API](reference/api.md) | Flask endpoint reference |
-| [Database](reference/database.md) | Supabase schema reference |
-| [Types](reference/types.md) | TypeScript type definitions |
-| [Events](reference/events.md) | Realtime events and notifications |
-| [Configuration](reference/configuration.md) | Environment variables and config files |
-
-## Engineering Decisions
-
-| ADR | Title | Status |
-|-----|-------|--------|
-| [ADR-001](decisions/ADR-001-offline-first-architecture.md) | Offline-first with localStorage | Accepted |
-| [ADR-002](decisions/ADR-002-supabase-as-remote-database.md) | Supabase as remote database | Accepted |
-| [ADR-003](decisions/ADR-003-flask-api-for-chamados.md) | Flask API for Chamados | Accepted |
-| [ADR-004](decisions/ADR-004-workspace-isolation.md) | Workspace isolation model | Accepted |
-| [ADR-005](decisions/ADR-005-module-isolation.md) | Module isolation pattern | Accepted |
-| [ADR-006](decisions/ADR-006-global-asset-registry.md) | Global Asset Registry | Accepted |
-| [ADR-007](decisions/ADR-007-realtime-for-tickets.md) | Realtime for tickets | Accepted |
-| [ADR-008](decisions/ADR-008-three-layer-access-control.md) | Three-layer access control | Accepted |
-
-## Operations
-
-| Document | Description |
-|----------|-------------|
-| [Deployment](operations/deployment.md) | Deployment pipeline and rollback |
-| [Monitoring](operations/monitoring.md) | Metrics and health checks |
-| [Troubleshooting](operations/troubleshooting.md) | Common issues and solutions |
-| [Recovery](operations/recovery.md) | Backup and disaster recovery |
-
-## Historical
-
-| Document | Description |
-|----------|-------------|
-| [Audits](audits/) | Historical analyses and legacy documentation |
+Ao procurar informação, a primeira pergunta é: *isto pertence à plataforma inteira ou a uma aplicação específica?*
 
 ---
 
-## Contributing to Documentation
+## Aplicações
 
-1. **One question per document** — Each doc should answer primarily one question
-2. **Use the right category** — Concepts (what), Architecture (how it works), Guides (how to), Reference (details)
-3. **Keep it current** — Update docs when code changes
-4. **No empty files** — Only create docs with real content
-5. **Use Mermaid** — Diagrams help, but don't overdo it
+| Aplicação | O que faz | Documentação |
+|-----------|-----------|--------------|
+| **Chamados** | Abertura pública e gestão de chamados técnicos, com SLA, notificações e avaliação | [`apps/chamados/`](apps/chamados/README.md) |
+| **ReservaLab** | Reserva de laboratórios e tablets, dashboard de ocupação e lembretes | [`apps/reservalab/`](apps/reservalab/README.md) |
+| **PC Care** | Inventário, limpeza e manutenção preventiva de computadores | [`apps/pc-care/`](apps/pc-care/README.md) |
+| **Estoque** | Materiais e suprimentos, movimentações, kits e inventário cíclico | [`apps/stock/`](apps/stock/README.md) |
+| **TV** | Murais digitais: eventos, playlists de vídeo, música, avisos e galerias | [`apps/tv/`](apps/tv/README.md) |
 
-## License
+Índice geral das aplicações: [`apps/README.md`](apps/README.md).
 
-Proprietary — All rights reserved. See [LICENSE](../LICENSE).
+## Plataforma
+
+| Área | Conteúdo | Documentação |
+|------|----------|--------------|
+| **Arquitetura** | Desenho do sistema, frontend, backend, camada de dados, realtime, registro de ativos | [`platform/architecture/`](platform/architecture/system.md) |
+| **Conceitos** | Workspaces, aplicações, ativos, chamados, offline-first e sincronização | [`platform/concepts/`](platform/concepts/system-overview.md) |
+| **Segurança** | Autenticação, ciclo de vida de usuário e modelo de autorização | [`platform/security/`](platform/security/authentication.md) |
+| **RBAC 2.0** | Especificação, catálogo de Actions, enforcement e rollout | [`platform/rbac/`](platform/rbac/README.md) |
+| **Decisões** | Architecture Decision Records (ADRs) | [`platform/decisions/`](platform/decisions/README.md) |
+
+Ponto de entrada da plataforma: [`platform/README.md`](platform/README.md).
+
+## Guias
+
+| Guia | Descrição |
+|------|-----------|
+| [Configuração do ambiente](guides/setup.md) | Pré-requisitos, variáveis de ambiente e primeiro start |
+| [Desenvolvimento](guides/development.md) | Estrutura do projeto, convenções e comandos |
+| [Testes](guides/testing.md) | Como escrever e executar testes |
+| [Criar uma nova aplicação](guides/adding-application.md) | Passo a passo para adicionar uma aplicação |
+| [Migrations do banco](guides/database-migrations.md) | Criação e gestão de migrations Supabase |
+| [Ambiente DEMO do Chamados](guides/chamados-demo-environment.md) | Criar, fotografar e limpar o ambiente de demonstração |
+
+Índice: [`guides/README.md`](guides/README.md).
+
+## Operações
+
+| Documento | Descrição |
+|-----------|-----------|
+| [Deploy](operations/deployment.md) | Pipeline, checklist pré-deploy e rollback |
+| [Monitoramento](operations/monitoring.md) | Métricas, health checks e alertas recomendados |
+| [Troubleshooting](operations/troubleshooting.md) | Problemas recorrentes e como resolver |
+| [Recuperação](operations/recovery.md) | Backup e recuperação de desastres |
+
+Índice: [`operations/README.md`](operations/README.md).
+
+## Referência
+
+| Referência | Descrição |
+|------------|-----------|
+| [API](reference/api.md) | Endpoints do backend Flask |
+| [Banco de dados](reference/database.md) | Schemas, tabelas, RLS e migrations |
+| [Tipos](reference/types.md) | Tipos TypeScript compartilhados |
+| [Eventos](reference/events.md) | Eventos de realtime e notificações push |
+| [Configuração](reference/configuration.md) | Variáveis de ambiente, arquivos de configuração e chaves locais |
+
+Índice: [`reference/README.md`](reference/README.md).
+
+## Auditorias
+
+Análises, validações e snapshots datados do sistema: [`audits/README.md`](audits/README.md).
+
+## Glossário
+
+Termos do domínio do LabHub (workspace, membership, Action, RBAC, chamado, reserva, ativo): [`glossary.md`](glossary.md).
+
+---
+
+## Precisa encontrar alguma coisa?
+
+| Quero… | Onde encontrar |
+|--------|----------------|
+| Começar o desenvolvimento | [Configuração do ambiente](guides/setup.md) → [Desenvolvimento](guides/development.md) |
+| Entender o que é o LabHub | [Visão geral do sistema](platform/concepts/system-overview.md) |
+| Entender a plataforma por dentro | [Arquitetura](platform/architecture/system.md) → [Camada de dados](platform/architecture/data-layer.md) |
+| Trabalhar no Chamados | [Chamados](apps/chamados/README.md) → [Fluxos](apps/chamados/workflows.md) → [Referência](apps/chamados/reference.md) |
+| Trabalhar no ReservaLab | [ReservaLab](apps/reservalab/README.md) → [Arquitetura](apps/reservalab/architecture.md) |
+| Trabalhar no PC Care | [PC Care](apps/pc-care/README.md) → [Referência](apps/pc-care/reference.md) |
+| Trabalhar no Estoque | [Estoque](apps/stock/README.md) → [Referência](apps/stock/reference.md) |
+| Trabalhar na TV | [TV](apps/tv/README.md) |
+| Entender o RBAC | [RBAC 2.0](platform/rbac/README.md) → [Especificação](architecture/rbac2.0-specification.md) → [Catálogo de Actions](architecture/rbac2.0-actions-catalog.md) |
+| Entender quem pode acessar o quê | [Autorização](platform/security/authorization.md) |
+| Entender autenticação e aprovação de usuários | [Autenticação](platform/security/authentication.md) |
+| Entender workspaces e isolamento | [Conceito de Workspace](platform/concepts/workspaces.md) |
+| Consultar uma API ou um contrato | [Referência da API](reference/api.md) |
+| Consultar o banco de dados | [Referência do banco](reference/database.md) |
+| Fazer deploy | [Operações: Deploy](operations/deployment.md) |
+| Investigar um problema | [Troubleshooting](operations/troubleshooting.md) → [Monitoramento](operations/monitoring.md) |
+| Recuperar dados perdidos | [Recuperação](operations/recovery.md) |
+| Entender um termo | [Glossário](glossary.md) |
+| Saber por que algo foi decidido | [Decisões arquiteturais](platform/decisions/README.md) |
+| Ver análises e validações anteriores | [Auditorias](audits/README.md) |
+| Adicionar uma nova aplicação | [Criar uma nova aplicação](guides/adding-application.md) |
+
+---
+
+## Organização da documentação
+
+### Plataforma × aplicações × transversal
+
+- `platform/` reúne o que pertence ao LabHub como um todo. Nada específico de uma aplicação deve ficar aqui.
+- `apps/<aplicacao>/` reúne o que é específico daquela aplicação. Cada aplicação tem seu próprio `README.md`.
+- `guides/`, `operations/`, `reference/` e `audits/` reúnem conteúdo transversal, aplicável a toda a plataforma.
+
+Adicionar uma nova aplicação não exige reorganizar a documentação das demais: basta criar `apps/<nova-aplicacao>/` com seu `README.md` e, quando houver conteúdo suficiente, subpastas próprias.
+
+### Caminhos canônicos preservados
+
+Alguns documentos são referenciados diretamente por código, migrations, testes e scripts, e por isso permanecem em seus caminhos originais:
+
+```text
+docs/architecture/rbac2.0-actions-catalog.md
+docs/architecture/rbac2.0-specification.md
+docs/modules/tv/overview.md
+docs/audits/architecture/rbac2.0-rls-hardening-044-design.md
+docs/audits/architecture/rbac2.0-rls-hardening-044-discovery.md
+docs/chamados-demo/screenshots/
+```
+
+Esses arquivos são canônicos: não devem ser movidos, renomeados nem duplicados. A descoberta se dá por índices — por exemplo, [`platform/rbac/README.md`](platform/rbac/README.md) aponta para a especificação e para o catálogo, e [`apps/tv/README.md`](apps/tv/README.md) aponta para a visão geral da TV.
+
+### Convenções
+
+1. **Um assunto por documento** — cada documento responde a uma pergunta principal.
+2. **Categoria correta** — conceito (o que é), arquitetura (como funciona), guia (como fazer), referência (detalhe técnico), auditoria (o que foi analisado).
+3. **Documentação descreve produto, não processo** — registra fatos, decisões, arquitetura, comportamento, evidências e procedimentos.
+4. **Sem arquivos vazios** — só criar um documento quando houver conteúdo real.
+5. **Nomes previsíveis** — evite nomes genéricos ou datas sem contexto.
