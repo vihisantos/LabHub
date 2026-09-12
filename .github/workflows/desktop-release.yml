@@ -50,6 +50,7 @@ jobs:
           VITE_CLOUDINARY_UPLOAD_PRESET: tv_events
 
       - name: Ensure version tag exists
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
