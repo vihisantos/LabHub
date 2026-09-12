@@ -7,6 +7,7 @@
  */
 import { chromium } from '@playwright/test'
 import { writeFileSync, existsSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173'
 
@@ -16,7 +17,7 @@ if (existsSync('.playwright-creds')) {
 }
 
 const username = `tester.${Date.now().toString(36)}`
-const password = `LabHub@${Math.random().toString(36).slice(2, 10)}`
+const password = `LabHub@${randomBytes(9).toString('base64url')}`
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } })

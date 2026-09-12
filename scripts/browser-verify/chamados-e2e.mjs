@@ -120,9 +120,12 @@ try {
     const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${redisToken}` } })
     const subs = (await res.json()).result || []
     // Prefere FCM (Chrome/Edge — entrega comprovada nos testes anteriores)
+    const isFcmEndpoint = (endpoint) => {
+      try { return new URL(endpoint).hostname === 'fcm.googleapis.com' } catch { return false }
+    }
     realSub = subs
       .map((s) => (typeof s === 'string' ? JSON.parse(s) : s))
-      .find((s) => s.endpoint?.includes('fcm.googleapis.com') && s.keys?.p256dh && s.keys?.auth)
+      .find((s) => isFcmEndpoint(s.endpoint) && s.keys?.p256dh && s.keys?.auth)
     check('Encontrou inscrição FCM real no Redis', !!realSub)
   }
 } catch (e) {
