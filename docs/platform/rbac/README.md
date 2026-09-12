@@ -11,6 +11,26 @@ As quatro categorias de documento são distintas e não devem ser misturadas:
 - **Design e rollout** — como cada etapa foi planejada e materializada
 - **Auditoria** — o que foi analisado ou validado em determinado momento
 
+## Como uma decisão é tomada
+
+```mermaid
+flowchart TD
+    REQ["Requisição autenticada"] --> SA{"profiles.is_super_admin ?"}
+    SA -->|sim| ALLOW["PERMITIR em qualquer workspace"]
+    SA -->|não| MEM{"Existe membership no workspace ?"}
+    MEM -->|não| DENY["NEGAR (deny-by-default)"]
+    MEM -->|sim| BASE["Reunir a base da role em role_permissions + overrides"]
+    BASE --> OV{"Há override para a Action ?"}
+    OV -->|sim| D1["O override decide (allow ou deny)"]
+    OV -->|não| D2["A concessão da role decide"]
+    D1 --> AUD["rbac_audit_logs (append-only)"]
+    D2 --> AUD
+    ALLOW --> AUD
+    DENY --> AUD
+```
+
+A ordem é sempre a mesma: bypass de super admin, membership no workspace, base da role com overrides por cima e, na ausência de qualquer concessão, negação.
+
 ---
 
 ## Especificação (normativa)

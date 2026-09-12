@@ -23,6 +23,30 @@ src/apps/reservalab/api/app.py (aplicação Flask principal)
 
 Todas as rotas `/api/*` são definidas em `src/apps/reservalab/api/app.py`.
 
+## Fluxo de uma requisição
+
+```mermaid
+flowchart TD
+    F["Frontend (fetch /api/*)"] --> V["Vercel: /api/(.*) para api/app.py"]
+    V --> FL["App Flask"]
+    FL --> A{"require_auth"}
+    A -->|falha| E401["401"]
+    A -->|ok| W{"require_workspace / require_module"}
+    W -->|falha| E403["403 (MODULE_DISABLED ou sem acesso)"]
+    W -->|ok| R{"RBAC_2_ENABLED = 1 ?"}
+    R -->|não| H["Handler (caminho legado)"]
+    R -->|sim| AC{"require_action_rbac ou _require_action_in_handler"}
+    AC -->|negado| E403B["403 Permissão insuficiente"]
+    AC -->|permitido| H
+    H --> SB["Supabase (service_role)"]
+    H --> RD["Upstash Redis (push e cache)"]
+    H --> SP["SharePoint (reservas)"]
+    H --> YT["YouTube API (TV)"]
+    H --> RESP["Resposta JSON"]
+```
+
+Os gates de autenticação, workspace e módulo valem sempre. O gate de Action só entra em jogo com a flag ligada; o handler é o mesmo nos dois caminhos.
+
 ## Grupos de rotas
 
 ### Chamados (`/api/chamados*`)
@@ -36,7 +60,7 @@ Todas as rotas `/api/*` são definidas em `src/apps/reservalab/api/app.py`.
 | DELETE | `/api/chamados/:id` | Excluir chamado | `ticket.delete` |
 | GET | `/api/chamados/:id/events` | Histórico do chamado | `ticket.view` |
 | POST | `/api/chamados/:id/events` | Adicionar comentário | `ticket.comment` |
-| POST | `/api/chamados/:id/feedback` | Registrar avaliação (público) | — |
+| POST | `/api/public/chamados/:tracking_token/feedback` | Registrar avaliação (público) | — |
 | GET | `/api/chamados/reports` | Relatórios agregados | — (legado) |
 | POST | `/api/chamados/reports/weekly-email` | Enviar resumo semanal | `ticket.weeklyEmail` (global) |
 | POST | `/api/chamados/workspaces` | Listar campi disponíveis | — |

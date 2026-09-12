@@ -2,6 +2,20 @@
 
 > Passo a passo dos fluxos de uso do Chamados.
 
+## Ciclo de vida do chamado
+
+```mermaid
+stateDiagram-v2
+    [*] --> aberto
+    aberto --> a_caminho : técnico despachado
+    a_caminho --> em_atendimento : técnico no local
+    em_atendimento --> resolvido : problema resolvido
+    resolvido --> fechado : encerramento (arquiva o chamado)
+    fechado --> [*]
+```
+
+Um chamado também pode ser arquivado a qualquer momento, o que o retira da visão ativa sem alterar o status.
+
 ## Fluxo 1 — Abertura de chamado (professor)
 
 ```mermaid
@@ -53,6 +67,10 @@ sequenceDiagram
     DB-->>P: Atualização em tempo real
 ```
 
+![Detalhe do chamado com timeline de eventos e avanço de status](../../chamados-demo/screenshots/07-atendimento.png)
+
+O detalhe do chamado concentra a timeline de eventos, as fotos anexadas, o controle de SLA e o botão de avanço de status.
+
 ## Fluxo 3 — Avaliação do atendimento (professor)
 
 ```mermaid
@@ -66,7 +84,7 @@ sequenceDiagram
     FB->>FB: Carrega o chamado pelo identificador
     FB->>FB: Exibe o seletor de estrelas
     P->>FB: Seleciona 4 estrelas e escreve um comentário
-    FB->>API: POST /api/chamados/:id/feedback
+    FB->>API: POST /api/public/chamados/:tracking_token/feedback
     API->>API: Valida (1 a 5 estrelas, no máximo 500 caracteres)
     API->>DB: UPDATE de feedbackRating e feedbackComment
     API-->>FB: 200 { ticket }

@@ -16,6 +16,19 @@
 - **Tablets** — Supabase, tabela `tablet_reservations`. É o único uso de banco de dados na aplicação.
 - **Inscrições de push** — Upstash Redis.
 
+## Fluxo de dados
+
+```mermaid
+flowchart LR
+    RV["Tela de Reservas"] --> API["GET /api/reservas"]
+    DASH["Dashboard"] --> API
+    API --> CACHE["Cache por workspace (TTL 60s)"]
+    API --> SP["Planilha SharePoint (somente leitura)"]
+    TB["Tela de Tablets"] --> SB["Supabase - tablet_reservations"]
+```
+
+As telas de Reservas e Dashboard leem a planilha pelo backend, sempre com cache por workspace. A tela de Tablets fala direto com o Supabase e é o único ponto de escrita em banco da aplicação. Os crons de push reaproveitam as mesmas fontes.
+
 ## Arquitetura do backend
 
 ```text

@@ -18,6 +18,23 @@ A área de administração de workspaces gerencia campi e unidades organizaciona
 - **Duplicação** — clonar a estrutura de um workspace
 - **Personalização de cor** — cor da unidade no launcher
 
+## Workspace, memberships, roles e permissões
+
+```mermaid
+flowchart LR
+    P["profiles (usuário)"] --> M
+    W["workspaces (campus)"] --> M
+    M["memberships (profile x workspace, role, status, managed_by)"] --> RO["roles (tec, vis, est, opv, adm)"]
+    RO --> RP["role_permissions"]
+    RP --> AC["Actions"]
+    M --> OV["membership_overrides"]
+    OV --> AC
+```
+
+O vínculo entre usuário e workspace é a `membership`. A role define a base de permissões, os overrides ajustam caso a caso e cada permissão referencia uma Action do catálogo. Super admins (`profiles.is_super_admin`) ficam fora desse caminho e veem todos os workspaces.
+
+A disponibilidade de uma aplicação combina duas informações: o campus precisa tê-la habilitada em `workspaces.disabled_apps` e o usuário precisa ter acesso concedido pela membership. A desativação no campus sempre prevalece.
+
 ## Ciclo de vida
 
 ```text

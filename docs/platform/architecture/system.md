@@ -2,6 +2,47 @@
 
 > Como o LabHub funciona como um todo?
 
+## Plataforma, aplicações e serviços
+
+A plataforma é a base compartilhada por todas as aplicações. Cada aplicação é carregada sob demanda e acessa os serviços de que precisa — algumas diretamente pelo Supabase, outras pela API Flask.
+
+```mermaid
+flowchart LR
+    subgraph PLAT["Plataforma"]
+        AUTH["Autenticação e aprovação"]
+        RBAC["Autorização (RBAC 2.0)"]
+        WS["Workspaces e memberships"]
+        SYNC["Engine de sincronização"]
+        NOTIF["Notificações"]
+    end
+
+    subgraph APPS["Aplicações"]
+        CH["Chamados"]
+        PC["PC Care"]
+        ST["Estoque"]
+        RL["ReservaLab"]
+        TV["TV"]
+    end
+
+    subgraph SVC["Serviços"]
+        SB["Supabase"]
+        FL["API Flask"]
+        RD["Upstash Redis"]
+        SP["SharePoint"]
+    end
+
+    PLAT --> APPS
+    CH --> FL
+    RL --> FL
+    PC --> SYNC
+    ST --> SYNC
+    SYNC --> SB
+    TV --> SB
+    FL --> SB
+    FL --> RD
+    FL --> SP
+```
+
 ## Visão de alto nível
 
 ```mermaid
@@ -39,7 +80,7 @@ flowchart TD
     TV --> SUPABASE
     LS --> SYNC_ENGINE
     SYNC_ENGINE --> SUPABASE
-    REALTIME --> SUPABASE
+    SUPABASE --> REALTIME
     FLASK --> SUPABASE & UPSTASH
     CHAMADOS --> FLASK
 ```

@@ -135,6 +135,23 @@ docs/chamados-demo/screenshots/
 
 Esses arquivos são canônicos: não devem ser movidos, renomeados nem duplicados. A descoberta se dá por índices — por exemplo, [`platform/rbac/README.md`](platform/rbac/README.md) aponta para a especificação e para o catálogo, e [`apps/tv/README.md`](apps/tv/README.md) aponta para a visão geral da TV.
 
+### Estrutura congelada
+
+A estrutura descrita nesta seção está estabelecida e é estável. Documentação nova é **adicionada** dentro dela, sem reorganizar o que já existe:
+
+| Tipo de conteúdo | Onde criar |
+|------------------|-----------|
+| Página de uma aplicação | `apps/<aplicacao>/` |
+| Conteúdo da plataforma | `platform/<categoria>/` |
+| Procedimento geral de desenvolvimento | `guides/` |
+| Procedimento operacional | `operations/` |
+| Consulta técnica transversal | `reference/` |
+| Análise, validação ou snapshot datado | `audits/<categoria>/` |
+| Decisão arquitetural | `platform/decisions/` |
+| Termo de domínio | `glossary.md` |
+
+Alterações estruturais — mover documentos, renomear arquivos existentes ou criar novos blocos de primeiro nível — exigem decisão formal registrada como ADR em [`platform/decisions/`](platform/decisions/README.md). Os caminhos canônicos listados acima permanecem intocáveis em qualquer cenário.
+
 ### Convenções
 
 1. **Um assunto por documento** — cada documento responde a uma pergunta principal.

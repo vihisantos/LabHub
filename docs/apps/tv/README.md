@@ -36,6 +36,17 @@ Apresentação em tela cheia com:
 - Áudio de fundo configurável
 - Layout otimizado para resoluções de TV
 
+## Fluxo de conteúdo
+
+```mermaid
+flowchart LR
+    ADMIN["Modo admin"] -->|grava e lê| SB["Supabase - tabelas tv_*"]
+    SB -->|leitura direta, sem sincronização local| DISP["Modo display"]
+    ADMIN -->|metadados de vídeo e fonte externa| FL["API Flask - /api/tv/*"]
+    FL --> YT["YouTube API"]
+    FL --> SRC["Planilha SharePoint"]
+```
+
 ## Fonte de dados
 
 - **Acesso direto ao Supabase**, sem sincronização local

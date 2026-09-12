@@ -69,7 +69,7 @@ const TICKET_STATUS_COLORS: Record<TicketStatus, string> = {
 | GET | `/api/chamados` | Listar chamados |
 | GET | `/api/chamados/:id` | Buscar chamado por identificador |
 | PATCH | `/api/chamados/:id` | Atualizar campos do chamado |
-| POST | `/api/chamados/:id/feedback` | Registrar avaliação (público) |
+| POST | `/api/public/chamados/:tracking_token/feedback` | Registrar avaliação (público) |
 | POST | `/api/chamados/:id/events` | Adicionar comentário |
 | GET | `/api/chamados/:id/events` | Histórico do chamado |
 | GET | `/api/chamados/reports` | Relatório agregado |
@@ -109,7 +109,7 @@ Parâmetros de consulta opcionais: `workspace_id`, `status`, `reportedBy`.
 
 Corpo com o objeto parcial do chamado: status, responsável, prioridade, arquivamento, fotos e `statusNote`.
 
-### POST /api/chamados/:id/feedback
+### POST /api/public/chamados/:tracking_token/feedback
 
 ```json
 {

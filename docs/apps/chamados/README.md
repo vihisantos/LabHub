@@ -38,6 +38,38 @@ O Chamados centraliza as solicitações de suporte e ordens de serviço de TI. E
 | Técnico | `technician` ou `admin` | Ver e atualizar chamados, comentar, resolver |
 | Admin | `admin` ou `super_admin` | Tudo acima, mais atribuir técnicos e gerenciar SLA |
 
+## Telas
+
+Capturas do ambiente de demonstração, em viewport mobile (390×844), coerente com o Chamados, que é mobile-first.
+
+### Formulário público
+
+![Formulário público de abertura de chamado](../../chamados-demo/screenshots/02-formulario-publico.png)
+
+Abertura de chamado por qualquer professor, sem autenticação: campus, sala, categoria, prioridade e foto opcional.
+
+### Acompanhamento e avaliação
+
+![Acompanhamento público do chamado](../../chamados-demo/screenshots/03-acompanhamento.png)
+
+Consulta do status pelo nome do professor, com o histórico de eventos do atendimento.
+
+![Avaliação do atendimento por estrelas](../../chamados-demo/screenshots/04-feedback.png)
+
+Avaliação de 1 a 5 estrelas com comentário opcional, disponível após a resolução do chamado.
+
+### Painel de TI
+
+![Lista de chamados no painel de TI](../../chamados-demo/screenshots/06-lista.png)
+
+Lista com filtros por status, prioridade, campus e responsável, além das ações em lote.
+
+![Dashboard de chamados](../../chamados-demo/screenshots/05-dashboard.png)
+
+Dashboard com a distribuição dos chamados e a visão de cumprimento de SLA.
+
+> O conjunto completo (QR Code, SLA, relatórios e detalhe do atendimento) está em [`../../chamados-demo/screenshots/README.md`](../../chamados-demo/screenshots/README.md). Para recriar o ambiente, consulte o [guia do ambiente DEMO](../../guides/chamados-demo-environment.md).
+
 ## Onde está a documentação
 
 | Documento | Conteúdo |

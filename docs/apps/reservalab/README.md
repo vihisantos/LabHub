@@ -35,6 +35,24 @@ O ReservaLab também hospeda o backend Flask principal do projeto, responsável 
 | Reservas de tablet | Supabase (`tablet_reservations`) | Acesso direto do cliente |
 | Cache | Upstash Redis com fallback em arquivo | API Flask |
 
+## Telas
+
+Capturas da verificação visual automatizada do ReservaLab, em viewport 1366×900.
+
+![Calendário de reservas de laboratório no tema dim](../../../screenshots/e2e-reservalab-theme/06-dim-reservas.png)
+
+Calendário de reservas de laboratório, com o status visual de cada reserva (ao vivo, em breve, encerrada).
+
+![Dashboard de ocupação no tema escuro](../../../screenshots/e2e-reservalab-theme/04-dark-dashboard.png)
+
+Dashboard de ocupação dos laboratórios.
+
+![Reservas de tablet no tema escuro](../../../screenshots/e2e-reservalab-theme/01-dark-tablets.png)
+
+Gestão de reservas de tablet.
+
+> As imagens também demonstram que o ReservaLab acompanha o tema da aplicação principal; o conjunto completo (dark, dim e light) está em [`screenshots/e2e-reservalab-theme/`](../../../screenshots/e2e-reservalab-theme/), gerado por `scripts/e2e_theme_check.mjs`.
+
 ## Onde está a documentação
 
 | Documento | Conteúdo |

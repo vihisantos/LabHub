@@ -16,17 +16,53 @@
 
 ```mermaid
 flowchart TD
-    MAIN["main.tsx"] --> APP["App.tsx\n(Router)"]
-    APP --> LAUNCHER["Launcher\n(home)"]
-    APP --> CHAMADOS["ChamadosApp\n(lazy)"]
-    APP --> PCARE["PCareApp\n(lazy)"]
-    APP --> STOCK["StockApp\n(lazy)"]
-    APP --> RESERVALAB["ReservaLabApp\n(lazy)"]
-    APP --> TV["TvApp\n(lazy)"]
-    APP --> ADMIN["AdminApp\n(lazy)"]
+    MAIN["main.tsx"] --> APP["App.tsx\n(BrowserRouter + AuthProvider)"]
+    APP --> ROUTES["AppRoutes"]
+    ROUTES --> LOGIN["LoginPage"]
+    ROUTES --> HOME["HomePage e DashboardPage"]
+    ROUTES --> CHAMADOS["ChamadosApp\n(/chamados/*)"]
+    ROUTES --> PUBLICO["ChamadosPublicApp\n(/chamados-publico/*)"]
+    ROUTES --> PCARE["PCCareApp\n(/pc-care/*)"]
+    ROUTES --> STOCK["StockApp\n(/stock/*, /general-stock/*)"]
+    ROUTES --> RESERVALAB["ReservaLabApp\n(/reservalab/*)"]
+    ROUTES --> TV["TvApp\n(/tv/*)"]
+    ROUTES --> ADMIN["AdminApp\n(/admin/*)"]
+    ROUTES --> LIDER["LiderHome\n(/lider)"]
+    ROUTES --> APPROVAL["ApprovalRoute\n(/approval-pending)"]
 ```
 
 Todas as aplicações são carregadas sob demanda com `React.lazy()`, mantendo o bundle inicial pequeno.
+
+## Fronteiras entre camadas
+
+```mermaid
+flowchart TD
+    APP["App.tsx (router)"] --> GUARDS["AuthGuard, AppGuard, WorkspaceGate"]
+    GUARDS --> A1["Chamados"]
+    GUARDS --> A2["PC Care"]
+    GUARDS --> A3["Estoque"]
+    GUARDS --> A4["ReservaLab"]
+    GUARDS --> A5["TV"]
+
+    A1 --> CORE
+    A2 --> CORE
+    A3 --> CORE
+    A4 --> CORE
+    A5 --> CORE
+    A1 --> LIB
+    A2 --> LIB
+    A3 --> LIB
+    A4 --> LIB
+    A5 --> LIB
+
+    PLATFORM["src/platform (login, aprovação, launcher, painéis)"] --> CORE
+    PLATFORM --> LIB
+
+    CORE["src/core (auth, workspaces, assets, permissions, memberships, notifications)"]
+    LIB["src/lib (sync, storage, hooks, ui, charts)"]
+```
+
+As aplicações não importam código umas das outras: toda dependência compartilhada passa por `core/` ou `lib/`.
 
 ## Sistema de layout
 
