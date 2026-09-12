@@ -521,19 +521,20 @@ def tv_calendar_extract():
         if not pdf_url or not isinstance(pdf_url, str):
             return jsonify({'error': 'URL do PDF é obrigatória'}), 400
 
-        # Proteção SSRF: bloqueia esquemas não-HTTP, loopback, IPs privados e metadata da cloud
-        if not _is_safe_url(pdf_url):
+        # Proteção SSRF em profundidade: HTTPS only + DNS validando todos os IPs
+        # resolvidos + revalidação em cada redirect (allow_redirects=False).
+        if not _tv_validate_source_url(pdf_url):
             return jsonify({'error': 'URL inválida ou não permitida (proteção SSRF)'}), 400
 
-        # Download PDF
-        resp = requests.get(pdf_url, timeout=30)
-        if not resp.ok:
-            return jsonify({'error': f'Falha ao baixar PDF: HTTP {resp.status_code}'}), 502
+        # Download PDF (streamado, teto de 8 MB, até 3 redirects revalidados)
+        pdf_data, fetch_err = _tv_fetch_source_bytes(pdf_url)
+        if pdf_data is None:
+            return jsonify({'error': fetch_err or 'Falha ao baixar PDF'}), 502
 
         from pypdf import PdfReader
         import io
 
-        pdf_file = io.BytesIO(resp.content)
+        pdf_file = io.BytesIO(pdf_data)
         reader = PdfReader(pdf_file)
 
         full_text = []
@@ -1380,7 +1381,7 @@ def tv_activation_redeem():
             token_hash, auth_user_id = _provision_tv_device_session(device_id)
         except RuntimeError as e:
             logger.error("Erro ao provisionar identidade da TV: %s", e)
-            return jsonify({'error': str(e)}), 502
+            return jsonify({'error': 'Falha ao provisionar a identidade da TV'}), 502
 
         device_name = (
             str(body.get('device_name') or '').strip()[:60]
@@ -1471,7 +1472,7 @@ def tv_device_provision():
             token_hash, auth_user_id = _provision_tv_device_session(device_id)
         except RuntimeError as e:
             logger.error("Erro ao provisionar identidade da TV: %s", e)
-            return jsonify({'error': str(e)}), 502
+            return jsonify({'error': 'Falha ao provisionar a identidade da TV'}), 502
 
         device_name = str(body.get('device_name') or '').strip()[:60] or 'TV Desktop'
         if not _upsert_tv_device_row(device_id, device_name, workspace_id, auth_user_id):
