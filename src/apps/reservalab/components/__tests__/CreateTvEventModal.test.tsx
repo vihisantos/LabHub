@@ -75,4 +75,14 @@ describe('CreateTvEventModal', () => {
       expect(createEvent).toHaveBeenCalledWith(expect.objectContaining({ device_id: 'd1' }))
     })
   })
+
+  it('expõe a mensagem real quando a criação falha', async () => {
+    ;(fetchWorkspaceDevices as any).mockResolvedValue([makeDevice('d1', 'TV 1')])
+    ;(createEvent as any).mockRejectedValue({ message: 'column device_id does not exist' })
+    render(<CreateTvEventModal draft={draft} onClose={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar evento' }))
+
+    expect(await screen.findByText(/column device_id does not exist/)).toBeInTheDocument()
+  })
 })
