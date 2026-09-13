@@ -400,3 +400,41 @@ def test_activation_create_sem_membership_retorna_400(client, fake_requests, mon
     _memberships(fake_requests, MEMBER_PROFILE["id"], [])
     res = client.post("/api/tv/activation/create", json={}, headers=headers)
     assert res.status_code == 400
+
+
+# ── Lista de TVs por workspace ─────────────────────────────────────────────────
+
+def test_devices_list_returns_workspace_tvs(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
+    fake_requests.route("GET", "tv_devices?", FakeResponse([
+        {"id": DEVICE_ID, "name": "TV Recepção", "workspace_id": "ws-a",
+         "last_seen": None, "created_at": "2026-01-01T00:00:00Z"},
+    ]))
+    res = client.get("/api/tv/devices?workspace_id=ws-a", headers=headers)
+    assert res.status_code == 200
+    devices = (res.get_json() or {}).get("devices") or []
+    assert devices[0]["id"] == DEVICE_ID
+    assert devices[0]["workspace_id"] == "ws-a"
+
+
+def test_devices_list_member_same_workspace(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
+    fake_requests.route("GET", "tv_devices?", FakeResponse([]))
+    res = client.get("/api/tv/devices?workspace_id=ws-a", headers=headers)
+    assert res.status_code == 200
+    assert (res.get_json() or {}).get("devices") == []
+
+
+def test_devices_list_member_other_workspace_forbidden(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
+    res = client.get("/api/tv/devices?workspace_id=ws-outro", headers=headers)
+    assert res.status_code == 403
+
+
+def test_devices_list_requires_workspace_and_auth(client):
+    res = client.get("/api/tv/devices")
+    assert res.status_code == 401
+    res = client.get("/api/tv/devices?workspace_id=ws-a")
+    assert res.status_code == 401

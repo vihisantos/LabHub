@@ -1,14 +1,19 @@
 import { useState, type FormEvent, type CSSProperties } from 'react'
-import { Tv, ArrowLeft, Check, KeyRound, MonitorPlay } from 'lucide-react'
+import { Tv, ArrowLeft, Check, KeyRound, MonitorPlay, Plus } from 'lucide-react'
 import type { Workspace } from '../core/workspaces/types'
 import type { User } from '../core/auth/types'
 import { authService } from '../core/auth/service'
 import { selectAssignedWorkspaces } from '../core/memberships/service'
 import { defaultDb as supabase } from '../lib/supabase'
-import { redeemActivationCode, provisionWithLogin } from './deviceService'
+import {
+  redeemActivationCode,
+  provisionWithLogin,
+  listWorkspaceDevices,
+  type TvDevice,
+} from './deviceService'
 import { SCREEN_APP_OPTIONS, type DeviceConfig, type ScreenAppId } from './config'
 
-type Step = 'login' | 'activation' | 'workspace' | 'name' | 'app' | 'saving'
+type Step = 'login' | 'activation' | 'workspace' | 'device' | 'name' | 'app' | 'saving'
 
 /** Conteúdo capturado antes da escolha do módulo: só falta o screenApp. */
 interface PendingDevice {
@@ -46,6 +51,8 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
   const [screenApp, setScreenApp] = useState<ScreenAppId>(existing?.screenApp ?? 'tv')
   const [pending, setPending] = useState<PendingDevice | null>(null)
   const [flowSource, setFlowSource] = useState<'login' | 'activation'>('login')
+  const [devices, setDevices] = useState<TvDevice[]>([])
+  const [loadingDevices, setLoadingDevices] = useState(false)
 
   const loadWorkspaces = async (u: User) => {
     if (!supabase) return
@@ -98,6 +105,44 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
       setError(err instanceof Error ? err.message : 'Erro ao registrar a TV')
       setSaving(false)
       setStep('name')
+    }
+  }
+
+  const enterDeviceStep = async () => {
+    if (!selectedWorkspace) return
+    setStep('device')
+    setDevices([])
+    setError(null)
+    setLoadingDevices(true)
+    try {
+      const list = await listWorkspaceDevices(selectedWorkspace.id)
+      setDevices(list)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar as TVs')
+    } finally {
+      setLoadingDevices(false)
+    }
+  }
+
+  const bindExisting = async (dev: TvDevice) => {
+    if (!selectedWorkspace || !user) return
+    setError(null)
+    setSaving(true)
+    setStep('saving')
+    try {
+      await provisionWithLogin({
+        workspaceId: selectedWorkspace.id,
+        deviceId: dev.id,
+        deviceName: dev.name,
+      })
+      setPending({ deviceId: dev.id, name: dev.name, workspace: selectedWorkspace })
+      setFlowSource('login')
+      setSaving(false)
+      setStep('app')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao vincular a TV')
+      setSaving(false)
+      setStep('device')
     }
   }
 
@@ -300,7 +345,7 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
             <button
               type="button"
               disabled={!selectedWorkspace}
-              onClick={() => setStep('name')}
+              onClick={enterDeviceStep}
               style={{
                 ...buttonStyle,
                 opacity: selectedWorkspace ? 1 : 0.4,
@@ -312,6 +357,66 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
             </button>
             <button type="button" onClick={() => setStep('login')} style={{ ...ghostButtonStyle }}>
               <ArrowLeft size={14} /> Trocar de usuário
+            </button>
+          </div>
+        )}
+
+        {step === 'device' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: 0, textAlign: 'center' }}>
+              {devices.length > 0
+                ? 'Esta TV já existe neste workspace? Escolha-a abaixo.'
+                : 'Nenhuma TV cadastrada neste workspace ainda.'}
+            </p>
+            {error && (
+              <p style={{ fontSize: '0.75rem', color: '#fca5a5', margin: 0, textAlign: 'center' }}>{error}</p>
+            )}
+            {loadingDevices ? (
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0, textAlign: 'center' }}>Carregando TVs...</p>
+            ) : (
+              devices.map((dev) => (
+                <button
+                  key={dev.id}
+                  type="button"
+                  onClick={() => bindExisting(dev)}
+                  style={{
+                    ...rowButtonStyle,
+                    ...(dev.id === existing?.deviceId
+                      ? { opacity: 0.55, cursor: 'not-allowed' }
+                      : {}),
+                  }}
+                  disabled={dev.id === existing?.deviceId}
+                >
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff',
+                  }}>
+                    <Tv size={20} />
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
+                    <p style={{ fontSize: '0.9rem', fontWeight: 600, margin: 0, color: '#f1f5f9' }}>{dev.name}</p>
+                    <p style={{ fontSize: '0.72rem', color: '#64748b', margin: 0 }}>
+                      {dev.id === existing?.deviceId ? 'Esta é a TV atual' : 'Usar esta TV'}
+                    </p>
+                  </div>
+                  <Check size={18} color="#10b981" />
+                </button>
+              ))
+            )}
+            <button
+              type="button"
+              onClick={() => setStep('name')}
+              style={{
+                ...buttonStyle, marginTop: '0.25rem',
+                background: 'linear-gradient(135deg, #ef4444, #e11d48)',
+              }}
+            >
+              <Plus size={16} /> Cadastrar nova TV
+            </button>
+            <button type="button" onClick={() => setStep('workspace')} style={{ ...ghostButtonStyle }}>
+              <ArrowLeft size={14} /> Voltar
             </button>
           </div>
         )}
@@ -343,7 +448,7 @@ export function SetupFlow({ existing, onDone }: SetupFlowProps) {
             >
               {saving ? 'Salvando...' : 'Continuar'}
             </button>
-            <button type="button" onClick={() => setStep('workspace')} style={{ ...ghostButtonStyle }}>
+            <button type="button" onClick={() => setStep('device')} style={{ ...ghostButtonStyle }}>
               <ArrowLeft size={14} /> Voltar
             </button>
           </div>

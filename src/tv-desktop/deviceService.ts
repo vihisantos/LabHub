@@ -114,13 +114,47 @@ export async function provisionWithLogin(params: {
   }
 }
 
+export interface TvDevice {
+  id: string
+  name: string
+  workspace_id: string
+  last_seen: string | null
+  created_at: string
+}
+
+/**
+ * Lista as TVs já registradas no workspace, para o fluxo de configuração
+ * oferecer "usar esta TV" em vez de sempre criar uma nova. Autorização no
+ * backend por membership (super admin em qualquer workspace).
+ */
+export async function listWorkspaceDevices(workspaceId: string): Promise<TvDevice[]> {
+  if (!supabase) throw new Error('Supabase não configurado neste dispositivo')
+  const { data: sessData } = await supabase.auth.getSession()
+  const token = sessData.session?.access_token
+  if (!token) throw new Error('Sessão humana ausente — faça login novamente')
+
+  const res = await fetch(
+    tvApi(`/api/tv/devices?workspace_id=${encodeURIComponent(workspaceId)}`),
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  let data: { devices?: TvDevice[]; error?: string }
+  try {
+    data = await res.json()
+  } catch {
+    throw new Error('Falha ao se conectar com o servidor. Verifique a internet da TV.')
+  }
+  if (!res.ok) {
+    throw new Error(data.error || 'Não foi possível listar as TVs')
+  }
+  return data.devices || []
+}
+
 export function startHeartbeat(deviceId: string, intervalMs = 5 * 60 * 1000): () => void {
   const ping = () => heartbeatDevice(deviceId).catch(() => {})
   ping()
   const timer = setInterval(ping, intervalMs)
   return () => clearInterval(timer)
 }
-
 /** Indica se o ambiente é o app desktop Electron (vs navegador). */
 export function isDesktop(): boolean {
   return !!window.desktop?.isDesktop

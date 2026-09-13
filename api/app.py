@@ -1490,6 +1490,63 @@ def tv_device_provision():
         return jsonify({'error': 'Erro interno'}), 500
 
 
+@app.route('/api/tv/devices', methods=['GET'])
+def tv_devices_list():
+    """Lista as TVs de um workspace (fluxo de escolha de TV no desktop).
+
+    Mesma autorização do provision: super admin em qualquer workspace,
+    membro apenas no próprio (fail-closed), via Bearer humano.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        token = _get_token_from_request()
+        if not token:
+            return jsonify({'error': 'Token de autenticação ausente'}), 401
+
+        auth_resp = requests.get(
+            f'{_SUPABASE_URL}/auth/v1/user',
+            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
+            timeout=10,
+        )
+        if not auth_resp.ok:
+            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
+        user_id = (auth_resp.json() or {}).get('id')
+        if not user_id:
+            return jsonify({'error': 'Usuário não identificado'}), 401
+
+        workspace_id = (request.args.get('workspace_id') or '').strip()
+        if not workspace_id:
+            return jsonify({'error': 'workspace_id é obrigatório'}), 400
+
+        prof_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not prof_resp.ok or not prof_resp.json():
+            return jsonify({'error': 'Perfil não encontrado'}), 404
+        profile = prof_resp.json()[0]
+        member_ws_ids = _get_user_workspace_ids(user_id)
+        is_super_admin = bool(profile.get('is_super_admin'))
+        if not is_super_admin and workspace_id not in member_ws_ids:
+            return jsonify({'error': 'Sem permissão neste workspace'}), 403
+
+        devices_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_devices?workspace_id=eq.{quote(workspace_id)}'
+            f'&select=id,name,workspace_id,last_seen,created_at&order=created_at.asc',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not devices_resp.ok:
+            return jsonify({'error': 'Erro ao listar os dispositivos'}), 502
+        return jsonify({'devices': devices_resp.json() or []})
+
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
 # ── TV: snapshot TV-safe do Dashboard de Chamados ──
 #
 # GET /api/tv/chamados/display — device-only. Fornece à futura CallsDashboardScreen
