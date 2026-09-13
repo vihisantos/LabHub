@@ -1159,11 +1159,11 @@ def _provision_tv_device_session(device_id: str):
     if not link_resp.ok:
         raise RuntimeError(f'Falha ao gerar sessão da TV ({link_resp.status_code})')
     payload = link_resp.json() or {}
-    action_link = (payload.get('properties') or {}).get('action_link') or ''
+    action_link = payload.get('action_link') or (payload.get('properties') or {}).get('action_link') or ''
     token_hash = (parse_qs(urlparse(action_link).query).get('token') or [None])[0]
     if not token_hash:
         raise RuntimeError('action_link sem token')
-    auth_user_id = (payload.get('user') or {}).get('id')
+    auth_user_id = payload.get('id') or (payload.get('user') or {}).get('id')
     if not auth_user_id:
         raise RuntimeError('generate_link sem user.id')
     return token_hash, auth_user_id

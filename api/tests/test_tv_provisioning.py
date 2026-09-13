@@ -132,13 +132,11 @@ def _route_happy_path(fake_requests):
         "POST",
         "/auth/v1/admin/generate_link",
         FakeResponse({
-            "properties": {
-                "action_link": (
-                    f"{SUPABASE_URL}/auth/v1/verify"
-                    f"?token={TOKEN_HASH}&type=magiclink&redirect_to=https://x"
-                )
-            },
-            "user": {"id": "dev-user-1"},
+            "id": "dev-user-1",
+            "action_link": (
+                f"{SUPABASE_URL}/auth/v1/verify"
+                f"?token={TOKEN_HASH}&type=magiclink&redirect_to=https://x"
+            ),
         }),
     )
     fake_requests.route("POST", "/rest/v1/tv_devices", FakeResponse([]))
