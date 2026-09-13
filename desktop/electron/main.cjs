@@ -198,9 +198,10 @@ function createWindow(rendererPort) {
   })
 
   // Encaminha logs do renderer para o stdout (útil em CI / diagnóstico)
-  mainWindow.webContents.on('console-message', (_event, _level, message) => {
+  // A partir do Electron 32 o evento emite (event, details); details.message traz o texto.
+  mainWindow.webContents.on('console-message', (_event, details) => {
     if (process.env.TV_DESKTOP_SMOKE_TEST === '1') {
-      console.log('[renderer]', message)
+      console.log('[renderer]', details.message)
     }
   })
 
