@@ -1,6 +1,7 @@
 const { app, BrowserWindow, screen, ipcMain, shell, powerSaveBlocker, Menu, session } = require('electron')
 const path = require('node:path')
 const http = require('node:http')
+const https = require('node:https')
 const fs = require('node:fs')
 const initSqlJs = require('sql.js')
 const { autoUpdater } = require('electron-updater')
@@ -8,6 +9,11 @@ const { autoUpdater } = require('electron-updater')
 const LOCAL_DB_KEY = 'labhub_tv_device_config'
 
 const ADMIN_URL = process.env.TV_ADMIN_URL || 'https://lab-hub-pi.vercel.app/tv'
+// Backend Flask/Serverless por trás do /api do painel. O renderer do desktop
+// é compilado com base de API vazia (chamadas relativas /api/*); o servidor
+// local faz o proxy para cá — evita CORS (origem 127.0.0.1 local) e não
+// depende de baked env no build.
+const API_UPSTREAM = process.env.TV_API_UPSTREAM || 'https://lab-hub-pi.vercel.app'
 const RENDERER_DIR = path.join(__dirname, '..', 'renderer')
 
 let mainWindow = null
@@ -38,6 +44,34 @@ function serveRenderer() {
       try {
         let urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
         if (urlPath === '/') urlPath = '/desktop.html'
+
+        // Proxy: /api/* do renderer → backend Flask (o app desktop não conhece
+        // a base remota; origin local evita CORS no fluxo de provisão/TV).
+        if (urlPath.startsWith('/api/')) {
+          const upstream = new URL(API_UPSTREAM + req.url)
+          const transport = upstream.protocol === 'https:' ? https : http
+          const forwardedHeaders = { ...req.headers, host: upstream.host }
+          delete forwardedHeaders.connection
+          delete forwardedHeaders['transfer-encoding']
+          const proxyReq = transport.request(
+            upstream,
+            {
+              method: req.method,
+              headers: forwardedHeaders,
+            },
+            (upstreamRes) => {
+              res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers)
+              upstreamRes.pipe(res)
+            },
+          )
+          proxyReq.on('error', () => {
+            res.writeHead(502, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: false, error: 'Falha ao se conectar com o servidor' }))
+          })
+          req.pipe(proxyReq)
+          return
+        }
+
         const filePath = path.normalize(path.join(RENDERER_DIR, urlPath))
         if (!filePath.startsWith(RENDERER_DIR) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
           res.writeHead(404).end('Not found')
