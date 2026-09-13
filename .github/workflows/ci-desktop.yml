@@ -1,0 +1,29 @@
+name: CI Desktop
+
+# Guarda o lockfile do /desktop no Windows. O Dependabot regenera o lock em
+# runner Linux e costuma dropar os opcionais `os:win32` do electron-builder
+# (electron-builder-squirrel-windows, electron-winstaller, @electron/windows-sign,
+# postject, ...), quebrando o `npm ci` do Desktop Release na main com EUSAGE
+# (incidentes #201/#195/#200, corrigidos no #207). Este job corta o problema
+# ainda no PR, sem depender de lista manual de pacotes.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+
+jobs:
+  npm-ci-windows:
+    name: Desktop npm ci (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'desktop/package-lock.json'
+      - name: Validate desktop lockfile on Windows
+        run: npm ci
+        working-directory: desktop
