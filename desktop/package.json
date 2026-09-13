@@ -13,7 +13,7 @@
     "dist:portable": "npm run build:renderer && electron-builder --win portable"
   },
   "devDependencies": {
-    "cross-env": "^7.0.3",
+    "cross-env": "^10.1.0",
     "electron": "^39.8.10",
     "electron-builder": "^26.15.3"
   },
