@@ -1,39 +1,44 @@
-# Monitoring
+# Monitoramento
 
-> How to monitor LabHub in production.
+> Como acompanhar o LabHub em produção.
 
-## Key Metrics
+## Métricas principais
 
-### Application
-- **Deployment status** — Vercel Dashboard
-- **Build success rate** — GitHub Actions
-- **Error rate** — Browser console errors
+### Aplicação
 
-### Database
-- **Query performance** — Supabase Dashboard → Database → Query Performance
-- **Connection count** — Supabase Dashboard → Database → Connection Pool
-- **RLS violations** — Supabase Dashboard → Auth → Logs
+- **Status do deploy** — Vercel Dashboard
+- **Taxa de sucesso do build** — GitHub Actions
+- **Taxa de erro** — erros no console do navegador
+
+### Banco de dados
+
+- **Desempenho de consultas** — Supabase → Database → Query Performance
+- **Número de conexões** — Supabase → Database → Connection Pool
+- **Violações de RLS** — Supabase → Auth → Logs
 
 ### Backend
-- **Function duration** — Vercel Dashboard → Functions
-- **Function errors** — Vercel Dashboard → Functions → Logs
-- **Cold start time** — Vercel Dashboard → Functions → Metrics
 
-### Push Notifications
-- **Delivery rate** — Upstash Redis dashboard
-- **Subscription count** — Redis `push_subscribers:*` keys
+- **Duração das funções** — Vercel → Functions
+- **Erros das funções** — Vercel → Functions → Logs
+- **Tempo de cold start** — Vercel → Functions → Metrics
 
-### RBAC 2.0 (when `RBAC_2_ENABLED=1`)
+### Notificações push
 
-| Metric | Where | What to watch |
-|--------|-------|---------------|
-| Audit log volume | `rbac_audit_logs` table | Unusual spikes in DENY or total rows |
-| DENY rate by action | Query `rbac_audit_logs` | Sudden increase in 403s for a specific action |
-| Audit log failures | Backend logs | `record_rbac_audit` errors (best-effort, non-blocking) |
-| Membership count | `memberships` table | Should match expected user count |
-| Override count | `membership_overrides` table | Should be 0 unless manually granted |
+- **Taxa de entrega** — painel do Upstash Redis
+- **Número de inscrições** — chaves `push_subscribers:*` no Redis
 
-#### Query: DENY rate by action (last 24h)
+### RBAC 2.0 (quando `RBAC_2_ENABLED=1`)
+
+| Métrica | Onde observar | O que vigiar |
+|---------|---------------|--------------|
+| Volume do log de auditoria | Tabela `rbac_audit_logs` | Picos incomuns de negações ou de registros |
+| Taxa de negação por Action | Consulta a `rbac_audit_logs` | Aumento repentino de 403 em uma Action específica |
+| Falhas de auditoria | Logs do backend | Erros em `record_rbac_audit` (melhor esforço, não bloqueante) |
+| Total de memberships | Tabela `memberships` | Deve corresponder ao número esperado de usuários |
+| Total de overrides | Tabela `membership_overrides` | Deve permanecer em zero sem concessão manual |
+
+#### Consulta: taxa de negação por Action (últimas 24 horas)
+
 ```sql
 SELECT action, COUNT(*) as denies
 FROM rbac_audit_logs
@@ -43,7 +48,8 @@ GROUP BY action
 ORDER BY denies DESC;
 ```
 
-#### Query: ALLOW vs DENY ratio
+#### Consulta: proporção entre permissões e negações
+
 ```sql
 SELECT
   effect,
@@ -54,40 +60,43 @@ WHERE "timestamp" > now() - interval '24 hours'
 GROUP BY effect;
 ```
 
-## Health Checks
+## Health checks
 
-### API Health
+### API
+
 ```bash
 curl https://lab-hub-pi.vercel.app/api/health
 ```
 
-### Supabase Health
-Check Supabase Dashboard → Settings → API → Health
+### Supabase
 
-## Alerting
+Verifique em Supabase → Settings → API → Health.
 
-Currently no automated alerting. Manual monitoring via dashboards.
+## Alertas
 
-### Recommended Alerts
-- Deployment failure
-- API error rate > 5%
-- Database connection pool > 80%
-- Push notification delivery < 90%
-- **RBAC DENY rate > 20%** (possible misconfiguration or attack)
-- **RBAC audit log write failures** (observability gap)
+Hoje não há alertas automatizados; o acompanhamento é manual, pelos painéis.
+
+### Alertas recomendados
+
+- Falha de deploy
+- Taxa de erro da API acima de 5%
+- Pool de conexões do banco acima de 80%
+- Entrega de push abaixo de 90%
+- **Taxa de negação do RBAC acima de 20%** — possível erro de configuração ou tentativa de abuso
+- **Falhas de escrita no log de auditoria do RBAC** — lacuna de observabilidade
 
 ## Logs
 
-| Source | Location | Retention |
-|--------|----------|-----------|
-| Vercel Functions | Dashboard → Functions → Logs | 3 days (free) / 30 days (pro) |
-| Supabase | Dashboard → Logs | 7 days |
-| GitHub Actions | Actions → Workflow runs | 90 days |
-| RBAC Audit | `rbac_audit_logs` table | Indefinite (append-only) |
-| Client errors | Browser console | Session only |
+| Origem | Onde | Retenção |
+|--------|------|----------|
+| Funções Vercel | Vercel → Functions → Logs | 3 dias (plano gratuito) / 30 dias (pago) |
+| Supabase | Supabase → Logs | 7 dias |
+| GitHub Actions | Actions → Execuções | 90 dias |
+| Auditoria do RBAC | Tabela `rbac_audit_logs` | Indefinida (append-only) |
+| Erros do cliente | Console do navegador | Apenas a sessão |
 
-## Related
+## Relacionados
 
-- [Operations: Deployment](deployment.md)
-- [Operations: Troubleshooting](troubleshooting.md)
-- [Architecture: Authorization](../architecture/authorization.md)
+- [Deploy](deployment.md)
+- [Troubleshooting](troubleshooting.md)
+- [Autorização](../platform/security/authorization.md)

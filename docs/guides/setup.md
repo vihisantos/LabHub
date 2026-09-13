@@ -1,15 +1,15 @@
-# Setup Guide
+# Configuração do ambiente
 
-> How to set up the LabHub development environment.
+> Como preparar o ambiente de desenvolvimento do LabHub.
 
-## Prerequisites
+## Pré-requisitos
 
-- **Node.js** 18+ (LTS recommended)
-- **Python** 3.10+ (for Flask API)
+- **Node.js** 18 ou superior (recomendado usar LTS)
+- **Python** 3.10 ou superior (para a API Flask)
 - **Git**
-- **npm** (package manager)
+- **npm** (gerenciador de pacotes do projeto)
 
-## 1. Clone and Install
+## 1. Clonar e instalar
 
 ```bash
 git clone https://github.com/vihisantos/LabHub.git
@@ -17,68 +17,73 @@ cd LabHub
 npm install
 ```
 
-## 2. Environment Variables
+## 2. Variáveis de ambiente
 
-Copy the example and fill in your values:
+Copie o arquivo de exemplo e preencha os valores:
 
 ```bash
 cp .env.example .env
 ```
 
-### Required (for full functionality)
+### Obrigatórias para funcionalidade completa
 
-| Variable | Description |
-|----------|-------------|
-| `VITE_SUPABASE_URL` | Your Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anonymous key |
+| Variável | Descrição |
+|----------|-----------|
+| `VITE_SUPABASE_URL` | URL do projeto Supabase |
+| `VITE_SUPABASE_ANON_KEY` | Chave anônima do Supabase |
 
-### Optional
+### Opcionais
 
-| Variable | Description |
-|----------|-------------|
-| `VITE_RESERVALAB_API_URL` | Flask API URL (default: relative `/api`) |
-| `VITE_VAPID_PUBLIC_KEY` | Web Push public key |
-| `VITE_APP_VERSION` | Version string shown in settings |
+| Variável | Descrição |
+|----------|-----------|
+| `VITE_RESERVALAB_API_URL` | URL da API Flask (padrão: `/api` relativo) |
+| `VITE_VAPID_PUBLIC_KEY` | Chave pública de Web Push |
+| `VITE_APP_VERSION` | Versão exibida nas configurações |
 
-> **Without Supabase variables**, the app runs in local-only mode (localStorage only, no sync).
+> **Sem as variáveis do Supabase**, a aplicação roda em modo somente local (`localStorage`, sem sincronização).
 
-## 3. Start Development
+As variáveis do backend (Flask) estão em [Referência: configuração](../reference/configuration.md).
+
+## 3. Iniciar o desenvolvimento
 
 ```bash
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`.
+A aplicação fica disponível em `http://localhost:5173`.
 
-## 4. Backend (Optional)
+## 4. Backend (opcional)
 
-For Chamados and push notifications:
+Necessário para o Chamados e para notificações push:
 
 ```bash
 pip install -r requirements.txt
 cd api && python -m pytest tests/ -q
 ```
 
-The Flask API runs as Vercel Serverless in production. For local development, you can run it separately.
+Em produção, a API Flask roda como Vercel Serverless. Para desenvolvimento local, ela pode ser executada separadamente.
 
-## 5. Verify
+## 5. Verificar
 
-- Open `http://localhost:5173`
-- You should see the Launcher with available modules
-- Navigate to any module to verify it loads
+- Abra `http://localhost:5173`
+- O launcher deve aparecer com as aplicações disponíveis
+- Navegue até alguma aplicação para confirmar que ela carrega
 
-## IDE Setup
+## Configuração do editor
 
-### VS Code Extensions (recommended)
+### Extensões recomendadas (VS Code)
+
 - Tailwind CSS IntelliSense
 - ESLint
 - Prettier
 - GitLens
 
 ### TypeScript
-The project uses `tsconfig.app.json` for app code and `tsconfig.node.json` for build config.
 
-## Related
+O projeto usa `tsconfig.app.json` para o código da aplicação e `tsconfig.node.json` para a configuração de build.
 
-- [Development Guide](development.md)
-- [Testing Guide](testing.md)
+## Relacionados
+
+- [Desenvolvimento](development.md)
+- [Testes](testing.md)
+- [Referência: configuração](../reference/configuration.md)

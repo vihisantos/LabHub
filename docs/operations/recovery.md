@@ -1,93 +1,101 @@
-# Recovery
+# Recuperação
 
-> Disaster recovery and data backup procedures.
+> Procedimentos de backup e recuperação de desastres.
 
-## Data Backup Strategy
+## Estratégia de backup
 
-### Supabase (Remote)
+### Supabase (remoto)
 
-Supabase provides automatic daily backups (plan-dependent). For additional safety:
+O Supabase faz backups automáticos diários, conforme o plano contratado. Para segurança adicional:
 
-1. **Supabase Dashboard** → Database → Backups → Download backup
-2. **pg_dump** for manual backups:
+1. **Supabase → Database → Backups** e baixe o backup
+2. **`pg_dump`** para backups manuais:
+
    ```bash
    pg_dump $DATABASE_URL > labhub_backup_$(date +%Y%m%d).sql
    ```
 
-### localStorage (Local)
+### localStorage (local)
 
-Each user's data is in their browser's localStorage. The app provides manual export:
+Os dados de cada usuário ficam no navegador. A aplicação oferece exportação manual:
 
-1. Go to Settings → Backup
-2. Click "Exportar dados" (downloads JSON file)
-3. To restore: Settings → Importar dados
+1. Acesse Configurações → Backup
+2. Clique em "Exportar dados" (baixa um arquivo JSON)
+3. Para restaurar: Configurações → Importar dados
 
-### Workspace Backup
+### Backup de workspace
 
-Admins can backup entire workspaces:
-1. Go to `/admin/backups`
-2. Select workspace
-3. Export (includes all workspace data)
-4. Restore from backup file (2-day retention for deleted workspaces)
+Admins podem fazer backup de workspaces inteiros:
 
-## Recovery Scenarios
+1. Acesse `/admin/backups`
+2. Selecione o workspace
+3. Exporte (inclui todos os dados do workspace)
+4. Restaure a partir do arquivo de backup — workspaces excluídos ficam disponíveis por 2 dias
 
-### Scenario 1: Corrupted localStorage
+## Cenários de recuperação
 
-**Impact:** User can't access local data.
+### Cenário 1 — localStorage corrompido
 
-**Recovery:**
-1. Clear localStorage for the domain
-2. Re-login (data syncs from Supabase)
-3. If sync data is also corrupted, restore from Supabase backup
+**Impacto:** o usuário não acessa os dados locais.
 
-### Scenario 2: Supabase outage
+**Recuperação:**
 
-**Impact:** No sync, no real-time, no public ticket creation.
+1. Limpe o `localStorage` do domínio
+2. Faça login novamente (os dados sincronizam do Supabase)
+3. Se os dados remotos também estiverem corrompidos, restaure um backup do Supabase
 
-**Recovery:**
-- App continues working offline (localStorage)
-- When Supabase recovers, sync resumes automatically
-- Public form returns 503 (expected)
+### Cenário 2 — indisponibilidade do Supabase
 
-### Scenario 3: Vercel outage
+**Impacto:** sem sincronização, sem realtime e sem abertura pública de chamados.
 
-**Impact:** App and API unavailable.
+**Recuperação:**
 
-**Recovery:**
-- Wait for Vercel to recover
-- No data loss (Supabase is independent)
-- Local data preserved in user browsers
+- A aplicação continua funcionando offline, com o `localStorage`
+- Quando o Supabase volta, a sincronização é retomada automaticamente
+- O formulário público responde 503 enquanto durar a indisponibilidade — comportamento esperado
 
-### Scenario 4: Accidental data deletion
+### Cenário 3 — indisponibilidade da Vercel
 
-**Impact:** Data removed from Supabase.
+**Impacto:** aplicação e API indisponíveis.
 
-**Recovery:**
-1. Check Supabase point-in-time recovery (Pro plan)
-2. Restore from latest backup
-3. Local data may have stale copies that can be re-synced
+**Recuperação:**
 
-### Scenario 5: Bad deployment
+- Aguarde o restabelecimento da Vercel
+- Não há perda de dados: o Supabase é independente
+- Os dados locais permanecem nos navegadores dos usuários
 
-**Impact:** App broken after deploy.
+### Cenário 4 — exclusão acidental de dados
 
-**Recovery:**
-1. Vercel Dashboard → Deployments
-2. Find last working deployment
-3. "Promote to Production"
-4. No data impact (frontend only)
+**Impacto:** dados removidos do Supabase.
 
-## RTO and RPO
+**Recuperação:**
 
-| Scenario | RTO | RPO |
-|----------|-----|-----|
-| localStorage corruption | 5 min | Last sync |
-| Supabase outage | Hours (vendor) | Last backup |
-| Vercel outage | Minutes (vendor) | Zero (static) |
-| Bad deployment | 2 min | Zero |
+1. Verifique a recuperação point-in-time do Supabase (plano Pro)
+2. Restaure o backup mais recente
+3. Dados locais podem conter cópias defasadas que voltam a sincronizar
 
-## Related
+### Cenário 5 — deploy defeituoso
 
-- [Operations: Deployment](deployment.md)
-- [Operations: Troubleshooting](troubleshooting.md)
+**Impacto:** aplicação quebrada após a publicação.
+
+**Recuperação:**
+
+1. Abra a Vercel → Deployments
+2. Localize o último deploy funcional
+3. Clique em "Promote to Production"
+4. Não há impacto em dados (mudança apenas de frontend)
+
+## RTO e RPO
+
+| Cenário | RTO | RPO |
+|---------|-----|-----|
+| Corrupção de localStorage | 5 minutos | Última sincronização |
+| Indisponibilidade do Supabase | Horas (depende do fornecedor) | Último backup |
+| Indisponibilidade da Vercel | Minutos (depende do fornecedor) | Zero (estático) |
+| Deploy defeituoso | 2 minutos | Zero |
+
+## Relacionados
+
+- [Deploy](deployment.md)
+- [Troubleshooting](troubleshooting.md)
+- [Migrations do banco](../guides/database-migrations.md)

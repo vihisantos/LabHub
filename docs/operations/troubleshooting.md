@@ -1,106 +1,117 @@
 # Troubleshooting
 
-> Common issues and their solutions.
+> Problemas recorrentes e como resolvê-los.
 
-## Sync Issues
+## Sincronização
 
-### Data not syncing between devices
+### Dados não sincronizam entre dispositivos
 
-**Symptoms:** Changes on one device don't appear on another.
+**Sintomas:** alterações feitas em um dispositivo não aparecem em outro.
 
-**Check:**
-1. Is the device online? (check sync status badge)
-2. Is the collection dirty? (check `labhub_dirty_collections` in localStorage)
-3. Are there sync errors? (check `labhub_sync_log`)
-4. Does the user have access to the workspace?
+**Verifique:**
 
-**Fix:**
-- Trigger manual sync (pull-to-refresh or reload)
-- Check Supabase RLS policies
-- Verify `SUPABASE_URL` and `SUPABASE_ANON_KEY` are set
+1. O dispositivo está online? (selo de status de sincronização)
+2. A coleção está marcada como dirty? (`labhub_dirty_collections` no `localStorage`)
+3. Existem erros de sincronização? (`labhub_sync_log`)
+4. O usuário tem acesso ao workspace?
 
-### Sync errors in console
+**Correção:**
 
-**Symptoms:** `[Sync] Failed to sync "collection_name"` in console.
+- Acione uma sincronização manual (atualizar a lista ou recarregar a página)
+- Revise as políticas de RLS no Supabase
+- Confirme que `SUPABASE_URL` e `SUPABASE_ANON_KEY` estão definidas
 
-**Common causes:**
-- RLS policy blocking access
-- Network timeout
-- Schema mismatch (local vs remote)
+### Erros de sincronização no console
 
-**Fix:**
-- Check RLS policies in Supabase Dashboard
-- Verify collection name matches table name
-- Check `TABLE_NAME_MAP` in `sync.ts`
+**Sintomas:** `[Sync] Failed to sync "nome_da_colecao"` no console.
 
-## Push Notifications
+**Causas comuns:**
 
-### Notifications not arriving
+- Política de RLS bloqueando o acesso
+- Timeout de rede
+- Divergência de schema entre local e remoto
 
-**Symptoms:** Users don't receive push notifications.
+**Correção:**
 
-**Check:**
-1. Is `VAPID_PUBLIC_KEY` set in frontend?
-2. Is `VAPID_PRIVATE_KEY` set in backend?
-3. Is Upstash Redis configured?
-4. Has the user granted notification permission?
+- Revise as políticas de RLS no Supabase
+- Confirme que o nome da coleção corresponde ao da tabela
+- Verifique o mapa de nomes de tabela em `sync.ts`
 
-**Fix:**
-- Test with `/api/push/test`
-- Check browser notification settings
-- Verify Upstash Redis connection
+## Notificações push
 
-### Notification actions not working
+### Notificações não chegam
 
-**Symptoms:** Aprovar/Recusar buttons don't respond.
+**Sintomas:** usuários não recebem notificações push.
 
-**Note:** Action buttons only work on Android Chrome and desktop. iOS/Safari only shows the notification body (click opens URL).
+**Verifique:**
+
+1. `VAPID_PUBLIC_KEY` está definida no frontend?
+2. `VAPID_PRIVATE_KEY` está definida no backend?
+3. O Upstash Redis está configurado?
+4. O usuário concedeu permissão de notificação?
+
+**Correção:**
+
+- Teste com `GET /api/push/test`
+- Verifique as configurações de notificação do navegador
+- Confirme a conexão com o Upstash Redis
+
+### Botões de ação não funcionam
+
+**Sintomas:** botões "Aprovar" e "Recusar" não respondem.
+
+**Nota:** os botões de ação só funcionam no Chrome para Android e no desktop. No iOS/Safari, a notificação apenas exibe o corpo; o clique abre a URL configurada.
 
 ## Chamados
 
-### Ticket number not generating
+### O número do chamado não é gerado
 
-**Symptoms:** Tickets created without sequential numbers.
+**Sintomas:** chamados criados sem numeração sequencial.
 
-**Check:**
-1. Is `SUPABASE_SERVICE_KEY` set in backend?
-2. Does the workspace exist in Supabase?
-3. Is the Chamados module enabled for the workspace?
+**Verifique:**
 
-**Fix:**
-- Verify backend env vars
-- Check `require_module()` response
-- Look at Flask logs in Vercel Dashboard
+1. `SUPABASE_SERVICE_KEY` está definida no backend?
+2. O workspace existe no Supabase?
+3. A aplicação Chamados está habilitada no workspace?
 
-### Public form returning 503
+**Correção:**
 
-**Symptoms:** "Não foi possível abrir o chamado" error.
+- Confirme as variáveis de ambiente do backend
+- Verifique a resposta de `require_module()`
+- Consulte os logs do Flask na Vercel
 
-**Cause:** Backend not configured (missing `SUPABASE_URL` or `SUPABASE_SERVICE_KEY`).
+### Formulário público retornando 503
 
-**Fix:** Set environment variables in Vercel Dashboard.
+**Sintomas:** erro "Não foi possível abrir o chamado".
 
-## Performance
+**Causa:** backend não configurado (falta `SUPABASE_URL` ou `SUPABASE_SERVICE_KEY`).
 
-### Slow initial load
+**Correção:** defina as variáveis de ambiente na Vercel.
 
-**Cause:** Large localStorage data or many collections.
+## Desempenho
 
-**Fix:**
-- Clear old sync logs (`labhub_sync_log`)
-- Check for large collections in localStorage
-- Verify lazy loading is working (check network tab)
+### Carregamento inicial lento
 
-### High memory usage
+**Causa:** volume grande de dados no `localStorage` ou muitas coleções.
 
-**Cause:** Large photo data in localStorage.
+**Correção:**
 
-**Fix:**
-- Photos should use Cloudinary, not localStorage
-- Check `labhub_pcs.photos` and `labhub_stock_items.photos`
-- Move to IndexedDB for binary data
+- Limpe logs de sincronização antigos (`labhub_sync_log`)
+- Verifique coleções muito grandes no `localStorage`
+- Confirme que o carregamento sob demanda está funcionando (aba de rede)
 
-## Related
+### Consumo de memória alto
 
-- [Operations: Deployment](deployment.md)
-- [Guides: Setup](../guides/setup.md)
+**Causa:** muitas fotos armazenadas no `localStorage`.
+
+**Correção:**
+
+- Fotos devem ficar no Cloudinary, não no `localStorage`
+- Verifique `labhub_pcs.photos` e `labhub_stock_items.photos`
+- Migre dados binários para o IndexedDB
+
+## Relacionados
+
+- [Deploy](deployment.md)
+- [Monitoramento](monitoring.md)
+- [Configuração do ambiente](../guides/setup.md)

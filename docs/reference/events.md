@@ -1,54 +1,54 @@
-# Events Reference
+# Referência de eventos
 
-> Realtime events, push notifications, and system events.
+> Eventos de realtime, notificações push e eventos de sistema.
 
-## Supabase Realtime Events
+## Eventos do Supabase Realtime
 
 ### chamados_tickets
 
-| Event | Payload | Consumers |
-|-------|---------|-----------|
-| `INSERT` | New ticket created | TicketList, Dashboard |
-| `UPDATE` | Ticket modified | TicketDetail, TicketList |
-| `DELETE` | Ticket deleted | TicketList |
+| Evento | Conteúdo | Consumidores |
+|--------|----------|--------------|
+| `INSERT` | Chamado criado | TicketList, Dashboard |
+| `UPDATE` | Chamado alterado | TicketDetail, TicketList |
+| `DELETE` | Chamado excluído | TicketList |
 
-### Channel Naming
+### Nomes de canal
 
+```text
+chamados:public:{ticketId}        — atualizações de um chamado
+chamados:workspace:{workspaceId}  — atualizações de todos os chamados do workspace
 ```
-chamados:public:{ticketId}     — Per-ticket updates
-chamados:workspace:{workspaceId} — Workspace-wide updates
-```
 
-## Push Notification Events
+## Eventos de notificação push
 
-### Ticket Events
+### Chamados
 
-| Event | Title | Target |
-|-------|-------|--------|
-| New ticket | "Novo chamado #{number}" | role: admin |
-| Status update | "Chamado #{number} atualizado" | Reporter |
-| Resolved | "Como foi seu atendimento? ⭐" | Reporter |
+| Evento | Título | Destino |
+|--------|--------|---------|
+| Chamado novo | "Novo chamado #{número}" | Inscrições com acesso ao Chamados e ao workspace |
+| Atualização de status | "Chamado #{número} atualizado" | Solicitante |
+| Resolvido | "Como foi seu atendimento? ⭐" | Solicitante |
 
-### User Approval Events
+### Aprovação de usuários
 
-| Event | Title | Target |
-|-------|-------|--------|
-| New signup | "Novo cadastro pendente" | role: admin |
-| Approved | "Cadastro aprovado!" | User |
-| Rejected | "Cadastro não aprovado" | User |
+| Evento | Título | Destino |
+|--------|--------|---------|
+| Novo cadastro | "Novo cadastro pendente" | Cargo `admin` |
+| Aprovado | "Cadastro aprovado!" | Usuário |
+| Recusado | "Cadastro não aprovado" | Usuário |
 
-### System Events
+### Eventos de sistema
 
-| Event | Title | Target |
-|-------|-------|--------|
-| Reservation reminder | "Reserva em 15 min" | Reservation owner |
-| Overdue loan | "Empréstimo vencido" | Loan owner |
-| Low stock | "Estoque baixo" | role: admin |
-| Maintenance due | "Manutenção agendada" | role: admin |
+| Evento | Título | Destino |
+|--------|--------|---------|
+| Reserva próxima | "Reserva em 30 min" | Responsável pela reserva |
+| Empréstimo vencido | "Empréstimo vencido" | Responsável pelo empréstimo |
+| Estoque baixo | "Estoque baixo" | Cargo `admin` |
+| Manutenção agendada | "Manutenção agendada" | Cargo `admin` |
 
-## Notification Actions
+## Ações de notificação
 
-Push notifications can include action buttons:
+Notificações push podem incluir botões de ação:
 
 ```json
 {
@@ -60,18 +60,26 @@ Push notifications can include action buttons:
 }
 ```
 
-Action handling:
+Tratamento das ações:
+
 - `approve` → `POST /api/push/action` → `PATCH profiles (status: active)`
-- `reject` → `POST /api/push/action` → `DELETE profiles`
-- Click on body → Opens `url` in browser
+- `reject` → `POST /api/push/action` → exclusão do perfil
+- Clique no corpo → abre a `url` no navegador
 
-## Broadcast Events (Cross-tab)
+Os botões só aparecem no Chrome para Android e no desktop; no iOS/Safari a notificação abre a URL.
 
-| Channel | Event | Purpose |
-|---------|-------|---------|
-| `chamados:{workspaceId}` | `ticket_updated` | Sync ticket list across tabs |
+## Eventos de broadcast (entre abas)
 
-## Related
+| Canal | Evento | Propósito |
+|-------|--------|-----------|
+| `chamados:{workspaceId}` | `ticket_updated` | Sincronizar a lista de chamados entre abas |
 
-- [Architecture: Realtime](../architecture/realtime.md)
-- [Architecture: Backend](../architecture/backend.md)
+## Eventos no aplicativo
+
+Além do push, o painel do Chamados detecta chamados novos por polling de 10 segundos e publica no sino de notificações, com deduplicação por `actionUrl`, som de dois tons e notificação nativa quando a página está em segundo plano.
+
+## Relacionados
+
+- [Realtime](../platform/architecture/realtime.md)
+- [Arquitetura de backend](../platform/architecture/backend.md)
+- [Referência da API](api.md)

@@ -69,6 +69,6 @@ Com a flag OFF, decorators/helpers retornam ao caminho legado (gates existentes)
 ## Referências
 
 - Issues: [#158](https://github.com/vihisantos/LabHub/issues/158), [#159](https://github.com/vihisantos/LabHub/issues/159)
-- [RBAC 2.0 Specification](../architecture/rbac2.0-specification.md)
-- [RBAC 2.0 Activation (Etapa 7)](../architecture/rbac2.0-etapa7-activation.md)
+- [RBAC 2.0 Specification](../../architecture/rbac2.0-specification.md)
+- [RBAC 2.0 Activation (Etapa 7)](../../platform/rbac/rbac2.0-etapa7-activation.md)
 - [Gap Analysis pré-RBAC 2.0](rbac2.0-gap-analysis-2026-08.md)
