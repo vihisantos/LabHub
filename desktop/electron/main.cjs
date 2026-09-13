@@ -161,6 +161,12 @@ if (!gotLock) {
     const rendererPort = await serveRenderer()
     createWindow(rendererPort)
 
+    if (app.isPackaged && process.env.TV_DESKTOP_SMOKE_TEST !== '1') {
+      autoUpdater.checkForUpdates().catch((err) => {
+        sendUpdateStatus({ type: 'error', message: err?.message || String(err) })
+      })
+    }
+
     // YouTube (embeds) recusa playback quando o Referer vem de origin local
     // (http://127.0.0.1) → erros 153/150. Reescreve para um origin legítimo.
     session.defaultSession.webRequest.onBeforeSendHeaders(
@@ -311,7 +317,7 @@ function sendUpdateStatus(payload) {
 }
 
 function setupAutoUpdater() {
-  autoUpdater.autoDownload = false
+  autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = console
 
