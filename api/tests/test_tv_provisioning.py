@@ -433,8 +433,46 @@ def test_devices_list_member_other_workspace_forbidden(client, fake_requests, mo
     assert res.status_code == 403
 
 
-def test_devices_list_requires_workspace_and_auth(client):
-    res = client.get("/api/tv/devices")
-    assert res.status_code == 401
-    res = client.get("/api/tv/devices?workspace_id=ws-a")
-    assert res.status_code == 401
+def test_devices_list_all_own_workspaces_member(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a", "ws-b"])
+    fake_requests.route("GET", "tv_devices?", FakeResponse([
+        {"id": "dev-a", "name": "TV A", "workspace_id": "ws-a"},
+        {"id": "dev-b", "name": "TV B", "workspace_id": "ws-b"},
+    ]))
+    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([
+        {"id": "ws-a", "name": "Anhembi A"},
+        {"id": "ws-b", "name": "Anhembi B"},
+    ]))
+    res = client.get("/api/tv/devices", headers=headers)
+    assert res.status_code == 200
+    devices = (res.get_json() or {}).get("devices") or []
+    assert [d["id"] for d in devices] == ["dev-a", "dev-b"]
+    assert devices[0]["workspace_name"] == "Anhembi A"
+    assert "workspace_id=in." in fake_requests.calls_for("GET", "tv_devices?")[0]["url"]
+
+
+def test_devices_list_super_admin_sees_all_without_workspace(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
+    fake_requests.route("GET", "tv_devices?", FakeResponse([
+        {"id": "dev-x", "name": "TV X", "workspace_id": "ws-z"},
+    ]))
+    res = client.get("/api/tv/devices", headers=headers)
+    assert res.status_code == 200
+    devices = (res.get_json() or {}).get("devices") or []
+    assert len(devices) == 1
+    assert not any("workspace_id=in." in c["url"] for c in fake_requests.calls_for("GET", "tv_devices?"))
+
+
+def test_devices_list_member_sem_workspaces_retorna_vazio(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
+    _memberships(fake_requests, MEMBER_PROFILE["id"], [])
+    res = client.get("/api/tv/devices", headers=headers)
+    assert res.status_code == 200
+    assert (res.get_json() or {}).get("devices") == []
+    assert not fake_requests.calls_for("GET", "tv_devices?")
+
+
+def test_devices_list_requires_auth(client):
+    assert client.get("/api/tv/devices").status_code == 401
+    assert client.get("/api/tv/devices?workspace_id=ws-a").status_code == 401

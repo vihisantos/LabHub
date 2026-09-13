@@ -118,25 +118,27 @@ export interface TvDevice {
   id: string
   name: string
   workspace_id: string
+  /** Nome do campus (flatten pelo backend para exibição). */
+  workspace_name?: string
   last_seen: string | null
   created_at: string
 }
 
 /**
- * Lista as TVs já registradas no workspace, para o fluxo de configuração
- * oferecer "usar esta TV" em vez de sempre criar uma nova. Autorização no
- * backend por membership (super admin em qualquer workspace).
+ * Lista as TVs do usuário para o fluxo de setup. Com `workspaceId` filtra
+ * aquele workspace; sem, retorna todas as acessíveis (authorização por
+ * membership no backend). Permite oferecer "usar esta TV" antes do campus.
  */
-export async function listWorkspaceDevices(workspaceId: string): Promise<TvDevice[]> {
+export async function listDevices(workspaceId?: string): Promise<TvDevice[]> {
   if (!supabase) throw new Error('Supabase não configurado neste dispositivo')
   const { data: sessData } = await supabase.auth.getSession()
   const token = sessData.session?.access_token
   if (!token) throw new Error('Sessão humana ausente — faça login novamente')
 
-  const res = await fetch(
-    tvApi(`/api/tv/devices?workspace_id=${encodeURIComponent(workspaceId)}`),
-    { headers: { Authorization: `Bearer ${token}` } },
-  )
+  const qs = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ''
+  const res = await fetch(tvApi(`/api/tv/devices${qs}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
   let data: { devices?: TvDevice[]; error?: string }
   try {
     data = await res.json()

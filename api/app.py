@@ -1492,10 +1492,11 @@ def tv_device_provision():
 
 @app.route('/api/tv/devices', methods=['GET'])
 def tv_devices_list():
-    """Lista as TVs de um workspace (fluxo de escolha de TV no desktop).
+    """Lista as TVs acessíveis ao usuário (fluxo de escolha de TV no desktop).
 
-    Mesma autorização do provision: super admin em qualquer workspace,
-    membro apenas no próprio (fail-closed), via Bearer humano.
+    Com workspace_id filtra apenas aquele workspace; sem, traz todos os
+    acessíveis (super admin: todas; membro: apenas dos seus workspaces).
+    Autorização igual ao provision (fail-closed, membership).
     """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
@@ -1516,8 +1517,6 @@ def tv_devices_list():
             return jsonify({'error': 'Usuário não identificado'}), 401
 
         workspace_id = (request.args.get('workspace_id') or '').strip()
-        if not workspace_id:
-            return jsonify({'error': 'workspace_id é obrigatório'}), 400
 
         prof_resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}',
@@ -1529,18 +1528,43 @@ def tv_devices_list():
         profile = prof_resp.json()[0]
         member_ws_ids = _get_user_workspace_ids(user_id)
         is_super_admin = bool(profile.get('is_super_admin'))
-        if not is_super_admin and workspace_id not in member_ws_ids:
-            return jsonify({'error': 'Sem permissão neste workspace'}), 403
 
+        if workspace_id:
+            if not is_super_admin and workspace_id not in member_ws_ids:
+                return jsonify({'error': 'Sem permissão neste workspace'}), 403
+            ws_filter = f'workspace_id=eq.{quote(workspace_id)}'
+        elif is_super_admin:
+            ws_filter = ''
+        else:
+            if not member_ws_ids:
+                return jsonify({'devices': []})
+            ws_filter = f'workspace_id=in.({",".join(sorted(member_ws_ids))})'
+
+        select_qs = 'select=id,name,workspace_id,last_seen,created_at'
+        order_qs = 'order=created_at.asc'
+        query_parts = [p for p in (ws_filter, select_qs, order_qs) if p]
         devices_resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/tv_devices?workspace_id=eq.{quote(workspace_id)}'
-            f'&select=id,name,workspace_id,last_seen,created_at&order=created_at.asc',
+            f'{_SUPABASE_URL}/rest/v1/tv_devices?{"&".join(query_parts)}',
             headers=_supabase_headers(),
             timeout=10,
         )
         if not devices_resp.ok:
             return jsonify({'error': 'Erro ao listar os dispositivos'}), 502
-        return jsonify({'devices': devices_resp.json() or []})
+        devices = [dict(d) for d in (devices_resp.json() or [])]
+
+        ws_names = {}
+        ws_ids = {d.get('workspace_id') for d in devices if d.get('workspace_id')}
+        if ws_ids:
+            ws_resp = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/workspaces?id=in.({",".join(sorted(ws_ids))})&select=id,name',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if ws_resp.ok:
+                ws_names = {w.get('id'): w.get('name') for w in (ws_resp.json() or [])}
+        for d in devices:
+            d['workspace_name'] = ws_names.get(d.get('workspace_id'), '')
+        return jsonify({'devices': devices})
 
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
