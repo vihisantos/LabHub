@@ -33,7 +33,7 @@ jobs:
         run: |
           echo "::warning::Drift monitor SKIPPED — DRIFT_SUPABASE_URL/DRIFT_SUPABASE_SERVICE_KEY not configured. Monitoring is NOT active until these secrets exist."
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.secrets.outputs.missing == 'false'
         with:
           python-version: '3.12'
