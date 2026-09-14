@@ -15,6 +15,10 @@ vi.mock('../ScreenRenderer', () => ({
   ),
 }))
 
+vi.mock('../PlayerVolumeControls', () => ({
+  PlayerVolumeControls: () => <div data-testid="player-volume-controls" />,
+}))
+
 const config = {
   deviceId: 'dev-9',
   name: 'TV Lab 2',

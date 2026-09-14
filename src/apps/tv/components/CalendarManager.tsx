@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Calendar as CalendarIcon, Link as LinkIcon, Sparkles, RefreshCw, Trash2, CheckCircle2, AlertCircle, FileText } from 'lucide-react'
 import { useAcademicCalendar } from '../hooks/useAcademicCalendar'
 
-export function CalendarManager() {
+export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
   const { calendarCache, calendarTvEvents, loading, extracting, error, extract, clear } = useAcademicCalendar()
 
   const [pdfUrl, setPdfUrl] = useState('https://estaticos.animaeducacao.com.br/medias/20260707155348/Calendario_2026_Medicina_UAM_PIRACICABA_2026_07-07-2026.pdf')
@@ -45,6 +45,7 @@ export function CalendarManager() {
       </div>
 
       {/* Form Extraction */}
+      {!readOnly && (
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h4 className="mb-4 text-sm font-bold text-slate-800 flex items-center gap-2">
           <Sparkles size={16} className="text-violet-600" />
@@ -116,6 +117,7 @@ export function CalendarManager() {
           </button>
         </form>
       </div>
+      )}
 
       {/* Active Cache Status */}
       {loading ? (
@@ -138,12 +140,14 @@ export function CalendarManager() {
               </div>
             </div>
 
-            <button
-              onClick={clear}
-              className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
-            >
-              <Trash2 size={13} /> Limpar Cache
-            </button>
+            {!readOnly && (
+              <button
+                onClick={clear}
+                className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
+              >
+                <Trash2 size={13} /> Limpar Cache
+              </button>
+            )}
           </div>
 
           {/* Events Count & Search */}

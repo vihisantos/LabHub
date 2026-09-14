@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen, Download, ListChecks } from 'lucide-react'
+import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen, Download, ListChecks, Square, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllEvents } from '../hooks/useEvents'
 import { useAllPlaylists } from '../hooks/usePlaylists'
@@ -10,6 +10,10 @@ import { useGalleries } from '../hooks/useGallery'
 import { useUrgentAnnouncements } from '../hooks/useUrgentAnnouncements'
 import { useDevices } from '../hooks/useDevices'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useToast } from '../../../lib/ToastContext'
+import { useMusicPlayerCommand } from '../contexts/MusicPlayerCommandContext'
+import { StationError } from '../services/stationService'
 import { EventManager } from '../components/EventManager'
 import { PlaylistManager } from '../components/PlaylistManager'
 import { QueueManager } from '../components/QueueManager'
@@ -47,17 +51,117 @@ export function AdminView() {
   const { activeAnnouncement, createUrgent, dismissUrgent } = useUrgentAnnouncements()
   const { devices, loading: devicesLoading, rename: renameDevice, moveWorkspace: moveDeviceWorkspace, remove: removeDevice } = useDevices()
   const { workspaces } = useWorkspace()
+  const { stop, pause, resume, next, previous, seek } = useMusicPlayerCommand()
+  const { addToast } = useToast()
 
   const [showUrgentModal, setShowUrgentModal] = useState(false)
   const [urgentText, setUrgentText] = useState('')
   const [urgentSeverity, setUrgentSeverity] = useState<'info' | 'warning' | 'danger'>('warning')
   const [urgentDuration, setUrgentDuration] = useState('60')
+  const [stopping, setStopping] = useState(false)
+  const [pausing, setPausing] = useState(false)
+  const [resuming, setResuming] = useState(false)
+  const [nexting, setNexting] = useState(false)
+  const [previousing, setPreviousing] = useState(false)
+  const [seekSeconds, setSeekSeconds] = useState('')
+  const [seeking, setSeeking] = useState(false)
+
+  // Acesso real à TV (cargo local + override individual em profiles.app_access)
+  const { getLevel } = useAppAccess()
+  const tvLevel = getLevel('tv')
+  const isFullAccess = tvLevel === 'full'
+  const tvReadOnly = tvLevel === 'read'
+  const noTvAccess = tvLevel !== 'full' && tvLevel !== 'read'
+
+  const handleStop = async () => {
+    setStopping(true)
+    try {
+      await stop()
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível parar a estação')
+    } finally {
+      setStopping(false)
+    }
+  }
+
+  const handlePause = async () => {
+    setPausing(true)
+    try {
+      await pause()
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível pausar a estação')
+    } finally {
+      setPausing(false)
+    }
+  }
+
+  const handleResume = async () => {
+    setResuming(true)
+    try {
+      await resume()
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível retomar a estação')
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  const handleNext = async () => {
+    setNexting(true)
+    try {
+      await next()
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível avançar a faixa')
+    } finally {
+      setNexting(false)
+    }
+  }
+
+  const handlePrevious = async () => {
+    setPreviousing(true)
+    try {
+      await previous()
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível voltar a faixa')
+    } finally {
+      setPreviousing(false)
+    }
+  }
+
+  const handleSeek = async () => {
+    const seconds = Number(seekSeconds)
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      addToast('error', 'Informe uma posição válida em segundos')
+      return
+    }
+    setSeeking(true)
+    try {
+      await seek(seconds)
+      setSeekSeconds('')
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível buscar a posição')
+    } finally {
+      setSeeking(false)
+    }
+  }
+
+  const visibleTabs = isFullAccess
+    ? tabs
+    : tabs.filter(t => t.id !== 'devices' && t.id !== 'install')
+
   // Read initial state from query params (e.g. from ReservaLab redirect)
   const tabParam = searchParams.get('tab') as TabId | null
   const [activeTab, setActiveTabState] = useState<TabId>(tabParam ?? (() => {
     const saved = localStorage.getItem('tv-admin-tab')
-    return (saved && tabs.some(t => t.id === saved) ? saved : 'events') as TabId
+    return (saved && visibleTabs.some(t => t.id === saved) ? saved : 'events') as TabId
   })())
+
+  // Garante aba válida quando o nível de acesso oculta alguma aba (devices/install)
+  useEffect(() => {
+    if (!visibleTabs.some(t => t.id === activeTab)) {
+      setActiveTabState('events')
+    }
+  }, [activeTab, visibleTabs])
 
   const setActiveTab = useCallback((tab: TabId) => {
     setActiveTabState(tab)
@@ -91,6 +195,20 @@ export function AdminView() {
   ], [events.length, playlists.length, activeGalleryCount, galleries.length, announcementStats])
 
   const isLoading = eventsLoading || playlistsLoading || galleriesLoading
+
+  if (noTvAccess) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+          <Tv size={24} />
+        </div>
+        <h1 className="mt-4 text-base font-semibold text-slate-800">Acesso restrito</h1>
+        <p className="mt-1 max-w-sm text-xs leading-relaxed text-slate-500">
+          Seu usuário não tem acesso ao módulo de TV. Entre em contato com um administrador para liberar o acesso.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <TooltipProvider>
@@ -138,17 +256,95 @@ export function AdminView() {
                   <span className="text-[11px] text-slate-400">Sem música</span>
                 </div>
               )}
-              <button
-                onClick={() => setShowUrgentModal(true)}
-                className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
-                  activeAnnouncement
-                    ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 animate-pulse'
-                    : 'border-amber-200 bg-amber-50/50 text-amber-600 hover:bg-amber-100'
-                }`}
-              >
-                <AlertTriangle size={14} className="text-amber-500" />
-                {activeAnnouncement ? 'Aviso Ativo' : 'Aviso Urgente'}
-              </button>
+              {isFullAccess && (
+                <button
+                  onClick={handlePrevious}
+                  disabled={previousing}
+                  className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
+                  title="Faixa anterior"
+                >
+                  <SkipBack size={14} className="fill-current" />
+                  Anterior
+                </button>
+              )}
+              {isFullAccess && (
+                <button
+                  onClick={handlePause}
+                  disabled={pausing}
+                  className="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-1.5 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                  title="Pausar a estação de música"
+                >
+                  <Pause size={14} className="fill-current" />
+                  {pausing ? 'Pausando…' : 'Pausar'}
+                </button>
+              )}
+              {isFullAccess && (
+                <button
+                  onClick={handleResume}
+                  disabled={resuming}
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/50 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                  title="Retomar a estação de música"
+                >
+                  <Play size={14} className="fill-current" />
+                  {resuming ? 'Retomando…' : 'Retomar'}
+                </button>
+              )}
+              {isFullAccess && (
+                <button
+                  onClick={handleNext}
+                  disabled={nexting}
+                  className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
+                  title="Próxima faixa"
+                >
+                  <SkipForward size={14} className="fill-current" />
+                  Próxima
+                </button>
+              )}
+              {isFullAccess && (
+                <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/50 py-1 pl-2 pr-1">
+                  <input
+                    value={seekSeconds}
+                    onChange={(e) => setSeekSeconds(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !seeking && handleSeek()}
+                    placeholder="seg"
+                    inputMode="decimal"
+                    className="w-12 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+                    aria-label="Posição em segundos"
+                  />
+                  <button
+                    onClick={handleSeek}
+                    disabled={seeking}
+                    className="flex items-center gap-1 rounded-lg bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-300 disabled:opacity-50"
+                    title="Buscar uma posição (segundos)"
+                  >
+                    {seeking ? '…' : 'Ir'}
+                  </button>
+                </div>
+              )}
+              {isFullAccess && (
+                <button
+                  onClick={handleStop}
+                  disabled={stopping}
+                  className="flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-100 disabled:opacity-50"
+                  title="Parar a estação de música"
+                >
+                  <Square size={14} className="fill-current" />
+                  {stopping ? 'Parando…' : 'Parar'}
+                </button>
+              )}
+              {!tvReadOnly && (
+                <button
+                  onClick={() => setShowUrgentModal(true)}
+                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                    activeAnnouncement
+                      ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 animate-pulse'
+                      : 'border-amber-200 bg-amber-50/50 text-amber-600 hover:bg-amber-100'
+                  }`}
+                >
+                  <AlertTriangle size={14} className="text-amber-500" />
+                  {activeAnnouncement ? 'Aviso Ativo' : 'Aviso Urgente'}
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -293,7 +489,7 @@ export function AdminView() {
           {/* ── Tabs ── */}
           <div className="mb-6 overflow-x-auto rounded-xl border border-slate-200 bg-slate-100 p-1 [&::-webkit-scrollbar]:hidden">
             <div className="flex min-w-max gap-1">
-              {tabs.map(({ id, label, icon: Icon }) => (
+              {visibleTabs.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
@@ -361,6 +557,7 @@ export function AdminView() {
                       onDelete={deleteEvent}
                       initialValues={initialEventValues}
                       devices={devices}
+                      readOnly={tvReadOnly}
                     />
                   )}
                   {activeTab === 'playlists' && (
@@ -369,13 +566,14 @@ export function AdminView() {
                       onAdd={addPlaylist}
                       onEdit={editPlaylist}
                       onDelete={deletePlaylist}
+                      readOnly={tvReadOnly}
                     />
                   )}
                   {activeTab === 'music' && (
-                    <QueueManager />
+                    <QueueManager readOnly={tvReadOnly} />
                   )}
                   {activeTab === 'requests' && (
-                    <MusicRequestManager />
+                    <MusicRequestManager readOnly={tvReadOnly} />
                   )}
                   {activeTab === 'gallery' && (
                     <GalleryManager
@@ -383,6 +581,7 @@ export function AdminView() {
                       onCreate={createGallery}
                       onDelete={removeGallery}
                       onToggleActive={toggleGalleryActive}
+                      readOnly={tvReadOnly}
                     />
                   )}
                   {activeTab === 'announcements' && (
@@ -393,6 +592,7 @@ export function AdminView() {
                       onRemove={removeAnnouncement}
                       onMoveUp={moveUp}
                       onMoveDown={moveDown}
+                      readOnly={tvReadOnly}
                     />
                   )}
                   {activeTab === 'devices' && (
@@ -413,7 +613,7 @@ export function AdminView() {
                     )
                   )}
                   {activeTab === 'calendar' && (
-                    <CalendarManager />
+                    <CalendarManager readOnly={tvReadOnly} />
                   )}
                   {activeTab === 'install' && (
                     <TvDesktopInstall />

@@ -79,6 +79,9 @@ vi.mock('../../../apps/tv/hooks/useUrgentAnnouncements', () => ({
 vi.mock('../../../apps/tv/hooks/useDevices', () => ({
   useDevices: () => ({ devices: [], loading: false, rename: vi.fn(), moveWorkspace: vi.fn(), remove: vi.fn() }),
 }))
+vi.mock('../../../apps/tv/contexts/MusicPlayerCommandContext', () => ({
+  useMusicPlayerCommand: () => ({ playNext: vi.fn(), stop: vi.fn(), pause: vi.fn(), resume: vi.fn(), next: vi.fn(), previous: vi.fn(), seek: vi.fn() }),
+}))
 
 // TV AdminView — gerentes de conteúdo (a varredura cobre a navegação por abas,
 // não o conteúdo; os managers puxam Supabase/realtime)

@@ -22,6 +22,8 @@ interface PlaylistManagerProps {
   onAdd: (values: Omit<TvPlaylist, 'id' | 'created_at'>) => Promise<void>
   onEdit: (id: string, values: Partial<TvPlaylist>) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  /** true = somente leitura (não envia as ações de mutação). */
+  readOnly?: boolean
 }
 
 const sources: { value: PlaylistSource; label: string; icon: typeof Film }[] = [
@@ -30,7 +32,7 @@ const sources: { value: PlaylistSource; label: string; icon: typeof Film }[] = [
   { value: 'cloudinary', label: 'Upload de Vídeo', icon: Upload },
 ]
 
-export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: PlaylistManagerProps) {
+export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly = false }: PlaylistManagerProps) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<TvPlaylist | null>(null)
   const [name, setName] = useState('')
@@ -136,12 +138,14 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{playlists.length}</span>
           )}
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:from-emerald-500 hover:to-green-500 active:scale-[0.97]"
-        >
-          <Plus size={14} /> Nova Playlist
-        </button>
+        {!readOnly && (
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:from-emerald-500 hover:to-green-500 active:scale-[0.97]"
+          >
+            <Plus size={14} /> Nova Playlist
+          </button>
+        )}
       </div>
 
       {/* Form Modal */}
@@ -238,12 +242,14 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
             <Monitor size={28} className="text-slate-300" />
             <p className="text-sm text-slate-500">Nenhuma playlist cadastrada</p>
-            <button
-              onClick={openNew}
-              className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
-            >
-              <Plus size={12} /> Criar primeira playlist
-            </button>
+            {!readOnly && (
+              <button
+                onClick={openNew}
+                className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+              >
+                <Plus size={12} /> Criar primeira playlist
+              </button>
+            )}
           </div>
         ) : (
           playlists.map((p, idx) => (
@@ -255,22 +261,24 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
               className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 transition-all hover:bg-slate-50 hover:border-slate-200"
             >
               {/* Reorder */}
-              <div className="flex flex-col gap-0.5">
-                <button
-                  onClick={() => moveUp(idx)}
-                  disabled={idx === 0}
-                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                >
-                  <ChevronUp size={12} />
-                </button>
-                <button
-                  onClick={() => moveDown(idx)}
-                  disabled={idx === playlists.length - 1}
-                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                >
-                  <ChevronDown size={12} />
-                </button>
-              </div>
+              {!readOnly && (
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    onClick={() => moveUp(idx)}
+                    disabled={idx === 0}
+                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                  >
+                    <ChevronUp size={12} />
+                  </button>
+                  <button
+                    onClick={() => moveDown(idx)}
+                    disabled={idx === playlists.length - 1}
+                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                  >
+                    <ChevronDown size={12} />
+                  </button>
+                </div>
+              )}
 
               {/* Content */}
               <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -286,30 +294,32 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete }: Playlist
               </div>
 
               {/* Actions */}
-              <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <TooltipRoot>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => openEdit(p)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-600"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Editar</TooltipContent>
-                </TooltipRoot>
-                <TooltipRoot>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setDeleteTarget(p)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Excluir</TooltipContent>
-                </TooltipRoot>
-              </div>
+              {!readOnly && (
+                <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <TooltipRoot>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => openEdit(p)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-600"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Editar</TooltipContent>
+                  </TooltipRoot>
+                  <TooltipRoot>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setDeleteTarget(p)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Excluir</TooltipContent>
+                  </TooltipRoot>
+                </div>
+              )}
             </motion.div>
           ))
         )}

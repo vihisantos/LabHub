@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Trash2, ChevronDown, ChevronRight, Shuffle, ArrowUp, ArrowDown, Music, Loader2, ExternalLink, Film, PlayCircle } from 'lucide-react'
 import { useMusicQueues, type QueueWithTracks } from '../hooks/useMusicQueues'
-import { useMusicPlayer } from '../contexts/MusicPlayerContext'
+import { useMusicPlayerCommand } from '../contexts/MusicPlayerCommandContext'
+import { useToast } from '../../../lib/ToastContext'
+import { StationError } from '../services/stationService'
+import type { TvMusicTrack } from '../types'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -15,9 +18,10 @@ import {
 } from '../../../lib/components/ui'
 import { TooltipRoot, TooltipTrigger, TooltipContent } from '../../../lib/components/ui'
 
-export function QueueManager() {
+export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
   const { queues, loading, add, edit, remove, addTracksFromUrl, removeTrack, reorder } = useMusicQueues()
-  const { playNext, upNext } = useMusicPlayer()
+  const { playNext } = useMusicPlayerCommand()
+  const { addToast } = useToast()
   const [newName, setNewName] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [urlInput, setUrlInput] = useState('')
@@ -47,6 +51,15 @@ export function QueueManager() {
     const ids = q.tracks.map(t => t.id)
     ;[ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]]
     reorder(qId, ids)
+  }
+
+  const handlePlayNow = async (track: TvMusicTrack) => {
+    try {
+      await playNext(track)
+      addToast('success', 'Tocando agora no display')
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível comandar a estação')
+    }
   }
 
   const handleMoveDown = (qId: string, idx: number) => {
@@ -122,22 +135,24 @@ export function QueueManager() {
       </div>
 
       {/* Create queue */}
-      <div className="mb-4 flex gap-2">
-        <input
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-          placeholder="Nome da nova fila..."
-          className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:bg-white"
-        />
-        <button
-          onClick={handleCreate}
-          disabled={!newName.trim()}
-          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:from-blue-500 hover:to-indigo-500 active:scale-[0.97] disabled:opacity-40"
-        >
-          <Plus size={14} /> Criar
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="mb-4 flex gap-2">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            placeholder="Nome da nova fila..."
+            className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:bg-white"
+          />
+          <button
+            onClick={handleCreate}
+            disabled={!newName.trim()}
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:from-blue-500 hover:to-indigo-500 active:scale-[0.97] disabled:opacity-40"
+          >
+            <Plus size={14} /> Criar
+          </button>
+        </div>
+      )}
 
       {/* Queue list */}
       {queues.length === 0 ? (
@@ -174,36 +189,40 @@ export function QueueManager() {
                   </span>
 
                   {/* Shuffle toggle */}
-                  <TooltipRoot>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleShuffle(q) }}
-                        className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
-                          q.shuffle
-                            ? 'bg-blue-100 text-blue-600'
-                            : 'text-slate-400 hover:text-slate-600'
-                        }`}
-                      >
-                        <Shuffle size={14} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {q.shuffle ? 'Modo aleatório' : 'Modo sequencial'}
-                    </TooltipContent>
-                  </TooltipRoot>
+                  {!readOnly && (
+                    <TooltipRoot>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleShuffle(q) }}
+                          className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
+                            q.shuffle
+                              ? 'bg-blue-100 text-blue-600'
+                              : 'text-slate-400 hover:text-slate-600'
+                          }`}
+                        >
+                          <Shuffle size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {q.shuffle ? 'Modo aleatório' : 'Modo sequencial'}
+                      </TooltipContent>
+                    </TooltipRoot>
+                  )}
 
                   {/* Delete queue */}
-                  <TooltipRoot>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); confirmDeleteQueue(q) }}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Excluir fila</TooltipContent>
-                  </TooltipRoot>
+                  {!readOnly && (
+                    <TooltipRoot>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); confirmDeleteQueue(q) }}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Excluir fila</TooltipContent>
+                    </TooltipRoot>
+                  )}
                 </button>
 
                 {/* Expanded content */}
@@ -218,30 +237,32 @@ export function QueueManager() {
                     >
                       <div className="p-3">
                         {/* Add tracks from URL */}
-                        <div className="mb-3 flex gap-2">
-                          <div className="relative flex-1">
-                            <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                              value={urlInput}
-                              onChange={(e) => setUrlInput(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && !fetching && handleAddTracks(q.id)}
-                              placeholder="URL do YouTube (vídeo ou playlist)..."
-                              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:bg-white"
-                            />
+                        {!readOnly && (
+                          <div className="mb-3 flex gap-2">
+                            <div className="relative flex-1">
+                              <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                value={urlInput}
+                                onChange={(e) => setUrlInput(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && !fetching && handleAddTracks(q.id)}
+                                placeholder="URL do YouTube (vídeo ou playlist)..."
+                                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:bg-white"
+                              />
+                            </div>
+                            <button
+                              onClick={() => handleAddTracks(q.id)}
+                              disabled={fetching || !urlInput.trim()}
+                              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-2 text-xs font-medium text-white shadow-lg shadow-blue-500/20 transition-all hover:from-blue-500 hover:to-indigo-500 active:scale-[0.97] disabled:opacity-40"
+                            >
+                              {fetching ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : (
+                                <Plus size={14} />
+                              )}
+                              {fetching ? 'Buscando...' : 'Adicionar'}
+                            </button>
                           </div>
-                          <button
-                            onClick={() => handleAddTracks(q.id)}
-                            disabled={fetching || !urlInput.trim()}
-                            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-2 text-xs font-medium text-white shadow-lg shadow-blue-500/20 transition-all hover:from-blue-500 hover:to-indigo-500 active:scale-[0.97] disabled:opacity-40"
-                          >
-                            {fetching ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : (
-                              <Plus size={14} />
-                            )}
-                            {fetching ? 'Buscando...' : 'Adicionar'}
-                          </button>
-                        </div>
+                        )}
 
                         {/* Track list */}
                         {q.tracks.length === 0 ? (
@@ -275,39 +296,41 @@ export function QueueManager() {
                                 >
                                   <ExternalLink size={12} />
                                 </a>
-                                <button
-                                  onClick={() => playNext(track)}
-                                  disabled={upNext?.id === track.id}
-                                  className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-                                    upNext?.id === track.id
-                                      ? 'bg-amber-100 text-amber-600'
-                                      : 'text-slate-400 hover:text-amber-500'
-                                  }`}
-                                  title="Tocar a seguir (após a música atual)"
-                                >
-                                  <PlayCircle size={12} />
-                                </button>
-                                <button
-                                  onClick={() => handleMoveUp(q.id, idx)}
-                                  disabled={idx === 0}
-                                  className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                                >
-                                  <ArrowUp size={12} />
-                                </button>
-                                <button
-                                  onClick={() => handleMoveDown(q.id, idx)}
-                                  disabled={idx >= q.tracks.length - 1}
-                                  className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                                >
-                                  <ArrowDown size={12} />
-                                </button>
-                                <button
-                                  onClick={() => confirmDeleteTrack(track.id)}
-                                  className="flex h-6 w-6 items-center justify-center rounded text-slate-400 opacity-0 transition-all hover:text-red-500 group-hover/track:opacity-100"
-                                  title="Remover"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
+                                {!readOnly && (
+                                  <button
+                                    onClick={() => handlePlayNow(track)}
+                                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-amber-500"
+                                    title="Tocar agora"
+                                    aria-label="Tocar agora"
+                                  >
+                                    <PlayCircle size={12} />
+                                  </button>
+                                )}
+                                {!readOnly && (
+                                  <>
+                                    <button
+                                      onClick={() => handleMoveUp(q.id, idx)}
+                                      disabled={idx === 0}
+                                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                                    >
+                                      <ArrowUp size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleMoveDown(q.id, idx)}
+                                      disabled={idx >= q.tracks.length - 1}
+                                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                                    >
+                                      <ArrowDown size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => confirmDeleteTrack(track.id)}
+                                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 opacity-0 transition-all hover:text-red-500 group-hover/track:opacity-100"
+                                      title="Remover"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             ))}
                           </div>

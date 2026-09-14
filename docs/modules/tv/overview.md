@@ -13,7 +13,7 @@ A TV alimenta os murais digitais dos laboratórios, exibindo eventos, vídeos, m
 
 ## Principais funcionalidades
 
-- **Gestão de eventos** — criar, editar e ativar eventos do campus; um evento pode ser direcionado a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas). O ReservaLab cria um evento de reserva diretamente para uma TV escolhida.
+- **Gestão de eventos** — criar, editar e ativar eventos do campus; um evento pode ser direcionado a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas). O **ReservaLab** cria um evento na TV corporativa direto de uma reserva (título, descrição e horários), com escolha da TV do campus que deve exibi-lo — grava em `tv_events` com `device_id` e `is_active: true`, sem vínculo com a planilha.
 - **Playlists de vídeo** — integração com o YouTube, com busca de metadados
 - **Filas de música** — áudio em segundo plano para os displays
 - **Avisos** — mensagens em rolagem
@@ -27,7 +27,7 @@ Apresentação em tela cheia com:
 
 - Carrossel de eventos com transições
 - Player de vídeo do YouTube
-- Player de música com controle de volume
+- Player de música com volume/mudo locais, persistidos no navegador do display
 - Áudio de fundo
 - Layout otimizado para resoluções de TV
 

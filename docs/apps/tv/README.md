@@ -18,7 +18,7 @@ A TV alimenta os murais digitais dos laboratórios, exibindo eventos, vídeos, m
 
 ## Principais funcionalidades
 
-- **Eventos** — criação, edição e ativação de eventos por campus; um evento pode ser direcionado a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas)
+- **Eventos** — criação, edição e ativação de eventos por campus; um evento pode ser direcionado a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas). O **ReservaLab** cria um evento diretamente na TV corporativa a partir de uma reserva, escolhendo a TV do campus que deve exibi-lo
 - **Playlists de vídeo** — integração com o YouTube, com busca de metadados
 - **Música** — filas de reprodução em segundo plano e pedidos de música
 - **Avisos** — mensagens em rolagem, incluindo alertas urgentes por severidade
@@ -32,7 +32,7 @@ Apresentação em tela cheia com:
 
 - Carrossel de eventos com transições
 - Player de vídeo do YouTube
-- Player de música com controle de volume
+- Player de música com volume/mudo locais (persistidos no navegador do display)
 - Áudio de fundo configurável
 - Layout otimizado para resoluções de TV
 
@@ -46,6 +46,14 @@ flowchart LR
     FL --> YT["YouTube API"]
     FL --> SRC["Planilha SharePoint"]
 ```
+
+## Criar eventos a partir do ReservaLab
+
+No ReservaLab, uma reserva pode virar um evento na TV corporativa do campus: ao agendar ou visualizar uma reserva, o usuário escolhe **"Criar evento na TV"** e seleciona, entre as TVs ativadas do campus, qual deve exibi-lo. O evento é gravado em `tv_events` com `device_id` da TV escolhida e `is_active: true`, aparecendo no display no intervalo informado.
+
+- Escopo por campus: só aparecem as TVs do workspace da reserva (`fetchWorkspaceDevices`)
+- Se o campus não tem nenhuma TV ativada, o ReservaLab orienta a ativação pelo app TV (código de ativação)
+- O evento é independente da reserva na planilha — não há escrita nem vínculo de volta
 
 ## Fonte de dados
 

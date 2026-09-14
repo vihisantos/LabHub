@@ -372,6 +372,9 @@ def parse_youtube_url(url: str) -> dict | None:
 
 
 @app.route('/api/tv/youtube/fetch', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
 def tv_youtube_fetch():
     try:
         data = request.get_json()
@@ -465,6 +468,9 @@ def tv_youtube_fetch():
 
 
 @app.route('/api/tv/youtube/search', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
 def tv_youtube_search():
     """Busca músicas no YouTube por nome (sem precisar colar URL)."""
     try:
@@ -511,6 +517,9 @@ def tv_youtube_search():
 
 
 @app.route('/api/tv/calendar/extract', methods=['POST'])
+@require_auth
+@require_workspace
+@require_module_auth('tv')
 def tv_calendar_extract():
     try:
         data = request.get_json() or {}
@@ -1729,6 +1738,148 @@ def tv_chamados_display():
 
     except Exception as exc:
         logger.error("Erro em /api/tv/chamados/display: %s", exc)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+# ── TV: Auto-advance autoritativo da estação (Fase 2.14) ──
+#
+# Autoridade: Station/DB decide quando a fila avança (função
+# station_auto_advance). O Desktop NUNCA calcula a próxima faixa localmente:
+# onEnd vira apenas um SINAL de conclusão que chega aqui e é validado com o
+# relógio do servidor.
+#
+#   Station/DB = autoridade → servidor = controlador → Desktop = executor
+#   → Realtime = sinal (o RPC retorna o novo estado; o Desktop re-emite o sync).
+#
+# Segurança:
+#   * Workspace NUNCA vem do cliente — resolvido pelo vínculo de dispositivo
+#     (tv_devices.user_id) do usuário autenticado, como em chamados/display.
+#   * device_id (se enviado) precisa pertencer ao próprio usuário/workspace.
+#   * Chave/hash de idempotência são calculados DENTRO do shim SQL.
+
+AUTO_ADVANCE_RATE_LIMIT_PER_HOUR = 120  # 1 fim-de-faixa/min + margem
+
+
+@app.route('/api/tv/station/auto-advance', methods=['POST'])
+@require_auth
+def tv_station_auto_advance():
+    """Sinal de conclusão de faixa do Desktop → transição autoritativa.
+
+    Executa station_auto_advance no workspace do dispositivo autenticado.
+    Retorna {status: applied|replayed|no_op|conflict, result?, reason?}.
+    Payload aceito: {current_snapshot_track_id?, device_id?}. Qualquer outro
+    campo (workspace, idempotency_key, request_hash, expected_sequence,
+    next_track, position) é IGNORADO — jamais vira parâmetro do RPC.
+    """
+    if not _require_supabase():
+        return _supabase_unavailable()
+    try:
+        workspace_id = _resolve_tv_device_workspace(g.user_id)
+        if not workspace_id:
+            return jsonify({'error': 'Sessão não corresponde a um dispositivo TV válido'}), 403
+
+        if not _check_rate_limit(f'tv-station-auto-advance:{workspace_id}:{_get_client_ip()}', AUTO_ADVANCE_RATE_LIMIT_PER_HOUR):
+            return jsonify({'error': 'Muitas requisições. Aguarde alguns instantes.'}), 429
+
+        body = request.get_json(silent=True) or {}
+        current_track = body.get('current_snapshot_track_id')
+        if current_track is not None:
+            current_track = _validate_device_id(str(current_track))
+            if not current_track:
+                return jsonify({'error': 'current_snapshot_track_id inválido'}), 400
+
+        device_id = body.get('device_id')
+        if device_id:
+            device_id = _validate_device_id(device_id)
+            if not device_id:
+                return jsonify({'error': 'device_id inválido'}), 400
+            device_resp = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/tv_devices'
+                f'?id=eq.{quote(device_id)}&user_id=eq.{quote(g.user_id)}'
+                f'&workspace_id=eq.{quote(workspace_id)}&select=id',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not device_resp.ok or not device_resp.json():
+                return jsonify({'error': 'Dispositivo não pertence a este workspace'}), 403
+
+        resp = _rpc('station_auto_advance', {
+            'p_workspace': workspace_id,
+            'p_current_snapshot_track_id': current_track,
+        })
+
+        if resp.status_code == 200:
+            data = resp.json() or {}
+            payload = {'status': data.get('status') or 'no_op'}
+            if data.get('reason'):
+                payload['reason'] = data.get('reason')
+            if isinstance(data.get('result'), dict):
+                payload['result'] = data.get('result')
+            if data.get('status') in ('applied', 'replayed'):
+                logger.info(
+                    "[tv-station] auto-advance %s ws=%s device=%s track=%s",
+                    data.get('status'), workspace_id,
+                    device_id or (g.user_id or '')[:8], current_track or '',
+                )
+            return jsonify(payload)
+
+        text = resp.text or ''
+        logger.warning("[tv-station] auto-advance rpc %s: %s", resp.status_code, text[:300])
+        if '"40900"' in text or 'SEQUENCE_CONFLICT' in text:
+            return jsonify({'status': 'conflict'})
+        return jsonify({'error': 'Falha ao avançar a estação'}), 502
+
+    except Exception as exc:
+        logger.error("Erro em /api/tv/station/auto-advance: %s", exc)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/tv/station/auto-advance/backstop', methods=['POST'])
+@require_cron
+def tv_station_auto_advance_backstop():
+    """Backstop por cron (*/5): avança quaisquer estações atrasadas.
+
+    Varre tv_station state=eq.playing e tenta o auto-advance de cada uma SEM
+    current_snapshot_track_id (o shim valida o tempo decorrido internamente e
+    responde no_op NOT_ELAPSED na maioria das vezes). Cobre falha de rede/fim
+    de faixa perdido pelo Desktop em até 5 minutos.
+    """
+    if not _require_supabase():
+        return _supabase_unavailable()
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_station?state=eq.playing&select=workspace_id',
+            headers=_supabase_headers(),
+            timeout=30,
+        )
+        if not resp.ok:
+            return jsonify({'error': 'Erro ao listar estações em reprodução'}), 502
+        workspaces = sorted({str(w.get('workspace_id')) for w in (resp.json() or []) if w.get('workspace_id')})
+
+        tallies = {'checked': len(workspaces), 'applied': 0, 'replayed': 0, 'no_op': 0, 'conflict': 0, 'errors': 0}
+        details = []
+        for ws in workspaces:
+            rpc_resp = _rpc('station_auto_advance', {'p_workspace': ws})
+            if rpc_resp.status_code == 200:
+                data = rpc_resp.json() or {}
+                status = data.get('status') or 'no_op'
+                tallies[status if status in tallies else 'no_op'] += 1
+                if status in ('applied', 'replayed'):
+                    logger.info("[tv-station] backstop %s ws=%s", status, ws)
+                    details.append({'workspace_id': ws, 'status': status})
+            elif '"40900"' in rpc_resp.text or 'SEQUENCE_CONFLICT' in rpc_resp.text:
+                tallies['conflict'] += 1
+                details.append({'workspace_id': ws, 'status': 'conflict'})
+            else:
+                tallies['errors'] += 1
+                logger.warning("[tv-station] backstop rpc %s ws=%s: %s", rpc_resp.status_code, ws, rpc_resp.text[:300])
+                details.append({'workspace_id': ws, 'status': 'error'})
+
+        logger.info("[tv-station] backstop: %s", tallies)
+        return jsonify({'ok': True, **tallies, 'details': details})
+
+    except Exception as exc:
+        logger.error("Erro em /api/tv/station/auto-advance/backstop: %s", exc)
         return jsonify({'error': 'Erro interno'}), 500
 
 

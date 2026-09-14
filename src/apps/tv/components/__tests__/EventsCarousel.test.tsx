@@ -92,6 +92,24 @@ describe('EventsCarousel', () => {
     expect(screen.getByText(/15\/07\/2026/)).toBeInTheDocument()
   })
 
+  it('renderiza o horário (início e fim) do evento', () => {
+    const events = [makeEvent({ start_date: '2026-07-15T07:30:00', end_date: '2026-07-15T09:20:00' })]
+    render(<EventsCarousel events={events} />)
+    expect(screen.getByText(/07h30 às 09h20/)).toBeInTheDocument()
+  })
+
+  it('renderiza só o horário de início quando não há fim', () => {
+    const events = [makeEvent({ start_date: '2026-07-15T07:30:00', end_date: null })]
+    render(<EventsCarousel events={events} />)
+    expect(screen.getByText(/07h30/)).toBeInTheDocument()
+  })
+
+  it('renderiza data e horário no fullBleed', () => {
+    const events = [makeEvent({ start_date: '2026-07-15T07:30:00', end_date: '2026-07-15T09:20:00' })]
+    const { container } = render(<EventsCarousel events={events} fullBleed />)
+    expect(container.textContent).toContain('07h30 às 09h20')
+  })
+
   it('renderiza "Acontecendo agora" em fullBleed com data passada', () => {
     // System time is mocked to 2026-06-25T12:00:00Z by setup.ts
     const pastDate = '2026-06-20T10:00:00Z'

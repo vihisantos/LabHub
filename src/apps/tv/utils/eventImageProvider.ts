@@ -3,7 +3,7 @@
  * Garante que NENHUMA imagem contenha conteúdo impróprio, sangue, cirurgia ou gráficos sensíveis.
  */
 
-export type EventCategory = 'medicina' | 'provas' | 'consciencia_negra' | 'dia_dos_pais' | 'dia_das_maes' | 'carnaval' | 'feriado' | 'geral'
+export type EventCategory = 'medicina' | 'provas' | 'academico' | 'consciencia_negra' | 'dia_dos_pais' | 'dia_das_maes' | 'carnaval' | 'feriado' | 'geral'
 
 export const SAFE_IMAGE_PRESETS: Record<EventCategory, string[]> = {
   medicina: [
@@ -18,6 +18,16 @@ export const SAFE_IMAGE_PRESETS: Record<EventCategory, string[]> = {
     'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=1920&q=80', // Livros e óculos de leitura
     'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1920&q=80', // Mesa de estudo iluminada com notebook
     'https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?auto=format&fit=crop&w=1920&q=80', // Sala de aula universitária / biblioteca
+    'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=1920&q=80', // Materiais de estudo e caderno
+    'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1920&q=80', // Pessoas estudando juntas / bancada
+  ],
+  academico: [
+    'https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?auto=format&fit=crop&w=1920&q=80', // Sala de aula universitária
+    'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=1920&q=80', // Caneta no papel / estudo
+    'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=1920&q=80', // Livros e óculos de leitura
+    'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1920&q=80', // Mesa de estudo com notebook
+    'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=1920&q=80', // Materiais de estudo e caderno
+    'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1920&q=80', // Pessoas estudando juntas
   ],
   consciencia_negra: [
     'https://images.unsplash.com/photo-1531384441138-2736e62e0919?auto=format&fit=crop&w=1920&q=80', // Diversidade & arte cultural
@@ -69,7 +79,7 @@ export function detectCategoryFromText(title: string, description?: string | nul
     return 'feriado'
   }
 
-  return 'geral'
+  return 'academico'
 }
 
 /**
