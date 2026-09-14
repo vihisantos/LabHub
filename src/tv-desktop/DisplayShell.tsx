@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { Settings, RefreshCw, ExternalLink, LogOut, Download } from 'lucide-react'
 import { ToastProvider } from '../lib/ToastContext'
 import { MusicPlayerProvider } from '../apps/tv/contexts/MusicPlayerContext'
 import { ScreenRenderer } from './ScreenRenderer'
+import { StationReconciler } from './StationReconciler'
+import { PlayerVolumeControls } from './PlayerVolumeControls'
 import { workspaceStore } from '../core/workspaces/store'
+import type { StationChangedSignal } from '../apps/tv/services/stationService'
 import { startHeartbeat, openAdminPanel } from './deviceService'
 import type { UpdateStatus } from './desktop.d'
 import { SCREEN_APP_OPTIONS, resolveScreenApp, screenAppLabel, saveConfig, type DeviceConfig, type ScreenAppId } from './config'
@@ -27,6 +30,24 @@ export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
   const [updMessage, setUpdMessage] = useState('')
   const availableRef = useRef('')
   const [screenApp, setScreenApp] = useState<ScreenAppId>(() => resolveScreenApp(config))
+
+  /* Fase 2.14: send do canal tv-station-sync (vem do StationReconciler).
+   * Re-emite o sinal pós-auto-advance para notificar os demais Desktops. */
+  const autoAdvanceSendRef = useRef<((signal: StationChangedSignal) => void) | null>(null)
+  const handleReconcilerReady = useCallback((fn: (signal: StationChangedSignal) => void) => {
+    autoAdvanceSendRef.current = fn
+  }, [])
+
+  /* Escuta o evento local disparado pelo player ao concluir um auto-advance
+   * (applied/replay) e o encaminha ao broadcast realtime. */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const signal = (e as CustomEvent<StationChangedSignal>).detail
+      autoAdvanceSendRef.current?.(signal)
+    }
+    window.addEventListener('tv-station-auto-advance-signal', handler)
+    return () => window.removeEventListener('tv-station-auto-advance-signal', handler)
+  }, [])
 
   /* Troca de módulo de exibição: persiste e re-renderiza a tela na hora */
   const changeScreenApp = async (id: ScreenAppId) => {
@@ -104,6 +125,7 @@ export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
     <>
       <ToastProvider>
         <MusicPlayerProvider>
+          <StationReconciler onReady={handleReconcilerReady} />
           <MemoryRouter initialEntries={['/display']}>
             <ScreenRenderer config={{ ...config, screenApp }} />
           </MemoryRouter>
@@ -182,6 +204,13 @@ export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div style={{ marginTop: '0.9rem', paddingTop: '0.9rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '0 0 0.5rem' }}>
+                Áudio — player local
+              </p>
+              <PlayerVolumeControls />
             </div>
 
             {window.desktop?.updates && (

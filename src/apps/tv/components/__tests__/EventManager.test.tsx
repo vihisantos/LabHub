@@ -82,4 +82,42 @@ describe('EventManager with devices', () => {
 
     expect(screen.getByText('Todo o campus')).toBeInTheDocument()
   })
+
+  describe('readOnly (RBAC TV — nível `read`)', () => {
+    it('oculta o botão "Novo Evento" e as ações de edição/exclusão', () => {
+      render(
+        <EventManager
+          devices={[]}
+          events={[makeEvent()]}
+          onAdd={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          readOnly
+        />,
+      )
+
+      expect(screen.getByText('Evento A')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Novo Evento/ })).not.toBeInTheDocument()
+      expect(document.querySelector('.lucide-pencil')).toBeNull()
+      expect(document.querySelector('.lucide-trash-2')).toBeNull()
+      expect(document.querySelector('.lucide-chevron-up')).toBeNull()
+      expect(document.querySelector('.lucide-chevron-down')).toBeNull()
+    })
+
+    it('não abre formulário reordenando na auto-abertura nem mostra "Criar primeiro evento"', () => {
+      render(
+        <EventManager
+          devices={[]}
+          events={[]}
+          onAdd={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          readOnly
+        />,
+      )
+
+      expect(screen.getByText('Nenhum evento cadastrado')).toBeInTheDocument()
+      expect(screen.queryByText('Criar primeiro evento')).not.toBeInTheDocument()
+    })
+  })
 })

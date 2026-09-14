@@ -21,9 +21,11 @@ interface GalleryManagerProps {
   onCreate: (title: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onToggleActive: (id: string) => Promise<void>
+  /** true = somente leitura (não envia as ações de mutação). */
+  readOnly?: boolean
 }
 
-export function GalleryManager({ galleries, onCreate, onDelete, onToggleActive }: GalleryManagerProps) {
+export function GalleryManager({ galleries, onCreate, onDelete, onToggleActive, readOnly = false }: GalleryManagerProps) {
   const [showForm, setShowForm] = useState(false)
   const [title, setTitle] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -73,12 +75,14 @@ export function GalleryManager({ galleries, onCreate, onDelete, onToggleActive }
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{galleries.length}</span>
           )}
         </div>
+        {!readOnly && (
         <button
           onClick={() => { setShowForm(true); setTitle('') }}
           className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-500/20 transition-all hover:from-violet-500 hover:to-purple-500 active:scale-[0.97]"
         >
           <Plus size={14} /> Nova Galeria
         </button>
+      )}
       </div>
 
       {/* Create Form */}
@@ -125,12 +129,14 @@ export function GalleryManager({ galleries, onCreate, onDelete, onToggleActive }
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
             <Images size={28} className="text-slate-300" />
             <p className="text-sm text-slate-500">Nenhuma galeria cadastrada</p>
+            {!readOnly && (
             <button
               onClick={() => { setShowForm(true); setTitle('') }}
               className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
             >
               <Plus size={12} /> Criar primeira galeria
             </button>
+          )}
           </div>
         ) : (
           galleries.map((g) => (
@@ -139,6 +145,7 @@ export function GalleryManager({ galleries, onCreate, onDelete, onToggleActive }
               gallery={g}
               isActive={g.is_active}
               isExpanded={expandedId === g.id}
+              readOnly={readOnly}
               onToggle={() => setExpandedId(expandedId === g.id ? null : g.id)}
               onActivate={() => onToggleActive(g.id)}
               onDelete={() => setDeleteTarget(g)}
@@ -153,7 +160,7 @@ export function GalleryManager({ galleries, onCreate, onDelete, onToggleActive }
 /* ── Individual gallery card ── */
 function GalleryCard({
   gallery, isActive, isExpanded,
-  onToggle, onActivate, onDelete,
+  onToggle, onActivate, onDelete, readOnly,
 }: {
   gallery: TvGallery
   isActive: boolean
@@ -161,6 +168,7 @@ function GalleryCard({
   onToggle: () => void
   onActivate: () => void
   onDelete: () => void
+  readOnly: boolean
 }) {
   return (
     <motion.div
@@ -186,21 +194,23 @@ function GalleryCard({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <TooltipRoot>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onActivate}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
-                    : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
-                }`}
-              >
-                <Check size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">{isActive ? 'Desativar' : 'Ativar no display'}</TooltipContent>
-          </TooltipRoot>
+          {!readOnly && (
+            <TooltipRoot>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onActivate}
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
+                      : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                  }`}
+                >
+                  <Check size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{isActive ? 'Desativar' : 'Ativar no display'}</TooltipContent>
+            </TooltipRoot>
+          )}
 
           <button
             onClick={onToggle}
@@ -209,17 +219,19 @@ function GalleryCard({
             <ImageIcon size={14} />
           </button>
 
-          <TooltipRoot>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onDelete}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
-              >
-                <Trash2 size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Excluir</TooltipContent>
-          </TooltipRoot>
+          {!readOnly && (
+            <TooltipRoot>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onDelete}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Excluir</TooltipContent>
+            </TooltipRoot>
+          )}
         </div>
       </div>
 
@@ -234,7 +246,7 @@ function GalleryCard({
             className="overflow-hidden"
           >
             <div className="border-t border-slate-100 px-4 py-3">
-              <PhotoGrid galleryId={gallery.id} />
+              <PhotoGrid galleryId={gallery.id} readOnly={readOnly} />
             </div>
           </motion.div>
         )}
@@ -244,14 +256,14 @@ function GalleryCard({
 }
 
 /* ── Photo grid with upload ── */
-function PhotoGrid({ galleryId }: { galleryId: string }) {
+function PhotoGrid({ galleryId, readOnly }: { galleryId: string; readOnly: boolean }) {
   const { photos, add, remove } = useGalleryPhotos(galleryId)
 
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
         <span className="text-xs font-medium text-slate-500">{photos.length} foto(s)</span>
-        <CloudinaryUpload onUpload={(url) => add(url)} />
+        {!readOnly && <CloudinaryUpload onUpload={(url) => add(url)} />}
       </div>
 
       {photos.length === 0 ? (
@@ -269,12 +281,14 @@ function PhotoGrid({ galleryId }: { galleryId: string }) {
                 className="h-full w-full object-cover"
                 loading="lazy"
               />
-              <button
-                onClick={() => remove(p.id, p.image_url)}
-                className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white opacity-80 transition-opacity hover:opacity-100 hover:bg-red-500"
-              >
-                <X size={14} />
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => remove(p.id, p.image_url)}
+                  className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white opacity-80 transition-opacity hover:opacity-100 hover:bg-red-500"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
           ))}
         </div>

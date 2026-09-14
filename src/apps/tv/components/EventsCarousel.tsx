@@ -56,6 +56,20 @@ function CountdownTimer({ target }: CountdownProps) {
   )
 }
 
+/** Formata o horário da reserva/evento: "07h30 às 09h20" (ou só o início). */
+function formatEventPeriod(event: TvEvent): string | null {
+  if (!event.start_date) return null
+  const fmt = (iso: string) => {
+    const d = new Date(iso)
+    const h = String(d.getHours()).padStart(2, '0')
+    const m = String(d.getMinutes()).padStart(2, '0')
+    return `${h}h${m}`
+  }
+  const start = fmt(event.start_date)
+  if (!event.end_date) return start
+  return `${start} às ${fmt(event.end_date)}`
+}
+
 interface EventsCarouselProps {
   events: TvEvent[]
   interval?: number
@@ -168,6 +182,7 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
                   {new Date(event.start_date).toLocaleDateString('pt-BR', {
                     weekday: 'long', day: 'numeric', month: 'long',
                   })}
+                  {' · '}{formatEventPeriod(event)}
                 </p>
               )}
               {event.start_date && (
@@ -263,6 +278,7 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Calendar size={20} />
                 {new Date(event.start_date).toLocaleDateString('pt-BR')}
+                {' · '}{formatEventPeriod(event)}
               </span>
             )}
           </div>

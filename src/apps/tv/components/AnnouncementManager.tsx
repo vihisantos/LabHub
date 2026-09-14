@@ -21,9 +21,11 @@ interface AnnouncementManagerProps {
   onRemove: (id: string) => Promise<void>
   onMoveUp: (idx: number) => Promise<void>
   onMoveDown: (idx: number) => Promise<void>
+  /** true = somente leitura (não envia as ações de mutação). */
+  readOnly?: boolean
 }
 
-export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, onMoveUp, onMoveDown }: AnnouncementManagerProps) {
+export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, onMoveUp, onMoveDown, readOnly = false }: AnnouncementManagerProps) {
   const [newText, setNewText] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -89,22 +91,24 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
       </div>
 
       {/* Create */}
-      <div className="mb-4 flex gap-2">
-        <input
-          value={newText}
-          onChange={(e) => setNewText(e.target.value)}
-          onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && handleAdd()}
-          placeholder="Texto do aviso..."
-          className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-amber-500 focus:bg-white"
-        />
-        <button
-          onClick={handleAdd}
-          disabled={!newText.trim()}
-          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-amber-500/20 transition-all hover:from-amber-500 hover:to-orange-500 active:scale-[0.97] disabled:opacity-40"
-        >
-          <Plus size={14} /> Adicionar
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="mb-4 flex gap-2">
+          <input
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && handleAdd()}
+            placeholder="Texto do aviso..."
+            className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-amber-500 focus:bg-white"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={!newText.trim()}
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-amber-500/20 transition-all hover:from-amber-500 hover:to-orange-500 active:scale-[0.97] disabled:opacity-40"
+          >
+            <Plus size={14} /> Adicionar
+          </button>
+        </div>
+      )}
 
       {/* List */}
       {announcements.length === 0 ? (
@@ -124,33 +128,37 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
               className="group flex items-center gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2 transition-all hover:bg-slate-50 hover:border-slate-200"
             >
               {/* Reorder */}
-              <div className="flex flex-col gap-0.5">
-                <button
-                  onClick={() => onMoveUp(idx)}
-                  disabled={idx === 0}
-                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                >
-                  <ChevronUp size={12} />
-                </button>
-                <button
-                  onClick={() => onMoveDown(idx)}
-                  disabled={idx === announcements.length - 1}
-                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                >
-                  <ChevronDown size={12} />
-                </button>
-              </div>
+              {!readOnly && (
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    onClick={() => onMoveUp(idx)}
+                    disabled={idx === 0}
+                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                  >
+                    <ChevronUp size={12} />
+                  </button>
+                  <button
+                    onClick={() => onMoveDown(idx)}
+                    disabled={idx === announcements.length - 1}
+                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                  >
+                    <ChevronDown size={12} />
+                  </button>
+                </div>
+              )}
 
               {/* Active toggle */}
-              <button
-                onClick={() => toggleActive(a)}
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${
-                  a.is_active ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-300'
-                }`}
-                title={a.is_active ? 'Ativo' : 'Inativo'}
-              >
-                <Check size={12} />
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => toggleActive(a)}
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                    a.is_active ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-300'
+                  }`}
+                  title={a.is_active ? 'Ativo' : 'Inativo'}
+                >
+                  <Check size={12} />
+                </button>
+              )}
 
               {/* Text */}
               <div className="flex-1 min-w-0">
@@ -184,30 +192,32 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
               </div>
 
               {/* Actions */}
-              <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <TooltipRoot>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => startEdit(a)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-amber-600"
-                    >
-                      <Pencil size={13} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Editar</TooltipContent>
-                </TooltipRoot>
-                <TooltipRoot>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setDeleteTarget(a)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-500"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Excluir</TooltipContent>
-                </TooltipRoot>
-              </div>
+              {!readOnly && (
+                <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <TooltipRoot>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => startEdit(a)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-amber-600"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Editar</TooltipContent>
+                  </TooltipRoot>
+                  <TooltipRoot>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setDeleteTarget(a)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-500"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Excluir</TooltipContent>
+                  </TooltipRoot>
+                </div>
+              )}
             </motion.div>
           ))}
         </div>

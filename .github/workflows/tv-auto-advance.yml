@@ -1,0 +1,24 @@
+name: TV Station Auto-Advance Backstop
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  auto-advance:
+    name: TV auto-advance backstop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/tv/station/auto-advance/backstop
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          status=$(curl -sS -o /tmp/auto_advance.out -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "https://lab-hub-pi.vercel.app/api/tv/station/auto-advance/backstop")
+          echo "HTTP $status"
+          cat /tmp/auto_advance.out
+          test "$status" = "200"

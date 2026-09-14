@@ -1,5 +1,7 @@
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { workspaceStore } from '../../../core/workspaces/store'
+import { assignedWorkspaceIds } from '../../../core/memberships/service'
+import { authService } from '../../../core/auth/service'
 import { tvApi } from '../utils/apiBase'
 import { localStoreGet, localStoreRemove, localStoreSet } from '../../../lib/localStore'
 
@@ -106,10 +108,21 @@ export async function saveCalendarCache(cacheData: Omit<AcademicCalendarCache, '
 }
 
 export async function extractCalendarFromPdf(pdfUrl: string, semesterCode: string, endDate: string): Promise<AcademicCalendarCache> {
+  if (!supabase) throw new Error('Supabase não configurado')
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  const ws = workspaceStore.activeWorkspaceId
+  const wsId = ws ?? (() => {
+    const user = authService.getCurrentUser()
+    return user ? assignedWorkspaceIds(user)[0] : undefined
+  })()
   const resp = await fetch(tvApi('/api/tv/calendar/extract'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: pdfUrl, semester_code: semesterCode, end_date: endDate }),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ url: pdfUrl, semester_code: semesterCode, end_date: endDate, ...(wsId ? { workspace_id: wsId } : {}) }),
   })
 
   if (!resp.ok) {

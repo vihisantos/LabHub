@@ -3,12 +3,15 @@ import { motion } from 'framer-motion'
 import { Music, Check, X, ExternalLink, Loader2, Clock, User, ListMusic } from 'lucide-react'
 import { useMusicRequests } from '../hooks/useMusicRequests'
 import { useAuth } from '../../../core/auth/AuthContext'
-import { useMusicPlayer } from '../contexts/MusicPlayerContext'
+import { useMusicPlayerCommand } from '../contexts/MusicPlayerCommandContext'
+import { useToast } from '../../../lib/ToastContext'
+import { StationError } from '../services/stationService'
 
-export function MusicRequestManager() {
+export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }) {
   const { user } = useAuth()
   const { requests, pending, loading, approve, reject } = useMusicRequests()
-  const { playNext } = useMusicPlayer()
+  const { playNext } = useMusicPlayerCommand()
+  const { addToast } = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
 
   if (loading) {
@@ -36,18 +39,23 @@ export function MusicRequestManager() {
     setBusyId(null)
   }
 
-  const handlePlayNext = (id: string) => {
+  const handlePlayNow = async (id: string) => {
     const req = requests.find((r) => r.id === id)
     if (!req?.youtube_video_id) return
-    playNext({
-      id: req.id,
-      queue_id: '',
-      youtube_video_id: req.youtube_video_id,
-      title: req.title || 'Música solicitada',
-      duration_seconds: 0,
-      position: 0,
-      created_at: req.created_at,
-    })
+    try {
+      await playNext({
+        id: req.id,
+        queue_id: '',
+        youtube_video_id: req.youtube_video_id,
+        title: req.title || 'Música solicitada',
+        duration_seconds: 0,
+        position: 0,
+        created_at: req.created_at,
+      })
+      addToast('success', 'Ouvindo agora no display')
+    } catch (err) {
+      addToast('error', err instanceof StationError ? err.message : 'Não foi possível comandar a estação')
+    }
   }
 
   return (
@@ -122,30 +130,36 @@ export function MusicRequestManager() {
 
                 {isPending ? (
                   <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      onClick={() => handlePlayNext(req.id)}
-                      className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100"
-                      title="Tocar a seguir (após a música atual terminar)"
-                    >
-                      <ListMusic size={14} />
-                      Ouvir
-                    </button>
-                    <button
-                      onClick={() => handleApprove(req.id)}
-                      disabled={busy}
-                      className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
-                    >
-                      {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                      Aprovar
-                    </button>
-                    <button
-                      onClick={() => handleReject(req.id)}
-                      disabled={busy}
-                      className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-rose-500 disabled:opacity-50"
-                    >
-                      <X size={14} />
-                      Recusar
-                    </button>
+                    {!readOnly && (
+                      <button
+                        onClick={() => handlePlayNow(req.id)}
+                        className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100"
+                        title="Ouvir agora"
+                      >
+                        <ListMusic size={14} />
+                        Ouvir agora
+                      </button>
+                    )}
+                    {!readOnly && (
+                      <>
+                        <button
+                          onClick={() => handleApprove(req.id)}
+                          disabled={busy}
+                          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+                        >
+                          {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                          Aprovar
+                        </button>
+                        <button
+                          onClick={() => handleReject(req.id)}
+                          disabled={busy}
+                          className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-rose-500 disabled:opacity-50"
+                        >
+                          <X size={14} />
+                          Recusar
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <span

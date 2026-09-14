@@ -185,4 +185,34 @@ describe('PlaylistManager', () => {
     expect(onEdit).toHaveBeenCalledWith('pl-1', { sort_order: 1 })
     expect(onEdit).toHaveBeenCalledWith('pl-2', { sort_order: 0 })
   })
+
+  describe('readOnly (RBAC TV — nível `read`)', () => {
+    it('oculta criação, reordenação e ações de edição/exclusão', () => {
+      const playlists = [makePlaylist({ id: 'pl-1', name: 'Playlist Teste' })]
+      const { container } = renderWithTooltip(
+        <PlaylistManager
+          playlists={playlists}
+          onAdd={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          readOnly
+        />
+      )
+
+      expect(container.querySelector('.lucide-plus')).toBeNull()
+      expect(container.querySelector('.lucide-chevron-up')).toBeNull()
+      expect(container.querySelector('.lucide-chevron-down')).toBeNull()
+      expect(container.querySelector('.lucide-pencil')).toBeNull()
+      expect(container.querySelector('.lucide-trash-2')).toBeNull()
+      expect(screen.getByText('Playlist Teste')).toBeInTheDocument()
+    })
+
+    it('não mostra "Criar primeira playlist" quando vazia', () => {
+      renderWithTooltip(
+        <PlaylistManager playlists={[]} onAdd={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} readOnly />
+      )
+      expect(screen.getByText('Nenhuma playlist cadastrada')).toBeInTheDocument()
+      expect(screen.queryByText('Criar primeira playlist')).not.toBeInTheDocument()
+    })
+  })
 })

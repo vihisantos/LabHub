@@ -230,6 +230,18 @@ class TestRequireAuth:
         resp = root_client.post("/api/tv/cloudinary/delete", json={"image_url": "https://test.com/img.jpg"})
         assert resp.status_code == 401
 
+    def test_tv_youtube_fetch_no_token_returns_401(self, root_client):
+        resp = root_client.post("/api/tv/youtube/fetch", json={"url": "https://www.youtube.com/watch?v=test"})
+        assert resp.status_code == 401
+
+    def test_tv_youtube_search_no_token_returns_401(self, root_client):
+        resp = root_client.post("/api/tv/youtube/search", json={"q": "test"})
+        assert resp.status_code == 401
+
+    def test_tv_calendar_extract_no_token_returns_401(self, root_client):
+        resp = root_client.post("/api/tv/calendar/extract", json={"url": "https://example.com/x.pdf"})
+        assert resp.status_code == 401
+
     def test_admin_wipe_no_token_returns_401(self, root_client):
         resp = root_client.post("/api/admin/wipe")
         assert resp.status_code == 401
@@ -974,8 +986,26 @@ class TestJWTHardening:
 class TestCodeQLHardening:
     """Validações de SSRF, ReDoS e tratamento de erros limpo."""
 
-    def test_tv_calendar_extract_ssrf_blocked_for_internal_ips(self, root_client):
+    def _tv_auth_headers(self, fake_requests, monkeypatch):
+        """Auth completa (JWT + perfil + workspace com módulo tv ativo)."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        profile = {
+            "id": "user-1",
+            "email": "test@test.com",
+            "name": "Test User",
+            "role": "technician",
+            "is_super_admin": False,
+            "workspace_ids": ["ws-test"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        _patch_workspace(fake_requests)
+        token = _make_jwt({"sub": "user-1"})
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_tv_calendar_extract_ssrf_blocked_for_internal_ips(self, root_client, fake_requests, monkeypatch):
         """Endpoints que baixam recursos externos bloqueiam localhost e IPs privados."""
+        headers = self._tv_auth_headers(fake_requests, monkeypatch)
         for unsafe_url in (
             "http://127.0.0.1:8080/secret",
             "http://localhost:5000/internal",
@@ -985,13 +1015,14 @@ class TestCodeQLHardening:
             "file:///etc/passwd",
             "ftp://files.example.com/test.pdf",
         ):
-            resp = root_client.post("/api/tv/calendar/extract", json={"url": unsafe_url})
+            resp = root_client.post("/api/tv/calendar/extract", json={"url": unsafe_url, "workspace_id": "ws-test"}, headers=headers)
             assert resp.status_code == 400
             data = resp.get_json()
             assert "SSRF" in data.get("error", "")
 
-    def test_tv_calendar_extract_empty_url_returns_400(self, root_client):
-        resp = root_client.post("/api/tv/calendar/extract", json={"url": ""})
+    def test_tv_calendar_extract_empty_url_returns_400(self, root_client, fake_requests, monkeypatch):
+        headers = self._tv_auth_headers(fake_requests, monkeypatch)
+        resp = root_client.post("/api/tv/calendar/extract", json={"url": "", "workspace_id": "ws-test"}, headers=headers)
         assert resp.status_code == 400
         assert "URL do PDF é obrigatória" in resp.get_json().get("error", "")
 
@@ -1286,4 +1317,93 @@ class TestAppNotifications:
         assert resp.status_code == 200
         ids = [n["id"] for n in resp.get_json()["notifications"]]
         assert set(ids) == {"a", "b"}
+
+
+# ── Tests: TV youtube + calendar/extract (Fase 0 hardening) ──────────────────
+
+class TestTvYoutubeCalendarModule:
+    """TV music/calendar endpoints now require auth + workspace + module 'tv'."""
+
+    def _auth_headers(self, fake_requests):
+        profile = {
+            "id": "user-1",
+            "email": "test@test.com",
+            "name": "Test User",
+            "role": "technician",
+            "is_super_admin": False,
+            "workspace_ids": ["ws-test"],
+            "status": "active",
+        }
+        _patch_supabase_profile(fake_requests, profile)
+        token = _make_jwt({"sub": "user-1"})
+        return {"Authorization": f"Bearer {token}"}
+
+    @pytest.mark.parametrize("path", [
+        "/api/tv/youtube/fetch",
+        "/api/tv/youtube/search",
+        "/api/tv/calendar/extract",
+    ])
+    def test_sem_workspace_retorna_403(self, root_client, fake_requests, monkeypatch, path):
+        """require_workspace rejeita sem workspace_id no corpo."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        headers = self._auth_headers(fake_requests)
+        resp = root_client.post(path, json={"url": "https://www.youtube.com/watch?v=test"}, headers=headers)
+        assert resp.status_code == 403
+
+    @pytest.mark.parametrize("path", [
+        "/api/tv/youtube/fetch",
+        "/api/tv/youtube/search",
+        "/api/tv/calendar/extract",
+    ])
+    def test_modulo_tv_desabilitado_retorna_403(self, root_client, fake_requests, monkeypatch, path):
+        """require_module_auth('tv') bloqueia com o módulo desabilitado."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        headers = self._auth_headers(fake_requests)
+        _patch_workspace(
+            fake_requests,
+            ws={"id": "ws-test", "name": "Test WS", "slug": "test", "disabled_apps": ["tv"]},
+        )
+        resp = root_client.post(
+            path,
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "workspace_id": "ws-test"},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+
+    def test_youtube_fetch_autenticado_chega_ao_handler(self, root_client, fake_requests, monkeypatch):
+        """Auth+workspace+módulo ok ⇒ passa dos guards e valida o campo (400)."""
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        headers = self._auth_headers(fake_requests)
+        _patch_workspace(fake_requests)
+        resp = root_client.post(
+            "/api/tv/youtube/fetch",
+            json={"workspace_id": "ws-test"},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "URL é obrigatória"
+
+    def test_youtube_search_autenticado_chega_ao_handler(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        headers = self._auth_headers(fake_requests)
+        _patch_workspace(fake_requests)
+        resp = root_client.post(
+            "/api/tv/youtube/search",
+            json={"workspace_id": "ws-test"},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "Informe o nome da música"
+
+    def test_calendar_extract_autenticado_chega_ao_handler(self, root_client, fake_requests, monkeypatch):
+        monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
+        headers = self._auth_headers(fake_requests)
+        _patch_workspace(fake_requests)
+        resp = root_client.post(
+            "/api/tv/calendar/extract",
+            json={"workspace_id": "ws-test"},
+            headers=headers,
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "URL do PDF é obrigatória"
 

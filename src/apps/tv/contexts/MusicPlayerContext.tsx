@@ -3,8 +3,10 @@ import YouTube, { type YouTubeProps } from 'react-youtube'
 import type { TvMusicTrack } from '../types'
 import { useAllMusicTracks } from '../hooks/useAllMusicTracks'
 import { useNowPlaying } from '../hooks/useNowPlaying'
-import { useRealtimeBroadcast } from '../../../lib/useRealtimeBroadcast'
 import { isDesktopEnv, localStoreGet, localStoreSet } from '../../../lib/localStore'
+import { workspaceStore } from '../../../core/workspaces/store'
+import { reportStationTrackEnded, type StationChangedSignal, type StationReconcileInput } from '../services/stationService'
+import { DEFAULT_PLAYER_SETTINGS, loadPlayerSettings, savePlayerSettings, type TvPlayerSettings } from '../services/playerSettings'
 
 const STORAGE_KEY = 'tv-music-player'
 
@@ -47,13 +49,23 @@ interface MusicPlayerValue {
   shuffle: boolean
   currentTrackIndex: number
   playOrder: number[]
-  upNext: TvMusicTrack | null
   togglePlay: () => void
   setPlaying: (playing: boolean) => void
-  next: () => void
-  prev: () => void
-  playNext: (track: TvMusicTrack) => void
-  clearUpNext: () => void
+  /**
+   * Reconcilia o player local com o estado persistente da estação (039).
+   * Presente apenas no TV Desktop (player real). Alinha faixa atual + play/pause.
+   */
+  reconcileStation?: (input: StationReconcileInput) => void
+  /** Volume local do player (0..100). Proprietário: TV Desktop. */
+  volume: number
+  /** Mudo local do player. Diferente de volume 0. */
+  muted: boolean
+  /** Define o volume local (0..100, normalizado). */
+  setVolume: (volume: number) => void
+  /** Define o estado de mute local. */
+  setMuted: (muted: boolean) => void
+  /** Alterna o mute local preservando o volume. */
+  toggleMute: () => void
 }
 
 const MusicPlayerCtx = createContext<MusicPlayerValue | null>(null)
@@ -88,23 +100,71 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [currentTrackIdx, setCurrentTrackIdx] = useState(0)
   const [playOrder, setPlayOrder] = useState<number[]>([])
   const [isPlaying, setIsPlaying] = useState(true)
+  /* STOP da estação: quando true, não há faixa atual e o player fica parado
+   * (semântica distinta de pausa, que mantém a faixa congelada). */
+  const [stopped, setStopped] = useState(false)
 
-  /* Faixa "a seguir" escolhida manualmente — só toca após a atual terminar */
-  const [upNext, setUpNext] = useState<TvMusicTrack | null>(null)
-  /* Indica que a faixa atual é a "a seguir" (após terminar, retoma a playlist) */
-  const [playingUpNext, setPlayingUpNext] = useState(false)
+  /* Volume/mute LOCAL do player (Fase 2.8 — proprietário: TV Desktop).
+   * Não é estado da estação: não passa por RPC/Supabase/broadcast. */
+  const [volume, setVolumeState] = useState<number>(DEFAULT_PLAYER_SETTINGS.volume)
+  const [muted, setMutedState] = useState<boolean>(DEFAULT_PLAYER_SETTINGS.muted)
+  const volumeRef = useRef(volume)
+  const mutedRef = useRef(muted)
+  useEffect(() => { volumeRef.current = volume }, [volume])
+  useEffect(() => { mutedRef.current = muted }, [muted])
 
-  /* Comando "tocar a seguir" vindo de outra instância (admin → display) */
-  const { send: sendPlayNextCommand } = useRealtimeBroadcast<{ track: TvMusicTrack }>(
-    'tv-music-command',
-    'play-next',
-    (payload) => {
-      if (payload?.track) {
-        setUpNext(payload.track)
+  /* Contador de montagens do YouTube player (onReady) p/ reaplicar settings. */
+  const [playerTick, setPlayerTick] = useState(0)
+
+  /* Restaura a configuração local persistida (após mount). */
+  useEffect(() => {
+    let active = true
+    void loadPlayerSettings().then((settings) => {
+      if (!active) return
+      setVolumeState(settings.volume)
+      setMutedState(settings.muted)
+    })
+    return () => { active = false }
+  }, [])
+
+  /* Persistência local (debounce 300ms p/ não gravar a cada pixel do slider). */
+  useEffect(() => {
+    const settings: TvPlayerSettings = { volume, muted }
+    const timer = setTimeout(() => { void savePlayerSettings(settings) }, 300)
+    return () => clearTimeout(timer)
+  }, [volume, muted])
+
+  /* Aplica volume/mute salvos no player real (e reaplica a cada onReady). */
+  const applyPlayerSettings = useCallback(
+    (player: { setVolume?: (v: number) => void; mute?: () => void; unMute?: () => void } | null) => {
+      if (!player) return
+      if (typeof player.setVolume === 'function') player.setVolume(volumeRef.current)
+      if (mutedRef.current) {
+        if (typeof player.mute === 'function') player.mute()
+      } else if (desktopEnv && typeof player.unMute === 'function') {
+        player.unMute()
       }
     },
-    { self: false },
+    [desktopEnv],
   )
+
+  useEffect(() => {
+    applyPlayerSettings(playerRef.current)
+  }, [applyPlayerSettings, volume, muted, playerTick])
+
+  /* Setters LOCAIS: normalizam entrada de UX; não tocam em estação/RPC. */
+  const setVolume = useCallback((value: number) => {
+    if (!Number.isFinite(value)) return
+    setVolumeState(Math.min(100, Math.max(0, value)))
+  }, [])
+
+  const setMuted = useCallback((value: boolean) => {
+    setMutedState(!!value)
+  }, [])
+
+  const toggleMute = useCallback(() => {
+    setMutedState((m) => !m)
+  }, [])
 
   /* One-time init from storage when tracks arrive */
   useEffect(() => {
@@ -140,8 +200,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /* Derive current track from state */
   const currentPlayIndex = playOrder[currentTrackIdx]
   const playlistTrack = currentPlayIndex !== undefined ? allTracks[currentPlayIndex] : null
-  /* Se a faixa atual é a "a seguir" escolhida manualmente, usa ela no lugar da playlist */
-  const currentTrack = playingUpNext && upNext ? upNext : playlistTrack
+  /* STOP (estação): sem faixa atual; pausa e playlist preservam o seletor. */
+  const currentTrack = stopped ? null : playlistTrack
 
   /* Broadcast now-playing to Supabase channel (used by other tabs) */
   useEffect(() => {
@@ -157,56 +217,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [currentTrack?.id, currentTrack?.title, isPlaying, currentTrackIdx, allTracks.length, queueShuffle, broadcast])
 
-  /* Refs espelhados para usar valores atuais dentro dos callbacks de avanço */
-  const playingUpNextRef = useRef(false)
-  const upNextRef = useRef<TvMusicTrack | null>(null)
-  useEffect(() => { playingUpNextRef.current = playingUpNext }, [playingUpNext])
-  useEffect(() => { upNextRef.current = upNext }, [upNext])
-
-  /**
-   * Avança para a próxima faixa:
-   * - Se a faixa "a seguir" está agendada → toca ela primeiro (sem consumir a playlist);
-   * - Se a faixa atual É a "a seguir" → ao terminar, retoma a playlist de onde estava;
-   * - Caso contrário → segue o fluxo normal da playlist.
-   */
-  const advance = useCallback(() => {
-    if (playingUpNextRef.current) {
-      // A faixa "a seguir" terminou → retoma a playlist normalmente
-      playingUpNextRef.current = false
-      setUpNext(null)
-      setPlayingUpNext(false)
-      setCurrentTrackIdx((i) => {
-        if (i < playOrder.length - 1) return i + 1
-        if (queueShuffle) {
-          setPlayOrder(shuffleIndices(allTracks.length))
-        }
-        return 0
-      })
-      return
-    }
-    if (upNextRef.current) {
-      // A música atual terminou e há uma escolhida para tocar a seguir
-      playingUpNextRef.current = true
-      setPlayingUpNext(true)
-      return
-    }
-    setCurrentTrackIdx((i) => {
-      if (i < playOrder.length - 1) return i + 1
-      if (queueShuffle) {
-        setPlayOrder(shuffleIndices(allTracks.length))
-      }
-      return 0
-    })
-  }, [playOrder.length, queueShuffle, allTracks.length])
-
-  const goBack = useCallback(() => {
-    setUpNext(null)
-    setPlayingUpNext(false)
-    playingUpNextRef.current = false
-    upNextRef.current = null
-    setCurrentTrackIdx((i) => (i > 0 ? i - 1 : playOrder.length - 1))
-  }, [playOrder.length])
-
   const togglePlay = useCallback(() => {
     setIsPlaying((p) => !p)
   }, [])
@@ -215,18 +225,74 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying(playing)
   }, [])
 
-  const playNext = useCallback((track: TvMusicTrack) => {
-    setUpNext(track)
-    upNextRef.current = track
-    void sendPlayNextCommand({ track })
-  }, [sendPlayNextCommand])
+  /**
+   * Alinha o player local com o estado da estação: troca a faixa atual (por
+   * youtube_video_id) e ajusta play/pause. Entrada vinda do `StationReconciler`.
+   */
+  const reconcileStation = useCallback(
+    (input: StationReconcileInput) => {
+      // STOP: interrompe e limpa a faixa atual (state='stopped' => sem current).
+      if (input.state === 'stopped') {
+        setStopped(true)
+        setIsPlaying(false)
+        return
+      }
 
-  const clearUpNext = useCallback(() => {
-    setUpNext(null)
-    setPlayingUpNext(false)
-    playingUpNextRef.current = false
-    upNextRef.current = null
-  }, [])
+      // Fora de STOP: libera a faixa bloqueada e alinha faixa + play/pause.
+      setStopped(false)
+      if (input.youtubeVideoId) {
+        const idx = allTracks.findIndex((t) => t.youtube_video_id === input.youtubeVideoId)
+        if (idx >= 0) {
+          const orderIdx = playOrder.indexOf(idx)
+          if (orderIdx >= 0) {
+            setCurrentTrackIdx(orderIdx)
+          }
+        }
+      }
+      if (input.state === 'playing') setIsPlaying(true)
+      else if (input.state === 'paused') setIsPlaying(false)
+
+      // SEEK: aplica a posição autoritativa (segundos) no player real.
+      const player = playerRef.current
+      if (typeof input.positionSeconds === 'number' && player && typeof player.seekTo === 'function') {
+        player.seekTo(input.positionSeconds, true)
+      }
+    },
+    [allTracks, playOrder],
+  )
+
+  /**
+   * Fim de faixa (Fase 2.14): o Desktop NÃO calcula a próxima faixa. O fim
+   * vira um SINAL para o servidor (station_auto_advance), que decide e aplica
+   * a transição; aqui só re-aplicamos o resultado no player local e, se a
+   * transição aconteceu, re-emitimos o sinal para os demais Desktops.
+   */
+  const handleTrackEnded = useCallback(() => {
+    reportStationTrackEnded()
+      .then((outcome) => {
+        if ((outcome.status === 'applied' || outcome.status === 'replayed') && outcome.newVideoId) {
+          reconcileStation({
+            youtubeVideoId: outcome.newVideoId,
+            state: 'playing',
+            positionSeconds: 0,
+          })
+          window.dispatchEvent(
+            new CustomEvent<StationChangedSignal>('tv-station-auto-advance-signal', {
+              detail: {
+                op: 'station_changed',
+                workspace_id: workspaceStore.activeWorkspaceId ?? '',
+                request_id: `auto-advance:${Date.now()}:${currentTrack?.youtube_video_id ?? ''}`,
+                sequence: outcome.result?.state_sequence ?? 0,
+              },
+            }),
+          )
+        }
+      })
+      .catch((err) => {
+        // Falha de rede/sessão: permanece parado; o backstop (≤5 min) cobre.
+        console.warn('[Music] não foi possível reportar o fim da faixa:', err)
+      })
+  }, [reconcileStation, currentTrack?.youtube_video_id])
 
   /* Sync isPlaying to YouTube player */
   useEffect(() => {
@@ -265,13 +331,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           shuffle: queueShuffle,
           currentTrackIndex: currentTrackIdx,
           playOrder,
-          upNext,
           togglePlay,
           setPlaying,
-          next: advance,
-          prev: goBack,
-          playNext,
-          clearUpNext,
+          reconcileStation,
+          volume,
+          muted,
+          setVolume,
+          setMuted,
+          toggleMute,
         }}
       >
       {currentTrack && (
@@ -285,6 +352,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             opts={opts}
             onReady={(e) => {
               playerRef.current = e.target
+              setPlayerTick((t) => t + 1)
+              // Autoplay sem gesto: browser começa mudo até o 1º play (desbloqueio);
+              // Electron já inicia desmutado. O volume/mute persistido é aplicado
+              // pelo efeito em [volume, muted, playerTick] (Fase 2.8).
               if (!desktopEnv) e.target.mute()
               if (isPlaying) {
                 e.target.playVideo()
@@ -295,15 +366,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             onStateChange={(e) => {
               if (e.data === 1) {
                 console.log('[Music] tocando:', currentTrack?.title)
-                if (e.target.isMuted() && isPlaying) e.target.unMute()
+                // Desbloqueio de autoplay: só desmuta se o USUÁRIO não silenciou.
+                if (e.target.isMuted() && isPlaying && !mutedRef.current) e.target.unMute()
               }
             }}
             onError={(e) => {
               console.error('[Music] erro no player (YouTube), code:', e.data, '- track:', currentTrack?.title)
             }}
-            onEnd={() => {
-              advance()
-            }}
+            onEnd={handleTrackEnded}
           />
         </div>
       )}

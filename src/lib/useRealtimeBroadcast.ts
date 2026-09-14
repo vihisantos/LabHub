@@ -6,6 +6,11 @@ export interface UseRealtimeBroadcastOptions {
   self?: boolean
   /** Enable/disable the subscription (default: true) */
   enabled?: boolean
+  /**
+   * Called whenever the channel connection status changes (e.g. 'SUBSCRIBED',
+   * 'TIMED_OUT', 'CLOSED', 'CHANNEL_ERROR'). Useful to detect reconnect.
+   */
+  onStatus?: (status: string) => void
 }
 
 /**
@@ -39,11 +44,15 @@ export function useRealtimeBroadcast<T = any>(
   /** Send a broadcast message to all subscribers */
   send: (payload: T) => void
 } {
-  const { self = false, enabled = true } = options
+  const { self = false, enabled = true, onStatus } = options
 
   // Keep a ref to the latest callback to avoid re-subscribing on every render
   const callbackRef = useRef(callback)
   callbackRef.current = callback
+
+  // Keep a ref to the latest onStatus callback (same reason)
+  const onStatusRef = useRef(onStatus)
+  onStatusRef.current = onStatus
 
   // Channel ref is needed by send() which can be called outside the effect
   const channelRef = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null)
@@ -59,7 +68,9 @@ export function useRealtimeBroadcast<T = any>(
       .on('broadcast' as const, { event }, (payload) => {
         callbackRef.current((payload as any).payload as T)
       })
-      .subscribe()
+      .subscribe((status) => {
+        onStatusRef.current?.(status)
+      })
 
     channelRef.current = channel
 

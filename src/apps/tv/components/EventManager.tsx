@@ -23,9 +23,11 @@ interface EventManagerProps {
   initialValues?: { title?: string; description?: string; start_date?: string; end_date?: string }
   /** TVs do workspace — usadas para exibir o destino de cada evento. */
   devices?: TvDevice[]
+  /** true = somente leitura (não envia as ações de mutação). */
+  readOnly?: boolean
 }
 
-export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, devices }: EventManagerProps) {
+export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, devices, readOnly = false }: EventManagerProps) {
   /** Nome da TV de destino do evento (NULL = todas as TVs do campus). */
   const eventDeviceLabel = (e: TvEvent): string => {
     if (!e.device_id) return 'Todo o campus'
@@ -49,6 +51,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
   const [prevInit, setPrevInit] = useState(initialValues)
   if (initialValues !== prevInit && initialValues?.title) {
     setPrevInit(initialValues)
+    if (!readOnly) {
     setShowForm(true)
     setEditing(null)
     setTitle(initialValues.title ?? '')
@@ -59,6 +62,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
     setEndDate(initialValues.end_date ? initialValues.end_date.slice(0, 16) : '')
     setShowCountdown(false)
     setHasWelcome(false)
+    }
   }
 
   const openNew = () => {
@@ -160,12 +164,14 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{events.length}</span>
           )}
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-500/20 transition-all hover:from-violet-500 hover:to-purple-500 active:scale-[0.97]"
-        >
-          <Plus size={14} /> Novo Evento
-        </button>
+        {!readOnly && (
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-500/20 transition-all hover:from-violet-500 hover:to-purple-500 active:scale-[0.97]"
+          >
+            <Plus size={14} /> Novo Evento
+          </button>
+        )}
       </div>
 
       {/* Form Modal */}
@@ -290,12 +296,14 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
             <Calendar size={28} className="text-slate-300" />
             <p className="text-sm text-slate-500">Nenhum evento cadastrado</p>
-            <button
-              onClick={openNew}
-              className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
-            >
-              <Plus size={12} /> Criar primeiro evento
-            </button>
+            {!readOnly && (
+              <button
+                onClick={openNew}
+                className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+              >
+                <Plus size={12} /> Criar primeiro evento
+              </button>
+            )}
           </div>
         ) : (
           events.map((e, idx) => (
@@ -307,22 +315,24 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
               className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 transition-all hover:bg-slate-50 hover:border-slate-200"
             >
               {/* Reorder */}
-              <div className="flex flex-col gap-0.5">
-                <button
-                  onClick={() => moveUp(idx)}
-                  disabled={idx === 0}
-                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                >
-                  <ChevronUp size={12} />
-                </button>
-                <button
-                  onClick={() => moveDown(idx)}
-                  disabled={idx === events.length - 1}
-                  className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
-                >
-                  <ChevronDown size={12} />
-                </button>
-              </div>
+              {!readOnly && (
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    onClick={() => moveUp(idx)}
+                    disabled={idx === 0}
+                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                  >
+                    <ChevronUp size={12} />
+                  </button>
+                  <button
+                    onClick={() => moveDown(idx)}
+                    disabled={idx === events.length - 1}
+                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                  >
+                    <ChevronDown size={12} />
+                  </button>
+                </div>
+              )}
 
               {/* Content */}
               <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -353,30 +363,32 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
               </div>
 
               {/* Actions */}
-              <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <TooltipRoot>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => openEdit(e)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-violet-600"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Editar</TooltipContent>
-                </TooltipRoot>
-                <TooltipRoot>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setDeleteTarget(e)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Excluir</TooltipContent>
-                </TooltipRoot>
-              </div>
+              {!readOnly && (
+                <div className="flex shrink-0 items-center gap-1 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
+                  <TooltipRoot>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => openEdit(e)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-violet-600"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Editar</TooltipContent>
+                  </TooltipRoot>
+                  <TooltipRoot>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setDeleteTarget(e)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Excluir</TooltipContent>
+                  </TooltipRoot>
+                </div>
+              )}
             </motion.div>
           ))
         )}
