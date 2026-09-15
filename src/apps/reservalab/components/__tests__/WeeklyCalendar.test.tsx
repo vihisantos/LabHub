@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { WeeklyCalendar } from '../WeeklyCalendar'
@@ -12,6 +12,17 @@ vi.mock('framer-motion', () => ({
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
 }))
+
+vi.mock('@/core/workspaces/WorkspaceContext', () => ({
+  useWorkspace: () => ({ workspace: { id: 'ws-1', name: 'Campus A', slug: 'campus-a' } }),
+}))
+
+vi.mock('@/apps/tv/services/supabase', () => ({
+  fetchWorkspaceDevices: vi.fn(),
+  createEvent: vi.fn(),
+}))
+
+import { fetchWorkspaceDevices, createEvent } from '@/apps/tv/services/supabase'
 
 function makeWeekData(): WeekDayData[] {
   return [
@@ -71,6 +82,10 @@ function renderCalendar(weekData = makeWeekData()) {
 }
 
 describe('WeeklyCalendar', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
+  })
   it('renderiza título "Próximos 30 Dias"', () => {
     renderCalendar()
     expect(screen.getByText('Próximos 30 Dias')).toBeInTheDocument()
@@ -221,5 +236,50 @@ describe('WeeklyCalendar', () => {
     expect(screen.getByText('Seg')).toBeInTheDocument()
     expect(screen.getByText('Ter')).toBeInTheDocument()
     expect(screen.getByText('Qua')).toBeInTheDocument()
+  })
+
+  it('cria evento na TV com disciplina no título, professor e sala na descrição', async () => {
+    ;(fetchWorkspaceDevices as any).mockResolvedValue([
+      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
+    ])
+    ;(createEvent as any).mockResolvedValue(undefined)
+
+    renderCalendar()
+    fireEvent.click(screen.getByText('29'))
+
+    fireEvent.click(screen.getAllByText('Criar evento na TV')[0])
+    expect(await screen.findByText('Matemática')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Criar evento' }))
+
+    await vi.waitFor(() => {
+      expect(createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Matemática',
+          description: 'Professor: Prof. Silva | Sala: Lab Info 1',
+          is_active: true,
+        }),
+      )
+    })
+  })
+
+  it('não envia "Reservado por" no evento da TV', async () => {
+    ;(fetchWorkspaceDevices as any).mockResolvedValue([
+      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
+    ])
+    ;(createEvent as any).mockResolvedValue(undefined)
+
+    renderCalendar()
+    fireEvent.click(screen.getByText('29'))
+
+    fireEvent.click(screen.getAllByText('Criar evento na TV')[0])
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar evento' }))
+
+    await vi.waitFor(() => {
+      const call = (createEvent as any).mock.calls.find(([c]: any) => c && c.title === 'Matemática')
+      expect(call).toBeTruthy()
+      expect(call[0].description).not.toContain('Reservado por')
+      expect(call[0].description).not.toContain('João')
+    })
   })
 })

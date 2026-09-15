@@ -54,14 +54,13 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
   }
 
   const buildDraft = (): TvEventDraft => {
-    const parts: string[] = []
-    if (reservation.data) parts.push(`Data: ${reservation.data}`)
-    if (reservation.professor) parts.push(`Professor: ${reservation.professor}`)
-    if (reservation.reservaFeitaPor) parts.push(`Reservado por: ${reservation.reservaFeitaPor}`)
-    parts.push(reservation.time)
+    const description = [
+      reservation.professor && `Professor: ${reservation.professor}`,
+      reservation.lab && `Sala: ${reservation.lab}`,
+    ].filter(Boolean).join(' | ')
     return {
       title: reservation.subject || 'Reserva',
-      description: parts.join(' | '),
+      description,
       startDate: reservation.horario_inicio != null ? toIso(reservation.horario_inicio) : null,
       endDate: reservation.horario_fim != null ? toIso(reservation.horario_fim) : null,
     }
