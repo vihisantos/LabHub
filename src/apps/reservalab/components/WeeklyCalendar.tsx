@@ -67,8 +67,7 @@ function buildTvDraft(
   const iso = parseTimeToISO(reservation.time, date)
   const description = [
     reservation.professor && `Professor: ${reservation.professor}`,
-    reservation.reservaFeitaPor && `Reservado por: ${reservation.reservaFeitaPor}`,
-    reservation.observacao,
+    reservation.lab && `Sala: ${reservation.lab}`,
   ].filter(Boolean).join(' | ')
   return {
     title: reservation.subject || reservation.observacao || 'Reserva',

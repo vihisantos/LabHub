@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ReservationModal } from '../ReservationModal'
@@ -10,6 +10,17 @@ vi.mock('framer-motion', () => ({
   },
 }))
 
+vi.mock('@/core/workspaces/WorkspaceContext', () => ({
+  useWorkspace: () => ({ workspace: { id: 'ws-1', name: 'Campus A', slug: 'campus-a' } }),
+}))
+
+vi.mock('@/apps/tv/services/supabase', () => ({
+  fetchWorkspaceDevices: vi.fn(),
+  createEvent: vi.fn(),
+}))
+
+import { fetchWorkspaceDevices, createEvent } from '@/apps/tv/services/supabase'
+
 function makeReservation(overrides: Partial<TransformedReservation> = {}): TransformedReservation {
   return {
     id: 'lab|07h30 - 09h20|Prof. João',
@@ -17,6 +28,7 @@ function makeReservation(overrides: Partial<TransformedReservation> = {}): Trans
     period: 'manhã',
     subject: 'Matemática',
     professor: 'Prof. João',
+    lab: 'Lab 01',
     combined: false,
     data: '25/06/2026',
     alunos: 30,
@@ -39,6 +51,10 @@ function renderModal(reservation = makeReservation(), onClose = vi.fn()) {
 }
 
 describe('ReservationModal', () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
+  })
   it('renderiza subject da reserva', () => {
     renderModal()
     expect(screen.getByText('Matemática')).toBeInTheDocument()
@@ -97,5 +113,46 @@ describe('ReservationModal', () => {
       fireEvent.click(overlay)
       expect(onClose).toHaveBeenCalled()
     }
+  })
+
+  it('cria evento na TV com disciplina no título e professor+sala na descrição', async () => {
+    ;(fetchWorkspaceDevices as any).mockResolvedValue([
+      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
+    ])
+    ;(createEvent as any).mockResolvedValue(undefined)
+
+    renderModal()
+    fireEvent.click(screen.getByText('Criar evento na TV'))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar evento' }))
+
+    await vi.waitFor(() => {
+      expect(createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Matemática',
+          description: 'Professor: Prof. João | Sala: Lab 01',
+          is_active: true,
+        }),
+      )
+    })
+  })
+
+  it('não envia "Reservado por" nem a hora crua na descrição do evento da TV', async () => {
+    ;(fetchWorkspaceDevices as any).mockResolvedValue([
+      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
+    ])
+    ;(createEvent as any).mockResolvedValue(undefined)
+
+    renderModal(makeReservation())
+    fireEvent.click(screen.getByText('Criar evento na TV'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar evento' }))
+
+    await vi.waitFor(() => {
+      const call = (createEvent as any).mock.calls.find(([c]: any) => c && c.title === 'Matemática')
+      expect(call).toBeTruthy()
+      expect(call[0].description).not.toContain('Reservado por')
+      expect(call[0].description).not.toContain('Maria')
+      expect(call[0].description).not.toContain('07h30')
+    })
   })
 })

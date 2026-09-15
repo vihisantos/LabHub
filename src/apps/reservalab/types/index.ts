@@ -58,6 +58,8 @@ export interface TransformedReservation {
   isEnded: boolean
   combined: boolean
   alunos: number
+  /** Nome de exibição do laboratório (Lab 01) */
+  lab?: string
   /** Raw date from API (DD/MM/YYYY) */
   data?: string
   /** Parsed start time in minutes from midnight */

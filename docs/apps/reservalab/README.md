@@ -26,6 +26,7 @@ O ReservaLab também hospeda o backend Flask principal do projeto, responsável 
 - **Notificações push** — lembretes configuráveis antes do início da reserva (padrão de 30 minutos; laboratório e tablet), escopados por campus
 - **Suporte a múltiplos laboratórios** — quantidade configurável por campus (`lab_count`)
 - **Limpeza automática** — remoção de reservas de tablet canceladas há mais de 30 dias
+- **Eventos na TV corporativa** — a partir de uma reserva, crie um evento para a TV do campus, escolhendo entre as TVs ativadas; o evento é gravado em `tv_events` (`device_id` + `is_active: true`) e aparece no display no intervalo informado
 
 ## Fontes de dados
 
@@ -65,6 +66,7 @@ Gestão de reservas de tablet.
 ## Integrações e dependências
 
 - **Backend Flask** — o ReservaLab é a única aplicação com backend próprio; todas as rotas `/api/*` do projeto vivem em `src/apps/reservalab/api/app.py`
+- **TV corporativa** — o fluxo "Criar evento na TV" (`CreateTvEventModal`) publica um evento na TV do campus, gravando em `tv_events` a TV escolhida (`device_id`)
 - **SharePoint** — planilha de reservas por campus, configurada em `workspaces.spreadsheet_url`
 - **Upstash Redis** — cache de reservas e inscrições de push
 - **Supabase** — tabela `tablet_reservations`

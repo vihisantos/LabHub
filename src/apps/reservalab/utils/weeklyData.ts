@@ -30,7 +30,7 @@ export function buildWeeklyData(
       tipo: 'lab',
       lab: getLabDisplayName(r.lab) || r.lab,
       time: r.horario,
-      subject: r.responsavel || r.observacao || 'Disciplina',
+      subject: r.observacao || r.responsavel || 'Disciplina',
       professor: r.responsavel,
       reservaFeitaPor: r.reserva_feita_por || '',
       observacao: r.observacao || '',

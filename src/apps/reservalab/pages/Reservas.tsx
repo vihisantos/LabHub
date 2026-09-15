@@ -12,6 +12,7 @@ import { fetchReservas } from '../services/api'
 import { fetchTabletReservas } from '../services/supabase'
 import { diasSemana, getPeriodo, isReservaAtiva, isReservaEmBreve, isReservaEncerrada } from '../utils/timeUtils'
 import { buildWeeklyData } from '../utils/weeklyData'
+import { getLabDisplayName } from '../utils/labUtils'
 import type { ReservasAPIResponse, TabletReserva, TransformedReservation, WeekDayData } from '../types'
 
 function FigmaLabSection({
@@ -272,6 +273,7 @@ export function ReservasView() {
       subject: r.observacao || 'Disciplina',
       professor: r.responsavel,
       reservaFeitaPor: r.reserva_feita_por,
+      lab: getLabDisplayName(r.lab || r.labs?.join(' e ') || ''),
       isLive: isReservaAtiva(r.horario),
       isEmBreve: isReservaEmBreve(r.horario),
       isEnded: isReservaEncerrada(r.horario),
