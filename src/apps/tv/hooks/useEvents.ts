@@ -1,10 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchEvents, fetchAllEvents, createEvent, updateEvent, deleteEvent } from '../services/supabase'
+import { fetchScheduledContent, fetchAllEvents, createEvent, updateEvent, deleteEvent } from '../services/supabase'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
 import type { TvEvent } from '../types'
 
+/**
+ * Hook de exibição no player.
+ * Utiliza `tv_resolve_scheduled_content` (4-arg) para obter o conteúdo ativo.
+ * Quando o resolver retorna um evento, retorna `[evento]`; quando retorna NULL, retorna `[]`.
+ * Realtime em `tv_schedules` garante re-resolução ao mudar a programação.
+ * Polling 15s é backstop.
+ */
 export function useEvents(deviceId?: string | null) {
   const [events, setEvents] = useState<TvEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -13,8 +20,8 @@ export function useEvents(deviceId?: string | null) {
   const load = useCallback(async (silent?: boolean) => {
     try {
       if (!silent) setLoading(true)
-      const data = await fetchEvents(deviceId)
-      setEvents(data)
+      const event = await fetchScheduledContent(deviceId)
+      setEvents(event ? [event] : [])
     } catch {
       if (!silent) addToast('error', 'Erro ao carregar eventos')
     } finally {
@@ -24,7 +31,8 @@ export function useEvents(deviceId?: string | null) {
 
   useEffect(() => { load() }, [load])
 
-  /* ── Realtime: auto-refresh when events change ── */
+  /* ── Realtime: re-resolve when schedule or events change ── */
+  useRealtimeSubscription('tv_schedules', '*', () => load(true))
   useRealtimeSubscription('tv_events', '*', () => load(true))
 
   /* ── Poll fallback: refresh every 15s ── */
