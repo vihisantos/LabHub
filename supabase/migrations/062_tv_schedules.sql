@@ -181,12 +181,28 @@ CREATE POLICY "tv_schedules_read" ON public.tv_schedules
 DROP POLICY IF EXISTS "tv_schedule_days_read" ON public.tv_schedule_days;
 CREATE POLICY "tv_schedule_days_read" ON public.tv_schedule_days
   FOR SELECT TO authenticated
-  USING (public.can_access_tv_workspace(workspace_id));
+  USING (
+    public.can_access_tv_workspace(
+      (
+        SELECT s.workspace_id
+        FROM public.tv_schedules s
+        WHERE s.id = schedule_id
+      )
+    )
+  );
 
 DROP POLICY IF EXISTS "tv_schedule_targets_read" ON public.tv_schedule_targets;
 CREATE POLICY "tv_schedule_targets_read" ON public.tv_schedule_targets
   FOR SELECT TO authenticated
-  USING (public.can_access_tv_workspace(workspace_id));
+  USING (
+    public.can_access_tv_workspace(
+      (
+        SELECT s.workspace_id
+        FROM public.tv_schedules s
+        WHERE s.id = schedule_id
+      )
+    )
+  );
 
 -- Sem INSERT/UPDATE/DELETE policies: unica mutacao via RPC SECURITY DEFINER.
 -- (service_role faz bypass de RLS, mantendo o gate no RPC.)
