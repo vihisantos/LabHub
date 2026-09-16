@@ -60,6 +60,30 @@ jobs:
           git tag "$VERSION" 2>/dev/null || true
           gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/$VERSION" -f sha="${{ github.sha }}" 2>/dev/null || true
 
+      - name: Ensure release exists for tag
+        # O electron-builder publica exe e blockmap em paralelo e cada upload
+        # resolve/cria a release de forma independente; quando os dois correm em
+        # paralelo, o GitHub pode criar DUAS releases com a mesma tag e a tag
+        # passa a resolver para a release sem latest.yml (update quebra com
+        # ERR_UPDATER_CHANNEL_FILE_NOT_FOUND). Criando a release PUBLICADA antes
+        # do publish, os dois uploads encontram a mesma release (<2h => permitido
+        # pelo electron-builder) e todos os assets ficam nela — a tag resolve
+        # para a única release com todos os assets. Idempotente: se a release
+        # já existe, não faz nada.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          VERSION="v$(node -p "require('./desktop/package.json').version")"
+          for attempt in 1 2 3 4 5; do
+            gh api "repos/${{ github.repository }}/releases/tags/$VERSION" --jq '.id' >/dev/null 2>&1 && break
+            gh api -X POST "repos/${{ github.repository }}/releases" \
+              -f tag_name="$VERSION" -f name="LabHub TV $VERSION" -F draft=false >/dev/null 2>&1 && break
+            sleep 2
+          done
+          exit 0
+
       - name: Build installer & publish to GitHub Releases
         run: npx electron-builder --win nsis --publish always
         working-directory: desktop
