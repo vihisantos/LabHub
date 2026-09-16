@@ -16,7 +16,9 @@ Nenhum header/token é logado. ``requests.Session`` é injetável para testes.
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
+import re
+from collections.abc import Callable
+from typing import Any
 
 import requests
 
@@ -25,6 +27,22 @@ _QUERY_PATH = "/v1/projects/{ref}/database/query"
 
 # Injetável: a função de POST usada pelo runner. Em testes trocamos por um mock.
 HttpPost = Callable[..., requests.Response]
+
+# Tamanho máximo do trecho de erro preservado nas mensagens de `ApiError`.
+_MAX_ERROR_EXCERPT = 500
+
+# Padrões de credenciais/SQL que NUNCA devem vazar em logs/erros.
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b")
+_SBP_TOKEN_RE = re.compile(r"\bsbp_[A-Za-z0-9_-]{10,}\b")
+_BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{6,}")
+
+
+def _sanitize(text: str) -> str:
+    """Remove JWTs/PATs/Bearer tokens óbvios e normaliza espaços de um trecho."""
+    text = _JWT_RE.sub("[REDACTED]", text)
+    text = _SBP_TOKEN_RE.sub("[REDACTED]", text)
+    text = _BEARER_RE.sub("Bearer [REDACTED]", text)
+    return " ".join(text.split())
 
 
 class ApiError(Exception):
@@ -66,11 +84,15 @@ class ManagementAPI:
         resp = self._post(url, json={"query": sql}, headers=self._headers(), timeout=60)
         text = resp.text or ""
         if resp.status_code >= 300:
-            # Não logamos o corpo: pode conter pedaços de SQL/secrets.
+            # Preserva apenas um trecho sanitizado do corpo: útil para identificar
+            # o erro real do Postgres/Supabase sem vazar SQL/secrets completos.
             detail = (
                 "Management API respondeu status HTTP "
                 f"{resp.status_code} ao executar consulta"
             )
+            extra = self._error_detail(resp)
+            if extra:
+                detail = f"{detail}: {extra}"
             raise ApiError(resp.status_code, detail)
         if not text:
             return None
@@ -78,3 +100,44 @@ class ManagementAPI:
             return resp.json()
         except ValueError:
             return text
+
+    def _error_detail(self, resp: Any) -> str:
+        """Extrai e sanitiza a mensagem de erro retornada pela Management API.
+
+        Prioriza campos JSON comuns (error/message/hint/detail/code); se a
+        resposta não for JSON, usa o texto bruto. Limita a ~500 caracteres e
+        redige tokens (Supabase PAT/JWT/Bearer) e o próprio access_token.
+        """
+        message = ""
+
+        parsed = None
+        try:
+            parsed = resp.json()
+        except (AttributeError, TypeError, ValueError):
+            parsed = None
+
+        if isinstance(parsed, dict):
+            for key in ("error", "message", "hint", "detail", "details", "code"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    message = value.strip()
+                    break
+                if isinstance(value, list):
+                    joined = "; ".join(str(item) for item in value)
+                    if joined.strip():
+                        message = joined.strip()
+                        break
+            if not message:
+                message = "; ".join(f"{key}={value}" for key, value in parsed.items())
+        elif parsed is not None:
+            message = str(parsed)
+        elif getattr(resp, "text", None):
+            message = str(resp.text)
+
+        if not message:
+            return ""
+
+        message = _sanitize(message)
+        if self.access_token and self.access_token in message:
+            message = message.replace(self.access_token, "[REDACTED]")
+        return message[:_MAX_ERROR_EXCERPT]
