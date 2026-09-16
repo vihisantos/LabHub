@@ -282,6 +282,7 @@ export function ReservasView() {
       data: r.data,
       horario_inicio: r.horario_inicio != null ? Number(r.horario_inicio) : null,
       horario_fim: r.horario_fim != null ? Number(r.horario_fim) : null,
+      reservation_id: r.reservation_id || null,
     }))
 
     return transformed.sort((a, b) => {

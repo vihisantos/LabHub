@@ -19,10 +19,10 @@ vi.mock('@/core/workspaces/WorkspaceContext', () => ({
 
 vi.mock('@/apps/tv/services/supabase', () => ({
   fetchWorkspaceDevices: vi.fn(),
-  createEvent: vi.fn(),
+  reserveEventUpsert: vi.fn(),
 }))
 
-import { fetchWorkspaceDevices, createEvent } from '@/apps/tv/services/supabase'
+import { fetchWorkspaceDevices, reserveEventUpsert } from '@/apps/tv/services/supabase'
 
 function makeWeekData(): WeekDayData[] {
   return [
@@ -242,7 +242,7 @@ describe('WeeklyCalendar', () => {
     ;(fetchWorkspaceDevices as any).mockResolvedValue([
       { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
     ])
-    ;(createEvent as any).mockResolvedValue(undefined)
+    ;(reserveEventUpsert as any).mockResolvedValue({ event_id: 'evt-1', schedule_id: 'sch-1' })
 
     renderCalendar()
     fireEvent.click(screen.getByText('29'))
@@ -250,14 +250,14 @@ describe('WeeklyCalendar', () => {
     fireEvent.click(screen.getAllByText('Criar evento na TV')[0])
     expect(await screen.findByText('Matemática')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Criar evento' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Programar evento' }))
 
     await vi.waitFor(() => {
-      expect(createEvent).toHaveBeenCalledWith(
+      expect(reserveEventUpsert).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Matemática',
           description: 'Professor: Prof. Silva | Sala: Lab Info 1',
-          is_active: true,
+          reservationDate: '2026-06-29',
         }),
       )
     })
@@ -267,16 +267,16 @@ describe('WeeklyCalendar', () => {
     ;(fetchWorkspaceDevices as any).mockResolvedValue([
       { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
     ])
-    ;(createEvent as any).mockResolvedValue(undefined)
+    ;(reserveEventUpsert as any).mockResolvedValue({ event_id: 'evt-1', schedule_id: 'sch-1' })
 
     renderCalendar()
     fireEvent.click(screen.getByText('29'))
 
     fireEvent.click(screen.getAllByText('Criar evento na TV')[0])
-    fireEvent.click(await screen.findByRole('button', { name: 'Criar evento' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Programar evento' }))
 
     await vi.waitFor(() => {
-      const call = (createEvent as any).mock.calls.find(([c]: any) => c && c.title === 'Matemática')
+      const call = (reserveEventUpsert as any).mock.calls.find(([c]: any) => c && c.title === 'Matemática')
       expect(call).toBeTruthy()
       expect(call[0].description).not.toContain('Reservado por')
       expect(call[0].description).not.toContain('João')

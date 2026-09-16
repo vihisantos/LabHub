@@ -34,6 +34,10 @@ export function buildWeeklyData(
       professor: r.responsavel,
       reservaFeitaPor: r.reserva_feita_por || '',
       observacao: r.observacao || '',
+      data: r.data,
+      horario_inicio: r.horario_inicio ?? null,
+      horario_fim: r.horario_fim ?? null,
+      reservation_id: r.reservation_id ?? null,
     })
   }
 

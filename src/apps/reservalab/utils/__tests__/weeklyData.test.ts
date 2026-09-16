@@ -50,4 +50,27 @@ describe('buildWeeklyData', () => {
     const out = buildWeeklyData([lab('16/09/2026')], [])
     expect(out[0].reservations[0].reservaFeitaPor).toBe('Maria')
   })
+
+  it('propaga data, horários em minutos e reservation_id da reserva de lab', () => {
+    const reserva: LaboratorioReserva = {
+      ...lab('16/09/2026', '07h30 às 09h20'),
+      horario_inicio: 450,
+      horario_fim: 560,
+      reservation_id: 'chave-abc',
+    }
+    const out = buildWeeklyData([reserva], [])
+    const item = out[0].reservations[0]
+    expect(item.data).toBe('16/09/2026')
+    expect(item.horario_inicio).toBe(450)
+    expect(item.horario_fim).toBe(560)
+    expect(item.reservation_id).toBe('chave-abc')
+  })
+
+  it('não propaga reservation_id/horários quando ausentes (reserva segura)', () => {
+    const out = buildWeeklyData([lab('16/09/2026')], [])
+    const item = out[0].reservations[0]
+    expect(item.reservation_id).toBeNull()
+    expect(item.horario_inicio).toBeNull()
+    expect(item.horario_fim).toBeNull()
+  })
 })

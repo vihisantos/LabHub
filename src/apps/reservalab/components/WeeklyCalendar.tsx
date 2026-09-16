@@ -26,45 +26,11 @@ const BookOpen = ({ size = 14 }: { size?: number }) => (
   </svg>
 )
 
-function parseTimeToISO(time: string, date: string): { start: string | null; end: string | null } {
-  const [dia, mes, ano] = date.split('/').map(Number)
-  const toISODate = (minutes: number) => {
-    const h = Math.floor(minutes / 60)
-    const m = minutes % 60
-    return new Date(ano, mes - 1, dia, h, m).toISOString()
-  }
-
-  // Lab format: "07h30 às 09h20"
-  const labMatch = time.match(/(\d+)h(\d*)\s*(?:às|à)\s*(\d+)h(\d*)/)
-  if (labMatch) {
-    const start = parseInt(labMatch[1]) * 60 + parseInt(labMatch[2] || '0')
-    const end = parseInt(labMatch[3]) * 60 + parseInt(labMatch[4] || '0')
-    return { start: toISODate(start), end: toISODate(end) }
-  }
-
-  // Tablet format: "HH:MM - HH:MM"
-  const tabletMatch = time.match(/(\d+):(\d+)\s*-\s*(\d+):(\d+)/)
-  if (tabletMatch) {
-    const start = parseInt(tabletMatch[1]) * 60 + parseInt(tabletMatch[2])
-    const end = parseInt(tabletMatch[3]) * 60 + parseInt(tabletMatch[4])
-    return { start: toISODate(start), end: toISODate(end) }
-  }
-
-  // Single time: just "07h30" or "19h"
-  const singleMatch = time.match(/(\d+)h(\d*)/)
-  if (singleMatch) {
-    const start = parseInt(singleMatch[1]) * 60 + parseInt(singleMatch[2] || '0')
-    return { start: toISODate(start), end: null }
-  }
-
-  return { start: null, end: null }
-}
-
 function buildTvDraft(
   reservation: WeekDayData['reservations'][number],
   date: string,
 ): TvEventDraft {
-  const iso = parseTimeToISO(reservation.time, date)
+  const parsed = parseHorario(reservation.time)
   const description = [
     reservation.professor && `Professor: ${reservation.professor}`,
     reservation.lab && `Sala: ${reservation.lab}`,
@@ -72,8 +38,10 @@ function buildTvDraft(
   return {
     title: reservation.subject || reservation.observacao || 'Reserva',
     description,
-    startDate: iso.start,
-    endDate: iso.end,
+    reservationDate: reservation.data || date,
+    reservationId: reservation.reservation_id ?? null,
+    timeStartMinutes: reservation.horario_inicio ?? parsed.inicio,
+    timeEndMinutes: reservation.horario_fim ?? parsed.fim,
   }
 }
 

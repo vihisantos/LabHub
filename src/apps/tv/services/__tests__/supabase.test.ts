@@ -47,6 +47,11 @@ const lastCall = (m: string) => {
 vi.mock('../../../../lib/supabase', () => ({
   defaultDb: {
     from: (table: string) => makeBuilder(table),
+    rpc: (fn: string, args: unknown) => {
+      record('rpc', [fn, args])
+      const first = Array.isArray(state.result.data) ? state.result.data[0] : state.result.data
+      return Promise.resolve({ data: first ?? null, error: state.result.error })
+    },
   },
 }))
 
@@ -64,6 +69,7 @@ import {
   createEvent,
   updateEvent,
   deleteEvent,
+  reserveEventUpsert,
   fetchPlaylists,
   fetchAllPlaylists,
   createPlaylist,
@@ -194,6 +200,77 @@ describe('deleteEvent', () => {
     store.activeWorkspaceId = null
     await expect(deleteEvent('evt-1')).rejects.toThrow()
     expect(lastCall('eq')).toBeUndefined()
+  })
+})
+
+describe('reserveEventUpsert', () => {
+  it('chama o RPC tv_reserve_event_upsert com workspace ativo e payload canônico', async () => {
+    state.result = { data: [{ event_id: 'evt-1', schedule_id: 'sch-1' }], error: null }
+
+    const result = await reserveEventUpsert({
+      reservationDate: '2026-09-20',
+      title: 'Reserva Lab A',
+      description: 'Aula prática',
+      reservationId: 'chave-abc',
+      timeStart: '09:30',
+      timeEnd: '11:00',
+      additionalDates: ['2026-09-27'],
+      targetDeviceIds: ['dev-1', 'dev-2'],
+    })
+
+    expect(result).toEqual({ event_id: 'evt-1', schedule_id: 'sch-1' })
+    expect(lastCall('rpc')?.a).toEqual([
+      'tv_reserve_event_upsert',
+      {
+        p_workspace_id: 'ws-x',
+        p_reservation_date: '2026-09-20',
+        p_title: 'Reserva Lab A',
+        p_description: 'Aula prática',
+        p_image_url: null,
+        p_pdf_url: null,
+        p_reservation_id: 'chave-abc',
+        p_reservation_time_start: '09:30',
+        p_reservation_time_end: '11:00',
+        p_additional_dates: ['2026-09-27'],
+        p_target_device_ids: ['dev-1', 'dev-2'],
+        p_event_id: null,
+        p_sort_order: 0,
+      },
+    ])
+  })
+
+  it('envia nulls quando não há horário, datas adicionais ou TVs (todas do workspace)', async () => {
+    state.result = { data: [{ event_id: 'evt-2', schedule_id: 'sch-2' }], error: null }
+
+    const result = await reserveEventUpsert({
+      reservationDate: '2026-09-20',
+      title: 'Sem horário',
+      reservationId: null,
+    })
+
+    expect(result).toEqual({ event_id: 'evt-2', schedule_id: 'sch-2' })
+    const payload = lastCall('rpc')?.a[1] as Record<string, unknown>
+    expect(payload.p_reservation_id).toBeNull()
+    expect(payload.p_reservation_time_start).toBeNull()
+    expect(payload.p_reservation_time_end).toBeNull()
+    expect(payload.p_additional_dates).toBeNull()
+    expect(payload.p_target_device_ids).toBeNull()
+    expect(payload.p_event_id).toBeNull()
+  })
+
+  it('propaga erro do RPC (falha de permissão)', async () => {
+    state.result = { data: [], error: { code: '42501', message: 'TV_WORKSPACE_FULL_REQUIRED' } }
+    await expect(
+      reserveEventUpsert({ reservationDate: '2026-09-20', title: 'x' }),
+    ).rejects.toThrow()
+  })
+
+  it('falha sem workspace ativo', async () => {
+    store.activeWorkspaceId = null
+    await expect(
+      reserveEventUpsert({ reservationDate: '2026-09-20', title: 'x' }),
+    ).rejects.toThrow()
+    expect(lastCall('rpc')).toBeUndefined()
   })
 })
 

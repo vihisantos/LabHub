@@ -70,6 +70,58 @@ export async function deleteEvent(id: string): Promise<void> {
   if (error) throw error
 }
 
+/* ── Reserva → Evento na TV (RPC único, tabela de TV só via RPC) ── */
+
+export interface ReserveEventInput {
+  /** Data da reserva em YYYY-MM-DD (obrigatória). */
+  reservationDate: string
+  title: string
+  description?: string | null
+  /** Chave determinística vinda do backend (/api/reservas). null = sem ligação à reserva. */
+  reservationId?: string | null
+  /** Horário da reserva em HH:MM (somente na data da reserva). null = horário não declarado. */
+  timeStart?: string | null
+  timeEnd?: string | null
+  /** Datas adicionais em YYYY-MM-DD (repetem o evento nas outras TVs, sem horário). */
+  additionalDates?: string[] | null
+  /** TVs (uuid[]) de destino no workspace. null/[] = todas as TVs do workspace. */
+  targetDeviceIds?: string[] | null
+  /** Evento existente a atualizar (upsert). null = criar/atualizar pela reservation_id. */
+  eventId?: string | null
+}
+
+export interface ReserveEventResult {
+  event_id: string
+  schedule_id: string
+}
+
+/**
+ * Cria/atualiza o evento de TV de uma reserva via `tv_reserve_event_upsert`.
+ * Nunca grava em `tv_events` diretamente: a tabela só é escrita pelo RPC (064).
+ */
+export async function reserveEventUpsert(input: ReserveEventInput): Promise<ReserveEventResult> {
+  if (!supabase) throw new Error('Supabase not initialized')
+  const ws = workspaceId()
+  if (!ws) throw new Error('Workspace não selecionado')
+  const { data, error } = await supabase.rpc('tv_reserve_event_upsert', {
+    p_workspace_id: ws,
+    p_reservation_date: input.reservationDate,
+    p_title: input.title,
+    p_description: input.description ?? null,
+    p_image_url: null,
+    p_pdf_url: null,
+    p_reservation_id: input.reservationId ?? null,
+    p_reservation_time_start: input.timeStart ?? null,
+    p_reservation_time_end: input.timeEnd ?? null,
+    p_additional_dates: input.additionalDates?.length ? input.additionalDates : null,
+    p_target_device_ids: input.targetDeviceIds?.length ? input.targetDeviceIds : null,
+    p_event_id: input.eventId ?? null,
+    p_sort_order: 0,
+  } as never)
+  if (error) throw error
+  return data as ReserveEventResult
+}
+
 /* ── Playlists ── */
 
 export async function fetchPlaylists(): Promise<TvPlaylist[]> {

@@ -7,8 +7,11 @@ export interface LaboratorioReserva {
   labs: string[]
   lab: string
   data: string
-  horario_inicio?: string
-  horario_fim?: string
+  /** Minutos desde meia-noite (backend). Ausente quando o horário não é declarado. */
+  horario_inicio?: number | null
+  horario_fim?: number | null
+  /** Chave determinística calculada no backend (compatível com a 064). */
+  reservation_id?: string | null
 }
 
 export interface TabletReserva {
@@ -66,6 +69,8 @@ export interface TransformedReservation {
   horario_inicio?: number | null
   /** Parsed end time in minutes from midnight */
   horario_fim?: number | null
+  /** Chave determinística da reserva vinda do backend (/api/reservas). */
+  reservation_id?: string | null
 }
 
 export interface WeekDayData {
@@ -79,6 +84,13 @@ export interface WeekDayData {
     professor: string
     reservaFeitaPor: string
     observacao: string
+    /** Date da reserva (DD/MM/YYYY), quando a origem é a planilha. */
+    data?: string
+    /** Horário da reserva em minutos (backend), quando declarado. */
+    horario_inicio?: number | null
+    horario_fim?: number | null
+    /** Chave determinística da reserva (backend); tablets não têm. */
+    reservation_id?: string | null
   }>
 }
 

@@ -45,14 +45,6 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
     return { label: `${Math.floor(i / DESK_COLS) + 1}.${(i % DESK_COLS) + 1}`, pcd: false }
   })
 
-  const toIso = (minutes: number): string | null => {
-    if (!reservation.data) return null
-    const [dia, mes, ano] = reservation.data.split('/').map(Number)
-    const h = Math.floor(minutes / 60)
-    const m = minutes % 60
-    return new Date(ano, mes - 1, dia, h, m).toISOString()
-  }
-
   const buildDraft = (): TvEventDraft => {
     const description = [
       reservation.professor && `Professor: ${reservation.professor}`,
@@ -61,8 +53,10 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
     return {
       title: reservation.subject || 'Reserva',
       description,
-      startDate: reservation.horario_inicio != null ? toIso(reservation.horario_inicio) : null,
-      endDate: reservation.horario_fim != null ? toIso(reservation.horario_fim) : null,
+      reservationDate: reservation.data || '',
+      reservationId: reservation.reservation_id ?? null,
+      timeStartMinutes: reservation.horario_inicio ?? null,
+      timeEndMinutes: reservation.horario_fim ?? null,
     }
   }
 

@@ -289,3 +289,140 @@ def test_api_reservas_retorna_lab_reservas_e_lab_count(cache_isolado, monkeypatc
     # Compat: lab1/lab2 continuam presentes
     assert len(body['lab1_reservas']) == 1
     assert len(body['lab2_reservas']) == 1
+
+
+# ── Horário (início/fim) e chave determinística da reserva (FASE 2.2, Issue #222) ──
+
+
+def test_parse_horario_fim_extrai_fim_do_intervalo(spread_module):
+    # A planilha usa formato local "07h30 às 09h20" → fim = 560 min
+    assert spread_module.parse_horario_fim('07h30 às 09h20') == 560
+    assert spread_module.parse_horario_fim('07:30 até 09:20') == 560
+    assert spread_module.parse_horario_fim('07h30 - 09h20') == 560
+    assert spread_module.parse_horario_fim('07h30 as 09h20') == 560
+
+
+def test_parse_horario_fim_sem_intervalo_retorna_none(spread_module):
+    # Sem separador de intervalo não há fim declarado → None (não inventar)
+    assert spread_module.parse_horario_fim('09h20') is None
+    assert spread_module.parse_horario_fim('11h30') is None
+    assert spread_module.parse_horario_fim('') is None
+    assert spread_module.parse_horario_fim(None) is None
+
+
+def test_parse_spreadsheet_emite_horario_inicio_fim_e_reservation_id(spread_module, monkeypatch):
+    today = date(2026, 6, 25)
+    monkeypatch.setattr(spread_module, 'get_today_sp', lambda: today)
+
+    def make_workbook_intervalo():
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'RESERVA LAB. INFORMÁTICA'
+        ws.append(['Reserva feita por', 'Professor', 'Email', 'Data', 'Horário', 'Alunos', 'Obs', '', 'Lab'])
+        ws.append(['Maria', 'Prof. A', 'a@x', today, '07h30 às 09h20', 30, '', None, 'Lab 01'])
+        ws.append(['João', 'Prof. B', 'b@x', today, '10h00', 10, '', None, 'Lab 01'])
+        buf = BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    monkeypatch.setattr(spread_module, 'requests',
+                        type('FakeRequests', (), {'get': staticmethod(
+                            lambda url, timeout=30: FakeDownloadResponse(make_workbook_intervalo()))})())
+
+    hoje, _ = spread_module._parse_spreadsheet('https://x/fake.xlsx')
+    por_prof = {r['responsavel']: r for r in hoje}
+
+    a = por_prof['Prof. A']
+    assert a['horario_inicio'] == 450
+    assert a['horario_fim'] == 560
+    # Chave existe e é estável entre parses (mesma planilha → mesmo reservation_id)
+    chave_a = a['reservation_id']
+    assert isinstance(chave_a, str) and len(chave_a) == 32
+    assert len({por_prof['Prof. A']['reservation_id'], por_prof['Prof. B']['reservation_id']}) == 2
+
+    reparsed = spread_module._parse_spreadsheet('https://x/fake.xlsx')
+    assert por_prof['Prof. A']['reservation_id'] == \
+        {r['responsavel']: r for r in reparsed[0]}['Prof. A']['reservation_id']
+
+    # Horário avulso: início ok, fim None
+    b = por_prof['Prof. B']
+    assert b['horario_inicio'] == 600
+    assert b['horario_fim'] is None
+
+
+def test_reservation_key_deterministica_e_normaliza_confirma(spread_module):
+    key = spread_module._reservation_key(date(2026, 6, 25), ['LAB01', 'LAB02'], '07h30 às 09h20',
+                                         'Prof. A', 'a@x', 'Maria', 450, 560)
+    # Mesma entrada → mesmo md5
+    assert key == spread_module._reservation_key(date(2026, 6, 25), ['LAB01', 'LAB02'],
+                                                 '07h30 às 09h20', 'Prof. A', 'a@x', 'Maria', 450, 560)
+    # Ordem dos labs não muda a chave (normalização ordenada)
+    assert key == spread_module._reservation_key(date(2026, 6, 25), ['LAB02', 'LAB01'],
+                                                 '07h30 às 09h20', 'Prof. A', 'a@x', 'Maria', 450, 560)
+
+
+def test_reservation_key_sensivel_a_mudancas_reais(spread_module):
+    base = {
+        'data': date(2026, 6, 25), 'labs': ['LAB01'], 'horario': '10h00',
+        'responsavel': 'Prof. A', 'email': 'a@x', 'reserva_feita_por': 'Maria',
+    }
+    k = spread_module._reservation_key(**base)
+    # Mudança de data / lab / professor / email / quem reservou → nova reserva
+    for campo, valor in [('data', date(2026, 6, 26)), ('labs', ['LAB02']),
+                         ('responsavel', 'Prof. B'), ('email', 'b@x'),
+                         ('reserva_feita_por', 'João')]:
+        assert spread_module._reservation_key(**{**base, campo: valor}) != k
+
+
+# ── Exposição no GET /api/reservas (FASE 2.3, Issue #222) ──
+
+
+def test_api_reservas_expoe_horario_inicio_fim_e_reservation_id(cache_isolado, monkeypatch):
+    # Reserva com intervalo válido: o JSON precisa carregar os três campos
+    # (horario_inicio/horario_fim em minutos desde meia-noite + chave
+    # determinística), já que a rota serializa o dict completo do parser.
+    def fake_parse(url, lab_count=2):
+        return (
+            [{
+                'labs': ['LAB01'], 'data': date(2026, 6, 25), 'horario': '07h30 às 09h20',
+                'responsavel': 'Prof. A', 'horario_inicio': 450, 'horario_fim': 560,
+                'reservation_id': 'chave-abc',
+            }],
+            [],
+        )
+
+    monkeypatch.setattr(cache_isolado, '_parse_spreadsheet', fake_parse)
+    monkeypatch.setattr(cache_isolado, '_get_workspace_spreadsheet_url', lambda slug: 'http://planilha/ws-a.xlsx')
+
+    client = cache_isolado.app.test_client()
+    resp = client.get('/api/reservas?workspace=ws-a')
+    assert resp.status_code == 200
+    reserva = resp.get_json()['lab1_reservas'][0]
+    assert reserva['horario_inicio'] == 450
+    assert reserva['horario_fim'] == 560
+    assert reserva['reservation_id'] == 'chave-abc'
+
+
+def test_api_reservas_sem_horario_declarado_continua_seguro(cache_isolado, monkeypatch):
+    # Reserva sem intervalo (ex: "09h20" avulso): parser não inventa fim.
+    # A chave ainda existe e o JSON não quebra — horario_fim vem como None.
+    def fake_parse(url, lab_count=2):
+        return (
+            [{
+                'labs': ['LAB02'], 'data': date(2026, 6, 25), 'horario': '09h20',
+                'responsavel': 'Prof. B', 'horario_inicio': 560, 'horario_fim': None,
+                'reservation_id': 'chave-b',
+            }],
+            [],
+        )
+
+    monkeypatch.setattr(cache_isolado, '_parse_spreadsheet', fake_parse)
+    monkeypatch.setattr(cache_isolado, '_get_workspace_spreadsheet_url', lambda slug: 'http://planilha/ws-a.xlsx')
+
+    client = cache_isolado.app.test_client()
+    resp = client.get('/api/reservas?workspace=ws-a')
+    assert resp.status_code == 200
+    reserva = resp.get_json()['lab2_reservas'][0]
+    assert reserva['horario_inicio'] == 560
+    assert reserva['horario_fim'] is None
+    assert reserva['reservation_id'] == 'chave-b'

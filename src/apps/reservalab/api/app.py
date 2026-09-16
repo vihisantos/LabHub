@@ -344,6 +344,8 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                     continue
                 lab_normalizado = re.sub(r'\s+', ' ', str(lab)).strip() if lab else ''
                 lab_list = _extract_labs(lab_normalizado, lab_count)
+                horario_inicio = parse_horario_inicio(horario)
+                horario_fim = parse_horario_fim(horario)
                 reserva = {
                     'responsavel': professor_resp,
                     'email': email,
@@ -354,7 +356,14 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                     'labs': lab_list,
                     'data': data,
                     'reserva_feita_por': reserva_feita_por,
-                    'origem': 'planilha'
+                    'origem': 'planilha',
+                    # Horário local do campus (America/Sao_Paulo), minutos desde meia-noite.
+                    'horario_inicio': horario_inicio,
+                    'horario_fim': horario_fim,
+                    # Identificador determinístico da reserva (sem ID estável na planilha).
+                    'reservation_id': _reservation_key(data, lab_list, horario, professor_resp,
+                                                       email, reserva_feita_por,
+                                                       horario_inicio, horario_fim),
                 }
                 if data == hoje:
                     reservas_hoje.append(reserva)
@@ -497,6 +506,53 @@ def parse_horario_inicio(horario):
         minuto = int(match.group(2)) if match.group(2) else 0
         return hora * 60 + minuto
     return None
+
+def parse_horario_fim(horario):
+    """Minutos desde meia-noite do FIM do intervalo ("07h30 às 09h20" → 560).
+
+    Espelho de parse_horario_inicio: pega a ÚLTIMA parte do intervalo. Só retorna
+    um valor quando o texto contém um separador de intervalo ("às"/"até"/"a"/"−");
+    sem intervalo (ex.: "11h30" avulso) retorna None para não mentir um fim.
+    """
+    if not horario:
+        return None
+    s = str(horario).strip().lower()
+    # Sem separador de intervalo → não há fim declarado.
+    if not re.search(r'\s+(?:até|ate|as|às|a)\s+|(?:\s+-\s+)|-', s):
+        return None
+    parts = re.split(r'\s+(?:até|ate|as|às|a)\s+|(?:\s+-\s+)|-', s)
+    s = parts[-1].strip() if parts else s
+    match = re.match(r'^(\d{1,2})(?:\s*[:h]\s*(\d{2}))?', s)
+    if match:
+        hora = int(match.group(1))
+        minuto = int(match.group(2)) if match.group(2) else 0
+        return hora * 60 + minuto
+    return None
+
+def _reservation_key(data, labs, horario, responsavel, email, reserva_feita_por,
+                     horario_inicio=None, horario_fim=None):
+    """Chave determinística da reserva (a planilha NÃO tem ID estável).
+
+    Identidade de uma reserva = quando (data) + onde (labs normalizados) + horário
+    (normalizado em minutos; fallback texto bruto) + professor + email + quem reservou.
+    O escopo por campus é garantido no banco (tv_events UNIQUE(workspace_id,
+    reservation_id)), então a chave é campus-agnóstica. Estável entre re-fetches da
+    planilha; qualquer mudança real de data/lab/horário/professor gera nova reserva.
+    """
+    if horario_inicio is not None and horario_fim is not None:
+        horario_norm = f"{horario_inicio}-{horario_fim}"
+    else:
+        horario_norm = str(horario or '').strip()
+    labs_norm = ','.join(sorted({str(l).strip() for l in (labs or []) if l}))
+    seed = '|'.join([
+        data.isoformat() if hasattr(data, 'isoformat') else str(data or ''),
+        labs_norm,
+        horario_norm,
+        str(responsavel or '').strip(),
+        str(email or '').strip(),
+        str(reserva_feita_por or '').strip(),
+    ])
+    return hashlib.md5(seed.encode('utf-8')).hexdigest()
 
 @app.route('/api/push/subscribe', methods=['POST'])
 @require_auth
