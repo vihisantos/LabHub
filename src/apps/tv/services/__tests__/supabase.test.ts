@@ -7,6 +7,8 @@ const state = {
   calls: [] as Call[],
   fromCalls: [] as string[],
   result: { data: [] as unknown[], error: null } as { data: unknown[] | null; error: unknown },
+  /** Fila de resultados: quando preenchida, cada chamada consome o próximo item. */
+  resultQueue: [] as { data: unknown; error: unknown }[],
 }
 
 function record(m: string, a: unknown[] = []) {
@@ -28,8 +30,8 @@ function makeBuilder(table?: string) {
     upsert: method('upsert'),
     eq: method('eq'),
     order: method('order'),
-    single: () => Promise.resolve({ data: null, error: null }),
-    maybeSingle: () => Promise.resolve({ data: null, error: null }),
+    single: () => { const r = dequeue(); const d = Array.isArray(r.data) ? r.data[0] ?? null : r.data; return Promise.resolve({ data: d, error: r.error }) },
+    maybeSingle: () => { const r = dequeue(); const d = Array.isArray(r.data) ? r.data[0] ?? null : r.data; return Promise.resolve({ data: d, error: r.error }) },
     then: (resolve: (v: { data: unknown[] | null; error: unknown }) => unknown) =>
       Promise.resolve(resolve(state.result)),
     catch: (reject: (e: unknown) => unknown) =>
@@ -43,14 +45,19 @@ const lastCall = (m: string) => {
   return found[found.length - 1]
 }
 
-// Fábricas autocontidas (sem referências externas — vi.mock é hoisted).
+function dequeue(): { data: unknown; error: unknown } {
+  if (state.resultQueue.length > 0) return state.resultQueue.shift()!
+  return state.result
+}
+
 vi.mock('../../../../lib/supabase', () => ({
   defaultDb: {
     from: (table: string) => makeBuilder(table),
     rpc: (fn: string, args: unknown) => {
       record('rpc', [fn, args])
-      const first = Array.isArray(state.result.data) ? state.result.data[0] : state.result.data
-      return Promise.resolve({ data: first ?? null, error: state.result.error })
+      const r = dequeue()
+      const data = Array.isArray(r.data) ? r.data[0] ?? null : r.data
+      return Promise.resolve({ data, error: r.error })
     },
   },
 }))
@@ -66,6 +73,7 @@ import { workspaceStore } from '../../../../core/workspaces/store'
 import {
   fetchEvents,
   fetchAllEvents,
+  fetchScheduledContent,
   createEvent,
   updateEvent,
   deleteEvent,
@@ -84,6 +92,7 @@ beforeEach(() => {
   state.calls = []
   state.fromCalls = []
   state.result = { data: [], error: null }
+  state.resultQueue = []
 })
 
 /* ── Events ── */
@@ -200,6 +209,53 @@ describe('deleteEvent', () => {
     store.activeWorkspaceId = null
     await expect(deleteEvent('evt-1')).rejects.toThrow()
     expect(lastCall('eq')).toBeUndefined()
+  })
+})
+
+describe('fetchScheduledContent', () => {
+  it('chama tv_resolve_scheduled_content e busca o evento por event_id', async () => {
+    const mockEvent = { id: 'evt-1', title: 'Reserva Lab', is_active: true, sort_order: 0 }
+    state.resultQueue = [
+      { data: [{ event_id: 'evt-1', schedule_id: 'sch-1', origin: 'scheduled' }], error: null },
+      { data: [mockEvent], error: null },
+    ]
+
+    const result = await fetchScheduledContent('tv-a')
+
+    expect(lastCall('rpc')?.a[0]).toBe('tv_resolve_scheduled_content')
+    const rpcArgs = lastCall('rpc')?.a[1] as Record<string, unknown>
+    expect(rpcArgs.p_workspace_id).toBe('ws-x')
+    expect(rpcArgs.p_device_id).toBe('tv-a')
+    expect(typeof rpcArgs.p_date).toBe('string')
+    expect(typeof rpcArgs.p_time).toBe('string')
+    expect(result).toEqual(mockEvent)
+  })
+
+  it('retorna null quando o resolver retorna NULL (sem conteúdo)', async () => {
+    state.result = { data: null, error: null }
+    const result = await fetchScheduledContent('tv-a')
+    expect(result).toBeNull()
+    expect(lastCall('rpc')?.a[0]).toBe('tv_resolve_scheduled_content')
+  })
+
+  it('retorna null quando workspace não está ativo', async () => {
+    store.activeWorkspaceId = null
+    const result = await fetchScheduledContent('tv-a')
+    expect(result).toBeNull()
+    expect(lastCall('rpc')).toBeUndefined()
+  })
+
+  it('envia p_device_id null quando deviceId é null (device campus)', async () => {
+    const mockEvent = { id: 'evt-campus', title: 'Evento Campus', is_active: true }
+    state.resultQueue = [
+      { data: [{ event_id: 'evt-campus', schedule_id: null, origin: 'legacy' }], error: null },
+      { data: [mockEvent], error: null },
+    ]
+
+    const result = await fetchScheduledContent(null)
+    expect(result).toEqual(mockEvent)
+    const rpcArgs = lastCall('rpc')?.a[1] as Record<string, unknown>
+    expect(rpcArgs.p_device_id).toBeNull()
   })
 })
 

@@ -1,7 +1,7 @@
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { tvApi } from '../utils/apiBase'
-import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement, TvGallery, TvGalleryPhoto, TvDevice, TvMusicRequest, MusicRequestStatus } from '../types'
+import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement, TvGallery, TvGalleryPhoto, TvDevice, TvMusicRequest, MusicRequestStatus, ScheduledResolution } from '../types'
 
 /* ── Helpers ── */
 
@@ -68,6 +68,71 @@ export async function deleteEvent(id: string): Promise<void> {
     .eq('id', id)
     .eq('workspace_id', ws)
   if (error) throw error
+}
+
+/* ── Scheduled Content Resolution (via tv_resolve_scheduled_content 4-arg) ── */
+
+/**
+ * Calcula data (YYYY-MM-DD) e hora (HH:MM:SS) em America/Sao_Paulo.
+ * O kiosk Opera em horário local; a checagem dupla garante determinismo.
+ */
+function nowSaoPaulo(): { date: string; time: string } {
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(now)
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00'
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    time: `${get('hour')}:${get('minute')}:${get('second')}`,
+  }
+}
+
+/**
+ * Resolve o conteúdo ativo via `tv_resolve_scheduled_content` (4-arg overload)
+ * e busca o `tv_events` correspondente.
+ *
+ * - Retorna o evento resolvido (scheduled ou legacy).
+ * - Retorna `null` quando não há conteúdo (resolver retorna NULL).
+ * - Não faz leitura ampla em `tv_events`: busca somente o `event_id` retornado.
+ */
+export async function fetchScheduledContent(deviceId?: string | null): Promise<TvEvent | null> {
+  if (!supabase) return null
+  const ws = workspaceId()
+  if (!ws) return null
+
+  const { date, time } = nowSaoPaulo()
+
+  const { data: resolution, error: resolveError } = await supabase.rpc(
+    'tv_resolve_scheduled_content',
+    {
+      p_workspace_id: ws,
+      p_device_id: deviceId ?? null,
+      p_date: date,
+      p_time: time,
+    } as never,
+  )
+  if (resolveError || !resolution) return null
+
+  const resolved = resolution as ScheduledResolution
+  if (!resolved.event_id) return null
+
+  const { data: event, error: eventError } = await supabase
+    .from('tv_events')
+    .select('*')
+    .eq('id', resolved.event_id)
+    .eq('workspace_id', ws)
+    .maybeSingle()
+
+  if (eventError || !event) return null
+  return event as TvEvent
 }
 
 /* ── Reserva → Evento na TV (RPC único, tabela de TV só via RPC) ── */
