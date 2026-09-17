@@ -9,6 +9,7 @@ vi.mock('../../../lib/supabase', () => ({ defaultDb: supabase.defaultDb }))
 import {
   getCoordinatorScope,
   getCoordinatorRequests,
+  getCoordinatorInactiveMembers,
   getCoordinatorAssignableRoles,
   setCoordinatorManager,
   approveCoordinatorMembership,
@@ -240,28 +241,51 @@ describe('setCoordinatorManager — escrita escopada de managed_by (RPC)', () =>
   })
 })
 
-describe('getCoordinatorRequests — solicitações pendentes (RPC 065, fail-closed)', () => {
-  const pending = row('membership-pend', { status: 'pending' })
+const projRow = (
+  id: string,
+  status: Membership['status'],
+  over: Record<string, unknown> = {},
+): Record<string, unknown> => ({
+  membership_id: `ms-${id}`,
+  profile_id: `u-${id}`,
+  workspace_id: 'ws1',
+  role_id: 'role-x',
+  status,
+  managed_by: null,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+  profile_name: 'Novo',
+  profile_email: 'novo@b.com',
+  profile_status: 'active',
+  profile_role: 'technician',
+  ...over,
+})
 
-  it('mapeia membership pendente + perfil', async () => {
+describe('getCoordinatorRequests — solicitações pendentes (RPC 065/066, fail-closed)', () => {
+  it('mapeia a projeção (membership + perfil) SEM SELECT direto em profiles', async () => {
     mockRpc({
-      coordinator_get_requests: () => ({ data: [pending], error: null }),
+      coordinator_get_requests: () => ({ data: [projRow('pend', 'pending')], error: null }),
     })
-    profilesResult = {
-      data: [
-        { id: 'u-membership-pend', name: 'Novo', email: 'novo@b.com', status: 'active', role: 'technician' },
-      ],
-      error: null,
-    }
 
     const requests = await getCoordinatorRequests('ws1')
 
     expect(supabase.defaultDb.rpc).toHaveBeenCalledWith('coordinator_get_requests', {
       p_workspace_id: 'ws1',
     })
+    expect(supabase.defaultDb.from).not.toHaveBeenCalled()
     expect(requests).toHaveLength(1)
-    expect(requests[0].membership.status).toBe('pending')
-    expect(requests[0].profile).toMatchObject({ name: 'Novo', roleId: 'role-technician' })
+    expect(requests[0].membership).toMatchObject({
+      id: 'ms-pend',
+      profile_id: 'u-pend',
+      status: 'pending',
+    })
+    expect(requests[0].profile).toMatchObject({
+      id: 'u-pend',
+      name: 'Novo',
+      email: 'novo@b.com',
+      status: 'active',
+      roleId: 'role-technician',
+    })
     expect(getLastCoordinatorServiceError()).toBeNull()
   })
 
@@ -272,11 +296,26 @@ describe('getCoordinatorRequests — solicitações pendentes (RPC 065, fail-clo
     expect(getLastCoordinatorServiceError()).toBeNull()
   })
 
-  it('perfil oculto por RLS → profile null (não inventa)', async () => {
-    mockRpc({ coordinator_get_requests: () => ({ data: [pending], error: null }) })
-    profilesResult = { data: [], error: null }
+  it('projeção sem perfil (profile_name null) → profile null (não inventa)', async () => {
+    mockRpc({
+      coordinator_get_requests: () => ({
+        data: [projRow('pend', 'pending', { profile_name: null, profile_email: null })],
+        error: null,
+      }),
+    })
     const requests = await getCoordinatorRequests('ws1')
     expect(requests[0].profile).toBeNull()
+  })
+
+  it('profile_status não-ativo é normalizado para pending', async () => {
+    mockRpc({
+      coordinator_get_requests: () => ({
+        data: [projRow('pend', 'pending', { profile_status: 'inactive' })],
+        error: null,
+      }),
+    })
+    const requests = await getCoordinatorRequests('ws1')
+    expect(requests[0].profile?.status).toBe('pending')
   })
 
   it('RPC negando (fora do escopo) → [] + erro', async () => {
@@ -287,13 +326,56 @@ describe('getCoordinatorRequests — solicitações pendentes (RPC 065, fail-clo
     expect(requests).toEqual([])
     expect(getLastCoordinatorServiceError()).toBe('permission denied')
   })
+})
 
-  it('erro no fetch de profiles → [] + erro (fail-closed)', async () => {
-    mockRpc({ coordinator_get_requests: () => ({ data: [pending], error: null }) })
-    profilesResult = { data: null, error: { message: 'profiles denied' } }
-    const requests = await getCoordinatorRequests('ws1')
-    expect(requests).toEqual([])
-    expect(getLastCoordinatorServiceError()).toBe('profiles denied')
+describe('getCoordinatorInactiveMembers — suspended/removed (RPC 066, fail-closed)', () => {
+  it('mapeia suspensos e removidos pela projeção, sem SELECT direto em profiles', async () => {
+    mockRpc({
+      coordinator_get_inactive_members: () => ({
+        data: [
+          projRow('sus', 'suspended'),
+          projRow('rem', 'removed', {
+            profile_name: 'Antigo',
+            profile_email: 'antigo@b.com',
+            profile_role: 'viewer',
+          }),
+        ],
+        error: null,
+      }),
+    })
+
+    const members = await getCoordinatorInactiveMembers('ws1')
+
+    expect(supabase.defaultDb.rpc).toHaveBeenCalledWith('coordinator_get_inactive_members', {
+      p_workspace_id: 'ws1',
+    })
+    expect(supabase.defaultDb.from).not.toHaveBeenCalled()
+    expect(members.map((m) => m.membership.status)).toEqual(['suspended', 'removed'])
+    expect(members[1].profile).toMatchObject({
+      name: 'Antigo',
+      email: 'antigo@b.com',
+      roleId: 'role-viewer',
+    })
+    expect(getLastCoordinatorServiceError()).toBeNull()
+  })
+
+  it('sem membros inativos → [] sem erro', async () => {
+    mockRpc({ coordinator_get_inactive_members: () => ({ data: [], error: null }) })
+    const members = await getCoordinatorInactiveMembers('ws1')
+    expect(members).toEqual([])
+    expect(getLastCoordinatorServiceError()).toBeNull()
+  })
+
+  it('RPC negando (fora do escopo) → [] + erro', async () => {
+    mockRpc({
+      coordinator_get_inactive_members: () => ({
+        data: null,
+        error: { message: 'not a coordinator of this unit' },
+      }),
+    })
+    const members = await getCoordinatorInactiveMembers('ws1')
+    expect(members).toEqual([])
+    expect(getLastCoordinatorServiceError()).toBe('not a coordinator of this unit')
   })
 })
 
@@ -392,6 +474,7 @@ describe('banco de dado não configurado (defesa)', () => {
       const fresh = await import('../coordinatorService')
       expect(await fresh.getCoordinatorScope()).toEqual([])
       expect(await fresh.getCoordinatorRequests('ws1')).toEqual([])
+      expect(await fresh.getCoordinatorInactiveMembers('ws1')).toEqual([])
       expect(await fresh.getCoordinatorAssignableRoles()).toEqual([])
       expect(await fresh.setCoordinatorManager('x', null)).toBe(false)
       expect(await fresh.approveCoordinatorMembership('x')).toBe(false)
