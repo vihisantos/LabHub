@@ -14,6 +14,7 @@ de seleção falharem por contrato.
 """
 import importlib.util
 import json
+import logging
 import re
 import sys
 import uuid
@@ -157,14 +158,19 @@ def test_apenas_uuids_validos_preserva_selecao(push_module, monkeypatch):
 
 
 def test_incidente_equivalente_user1_validos_preservados(push_module, monkeypatch, caplog):
-    """B) Caso real user-1: o inválido é ignorado e os UUIDs válidos seguem selecionados."""
+    """B) Caso real user-1: o inválido é ignorado e os UUIDs válidos seguem selecionados.
+
+    O log registra SOMENTE a quantidade (0 user_id, 0 endpoint, 0 subscription).
+    """
     fake_http = _env(push_module, monkeypatch, [_sub(FULL_A), _sub(USER1)])
     with caplog.at_level('WARNING', logger='reservalab_api_uuid_hardening'):
         ids = _select(push_module, WS_A)
     assert ids == [FULL_A['id']]  # sob o bug o lote 400ava e ninguém não-super era selecionado
+    assert fake_http.calls == 1
     assert all(_is_uuid(i) for i in _ids_in_url(fake_http.urls[-1]))
-    assert any('não-UUID' in m and 'user-1' in m for m in caplog.messages)
-    assert not any('fcm.googleapis.com' in m for m in caplog.messages)  # sem dados sensíveis
+    warned = [r.getMessage() for r in caplog.records
+              if r.name == 'reservalab_api_uuid_hardening' and r.levelno >= logging.WARNING]
+    assert warned == ['push: 1 user_id(s) não-UUID ignorados no batch de memberships']
 
 
 def test_varios_validos_e_varios_invalidos(push_module, monkeypatch, caplog):
@@ -178,7 +184,9 @@ def test_varios_validos_e_varios_invalidos(push_module, monkeypatch, caplog):
         queried |= set(_ids_in_url(url))
     assert all(_is_uuid(i) for i in queried)
     assert queried == {FULL_A['id'], READ_A['id'], FULL_B['id']}
-    assert any('2 user_id(s) não-UUID' in m for m in caplog.messages)
+    warned = [r.getMessage() for r in caplog.records
+              if r.name == 'reservalab_api_uuid_hardening' and r.levelno >= logging.WARNING]
+    assert warned == ['push: 2 user_id(s) não-UUID ignorados no batch de memberships']
 
 
 def test_apenas_ids_invalidos_sem_query_e_sem_22p02(push_module, monkeypatch):

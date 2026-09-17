@@ -758,9 +758,8 @@ def _resolve_batch_memberships(subs):
         invalid_ids = [i for i in ids if not _is_valid_uuid(i)]
         if invalid_ids:
             logger.warning(
-                "push: %d user_id(s) não-UUID ignorados no batch de memberships (%s)",
+                "push: %d user_id(s) não-UUID ignorados no batch de memberships",
                 len(invalid_ids),
-                ', '.join(i[:32] for i in invalid_ids[:5]),
             )
         if not valid_ids:
             return {}
