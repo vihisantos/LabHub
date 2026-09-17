@@ -333,9 +333,9 @@ def test_target_subs_filtra_por_workspace(push_module, monkeypatch):
     Cobre a mudança do /api/push/check: reserva de tablets com workspace_id passa
     a mirar apenas os assinantes do campus (super admin vê todos).
     """
-    admin = {'id': 'u-admin', 'role': 'admin', 'is_super_admin': True, 'workspace_ids': ['a', 'b'], 'apps': {}, 'notify_settings': {}}
-    tech_a = {'id': 'u-a', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
-    tech_b = {'id': 'u-b', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['b'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    admin = {'id': '11111111-1111-4111-8111-111111111111', 'role': 'admin', 'is_super_admin': True, 'workspace_ids': ['a', 'b'], 'apps': {}, 'notify_settings': {}}
+    tech_a = {'id': '22222222-2222-4222-8222-222222222222', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    tech_b = {'id': '33333333-3333-4333-8333-333333333333', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['b'], 'apps': {'reservalab': True}, 'notify_settings': {}}
 
     fake = FakeRedis({
         json.dumps(_push_sub(admin), ensure_ascii=False),
@@ -343,25 +343,25 @@ def test_target_subs_filtra_por_workspace(push_module, monkeypatch):
         json.dumps(_push_sub(tech_b), ensure_ascii=False),
     })
     monkeypatch.setattr(push_module, 'redis', fake)
-    _mock_memberships(push_module, monkeypatch, {'u-a': ['a'], 'u-b': ['b']})
+    _mock_memberships(push_module, monkeypatch, {'22222222-2222-4222-8222-222222222222': ['a'], '33333333-3333-4333-8333-333333333333': ['b']})
 
     out = push_module._target_subs(module='reservalab', workspace_id='a')
     ids = sorted(s['user']['id'] for s in out)
 
     # Admin absoluto vê todos; tech do campus B fica de fora
-    assert ids == ['u-a', 'u-admin']
+    assert ids == ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
 
 
 def test_target_subs_workspace_resolvido_por_memberships(push_module, monkeypatch):
     """O payload gravado é ignorado: manda quem tem membership ativa (9.3-B)."""
-    tech = {'id': 'u-a', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['stale'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    tech = {'id': '22222222-2222-4222-8222-222222222222', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['stale'], 'apps': {'reservalab': True}, 'notify_settings': {}}
 
     fake = FakeRedis({json.dumps(_push_sub(tech), ensure_ascii=False)})
     monkeypatch.setattr(push_module, 'redis', fake)
-    _mock_memberships(push_module, monkeypatch, {'u-a': ['a']})
+    _mock_memberships(push_module, monkeypatch, {'22222222-2222-4222-8222-222222222222': ['a']})
 
     out = push_module._target_subs(module='reservalab', workspace_id='a')
-    assert [s['user']['id'] for s in out] == ['u-a']
+    assert [s['user']['id'] for s in out] == ['22222222-2222-4222-8222-222222222222']
 
     out = push_module._target_subs(module='reservalab', workspace_id='stale')
     assert out == []
