@@ -6,14 +6,17 @@ import { permissionService } from '../../core/permissions/service'
 import {
   approveCoordinatorMembership,
   getCoordinatorAssignableRoles,
+  getCoordinatorInactiveMembers,
   getCoordinatorRequests,
   getLastCoordinatorServiceError,
   rejectCoordinatorMembership,
   removeCoordinatorMembership,
+  restoreCoordinatorMembership,
   setCoordinatorManager,
   setCoordinatorRole,
   suspendCoordinatorMembership,
   type CoordinatorAssignableRole,
+  type CoordinatorInactiveMember,
   type CoordinatorRequest,
   type CoordinatorRoleOption,
   type CoordinatedLeader,
@@ -313,8 +316,8 @@ function ManageMemberSheet({
 
             <p className="mb-4 text-[10px] leading-relaxed text-fg-muted">
               O Postgres é a autoridade: valida o escopo, os cargos permitidos (nunca adm ou
-              coordinator) e as transições de status. Suspender/remover retira o membro do seu
-              escopo; a restauração não está disponível nesta tela.
+              coordinator) e as transições de status. Suspender retira o membro do seu escopo (e
+              ele pode ser reativado em "Membros inativos"); remover é definitivo.
             </p>
 
             <div className="flex gap-3">
@@ -620,6 +623,145 @@ function PendingRequests({
   )
 }
 
+interface InactiveMembersProps {
+  members: CoordinatorInactiveMember[]
+  loading: boolean
+  failed: boolean
+  pending: string | null
+  onRetry: () => void
+  onRequestRestore: (member: CoordinatorInactiveMember) => void
+}
+
+/**
+ * Fase 10: memberships `suspended`/`removed` da unidade. Somente `suspended` é
+ * restaurável (`removed` é terminal/histórico — apenas informativo). O estado
+ * vem do servidor; a UI não decide autorização.
+ */
+function InactiveMembers({
+  members,
+  loading,
+  failed,
+  pending,
+  onRetry,
+  onRequestRestore,
+}: InactiveMembersProps) {
+  const suspended = members.filter((m) => m.membership.status === 'suspended')
+  const removed = members.filter((m) => m.membership.status === 'removed')
+
+  return (
+    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+        Membros inativos
+      </p>
+      {loading ? (
+        <p className="mt-2 inline-flex items-center gap-2 text-[10px] text-fg-muted">
+          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+          Carregando membros inativos...
+        </p>
+      ) : failed ? (
+        <div className="mt-2 flex items-center gap-2">
+          <p className="flex-1 text-[10px] leading-relaxed text-red-500">
+            Não foi possível carregar os membros inativos desta unidade.
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : members.length === 0 ? (
+        <p className="mt-2 text-[10px] text-fg-muted">Nenhum membro suspenso ou removido.</p>
+      ) : (
+        <div className="mt-2 flex flex-col gap-3">
+          {suspended.length > 0 && (
+            <div>
+              <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                Suspensos
+              </p>
+              <ul className="flex flex-col gap-2">
+                {suspended.map((member) => {
+                  const name = member.profile?.name ?? 'Membro sem perfil'
+                  const restoreKey = `restore-${member.membership.id}`
+                  return (
+                    <li key={member.membership.id} className="flex items-center gap-2">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                        {initials(name)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11px] font-semibold text-fg">
+                          {name}
+                        </span>
+                        {member.profile && (
+                          <span className="block truncate text-[10px] text-fg-muted">
+                            {member.profile.email}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
+                        Suspenso
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`Restaurar ${name}`}
+                        disabled={pending !== null}
+                        onClick={() => onRequestRestore(member)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
+                      >
+                        {pending === restoreKey ? (
+                          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                        ) : (
+                          <icons.ui.check size={11} />
+                        )}
+                        Restaurar
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+          {removed.length > 0 && (
+            <div>
+              <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-fg-muted">
+                Removidos
+              </p>
+              <ul className="flex flex-col gap-2">
+                {removed.map((member) => {
+                  const name = member.profile?.name ?? 'Membro sem perfil'
+                  return (
+                    <li key={member.membership.id} className="flex items-center gap-2">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-[9px] font-bold text-red-500">
+                        {initials(name)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11px] font-semibold text-fg">
+                          {name}
+                        </span>
+                        {member.profile && (
+                          <span className="block truncate text-[10px] text-fg-muted">
+                            {member.profile.email}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-red-500/10 px-2 py-0.5 text-[9px] font-semibold text-red-500">
+                        Removido
+                      </span>
+                      <span className="shrink-0 text-[9px] text-fg-dim">Restauração indisponível</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface AssignTarget {
   member: TeamMember
   currentManagerLabel: string
@@ -630,6 +772,7 @@ type ConfirmTarget =
   | { kind: 'suspend'; member: TeamMember }
   | { kind: 'remove'; member: TeamMember }
   | { kind: 'reject'; request: CoordinatorRequest }
+  | { kind: 'restore'; member: CoordinatorInactiveMember }
 
 const CONFIRM_COPY: Record<
   ConfirmTarget['kind'],
@@ -638,13 +781,13 @@ const CONFIRM_COPY: Record<
   suspend: {
     title: 'Suspender membro?',
     message:
-      'O membro perde o acesso à unidade e sai das equipes às quais está vinculado. A restauração não está disponível nesta tela.',
+      'O membro perde o acesso à unidade e sai das equipes às quais está vinculado. Ele poderá ser reativado depois em "Membros inativos".',
     confirmLabel: 'Suspender',
   },
   remove: {
     title: 'Remover da unidade?',
     message:
-      'A membership será marcada como removida e o membro perde o acesso à unidade. O perfil e o usuário permanecem; a ação fica auditada.',
+      'A membership será marcada como removida e o membro perde o acesso à unidade. O perfil e o usuário permanecem; a ação fica auditada e a restauração não é possível.',
     confirmLabel: 'Remover',
   },
   reject: {
@@ -652,6 +795,12 @@ const CONFIRM_COPY: Record<
     message:
       'A solicitação pendente será rejeitada e removida. O perfil e o usuário permanecem; a ação fica auditada.',
     confirmLabel: 'Rejeitar',
+  },
+  restore: {
+    title: 'Restaurar membro?',
+    message:
+      'A membership volta a ficar ativa nesta unidade. O cargo é preservado e o vínculo com um gestor NÃO é recriado automaticamente.',
+    confirmLabel: 'Restaurar',
   },
 }
 
@@ -665,9 +814,10 @@ const CONFIRM_COPY: Record<
  * reage ao erro com honestidade. Cargos oferecidos = tec/vis/est/opv/lider
  * (nunca adm/coordinator); o Postgres revalida tudo.
  *
- * Leituras não-ativas: os RPCs 047 retornam SOMENTE memberships ativas, então
- * memberships suspensas/removidas saem naturalmente do escopo — por isso não há
- * ação de restaurar nesta fase (o escopo não as enxerga).
+ * Leituras não-ativas (Fase 10): os RPCs 047 retornam SOMENTE memberships
+ * ativas, mas `coordinator_get_inactive_members` (066) expõe as
+ * suspensas/removidas da unidade. A seção "Membros inativos" mostra os dois
+ * grupos; apenas `suspended` é restaurável (`removed` é terminal/informativo).
  */
 export function CoordinatorHome() {
   const navigate = useNavigate()
@@ -679,6 +829,12 @@ export function CoordinatorHome() {
   const [requestsByUnit, setRequestsByUnit] = useState<Record<string, CoordinatorRequest[]>>({})
   const [requestsLoading, setRequestsLoading] = useState(false)
   const [requestsFailed, setRequestsFailed] = useState(false)
+
+  const [inactiveByUnit, setInactiveByUnit] = useState<
+    Record<string, CoordinatorInactiveMember[]>
+  >({})
+  const [inactiveLoading, setInactiveLoading] = useState(false)
+  const [inactiveFailed, setInactiveFailed] = useState(false)
 
   const [roles, setRoles] = useState<CoordinatorRoleOption[]>([])
   const [rolesLoading, setRolesLoading] = useState(false)
@@ -729,9 +885,38 @@ export function CoordinatorHome() {
     setRequestsLoading(false)
   }, [unitsKey])
 
+  const loadInactive = useCallback(async () => {
+    const currentUnits = unitsKey ? unitsKey.split('|') : []
+    if (currentUnits.length === 0) {
+      setInactiveByUnit({})
+      setInactiveFailed(false)
+      setInactiveLoading(false)
+      return
+    }
+    setInactiveLoading(true)
+    setInactiveFailed(false)
+    const next: Record<string, CoordinatorInactiveMember[]> = {}
+    let anyFailed = false
+    for (const unitId of currentUnits) {
+      const rows = await getCoordinatorInactiveMembers(unitId)
+      if (getLastCoordinatorServiceError() !== null) {
+        anyFailed = true
+        break
+      }
+      next[unitId] = rows
+    }
+    setInactiveByUnit(next)
+    setInactiveFailed(anyFailed)
+    setInactiveLoading(false)
+  }, [unitsKey])
+
   useEffect(() => {
     void loadRequests()
   }, [loadRequests])
+
+  useEffect(() => {
+    void loadInactive()
+  }, [loadInactive])
 
   const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
   const memberCount = units.reduce(
@@ -870,6 +1055,7 @@ export function CoordinatorHome() {
         setConfirmTarget(null)
         setManageTarget(null)
         await refresh({ silent: true })
+        await loadInactive()
       } else {
         setConfirmError(
           getLastCoordinatorServiceError() ?? 'Não foi possível suspender o membro.',
@@ -884,8 +1070,21 @@ export function CoordinatorHome() {
         setConfirmTarget(null)
         setManageTarget(null)
         await refresh({ silent: true })
+        await loadInactive()
       } else {
         setConfirmError(getLastCoordinatorServiceError() ?? 'Não foi possível remover o membro.')
+      }
+      setPending(null)
+    } else if (confirmTarget.kind === 'restore') {
+      const membershipId = confirmTarget.member.membership.id
+      setPending(`restore-${membershipId}`)
+      const ok = await restoreCoordinatorMembership(membershipId)
+      if (ok) {
+        setConfirmTarget(null)
+        await refresh({ silent: true })
+        await loadInactive()
+      } else {
+        setConfirmError(getLastCoordinatorServiceError() ?? 'Não foi possível restaurar o membro.')
       }
       setPending(null)
     } else {
@@ -1046,6 +1245,15 @@ export function CoordinatorHome() {
                       onRetry={() => void loadRequests()}
                       onApprove={(request) => void approveRequest(request)}
                       onReject={(request) => openConfirm({ kind: 'reject', request })}
+                    />
+
+                    <InactiveMembers
+                      members={inactiveByUnit[unit.unitId] ?? []}
+                      loading={inactiveLoading}
+                      failed={inactiveFailed}
+                      pending={pending}
+                      onRetry={() => void loadInactive()}
+                      onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
                     />
 
                     {unit.leaders.length === 0 ? (

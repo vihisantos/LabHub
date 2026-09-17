@@ -1,5 +1,5 @@
 import { defaultDb } from '../../lib/supabase'
-import type { Membership, TeamMember, TeamMemberProfile } from './membership'
+import type { Membership, MembershipStatus, TeamMember, TeamMemberProfile } from './membership'
 import { dbRoleToRoleId } from './membership'
 
 /**
@@ -21,6 +21,12 @@ import { dbRoleToRoleId } from './membership'
  * fail-closed (`coordinator_get_requests` / `_approve_` / `_reject_` /
  * `_suspend_` / `_restore_` / `_remove_membership` + `_set_role`): a UI chama e
  * reage ao erro; escopo, transições e cargos permitidos são decididos no banco.
+ *
+ * Fase 10 (migration 066) adiciona a leitura de memberships INATIVAS
+ * (`coordinator_get_inactive_members`) e projeta o perfil dentro dos RPCs de
+ * listagem, porque a RLS de `profiles` (044) esconde perfis de memberships não
+ * ativas. Restaurar continua sendo `suspended → active` (nunca `removed`) e o
+ * servidor rejeita alvos `adm`/`coordinator`.
  */
 
 /** Liderança / subordinação direta ao coordenador na unidade + sua equipe. */
@@ -214,10 +220,83 @@ export interface CoordinatorRoleOption {
   name: string
 }
 
-/** Solicitação pendente de entrada na unidade (membership + perfil p/ exibição). */
+/** Membership da unidade + perfil para exibição (pendente ou inativa). */
 export interface CoordinatorRequest {
   membership: Membership
   profile: TeamMemberProfile | null
+}
+
+/** Alias semântico: membership `suspended`/`removed` da unidade (Fase 10). */
+export type CoordinatorInactiveMember = CoordinatorRequest
+
+/**
+ * Projeção devolvida pelas RPCs de listagem (065/066): a membership + os campos
+ * de perfil já projetados DENTRO do SECURITY DEFINER. O perfil precisa vir da
+ * RPC porque a RLS de `profiles` (044) esconde alvos de memberships não-ativas
+ * (pending/suspended/removed) — a UI nunca faz SELECT direto de `profiles`.
+ */
+interface CoordinatorMemberRow {
+  membership_id: string
+  profile_id: string
+  workspace_id: string
+  role_id: string
+  status: MembershipStatus
+  managed_by: string | null
+  created_at: string
+  updated_at: string
+  profile_name: string | null
+  profile_email: string | null
+  profile_status: string | null
+  profile_role: string | null
+}
+
+function mapCoordinatorMemberRow(row: CoordinatorMemberRow): CoordinatorRequest {
+  const profile: TeamMemberProfile | null =
+    row.profile_name === null
+      ? null
+      : {
+          id: row.profile_id,
+          name: row.profile_name,
+          email: row.profile_email ?? '',
+          status: row.profile_status === 'active' ? 'active' : 'pending',
+          roleId: dbRoleToRoleId(row.profile_role ?? ''),
+        }
+  return {
+    membership: {
+      id: row.membership_id,
+      profile_id: row.profile_id,
+      workspace_id: row.workspace_id,
+      role_id: row.role_id,
+      status: row.status,
+      managed_by: row.managed_by,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    },
+    profile,
+  }
+}
+
+/** Chamada de leitura de membros da unidade por RPC (projeção com perfil). */
+async function getCoordinatorMembers(
+  fn: string,
+  workspaceId: string,
+): Promise<CoordinatorRequest[]> {
+  if (!defaultDb) {
+    lastError = { message: 'Supabase não configurado' }
+    return []
+  }
+
+  clearError()
+
+  const { data, error } = await defaultDb.rpc(fn, { p_workspace_id: workspaceId })
+  if (error) {
+    lastError = error
+    console.warn(`[Coordinator] ${fn} error:`, error.message)
+    return []
+  }
+
+  const rows = (data as CoordinatorMemberRow[] | null) ?? []
+  return rows.map(mapCoordinatorMemberRow)
 }
 
 /** Chamada de RPC de escrita; `true` em sucesso, `false` + erro sinalizado. */
@@ -244,59 +323,25 @@ async function callCoordinatorRpc(
 }
 
 /**
- * Solicitações PENDENTES da unidade (migration 065). Fail-closed: o RPC só
- * devolve linhas se o chamador coordenar ativamente a unidade; erro em qualquer
- * etapa ⇒ [] + erro sinalizado (a UI não inventa pedidos).
+ * Solicitações PENDENTES da unidade (migration 065, projeção da 066). Fail-closed:
+ * o RPC só devolve linhas se o chamador coordenar ativamente a unidade; erro ⇒ []
+ * + erro sinalizado (a UI não inventa pedidos).
  */
-export async function getCoordinatorRequests(
+export function getCoordinatorRequests(workspaceId: string): Promise<CoordinatorRequest[]> {
+  return getCoordinatorMembers('coordinator_get_requests', workspaceId)
+}
+
+/**
+ * Memberships INATIVAS (`suspended`/`removed`) da unidade (migration 066),
+ * somente se o chamador coordena ativamente a unidade. A RPC projeta o perfil
+ * (nome/e-mail) dentro do SECURITY DEFINER — a RLS de `profiles` (044) esconde
+ * alvos de memberships não-ativas, então não há SELECT direto no frontend.
+ * A distinção suspended/removed vem do `membership.status`.
+ */
+export function getCoordinatorInactiveMembers(
   workspaceId: string,
-): Promise<CoordinatorRequest[]> {
-  if (!defaultDb) {
-    lastError = { message: 'Supabase não configurado' }
-    return []
-  }
-
-  clearError()
-  const db = defaultDb
-
-  const { data, error } = await db.rpc('coordinator_get_requests', {
-    p_workspace_id: workspaceId,
-  })
-  if (error) {
-    lastError = error
-    console.warn('[Coordinator] coordinator_get_requests error:', error.message)
-    return []
-  }
-
-  const memberships = (data as Membership[] | null) ?? []
-  if (memberships.length === 0) return []
-
-  const profileIds = [...new Set(memberships.map((m) => m.profile_id))]
-  const { data: profileRows, error: profileError } = await db
-    .from('profiles')
-    .select('id, name, email, status, role')
-    .in('id', profileIds)
-  if (profileError) {
-    lastError = profileError
-    console.warn('[Coordinator] profiles fetch error:', profileError.message)
-    return []
-  }
-
-  const profileOf = new Map<string, TeamMemberProfile>()
-  for (const raw of (profileRows as RawProfileRow[] | null) ?? []) {
-    profileOf.set(raw.id, {
-      id: raw.id,
-      name: raw.name,
-      email: raw.email,
-      status: raw.status === 'active' ? 'active' : 'pending',
-      roleId: dbRoleToRoleId(raw.role),
-    })
-  }
-
-  return memberships.map((membership) => ({
-    membership,
-    profile: profileOf.get(membership.profile_id) ?? null,
-  }))
+): Promise<CoordinatorInactiveMember[]> {
+  return getCoordinatorMembers('coordinator_get_inactive_members', workspaceId)
 }
 
 /**

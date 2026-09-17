@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { CoordinatorHome, managerOptionsForMember } from '../CoordinatorHome'
 import type {
   CoordinatedUnit,
+  CoordinatorInactiveMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
 } from '../../../core/permissions/coordinatorService'
@@ -13,10 +14,12 @@ const mockGetRoleForUser = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
+const mockGetCoordinatorInactiveMembers = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorAssignableRoles = vi.hoisted(() => vi.fn())
 const mockApproveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRejectCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSuspendCoordinatorMembership = vi.hoisted(() => vi.fn())
+const mockRestoreCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 
@@ -31,10 +34,12 @@ vi.mock('../../../core/permissions/service', () => ({
 vi.mock('../../../core/permissions/coordinatorService', () => ({
   setCoordinatorManager: (...args: unknown[]) => mockSetCoordinatorManager(...args),
   getCoordinatorRequests: (...args: unknown[]) => mockGetCoordinatorRequests(...args),
+  getCoordinatorInactiveMembers: (...args: unknown[]) => mockGetCoordinatorInactiveMembers(...args),
   getCoordinatorAssignableRoles: (...args: unknown[]) => mockGetCoordinatorAssignableRoles(...args),
   approveCoordinatorMembership: (...args: unknown[]) => mockApproveCoordinatorMembership(...args),
   rejectCoordinatorMembership: (...args: unknown[]) => mockRejectCoordinatorMembership(...args),
   suspendCoordinatorMembership: (...args: unknown[]) => mockSuspendCoordinatorMembership(...args),
+  restoreCoordinatorMembership: (...args: unknown[]) => mockRestoreCoordinatorMembership(...args),
   removeCoordinatorMembership: (...args: unknown[]) => mockRemoveCoordinatorMembership(...args),
   setCoordinatorRole: (...args: unknown[]) => mockSetCoordinatorRole(...args),
   getLastCoordinatorServiceError: () => mockGetLastCoordinatorServiceError(),
@@ -129,6 +134,23 @@ function pendingRequest(id: string, name: string): CoordinatorRequest {
   }
 }
 
+function inactiveMember(
+  id: string,
+  name: string,
+  status: 'suspended' | 'removed',
+): CoordinatorInactiveMember {
+  return {
+    membership: membership(`ms-${id}`, `u-${id}`, 'ws1', { status }),
+    profile: {
+      id: `u-${id}`,
+      name,
+      email: `${id}@b.com`,
+      status: 'active',
+      roleId: 'role-technician',
+    },
+  }
+}
+
 function setupOverrides(overrides: Partial<ReturnType<typeof mockUseCoordinator>>) {
   mockUseCoordinator.mockReturnValue({
     units: [],
@@ -157,10 +179,12 @@ beforeEach(() => {
   mockGetLastCoordinatorServiceError.mockReturnValue(null)
   mockSetCoordinatorManager.mockResolvedValue(true)
   mockGetCoordinatorRequests.mockResolvedValue([])
+  mockGetCoordinatorInactiveMembers.mockResolvedValue([])
   mockGetCoordinatorAssignableRoles.mockResolvedValue([])
   mockApproveCoordinatorMembership.mockResolvedValue(true)
   mockRejectCoordinatorMembership.mockResolvedValue(true)
   mockSuspendCoordinatorMembership.mockResolvedValue(true)
+  mockRestoreCoordinatorMembership.mockResolvedValue(true)
   mockRemoveCoordinatorMembership.mockResolvedValue(true)
   mockSetCoordinatorRole.mockResolvedValue(true)
 })
@@ -342,7 +366,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
       expect(screen.getByText(/Não foi possível carregar as solicitações/)).toBeTruthy()
 
       mockGetLastCoordinatorServiceError.mockReturnValue(null)
-      fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+      fireEvent.click(screen.getAllByRole('button', { name: 'Tentar novamente' })[0])
       await act(async () => {})
 
       expect(screen.getByText('Nenhuma solicitação pendente.')).toBeTruthy()
@@ -590,6 +614,126 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
       expect(screen.getByRole('button', { name: 'Vincular Técnico 1 a gestor' })).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Gerenciar Técnico 1' })).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Remover Técnico 1 da equipe' })).toBeTruthy()
+    })
+  })
+
+  describe('Fase 10 — membros inativos (suspended/removed)', () => {
+    it('separa Suspensos (restaurável) de Removidos (informativo, sem ação)', async () => {
+      mockGetCoordinatorInactiveMembers.mockResolvedValue([
+        inactiveMember('s1', 'Suspenso Um', 'suspended'),
+        inactiveMember('r1', 'Removido Um', 'removed'),
+      ])
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.getByText('Membros inativos')).toBeTruthy()
+      expect(screen.getByText('Suspensos')).toBeTruthy()
+      expect(screen.getByText('Removidos')).toBeTruthy()
+      expect(screen.getByText('Suspenso Um')).toBeTruthy()
+      expect(screen.getByText('Removido Um')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Restaurar Suspenso Um' })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Restaurar Removido Um' })).toBeNull()
+      expect(screen.getByText('Restauração indisponível')).toBeTruthy()
+      expect(mockGetCoordinatorInactiveMembers).toHaveBeenCalledWith('ws1')
+    })
+
+    it('restaurar exige confirmação e, ao confirmar, chama o RPC e recarrega', async () => {
+      mockGetCoordinatorInactiveMembers.mockResolvedValue([
+        inactiveMember('s1', 'Suspenso Um', 'suspended'),
+      ])
+      const refresh = renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByRole('button', { name: 'Restaurar Suspenso Um' }))
+      const dialog = screen.getByRole('alertdialog', { name: 'Restaurar membro?' })
+      expect(mockRestoreCoordinatorMembership).not.toHaveBeenCalled()
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Restaurar' }))
+      await act(async () => {})
+
+      expect(mockRestoreCoordinatorMembership).toHaveBeenCalledWith('ms-s1')
+      expect(refresh).toHaveBeenCalled()
+      expect(mockGetCoordinatorInactiveMembers).toHaveBeenCalledTimes(2)
+    })
+
+    it('erro ao restaurar → mensagem honesta no diálogo, sem refresh falso', async () => {
+      mockGetCoordinatorInactiveMembers.mockResolvedValue([
+        inactiveMember('s1', 'Suspenso Um', 'suspended'),
+      ])
+      const refresh = renderHome([unitWithData()])
+      await act(async () => {})
+
+      mockRestoreCoordinatorMembership.mockResolvedValue(false)
+      mockGetLastCoordinatorServiceError.mockReturnValue(
+        'administrative or coordination memberships cannot be restored by the RPC',
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Restaurar Suspenso Um' }))
+      fireEvent.click(
+        within(screen.getByRole('alertdialog', { name: 'Restaurar membro?' })).getByRole('button', {
+          name: 'Restaurar',
+        }),
+      )
+      await act(async () => {})
+
+      expect(
+        screen.getByText('administrative or coordination memberships cannot be restored by the RPC'),
+      ).toBeTruthy()
+      expect(refresh).not.toHaveBeenCalled()
+    })
+
+    it('falha ao carregar inativos → seção honesta + retry recarrega sem derrubar o escopo', async () => {
+      mockGetLastCoordinatorServiceError.mockReturnValue('inactive denied')
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.getByText(/Não foi possível carregar os membros inativos/)).toBeTruthy()
+
+      mockGetLastCoordinatorServiceError.mockReturnValue(null)
+      mockGetCoordinatorInactiveMembers.mockResolvedValue([
+        inactiveMember('s1', 'Suspenso Um', 'suspended'),
+      ])
+      fireEvent.click(
+        screen.getAllByRole('button', { name: 'Tentar novamente' }).at(-1) as HTMLButtonElement,
+      )
+      await act(async () => {})
+
+      expect(screen.getByText('Suspenso Um')).toBeTruthy()
+      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    })
+
+    it('impede restauração duplicada enquanto a escrita está em andamento', async () => {
+      mockGetCoordinatorInactiveMembers.mockResolvedValue([
+        inactiveMember('s1', 'Suspenso Um', 'suspended'),
+      ])
+      const refresh = renderHome([unitWithData()])
+      await act(async () => {})
+
+      let resolveRestore!: (v: boolean) => void
+      mockRestoreCoordinatorMembership.mockReturnValue(
+        new Promise((res) => {
+          resolveRestore = res
+        }),
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Restaurar Suspenso Um' }))
+      fireEvent.click(
+        within(screen.getByRole('alertdialog', { name: 'Restaurar membro?' })).getByRole('button', {
+          name: 'Restaurar',
+        }),
+      )
+      await act(async () => {})
+
+      expect(
+        (screen.getByRole('button', { name: 'Restaurar Suspenso Um' }) as HTMLButtonElement).disabled,
+      ).toBe(true)
+
+      await act(async () => {
+        resolveRestore(true)
+      })
+
+      expect(mockRestoreCoordinatorMembership).toHaveBeenCalledTimes(1)
+      expect(refresh).toHaveBeenCalled()
     })
   })
 })
