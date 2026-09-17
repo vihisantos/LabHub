@@ -6,6 +6,7 @@ import { useAuth } from '../../core/auth/AuthContext'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { filterAppsByWorkspace } from '../../core/workspaces/apps'
 import { useAppAccess } from '../../core/permissions/usePermissions'
+import { useLeadership } from '../../core/permissions/useLeadership'
 import { useFastSync } from '../../lib/useFastSync'
 import { useOnlineSync } from '../../lib/useOnlineSync'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
@@ -34,6 +35,7 @@ export function Launcher() {
   const { unreadCount } = useNotifications()
   const { user, signOut } = useAuth()
   const { canAccessApp } = useAppAccess()
+  const { area } = useLeadership()
   const { workspace } = useWorkspace()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -125,6 +127,26 @@ export function Launcher() {
         <div className="mb-6">
           <QuickActions />
         </div>
+
+        {/* Área de Coordenação */}
+        {area === 'coordination' && (
+          <div className="mb-6">
+            <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Coordenação</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => navigate('/coordenador')}
+                className="flex w-36 flex-col items-center gap-2.5 rounded-2xl bg-card p-4 text-center shadow-sm transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
+              >
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-500">
+                  <icons.ui.userCheck size={26} />
+                </span>
+                <span className="text-sm font-semibold text-fg">Coordenação</span>
+                <span className="text-[11px] leading-snug text-fg-muted">Área do Coordenador Multiunidades</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Cards dos apps — centralizados: 1 no centro, 2 em 2 colunas */}
         <div className="mb-6">
