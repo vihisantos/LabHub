@@ -194,6 +194,26 @@ export async function setCoordinatorManager(
 /** Cargos que o coordenador PODE atribuir (nunca adm/coordinator — servidor). */
 export type CoordinatorAssignableRole = 'tec' | 'vis' | 'est' | 'opv' | 'lider'
 
+/**
+ * Lista canônica e fechada dos slugs atribuíveis (espelha o CHECK do RPC 065).
+ * Mantida aqui para que a UI nunca ofereça um cargo que o servidor rejeitaria.
+ */
+export const COORDINATOR_ASSIGNABLE_ROLE_SLUGS: readonly CoordinatorAssignableRole[] = [
+  'tec',
+  'vis',
+  'est',
+  'opv',
+  'lider',
+]
+
+/** Cargo atribuível + nome para exibição (`roles.slug`/`roles.name`, RLS global). */
+export interface CoordinatorRoleOption {
+  /** id (uuid) da tabela pública `roles` — casa com `membership.role_id`. */
+  id: string
+  slug: CoordinatorAssignableRole
+  name: string
+}
+
 /** Solicitação pendente de entrada na unidade (membership + perfil p/ exibição). */
 export interface CoordinatorRequest {
   membership: Membership
@@ -277,6 +297,39 @@ export async function getCoordinatorRequests(
     membership,
     profile: profileOf.get(membership.profile_id) ?? null,
   }))
+}
+
+/**
+ * Cargos que o coordenador pode atribuir, com o id (uuid) e o nome para exibição.
+ * Leitura RLS da tabela `roles` (blueprints globais — `roles_select`, 036); a
+ * lista de slugs é FECHADA (`COORDINATOR_ASSIGNABLE_ROLE_SLUGS`), então a UI nunca
+ * oferece adm/coordinator. Fail-closed: erro/sem linhas → [] + erro sinalizado
+ * (sem cargos atribuíveis a UI desabilita a troca de cargo; nada é inventado).
+ */
+export async function getCoordinatorAssignableRoles(): Promise<CoordinatorRoleOption[]> {
+  if (!defaultDb) {
+    lastError = { message: 'Supabase não configurado' }
+    return []
+  }
+
+  clearError()
+
+  const { data, error } = await defaultDb
+    .from('roles')
+    .select('id, slug, name')
+    .in('slug', [...COORDINATOR_ASSIGNABLE_ROLE_SLUGS])
+  if (error) {
+    lastError = error
+    console.warn('[Coordinator] roles fetch error:', error.message)
+    return []
+  }
+
+  const rows = (data as { id: string; slug: string; name: string }[] | null) ?? []
+  const bySlug = new Map(rows.map((row) => [row.slug, row]))
+  return COORDINATOR_ASSIGNABLE_ROLE_SLUGS.flatMap((slug) => {
+    const row = bySlug.get(slug)
+    return row ? [{ id: row.id, slug, name: row.name }] : []
+  })
 }
 
 /** pending → active (só solicitação pendente da unidade coordenada). */

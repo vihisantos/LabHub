@@ -9,6 +9,7 @@ vi.mock('../../../lib/supabase', () => ({ defaultDb: supabase.defaultDb }))
 import {
   getCoordinatorScope,
   getCoordinatorRequests,
+  getCoordinatorAssignableRoles,
   setCoordinatorManager,
   approveCoordinatorMembership,
   rejectCoordinatorMembership,
@@ -53,6 +54,7 @@ function mockRpc(
 
 let workspacesResult: { data?: unknown; error?: { message: string } | null }
 let profilesResult: { data?: unknown; error?: { message: string } | null }
+let rolesResult: { data?: unknown; error?: { message: string } | null }
 
 function mockFromPlan() {
   supabase.defaultDb.from.mockImplementation((table: string) => ({
@@ -60,6 +62,7 @@ function mockFromPlan() {
       in: vi.fn(async () => {
         if (table === 'workspaces') return workspacesResult
         if (table === 'profiles') return profilesResult
+        if (table === 'roles') return rolesResult
         return { data: null, error: { message: `unexpected table ${table}` } }
       }),
     }),
@@ -70,6 +73,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   workspacesResult = { data: [], error: null }
   profilesResult = { data: [], error: null }
+  rolesResult = { data: [], error: null }
   mockFromPlan()
 })
 
@@ -293,6 +297,48 @@ describe('getCoordinatorRequests — solicitações pendentes (RPC 065, fail-clo
   })
 })
 
+describe('getCoordinatorAssignableRoles — cargos atribuíveis (RLS roles, fail-closed)', () => {
+  it('retorna apenas os slugs permitidos, na ordem canônica, com id e nome', async () => {
+    rolesResult = {
+      data: [
+        { id: 'r-lider', slug: 'lider', name: 'Líder' },
+        { id: 'r-adm', slug: 'adm', name: 'Admin de Workspace' },
+        { id: 'r-tec', slug: 'tec', name: 'Técnico' },
+        { id: 'r-opv', slug: 'opv', name: 'Operador TV' },
+        { id: 'r-vis', slug: 'vis', name: 'Visualizador' },
+        { id: 'r-est', slug: 'est', name: 'Gestor de Estoque' },
+      ],
+      error: null,
+    }
+
+    const options = await getCoordinatorAssignableRoles()
+
+    expect(options.map((o) => o.slug)).toEqual(['tec', 'vis', 'est', 'opv', 'lider'])
+    expect(options[0]).toEqual({ id: 'r-tec', slug: 'tec', name: 'Técnico' })
+    expect(options.map((o) => o.slug)).not.toContain('adm')
+    expect(options.map((o) => o.slug)).not.toContain('coordinator')
+    expect(supabase.defaultDb.from).toHaveBeenCalledWith('roles')
+    expect(getLastCoordinatorServiceError()).toBeNull()
+  })
+
+  it('slug permitido ausente na tabela é omitido (não inventa)', async () => {
+    rolesResult = { data: [{ id: 'r-tec', slug: 'tec', name: 'Técnico' }], error: null }
+
+    const options = await getCoordinatorAssignableRoles()
+
+    expect(options.map((o) => o.slug)).toEqual(['tec'])
+  })
+
+  it('erro na leitura de roles → [] + erro sinalizado', async () => {
+    rolesResult = { data: null, error: { message: 'roles denied' } }
+
+    const options = await getCoordinatorAssignableRoles()
+
+    expect(options).toEqual([])
+    expect(getLastCoordinatorServiceError()).toBe('roles denied')
+  })
+})
+
 describe('ciclo de vida do coordenador — RPCs de escrita (065)', () => {
   const cases: Array<[string, (id: string) => Promise<boolean>, string]> = [
     ['approve', approveCoordinatorMembership, 'coordinator_approve_membership'],
@@ -346,6 +392,7 @@ describe('banco de dado não configurado (defesa)', () => {
       const fresh = await import('../coordinatorService')
       expect(await fresh.getCoordinatorScope()).toEqual([])
       expect(await fresh.getCoordinatorRequests('ws1')).toEqual([])
+      expect(await fresh.getCoordinatorAssignableRoles()).toEqual([])
       expect(await fresh.setCoordinatorManager('x', null)).toBe(false)
       expect(await fresh.approveCoordinatorMembership('x')).toBe(false)
       expect(await fresh.setCoordinatorRole('x', 'tec')).toBe(false)
