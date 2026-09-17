@@ -13,8 +13,14 @@ import { dbRoleToRoleId } from './membership'
  *   - `get_memberships_by_manager(id)`    → equipe ativa de uma liderança (árvore
  *                                            dentro do workspace do gestor).
  * A escrita escopada `coordinator_set_manager(membership, manager)` re-parenta a
- * relação de gestão dentro das próprias unidades (NULL remove da equipe); a RLS de
- * memberships permanece super-admin-only — o RPC é o ÚNICO caminho do coordenador.
+ * relação de gestão dentro das próprias unidades (NULL remove da equipe); a RLS
+ * de memberships permanece super-admin-only — o RPC é o ÚNICO caminho do
+ * coordenador.
+ *
+ * Fase 9 (migration 065) adiciona o ciclo de vida da unidade via RPCs
+ * fail-closed (`coordinator_get_requests` / `_approve_` / `_reject_` /
+ * `_suspend_` / `_restore_` / `_remove_membership` + `_set_role`): a UI chama e
+ * reage ao erro; escopo, transições e cargos permitidos são decididos no banco.
  */
 
 /** Liderança / subordinação direta ao coordenador na unidade + sua equipe. */
@@ -173,6 +179,32 @@ export async function setCoordinatorManager(
   membershipId: string,
   managerId: string | null,
 ): Promise<boolean> {
+  return callCoordinatorRpc('coordinator_set_manager', {
+    p_membership_id: membershipId,
+    p_manager_id: managerId,
+  })
+}
+
+/**
+ * RBAC 2.0 (Fase 9 / migration 065): ciclo de vida das memberships da UNIDADE
+ * coordenada. Toda a autoridade vive nos RPCs SECURITY DEFINER fail-closed
+ * (escopo = coordenador ativo da unidade): a UI apenas chama e reage ao erro.
+ */
+
+/** Cargos que o coordenador PODE atribuir (nunca adm/coordinator — servidor). */
+export type CoordinatorAssignableRole = 'tec' | 'vis' | 'est' | 'opv' | 'lider'
+
+/** Solicitação pendente de entrada na unidade (membership + perfil p/ exibição). */
+export interface CoordinatorRequest {
+  membership: Membership
+  profile: TeamMemberProfile | null
+}
+
+/** Chamada de RPC de escrita; `true` em sucesso, `false` + erro sinalizado. */
+async function callCoordinatorRpc(
+  fn: string,
+  params: Record<string, unknown>,
+): Promise<boolean> {
   if (!defaultDb) {
     lastError = { message: 'Supabase não configurado' }
     return false
@@ -180,16 +212,115 @@ export async function setCoordinatorManager(
 
   clearError()
 
-  const { error } = await defaultDb.rpc('coordinator_set_manager', {
-    p_membership_id: membershipId,
-    p_manager_id: managerId,
-  })
+  const { error } = await defaultDb.rpc(fn, params)
 
   if (error) {
     lastError = error
-    console.warn('[Coordinator] coordinator_set_manager error:', error.message)
+    console.warn(`[Coordinator] ${fn} error:`, error.message)
     return false
   }
 
   return true
+}
+
+/**
+ * Solicitações PENDENTES da unidade (migration 065). Fail-closed: o RPC só
+ * devolve linhas se o chamador coordenar ativamente a unidade; erro em qualquer
+ * etapa ⇒ [] + erro sinalizado (a UI não inventa pedidos).
+ */
+export async function getCoordinatorRequests(
+  workspaceId: string,
+): Promise<CoordinatorRequest[]> {
+  if (!defaultDb) {
+    lastError = { message: 'Supabase não configurado' }
+    return []
+  }
+
+  clearError()
+  const db = defaultDb
+
+  const { data, error } = await db.rpc('coordinator_get_requests', {
+    p_workspace_id: workspaceId,
+  })
+  if (error) {
+    lastError = error
+    console.warn('[Coordinator] coordinator_get_requests error:', error.message)
+    return []
+  }
+
+  const memberships = (data as Membership[] | null) ?? []
+  if (memberships.length === 0) return []
+
+  const profileIds = [...new Set(memberships.map((m) => m.profile_id))]
+  const { data: profileRows, error: profileError } = await db
+    .from('profiles')
+    .select('id, name, email, status, role')
+    .in('id', profileIds)
+  if (profileError) {
+    lastError = profileError
+    console.warn('[Coordinator] profiles fetch error:', profileError.message)
+    return []
+  }
+
+  const profileOf = new Map<string, TeamMemberProfile>()
+  for (const raw of (profileRows as RawProfileRow[] | null) ?? []) {
+    profileOf.set(raw.id, {
+      id: raw.id,
+      name: raw.name,
+      email: raw.email,
+      status: raw.status === 'active' ? 'active' : 'pending',
+      roleId: dbRoleToRoleId(raw.role),
+    })
+  }
+
+  return memberships.map((membership) => ({
+    membership,
+    profile: profileOf.get(membership.profile_id) ?? null,
+  }))
+}
+
+/** pending → active (só solicitação pendente da unidade coordenada). */
+export function approveCoordinatorMembership(membershipId: string): Promise<boolean> {
+  return callCoordinatorRpc('coordinator_approve_membership', {
+    p_membership_id: membershipId,
+  })
+}
+
+/** Rejeita a solicitação pendente (remove a membership; perfil/usuário ficam). */
+export function rejectCoordinatorMembership(membershipId: string): Promise<boolean> {
+  return callCoordinatorRpc('coordinator_reject_membership', {
+    p_membership_id: membershipId,
+  })
+}
+
+/** active → suspended (neutraliza dependentes, server-side). */
+export function suspendCoordinatorMembership(membershipId: string): Promise<boolean> {
+  return callCoordinatorRpc('coordinator_suspend_membership', {
+    p_membership_id: membershipId,
+  })
+}
+
+/** suspended → active (NÃO recria managed_by). */
+export function restoreCoordinatorMembership(membershipId: string): Promise<boolean> {
+  return callCoordinatorRpc('coordinator_restore_membership', {
+    p_membership_id: membershipId,
+  })
+}
+
+/** active → removed (preserva perfil/usuário; neutraliza dependentes). */
+export function removeCoordinatorMembership(membershipId: string): Promise<boolean> {
+  return callCoordinatorRpc('coordinator_remove_membership', {
+    p_membership_id: membershipId,
+  })
+}
+
+/** Troca ESCOPOADA do cargo da membership (servidor limita a tec/vis/est/opv/lider). */
+export function setCoordinatorRole(
+  membershipId: string,
+  role: CoordinatorAssignableRole,
+): Promise<boolean> {
+  return callCoordinatorRpc('coordinator_set_role', {
+    p_membership_id: membershipId,
+    p_role_slug: role,
+  })
 }
