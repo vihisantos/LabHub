@@ -8,7 +8,14 @@ vi.mock('../../../lib/supabase', () => ({ defaultDb: supabase.defaultDb }))
 
 import {
   getCoordinatorScope,
+  getCoordinatorRequests,
   setCoordinatorManager,
+  approveCoordinatorMembership,
+  rejectCoordinatorMembership,
+  suspendCoordinatorMembership,
+  restoreCoordinatorMembership,
+  removeCoordinatorMembership,
+  setCoordinatorRole,
   getLastCoordinatorServiceError,
 } from '../coordinatorService'
 import type { Membership } from '../membership'
@@ -229,17 +236,122 @@ describe('setCoordinatorManager — escrita escopada de managed_by (RPC)', () =>
   })
 })
 
+describe('getCoordinatorRequests — solicitações pendentes (RPC 065, fail-closed)', () => {
+  const pending = row('membership-pend', { status: 'pending' })
+
+  it('mapeia membership pendente + perfil', async () => {
+    mockRpc({
+      coordinator_get_requests: () => ({ data: [pending], error: null }),
+    })
+    profilesResult = {
+      data: [
+        { id: 'u-membership-pend', name: 'Novo', email: 'novo@b.com', status: 'active', role: 'technician' },
+      ],
+      error: null,
+    }
+
+    const requests = await getCoordinatorRequests('ws1')
+
+    expect(supabase.defaultDb.rpc).toHaveBeenCalledWith('coordinator_get_requests', {
+      p_workspace_id: 'ws1',
+    })
+    expect(requests).toHaveLength(1)
+    expect(requests[0].membership.status).toBe('pending')
+    expect(requests[0].profile).toMatchObject({ name: 'Novo', roleId: 'role-technician' })
+    expect(getLastCoordinatorServiceError()).toBeNull()
+  })
+
+  it('sem solicitações → [] sem erro', async () => {
+    mockRpc({ coordinator_get_requests: () => ({ data: [], error: null }) })
+    const requests = await getCoordinatorRequests('ws1')
+    expect(requests).toEqual([])
+    expect(getLastCoordinatorServiceError()).toBeNull()
+  })
+
+  it('perfil oculto por RLS → profile null (não inventa)', async () => {
+    mockRpc({ coordinator_get_requests: () => ({ data: [pending], error: null }) })
+    profilesResult = { data: [], error: null }
+    const requests = await getCoordinatorRequests('ws1')
+    expect(requests[0].profile).toBeNull()
+  })
+
+  it('RPC negando (fora do escopo) → [] + erro', async () => {
+    mockRpc({
+      coordinator_get_requests: () => ({ data: null, error: { message: 'permission denied' } }),
+    })
+    const requests = await getCoordinatorRequests('ws1')
+    expect(requests).toEqual([])
+    expect(getLastCoordinatorServiceError()).toBe('permission denied')
+  })
+
+  it('erro no fetch de profiles → [] + erro (fail-closed)', async () => {
+    mockRpc({ coordinator_get_requests: () => ({ data: [pending], error: null }) })
+    profilesResult = { data: null, error: { message: 'profiles denied' } }
+    const requests = await getCoordinatorRequests('ws1')
+    expect(requests).toEqual([])
+    expect(getLastCoordinatorServiceError()).toBe('profiles denied')
+  })
+})
+
+describe('ciclo de vida do coordenador — RPCs de escrita (065)', () => {
+  const cases: Array<[string, (id: string) => Promise<boolean>, string]> = [
+    ['approve', approveCoordinatorMembership, 'coordinator_approve_membership'],
+    ['reject', rejectCoordinatorMembership, 'coordinator_reject_membership'],
+    ['suspend', suspendCoordinatorMembership, 'coordinator_suspend_membership'],
+    ['restore', restoreCoordinatorMembership, 'coordinator_restore_membership'],
+    ['remove', removeCoordinatorMembership, 'coordinator_remove_membership'],
+  ]
+
+  it.each(cases)('%s chama o RPC com p_membership_id e retorna true', async (_n, fn, rpcName) => {
+    supabase.defaultDb.rpc.mockResolvedValue({ data: null, error: null })
+    const ok = await fn('membership-x')
+    expect(ok).toBe(true)
+    expect(supabase.defaultDb.rpc).toHaveBeenCalledWith(rpcName, {
+      p_membership_id: 'membership-x',
+    })
+    expect(getLastCoordinatorServiceError()).toBeNull()
+  })
+
+  it.each(cases)('%s propaga negação do servidor → false + erro', async (_n, fn, rpcName) => {
+    supabase.defaultDb.rpc.mockResolvedValue({
+      data: null,
+      error: { message: 'only an active coordinator of this unit can act' },
+    })
+    const ok = await fn('membership-x')
+    expect(ok).toBe(false)
+    expect(supabase.defaultDb.rpc).toHaveBeenCalledWith(rpcName, {
+      p_membership_id: 'membership-x',
+    })
+    expect(getLastCoordinatorServiceError()).toBe(
+      'only an active coordinator of this unit can act',
+    )
+  })
+
+  it('setCoordinatorRole envia p_role_slug do cargo permitido', async () => {
+    supabase.defaultDb.rpc.mockResolvedValue({ data: null, error: null })
+    const ok = await setCoordinatorRole('membership-x', 'lider')
+    expect(ok).toBe(true)
+    expect(supabase.defaultDb.rpc).toHaveBeenCalledWith('coordinator_set_role', {
+      p_membership_id: 'membership-x',
+      p_role_slug: 'lider',
+    })
+  })
+})
+
 describe('banco de dado não configurado (defesa)', () => {
-  it('defaultDb null → getCoordinatorScope [] fail-closed', async () => {
-    const original = supabase.defaultDb
-    supabase.defaultDb = null
+  it('defaultDb null → funções fail-closed', async () => {
     vi.resetModules()
-    const fresh = await import('../coordinatorService')
+    vi.doMock('../../../lib/supabase', () => ({ defaultDb: null }))
     try {
+      const fresh = await import('../coordinatorService')
       expect(await fresh.getCoordinatorScope()).toEqual([])
+      expect(await fresh.getCoordinatorRequests('ws1')).toEqual([])
       expect(await fresh.setCoordinatorManager('x', null)).toBe(false)
+      expect(await fresh.approveCoordinatorMembership('x')).toBe(false)
+      expect(await fresh.setCoordinatorRole('x', 'tec')).toBe(false)
     } finally {
-      supabase.defaultDb = original
+      vi.doUnmock('../../../lib/supabase')
+      vi.resetModules()
     }
   })
 })
