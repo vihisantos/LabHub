@@ -11,6 +11,7 @@ import logging
 import requests
 import re
 import hashlib
+import uuid
 import ipaddress
 from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse
@@ -719,19 +720,50 @@ def push_send():
         return jsonify({'error': 'Erro ao enviar notificação push'}), 500
 
 
+def _is_valid_uuid(value: str) -> bool:
+    """True se a string é um UUID válido (aceito pelo tipo `uuid` do Postgres).
+
+    Guarda do lote de memberships (22P02): um id não-UUID (ex.: "user-1")
+    dentro de `profile_id=in.(...)` faz o PostgREST rejeitar a query inteira
+    com 400, derrubando TODA a seleção de destinatários (fail-closed).
+    Aceita qualquer formato que o Postgres aceite (com/sem hífens, caixa
+    alta/baixa); valores claramente inválidos retornam False.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 def _resolve_batch_memberships(subs):
     """Workspaces ativos por user id, resolvidos na hora via memberships.
 
     9.3-B: o targeting de push não lê mais o campo gravado na inscrição
     (payload legado); resolve memberships ativas por lote (service_role).
-    Falha ⇒ {} (fail-closed: sem workspace resolvido, sem envio).
+    IDs que não são UUIDs válidos são ignorados — nunca entram na query
+    PostgREST (impede o 400/22P02 que derrubava o batch inteiro); os UUIDs
+    válidos continuam sendo consultados normalmente.
+    Falha real na consulta ⇒ {} (fail-closed: sem workspace resolvido,
+    sem envio).
     """
     ids = sorted({str((s.get('user') or {}).get('id') or '') for s in subs})
     ids = [i for i in ids if i]
     if not ids or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return {}
     try:
-        in_list = ','.join(f'"{i}"' for i in ids)
+        valid_ids = [i for i in ids if _is_valid_uuid(i)]
+        invalid_ids = [i for i in ids if not _is_valid_uuid(i)]
+        if invalid_ids:
+            logger.warning(
+                "push: %d user_id(s) não-UUID ignorados no batch de memberships",
+                len(invalid_ids),
+            )
+        if not valid_ids:
+            return {}
+        in_list = ','.join(f'"{i}"' for i in valid_ids)
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/memberships'
             f'?profile_id=in.({quote(in_list)})&status=eq.active'

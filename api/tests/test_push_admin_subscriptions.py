@@ -34,7 +34,7 @@ SUB_MILENA = {
     'expirationTime': None,
     'keys': {'p256dh': 'k1', 'auth': 'a1'},
     'user': {
-        'id': 'milena-1',
+        'id': '99999999-9999-4999-8999-999999999991',
         'name': 'milenaossuna',
         'role': 'viewer',
         'is_super_admin': False,
@@ -50,7 +50,7 @@ SUB_VITOR = {
     'expirationTime': None,
     'keys': {'p256dh': 'k2', 'auth': 'a2'},
     'user': {
-        'id': 'vitor-1',
+        'id': '99999999-9999-4999-8999-999999999992',
         'name': 'Vitor Santos',
         'role': 'admin',
         'is_super_admin': True,
@@ -154,7 +154,7 @@ def test_carrega_segmentacao_para_diagnostico(push_module, monkeypatch):
     """O diagnóstico do 'por que não recebe' precisa dos campos de filtro."""
     client = push_module.app.test_client()
     headers = _auth(push_module, monkeypatch, SUPER_ADMIN)
-    _mock_memberships(push_module, monkeypatch, {'milena-1': ['ws-a']})
+    _mock_memberships(push_module, monkeypatch, {'99999999-9999-4999-8999-999999999991': ['ws-a']})
     resp = client.get('/api/push/admin/subscriptions', headers=headers)
     milena = [s for s in resp.get_json()['subscriptions'] if s['name'] == 'milenaossuna'][0]
     assert milena['apps'] == {'chamados': False}  # ← causa raiz clássica
@@ -165,21 +165,21 @@ def test_carrega_segmentacao_para_diagnostico(push_module, monkeypatch):
 def test_filtro_por_user_id(push_module, monkeypatch):
     client = push_module.app.test_client()
     headers = _auth(push_module, monkeypatch, SUPER_ADMIN)
-    resp = client.get('/api/push/admin/subscriptions?user_id=milena-1', headers=headers)
+    resp = client.get('/api/push/admin/subscriptions?user_id=99999999-9999-4999-8999-999999999991', headers=headers)
     body = resp.get_json()
     assert body['total'] == 1
-    assert body['subscriptions'][0]['user_id'] == 'milena-1'
+    assert body['subscriptions'][0]['user_id'] == '99999999-9999-4999-8999-999999999991'
 
 
 def test_filtro_por_workspace_inclui_super_admin(push_module, monkeypatch):
     """Mesma semântica do _target_subs: super admin recebe de qualquer workspace."""
     client = push_module.app.test_client()
     headers = _auth(push_module, monkeypatch, SUPER_ADMIN)
-    _mock_memberships(push_module, monkeypatch, {'milena-1': ['ws-a']})
+    _mock_memberships(push_module, monkeypatch, {'99999999-9999-4999-8999-999999999991': ['ws-a']})
     resp = client.get('/api/push/admin/subscriptions?workspace_id=ws-a', headers=headers)
     body = resp.get_json()
     ids = {s['user_id'] for s in body['subscriptions']}
-    assert ids == {'milena-1', 'vitor-1'}
+    assert ids == {'99999999-9999-4999-8999-999999999991', '99999999-9999-4999-8999-999999999992'}
 
 
 def test_filtro_por_workspace_exclui_outros(push_module, monkeypatch):
@@ -188,4 +188,4 @@ def test_filtro_por_workspace_exclui_outros(push_module, monkeypatch):
     resp = client.get('/api/push/admin/subscriptions?workspace_id=ws-inexistente', headers=headers)
     body = resp.get_json()
     ids = {s['user_id'] for s in body['subscriptions']}
-    assert 'milena-1' not in ids  # não pertence ao workspace
+    assert '99999999-9999-4999-8999-999999999991' not in ids  # não pertence ao workspace
