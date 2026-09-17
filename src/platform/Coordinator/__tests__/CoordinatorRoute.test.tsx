@@ -34,6 +34,13 @@ vi.mock('../../../core/permissions/service', () => ({
 
 vi.mock('../../../core/permissions/coordinatorService', () => ({
   setCoordinatorManager: vi.fn(),
+  getCoordinatorRequests: vi.fn(async () => []),
+  getCoordinatorAssignableRoles: vi.fn(async () => []),
+  approveCoordinatorMembership: vi.fn(async () => true),
+  rejectCoordinatorMembership: vi.fn(async () => true),
+  suspendCoordinatorMembership: vi.fn(async () => true),
+  removeCoordinatorMembership: vi.fn(async () => true),
+  setCoordinatorRole: vi.fn(async () => true),
   getLastCoordinatorServiceError: () => null,
 }))
 

@@ -2,12 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { CoordinatorHome, managerOptionsForMember } from '../CoordinatorHome'
-import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
+import type {
+  CoordinatedUnit,
+  CoordinatorRequest,
+  CoordinatorRoleOption,
+} from '../../../core/permissions/coordinatorService'
 
 const mockUseCoordinator = vi.hoisted(() => vi.fn())
 const mockGetRoleForUser = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
+const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
+const mockGetCoordinatorAssignableRoles = vi.hoisted(() => vi.fn())
+const mockApproveCoordinatorMembership = vi.hoisted(() => vi.fn())
+const mockRejectCoordinatorMembership = vi.hoisted(() => vi.fn())
+const mockSuspendCoordinatorMembership = vi.hoisted(() => vi.fn())
+const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
+const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../core/permissions/useCoordinator', () => ({
   useCoordinator: () => mockUseCoordinator(),
@@ -19,6 +30,13 @@ vi.mock('../../../core/permissions/service', () => ({
 
 vi.mock('../../../core/permissions/coordinatorService', () => ({
   setCoordinatorManager: (...args: unknown[]) => mockSetCoordinatorManager(...args),
+  getCoordinatorRequests: (...args: unknown[]) => mockGetCoordinatorRequests(...args),
+  getCoordinatorAssignableRoles: (...args: unknown[]) => mockGetCoordinatorAssignableRoles(...args),
+  approveCoordinatorMembership: (...args: unknown[]) => mockApproveCoordinatorMembership(...args),
+  rejectCoordinatorMembership: (...args: unknown[]) => mockRejectCoordinatorMembership(...args),
+  suspendCoordinatorMembership: (...args: unknown[]) => mockSuspendCoordinatorMembership(...args),
+  removeCoordinatorMembership: (...args: unknown[]) => mockRemoveCoordinatorMembership(...args),
+  setCoordinatorRole: (...args: unknown[]) => mockSetCoordinatorRole(...args),
   getLastCoordinatorServiceError: () => mockGetLastCoordinatorServiceError(),
 }))
 
@@ -29,13 +47,14 @@ const membership = (
   over: Partial<{
     managed_by: string | null
     role_id: string
+    status: 'pending' | 'active' | 'suspended' | 'removed'
   }> = {},
 ) => ({
   id,
   profile_id: profileId,
   workspace_id: workspaceId,
   role_id: over.role_id ?? 'role-x',
-  status: 'active' as const,
+  status: over.status ?? ('active' as const),
   managed_by: over.managed_by ?? null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
@@ -95,6 +114,21 @@ function twoLeadersUnit(): CoordinatedUnit {
   }
 }
 
+const assignableRoles: CoordinatorRoleOption[] = [
+  { id: 'role-technician', slug: 'tec', name: 'Técnico' },
+  { id: 'role-viewer', slug: 'vis', name: 'Visualizador' },
+  { id: 'role-est', slug: 'est', name: 'Gestor de Estoque' },
+  { id: 'role-opv', slug: 'opv', name: 'Operador TV' },
+  { id: 'role-lider', slug: 'lider', name: 'Líder' },
+]
+
+function pendingRequest(id: string, name: string): CoordinatorRequest {
+  return {
+    membership: membership(`ms-${id}`, `u-${id}`, 'ws1', { status: 'pending' }),
+    profile: { id: `u-${id}`, name, email: `${id}@b.com`, status: 'active', roleId: 'role-technician' },
+  }
+}
+
 function setupOverrides(overrides: Partial<ReturnType<typeof mockUseCoordinator>>) {
   mockUseCoordinator.mockReturnValue({
     units: [],
@@ -120,11 +154,18 @@ beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
   mockGetRoleForUser.mockReturnValue({ name: 'Líder' })
-  mockSetCoordinatorManager.mockResolvedValue(true)
   mockGetLastCoordinatorServiceError.mockReturnValue(null)
+  mockSetCoordinatorManager.mockResolvedValue(true)
+  mockGetCoordinatorRequests.mockResolvedValue([])
+  mockGetCoordinatorAssignableRoles.mockResolvedValue([])
+  mockApproveCoordinatorMembership.mockResolvedValue(true)
+  mockRejectCoordinatorMembership.mockResolvedValue(true)
+  mockSuspendCoordinatorMembership.mockResolvedValue(true)
+  mockRemoveCoordinatorMembership.mockResolvedValue(true)
+  mockSetCoordinatorRole.mockResolvedValue(true)
 })
 
-describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', () => {
+describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', () => {
   describe('managerOptionsForMember — candidatos restringidos ao escopo do RPC', () => {
     it('exclui o gestor atual e oferece coordenação + demais lideranças da unidade', () => {
       const unit = twoLeadersUnit()
@@ -201,13 +242,14 @@ describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', ()
       expect(screen.getByText(/atribuir as unidades ao seu perfil/)).toBeTruthy()
     })
 
-    it('mostra o escopo real: unidades, lideranças e equipes', () => {
+    it('mostra o escopo real: unidades, lideranças e equipes', async () => {
       renderHome([unitWithData()])
+      await act(async () => {})
       expect(screen.getByText('Área do Coordenador')).toBeTruthy()
       expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
       expect(screen.getByText('Ana Líder')).toBeTruthy()
       expect(screen.getByText('Técnico 1')).toBeTruthy()
-      expect(screen.getByText('1 liderança')).toBeTruthy()
+      expect(screen.getByText('liderança direta')).toBeTruthy()
       expect(screen.getByText('membro nas equipes')).toBeTruthy()
     })
 
@@ -232,9 +274,86 @@ describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', ()
     })
   })
 
+  describe('solicitações pendentes por unidade (Fase 1 RPC 065)', () => {
+    it('lista nome, e-mail e estado pendente (sem inventar pedidos)', async () => {
+      mockGetCoordinatorRequests.mockImplementation(async (ws: string) =>
+        ws === 'ws1' ? [pendingRequest('p1', 'Nova Pessoa')] : [],
+      )
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.getByText('Nova Pessoa')).toBeTruthy()
+      expect(screen.getByText('p1@b.com')).toBeTruthy()
+      expect(screen.getByText('Pendente')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Aprovar/ })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Rejeitar/ })).toBeTruthy()
+    })
+
+    it('aprovar chama o RPC, recarrega escopo e solicitações (sem reload de página)', async () => {
+      mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
+      const refresh = renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }))
+      await act(async () => {})
+
+      expect(mockApproveCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+      expect(refresh).toHaveBeenCalled()
+      expect(mockGetCoordinatorRequests).toHaveBeenCalledTimes(2)
+    })
+
+    it('rejeitar exige confirmação e só então chama o RPC', async () => {
+      mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
+      const refresh = renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByRole('button', { name: /Rejeitar/ }))
+
+      const dialog = screen.getByRole('alertdialog', { name: 'Rejeitar solicitação?' })
+      expect(mockRejectCoordinatorMembership).not.toHaveBeenCalled()
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Rejeitar' }))
+      await act(async () => {})
+
+      expect(mockRejectCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+      expect(refresh).toHaveBeenCalled()
+    })
+
+    it('erro ao aprovar → banner honesto e sem refresh falso', async () => {
+      mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
+      const refresh = renderHome([unitWithData()])
+      await act(async () => {})
+
+      mockApproveCoordinatorMembership.mockResolvedValue(false)
+      mockGetLastCoordinatorServiceError.mockReturnValue('only an active coordinator can approve')
+
+      fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }))
+      await act(async () => {})
+
+      expect(screen.getByText('only an active coordinator can approve')).toBeTruthy()
+      expect(refresh).not.toHaveBeenCalled()
+    })
+
+    it('falha ao carregar solicitações → retry recarrega sem derrubar o escopo', async () => {
+      mockGetLastCoordinatorServiceError.mockReturnValue('requests denied')
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.getByText(/Não foi possível carregar as solicitações/)).toBeTruthy()
+
+      mockGetLastCoordinatorServiceError.mockReturnValue(null)
+      fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+      await act(async () => {})
+
+      expect(screen.getByText('Nenhuma solicitação pendente.')).toBeTruthy()
+      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    })
+  })
+
   describe('gestão real — atribuir a gestor (setCoordinatorManager)', () => {
     it('abre o sheet com apenas gestores permitidos; atribui e atualiza a árvore', async () => {
       const refresh = renderHome([twoLeadersUnit()])
+      await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: 'Vincular Técnico 1 a gestor' }))
       expect(screen.getByText('Vincular membro a gestor')).toBeTruthy()
@@ -261,6 +380,7 @@ describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', ()
 
     it('remover da equipe chama setCoordinatorManager(id, null) e atualiza a árvore', async () => {
       const refresh = renderHome([twoLeadersUnit()])
+      await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: 'Remover Técnico 1 da equipe' }))
 
@@ -272,6 +392,7 @@ describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', ()
 
     it('erro do RPC na atribuição → mensagem inline no sheet, NÃO fecha, NÃO refresca', async () => {
       const refresh = renderHome([twoLeadersUnit()])
+      await act(async () => {})
       mockSetCoordinatorManager.mockResolvedValue(false)
       mockGetLastCoordinatorServiceError.mockReturnValue('manager is outside the coordinator scope in this unit')
 
@@ -291,6 +412,7 @@ describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', ()
 
     it('erro do RPC na remoção → banner de erro honesto, sem refresh falso', async () => {
       const refresh = renderHome([twoLeadersUnit()])
+      await act(async () => {})
       mockSetCoordinatorManager.mockResolvedValue(false)
       mockGetLastCoordinatorServiceError.mockReturnValue('guard 046 rejeitou: ciclo de gestão')
 
@@ -303,9 +425,134 @@ describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', ()
     })
   })
 
+  describe('gestão de cargo e status (setCoordinatorRole / suspend / remove)', () => {
+    function unitWithManagedMember(): CoordinatedUnit {
+      const unit = unitWithData()
+      unit.leaders[0].members[0].membership.role_id = 'role-technician'
+      return unit
+    }
+
+    async function openManage(name: string) {
+      fireEvent.click(screen.getByRole('button', { name: `Gerenciar ${name}` }))
+      await act(async () => {})
+      return screen.getByRole('dialog', { name: 'Gerenciar membro' })
+    }
+
+    it('oferece SOMENTE tec/vis/est/opv/lider e pré-seleciona o cargo atual', async () => {
+      mockGetCoordinatorAssignableRoles.mockResolvedValue(assignableRoles)
+      renderHome([unitWithManagedMember()])
+      await act(async () => {})
+
+      const dialog = await openManage('Técnico 1')
+      const radios = within(dialog).getAllByRole('radio')
+
+      const values = radios.map((r) => (r as HTMLInputElement).value)
+      expect(values).toEqual(['tec', 'vis', 'est', 'opv', 'lider'])
+      expect(values).not.toContain('adm')
+      expect(values).not.toContain('coordinator')
+      expect((within(dialog).getByRole('radio', { name: 'Técnico' }) as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('salvar cargo envia só o slug permitido e atualiza a árvore', async () => {
+      mockGetCoordinatorAssignableRoles.mockResolvedValue(assignableRoles)
+      const refresh = renderHome([unitWithManagedMember()])
+      await act(async () => {})
+
+      const dialog = await openManage('Técnico 1')
+      fireEvent.click(within(dialog).getByRole('radio', { name: 'Gestor de Estoque' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar cargo' }))
+
+      await act(async () => {})
+
+      expect(mockSetCoordinatorRole).toHaveBeenCalledWith('ms-m1', 'est')
+      expect(refresh).toHaveBeenCalled()
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Gerenciar membro' })).toBeNull())
+    })
+
+    it('erro do servidor na troca de cargo → erro inline, NÃO fecha, NÃO refresca', async () => {
+      mockGetCoordinatorAssignableRoles.mockResolvedValue(assignableRoles)
+      const refresh = renderHome([unitWithManagedMember()])
+      await act(async () => {})
+
+      const dialog = await openManage('Técnico 1')
+      fireEvent.click(within(dialog).getByRole('radio', { name: 'Líder' }))
+
+      mockSetCoordinatorRole.mockResolvedValue(false)
+      mockGetLastCoordinatorServiceError.mockReturnValue(
+        'only active memberships can have their role changed',
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar cargo' }))
+      await act(async () => {})
+
+      expect(screen.getByRole('dialog', { name: 'Gerenciar membro' })).toBeTruthy()
+      expect(screen.getByText('only active memberships can have their role changed')).toBeTruthy()
+      expect(refresh).not.toHaveBeenCalled()
+    })
+
+    it('suspender exige confirmação e chama o RPC escopado', async () => {
+      const refresh = renderHome([unitWithManagedMember()])
+      await act(async () => {})
+
+      await openManage('Técnico 1')
+      fireEvent.click(screen.getByRole('button', { name: 'Suspender' }))
+
+      const confirm = screen.getByRole('alertdialog', { name: 'Suspender membro?' })
+      expect(mockSuspendCoordinatorMembership).not.toHaveBeenCalled()
+
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Suspender' }))
+      await act(async () => {})
+
+      expect(mockSuspendCoordinatorMembership).toHaveBeenCalledWith('ms-m1')
+      expect(refresh).toHaveBeenCalled()
+    })
+
+    it('remover da unidade exige confirmação e chama o RPC escopado', async () => {
+      const refresh = renderHome([unitWithManagedMember()])
+      await act(async () => {})
+
+      await openManage('Técnico 1')
+      fireEvent.click(screen.getByRole('button', { name: 'Remover da unidade' }))
+
+      const confirm = screen.getByRole('alertdialog', { name: 'Remover da unidade?' })
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Remover' }))
+      await act(async () => {})
+
+      expect(mockRemoveCoordinatorMembership).toHaveBeenCalledWith('ms-m1')
+      expect(refresh).toHaveBeenCalled()
+    })
+
+    it('duas ações distintas de status: erro na remoção mantém o diálogo e mostra o motivo', async () => {
+      const refresh = renderHome([unitWithManagedMember()])
+      await act(async () => {})
+
+      await openManage('Técnico 1')
+      fireEvent.click(screen.getByRole('button', { name: 'Remover da unidade' }))
+
+      const confirm = screen.getByRole('alertdialog', { name: 'Remover da unidade?' })
+      mockRemoveCoordinatorMembership.mockResolvedValue(false)
+      mockGetLastCoordinatorServiceError.mockReturnValue('only active memberships can be removed')
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Remover' }))
+      await act(async () => {})
+
+      expect(screen.getByRole('alertdialog', { name: 'Remover da unidade?' })).toBeTruthy()
+      expect(screen.getByText('only active memberships can be removed')).toBeTruthy()
+      expect(refresh).not.toHaveBeenCalled()
+    })
+
+    it('gerenciar liderança também está disponível (não só membros)', async () => {
+      mockGetCoordinatorAssignableRoles.mockResolvedValue(assignableRoles)
+      renderHome([unitWithManagedMember()])
+      await act(async () => {})
+
+      const dialog = await openManage('Ana Líder')
+      expect(within(dialog).getAllByRole('radio')).toHaveLength(5)
+    })
+  })
+
   describe('gestão real — impedir ações duplicadas', () => {
     it('enquanto uma escrita está em andamento, todas as ações de gestão são desabilitadas', async () => {
       renderHome([twoLeadersUnit()])
+      await act(async () => {})
 
       let resolveAssign!: (v: boolean) => void
       mockSetCoordinatorManager.mockReturnValue(new Promise((res) => { resolveAssign = res }))
@@ -331,14 +578,17 @@ describe('CoordinatorHome (Fase 8.2 — Área do Coordenador, gestão real)', ()
       })
     })
 
-    it('sem CTA de criar membership nem de alterar cargo (só managed_by)', () => {
+    it('não oferece criação de membership; oferece vincular/gerenciar/remover', async () => {
       renderHome([unitWithData()])
+      await act(async () => {})
+
       const createLabels = screen.getAllByRole('button').filter((b) => {
         const label = (b as HTMLButtonElement).title
-        return /criar|cargo|cadastrar/i.test(label ?? '')
+        return /criar|cadastrar/i.test(label ?? '')
       })
       expect(createLabels).toHaveLength(0)
       expect(screen.getByRole('button', { name: 'Vincular Técnico 1 a gestor' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Gerenciar Técnico 1' })).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Remover Técnico 1 da equipe' })).toBeTruthy()
     })
   })

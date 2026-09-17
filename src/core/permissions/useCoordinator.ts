@@ -15,14 +15,20 @@ export function useCoordinator() {
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  /**
+   * `silent: true` re-consulta o escopo SEM ligar o spinner de página inteira —
+   * usado após escritas escopadas (a UI mostra o loading no próprio membro, não
+   * no Dashboard). O erro continua honesto: uma falha vira `failed`.
+   */
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true
+    if (!silent) setLoading(true)
     setFailed(false)
     const data = await getCoordinatorScope()
     // Vazio legítimo (sem unidades de coordenação) NÃO é erro.
     setFailed(data.length === 0 && getLastCoordinatorServiceError() !== null)
     setUnits(data)
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => {
