@@ -8,6 +8,7 @@ import type {
   CoordinatorInactiveMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
+  CoordinatorUnitOverview,
 } from '../../../core/permissions/coordinatorService'
 import type { BreakpointState } from '../../../responsive/useBreakpoint'
 
@@ -18,6 +19,7 @@ const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorInactiveMembers = vi.hoisted(() => vi.fn())
+const mockGetCoordinatorUnitOverview = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorAssignableRoles = vi.hoisted(() => vi.fn())
 const mockApproveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRejectCoordinatorMembership = vi.hoisted(() => vi.fn())
@@ -25,6 +27,20 @@ const mockSuspendCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRestoreCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
+const mockNavigate = vi.hoisted(() => vi.fn())
+const workspaceContextMock = vi.hoisted(() => ({
+  workspaces: [] as Array<{ id: string; name: string; slug: string }>,
+  setWorkspace: vi.fn(),
+}))
+
+vi.mock('react-router-dom', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('react-router-dom')>()
+  return { ...mod, useNavigate: () => mockNavigate }
+})
+
+vi.mock('../../../core/workspaces/WorkspaceContext', () => ({
+  useWorkspace: () => workspaceContextMock,
+}))
 
 vi.mock('../../../core/permissions/useCoordinator', () => ({
   useCoordinator: () => mockUseCoordinator(),
@@ -42,6 +58,7 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   setCoordinatorManager: (...args: unknown[]) => mockSetCoordinatorManager(...args),
   getCoordinatorRequests: (...args: unknown[]) => mockGetCoordinatorRequests(...args),
   getCoordinatorInactiveMembers: (...args: unknown[]) => mockGetCoordinatorInactiveMembers(...args),
+  getCoordinatorUnitOverview: (...args: unknown[]) => mockGetCoordinatorUnitOverview(...args),
   getCoordinatorAssignableRoles: (...args: unknown[]) => mockGetCoordinatorAssignableRoles(...args),
   approveCoordinatorMembership: (...args: unknown[]) => mockApproveCoordinatorMembership(...args),
   rejectCoordinatorMembership: (...args: unknown[]) => mockRejectCoordinatorMembership(...args),
@@ -192,11 +209,15 @@ function setBp(bp: BreakpointState['bp']) {
 beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
+  mockNavigate.mockReset()
+  workspaceContextMock.workspaces = []
+  workspaceContextMock.setWorkspace.mockReset()
   mockGetRoleForUser.mockReturnValue({ name: 'Líder' })
   mockGetLastCoordinatorServiceError.mockReturnValue(null)
   mockSetCoordinatorManager.mockResolvedValue(true)
   mockGetCoordinatorRequests.mockResolvedValue([])
   mockGetCoordinatorInactiveMembers.mockResolvedValue([])
+  mockGetCoordinatorUnitOverview.mockResolvedValue(null)
   mockGetCoordinatorAssignableRoles.mockResolvedValue([])
   mockApproveCoordinatorMembership.mockResolvedValue(true)
   mockRejectCoordinatorMembership.mockResolvedValue(true)
@@ -754,6 +775,103 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
       expect(mockRestoreCoordinatorMembership).toHaveBeenCalledTimes(1)
       expect(refresh).toHaveBeenCalled()
+    })
+  })
+
+  describe('Central do Coordenador — Visão da unidade (RPC 070, READ-ONLY)', () => {
+    const overviewFixture: CoordinatorUnitOverview = {
+      workspace: { id: 'ws1', name: 'Campus A' },
+      tickets: { open: 2, in_progress: 3, unassigned: 4, high_priority: 2, urgent: 1 },
+      recent: [
+        {
+          id: 'tk-1',
+          ticketNumber: 7,
+          roomName: 'Sala 101',
+          problemCategory: 'Imprensa',
+          status: 'em_atendimento',
+          priority: 'alta',
+          assignedToUserId: '',
+          createdAt: '2026-01-11T00:00:00Z',
+          updatedAt: '2026-01-11T00:00:00Z',
+        },
+      ],
+    }
+
+    it('mostra os totais da unidade vindos do RPC, sem inventar números', async () => {
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(mockGetCoordinatorUnitOverview).toHaveBeenCalledWith('ws1')
+      expect(screen.getByText('Visão da unidade')).toBeTruthy()
+      expect(screen.getByTestId('unit-stat-open')).toHaveTextContent('Abertos2')
+      expect(screen.getByTestId('unit-stat-in_progress')).toHaveTextContent('Em andamento3')
+      expect(screen.getByTestId('unit-stat-unassigned')).toHaveTextContent('Sem responsável4')
+      expect(screen.getByTestId('unit-stat-high_priority')).toHaveTextContent('Alta prioridade2')
+      expect(screen.getByTestId('unit-stat-urgent')).toHaveTextContent('Urgentes1')
+      expect(screen.getByText('Sala 101 — Imprensa')).toBeTruthy()
+      expect(screen.getByText(/#7/)).toBeTruthy()
+    })
+
+    it('falha na visão (ex.: negado pelo RPC) → erro honesto + retry sem derrubar o escopo', async () => {
+      mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+      mockGetLastCoordinatorServiceError.mockReturnValue(
+        'only an active coordinator of this unit can view its overview',
+      )
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.getByText(/Não foi possível carregar a visão desta unidade/)).toBeTruthy()
+
+      mockGetLastCoordinatorServiceError.mockReturnValue(null)
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      fireEvent.click(
+        within(screen.getByTestId('coordinator-unit-overview')).getByRole('button', {
+          name: 'Tentar novamente',
+        }),
+      )
+      await act(async () => {})
+
+      expect(screen.getByTestId('unit-stat-open')).toHaveTextContent('Abertos2')
+      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    })
+
+    it('unidade vazia (zeros honestos) não é erro', async () => {
+      mockGetCoordinatorUnitOverview.mockResolvedValue({
+        workspace: { id: 'ws1', name: 'Campus A' },
+        tickets: { open: 0, in_progress: 0, unassigned: 0, high_priority: 0, urgent: 0 },
+        recent: [],
+      })
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.getByTestId('unit-stat-open')).toHaveTextContent('Abertos0')
+      expect(screen.queryByText(/Sala 101/)).toBeNull()
+      expect(mockGetLastCoordinatorServiceError()).toBeNull()
+    })
+
+    it('Abrir chamados troca o workspace ativo para a unidade e navega ao app existente', async () => {
+      const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+      workspaceContextMock.workspaces = [target]
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByRole('button', { name: 'Abrir chamados' }))
+
+      expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, {
+        persist: false,
+      })
+      expect(mockNavigate).toHaveBeenCalledWith('/chamados')
+    })
+
+    it('unidade fora do contexto de workspaces → nenhuma ação de abrir chamados (fail-safe)', async () => {
+      workspaceContextMock.workspaces = [{ id: 'ws9', name: 'Outra', slug: 'outra' }]
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.queryByRole('button', { name: 'Abrir chamados' })).toBeNull()
     })
   })
 
