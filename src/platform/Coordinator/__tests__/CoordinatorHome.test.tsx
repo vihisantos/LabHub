@@ -815,4 +815,46 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
       expect(mockRejectCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
     })
   })
+
+  describe('responsivo (Fase 2) — refinamento da grade e do painel lateral', () => {
+    it('unidades em grade com coluna limitada (maxWidth): cards não esticam no wide', async () => {
+      setBp('wide')
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      const grid = screen.getByTestId('coordinator-units-grid')
+      expect(grid.style.gridTemplateColumns).toBe(
+        'repeat(auto-fit, minmax(min(380px, 100%), min(560px, 100%)))',
+      )
+    })
+
+    it('mínimo overflow-safe: min(_, 100%) evita scroll horizontal em faixa estreita', async () => {
+      setBp('compact')
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      const grid = screen.getByTestId('coordinator-units-grid')
+      expect(grid.style.gridTemplateColumns).toContain('min(380px, 100%)')
+    })
+
+    it('painel lateral (desktop/wide) traz resumo do escopo com contagens já carregadas', async () => {
+      mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
+      mockGetCoordinatorInactiveMembers.mockResolvedValue([
+        inactiveMember('s1', 'Suspenso Um', 'suspended'),
+        inactiveMember('r1', 'Removido Um', 'removed'),
+      ])
+      setBp('desktop')
+      renderHome([twoLeadersUnit()])
+      await act(async () => {})
+
+      const aside = screen.getByTestId('coordinator-side-info')
+      expect(within(aside).getByText('Resumo do escopo')).toBeTruthy()
+      expect(within(aside).getByText('Solicitações pendentes')).toBeTruthy()
+      expect(within(aside).getAllByText('1')).toHaveLength(3)
+      expect(within(aside).getAllByText('2')).toHaveLength(1)
+      expect(within(aside).getByText('Suspensos')).toBeTruthy()
+      expect(within(aside).getByText('Removidos')).toBeTruthy()
+      expect(within(aside).getByText('Lideranças diretas')).toBeTruthy()
+    })
+  })
 })

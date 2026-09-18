@@ -94,6 +94,11 @@ const CONFIRM_COPY: Record<
  * - tablet/desktop/wide: unidades em grade auto-ajustável (ResponsiveGrid);
  * - desktop/wide: painel lateral de apoio ao lado da grade (useBreakpoint).
  *
+ * Fase 2 (refinamento): grade de unidades com coluna limitada (maxWidth, evita
+ * "cards excessivamente largos" no wide) e overflow-safe em faixa estreita
+ * (min(_, 100%), sem scroll horizontal no compact); painel lateral sticky com
+ * resumo do escopo (conta exclusivamente dados já carregados).
+ *
  * Fonte de dados única no shell? O escopo vive no `useCoordinator`; as leituras
  * de solicitações/inativos/cargos continuam por unidade (fetch por seção) — a
  * consolidação em um único serviço composto é melhoria futura documentada (não
@@ -203,6 +208,15 @@ export function CoordinatorHome() {
   const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
   const memberCount = units.reduce(
     (acc, u) => acc + u.leaders.reduce((a, l) => a + l.members.length, 0),
+    0,
+  )
+  const pendingCount = Object.values(requestsByUnit).reduce((acc, list) => acc + list.length, 0)
+  const suspendedCount = Object.values(inactiveByUnit).reduce(
+    (acc, list) => acc + list.filter((m) => m.membership.status === 'suspended').length,
+    0,
+  )
+  const removedCount = Object.values(inactiveByUnit).reduce(
+    (acc, list) => acc + list.filter((m) => m.membership.status === 'removed').length,
     0,
   )
 
@@ -390,13 +404,15 @@ export function CoordinatorHome() {
   const confirmCopy = confirmTarget ? CONFIRM_COPY[confirmTarget.kind] : null
 
   const unitsPanel = (
-    <ResponsiveGrid minWidth={380} gap={12}>
+    <ResponsiveGrid minWidth={380} maxWidth={560} data-testid="coordinator-units-grid" gap={12}>
       {units.map((unit) => {
         const unitRequests = requestsByUnit[unit.unitId] ?? []
         return (
           <section key={unit.unitId} className="rounded-2xl border border-line bg-card p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-fg">Unidade: {unit.unitName}</p>
+              <p className="min-w-0 truncate text-sm font-semibold text-fg">
+                Unidade: {unit.unitName}
+              </p>
               <div className="flex shrink-0 items-center gap-1.5">
                 {unitRequests.length > 0 && (
                   <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
@@ -467,6 +483,52 @@ export function CoordinatorHome() {
         status das memberships da unidade, além de vincular membros a um gestor. A criação de
         memberships segue restrita ao administrador; o Postgres valida cada operação.
       </p>
+    </div>
+  )
+
+  const scopeRail = (
+    <div className="rounded-2xl border border-line bg-card p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+        Resumo do escopo
+      </p>
+      <ul className="mt-3 flex flex-col gap-2.5">
+        <li className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
+            <icons.ui.clock size={13} className="shrink-0" />
+            Solicitações pendentes
+          </span>
+          <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+            {pendingCount}
+          </span>
+        </li>
+        <li className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
+            <icons.ui.alertTriangle size={13} className="shrink-0 text-amber-600 dark:text-amber-400" />
+            Suspensos
+          </span>
+          <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+            {suspendedCount}
+          </span>
+        </li>
+        <li className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
+            <icons.ui.close size={13} className="shrink-0 text-red-500" />
+            Removidos
+          </span>
+          <span className="shrink-0 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500">
+            {removedCount}
+          </span>
+        </li>
+        <li className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
+            <icons.ui.shield size={13} className="shrink-0" />
+            Lideranças diretas
+          </span>
+          <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[10px] font-semibold text-fg-dim">
+            {leaderCount}
+          </span>
+        </li>
+      </ul>
     </div>
   )
 
@@ -564,7 +626,11 @@ export function CoordinatorHome() {
             {wideLayout ? (
               <div className="mb-6 flex items-start gap-3">
                 <div className="min-w-0 flex-1">{unitsPanel}</div>
-                <aside data-testid="coordinator-side-info" className="w-72 shrink-0">
+                <aside
+                  data-testid="coordinator-side-info"
+                  className="sticky top-4 flex w-72 shrink-0 flex-col gap-3"
+                >
+                  {scopeRail}
                   {infoPanel}
                 </aside>
               </div>
