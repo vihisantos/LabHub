@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
+import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import {
   approveCoordinatorMembership,
   getCoordinatorAssignableRoles,
   getCoordinatorInactiveMembers,
   getCoordinatorRequests,
+  getCoordinatorUnitOverview,
   getLastCoordinatorServiceError,
   rejectCoordinatorMembership,
   removeCoordinatorMembership,
@@ -17,6 +19,7 @@ import {
   type CoordinatorInactiveMember,
   type CoordinatorRequest,
   type CoordinatorRoleOption,
+  type CoordinatorUnitOverview,
   type CoordinatedLeader,
   type CoordinatedUnit,
 } from '../../core/permissions/coordinatorService'
@@ -32,6 +35,7 @@ import { InactiveMembers } from './components/InactiveMembers'
 import { LeaderBlock } from './components/LeaderBlock'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
 import { PendingRequests } from './components/PendingRequests'
+import { UnitOverview } from './components/UnitOverview'
 
 interface AssignTarget {
   member: TeamMember
@@ -107,11 +111,16 @@ const CONFIRM_COPY: Record<
 export function CoordinatorHome() {
   const navigate = useNavigate()
   const { units, loading, failed, refresh } = useCoordinator()
+  const { workspaces, setWorkspace } = useWorkspace()
   const { isDesktop, isWide } = useBreakpoint()
   const wideLayout = isDesktop || isWide
 
   const [pending, setPending] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  const [overviewByUnit, setOverviewByUnit] = useState<Record<string, CoordinatorUnitOverview>>({})
+  const [overviewLoading, setOverviewLoading] = useState(false)
+  const [overviewFailed, setOverviewFailed] = useState(false)
 
   const [requestsByUnit, setRequestsByUnit] = useState<Record<string, CoordinatorRequest[]>>({})
   const [requestsLoading, setRequestsLoading] = useState(false)
@@ -197,6 +206,31 @@ export function CoordinatorHome() {
     setInactiveLoading(false)
   }, [unitsKey])
 
+  const loadOverview = useCallback(async () => {
+    const currentUnits = unitsKey ? unitsKey.split('|') : []
+    if (currentUnits.length === 0) {
+      setOverviewByUnit({})
+      setOverviewFailed(false)
+      setOverviewLoading(false)
+      return
+    }
+    setOverviewLoading(true)
+    setOverviewFailed(false)
+    const next: Record<string, CoordinatorUnitOverview> = {}
+    let anyFailed = false
+    for (const unitId of currentUnits) {
+      const overview = await getCoordinatorUnitOverview(unitId)
+      if (getLastCoordinatorServiceError() !== null) {
+        anyFailed = true
+        break
+      }
+      if (overview) next[unitId] = overview
+    }
+    setOverviewByUnit(next)
+    setOverviewFailed(anyFailed)
+    setOverviewLoading(false)
+  }, [unitsKey])
+
   useEffect(() => {
     void loadRequests()
   }, [loadRequests])
@@ -204,6 +238,26 @@ export function CoordinatorHome() {
   useEffect(() => {
     void loadInactive()
   }, [loadInactive])
+
+  useEffect(() => {
+    void loadOverview()
+  }, [loadOverview])
+
+  /**
+   * "Abrir chamados": reaproveita o app de chamados EXISTENTE no contexto da
+   * unidade (mecanismo do WorkspaceGate/WorkspaceContext — troca o workspace
+   * ativo e navega para `/chamados`). Nenhum fluxo de chamados é duplicado
+   * aqui. Sem o workspace no contexto (unidade fora do `workspaces` visível),
+   * devolve null (a UI não mostra a ação).
+   */
+  const openChamadosFor = (unitId: string): (() => void) | null => {
+    const target = workspaces.find((w) => w.id === unitId)
+    if (!target) return null
+    return () => {
+      setWorkspace(target, { persist: false })
+      navigate('/chamados')
+    }
+  }
 
   const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
   const memberCount = units.reduce(
@@ -433,6 +487,14 @@ export function CoordinatorHome() {
               onRetry={() => void loadRequests()}
               onApprove={(request) => void approveRequest(request)}
               onReject={(request) => openConfirm({ kind: 'reject', request })}
+            />
+
+            <UnitOverview
+              overview={overviewByUnit[unit.unitId] ?? null}
+              loading={overviewLoading}
+              failed={overviewFailed}
+              onRetry={() => void loadOverview()}
+              onOpenChamados={openChamadosFor(unit.unitId)}
             />
 
             <InactiveMembers

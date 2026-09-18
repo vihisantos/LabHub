@@ -230,6 +230,37 @@ export interface CoordinatorRequest {
 export type CoordinatorInactiveMember = CoordinatorRequest
 
 /**
+ * Central do coordenador (migration 070): visão agregada READ-ONLY da unidade
+ * de chamados. O servidor (SECURITY DEFINER fail-closed, `is_coordinator_of`)
+ * NEGA explicitamente quem não coordena ativamente a unidade — a UI distingue
+ * "negado" (erro) de "unidade vazia" (zeros honestos).
+ */
+export interface CoordinatorUnitOverview {
+  workspace: { id: string; name: string | null }
+  tickets: {
+    open: number
+    in_progress: number
+    unassigned: number
+    high_priority: number
+    urgent: number
+  }
+  recent: CoordinatorRecentTicket[]
+}
+
+/** Chamado recente da unidade (exibição — alimenta a lista de recentes). */
+export interface CoordinatorRecentTicket {
+  id: string
+  ticketNumber: number
+  roomName: string
+  problemCategory: string
+  status: string
+  priority: string
+  assignedToUserId: string
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+/**
  * Projeção devolvida pelas RPCs de listagem (065/066): a membership + os campos
  * de perfil já projetados DENTRO do SECURITY DEFINER. O perfil precisa vir da
  * RPC porque a RLS de `profiles` (044) esconde alvos de memberships não-ativas
@@ -342,6 +373,35 @@ export function getCoordinatorInactiveMembers(
   workspaceId: string,
 ): Promise<CoordinatorInactiveMember[]> {
   return getCoordinatorMembers('coordinator_get_inactive_members', workspaceId)
+}
+
+/**
+ * Visão agregada da unidade de chamados (migration 070) — lê a RPC
+ * `get_coordinator_unit_overview` com `p_workspace_id`. Fail-closed: o RPC nega
+ * explicitamente (RAISE 42501) quem não coordena ativamente a unidade; retorna
+ * null + erro sinalizado (a UI não inventa zeros). O parâmetro é o id da
+ * unidade (workspace) — nunca decide autorização no frontend.
+ */
+export async function getCoordinatorUnitOverview(
+  workspaceId: string,
+): Promise<CoordinatorUnitOverview | null> {
+  if (!defaultDb) {
+    lastError = { message: 'Supabase não configurado' }
+    return null
+  }
+
+  clearError()
+
+  const { data, error } = await defaultDb.rpc('get_coordinator_unit_overview', {
+    p_workspace_id: workspaceId,
+  })
+  if (error) {
+    lastError = error
+    console.warn('[Coordinator] get_coordinator_unit_overview error:', error.message)
+    return null
+  }
+
+  return (data as CoordinatorUnitOverview | null) ?? null
 }
 
 /**
