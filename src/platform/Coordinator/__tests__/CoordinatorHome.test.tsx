@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { CoordinatorHome, managerOptionsForMember } from '../CoordinatorHome'
+import { CoordinatorHome } from '../CoordinatorHome'
+import { managerOptionsForMember } from '../coordinatorHelpers'
 import type {
   CoordinatedUnit,
   CoordinatorInactiveMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
 } from '../../../core/permissions/coordinatorService'
+import type { BreakpointState } from '../../../responsive/useBreakpoint'
 
 const mockUseCoordinator = vi.hoisted(() => vi.fn())
 const mockGetRoleForUser = vi.hoisted(() => vi.fn())
+const mockUseBreakpoint = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
@@ -29,6 +32,10 @@ vi.mock('../../../core/permissions/useCoordinator', () => ({
 
 vi.mock('../../../core/permissions/service', () => ({
   permissionService: { getRoleForUser: () => mockGetRoleForUser() },
+}))
+
+vi.mock('../../../responsive/useBreakpoint', () => ({
+  useBreakpoint: () => mockUseBreakpoint(),
 }))
 
 vi.mock('../../../core/permissions/coordinatorService', () => ({
@@ -172,6 +179,16 @@ function renderHome(units: CoordinatedUnit[]) {
   return refresh
 }
 
+function setBp(bp: BreakpointState['bp']) {
+  mockUseBreakpoint.mockReturnValue({
+    bp,
+    isCompact: bp === 'compact',
+    isTablet: bp === 'tablet',
+    isDesktop: bp === 'desktop',
+    isWide: bp === 'wide',
+  })
+}
+
 beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
@@ -187,6 +204,9 @@ beforeEach(() => {
   mockRestoreCoordinatorMembership.mockResolvedValue(true)
   mockRemoveCoordinatorMembership.mockResolvedValue(true)
   mockSetCoordinatorRole.mockResolvedValue(true)
+  // jsdom não tem matchMedia → o comportamento real já é compact; fixar o mock
+  // garante determinismo também para o teste de faixas desktop/wide.
+  setBp('compact')
 })
 
 describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', () => {
@@ -734,6 +754,65 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
       expect(mockRestoreCoordinatorMembership).toHaveBeenCalledTimes(1)
       expect(refresh).toHaveBeenCalled()
+    })
+  })
+
+  describe('responsivo (Fase 1) — layout por faixa via camada src/responsive', () => {
+    it('compact: coluna única, sem painel lateral (comportamento legado)', async () => {
+      setBp('compact')
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.queryByTestId('coordinator-side-info')).toBeNull()
+      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    })
+
+    it('desktop: painel lateral (aside) ao lado da grade de unidades', async () => {
+      setBp('desktop')
+      renderHome([twoLeadersUnit()])
+      await act(async () => {})
+
+      expect(screen.getByTestId('coordinator-side-info')).toBeInTheDocument()
+      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+      expect(screen.getByText('Ana Líder')).toBeTruthy()
+    })
+
+    it('wide: mesmo painel lateral (grade densa)', async () => {
+      setBp('wide')
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      expect(screen.getByTestId('coordinator-side-info')).toBeInTheDocument()
+      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    })
+
+    it('sheet em desktop/wide renderiza como Dialog (Radix) com o mesmo conteúdo', async () => {
+      setBp('desktop')
+      renderHome([twoLeadersUnit()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByRole('button', { name: 'Vincular Técnico 1 a gestor' }))
+
+      const dialog = screen.getByRole('dialog', { name: 'Vincular membro a gestor' })
+      expect(within(dialog).getAllByRole('radio')).toHaveLength(2)
+      expect(within(dialog).getAllByText('Bruno Líder')).toHaveLength(1)
+    })
+
+    it('confirmação destrutiva preserva alertdialog também no desktop', async () => {
+      mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
+      setBp('wide')
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByRole('button', { name: /Rejeitar/ }))
+
+      const confirm = screen.getByRole('alertdialog', { name: 'Rejeitar solicitação?' })
+      expect(mockRejectCoordinatorMembership).not.toHaveBeenCalled()
+
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Rejeitar' }))
+      await act(async () => {})
+
+      expect(mockRejectCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
     })
   })
 })

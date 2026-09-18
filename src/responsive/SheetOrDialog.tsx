@@ -10,6 +10,8 @@ import {
 import { cn } from '../lib/components/ui/utils'
 import { useBreakpoint } from './useBreakpoint'
 
+type SheetOrDialogRole = 'dialog' | 'alertdialog'
+
 interface SheetOrDialogProps {
   open: boolean
   onClose: () => void
@@ -17,6 +19,17 @@ interface SheetOrDialogProps {
   title?: string
   /** Descrição exibida somente na variante diálogo (desktop/wide). */
   description?: string
+  /**
+   * Semântica ARIA do conteúdo (default `dialog`). Use `alertdialog` para
+   * confirmações destrutivas: o postura é preservada nas DUAS faixas, porque o
+   * BottomSheet não declara role próprio (o consumidor da sheet adiciona).
+   */
+  role?: SheetOrDialogRole
+  /**
+   * Rótulo acessível do conteúdo quando não há `title` (ex.: conteúdo sem
+   * cabeçalho dentro do BottomSheet, que não deriva nome).
+   */
+  ariaLabel?: string
   /** Único conteúdo reutilizado nas duas variantes. */
   children: ReactNode
   className?: string
@@ -34,6 +47,8 @@ export function SheetOrDialog({
   onClose,
   title,
   description,
+  role = 'dialog',
+  ariaLabel,
   children,
   className,
 }: SheetOrDialogProps) {
@@ -42,8 +57,15 @@ export function SheetOrDialog({
   if (bp === 'compact' || bp === 'tablet') {
     return (
       <BottomSheet open={open} onClose={onClose}>
-        {title != null && <SheetHeader title={title} onClose={onClose} />}
-        {children}
+        <div
+          role={role}
+          aria-modal="true"
+          aria-label={ariaLabel ?? title}
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        >
+          {title != null && <SheetHeader title={title} onClose={onClose} />}
+          {children}
+        </div>
       </BottomSheet>
     )
   }
@@ -51,6 +73,7 @@ export function SheetOrDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent
+        role={role}
         className={cn('max-h-[85vh] overflow-y-auto bg-card text-fg border-line', className)}
       >
         {(title != null || description != null) && (

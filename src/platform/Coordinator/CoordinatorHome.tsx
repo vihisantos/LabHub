@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
-import { permissionService } from '../../core/permissions/service'
 import {
   approveCoordinatorMembership,
   getCoordinatorAssignableRoles,
@@ -22,745 +20,18 @@ import {
   type CoordinatedLeader,
   type CoordinatedUnit,
 } from '../../core/permissions/coordinatorService'
-import type { Membership, TeamMember, TeamMemberProfile } from '../../core/permissions/membership'
+import type { TeamMember } from '../../core/permissions/membership'
 import { icons } from '../../lib/icons'
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return (parts[0][0] ?? '?').toUpperCase()
-  return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase()
-}
-
-/**
- * Rótulo do cargo da MEMBERSHIP (o que o coordenador gerencia), casando o
- * `role_id` (uuid) com a tabela `roles`. Sem correspondência (ex.: cargo fora do
- * conjunto atribuível), cai no cargo do perfil para exibição — nunca inventa.
- */
-function roleLabelFor(
-  membership: Membership,
-  profile: TeamMemberProfile | null,
-  rolesById: Map<string, CoordinatorRoleOption>,
-): string {
-  const option = rolesById.get(membership.role_id)
-  if (option) return option.name
-  if (!profile) return '—'
-  const role = permissionService.getRoleForUser(profile.roleId)
-  return role?.name ?? profile.roleId
-}
-
-export interface ManagerOption {
-  membershipId: string
-  label: string
-  note: string
-}
-
-/**
- * Fase 8.2: gestores que o RPC 047 aceita para um membro NESTA unidade — a
- * própria membership de coordenação OU uma liderança já subordinada direta a
- * ela. Espelha exatamente o check de escopo do servidor ("manager is outside
- * the coordinator scope"): a UI restringe visualmente ao mesmo conjunto e o
- * Postgres continua a autoridade (nada de regra nova no frontend).
- */
-export function managerOptionsForMember(unit: CoordinatedUnit, member: TeamMember): ManagerOption[] {
-  const current = member.membership.managed_by
-  const options: ManagerOption[] = [
-    {
-      membershipId: unit.coordination.id,
-      label: 'Coordenador(a) desta unidade',
-      note: 'Equipe vinculada direto à coordenação',
-    },
-  ]
-  for (const leader of unit.leaders) {
-    if (leader.leadership.id === member.membership.id) continue
-    if (leader.leadership.id === current) continue
-    options.push({
-      membershipId: leader.leadership.id,
-      label: leader.profile?.name ?? 'Membro sem perfil',
-      note: leader.profile?.email ?? 'Liderança da unidade',
-    })
-  }
-  return options
-}
-
-interface AssignManagerSheetProps {
-  target: { member: TeamMember; currentManagerLabel: string; unit: CoordinatedUnit } | null
-  selected: string | null
-  busy: boolean
-  error: string | null
-  onSelect: (id: string) => void
-  onConfirm: () => void
-  onClose: () => void
-}
-
-function AssignManagerSheet({
-  target,
-  selected,
-  busy,
-  error,
-  onSelect,
-  onConfirm,
-  onClose,
-}: AssignManagerSheetProps) {
-  const options = target ? managerOptionsForMember(target.unit, target.member) : []
-  return (
-    <AnimatePresence>
-      {target && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-          onClick={busy ? undefined : onClose}
-        >
-          <motion.div
-            initial={{ scale: 0.92, opacity: 0, y: 16 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.92, opacity: 0, y: 16 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            className="w-full max-w-md rounded-2xl bg-card p-6 shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Vincular membro a gestor"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-violet-500">
-                <icons.ui.userCheck size={18} />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-bold text-fg">Vincular membro a gestor</h2>
-                <p className="truncate text-xs text-fg-muted">
-                  {target.member.profile?.name ?? 'Membro'} • sob {target.currentManagerLabel}
-                </p>
-              </div>
-            </div>
-
-            <div className="mb-4 flex flex-col gap-2">
-              {options.map((option) => (
-                <label
-                  key={option.membershipId}
-                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 transition-colors has-[:checked]:border-violet-500/60 has-[:checked]:bg-violet-500/5"
-                >
-                  <input
-                    type="radio"
-                    name="manager-option"
-                    value={option.membershipId}
-                    checked={selected === option.membershipId}
-                    onChange={() => onSelect(option.membershipId)}
-                    disabled={busy}
-                    className="h-4 w-4 accent-violet-500"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-fg">{option.label}</span>
-                    <span className="block truncate text-[10px] text-fg-muted">{option.note}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-
-            {error && <p className="mb-4 text-xs text-red-500">{error}</p>}
-            <p className="mb-4 text-[10px] leading-relaxed text-fg-muted">
-              A criação de memberships continua restrita ao administrador. O Postgres valida este
-              vínculo.
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={busy}
-                className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-input disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={busy || selected === null}
-                className="flex-1 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-400 disabled:opacity-50"
-              >
-                {busy ? 'Vinculando...' : 'Vincular'}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-}
-
-interface ManageMemberSheetProps {
-  target: { member: TeamMember; unitName: string } | null
-  roles: CoordinatorRoleOption[]
-  rolesLoading: boolean
-  rolesError: string | null
-  selected: CoordinatorAssignableRole | null
-  currentRoleLabel: string
-  busy: boolean
-  error: string | null
-  onSelect: (slug: CoordinatorAssignableRole) => void
-  onSave: () => void
-  onRequestSuspend: () => void
-  onRequestRemove: () => void
-  onClose: () => void
-}
-
-function ManageMemberSheet({
-  target,
-  roles,
-  rolesLoading,
-  rolesError,
-  selected,
-  currentRoleLabel,
-  busy,
-  error,
-  onSelect,
-  onSave,
-  onRequestSuspend,
-  onRequestRemove,
-  onClose,
-}: ManageMemberSheetProps) {
-  const name = target?.member.profile?.name ?? 'Membro sem perfil'
-  return (
-    <AnimatePresence>
-      {target && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-          onClick={busy ? undefined : onClose}
-        >
-          <motion.div
-            initial={{ scale: 0.92, opacity: 0, y: 16 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.92, opacity: 0, y: 16 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Gerenciar membro"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-violet-500">
-                <icons.ui.sliders size={18} />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-bold text-fg">Gerenciar membro</h2>
-                <p className="truncate text-xs text-fg-muted">
-                  {name} • {target.unitName} • cargo atual: {currentRoleLabel}
-                </p>
-              </div>
-            </div>
-
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
-              Cargo na unidade
-            </p>
-            {rolesLoading ? (
-              <p className="mb-4 text-xs text-fg-muted">Carregando cargos...</p>
-            ) : roles.length === 0 ? (
-              <p className="mb-4 text-xs text-red-500">
-                {rolesError ?? 'Nenhum cargo atribuível disponível.'}
-              </p>
-            ) : (
-              <div className="mb-4 flex flex-col gap-2">
-                {roles.map((role) => (
-                  <label
-                    key={role.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 transition-colors has-[:checked]:border-violet-500/60 has-[:checked]:bg-violet-500/5"
-                  >
-                    <input
-                      type="radio"
-                      name="role-option"
-                      value={role.slug}
-                      checked={selected === role.slug}
-                      onChange={() => onSelect(role.slug)}
-                      disabled={busy}
-                      className="h-4 w-4 accent-violet-500"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">
-                      {role.name}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {error && <p className="mb-4 text-xs text-red-500">{error}</p>}
-
-            <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/5 p-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-red-500">
-                Status da membership
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={onRequestSuspend}
-                  disabled={busy}
-                  className="flex-1 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-400"
-                >
-                  Suspender
-                </button>
-                <button
-                  type="button"
-                  onClick={onRequestRemove}
-                  disabled={busy}
-                  className="flex-1 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                >
-                  Remover da unidade
-                </button>
-              </div>
-            </div>
-
-            <p className="mb-4 text-[10px] leading-relaxed text-fg-muted">
-              O Postgres é a autoridade: valida o escopo, os cargos permitidos (nunca adm ou
-              coordinator) e as transições de status. Suspender retira o membro do seu escopo (e
-              ele pode ser reativado em "Membros inativos"); remover é definitivo.
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={busy}
-                className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-input disabled:opacity-50"
-              >
-                Fechar
-              </button>
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={busy || selected === null || roles.length === 0}
-                className="flex-1 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-400 disabled:opacity-50"
-              >
-                {busy ? 'Salvando...' : 'Salvar cargo'}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-}
-
-interface ConfirmActionSheetProps {
-  open: boolean
-  title: string
-  message: string
-  confirmLabel: string
-  busy: boolean
-  error: string | null
-  onConfirm: () => void
-  onClose: () => void
-}
-
-function ConfirmActionSheet({
-  open,
-  title,
-  message,
-  confirmLabel,
-  busy,
-  error,
-  onConfirm,
-  onClose,
-}: ConfirmActionSheetProps) {
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-          onClick={busy ? undefined : onClose}
-        >
-          <motion.div
-            initial={{ scale: 0.92, opacity: 0, y: 16 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.92, opacity: 0, y: 16 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-2xl"
-            role="alertdialog"
-            aria-modal="true"
-            aria-label={title}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/15 text-red-500">
-                <icons.ui.alertTriangle size={18} />
-              </div>
-              <h2 className="text-base font-bold text-fg">{title}</h2>
-            </div>
-            <p className="mb-4 text-xs leading-relaxed text-fg-muted">{message}</p>
-            {error && <p className="mb-4 text-xs text-red-500">{error}</p>}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={busy}
-                className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-input disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={busy}
-                className="flex-1 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-400 disabled:opacity-50"
-              >
-                {busy ? 'Processando...' : confirmLabel}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-}
-
-interface LeaderBlockProps {
-  leader: CoordinatedLeader
-  rolesById: Map<string, CoordinatorRoleOption>
-  disabled: boolean
-  onAssign: (member: TeamMember) => void
-  onUnassign: (member: TeamMember) => void
-  onManage: (member: TeamMember) => void
-}
-
-function LeaderBlock({
-  leader,
-  rolesById,
-  disabled,
-  onAssign,
-  onUnassign,
-  onManage,
-}: LeaderBlockProps) {
-  const name = leader.profile?.name ?? 'Membro sem perfil'
-  const leadershipMember: TeamMember = { membership: leader.leadership, profile: leader.profile }
-  return (
-    <div key={leader.leadership.id} className="rounded-xl border border-line bg-surface px-3 py-2.5">
-      <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-[11px] font-bold text-violet-600 dark:text-violet-400">
-          {initials(name)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold text-fg">{name}</p>
-          {leader.profile && (
-            <p className="truncate text-[10px] text-fg-muted">{leader.profile.email}</p>
-          )}
-        </div>
-        <span className="shrink-0 rounded-full bg-input px-2.5 py-0.5 text-[10px] font-semibold text-fg-dim">
-          {roleLabelFor(leader.leadership, leader.profile, rolesById)}
-        </span>
-        <button
-          type="button"
-          title="Gerenciar membro"
-          aria-label={`Gerenciar ${name}`}
-          disabled={disabled}
-          onClick={() => onManage(leadershipMember)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
-        >
-          <icons.ui.sliders size={13} />
-        </button>
-      </div>
-
-      {leader.members.length > 0 ? (
-        <ul className="mt-2 ml-5 flex flex-col gap-1.5 border-l border-line pl-3">
-          {leader.members.map((member) => {
-            const memberName = member.profile?.name ?? 'Membro sem perfil'
-            return (
-              <li key={member.membership.id} className="flex items-center gap-2">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fg-muted/10 text-[9px] font-bold text-fg-muted">
-                  {initials(memberName)}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-fg">{memberName}</span>
-                <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[9px] font-semibold text-fg-dim">
-                  {roleLabelFor(member.membership, member.profile, rolesById)}
-                </span>
-                <span className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    title="Vincular a gestor"
-                    aria-label={`Vincular ${memberName} a gestor`}
-                    disabled={disabled}
-                    onClick={() => onAssign(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
-                  >
-                    <icons.ui.plusCircle size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Gerenciar membro"
-                    aria-label={`Gerenciar ${memberName}`}
-                    disabled={disabled}
-                    onClick={() => onManage(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
-                  >
-                    <icons.ui.sliders size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Remover da equipe"
-                    aria-label={`Remover ${memberName} da equipe`}
-                    disabled={disabled}
-                    onClick={() => onUnassign(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40"
-                  >
-                    <icons.ui.minus size={13} />
-                  </button>
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-      ) : (
-        <p className="mt-2 ml-5 text-[10px] text-fg-muted">Sem equipe direta ainda.</p>
-      )}
-    </div>
-  )
-}
-
-interface PendingRequestsProps {
-  requests: CoordinatorRequest[]
-  loading: boolean
-  failed: boolean
-  pending: string | null
-  onRetry: () => void
-  onApprove: (request: CoordinatorRequest) => void
-  onReject: (request: CoordinatorRequest) => void
-}
-
-function PendingRequests({
-  requests,
-  loading,
-  failed,
-  pending,
-  onRetry,
-  onApprove,
-  onReject,
-}: PendingRequestsProps) {
-  return (
-    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
-        Solicitações pendentes
-      </p>
-      {loading ? (
-        <p className="mt-2 inline-flex items-center gap-2 text-[10px] text-fg-muted">
-          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-          Carregando solicitações...
-        </p>
-      ) : failed ? (
-        <div className="mt-2 flex items-center gap-2">
-          <p className="flex-1 text-[10px] leading-relaxed text-red-500">
-            Não foi possível carregar as solicitações desta unidade.
-          </p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
-          >
-            Tentar novamente
-          </button>
-        </div>
-      ) : requests.length === 0 ? (
-        <p className="mt-2 text-[10px] text-fg-muted">Nenhuma solicitação pendente.</p>
-      ) : (
-        <ul className="mt-2 flex flex-col gap-2">
-          {requests.map((request) => {
-            const name = request.profile?.name ?? 'Membro sem perfil'
-            const approveKey = `approve-${request.membership.id}`
-            const rejectKey = `reject-${request.membership.id}`
-            return (
-              <li key={request.membership.id} className="flex items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
-                  {initials(name)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] font-semibold text-fg">{name}</span>
-                  {request.profile && (
-                    <span className="block truncate text-[10px] text-fg-muted">
-                      {request.profile.email}
-                    </span>
-                  )}
-                </span>
-                <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-                  Pendente
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onApprove(request)}
-                  disabled={pending !== null}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
-                >
-                  {pending === approveKey ? (
-                    <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                  ) : (
-                    <icons.ui.check size={11} />
-                  )}
-                  Aprovar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onReject(request)}
-                  disabled={pending !== null}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40"
-                >
-                  {pending === rejectKey ? (
-                    <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                  ) : (
-                    <icons.ui.close size={11} />
-                  )}
-                  Rejeitar
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </div>
-  )
-}
-
-interface InactiveMembersProps {
-  members: CoordinatorInactiveMember[]
-  loading: boolean
-  failed: boolean
-  pending: string | null
-  onRetry: () => void
-  onRequestRestore: (member: CoordinatorInactiveMember) => void
-}
-
-/**
- * Fase 10: memberships `suspended`/`removed` da unidade. Somente `suspended` é
- * restaurável (`removed` é terminal/histórico — apenas informativo). O estado
- * vem do servidor; a UI não decide autorização.
- */
-function InactiveMembers({
-  members,
-  loading,
-  failed,
-  pending,
-  onRetry,
-  onRequestRestore,
-}: InactiveMembersProps) {
-  const suspended = members.filter((m) => m.membership.status === 'suspended')
-  const removed = members.filter((m) => m.membership.status === 'removed')
-
-  return (
-    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
-        Membros inativos
-      </p>
-      {loading ? (
-        <p className="mt-2 inline-flex items-center gap-2 text-[10px] text-fg-muted">
-          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-          Carregando membros inativos...
-        </p>
-      ) : failed ? (
-        <div className="mt-2 flex items-center gap-2">
-          <p className="flex-1 text-[10px] leading-relaxed text-red-500">
-            Não foi possível carregar os membros inativos desta unidade.
-          </p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
-          >
-            Tentar novamente
-          </button>
-        </div>
-      ) : members.length === 0 ? (
-        <p className="mt-2 text-[10px] text-fg-muted">Nenhum membro suspenso ou removido.</p>
-      ) : (
-        <div className="mt-2 flex flex-col gap-3">
-          {suspended.length > 0 && (
-            <div>
-              <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                Suspensos
-              </p>
-              <ul className="flex flex-col gap-2">
-                {suspended.map((member) => {
-                  const name = member.profile?.name ?? 'Membro sem perfil'
-                  const restoreKey = `restore-${member.membership.id}`
-                  return (
-                    <li key={member.membership.id} className="flex items-center gap-2">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
-                        {initials(name)}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11px] font-semibold text-fg">
-                          {name}
-                        </span>
-                        {member.profile && (
-                          <span className="block truncate text-[10px] text-fg-muted">
-                            {member.profile.email}
-                          </span>
-                        )}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-                        Suspenso
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Restaurar ${name}`}
-                        disabled={pending !== null}
-                        onClick={() => onRequestRestore(member)}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
-                      >
-                        {pending === restoreKey ? (
-                          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                        ) : (
-                          <icons.ui.check size={11} />
-                        )}
-                        Restaurar
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
-
-          {removed.length > 0 && (
-            <div>
-              <p className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-fg-muted">
-                Removidos
-              </p>
-              <ul className="flex flex-col gap-2">
-                {removed.map((member) => {
-                  const name = member.profile?.name ?? 'Membro sem perfil'
-                  return (
-                    <li key={member.membership.id} className="flex items-center gap-2">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-[9px] font-bold text-red-500">
-                        {initials(name)}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11px] font-semibold text-fg">
-                          {name}
-                        </span>
-                        {member.profile && (
-                          <span className="block truncate text-[10px] text-fg-muted">
-                            {member.profile.email}
-                          </span>
-                        )}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-red-500/10 px-2 py-0.5 text-[9px] font-semibold text-red-500">
-                        Removido
-                      </span>
-                      <span className="shrink-0 text-[9px] text-fg-dim">Restauração indisponível</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
+import { cn } from '../../lib/components/ui/utils'
+import { PageContainer, ResponsiveGrid, useBreakpoint } from '../../responsive'
+import { roleLabelFor } from './coordinatorHelpers'
+import { AssignManagerSheet } from './components/AssignManagerSheet'
+import { ConfirmActionSheet } from './components/ConfirmActionSheet'
+import { CoordinatorHeader } from './components/CoordinatorHeader'
+import { InactiveMembers } from './components/InactiveMembers'
+import { LeaderBlock } from './components/LeaderBlock'
+import { ManageMemberSheet } from './components/ManageMemberSheet'
+import { PendingRequests } from './components/PendingRequests'
 
 interface AssignTarget {
   member: TeamMember
@@ -805,7 +76,8 @@ const CONFIRM_COPY: Record<
 }
 
 /**
- * RBAC 2.0 (Fases 8.2 + 10): ÁREA DO COORDENADOR com GESTÃO REAL.
+ * Fase 1 responsiva — ÁREA DO COORDENADOR com GESTÃO REAL (RBAC 2.0, Fases
+ * 8.2 + 9 + 10).
  *
  * O escopo continua vindo do servidor (RPCs 047 fail-closed por auth.uid()):
  * unidades → lideranças → equipes. A escrita usa os RPCs escopados
@@ -814,14 +86,24 @@ const CONFIRM_COPY: Record<
  * reage ao erro com honestidade. Cargos oferecidos = tec/vis/est/opv/lider
  * (nunca adm/coordinator); o Postgres revalida tudo.
  *
- * Leituras não-ativas (Fase 10): os RPCs 047 retornam SOMENTE memberships
- * ativas, mas `coordinator_get_inactive_members` (066) expõe as
- * suspensas/removidas da unidade. A seção "Membros inativos" mostra os dois
- * grupos; apenas `suspended` é restaurável (`removed` é terminal/informativo).
+ * Responsividade (camada `src/responsive`): o shell compõe blocos colocados
+ * (`CoordinatorHeader`, `PendingRequests`, `InactiveMembers`, `LeaderBlock`) e
+ * sheets (`AssignManagerSheet`, `ManageMemberSheet`, `ConfirmActionSheet`) com
+ * enquadramento por faixa (BottomSheet mobile / Dialog desktop/wide).
+ * - compact: coluna única (comportamento de antes);
+ * - tablet/desktop/wide: unidades em grade auto-ajustável (ResponsiveGrid);
+ * - desktop/wide: painel lateral de apoio ao lado da grade (useBreakpoint).
+ *
+ * Fonte de dados única no shell? O escopo vive no `useCoordinator`; as leituras
+ * de solicitações/inativos/cargos continuam por unidade (fetch por seção) — a
+ * consolidação em um único serviço composto é melhoria futura documentada (não
+ * alterar o contrato de dados nesta fase).
  */
 export function CoordinatorHome() {
   const navigate = useNavigate()
   const { units, loading, failed, refresh } = useCoordinator()
+  const { isDesktop, isWide } = useBreakpoint()
+  const wideLayout = isDesktop || isWide
 
   const [pending, setPending] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -1107,30 +389,91 @@ export function CoordinatorHome() {
 
   const confirmCopy = confirmTarget ? CONFIRM_COPY[confirmTarget.kind] : null
 
+  const unitsPanel = (
+    <ResponsiveGrid minWidth={380} gap={12}>
+      {units.map((unit) => {
+        const unitRequests = requestsByUnit[unit.unitId] ?? []
+        return (
+          <section key={unit.unitId} className="rounded-2xl border border-line bg-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-fg">Unidade: {unit.unitName}</p>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {unitRequests.length > 0 && (
+                  <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                    {unitRequests.length} pendente{unitRequests.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                <span className="rounded-full bg-input px-2.5 py-0.5 text-[10px] font-semibold text-fg-dim">
+                  {unit.leaders.length} liderança{unit.leaders.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+
+            <PendingRequests
+              requests={unitRequests}
+              loading={requestsLoading}
+              failed={requestsFailed}
+              pending={pending}
+              onRetry={() => void loadRequests()}
+              onApprove={(request) => void approveRequest(request)}
+              onReject={(request) => openConfirm({ kind: 'reject', request })}
+            />
+
+            <InactiveMembers
+              members={inactiveByUnit[unit.unitId] ?? []}
+              loading={inactiveLoading}
+              failed={inactiveFailed}
+              pending={pending}
+              onRetry={() => void loadInactive()}
+              onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
+            />
+
+            {unit.leaders.length === 0 ? (
+              <p className="mt-3 text-[10px] leading-relaxed text-fg-muted">
+                Nenhuma liderança subordinada nesta unidade ainda.
+              </p>
+            ) : (
+              <ResponsiveGrid minWidth={256} gap={12} className="mt-3">
+                {unit.leaders.map((leader) => (
+                  <LeaderBlock
+                    key={leader.leadership.id}
+                    leader={leader}
+                    rolesById={rolesById}
+                    disabled={pending !== null}
+                    onAssign={(member) => openAssignSheet(unit, leader, member)}
+                    onUnassign={(member) => void confirmUnassign(member)}
+                    onManage={(member) => void openManageSheet(member, unit.unitName)}
+                  />
+                ))}
+              </ResponsiveGrid>
+            )}
+
+            {unitRequests.length > 0 && (
+              <p className="mt-2 text-[10px] leading-relaxed text-fg-muted">
+                Aprovar ativa a membership na unidade; o vínculo a uma equipe é ajustado
+                depois pelo gestor da unidade.
+              </p>
+            )}
+          </section>
+        )
+      })}
+    </ResponsiveGrid>
+  )
+
+  const infoPanel = (
+    <div className="rounded-2xl border border-dashed border-line bg-card p-5 text-center">
+      <p className="text-[10px] leading-relaxed text-fg-muted">
+        Nesta tela você aprova/rejeita solicitações, ajusta cargo (nunca adm ou coordinator) e o
+        status das memberships da unidade, além de vincular membros a um gestor. A criação de
+        memberships segue restrita ao administrador; o Postgres valida cada operação.
+      </p>
+    </div>
+  )
+
   return (
     <div className="min-h-dvh bg-surface text-fg">
-      <div className="mx-auto max-w-lg px-5 pt-8 pb-8">
-        <header className="mb-6">
-          <div className="flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg"
-              title="Voltar ao início"
-            >
-              <icons.ui.back size={20} />
-            </button>
-            <span className="rounded-full bg-violet-500/15 px-3 py-1 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
-              Coordenação
-            </span>
-          </div>
-          <div className="mt-5">
-            <h1 className="text-2xl font-bold text-fg">Área do Coordenador</h1>
-            <p className="mt-1 text-sm text-fg-muted">
-              Gestão entre as unidades sob sua coordenação — dados reais do seu escopo.
-            </p>
-          </div>
-        </header>
+      <PageContainer className="pt-8 pb-8">
+        <CoordinatorHeader onBack={() => navigate('/')} />
 
         {loading ? (
           <div className="flex flex-col items-center gap-3 py-14">
@@ -1218,83 +561,19 @@ export function CoordinatorHome() {
               </div>
             )}
 
-            <div className="mb-6 flex flex-col gap-3">
-              {units.map((unit) => {
-                const unitRequests = requestsByUnit[unit.unitId] ?? []
-                return (
-                  <section key={unit.unitId} className="rounded-2xl border border-line bg-card p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-fg">Unidade: {unit.unitName}</p>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {unitRequests.length > 0 && (
-                          <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                            {unitRequests.length} pendente{unitRequests.length !== 1 ? 's' : ''}
-                          </span>
-                        )}
-                        <span className="rounded-full bg-input px-2.5 py-0.5 text-[10px] font-semibold text-fg-dim">
-                          {unit.leaders.length} liderança{unit.leaders.length !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    </div>
-
-                    <PendingRequests
-                      requests={unitRequests}
-                      loading={requestsLoading}
-                      failed={requestsFailed}
-                      pending={pending}
-                      onRetry={() => void loadRequests()}
-                      onApprove={(request) => void approveRequest(request)}
-                      onReject={(request) => openConfirm({ kind: 'reject', request })}
-                    />
-
-                    <InactiveMembers
-                      members={inactiveByUnit[unit.unitId] ?? []}
-                      loading={inactiveLoading}
-                      failed={inactiveFailed}
-                      pending={pending}
-                      onRetry={() => void loadInactive()}
-                      onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
-                    />
-
-                    {unit.leaders.length === 0 ? (
-                      <p className="mt-3 text-[10px] leading-relaxed text-fg-muted">
-                        Nenhuma liderança subordinada nesta unidade ainda.
-                      </p>
-                    ) : (
-                      <div className="mt-3 flex flex-col gap-2">
-                        {unit.leaders.map((leader) => (
-                          <LeaderBlock
-                            key={leader.leadership.id}
-                            leader={leader}
-                            rolesById={rolesById}
-                            disabled={pending !== null}
-                            onAssign={(member) => openAssignSheet(unit, leader, member)}
-                            onUnassign={(member) => void confirmUnassign(member)}
-                            onManage={(member) => void openManageSheet(member, unit.unitName)}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {unitRequests.length > 0 && (
-                      <p className="mt-2 text-[10px] leading-relaxed text-fg-muted">
-                        Aprovar ativa a membership na unidade; o vínculo a uma equipe é ajustado
-                        depois pelo gestor da unidade.
-                      </p>
-                    )}
-                  </section>
-                )
-              })}
-            </div>
-
-            <div className="rounded-2xl border border-dashed border-line bg-card p-5 text-center">
-              <p className="text-[10px] leading-relaxed text-fg-muted">
-                Nesta tela você aprova/rejeita solicitações, ajusta cargo (nunca adm ou
-                coordinator) e o status das memberships da unidade, além de vincular membros a um
-                gestor. A criação de memberships segue restrita ao administrador; o Postgres valida
-                cada operação.
-              </p>
-            </div>
+            {wideLayout ? (
+              <div className="mb-6 flex items-start gap-3">
+                <div className="min-w-0 flex-1">{unitsPanel}</div>
+                <aside data-testid="coordinator-side-info" className="w-72 shrink-0">
+                  {infoPanel}
+                </aside>
+              </div>
+            ) : (
+              <div className={cn('mb-6 flex flex-col gap-3')}>
+                {unitsPanel}
+                {infoPanel}
+              </div>
+            )}
           </>
         )}
 
@@ -1359,7 +638,7 @@ export function CoordinatorHome() {
             Área de liderança — disponível apenas para o cargo Coordenador Multiunidades.
           </p>
         </footer>
-      </div>
+      </PageContainer>
     </div>
   )
 }
