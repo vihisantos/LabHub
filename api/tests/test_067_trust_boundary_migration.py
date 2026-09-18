@@ -25,14 +25,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "supabase" / "migrations" / "067_rbac2_trust_boundary_profiles.sql"
 
-PROTECTED_COLUMNS = [
-    "id",
-    "is_super_admin",
-    "role",
-    "status",
-    "app_access",
-    "workspace_ids",
-]
+# Imutaveis em UPDATE normal para QUALQUER ator autenticado (inclusive Super
+# Admin); so contexto confiavel (auth.uid() IS NULL) altera.
+IMMUTABLE_FOR_EVERYONE = ["id", "workspace_ids"]
+
+# Editaveis por Super Admin via /admin; bloqueados para usuario comum.
+ADMIN_EDITABLE_BY_SUPER = ["is_super_admin", "role", "status", "app_access"]
+
+# O que o usuario comum NAO pode alterar na propria linha.
+COMMON_BLOCKED = ADMIN_EDITABLE_BY_SUPER
 
 LEGACY_SYNC = [
     "sync_user_memberships(uuid)",
@@ -112,29 +113,62 @@ class TestArquivoEFuncoes:
 
 
 class TestGuardaDeColunas:
+    @staticmethod
+    def _body(sql: str) -> str:
+        return _function_body(sql, "guard_profile_privileged_columns")
+
     def test_contexto_confiavel_e_permitido(self, sql):
-        body = _function_body(sql, "guard_profile_privileged_columns")
+        body = self._body(sql)
         assert "auth.uid() IS NULL" in body
         assert "RETURN NEW" in body
 
-    def test_super_admin_e_permitido(self, sql):
-        body = _function_body(sql, "guard_profile_privileged_columns")
+    def test_super_admin_e_permitido_apos_imutaveis(self, sql):
+        body = self._body(sql)
         assert "public.is_super_admin()" in body
+        # O bypass de Super Admin vem DEPOIS das guardas de id/workspace_ids.
+        assert body.index("auth.uid() IS NULL") < body.index("public.is_super_admin()")
 
-    def test_protege_todas_as_colunas_de_privilegio(self, sql):
-        body = _function_body(sql, "guard_profile_privileged_columns")
-        for col in PROTECTED_COLUMNS:
+    def test_id_e_workspace_ids_imutaveis_antes_do_bypass(self, sql):
+        body = self._body(sql)
+        idx_super = body.index("public.is_super_admin()")
+        for col in IMMUTABLE_FOR_EVERYONE:
             assert re.search(
                 rf"NEW\.{col}\s+IS DISTINCT FROM OLD\.{col}", body
-            ), f"coluna privilegiada sem guarda: {col}"
+            ), f"coluna imutável sem guarda: {col}"
+            idx_col = body.index(f"NEW.{col} IS DISTINCT FROM OLD.{col}")
+            assert idx_col < idx_super, (
+                f"{col} precisa ser validado ANTES do bypass de Super Admin"
+            )
+
+    def test_campos_administrativos_apos_o_bypass(self, sql):
+        body = self._body(sql)
+        idx_super = body.index("public.is_super_admin()")
+        for col in ADMIN_EDITABLE_BY_SUPER:
+            assert re.search(
+                rf"NEW\.{col}\s+IS DISTINCT FROM OLD\.{col}", body
+            ), f"campo administrativo sem guarda para comum: {col}"
+            idx_col = body.index(f"NEW.{col} IS DISTINCT FROM OLD.{col}")
+            assert idx_col > idx_super, (
+                f"{col} deve ficar após o bypass de Super Admin (só comum bloqueado)"
+            )
+
+    def test_comum_bloqueado_para_campos_administrativos(self, sql):
+        body = self._body(sql)
+        block = body[body.index("public.is_super_admin()"):]
+        for col in COMMON_BLOCKED:
+            assert f"NEW.{col} IS DISTINCT FROM OLD.{col}" in block, (
+                f"usuário comum não está bloqueado em {col}"
+            )
 
     def test_bloqueio_e_excecao_42501(self, sql):
-        body = _function_body(sql, "guard_profile_privileged_columns")
+        body = self._body(sql)
         assert "RAISE EXCEPTION" in body
         assert "ERRCODE = '42501'" in body
+        assert "profiles.id is immutable in normal UPDATE" in body
+        assert "profiles.workspace_ids is immutable in normal UPDATE" in body
 
     def test_nao_permite_bypass_por_new_valor(self, sql):
-        body = _function_body(sql, "guard_profile_privileged_columns")
+        body = self._body(sql)
         # Nenhum caminho "RETURN NEW" condicionado ao próprio valor privilegiado.
         assert "NEW.is_super_admin = true" not in body
         assert "NEW.role =" not in body

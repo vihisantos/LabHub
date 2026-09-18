@@ -13,13 +13,14 @@ Cenario:
 
 Asserts cobrem:
   A  autoelevacao negada para usuario comum (is_super_admin, role admin/
-     coordinator/lider, status, app_access, workspace_ids, id);
+     coordinator/lider, status, app_access) e imutabilidade de id/workspace_ids;
   B  edicao legitima de perfil pelo proprio usuario segue permitida;
-  C  super admin continua editando cargo/status/super admin de terceiros;
+  C  super admin edita is_super_admin/role/status/app_access de terceiros, mas
+     NAO altera id nem workspace_ids em UPDATE normal;
   D  primitivo legado `sync_user_memberships`/`trg_sync_user_memberships`
      ausente do catalogo e trigger legado inexistente;
   E  contexto confiavel (auth.uid() NULL: service_role/backend, signup) segue
-     permitido;
+     permitido, inclusive para `workspace_ids` (espelho/RPC 052);
   F  policy `profiles_update` com USING + WITH CHECK no catalogo real;
   G  integridade RBAC 2.0 (is_coordinator_of e memberships intactos);
   X  integridade final (colunas de privilegio do comum intactas).
@@ -159,6 +160,9 @@ $f$ LANGUAGE sql STABLE;
 CREATE FUNCTION pg_temp._app_access(p_pid uuid) RETURNS jsonb AS $f$
   SELECT app_access FROM public.profiles WHERE id = p_pid;
 $f$ LANGUAGE sql STABLE;
+CREATE FUNCTION pg_temp._ws_ids(p_pid uuid) RETURNS uuid[] AS $f$
+  SELECT workspace_ids FROM public.profiles WHERE id = p_pid;
+$f$ LANGUAGE sql STABLE;
 
 -- ---------------- fixtures
 INSERT INTO public.workspaces (id, name, slug) VALUES
@@ -212,11 +216,11 @@ SELECT pg_temp._expect_deny(
 SELECT pg_temp._expect_deny(
   'A7 common nao altera workspace_ids',
   $q$UPDATE public.profiles SET workspace_ids = ARRAY['__WS_A__']::uuid[] WHERE id = '__COMMON__'$q$,
-  'alteracao de campo privilegiado do proprio perfil nao e permitida%');
+  'profiles.workspace_ids is immutable in normal UPDATE%');
 SELECT pg_temp._expect_deny(
   'A8 common nao troca o proprio id',
   $q$UPDATE public.profiles SET id = '__TARGET__' WHERE id = '__COMMON__'$q$,
-  'alteracao de campo privilegiado do proprio perfil nao e permitida%');
+  'profiles.id is immutable in normal UPDATE%');
 
 -- ================= B: edicao legitima de perfil segue permitida ==============
 SELECT pg_temp._expect_ok(
@@ -245,6 +249,25 @@ SELECT pg_temp._chk(
     pg_temp._profile_status('__TARGET__'::uuid),
     pg_temp._is_super('__TARGET__'::uuid)::text)), 1, 1);
 
+-- Super Admin NAO altera id/workspace_ids em UPDATE normal (so contexto confiavel).
+SELECT pg_temp._expect_deny(
+  'C3 super admin NAO troca id',
+  $q$UPDATE public.profiles SET id = '__SUPER__' WHERE id = '__TARGET__'$q$,
+  'profiles.id is immutable in normal UPDATE%');
+SELECT pg_temp._expect_deny(
+  'C4 super admin NAO altera workspace_ids',
+  $q$UPDATE public.profiles SET workspace_ids = ARRAY['__WS_A__']::uuid[] WHERE id = '__TARGET__'$q$,
+  'profiles.workspace_ids is immutable in normal UPDATE%');
+
+-- Super Admin continua alterando app_access.
+SELECT pg_temp._expect_ok(
+  'C5 super admin altera app_access',
+  $q$UPDATE public.profiles SET app_access = '{"tv":"full"}'::jsonb WHERE id = '__TARGET__'$q$);
+SELECT pg_temp._chk(
+  'C6 app_access do super admin persistiu',
+  pg_temp._app_access('__TARGET__'::uuid) = '{"tv":"full"}'::jsonb,
+  to_jsonb('{"tv":"full"}'::jsonb), to_jsonb(pg_temp._app_access('__TARGET__'::uuid)), 1, 1);
+
 -- ================= D: primitivo legado removido =================
 SELECT pg_temp._chk(
   'D1 sync_user_memberships(uuid) ausente do catalogo',
@@ -269,16 +292,25 @@ SELECT pg_temp._chk(
   pg_temp._profile_role('__TARGET__'::uuid) = 'coordinator',
   to_jsonb('coordinator'::text), to_jsonb(pg_temp._profile_role('__TARGET__'::uuid)), 1, 1);
 
+-- Contexto confiavel tambem grava workspace_ids (espelho/RPC 052).
+SELECT pg_temp._expect_ok(
+  'E3 service context altera workspace_ids (auth.uid() NULL)',
+  $q$UPDATE public.profiles SET workspace_ids = ARRAY['__WS_A__']::uuid[] WHERE id = '__TARGET__'$q$);
+SELECT pg_temp._chk(
+  'E4 workspace_ids confiavel persistiu',
+  pg_temp._ws_ids('__TARGET__'::uuid) = ARRAY['__WS_A__']::uuid[],
+  to_jsonb(ARRAY['__WS_A__']::uuid[]), to_jsonb(pg_temp._ws_ids('__TARGET__'::uuid)), 1, 1);
+
 -- ================= F: policy profiles_update com USING + WITH CHECK =========
 SELECT pg_temp._chk(
   'F1 profiles_update tem USING com is_super_admin',
-  (SELECT qual LIKE '%is_super_admin%' FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'profiles_update'),
+  COALESCE((SELECT qual LIKE '%is_super_admin%' FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'profiles_update'), false),
   'true'::jsonb, to_jsonb('checked'::text), 1, 1);
 SELECT pg_temp._chk(
   'F2 profiles_update tem WITH CHECK com is_super_admin',
-  (SELECT with_check LIKE '%is_super_admin%' FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'profiles_update'),
+  COALESCE((SELECT with_check LIKE '%is_super_admin%' FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'profiles_update'), false),
   'true'::jsonb, to_jsonb('checked'::text), 1, 1);
 
 -- ================= G: integridade RBAC 2.0 =================
@@ -333,6 +365,7 @@ def main() -> int:
         body = body.replace(tok, val)
     body = body.replace("__USERS__", USERS_SQL)
     body = body.replace("__MEMBERSHIP_ROWS__", MEMBERSHIP_ROWS)
+    body = body.replace("__ROLE_UPDATES__", ROLE_UPDATES)
     body = body.replace("__PFX__", PFX)
     url = f"https://api.supabase.com/v1/projects/{REF}/database/query"
     resp = requests.post(

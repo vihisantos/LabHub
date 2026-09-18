@@ -26,15 +26,20 @@
 --       reconcile legado e recriado.
 --
 -- Invariantes apos esta migration:
---   - Usuario autenticado comum NUNCA altera, na propria linha: `id`,
---     `is_super_admin`, `role`, `status`, `app_access`, `workspace_ids`.
+--   - `id` e `workspace_ids` sao IMUTAVEIS em UPDATE normal para todos os
+--     atores autenticados, INCLUSIVE Super Admin; so contexto confiavel
+--     (auth.uid() IS NULL: service_role/backend) os altera. `memberships`
+--     segue a unica fonte de autorizacao de workspace e `workspace_ids` fica
+--     apenas como compatibilidade legado (escritor legitimo: RPC 052).
+--   - Usuario autenticado comum NUNCA altera `is_super_admin`, `role`,
+--     `status` nem `app_access`.
+--   - Super Admin (`public.is_super_admin()`) PODE alterar `is_super_admin`,
+--     `role`, `status` e `app_access` (fluxo /admin), mas NAO `id`/
+--     `workspace_ids`.
 --   - Campos de perfil legitimos (name/banner/avatar/accent/theme_variant/...)
 --     seguem editaveis por `auth.uid()`.
---   - Super Admin (`public.is_super_admin()`) e contextos confiaveis
---     (service_role/backend e signup handle_new_user, sem `auth.uid()`) NAO
---     sao afetados.
---   - `memberships` continua a unica fonte de autorizacao de workspace
---     (auth.py resolve `workspace_ids` a partir de memberships ativas).
+--   - Contextos confiaveis (service_role/backend e signup handle_new_user, sem
+--     `auth.uid()`) NAO sao afetados.
 --
 -- IDEMPOTENCIA: DROP POLICY IF EXISTS + CREATE POLICY; CREATE OR REPLACE;
 -- DROP TRIGGER IF EXISTS; DROP FUNCTION IF EXISTS. Replay seguro.
@@ -45,10 +50,12 @@
 -- =============================================================================
 -- 1. Guarda de colunas privilegiadas em profiles (autoridade real)
 --
---    BEFORE UPDATE, SECURITY DEFINER, search_path fixo. Bloqueia somente quando
---    ha um usuario final autenticado (`auth.uid() IS NOT NULL`) que NAO e super
---    admin. Assim service_role/backend (`auth.uid()` NULL) e super admin
---    continuam com o fluxo normal de /admin.
+--    BEFORE UPDATE, SECURITY DEFINER, search_path fixo, fail-closed. Ordem:
+--      a) `auth.uid() IS NULL` (service_role/backend, signup) => permitido;
+--      b) `id` e `workspace_ids` imutaveis => negados para QUALQUER ator com
+--         `auth.uid()` (inclusive Super Admin);
+--      c) Super Admin => permitido para is_super_admin/role/status/app_access;
+--      d) usuario comum => negado para is_super_admin/role/status/app_access.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.guard_profile_privileged_columns()
@@ -64,19 +71,33 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Super Admin mantem a edicao administrativa (role/status/app_access) de
-  -- qualquer perfil, inclusive a propria linha.
+  -- Identidade imutavel: `id` nunca muda em UPDATE normal, para ninguem
+  -- (nem usuario comum nem Super Admin) - apenas contexto confiavel (acima).
+  -- FKs de profiles.id sao ON DELETE CASCADE/SET NULL (sem ON UPDATE CASCADE).
+  IF NEW.id IS DISTINCT FROM OLD.id THEN
+    RAISE EXCEPTION 'profiles.id is immutable in normal UPDATE'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- RBAC 2.0: `memberships` e a fonte de autorizacao; `workspace_ids` e apenas
+  -- espelho/compatibilidade legado. Imutavel em UPDATE normal, inclusive para
+  -- Super Admin; o unico escritor legitimo e a RPC 052 (service_role).
+  IF NEW.workspace_ids IS DISTINCT FROM OLD.workspace_ids THEN
+    RAISE EXCEPTION 'profiles.workspace_ids is immutable in normal UPDATE'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Super Admin mantem a edicao administrativa dos demais campos
+  -- (is_super_admin/role/status/app_access) de qualquer perfil.
   IF public.is_super_admin() THEN
     RETURN NEW;
   END IF;
 
   -- Usuario comum: proibido mexer em campos de privilegio global.
-  IF NEW.id            IS DISTINCT FROM OLD.id
-     OR NEW.is_super_admin IS DISTINCT FROM OLD.is_super_admin
-     OR NEW.role           IS DISTINCT FROM OLD.role
-     OR NEW.status         IS DISTINCT FROM OLD.status
-     OR NEW.app_access     IS DISTINCT FROM OLD.app_access
-     OR NEW.workspace_ids  IS DISTINCT FROM OLD.workspace_ids THEN
+  IF NEW.is_super_admin IS DISTINCT FROM OLD.is_super_admin
+     OR NEW.role         IS DISTINCT FROM OLD.role
+     OR NEW.status       IS DISTINCT FROM OLD.status
+     OR NEW.app_access   IS DISTINCT FROM OLD.app_access THEN
     RAISE EXCEPTION
       'alteracao de campo privilegiado do proprio perfil nao e permitida'
       USING ERRCODE = '42501';
@@ -87,9 +108,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.guard_profile_privileged_columns() IS
-  'RBAC 2.0 Fase 5.1: bloqueia autoelevacao via profiles (id, is_super_admin, '
-  'role, status, app_access, workspace_ids) para usuario autenticado comum; '
-  'super admin e service_role/signup permanecem permitidos.';
+  'RBAC 2.0 Fase 5.1: `id` e `workspace_ids` imutaveis em UPDATE normal '
+  '(inclusive Super Admin); Super Admin edita is_super_admin/role/status/'
+  'app_access; usuario comum nao edita campos de privilegio; contexto '
+  'confiavel (auth.uid() NULL: service_role/signup) preservado.';
 
 DROP TRIGGER IF EXISTS trg_profiles_guard_privileged ON public.profiles;
 CREATE TRIGGER trg_profiles_guard_privileged
