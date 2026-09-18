@@ -6,7 +6,7 @@ import { useAuth } from '../../core/auth/AuthContext'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { filterAppsByWorkspace } from '../../core/workspaces/apps'
 import { useAppAccess } from '../../core/permissions/usePermissions'
-import { useLeadership } from '../../core/permissions/useLeadership'
+import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { useFastSync } from '../../lib/useFastSync'
 import { useOnlineSync } from '../../lib/useOnlineSync'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
@@ -35,7 +35,7 @@ export function Launcher() {
   const { unreadCount } = useNotifications()
   const { user, signOut } = useAuth()
   const { canAccessApp } = useAppAccess()
-  const { area } = useLeadership()
+  const { isCoordinator } = useCoordinator()
   const { workspace } = useWorkspace()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -128,8 +128,10 @@ export function Launcher() {
           <QuickActions />
         </div>
 
-        {/* Área de Coordenação */}
-        {area === 'coordination' && (
+        {/* Área de Coordenação — RBAC 2.0: concedida pela membership ATIVA de
+            coordenação (servidor confirma ≥1 unidade sob coordenação). NUNCA
+            pelo cargo global/legado profiles.role. */}
+        {isCoordinator && (
           <div className="mb-6">
             <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Coordenação</p>
             <div className="flex flex-wrap justify-center gap-3">
