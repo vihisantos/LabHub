@@ -4,10 +4,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { User } from '../../../core/auth/types'
 import { Launcher } from '../Launcher'
 
-const mockUseLeadership = vi.hoisted(() => vi.fn())
+const mockUseCoordinator = vi.hoisted(() => vi.fn())
 
-vi.mock('../../../core/permissions/useLeadership', () => ({
-  useLeadership: () => mockUseLeadership(),
+vi.mock('../../../core/permissions/useCoordinator', () => ({
+  useCoordinator: () => mockUseCoordinator(),
 }))
 
 vi.mock('../../../core/permissions/usePermissions', () => ({
@@ -55,13 +55,13 @@ vi.mock('../../Onboarding/OnboardingOverlay', () => ({
   hasCompletedOnboarding: () => true,
 }))
 
-function setLeadership(area: 'team' | 'coordination' | null) {
-  mockUseLeadership.mockReturnValue({
-    user: { id: 'u-coord', roleId: 'role-coordinator' },
-    role: undefined,
-    isLeadership: area !== null,
-    level: area === 'coordination' ? 2 : area === 'team' ? 1 : 0,
-    area,
+function setCoordinator(isCoordinator: boolean) {
+  mockUseCoordinator.mockReturnValue({
+    units: isCoordinator ? [{ unitId: 'ws1' }] : [],
+    isCoordinator,
+    loading: false,
+    failed: false,
+    refresh: vi.fn(),
   })
 }
 
@@ -76,7 +76,7 @@ function renderLauncher() {
   )
 }
 
-describe('Launcher — acesso à área de coordenação', () => {
+describe('Launcher — acesso à área de coordenação (RBAC 2.0: membership ativa)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
@@ -92,8 +92,8 @@ describe('Launcher — acesso à área de coordenação', () => {
     }) as unknown as typeof window.matchMedia
   })
 
-  it('mostra a entrada de Coordenação para o cargo Coordenador Multiunidades', () => {
-    setLeadership('coordination')
+  it('mostra a entrada de Coordenação para quem coordena ativamente ≥1 unidade (membership)', () => {
+    setCoordinator(true)
 
     renderLauncher()
 
@@ -101,7 +101,7 @@ describe('Launcher — acesso à área de coordenação', () => {
   })
 
   it('leva para /coordenador ao acionar a entrada', () => {
-    setLeadership('coordination')
+    setCoordinator(true)
 
     renderLauncher()
 
@@ -111,16 +111,26 @@ describe('Launcher — acesso à área de coordenação', () => {
     expect(screen.getByText('coordenador-target')).toBeInTheDocument()
   })
 
-  it('não mostra a entrada para líder de unidade (escopo team)', () => {
-    setLeadership('team')
+  it('regressão coord.test: membership de coordenação ativa mostra o card mesmo sem cargo global legado', () => {
+    // coord.test tem membership de coordenação (como o Caio), mas profiles.role
+    // NÃO é 'coordinator' — o card NÃO pode depender do cargo legado.
+    setCoordinator(true)
+
+    renderLauncher()
+
+    expect(screen.getByText('Área do Coordenador Multiunidades')).toBeInTheDocument()
+  })
+
+  it('não mostra a entrada sem membership ativa de coordenação (não coordena unidade alguma)', () => {
+    setCoordinator(false)
 
     renderLauncher()
 
     expect(screen.queryByText('Área do Coordenador Multiunidades')).not.toBeInTheDocument()
   })
 
-  it('não mostra a entrada para cargo sem liderança', () => {
-    setLeadership(null)
+  it('não mostra a entrada enquanto o escopo ainda não confirmou unidades (fail-closed)', () => {
+    mockUseCoordinator.mockReturnValue({ units: [], isCoordinator: false, loading: true, failed: false, refresh: vi.fn() })
 
     renderLauncher()
 

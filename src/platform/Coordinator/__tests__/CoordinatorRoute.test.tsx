@@ -101,6 +101,7 @@ function setLeadership(overrides: Record<string, unknown> = {}) {
 function setCoordinator(overrides: Record<string, unknown> = {}) {
   mockUseCoordinator.mockReturnValue({
     units: [],
+    isCoordinator: false,
     loading: false,
     failed: false,
     refresh: vi.fn(),
@@ -137,9 +138,9 @@ describe('rota /coordenador — composição AuthGuard + LeadershipAreaGuard', (
     setCoordinator()
   })
 
-  it('libera a rota para o cargo Coordenador Multiunidades e renderiza o CoordinatorHome', () => {
+  it('libera a rota para coordenador por membership ativa e renderiza o CoordinatorHome', () => {
     setLeadership({ isLeadership: true, level: 2, area: 'coordination' })
-    setCoordinator({ units: [coordinatedUnit()] })
+    setCoordinator({ units: [coordinatedUnit()], isCoordinator: true })
 
     renderCoordinatorRoute()
 
@@ -148,7 +149,27 @@ describe('rota /coordenador — composição AuthGuard + LeadershipAreaGuard', (
     expect(screen.queryByText('Acesso restrito')).not.toBeInTheDocument()
   })
 
-  it('não libera a área de coordenação para líder de unidade (escopo team)', () => {
+  it('regressão coord.test: entra com membership de coordenação ativa mesmo sem cargo legado de liderança', () => {
+    setLeadership({ isLeadership: false, area: null })
+    setCoordinator({ units: [coordinatedUnit()], isCoordinator: true })
+
+    renderCoordinatorRoute()
+
+    expect(screen.getByText('Área do Coordenador')).toBeInTheDocument()
+    expect(screen.queryByText('Acesso restrito')).not.toBeInTheDocument()
+  })
+
+  it('NÃO entra só por ter cargo coordinator global sem membership ativa (sem unidade coordenada)', () => {
+    setLeadership({ isLeadership: true, level: 2, area: 'coordination' })
+    setCoordinator({ units: [], isCoordinator: false })
+
+    renderCoordinatorRoute()
+
+    expect(screen.getByText('Acesso restrito')).toBeInTheDocument()
+    expect(screen.queryByText('Área do Coordenador')).not.toBeInTheDocument()
+  })
+
+  it('não libera a área de coordenação para líder de unidade (escopo team, sem unidade coordenada)', () => {
     setLeadership({ isLeadership: true, level: 1, area: 'team' })
 
     renderCoordinatorRoute()

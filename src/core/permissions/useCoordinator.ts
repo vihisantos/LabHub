@@ -9,10 +9,18 @@ import { getCoordinatorScope, getLastCoordinatorServiceError } from './coordinat
  * segue a unidade ativa). O escopo vem do servidor (`get_coordinator_units` +
  * RPCs 047, fail-closed por auth.uid()): sem units → vazio legítimo (não é erro);
  * erro em qualquer RPC → `failed` (a UI oferece retry).
+ *
+ * `isCoordinator` é a ÚNICA concessão de acesso à ÁREA de coordenação (card no
+ * Launcher + guard de /coordenador): verdadeiro quando o servidor confirma que o
+ * usuário coordena ATIVAMENTE ao menos uma unidade (membership ativa com cargo
+ * coordinator). NUNCA deriva de `profiles.role`/`user.roleId` (dados legados):
+ * ter o cargo `coordinator` globalmente NÃO dá acesso — a área é das memberships
+ * ativas que ele coordena.
  */
-export function useCoordinator() {
+export function useCoordinator(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true
   const [units, setUnits] = useState<CoordinatedUnit[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [failed, setFailed] = useState(false)
 
   /**
@@ -21,6 +29,7 @@ export function useCoordinator() {
    * no Dashboard). O erro continua honesto: uma falha vira `failed`.
    */
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    if (!enabled) return
     const silent = options?.silent === true
     if (!silent) setLoading(true)
     setFailed(false)
@@ -29,11 +38,17 @@ export function useCoordinator() {
     setFailed(data.length === 0 && getLastCoordinatorServiceError() !== null)
     setUnits(data)
     if (!silent) setLoading(false)
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    if (enabled) void refresh()
+  }, [enabled, refresh])
 
-  return { units, loading, failed, refresh }
+  return {
+    units,
+    loading,
+    failed,
+    refresh,
+    isCoordinator: units.length > 0,
+  }
 }

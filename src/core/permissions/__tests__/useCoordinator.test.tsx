@@ -43,6 +43,7 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
 
     expect(mockedScope).toHaveBeenCalledTimes(1)
     expect(result.current.units).toHaveLength(2)
+    expect(result.current.isCoordinator).toBe(true)
     expect(result.current.failed).toBe(false)
     expect(result.current.loading).toBe(false)
   })
@@ -56,6 +57,7 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
 
     expect(result.current.failed).toBe(true)
     expect(result.current.units).toEqual([])
+    expect(result.current.isCoordinator).toBe(false)
   })
 
   it('vazio legítimo (sem unidades de coordenação) → failed=false (estado vazio honesto)', async () => {
@@ -66,6 +68,7 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
     await act(async () => {})
 
     expect(result.current.failed).toBe(false)
+    expect(result.current.isCoordinator).toBe(false)
   })
 
   it('refresh re-consulta o escopo (retry)', async () => {
@@ -85,5 +88,16 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
     expect(mockedScope).toHaveBeenCalledTimes(2)
     expect(result.current.failed).toBe(false)
     expect(result.current.units).toHaveLength(1)
+    expect(result.current.isCoordinator).toBe(true)
+  })
+
+  it('enabled=false (ex.: guard de escopo team) não consulta o servidor nem sinaliza loading', async () => {
+    const { result } = renderHook(() => useCoordinator({ enabled: false }))
+    await act(async () => {})
+
+    expect(mockedScope).not.toHaveBeenCalled()
+    expect(result.current.loading).toBe(false)
+    expect(result.current.units).toEqual([])
+    expect(result.current.isCoordinator).toBe(false)
   })
 })
