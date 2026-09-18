@@ -11,6 +11,7 @@ import {
   getCoordinatorRequests,
   getCoordinatorInactiveMembers,
   getCoordinatorAssignableRoles,
+  getCoordinatorUnitOverview,
   setCoordinatorManager,
   approveCoordinatorMembership,
   rejectCoordinatorMembership,
@@ -466,6 +467,71 @@ describe('ciclo de vida do coordenador — RPCs de escrita (065)', () => {
   })
 })
 
+describe('getCoordinatorUnitOverview — visão da unidade (RPC 070, READ-ONLY)', () => {
+  const overviewData = {
+    workspace: { id: 'ws1', name: 'Campus A' },
+    tickets: { open: 2, in_progress: 3, unassigned: 4, high_priority: 2, urgent: 1 },
+    recent: [
+      {
+        id: 'tk-1',
+        ticketNumber: 7,
+        roomName: 'Sala 101',
+        problemCategory: 'Imprensa',
+        status: 'em_atendimento',
+        priority: 'alta',
+        assignedToUserId: '',
+        createdAt: '2026-01-11T00:00:00Z',
+        updatedAt: '2026-01-11T00:00:00Z',
+      },
+    ],
+  }
+
+  it('chama a RPC com p_workspace_id e devolve a visão sem inventar nada', async () => {
+    supabase.defaultDb.rpc.mockResolvedValue({ data: overviewData, error: null })
+
+    const result = await getCoordinatorUnitOverview('ws1')
+
+    expect(supabase.defaultDb.rpc).toHaveBeenCalledWith('get_coordinator_unit_overview', {
+      p_workspace_id: 'ws1',
+    })
+    expect(result?.tickets).toEqual({
+      open: 2,
+      in_progress: 3,
+      unassigned: 4,
+      high_priority: 2,
+      urgent: 1,
+    })
+    expect(result?.recent?.[0].ticketNumber).toBe(7)
+    expect(getLastCoordinatorServiceError()).toBeNull()
+  })
+
+  it('RPC negando (fora do escopo) → null + erro sinalizado (nunca zeros falsos)', async () => {
+    supabase.defaultDb.rpc.mockResolvedValue({
+      data: null,
+      error: { message: 'only an active coordinator of this unit can view its overview' },
+    })
+
+    const result = await getCoordinatorUnitOverview('ws1')
+
+    expect(result).toBeNull()
+    expect(getLastCoordinatorServiceError()).toBe(
+      'only an active coordinator of this unit can view its overview',
+    )
+  })
+
+  it('erro de consulta propaga como erro (não vira zeros)', async () => {
+    supabase.defaultDb.rpc.mockResolvedValue({
+      data: null,
+      error: { message: 'relation "chamados_tickets" does not exist' },
+    })
+
+    const result = await getCoordinatorUnitOverview('ws1')
+
+    expect(result).toBeNull()
+    expect(getLastCoordinatorServiceError()).toContain('does not exist')
+  })
+})
+
 describe('banco de dado não configurado (defesa)', () => {
   it('defaultDb null → funções fail-closed', async () => {
     vi.resetModules()
@@ -476,6 +542,7 @@ describe('banco de dado não configurado (defesa)', () => {
       expect(await fresh.getCoordinatorRequests('ws1')).toEqual([])
       expect(await fresh.getCoordinatorInactiveMembers('ws1')).toEqual([])
       expect(await fresh.getCoordinatorAssignableRoles()).toEqual([])
+      expect(await fresh.getCoordinatorUnitOverview('ws1')).toBeNull()
       expect(await fresh.setCoordinatorManager('x', null)).toBe(false)
       expect(await fresh.approveCoordinatorMembership('x')).toBe(false)
       expect(await fresh.setCoordinatorRole('x', 'tec')).toBe(false)
