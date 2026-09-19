@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   analyzeSla,
+  analyzeSlaByWorkspace,
   computeSlaDeadline,
   formatDuration,
   getPriority,
@@ -231,5 +232,111 @@ describe('SLA com datas inválidas', () => {
     const r = analyzeSla(tickets)
     expect(r.total).toBe(1)
     expect(r.byPriority.normal.total).toBe(1)
+  })
+})
+
+describe('analyzeSlaByWorkspace — resumo operacional por workspace (Fase 2.2.1)', () => {
+  const mk = (
+    id: string,
+    createdAt: string,
+    status: 'aberto' | 'a_caminho' | 'em_atendimento' | 'resolvido' | 'fechado',
+    priority: 'baixa' | 'normal' | 'alta' | 'urgente' = 'normal',
+    workspace_id?: string,
+  ) => ({ id, createdAt, status, priority, workspace_id })
+
+  it('unidade sem tickets → sem chave no agrupamento (chamador cai no fallback)', () => {
+    expect(analyzeSlaByWorkspace([])).toEqual({})
+  })
+
+  it('dentro do SLA: aberto recente conta como within com taxa 100', () => {
+    const tickets = [mk('a', '2026-08-13T09:00:00Z', 'aberto', 'normal', 'w1')]
+    const r = analyzeSlaByWorkspace(tickets)
+    expect(r.w1).toEqual({ total: 1, within: 1, near: 0, overdue: 0, rate: 100 })
+  })
+
+  it('near: restante abaixo de 25% da janela', () => {
+    const tickets = [mk('a', '2026-08-12T15:00:00Z', 'aberto', 'normal', 'w1')]
+    const r = analyzeSlaByWorkspace(tickets)
+    expect(r.w1.total).toBe(1)
+    expect(r.w1.near).toBe(1)
+    expect(r.w1.within).toBe(0)
+    expect(r.w1.overdue).toBe(0)
+  })
+
+  it('overdue: prazo estourado em chamado ativo', () => {
+    const tickets = [mk('a', '2026-08-13T08:00:00Z', 'a_caminho', 'normal', 'w1')]
+    const withPast = [mk('a', '2026-08-12T08:00:00Z', 'a_caminho', 'normal', 'w1')]
+    expect(analyzeSlaByWorkspace(tickets).w1.overdue).toBe(0)
+    expect(analyzeSlaByWorkspace(withPast).w1.overdue).toBe(1)
+  })
+
+  it('múltiplas prioridades e taxa mista', () => {
+    const tickets = [
+      mk('a', '2026-08-13T09:00:00Z', 'aberto', 'urgente', 'w1'),
+      mk('b', '2026-08-13T09:00:00Z', 'aberto', 'baixa', 'w1'),
+      mk('c', '2026-08-12T08:00:00Z', 'em_atendimento', 'normal', 'w1'),
+    ]
+    const r = analyzeSlaByWorkspace(tickets)
+    expect(r.w1.total).toBe(3)
+    expect(r.w1.within).toBe(2)
+    expect(r.w1.overdue).toBe(1)
+    expect(r.w1.rate).toBe(67)
+  })
+
+  it('múltiplos workspaces ficam separados por workspace_id', () => {
+    const tickets = [
+      mk('a', '2026-08-13T09:00:00Z', 'aberto', 'normal', 'w1'),
+      mk('b', '2026-08-12T08:00:00Z', 'aberto', 'normal', 'w2'),
+    ]
+    const r = analyzeSlaByWorkspace(tickets)
+    expect(r.w1).toEqual({ total: 1, within: 1, near: 0, overdue: 0, rate: 100 })
+    expect(r.w2).toEqual({ total: 1, within: 0, near: 0, overdue: 1, rate: 0 })
+  })
+
+  it('configuração customizada por workspace respeitada', () => {
+    const tickets = [mk('a', '2026-08-13T08:00:00Z', 'aberto', 'normal', 'w1')]
+    const r = analyzeSlaByWorkspace(tickets, { w1: { ...DEFAULT_SLA_HOURS, normal: 1 } })
+    expect(r.w1.overdue).toBe(1)
+  })
+
+  it('fallback para DEFAULT_SLA_HOURS quando não há config da unidade', () => {
+    const tickets = [
+      mk('a', '2026-08-13T09:00:00Z', 'aberto', 'urgente', 'w1'),
+      mk('b', '2026-08-13T09:00:00Z', 'aberto', 'normal', 'w1'),
+    ]
+    const r = analyzeSlaByWorkspace(tickets)
+    expect(r.w1.total).toBe(2)
+    expect(r.w1.within).toBe(2)
+  })
+
+  it('SLA 0 desativa o chamado (não participa do total)', () => {
+    const tickets = [mk('a', '2026-08-13T09:00:00Z', 'aberto', 'normal', 'w1')]
+    const r = analyzeSlaByWorkspace(tickets, { w1: { ...DEFAULT_SLA_HOURS, normal: 0 } })
+    expect(r.w1.total).toBe(0)
+    expect(r.w1.rate).toBe(0)
+  })
+
+  it('status que não participa do SLA (resolvido/fechado) não conta', () => {
+    const tickets = [
+      mk('a', '2026-08-13T09:00:00Z', 'resolvido', 'normal', 'w1'),
+      mk('b', '2026-08-13T09:00:00Z', 'fechado', 'normal', 'w1'),
+    ]
+    const r = analyzeSlaByWorkspace(tickets)
+    expect(r.w1.total).toBe(0)
+  })
+
+  it('dados resolvidos permanecem na análise histórica (analyzeSla), não no resumo operacional', () => {
+    const tickets = [
+      { id: 'a', createdAt: '2026-08-13T08:00:00Z', resolvedAt: '2026-08-13T09:00:00Z', priority: 'urgente' as const, status: 'resolvido' as const, workspace_id: 'w1' },
+      mk('b', '2026-08-13T09:00:00Z', 'aberto', 'normal', 'w1'),
+    ]
+    expect(analyzeSlaByWorkspace(tickets).w1.total).toBe(1)
+    expect(analyzeSla([tickets[0]]).total).toBe(1)
+  })
+
+  it('data inválida → chamado não participa', () => {
+    const tickets = [mk('a', 'invalid', 'aberto', 'normal', 'w1')]
+    const r = analyzeSlaByWorkspace(tickets)
+    expect(r.w1.total).toBe(0)
   })
 })
