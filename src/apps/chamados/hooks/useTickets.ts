@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Ticket, TicketFormData, TicketStatus } from '../types'
 import { ticketService } from '../services/ticketService'
-import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket } from '../services/ticketAlerts'
+import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket, syncSlaAlerts } from '../services/ticketAlerts'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { getCol } from '../../../lib/db'
 
@@ -56,6 +56,8 @@ export function useTickets() {
       // Alerta o TI sobre chamados novos vindos do formulário público.
       const created = syncNewTicketAlerts()
       if (created.length > 0) alertForNewTickets(created)
+      // Fase 2.2.2: alertas de SLA no mesmo ciclo (mesma fonte e dedupe).
+      syncSlaAlerts()
     }
   }, [load])
 
@@ -87,6 +89,7 @@ export function useTickets() {
           if (prev.some((t) => t.id === newTicket.id)) return prev
           const created = syncNewTicketAlerts()
           if (created.length > 0) alertForNewTickets(created)
+          syncSlaAlerts()
           return [newTicket, ...prev].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
         })
         // Persiste no IndexedDB para sobreviver a refresh/reabertura.
