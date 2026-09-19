@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { setCol, clearCache } from '../../../../lib/db'
+import { getCol, setCol, clearCache } from '../../../../lib/db'
 import { notificationService } from '../../../../core/notifications/service'
+import type { AppNotification } from '../../../../core/notifications/types'
 import { ticketService } from '../ticketService'
 import { syncNewTicketAlerts, markLocalTicket, isAlertsMuted, setAlertsMuted, syncSlaAlerts } from '../ticketAlerts'
 import { workspaceStore } from '../../../../core/workspaces/store'
@@ -265,5 +266,163 @@ describe('syncSlaAlerts — alertas de SLA (Fase 2.2.2)', () => {
     expect(newOnes[0].actionUrl).toBe(`/chamados/tickets/${t.id}`)
     expect(slaOnes).toHaveLength(1)
     expect(slaOnes[0].actionUrl).toBe(`/chamados/tickets/${t.id}?sla=near`)
+  })
+})
+
+describe('syncSlaAlerts — dedupe multinidade (Fase 2.2.3 / correção R1)', () => {
+  const NOW = new Date('2026-08-13T10:00:00.000Z')
+  const HOUR = 1000 * 60 * 60
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    clearCache()
+    workspaceStore.set(null, false, [])
+    setAlertsMuted(false)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    clearCache()
+  })
+
+  const slaTicket = (overrides: Partial<Ticket> = {}): Ticket =>
+    makeTicket({ createdAt: new Date(NOW.getTime() - 20 * HOUR).toISOString(), ...overrides })
+
+  const slaOverdue = (overrides: Partial<Ticket> = {}): Ticket =>
+    makeTicket({ createdAt: new Date(NOW.getTime() - 30 * HOUR).toISOString(), ...overrides })
+
+  const notif = (actionUrl: string, overrides: Partial<AppNotification> = {}): AppNotification => ({
+    id: crypto.randomUUID(),
+    title: 'Notificação',
+    body: '',
+    type: 'ticket',
+    severity: 'warning',
+    module: 'chamados',
+    audience: 'workspace',
+    read: false,
+    createdAt: NOW.toISOString(),
+    actionUrl,
+    ...overrides,
+  })
+
+  const seedNotifications = (...items: AppNotification[]) => {
+    setCol('notifications', items)
+  }
+
+  const slaUrls = () =>
+    getCol<AppNotification>('notifications')
+      .map((n) => n.actionUrl)
+      .filter((url) => url?.includes('sla='))
+
+  it('Caso A — unidade ativa diferente do ticket: 1ª execução cria, 2ª não duplica (R1)', () => {
+    workspaceStore.set({ id: 'ws-a', name: 'WS A', slug: 'ws-a' } as any, false, ['ws-a'])
+    const t = slaTicket({ id: 'a', workspace_id: 'ws-b' })
+    seed(t)
+
+    const first = syncSlaAlerts()
+    const second = syncSlaAlerts()
+
+    expect(first).toHaveLength(1)
+    expect(first[0].actionUrl).toBe(`/chamados/tickets/${t.id}?sla=near`)
+    expect(first[0].workspace_id).toBe('ws-b')
+    expect(second).toHaveLength(0)
+    expect(slaUrls().filter((url) => url === `/chamados/tickets/${t.id}?sla=near`)).toHaveLength(1)
+  })
+
+  it('Caso A2 — notificação pré-existente no cache bruto de outra unidade impede recriação', () => {
+    const t = slaTicket({ id: 'a2', workspace_id: 'ws-b' })
+    seed(t)
+    seedNotifications(notif(`/chamados/tickets/${t.id}?sla=near`, { workspace_id: 'ws-b' }))
+
+    expect(syncSlaAlerts()).toHaveLength(0)
+  })
+
+  it('Caso B — duas unidades, ativo = A: cria 2 notificações, segunda sincronização não duplica', () => {
+    const a = slaTicket({ id: 'ba', workspace_id: 'ws-a' })
+    const b = slaTicket({ id: 'bb', workspace_id: 'ws-b' })
+    seed(a, b)
+
+    const first = syncSlaAlerts()
+    const second = syncSlaAlerts()
+
+    expect(first.map((n) => n.actionUrl).sort()).toEqual([
+      '/chamados/tickets/ba?sla=near',
+      '/chamados/tickets/bb?sla=near',
+    ])
+    expect(second).toHaveLength(0)
+    expect(slaUrls()).toHaveLength(2)
+  })
+
+  it('Caso C — transição near → overdue mantém exatamente 1 notificação por estado', () => {
+    const t = slaTicket({ id: 'c', workspace_id: 'ws-b' })
+    seed(t)
+
+    expect(syncSlaAlerts()).toHaveLength(1)
+    expect(slaUrls()).toEqual([`/chamados/tickets/${t.id}?sla=near`])
+
+    seed(slaOverdue({ id: 'c', workspace_id: 'ws-b' }))
+    const second = syncSlaAlerts()
+
+    expect(second).toHaveLength(1)
+    expect(second[0].actionUrl).toBe(`/chamados/tickets/${t.id}?sla=overdue`)
+    expect(slaUrls().sort()).toEqual([
+      `/chamados/tickets/${t.id}?sla=near`,
+      `/chamados/tickets/${t.id}?sla=overdue`,
+    ])
+  })
+
+  it('Caso D — overdue estável: várias sincronizações, somente 1 notificação overdue', () => {
+    const t = slaOverdue({ id: 'd', workspace_id: 'ws-b' })
+    seed(t)
+
+    expect(syncSlaAlerts()).toHaveLength(1)
+    expect(syncSlaAlerts()).toHaveLength(0)
+    expect(syncSlaAlerts()).toHaveLength(0)
+    expect(slaUrls()).toEqual([`/chamados/tickets/${t.id}?sla=overdue`])
+  })
+
+  it('Caso E — SLA desabilitado (hours = 0): nenhuma notificação', () => {
+    seed(slaTicket({ id: 'e', workspace_id: 'ws-b' }))
+    setCol('sla_configs', [
+      {
+        id: 'ws-b',
+        workspace_id: 'ws-b',
+        hours: { baixa: 72, normal: 0, alta: 8, urgente: 2 },
+        createdAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+      },
+    ])
+
+    expect(syncSlaAlerts()).toHaveLength(0)
+  })
+
+  it('Caso F — ticket sem workspace_id: nenhum alerta, sem fallback para o ativo', () => {
+    seed(slaTicket({ id: 'f', workspace_id: undefined }))
+
+    expect(syncSlaAlerts()).toHaveLength(0)
+    expect(getCol<AppNotification>('notifications')).toHaveLength(0)
+  })
+
+  it('Caso G — dedupe por actionUrl completo: URL de novo chamado não inibe alerta de SLA', () => {
+    const t = slaTicket({ id: 'g', workspace_id: 'ws-b' })
+    seed(t)
+    seedNotifications(notif(`/chamados/tickets/${t.id}`))
+
+    const created = syncSlaAlerts()
+
+    expect(created).toHaveLength(1)
+    expect(created[0].actionUrl).toBe(`/chamados/tickets/${t.id}?sla=near`)
+  })
+
+  it('Caso G2 — perto não inibe vencido (estados são eventos distintos)', () => {
+    const t = slaOverdue({ id: 'g2', workspace_id: 'ws-b' })
+    seed(t)
+    seedNotifications(notif(`/chamados/tickets/${t.id}?sla=near`))
+
+    const created = syncSlaAlerts()
+
+    expect(created).toHaveLength(1)
+    expect(created[0].actionUrl).toBe(`/chamados/tickets/${t.id}?sla=overdue`)
   })
 })
