@@ -21,9 +21,10 @@ const overview: CoordinatorUnitOverview = {
   ],
 }
 
-function renderOverview(over: Partial<{ overview: CoordinatorUnitOverview | null; loading: boolean; failed: boolean; onRetry: () => void; onOpenChamados: (() => void) | null }> = {}) {
+function renderOverview(over: Partial<{ overview: CoordinatorUnitOverview | null; loading: boolean; failed: boolean; onRetry: () => void; onOpenChamados: ((query?: string) => void) | null; onOpenTicket: ((ticketId: string) => void) | null }> = {}) {
   const onRetry = over.onRetry ?? vi.fn()
   const onOpenChamados = over.onOpenChamados === undefined ? null : over.onOpenChamados
+  const onOpenTicket = over.onOpenTicket === undefined ? null : over.onOpenTicket
   render(
     <UnitOverview
       overview={over.overview === undefined ? overview : over.overview}
@@ -31,9 +32,10 @@ function renderOverview(over: Partial<{ overview: CoordinatorUnitOverview | null
       failed={over.failed ?? false}
       onRetry={onRetry}
       onOpenChamados={onOpenChamados}
+      onOpenTicket={onOpenTicket}
     />,
   )
-  return { onRetry, onOpenChamados }
+  return { onRetry, onOpenChamados, onOpenTicket }
 }
 
 describe('UnitOverview — visão da unidade (RPC 070)', () => {
@@ -82,10 +84,47 @@ describe('UnitOverview — visão da unidade (RPC 070)', () => {
     renderOverview({ onOpenChamados })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir chamados' }))
     expect(onOpenChamados).toHaveBeenCalledTimes(1)
+    expect(onOpenChamados).toHaveBeenCalledWith()
   })
 
   it('sem callback de navegação (unidade fora do contexto) → sem botão Abrir chamados', () => {
     renderOverview({ onOpenChamados: null })
     expect(screen.queryByRole('button', { name: 'Abrir chamados' })).toBeNull()
+  })
+
+  it('Fase 2.1 — cada card navega com o query param que inicializa o filtro existente', () => {
+    const onOpenChamados = vi.fn()
+    renderOverview({ onOpenChamados })
+
+    fireEvent.click(screen.getByTestId('unit-stat-open'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith('?status=aberto')
+
+    fireEvent.click(screen.getByTestId('unit-stat-in_progress'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith('?status=em_andamento')
+
+    fireEvent.click(screen.getByTestId('unit-stat-unassigned'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith('?unassigned=1')
+
+    fireEvent.click(screen.getByTestId('unit-stat-high_priority'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith('?priority=alta')
+
+    fireEvent.click(screen.getByTestId('unit-stat-urgent'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith('?priority=urgente')
+  })
+
+  it('Fase 2.1 — chamado recente abre o detail existente (/chamados/tickets/:id)', () => {
+    const onOpenTicket = vi.fn()
+    renderOverview({ onOpenTicket })
+
+    fireEvent.click(screen.getByTestId('unit-recent-tk-1'))
+    expect(onOpenTicket).toHaveBeenCalledTimes(1)
+    expect(onOpenTicket).toHaveBeenCalledWith('tk-1')
+  })
+
+  it('Fase 2.1 — sem callbacks, cards e recentes não são clicáveis (não são botões)', () => {
+    renderOverview({ onOpenChamados: null, onOpenTicket: null })
+
+    expect((screen.getByTestId('unit-stat-open') as HTMLElement).tagName).toBe('DIV')
+    expect(screen.queryByTestId('unit-recent-tk-1')).toBeNull()
   })
 })

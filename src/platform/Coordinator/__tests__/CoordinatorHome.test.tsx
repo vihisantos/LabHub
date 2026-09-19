@@ -29,6 +29,7 @@ const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
 const workspaceContextMock = vi.hoisted(() => ({
+  workspace: null as { id: string; name: string; slug: string } | null,
   workspaces: [] as Array<{ id: string; name: string; slug: string }>,
   setWorkspace: vi.fn(),
 }))
@@ -210,6 +211,7 @@ beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
   mockNavigate.mockReset()
+  workspaceContextMock.workspace = null
   workspaceContextMock.workspaces = []
   workspaceContextMock.setWorkspace.mockReset()
   mockGetRoleForUser.mockReturnValue({ name: 'Líder' })
@@ -863,6 +865,66 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
         persist: false,
       })
       expect(mockNavigate).toHaveBeenCalledWith('/chamados')
+    })
+
+    it('Fase 2.1 — card "Abertos" troca o workspace e navega com o query param do filtro', async () => {
+      const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+      workspaceContextMock.workspaces = [target]
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByTestId('unit-stat-open'))
+
+      expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, {
+        persist: false,
+      })
+      expect(mockNavigate).toHaveBeenCalledWith('/chamados?status=aberto')
+    })
+
+    it('Fase 2.1 — card "Sem responsável" navega com ?unassigned=1', async () => {
+      const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+      workspaceContextMock.workspaces = [target]
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByTestId('unit-stat-unassigned'))
+
+      expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, {
+        persist: false,
+      })
+      expect(mockNavigate).toHaveBeenCalledWith('/chamados?unassigned=1')
+    })
+
+    it('Fase 2.1 — chamado recente navega ao detail existente e troca o workspace quando a unidade difere da ativa', async () => {
+      const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+      workspaceContextMock.workspaces = [target]
+      workspaceContextMock.workspace = { id: 'ws9', name: 'Outra', slug: 'outra' }
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByTestId('unit-recent-tk-1'))
+
+      expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, {
+        persist: false,
+      })
+      expect(mockNavigate).toHaveBeenCalledWith('/chamados/tickets/tk-1')
+    })
+
+    it('Fase 2.1 — chamado da unidade já ativa navega sem troca desnecessária de workspace', async () => {
+      const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+      workspaceContextMock.workspaces = [target]
+      workspaceContextMock.workspace = target
+      mockGetCoordinatorUnitOverview.mockResolvedValue(overviewFixture)
+      renderHome([unitWithData()])
+      await act(async () => {})
+
+      fireEvent.click(screen.getByTestId('unit-recent-tk-1'))
+
+      expect(workspaceContextMock.setWorkspace).not.toHaveBeenCalled()
+      expect(mockNavigate).toHaveBeenCalledWith('/chamados/tickets/tk-1')
     })
 
     it('unidade fora do contexto de workspaces → nenhuma ação de abrir chamados (fail-safe)', async () => {

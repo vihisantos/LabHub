@@ -111,7 +111,7 @@ const CONFIRM_COPY: Record<
 export function CoordinatorHome() {
   const navigate = useNavigate()
   const { units, loading, failed, refresh } = useCoordinator()
-  const { workspaces, setWorkspace } = useWorkspace()
+  const { workspace, workspaces, setWorkspace } = useWorkspace()
   const { isDesktop, isWide } = useBreakpoint()
   const wideLayout = isDesktop || isWide
 
@@ -246,16 +246,34 @@ export function CoordinatorHome() {
   /**
    * "Abrir chamados": reaproveita o app de chamados EXISTENTE no contexto da
    * unidade (mecanismo do WorkspaceGate/WorkspaceContext — troca o workspace
-   * ativo e navega para `/chamados`). Nenhum fluxo de chamados é duplicado
-   * aqui. Sem o workspace no contexto (unidade fora do `workspaces` visível),
-   * devolve null (a UI não mostra a ação).
+   * ativo e navega para `/chamados`). Recebe opcionalmente o sufixo de query
+   * (`?status=aberto`, `?unassigned=1`, ...) que apenas INICIALIZA os filtros
+   * existentes do TicketList — sem segunda fonte de estado. Nenhum fluxo de
+   * chamados é duplicado aqui. Sem o workspace no contexto (unidade fora do
+   * `workspaces` visível), devolve null (a UI não mostra a ação).
    */
-  const openChamadosFor = (unitId: string): (() => void) | null => {
+  const openChamadosFor = (unitId: string): ((query?: string) => void) | null => {
     const target = workspaces.find((w) => w.id === unitId)
     if (!target) return null
-    return () => {
+    return (query?: string) => {
       setWorkspace(target, { persist: false })
-      navigate('/chamados')
+      navigate(query ? `/chamados${query}` : '/chamados')
+    }
+  }
+
+  /**
+   * Chamado recente: abre o detail EXISTENTE (`/chamados/tickets/:id`) no
+   * contexto da unidade do chamado. Se o chamado já pertence ao workspace
+   * ativo, evita a troca desnecessária.
+   */
+  const openTicketFor = (unitId: string): ((ticketId: string) => void) | null => {
+    const target = workspaces.find((w) => w.id === unitId)
+    if (!target) return null
+    return (ticketId: string) => {
+      if (workspace?.id !== unitId) {
+        setWorkspace(target, { persist: false })
+      }
+      navigate(`/chamados/tickets/${ticketId}`)
     }
   }
 
@@ -495,6 +513,7 @@ export function CoordinatorHome() {
               failed={overviewFailed}
               onRetry={() => void loadOverview()}
               onOpenChamados={openChamadosFor(unit.unitId)}
+              onOpenTicket={openTicketFor(unit.unitId)}
             />
 
             <InactiveMembers
