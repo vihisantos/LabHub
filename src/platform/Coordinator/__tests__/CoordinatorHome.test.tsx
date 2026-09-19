@@ -5,6 +5,7 @@ import { clearCache, setCol } from '../../../lib/db'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
 import { CoordinatorHome } from '../CoordinatorHome'
 import { managerOptionsForMember } from '../coordinatorHelpers'
+import type { Ticket } from '../../../apps/chamados/types'
 import type {
   CoordinatedUnit,
   CoordinatorInactiveMember,
@@ -1073,6 +1074,218 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
     expect(pullSpy).not.toHaveBeenCalled()
     intervalSpy.mockRestore()
     pullSpy.mockRestore()
+  })
+})
+
+describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais', () => {
+  const NOW = new Date('2026-08-13T10:00:00Z')
+  const HOUR = 1000 * 60 * 60
+
+  const cacheTicket = (id: string, workspaceId: string, over: Partial<Ticket> = {}): Ticket => ({
+    id,
+    ticketNumber: 7,
+    workspace_id: workspaceId,
+    roomId: '',
+    roomName: 'Sala 101',
+    assetName: '',
+    problemCategory: 'Internet',
+    problemDescription: '',
+    status: 'aberto',
+    priority: 'normal',
+    reportedBy: '',
+    reportedByEmail: '',
+    assignedTo: '',
+    assignedToUserId: 'u-tech',
+    archived: false,
+    resolvedAt: null,
+    createdAt: new Date(NOW.getTime() - 1 * HOUR).toISOString(),
+    updatedAt: new Date(NOW.getTime() - 1 * HOUR).toISOString(),
+    ...over,
+  })
+
+  function secondUnit(): CoordinatedUnit {
+    return {
+      coordination: membership('coordination-ws2', 'u-coord2', 'ws2'),
+      unitId: 'ws2',
+      unitName: 'Campus B',
+      leaders: [
+        {
+          leadership: membership('ms-lider3', 'u-lider3', 'ws2', {
+            managed_by: 'coordination-ws2',
+            role_id: 'role-lider',
+          }),
+          profile: {
+            id: 'u-lider3',
+            name: 'Carla Líder',
+            email: 'carla@b.com',
+            status: 'active',
+            roleId: 'role-lider',
+          },
+          members: [teamMember('m9', 'Técnico 9', 'role-technician', 'ms-lider3')],
+        },
+      ],
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    clearCache()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    clearCache()
+  })
+
+  it('KPIs de chamados leem o cache do escopo e ignoram o resto (sem inventar números)', async () => {
+    setCol('chamados', [
+      cacheTicket('t-aberto', 'ws1', { status: 'aberto' }),
+      cacheTicket('t-em-atendimento', 'ws1', { status: 'em_atendimento', assignedToUserId: '' }),
+      cacheTicket('t-fora', 'ws2', { status: 'aberto' }),
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('overview-kpi-aberto')).toHaveTextContent('Chamados abertos')
+    expect(screen.getByTestId('overview-kpi-aberto')).toHaveTextContent('1')
+    expect(screen.getByTestId('overview-kpi-em_atendimento')).toHaveTextContent('Em atendimento')
+    expect(screen.getByTestId('overview-kpi-em_atendimento')).toHaveTextContent('1')
+    expect(screen.getByTestId('overview-kpi-unassigned')).toHaveTextContent('Sem responsável')
+    expect(screen.getByTestId('overview-kpi-unassigned')).toHaveTextContent('1')
+    expect(screen.getByTestId('overview-sla-within')).toHaveTextContent('Dentro do SLA')
+    expect(screen.getByTestId('overview-sla-within')).toHaveTextContent('2')
+    expect(screen.getByTestId('overview-sla-rate')).toHaveTextContent('Taxa de SLA')
+    expect(screen.getByTestId('overview-sla-rate')).toHaveTextContent('100%')
+  })
+
+  it('escopo multiunidade: KPIs somam as unidades do escopo e ficam somente-leitura', async () => {
+    setCol('chamados', [
+      cacheTicket('a', 'ws1', { status: 'aberto' }),
+      cacheTicket('b', 'ws1', { status: 'aberto' }),
+      cacheTicket('c', 'ws2', { status: 'aberto' }),
+      cacheTicket('fora', 'ws3', { status: 'aberto' }),
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData(), secondUnit()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('overview-kpi-aberto')).toHaveTextContent('Chamados abertos')
+    expect(screen.getByTestId('overview-kpi-aberto')).toHaveTextContent('3')
+    // Sem escopo de UMA unidade, o card global não pode escolher um workspace:
+    // deve ser um bloco de leitura, não um botão.
+    expect((screen.getByTestId('overview-kpi-aberto') as HTMLElement).tagName).toBe('DIV')
+    expect((screen.getByTestId('overview-kpi-overdue') as HTMLElement).tagName).toBe('DIV')
+    expect(screen.queryByTestId('overview-recent-fora')).toBeNull()
+  })
+
+  it('escopo de UMA unidade: cards globais navegam com os deep links da PR A', async () => {
+    const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+    workspaceContextMock.workspaces = [target]
+    setCol('chamados', [
+      cacheTicket('t-near', 'ws1', { createdAt: new Date(NOW.getTime() - 20 * HOUR).toISOString() }),
+      cacheTicket('t-overdue', 'ws1', {
+        createdAt: new Date(NOW.getTime() - 30 * HOUR).toISOString(),
+      }),
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    fireEvent.click(screen.getByTestId('overview-kpi-aberto'))
+    expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, { persist: false })
+    expect(mockNavigate).toHaveBeenLastCalledWith('/chamados?status=aberto')
+
+    fireEvent.click(screen.getByTestId('overview-kpi-near'))
+    expect(mockNavigate).toHaveBeenLastCalledWith('/chamados?sla=near')
+
+    fireEvent.click(screen.getByTestId('overview-kpi-overdue'))
+    expect(mockNavigate).toHaveBeenLastCalledWith('/chamados?sla=overdue')
+
+    fireEvent.click(screen.getByTestId('overview-sla-within'))
+    expect(mockNavigate).toHaveBeenLastCalledWith('/chamados')
+  })
+
+  it('recentes: últimos chamados do cache no escopo, cada um abre o detail existente', async () => {
+    const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+    workspaceContextMock.workspaces = [target]
+    workspaceContextMock.workspace = { id: 'ws9', name: 'Outra', slug: 'outra' }
+    setCol('chamados', [
+      cacheTicket('tk-1', 'ws1', { updatedAt: new Date(NOW.getTime() - 1000).toISOString() }),
+      cacheTicket('tk-2', 'ws1', {
+        problemCategory: 'Projetor',
+        ticketNumber: 8,
+        updatedAt: new Date(NOW.getTime() - 2 * HOUR).toISOString(),
+      }),
+      cacheTicket('tk-fora', 'ws2', { problemCategory: 'Áudio' }),
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByText('Sala 101 — Internet')).toBeTruthy()
+    expect(screen.getByText('Sala 101 — Projetor')).toBeTruthy()
+    expect(screen.getByText('#7')).toBeTruthy()
+    expect(screen.getByText('#8')).toBeTruthy()
+    expect(screen.queryByText('Sala 101 — Áudio')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('overview-recent-tk-1'))
+    expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, { persist: false })
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados/tickets/tk-1')
+  })
+
+  it('recentes: unidade fora do contexto de workspaces → item sem ação (fail-safe)', async () => {
+    workspaceContextMock.workspaces = [{ id: 'ws9', name: 'Outra', slug: 'outra' }]
+    setCol('chamados', [cacheTicket('tk-1', 'ws1')])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect((screen.getByTestId('overview-recent-tk-1') as HTMLElement).tagName).toBe('SPAN')
+    expect(
+      within(screen.getByTestId('overview-recents')).queryByRole('button'),
+    ).toBeNull()
+  })
+
+  it('solicitações globais consolidam as unidades e substituem o bloco da grid', async () => {
+    mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    const panel = screen.getByTestId('overview-requests')
+    expect(within(panel).getByText('Nova Pessoa')).toBeTruthy()
+    expect(within(panel).getByText('p1@b.com')).toBeTruthy()
+    expect(within(panel).getByText('Pendente')).toBeTruthy()
+    expect(within(panel).getByText('Campus A')).toBeTruthy()
+    // Consolidação: o nome aparece só uma vez na tela (não duplicado na grid).
+    expect(screen.getAllByText('Nova Pessoa')).toHaveLength(1)
+
+    fireEvent.click(within(panel).getByRole('button', { name: /Aprovar/ }))
+    await act(async () => {})
+    expect(mockApproveCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+  })
+
+  it('SLA global reage ao cache bruto pelo sinal passivo da PR A', async () => {
+    setCol('chamados', [cacheTicket('t-at', 'ws1', { createdAt: new Date(NOW.getTime() - 30 * HOUR).toISOString() })])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('overview-sla-overdue')).toHaveTextContent('Vencidos')
+    expect(screen.getByTestId('overview-sla-overdue')).toHaveTextContent('1')
+
+    act(() => {
+      setCol('chamados', [
+        cacheTicket('t-at', 'ws1', { createdAt: new Date(NOW.getTime() - 1 * HOUR).toISOString() }),
+      ])
+    })
+
+    expect(screen.getByTestId('overview-sla-overdue')).toHaveTextContent('Vencidos')
+    expect(screen.getByTestId('overview-sla-overdue')).toHaveTextContent('0')
+    expect(screen.getByTestId('overview-sla-within')).toHaveTextContent('Dentro do SLA')
+    expect(screen.getByTestId('overview-sla-within')).toHaveTextContent('1')
   })
 })
 

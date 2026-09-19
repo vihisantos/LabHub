@@ -25,20 +25,26 @@ import {
 } from '../../core/permissions/coordinatorService'
 import type { TeamMember } from '../../core/permissions/membership'
 import type { Ticket } from '../../apps/chamados/types'
+import { TICKET_STATUS_COLORS, TICKET_STATUS_LABELS } from '../../apps/chamados/types'
 import { getCol, onCollectionChange } from '../../lib/db'
 import { slaConfigService } from '../../apps/chamados/services/slaConfigService'
-import { analyzeSlaByWorkspace, type SlaWorkspaceSummary } from '../../apps/chamados/services/sla'
+import {
+  analyzeSlaByWorkspace,
+  isTicketOpen,
+  type SlaWorkspaceSummary,
+} from '../../apps/chamados/services/sla'
 import { icons } from '../../lib/icons'
 import { cn } from '../../lib/components/ui/utils'
 import { PageContainer, ResponsiveGrid, useBreakpoint } from '../../responsive'
-import { roleLabelFor } from './coordinatorHelpers'
+import { initials, roleLabelFor } from './coordinatorHelpers'
 import { AssignManagerSheet } from './components/AssignManagerSheet'
 import { ConfirmActionSheet } from './components/ConfirmActionSheet'
 import { CoordinatorHeader } from './components/CoordinatorHeader'
+import { CoordinatorMetricCard } from './components/CoordinatorMetricCard'
+import { CoordinatorPanel } from './components/CoordinatorPanel'
 import { InactiveMembers } from './components/InactiveMembers'
 import { LeaderBlock } from './components/LeaderBlock'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
-import { PendingRequests } from './components/PendingRequests'
 import { UnitOverview } from './components/UnitOverview'
 
 interface AssignTarget {
@@ -182,6 +188,60 @@ export function CoordinatorHome() {
     slaConfigService.getHoursForTickets(),
   )
 
+  /**
+   * Visão geral (PR B): KPIs/recentes/SLA globais são lidos do MESMO cache
+   * bruto autorizado (`getCol('chamados')`, multiunidade) restringido ao escopo
+   * do coordenador — nunca o estado workspace-filtrado e nunca um segundo
+   * `useTickets`. Tudo recomputa na renderização disparada pelo sinal passivo
+   * (`onCollectionChange`) da PR A.
+   */
+  const scopeUnitIds = useMemo(() => new Set(units.map((u) => u.unitId)), [units])
+  const scopeTickets = getCol<Ticket>('chamados').filter(
+    (t) => t.workspace_id && scopeUnitIds.has(t.workspace_id),
+  )
+  const isArchivedTicket = (t: Ticket) => t.archived === true || t.status === 'fechado'
+  const openScopeTickets = scopeTickets.filter(
+    (t) => !isArchivedTicket(t) && isTicketOpen(t.status),
+  )
+
+  const slaAgg = units.reduce(
+    (acc, u) => {
+      const summary = slaByWorkspace[u.unitId]
+      if (!summary) return acc
+      acc.total += summary.total
+      acc.within += summary.within
+      acc.near += summary.near
+      acc.overdue += summary.overdue
+      return acc
+    },
+    { total: 0, within: 0, near: 0, overdue: 0 },
+  )
+  const slaRateLabel =
+    slaAgg.total > 0 ? `${Math.round((slaAgg.within / slaAgg.total) * 100)}%` : '—'
+
+  const activeKpis = {
+    abertos: openScopeTickets.filter((t) => t.status === 'aberto').length,
+    emAtendimento: openScopeTickets.filter(
+      (t) => t.status === 'a_caminho' || t.status === 'em_atendimento',
+    ).length,
+    semResponsavel: scopeTickets.filter((t) => !isArchivedTicket(t) && !t.assignedToUserId).length,
+    dentro: slaAgg.within,
+    proximos: slaAgg.near,
+    vencidos: slaAgg.overdue,
+  }
+
+  const recentTickets = scopeTickets
+    .filter((t) => !isArchivedTicket(t))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5)
+
+  const unitNameOf = (workspaceId?: string) =>
+    units.find((u) => u.unitId === workspaceId)?.unitName ?? 'Unidade fora do escopo'
+
+  const allRequests = units.flatMap((u) =>
+    (requestsByUnit[u.unitId] ?? []).map((request) => ({ ...request, unitName: u.unitName })),
+  )
+
   const loadRequests = useCallback(async () => {
     const currentUnits = unitsKey ? unitsKey.split('|') : []
     if (currentUnits.length === 0) {
@@ -302,6 +362,14 @@ export function CoordinatorHome() {
       navigate(`/chamados/tickets/${ticketId}`)
     }
   }
+
+  /**
+   * Navegação global da visão geral: só existe quando o escopo tem UMA unidade
+   * (senão um card global não saberia em qual workspace abrir o app). Em escopo
+   * multiunidade os KPIs ficam somente-leitura e o detalhe por unidade vive nos
+   * cards de "Equipe & Unidades" abaixo.
+   */
+  const scopeChamados = units.length === 1 ? openChamadosFor(units[0].unitId) : null
 
   const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
   const memberCount = units.reduce(
@@ -523,16 +591,6 @@ export function CoordinatorHome() {
               </div>
             </div>
 
-            <PendingRequests
-              requests={unitRequests}
-              loading={requestsLoading}
-              failed={requestsFailed}
-              pending={pending}
-              onRetry={() => void loadRequests()}
-              onApprove={(request) => void approveRequest(request)}
-              onReject={(request) => openConfirm({ kind: 'reject', request })}
-            />
-
             <UnitOverview
               overview={overviewByUnit[unit.unitId] ?? null}
               loading={overviewLoading}
@@ -570,13 +628,6 @@ export function CoordinatorHome() {
                   />
                 ))}
               </ResponsiveGrid>
-            )}
-
-            {unitRequests.length > 0 && (
-              <p className="mt-2 text-[10px] leading-relaxed text-fg-muted">
-                Aprovar ativa a membership na unidade; o vínculo a uma equipe é ajustado
-                depois pelo gestor da unidade.
-              </p>
             )}
           </section>
         )
@@ -638,6 +689,257 @@ export function CoordinatorHome() {
         </li>
       </ul>
     </div>
+  )
+
+  const overviewPanels = (
+    <>
+      <CoordinatorPanel
+        title="KPIs principais"
+        description="Chamados das suas unidades, lendo o mesmo cache autorizado do app de chamados. Com uma única unidade no escopo, os cards abrem os filtros existentes do TicketList."
+        className="mb-6"
+        data-testid="overview-kpis"
+      >
+        <ResponsiveGrid minWidth={220} maxWidth={360} gap={10}>
+          <CoordinatorMetricCard
+            label="Chamados abertos"
+            value={activeKpis.abertos}
+            tone="amber"
+            icon={<icons.ui.inbox size={16} />}
+            data-testid="overview-kpi-aberto"
+            onClick={scopeChamados ? () => scopeChamados('?status=aberto') : undefined}
+          />
+          <CoordinatorMetricCard
+            label="Em atendimento"
+            value={activeKpis.emAtendimento}
+            tone="violet"
+            icon={<icons.ui.userCheck size={16} />}
+            data-testid="overview-kpi-em_atendimento"
+            onClick={scopeChamados ? () => scopeChamados('?status=em_andamento') : undefined}
+          />
+          <CoordinatorMetricCard
+            label="Sem responsável"
+            value={activeKpis.semResponsavel}
+            icon={<icons.ui.user size={16} />}
+            data-testid="overview-kpi-unassigned"
+            onClick={scopeChamados ? () => scopeChamados('?unassigned=1') : undefined}
+          />
+          <CoordinatorMetricCard
+            label="Dentro do SLA"
+            value={activeKpis.dentro}
+            tone="emerald"
+            icon={<icons.ui.circleCheck size={16} />}
+            data-testid="overview-kpi-within"
+            onClick={scopeChamados ? () => scopeChamados() : undefined}
+          />
+          <CoordinatorMetricCard
+            label="Próximos do SLA"
+            value={activeKpis.proximos}
+            tone="amber"
+            icon={<icons.ui.clock size={16} />}
+            data-testid="overview-kpi-near"
+            onClick={scopeChamados ? () => scopeChamados('?sla=near') : undefined}
+          />
+          <CoordinatorMetricCard
+            label="Vencidos"
+            value={activeKpis.vencidos}
+            tone="red"
+            icon={<icons.ui.alertCircle size={16} />}
+            data-testid="overview-kpi-overdue"
+            onClick={scopeChamados ? () => scopeChamados('?sla=overdue') : undefined}
+          />
+        </ResponsiveGrid>
+      </CoordinatorPanel>
+
+      <ResponsiveGrid minWidth={400} gap={12} className="mb-6">
+        <CoordinatorPanel
+          title="Chamados recentes"
+          description="Últimos chamados do cache local dentro do seu escopo."
+          data-testid="overview-recents"
+        >
+          {recentTickets.length === 0 ? (
+            <p className="text-[10px] leading-relaxed text-fg-muted">
+              Nenhum chamado no cache ainda — os números aparecem assim que o app de chamados
+              sincronizar sua unidade.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {recentTickets.map((ticket) => {
+                const row = (
+                  <>
+                    <span className="min-w-0 flex-1 truncate">
+                      {ticket.roomName || 'Chamado'}
+                      {ticket.problemCategory ? ` — ${ticket.problemCategory}` : ''}
+                    </span>
+                    {ticket.ticketNumber > 0 && (
+                      <span className="shrink-0 rounded-full bg-input px-1.5 py-0.5 text-[10px] font-semibold text-fg-dim">
+                        #{ticket.ticketNumber}
+                      </span>
+                    )}
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                        TICKET_STATUS_COLORS[ticket.status],
+                      )}
+                    >
+                      {TICKET_STATUS_LABELS[ticket.status]}
+                    </span>
+                    <span className="hidden shrink-0 rounded-full bg-fg-muted/10 px-1.5 py-0.5 text-[10px] font-semibold text-fg-muted sm:inline">
+                      {unitNameOf(ticket.workspace_id)}
+                    </span>
+                  </>
+                )
+                const openTicket = ticket.workspace_id ? openTicketFor(ticket.workspace_id) : null
+                return (
+                  <li key={ticket.id} className="text-[10px] leading-relaxed text-fg-muted">
+                    {openTicket ? (
+                      <button
+                        type="button"
+                        onClick={() => openTicket(ticket.id)}
+                        className="flex w-full items-center gap-2 text-left transition-colors hover:text-fg"
+                        data-testid={`overview-recent-${ticket.id}`}
+                      >
+                        {row}
+                      </button>
+                    ) : (
+                      <span className="flex items-center gap-2" data-testid={`overview-recent-${ticket.id}`}>
+                        {row}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </CoordinatorPanel>
+
+        <CoordinatorPanel
+          title="SLA no escopo"
+          description="Consolidado das suas unidades, sempre via services/sla.ts e reagindo ao cache com sinal passivo (sem novo ciclo ou poll)."
+          data-testid="overview-sla"
+        >
+          <ResponsiveGrid minWidth={180} maxWidth={260} gap={10}>
+            <CoordinatorMetricCard
+              label="Dentro do SLA"
+              value={slaAgg.within}
+              tone="emerald"
+              icon={<icons.ui.circleCheck size={16} />}
+              data-testid="overview-sla-within"
+              onClick={scopeChamados ? () => scopeChamados() : undefined}
+            />
+            <CoordinatorMetricCard
+              label="Próximos do vencimento"
+              value={slaAgg.near}
+              tone="amber"
+              icon={<icons.ui.clock size={16} />}
+              data-testid="overview-sla-near"
+              onClick={scopeChamados ? () => scopeChamados('?sla=near') : undefined}
+            />
+            <CoordinatorMetricCard
+              label="Vencidos"
+              value={slaAgg.overdue}
+              tone="red"
+              icon={<icons.ui.alertCircle size={16} />}
+              data-testid="overview-sla-overdue"
+              onClick={scopeChamados ? () => scopeChamados('?sla=overdue') : undefined}
+            />
+            <CoordinatorMetricCard
+              label="Taxa de SLA"
+              value={slaRateLabel}
+              icon={<icons.ui.fileBarChart size={16} />}
+              data-testid="overview-sla-rate"
+            />
+          </ResponsiveGrid>
+        </CoordinatorPanel>
+      </ResponsiveGrid>
+
+      <CoordinatorPanel
+        title="Solicitações / Pendências"
+        description={
+          pendingCount > 0
+            ? 'Aprovar ativa a membership na unidade; o vínculo a uma equipe é ajustado depois pelo gestor da unidade.'
+            : undefined
+        }
+        className="mb-6"
+        data-testid="overview-requests"
+      >
+        {requestsLoading ? (
+          <p className="inline-flex items-center gap-2 text-[10px] text-fg-muted">
+            <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+            Carregando solicitações...
+          </p>
+        ) : requestsFailed ? (
+          <div className="flex items-center gap-2">
+            <p className="flex-1 text-[10px] leading-relaxed text-red-500">
+              Não foi possível carregar as solicitações.
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadRequests()}
+              className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        ) : allRequests.length === 0 ? (
+          <p className="text-[10px] text-fg-muted">Nenhuma solicitação pendente.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {allRequests.map((request) => {
+              const name = request.profile?.name ?? 'Membro sem perfil'
+              const approveKey = `approve-${request.membership.id}`
+              const rejectKey = `reject-${request.membership.id}`
+              return (
+                <li key={request.membership.id} className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                    {initials(name)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-semibold text-fg">{name}</span>
+                    {request.profile && (
+                      <span className="block truncate text-[10px] text-fg-muted">
+                        {request.profile.email}
+                      </span>
+                    )}
+                  </span>
+                  <span className="hidden shrink-0 rounded-full bg-input px-1.5 py-0.5 text-[10px] font-semibold text-fg-dim sm:inline">
+                    {request.unitName}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
+                    Pendente
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void approveRequest(request)}
+                    disabled={pending !== null}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
+                  >
+                    {pending === approveKey ? (
+                      <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                    ) : (
+                      <icons.ui.check size={11} />
+                    )}
+                    Aprovar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openConfirm({ kind: 'reject', request })}
+                    disabled={pending !== null}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40"
+                  >
+                    {pending === rejectKey ? (
+                      <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                    ) : (
+                      <icons.ui.close size={11} />
+                    )}
+                    Rejeitar
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </CoordinatorPanel>
+    </>
   )
 
   return (
@@ -730,6 +1032,8 @@ export function CoordinatorHome() {
                 </button>
               </div>
             )}
+
+            {overviewPanels}
 
             {wideLayout ? (
               <div className="mb-6 flex items-start gap-3">
