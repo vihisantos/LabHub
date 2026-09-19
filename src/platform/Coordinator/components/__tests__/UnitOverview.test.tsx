@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { UnitOverview } from '../UnitOverview'
 import type { CoordinatorUnitOverview } from '../../../../core/permissions/coordinatorService'
+import type { SlaWorkspaceSummary } from '../../../../apps/chamados/services/sla'
 
 const overview: CoordinatorUnitOverview = {
   workspace: { id: 'ws1', name: 'Campus A' },
@@ -21,7 +22,7 @@ const overview: CoordinatorUnitOverview = {
   ],
 }
 
-function renderOverview(over: Partial<{ overview: CoordinatorUnitOverview | null; loading: boolean; failed: boolean; onRetry: () => void; onOpenChamados: ((query?: string) => void) | null; onOpenTicket: ((ticketId: string) => void) | null }> = {}) {
+function renderOverview(over: Partial<{ overview: CoordinatorUnitOverview | null; loading: boolean; failed: boolean; onRetry: () => void; sla: SlaWorkspaceSummary | null; onOpenChamados: ((query?: string) => void) | null; onOpenTicket: ((ticketId: string) => void) | null }> = {}) {
   const onRetry = over.onRetry ?? vi.fn()
   const onOpenChamados = over.onOpenChamados === undefined ? null : over.onOpenChamados
   const onOpenTicket = over.onOpenTicket === undefined ? null : over.onOpenTicket
@@ -31,6 +32,7 @@ function renderOverview(over: Partial<{ overview: CoordinatorUnitOverview | null
       loading={over.loading ?? false}
       failed={over.failed ?? false}
       onRetry={onRetry}
+      sla={over.sla === undefined ? null : over.sla}
       onOpenChamados={onOpenChamados}
       onOpenTicket={onOpenTicket}
     />,
@@ -126,5 +128,32 @@ describe('UnitOverview — visão da unidade (RPC 070)', () => {
 
     expect((screen.getByTestId('unit-stat-open') as HTMLElement).tagName).toBe('DIV')
     expect(screen.queryByTestId('unit-recent-tk-1')).toBeNull()
+  })
+
+  it('Fase 2.2.1 — SLA da unidade renderiza com os valores do resumo', () => {
+    renderOverview({ sla: { total: 4, within: 2, near: 1, overdue: 1, rate: 50 } })
+    expect(screen.getByTestId('coordinator-sla-overview')).toBeTruthy()
+    expect(screen.getByTestId('sla-stat-within')).toHaveTextContent('Dentro do SLA2')
+    expect(screen.getByTestId('sla-stat-near')).toHaveTextContent('Próximos do vencimento1')
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
+    expect(screen.getByTestId('sla-stat-rate')).toHaveTextContent('Taxa de SLA50%')
+  })
+
+  it('Fase 2.2.1 — unidade sem SLA/tickets → zeros e taxa "—"', () => {
+    renderOverview({ sla: null })
+    expect(screen.getByTestId('sla-stat-within')).toHaveTextContent('Dentro do SLA0')
+    expect(screen.getByTestId('sla-stat-rate')).toHaveTextContent('Taxa de SLA—')
+  })
+
+  it('Fase 2.2.1 — "Dentro do SLA" usa a navegação contextual da unidade', () => {
+    const onOpenChamados = vi.fn()
+    renderOverview({ sla: { total: 2, within: 2, near: 0, overdue: 0, rate: 100 }, onOpenChamados })
+    fireEvent.click(screen.getByTestId('sla-stat-within'))
+    expect(onOpenChamados).toHaveBeenCalledTimes(1)
+  })
+
+  it('Fase 2.2.1 — sem callback de navegação, o SLA não é clicável', () => {
+    renderOverview({ sla: { total: 2, within: 2, near: 0, overdue: 0, rate: 100 }, onOpenChamados: null })
+    expect((screen.getByTestId('sla-stat-within') as HTMLElement).tagName).toBe('DIV')
   })
 })
