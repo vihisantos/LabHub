@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTicketsContext } from '../contexts/TicketsContext'
 import {
   TICKET_STATUS_LABELS,
@@ -18,19 +18,55 @@ function slaConfigFor(ticket: Ticket) {
   return slaConfigService.getHoursForTickets()[ticket.workspace_id ?? ''] ?? null
 }
 
+const CONTEXTUAL_STATUS_FILTERS: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido']
+
+// Fase 2.1: valor composto da Central ("Em andamento" = a_caminho + em_atendimento).
+// Continua sendo UM único statusFilter — sem segunda lógica de filtragem.
+type StatusFilterValue = TicketStatus | 'arquivados' | 'em_andamento' | ''
+
+const STATUS_CHIP_VALUES: Array<Exclude<StatusFilterValue, 'arquivados' | ''>> = [
+  'aberto',
+  'em_andamento',
+  'a_caminho',
+  'em_atendimento',
+  'resolvido',
+]
+
+const STATUS_CHIP_LABELS: Record<TicketStatus | 'em_andamento', string> = {
+  ...TICKET_STATUS_LABELS,
+  em_andamento: 'Em andamento',
+}
+
 export function TicketList() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { tickets, syncing, reload } = useTicketsContext()
   const { user } = useAuth()
-  const [statusFilter, setStatusFilter] = useState<TicketStatus | 'arquivados' | ''>('')
+  // Fase 2.1 — os query params da Central INICIALIZAM os filtros existentes:
+  // o useState abaixo continua sendo a única fonte de verdade após o mount.
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>(() => {
+    const param = searchParams.get('status')
+    if (param === 'em_andamento') return 'em_andamento'
+    return (CONTEXTUAL_STATUS_FILTERS as readonly string[]).includes(param ?? '')
+      ? (param as TicketStatus)
+      : ''
+  })
   const [mineFilter, setMineFilter] = useState(false)
-  const [priorityFilter, setPriorityFilter] = useState<TicketPriority | ''>('')
+  const [unassignedFilter, setUnassignedFilter] = useState(
+    () => searchParams.get('unassigned') === '1',
+  )
+  const [priorityFilter, setPriorityFilter] = useState<TicketPriority | ''>(() => {
+    const param = searchParams.get('priority')
+    return (TICKET_PRIORITIES as readonly string[]).includes(param ?? '')
+      ? (param as TicketPriority)
+      : ''
+  })
   const [roomFilter, setRoomFilter] = useState('')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'recente' | 'prioridade' | 'sla' | 'sala' | 'numero'>('recente')
   const [visibleCount, setVisibleCount] = useState(20)
 
-  useEffect(() => { setVisibleCount(20) }, [statusFilter, mineFilter, priorityFilter, roomFilter, search, sortBy])
+  useEffect(() => { setVisibleCount(20) }, [statusFilter, mineFilter, unassignedFilter, priorityFilter, roomFilter, search, sortBy])
 
   const SORT_OPTIONS: { value: typeof sortBy; label: string }[] = [
     { value: 'recente', label: 'Mais recentes' },
@@ -46,12 +82,19 @@ export function TicketList() {
       if (mineFilter) {
         if (archived) return false
         if (t.assignedToUserId !== user?.id) return false
+      } else if (unassignedFilter) {
+        if (archived) return false
+        if (t.assignedToUserId) return false
       } else {
         if (statusFilter === 'arquivados') {
           if (!archived) return false
         } else {
           if (archived) return false
-          if (statusFilter && t.status !== statusFilter) return false
+          if (statusFilter === 'em_andamento') {
+            if (t.status !== 'a_caminho' && t.status !== 'em_atendimento') return false
+          } else if (statusFilter && t.status !== statusFilter) {
+            return false
+          }
         }
       }
       if (priorityFilter && getPriority(t.priority) !== priorityFilter) return false
@@ -67,20 +110,21 @@ export function TicketList() {
       }
       return true
     })
-  }, [tickets, statusFilter, mineFilter, priorityFilter, roomFilter, search, user?.id])
+  }, [tickets, statusFilter, mineFilter, unassignedFilter, priorityFilter, roomFilter, search, user?.id])
 
   const uniqueRooms = useMemo(() => {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
   }, [tickets])
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { ativos: 0, arquivados: 0, aberto: 0, a_caminho: 0, em_atendimento: 0, resolvido: 0 }
+    const counts: Record<string, number> = { ativos: 0, arquivados: 0, aberto: 0, a_caminho: 0, em_atendimento: 0, em_andamento: 0, resolvido: 0 }
     for (const t of tickets) {
       const archived = t.archived === true || t.status === 'fechado'
       if (archived) {
         counts.arquivados++
       } else {
         counts.ativos++
+        if (t.status === 'a_caminho' || t.status === 'em_atendimento') counts.em_andamento++
         if (t.status in counts) counts[t.status]++
       }
     }
@@ -146,9 +190,10 @@ export function TicketList() {
           onClick={() => {
             setStatusFilter('')
             setMineFilter(false)
+            setUnassignedFilter(false)
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            statusFilter === '' && !mineFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            statusFilter === '' && !mineFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
         >
           Ativos {statusCounts.ativos > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.ativos}</span>}
@@ -158,6 +203,7 @@ export function TicketList() {
           onClick={() => {
             setMineFilter((v) => !v)
             setStatusFilter('')
+            setUnassignedFilter(false)
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             mineFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
@@ -165,19 +211,33 @@ export function TicketList() {
         >
           Minha fila
         </button>
-        {(['aberto', 'a_caminho', 'em_atendimento', 'resolvido'] as TicketStatus[]).map((status) => (
+        <button
+          type="button"
+          onClick={() => {
+            setUnassignedFilter((v) => !v)
+            setStatusFilter('')
+            setMineFilter(false)
+          }}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+          }`}
+        >
+          Sem responsável
+        </button>
+        {STATUS_CHIP_VALUES.map((status) => (
           <button
             key={status}
             type="button"
             onClick={() => {
               setStatusFilter(status)
               setMineFilter(false)
+              setUnassignedFilter(false)
             }}
             className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               statusFilter === status ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
             }`}
           >
-            {TICKET_STATUS_LABELS[status]} {statusCounts[status] > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts[status]}</span>}
+            {STATUS_CHIP_LABELS[status]} {statusCounts[status] > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts[status]}</span>}
           </button>
         ))}
         <button
@@ -185,6 +245,7 @@ export function TicketList() {
           onClick={() => {
             setStatusFilter('arquivados')
             setMineFilter(false)
+            setUnassignedFilter(false)
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
