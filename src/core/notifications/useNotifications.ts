@@ -45,8 +45,10 @@ export interface SmartGroupedNotification {
 export function smartGroup(items: AppNotification[]): SmartGroupedNotification[] {
   const groups = new Map<string, AppNotification[]>()
   for (const n of items) {
-    // Group by ticket id extracted from actionUrl, or fall back to title
-    const ticketMatch = n.actionUrl?.match(/\/chamados\/tickets\/([^/]+)/)
+    // Group by ticket id extracted from actionUrl, or fall back to title.
+    // `[^/?]+` — ignora query string (ex.: /chamados/tickets/123?sla=near)
+    // para que alertas de SLA agrupem com o mesmo chamado.
+    const ticketMatch = n.actionUrl?.match(/\/chamados\/tickets\/([^/?]+)/)
     const key = ticketMatch ? `ticket:${ticketMatch[1]}` : `title:${n.title}`
     const arr = groups.get(key) || []
     arr.push(n)

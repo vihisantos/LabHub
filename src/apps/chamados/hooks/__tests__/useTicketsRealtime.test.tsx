@@ -42,6 +42,7 @@ vi.mock('../../services/ticketAlerts', () => ({
   syncNewTicketAlerts: mockSyncAlerts,
   alertForNewTickets: mockAlertFor,
   markLocalTicket: mockMarkLocal,
+  syncSlaAlerts: vi.fn(),
 }))
 
 const mockGetCol = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
