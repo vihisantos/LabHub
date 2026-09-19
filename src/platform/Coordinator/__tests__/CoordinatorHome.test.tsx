@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import {
+  MemoryRouter,
+  useLocation,
+  type NavigateOptions,
+  type To,
+} from 'react-router-dom'
 import { clearCache, setCol } from '../../../lib/db'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
 import { CoordinatorHome } from '../CoordinatorHome'
@@ -33,13 +38,32 @@ const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
 const workspaceContextMock = vi.hoisted(() => ({
   workspace: null as { id: string; name: string; slug: string } | null,
-  workspaces: [] as Array<{ id: string; name: string; slug: string }>,
+  workspaces: [] as Array<{
+    id: string
+    name: string
+    slug: string
+    disabled_apps?: string[]
+  }>,
   setWorkspace: vi.fn(),
 }))
 
 vi.mock('react-router-dom', async (importOriginal) => {
   const mod = await importOriginal<typeof import('react-router-dom')>()
-  return { ...mod, useNavigate: () => mockNavigate }
+  return {
+    ...mod,
+    useNavigate: () => {
+      // Registra as chamadas (mockNavigate) e TAMBÉM executa a navegação real
+      // (o `setSearchParams` interno depende do navigate do router para
+      // propagar a URL às abas — mock noop quebraria a Central por abas).
+      const realNavigate = mod.useNavigate()
+      return (to: To, options?: NavigateOptions) => {
+        // preserva a assinatura original de chamada (1º arg apenas) p/ asserts antigos
+        if (options !== undefined) mockNavigate(to, options)
+        else mockNavigate(to)
+        return realNavigate(to, options)
+      }
+    },
+  }
 })
 
 vi.mock('../../../core/workspaces/WorkspaceContext', () => ({
@@ -1388,5 +1412,230 @@ describe('responsivo (Fase 1) — layout por faixa via camada src/responsive', (
       expect(within(aside).getByText('Removidos')).toBeTruthy()
       expect(within(aside).getByText('Lideranças diretas')).toBeTruthy()
     })
+  })
+})
+
+describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
+  function LocationProbe() {
+    const loc = useLocation()
+    return <span data-testid="location-probe" data-search={loc.search} />
+  }
+
+  function renderHomeAt(
+    entry: string,
+    units: CoordinatedUnit[] = [unitWithData()],
+    over: Partial<ReturnType<typeof mockUseCoordinator>> = {},
+  ) {
+    setupOverrides({ units, ...over })
+    const view = render(
+      <MemoryRouter initialEntries={[entry]}>
+        <CoordinatorHome />
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    return {
+      probe: screen.getByTestId('location-probe'),
+      unmount: view.unmount,
+    }
+  }
+
+  const tk = (
+    id: string,
+    workspaceId: string,
+    status:
+      | 'aberto'
+      | 'a_caminho'
+      | 'em_atendimento'
+      | 'resolvido'
+      | 'fechado' = 'aberto',
+    assigned: boolean = false,
+  ) => ({
+    id,
+    workspace_id: workspaceId,
+    roomId: '',
+    roomName: 'Sala',
+    assetName: 'Computador',
+    problemCategory: 'Problema',
+    status,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    archived: false,
+    ...(assigned ? { assignedToUserId: 'u-tec' } : {}),
+  })
+
+  beforeEach(() => {
+    clearCache()
+  })
+
+  it('abre na Visão Geral quando não há ?tab= (fallback padrão)', async () => {
+    renderHomeAt('/coordenador')
+    await act(async () => {})
+
+    expect(screen.getByTestId('coordinator-units-grid')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Visão Geral' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('Visão Geral CONSUME os painéis da #250 (KPIs, SLA no escopo e pendências) sem duplicação', async () => {
+    setCol('chamados', [tk('t1', 'ws1'), tk('t2', 'ws1', 'em_atendimento')])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHomeAt('/coordenador')
+    await act(async () => {})
+
+    expect(screen.getByTestId('overview-kpis')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-kpi-aberto')).toHaveTextContent('1')
+    expect(screen.getByTestId('overview-sla')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-recents')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-requests')).toBeInTheDocument()
+  })
+
+  it('trocar de aba atualiza a URL (?tab=) e monta o conteúdo certo (com desmonte da antiga)', async () => {
+    const { probe } = renderHomeAt('/coordenador')
+    await act(async () => {})
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Pessoal' }), { button: 0 })
+    await act(async () => {})
+
+    expect(probe).toHaveAttribute('data-search', '?tab=people')
+    expect(screen.getByTestId('tab-people')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Pessoal' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('coordinator-units-grid')).toBeNull()
+  })
+
+  it('abre direto na aba informada pela URL e destaca o trigger correto', async () => {
+    const { probe } = renderHomeAt('/coordenador?tab=tickets')
+    await act(async () => {})
+
+    expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Chamados' })).toHaveAttribute('aria-selected', 'true')
+    expect(probe).toHaveAttribute('data-search', '?tab=tickets')
+  })
+
+  it('?tab inexistente cai no fallback seguro (Visão Geral)', async () => {
+    renderHomeAt('/coordenador?tab=inexistente')
+    await act(async () => {})
+
+    expect(screen.getByTestId('coordinator-units-grid')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Visão Geral' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('refresh preserva a aba e voltar/avançar é previsível (re-render no URL anterior)', async () => {
+    const { unmount } = renderHomeAt('/coordenador?tab=people')
+    await act(async () => {})
+    expect(screen.getByTestId('tab-people')).toBeInTheDocument()
+
+    // "voltar": remonta no URL anterior → mesma aba restaurada (sem estado extra)
+    unmount()
+    const { probe: probe2 } = renderHomeAt('/coordenador?tab=people')
+    await act(async () => {})
+    expect(probe2).toHaveAttribute('data-search', '?tab=people')
+    expect(screen.getByTestId('tab-people')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Pessoal' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('semântica de abas: role=tablist, role=tab e aria-selected (acessibilidade)', async () => {
+    renderHomeAt('/coordenador')
+    await act(async () => {})
+
+    const tablist = screen.getByRole('tablist', { name: 'Central do Coordenador' })
+    const tabs = within(tablist).getAllByRole('tab')
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual([
+      'Visão Geral',
+      'Pessoal',
+      'Chamados',
+      'ReservaLab',
+      'Relatórios',
+      'Auditoria',
+      'Ecossistema',
+    ])
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('faixa de abas rola horizontalmente em telas estreitas (overflow container)', async () => {
+    setBp('compact')
+    renderHomeAt('/coordenador')
+    await act(async () => {})
+
+    const tablist = screen.getByTestId('coordinator-tabs')
+    expect(tablist).toHaveAttribute('aria-label', 'Central do Coordenador')
+    expect(tablist.className).toMatch(/overflow-x-auto/)
+  })
+
+  it('contexto multiunidade preservado em todas as abas (só o escopo, sem bypass)', async () => {
+    const multi: CoordinatedUnit[] = [
+      unitWithData(),
+      { ...unitWithData(), unitId: 'ws2', unitName: 'Campus B' },
+    ]
+    renderHomeAt('/coordenador?tab=people', multi)
+    await act(async () => {})
+
+    expect(screen.getByText('unidades')).toBeTruthy()
+    expect(screen.getByText(/nas equipes$/)).toBeTruthy()
+    expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
+  })
+
+  it('aba Pessoal usa os MESMOS RPCs escopados para aprovar', async () => {
+    mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
+    renderHomeAt('/coordenador?tab=people')
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }))
+    await act(async () => {})
+
+    expect(mockApproveCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+  })
+
+  it('aba Chamados conta só o escopo coordenação (workspaces fora ficam de fora)', async () => {
+    setCol('chamados', [
+      tk('t-scope', 'ws1'),
+      tk('t-out1', 'ws2'),
+      tk('t-out2', 'ws99'),
+    ])
+    renderHomeAt('/coordenador?tab=tickets')
+    await act(async () => {})
+
+    expect(screen.getByTestId('tickets-kpi-abertos')).toHaveTextContent('1')
+    expect(screen.getByTestId('tickets-recent')).toBeInTheDocument()
+  })
+
+  it('chips da aba Chamados encaminham para os filtros EXISTENTES do app', async () => {
+    const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+    workspaceContextMock.workspaces = [target]
+    workspaceContextMock.workspace = { id: 'ws9', name: 'Outra', slug: 'outra' }
+    renderHomeAt('/coordenador?tab=tickets')
+    await act(async () => {})
+
+    fireEvent.click(screen.getByTestId('tickets-open-ws1?status=aberto'))
+
+    expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, { persist: false })
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados?status=aberto')
+  })
+
+  it('Ecossistema respeita disabled_apps por unidade e navega para a rota existente', async () => {
+    workspaceContextMock.workspaces = [
+      { id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] },
+    ]
+    renderHomeAt('/coordenador?tab=ecosystem')
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-module-tv')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-tv-ws1-disabled')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('ecosystem-open-pc-care-ws1'))
+
+    expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ws1' }),
+      { persist: false },
+    )
+    expect(mockNavigate).toHaveBeenCalledWith('/pc-care')
+  })
+
+  it('abas futuras (ReservaLab/Relatórios/Auditoria) são informativas e não buscam nada', async () => {
+    renderHomeAt('/coordenador?tab=audit')
+    await act(async () => {})
+
+    expect(screen.getByTestId('tab-audit')).toBeInTheDocument()
+    expect(screen.queryByTestId('coordinator-units-grid')).toBeNull()
   })
 })
