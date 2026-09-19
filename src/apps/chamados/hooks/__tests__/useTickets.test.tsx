@@ -37,6 +37,7 @@ vi.mock('../../services/ticketAlerts', () => ({
   syncNewTicketAlerts: mockSyncAlerts,
   alertForNewTickets: mockAlertFor,
   markLocalTicket: mockMarkLocal,
+  syncSlaAlerts: vi.fn(),
 }))
 
 import { useTickets } from '../useTickets'

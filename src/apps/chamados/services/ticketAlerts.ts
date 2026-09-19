@@ -2,6 +2,10 @@ import type { AppNotification } from '../../../core/notifications/types'
 import { notificationService } from '../../../core/notifications/service'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { ticketService } from './ticketService'
+import { getCol } from '../../../lib/db'
+import { slaConfigService } from './slaConfigService'
+import { getSlaState } from './sla'
+import type { Ticket } from '../types'
 
 const LOCAL_IDS_KEY = 'labhub_chamados_local_ticket_ids'
 const MUTED_KEY = 'labhub_chamados_alerts_muted'
@@ -164,4 +168,57 @@ export function alertForNewTickets(created: AppNotification[]): void {
     playNewTicketSound()
     showBrowserAlert(id)
   }
+}
+
+/** actionUrl qualificado por estado de SLA — identificador lógico do evento
+ *  reutilizado pelo dedupe existente (uma notificação por estado por chamado). */
+function slaActionUrl(ticketId: string, state: 'near' | 'overdue'): string {
+  return `/chamados/tickets/${ticketId}?sla=${state}`
+}
+
+/**
+ * Fase 2.2.2: alertas in-app de SLA (near/overdue) — irmã de syncNewTicketAlerts,
+ * mesmo ciclo de execução e mesmo dedupe (por actionUrl). A regra de SLA é
+ * EXCLUSIVAMENTE a do motor `sla.ts` (`getSlaState`): ok/null não geram alerta.
+ * Lê o cache bruto de `chamados` (multiunidade já autorizada pelo backend, sem
+ * filtro do workspace ativo) e o `workspace_id` vem SEMPRE do ticket — nunca do
+ * workspaceStore.activeWorkspaceId (cenário multiunidade). Sem áudio/browser
+ * notification nesta versão: o mute de exibição (notificationAppliesTo) e o de
+ * áudio seguem a semântica atual — nenhuma configuração paralela. Sem limpeza
+ * automática: notificações de estados anteriores permanecem (limitação conhecida).
+ */
+export function syncSlaAlerts(): AppNotification[] {
+  const created: AppNotification[] = []
+  const configs = slaConfigService.getHoursForTickets()
+  const existing = new Set(
+    notificationService
+      .getAll()
+      .filter((n) => n.module === 'chamados' && n.actionUrl?.startsWith('/chamados/tickets/'))
+      .map((n) => n.actionUrl),
+  )
+
+  for (const t of getCol<Ticket>('chamados')) {
+    if (!t.workspace_id) continue
+    const state = getSlaState(t.createdAt, t.priority, t.status, configs[t.workspace_id])
+    if (state !== 'near' && state !== 'overdue') continue
+    const url = slaActionUrl(t.id, state)
+    if (existing.has(url)) continue
+    const notification = notificationService.create({
+      title: state === 'overdue' ? 'SLA vencido' : 'SLA próximo do vencimento',
+      body:
+        state === 'overdue'
+          ? `O chamado #${t.ticketNumber ?? '?'} ultrapassou o prazo de atendimento.`
+          : `O chamado #${t.ticketNumber ?? '?'} está próximo do prazo de atendimento.`,
+      type: 'ticket',
+      severity: state === 'overdue' ? 'critical' : 'warning',
+      module: 'chamados',
+      actionUrl: url,
+      audience: 'workspace',
+      workspace_id: t.workspace_id,
+    })
+    existing.add(url)
+    created.push(notification)
+  }
+
+  return created
 }
