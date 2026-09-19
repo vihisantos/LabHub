@@ -168,13 +168,42 @@ const TICKETS = vi.hoisted(() => [
 
 const mockReload = vi.hoisted(() => vi.fn())
 const mockSearchParams = vi.hoisted(() => ({ value: '' }))
+const mockTickets = vi.hoisted(() => [] as any[])
+const slaTicketFactory = vi.hoisted(() => (id: string, ticketNumber: number, createdAt: string, over: Record<string, unknown> = {}) => ({
+  id,
+  ticketNumber,
+  workspace_id: 'ws-a',
+  roomId: '',
+  roomName: 'Sala SLA',
+  assetName: '',
+  problemCategory: 'Rede',
+  problemArea: 'academica',
+  problemDescription: 'Conexão instável',
+  status: 'aberto',
+  priority: 'normal',
+  reportedBy: 'Prof. Hugo',
+  reportedByEmail: '',
+  assignedTo: 'Técnico 7',
+  assignedToUserId: 'user-7',
+  feedbackRating: null,
+  feedbackComment: '',
+  feedbackAt: null,
+  archived: false,
+  closedAt: null,
+  closedBy: '',
+  statusNote: '',
+  createdAt,
+  updatedAt: createdAt,
+  resolvedAt: null,
+  ...over,
+}))
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useSearchParams: () => [new URLSearchParams(mockSearchParams.value)],
 }))
 vi.mock('../../contexts/TicketsContext', () => ({
-  useTicketsContext: () => ({ tickets: TICKETS, loading: false, syncing: false, reload: mockReload }),
+  useTicketsContext: () => ({ tickets: mockTickets, loading: false, syncing: false, reload: mockReload }),
 }))
 vi.mock('../../../../core/auth/useAuth', () => ({
   useAuth: () => ({ user: { id: 'test-admin', name: 'Admin Teste' } }),
@@ -186,6 +215,8 @@ describe('TicketList — fila do técnico', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams.value = ''
+    mockTickets.length = 0
+    mockTickets.push(...TICKETS)
   })
 
   it('mostra apenas os chamados abertos atribuídos a mim em "Minha fila"', async () => {
@@ -233,6 +264,8 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams.value = ''
+    mockTickets.length = 0
+    mockTickets.push(...TICKETS)
   })
 
   it('?status=aberto inicializa o filtro de status existente', async () => {
@@ -338,5 +371,89 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.getByText('#6')).toBeInTheDocument()
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
     expect(screen.queryByText('#4')).not.toBeInTheDocument()
+  })
+})
+
+describe('TicketList — Fase 2.2: deep link ?sla= da Central (álertas de SLA)', () => {
+  const NOW_SLA = new Date('2026-06-25T12:00:00Z')
+  const HOUR = 1000 * 60 * 60
+  const slaNear = () => slaTicketFactory('sla-near', 7, new Date(NOW_SLA.getTime() - 20 * HOUR).toISOString())
+  const slaOverdue = () => slaTicketFactory('sla-overdue', 8, new Date(NOW_SLA.getTime() - 30 * HOUR).toISOString())
+  const slaOverdueUnassigned = () =>
+    slaTicketFactory('sla-overdue-unassigned', 9, new Date(NOW_SLA.getTime() - 30 * HOUR).toISOString(), {
+      assignedTo: '',
+      assignedToUserId: '',
+    })
+  const slaResolvedOverdue = () =>
+    slaTicketFactory('sla-resolved-overdue', 10, new Date(NOW_SLA.getTime() - 30 * HOUR).toISOString(), {
+      status: 'resolvido',
+    })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSearchParams.value = ''
+  })
+
+  it('?sla=near mostra apenas os próximos do vencimento (mesma regra do getSlaState)', async () => {
+    mockSearchParams.value = '?sla=near'
+    mockTickets.length = 0
+    mockTickets.push(slaNear(), slaOverdue(), slaOverdueUnassigned(), slaResolvedOverdue())
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByText('#7')).toBeInTheDocument()
+    expect(screen.queryByText('#8')).not.toBeInTheDocument()
+    expect(screen.queryByText('#9')).not.toBeInTheDocument()
+    expect(screen.queryByText('#10')).not.toBeInTheDocument()
+  })
+
+  it('?sla=overdue mostra apenas os vencidos em fluxo aberto (resolvidos fora)', async () => {
+    mockSearchParams.value = '?sla=overdue'
+    mockTickets.length = 0
+    mockTickets.push(slaNear(), slaOverdue(), slaOverdueUnassigned(), slaResolvedOverdue())
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByText('#8')).toBeInTheDocument()
+    expect(screen.getByText('#9')).toBeInTheDocument()
+    expect(screen.queryByText('#7')).not.toBeInTheDocument()
+    expect(screen.queryByText('#10')).not.toBeInTheDocument()
+  })
+
+  it('?sla=overdue combina com ?unassigned=1 (filtro único, sem substituir os existentes)', async () => {
+    mockSearchParams.value = '?sla=overdue&unassigned=1'
+    mockTickets.length = 0
+    mockTickets.push(slaNear(), slaOverdue(), slaOverdueUnassigned(), slaResolvedOverdue())
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByText('#9')).toBeInTheDocument()
+    expect(screen.queryByText('#8')).not.toBeInTheDocument()
+    expect(screen.queryByText('#7')).not.toBeInTheDocument()
+  })
+
+  it('?sla inválido é ignorado (comportamento padrão)', async () => {
+    mockSearchParams.value = '?sla=banana'
+    mockTickets.length = 0
+    mockTickets.push(slaNear(), slaOverdue(), slaOverdueUnassigned(), slaResolvedOverdue())
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByText('#7')).toBeInTheDocument()
+    expect(screen.getByText('#8')).toBeInTheDocument()
+    expect(screen.getByText('#9')).toBeInTheDocument()
+    expect(screen.getByText('#10')).toBeInTheDocument()
+  })
+
+  it('sem ?sla mantém o comportamento atual (nenhum filtro SLA ativo)', async () => {
+    mockTickets.length = 0
+    mockTickets.push(slaNear(), slaOverdue(), slaOverdueUnassigned(), slaResolvedOverdue())
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByText('#7')).toBeInTheDocument()
+    expect(screen.getByText('#8')).toBeInTheDocument()
+    expect(screen.getByText('#9')).toBeInTheDocument()
+    expect(screen.getByText('#10')).toBeInTheDocument()
   })
 })

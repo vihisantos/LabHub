@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { clearCache, setCol } from '../../../lib/db'
+import { ticketService } from '../../../apps/chamados/services/ticketService'
 import { CoordinatorHome } from '../CoordinatorHome'
 import { managerOptionsForMember } from '../coordinatorHelpers'
 import type {
@@ -1034,6 +1035,44 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
       persist: false,
     })
     expect(mockNavigate).toHaveBeenCalledWith('/chamados')
+  })
+
+  it('SLA reage a mudanças no cache bruto via sinal passivo (sem remontar o ciclo)', async () => {
+    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
+
+    // Cache bruto muda (pelo ciclo já montado no app de chamados ou por
+    // qualquer gravação local) → onCollectionChange('chamados') — emitido pelo
+    // setCol existente — faz o Central recomputar sem novo poll/subscription.
+    act(() => {
+      setCol('chamados', [
+        slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
+      ])
+    })
+
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos0')
+    expect(screen.getByTestId('sla-stat-within')).toHaveTextContent('Dentro do SLA1')
+  })
+
+  it('Central NÃO cria segundo ciclo de tickets: sem setInterval de polling e sem pullRemote', async () => {
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const pullSpy = vi.spyOn(ticketService, 'pullRemote')
+    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
+    // O ciclo 15s + realtime + pullRemote vive apenas no app de chamados; o
+    // Central monta o SLA apenas como leitor passivo do cache bruto.
+    expect(intervalSpy).not.toHaveBeenCalled()
+    expect(pullSpy).not.toHaveBeenCalled()
+    intervalSpy.mockRestore()
+    pullSpy.mockRestore()
   })
 })
 
