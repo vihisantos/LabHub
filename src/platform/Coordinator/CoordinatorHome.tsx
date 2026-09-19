@@ -25,10 +25,9 @@ import {
 } from '../../core/permissions/coordinatorService'
 import type { TeamMember } from '../../core/permissions/membership'
 import type { Ticket } from '../../apps/chamados/types'
-import { getCol } from '../../lib/db'
+import { getCol, onCollectionChange } from '../../lib/db'
 import { slaConfigService } from '../../apps/chamados/services/slaConfigService'
 import { analyzeSlaByWorkspace, type SlaWorkspaceSummary } from '../../apps/chamados/services/sla'
-import { useTickets } from '../../apps/chamados/hooks/useTickets'
 import { icons } from '../../lib/icons'
 import { cn } from '../../lib/components/ui/utils'
 import { PageContainer, ResponsiveGrid, useBreakpoint } from '../../responsive'
@@ -168,16 +167,19 @@ export function CoordinatorHome() {
    * `workspace_id` → cálculo por unidade. A exibição é limitada às unidades do
    * escopo (`useCoordinator`) — o resto do cache não aparece.
    *
-   * P1 — o ciclo existente de tickets (useTickets: poll 15s + realtime, já
-   * montado no app) provê a atualização em tempo real do cache; o SLA usa apenas
-   * o sinal desse ciclo para recomputar (nenhum novo poll/store/subscription),
-   * sempre lendo o cache bruto multiunidade — sem usar o estado workspace-filtrado.
+   * Invalidação passiva, sem duplicar ciclo: o Central NÃO monta `useTickets`
+   * (poll 15s + realtime + pullRemote + alertas) nem cria poll/subscription/
+   * store próprio. Ele apenas assina a gravação do cache bruto via
+   * `onCollectionChange('chamados')` (emitido pelo `setCol` já existente) e
+   * recomputa o SLA na renderização seguinte, sempre lendo `getCol('chamados')`
+   * multiunidade — nunca o estado workspace-filtrado.
    */
-  const { tickets: ticketCycle } = useTickets()
+  const [, bumpTickets] = useState(0)
+  useEffect(() => onCollectionChange('chamados', () => bumpTickets((v) => v + 1)), [bumpTickets])
 
-  const slaByWorkspace = useMemo<Record<string, SlaWorkspaceSummary>>(
-    () => analyzeSlaByWorkspace(getCol<Ticket>('chamados'), slaConfigService.getHoursForTickets()),
-    [ticketCycle],
+  const slaByWorkspace: Record<string, SlaWorkspaceSummary> = analyzeSlaByWorkspace(
+    getCol<Ticket>('chamados'),
+    slaConfigService.getHoursForTickets(),
   )
 
   const loadRequests = useCallback(async () => {

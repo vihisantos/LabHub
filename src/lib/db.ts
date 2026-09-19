@@ -68,8 +68,39 @@ export function getCol<T>(name: string): T[] {
   return (CACHE.get(name) as T[]) ?? []
 }
 
+const changeListeners = new Map<string, Set<() => void>>()
+
+/**
+ * Registra um observador passivo de gravações na coleção `name` (disparado a
+ * cada `setCol`). Não é uma fonte de dados nem polling/subscription: apenas a
+ * notificação de que o cache foi gravado. Retorna a função que remove o
+ * observador.
+ */
+export function onCollectionChange(name: string, listener: () => void): () => void {
+  let set = changeListeners.get(name)
+  if (!set) {
+    set = new Set()
+    changeListeners.set(name, set)
+  }
+  set.add(listener)
+  return () => {
+    set.delete(listener)
+    if (set.size === 0) changeListeners.delete(name)
+  }
+}
+
+function notifyCollectionChange(name: string): void {
+  const set = changeListeners.get(name)
+  if (set) {
+    for (const listener of set) {
+      listener()
+    }
+  }
+}
+
 export function setCol<T>(name: string, data: T[]): void {
   CACHE.set(name, data)
+  notifyCollectionChange(name)
   if (!DB) return
   const tx = DB.transaction(STORE, 'readwrite')
   tx.objectStore(STORE).put(data, name)

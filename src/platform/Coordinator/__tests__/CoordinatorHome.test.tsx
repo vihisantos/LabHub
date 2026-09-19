@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { clearCache, setCol } from '../../../lib/db'
+import { ticketService } from '../../../apps/chamados/services/ticketService'
 import { CoordinatorHome } from '../CoordinatorHome'
 import { managerOptionsForMember } from '../coordinatorHelpers'
 import type {
@@ -29,8 +30,6 @@ const mockRestoreCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
-const mockUseTickets = vi.hoisted(() => vi.fn())
-const ticketCycleSignal = vi.hoisted(() => ({ value: [] as unknown[] }))
 const workspaceContextMock = vi.hoisted(() => ({
   workspace: null as { id: string; name: string; slug: string } | null,
   workspaces: [] as Array<{ id: string; name: string; slug: string }>,
@@ -71,10 +70,6 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   removeCoordinatorMembership: (...args: unknown[]) => mockRemoveCoordinatorMembership(...args),
   setCoordinatorRole: (...args: unknown[]) => mockSetCoordinatorRole(...args),
   getLastCoordinatorServiceError: () => mockGetLastCoordinatorServiceError(),
-}))
-
-vi.mock('../../../apps/chamados/hooks/useTickets', () => ({
-  useTickets: () => mockUseTickets(),
 }))
 
 const membership = (
@@ -217,8 +212,6 @@ function setBp(bp: BreakpointState['bp']) {
 beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
-  ticketCycleSignal.value = []
-  mockUseTickets.mockReturnValue({ tickets: ticketCycleSignal.value })
   mockNavigate.mockReset()
   workspaceContextMock.workspace = null
   workspaceContextMock.workspaces = []
@@ -1044,33 +1037,42 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
     expect(mockNavigate).toHaveBeenCalledWith('/chamados')
   })
 
-  it('SLA reage ao ciclo existente de tickets (cache raw muda + novo sinal → recomputa)', async () => {
+  it('SLA reage a mudanças no cache bruto via sinal passivo (sem remontar o ciclo)', async () => {
     setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
-    mockUseTickets.mockReturnValue({ tickets: [{ id: 't-at', status: 'aberto' }] })
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
-    setupOverrides({ units: [unitWithData()] })
-    const element = (
-      <MemoryRouter initialEntries={['/coordenador']}>
-        <CoordinatorHome />
-      </MemoryRouter>
-    )
-    const { rerender } = render(element)
+    renderHome([unitWithData()])
     await act(async () => {})
 
     expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
 
-    // Ciclo existente (poll/realtime): cache raw atualizado + novo estado do hook
-    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString())])
-    mockUseTickets.mockReturnValue({ tickets: [{ id: 't-at', status: 'aberto' }] })
-    rerender(
-      <MemoryRouter initialEntries={['/coordenador']}>
-        <CoordinatorHome />
-      </MemoryRouter>,
-    )
-    await act(async () => {})
+    // Cache bruto muda (pelo ciclo já montado no app de chamados ou por
+    // qualquer gravação local) → onCollectionChange('chamados') — emitido pelo
+    // setCol existente — faz o Central recomputar sem novo poll/subscription.
+    act(() => {
+      setCol('chamados', [
+        slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
+      ])
+    })
 
     expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos0')
     expect(screen.getByTestId('sla-stat-within')).toHaveTextContent('Dentro do SLA1')
+  })
+
+  it('Central NÃO cria segundo ciclo de tickets: sem setInterval de polling e sem pullRemote', async () => {
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const pullSpy = vi.spyOn(ticketService, 'pullRemote')
+    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
+    // O ciclo 15s + realtime + pullRemote vive apenas no app de chamados; o
+    // Central monta o SLA apenas como leitor passivo do cache bruto.
+    expect(intervalSpy).not.toHaveBeenCalled()
+    expect(pullSpy).not.toHaveBeenCalled()
+    intervalSpy.mockRestore()
+    pullSpy.mockRestore()
   })
 })
 
