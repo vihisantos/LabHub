@@ -1,4 +1,6 @@
 import type { CoordinatorUnitOverview } from '../../../core/permissions/coordinatorService'
+import type { SlaWorkspaceSummary } from '../../../apps/chamados/services/sla'
+import { CoordinatorSlaOverview } from './CoordinatorSlaOverview'
 import { icons } from '../../../lib/icons'
 import { cn } from '../../../lib/components/ui/utils'
 
@@ -7,6 +9,11 @@ interface UnitOverviewProps {
   loading: boolean
   failed: boolean
   onRetry: () => void
+  /**
+   * Resumo operacional de SLA desta unidade (services/sla.ts — única fonte de
+   * verdade), ou null quando a unidade não tem chamados com SLA aplicável.
+   */
+  sla: SlaWorkspaceSummary | null
   /**
    * Caminho para o app de chamados existente no contexto da unidade, ou null
    * quando a unidade não está selecionável pelo contexto atual de workspace
@@ -60,6 +67,7 @@ export function UnitOverview({
   loading,
   failed,
   onRetry,
+  sla,
   onOpenChamados,
   onOpenTicket,
 }: UnitOverviewProps) {
@@ -150,6 +158,10 @@ export function UnitOverview({
               )
             })}
           </div>
+          <CoordinatorSlaOverview
+            sla={sla}
+            onOpenChamados={onOpenChamados ? () => onOpenChamados() : null}
+          />
           {(overview?.recent.length ?? 0) > 0 && (
             <ul className="mt-2 flex flex-col gap-1.5">
               {overview?.recent.slice(0, 3).map((ticket) => {

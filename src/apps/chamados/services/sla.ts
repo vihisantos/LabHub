@@ -184,3 +184,63 @@ export function analyzeSla(
     byPriority,
   }
 }
+
+export interface SlaOpenTicket {
+  id: string
+  workspace_id?: string | null
+  createdAt: string
+  priority?: TicketPriority
+  status: TicketStatus
+}
+
+export interface SlaWorkspaceSummary {
+  /** Chamados considerados: apenas os que têm SLA aplicável (fluxo aberto,
+   *  data válida e horas > 0) — mesmo critério de `getSlaState`. */
+  total: number
+  /** Estado 'ok' — dentro do prazo. */
+  within: number
+  /** Estado 'near' — próximos do vencimento (mesmo threshold de `getSlaState`). */
+  near: number
+  /** Estado 'overdue' — vencidos. */
+  overdue: number
+  /** Percentual dentro do SLA; 0 quando nada é considerado. */
+  rate: number
+}
+
+function emptyWorkspaceSummary(): SlaWorkspaceSummary {
+  return { total: 0, within: 0, near: 0, overdue: 0, rate: 0 }
+}
+
+/**
+ * Resumo operacional de SLA POR workspace (Central do Coordenador, Fase 2.2.1).
+ * COMPOSIÇÃO pura de `getSlaState` — nenhuma regra nova de prazo/near/overdue:
+ * status fora do fluxo aberto (resolvido/fechado), data inválida e horas = 0
+ * não participam (mesma semântica da análise operacional do app). Agrupa os
+ * tickets por `workspace_id` (cache multiunidade já autorizado pelo backend);
+ * a exibição é limitada às unidades do escopo do chamador.
+ *
+ * A análise HISTÓRICA (resolvidos, avgHours) continua em `analyzeSla` — não
+ * misturada aqui para não criar segunda semântica.
+ */
+export function analyzeSlaByWorkspace(
+  tickets: SlaOpenTicket[],
+  configs?: Record<string, Record<TicketPriority, number>>,
+): Record<string, SlaWorkspaceSummary> {
+  const byWorkspace: Record<string, SlaWorkspaceSummary> = {}
+  for (const t of tickets) {
+    const ws = t.workspace_id ?? ''
+    const summary = byWorkspace[ws] ?? emptyWorkspaceSummary()
+    const state = getSlaState(t.createdAt, t.priority, t.status, configs?.[ws])
+    if (state) {
+      summary.total++
+      if (state === 'ok') summary.within++
+      else if (state === 'near') summary.near++
+      else summary.overdue++
+    }
+    byWorkspace[ws] = summary
+  }
+  for (const s of Object.values(byWorkspace)) {
+    s.rate = s.total > 0 ? Math.round((s.within / s.total) * 100) : 0
+  }
+  return byWorkspace
+}

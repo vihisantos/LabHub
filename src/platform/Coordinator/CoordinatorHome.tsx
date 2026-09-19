@@ -24,6 +24,10 @@ import {
   type CoordinatedUnit,
 } from '../../core/permissions/coordinatorService'
 import type { TeamMember } from '../../core/permissions/membership'
+import type { Ticket } from '../../apps/chamados/types'
+import { getCol } from '../../lib/db'
+import { slaConfigService } from '../../apps/chamados/services/slaConfigService'
+import { analyzeSlaByWorkspace, type SlaWorkspaceSummary } from '../../apps/chamados/services/sla'
 import { icons } from '../../lib/icons'
 import { cn } from '../../lib/components/ui/utils'
 import { PageContainer, ResponsiveGrid, useBreakpoint } from '../../responsive'
@@ -155,6 +159,18 @@ export function CoordinatorHome() {
   const rolesById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles])
 
   const unitsKey = units.map((u) => u.unitId).join('|')
+
+  /**
+   * Fase 2.2.1 — SLA por unidade (services/sla.ts é a única fonte de verdade).
+   * 1 leitura do cache bruto de `chamados` (multiunidade, já autorizado pelo
+   * backend por membership) + 1 leitura de config → agrupamento por
+   * `workspace_id` → cálculo por unidade. A exibição é limitada às unidades do
+   * escopo (`useCoordinator`) — o resto do cache não aparece.
+   */
+  const slaByWorkspace = useMemo<Record<string, SlaWorkspaceSummary>>(
+    () => analyzeSlaByWorkspace(getCol<Ticket>('chamados'), slaConfigService.getHoursForTickets()),
+    [],
+  )
 
   const loadRequests = useCallback(async () => {
     const currentUnits = unitsKey ? unitsKey.split('|') : []
@@ -512,6 +528,7 @@ export function CoordinatorHome() {
               loading={overviewLoading}
               failed={overviewFailed}
               onRetry={() => void loadOverview()}
+              sla={slaByWorkspace[unit.unitId] ?? null}
               onOpenChamados={openChamadosFor(unit.unitId)}
               onOpenTicket={openTicketFor(unit.unitId)}
             />

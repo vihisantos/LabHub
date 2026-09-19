@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { clearCache, setCol } from '../../../lib/db'
 import { CoordinatorHome } from '../CoordinatorHome'
 import { managerOptionsForMember } from '../coordinatorHelpers'
 import type {
@@ -937,7 +938,106 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
     })
   })
 
-  describe('responsivo (Fase 1) — layout por faixa via camada src/responsive', () => {
+  describe('Fase 2.2.1 — SLA por unidade (services/sla.ts, cache autorizado)', () => {
+  const NOW = new Date('2026-08-13T10:00:00Z')
+  const HOUR = 1000 * 60 * 60
+
+  const slaTicket = (id: string, workspaceId: string, createdAt: string, priority = 'normal') => ({
+    id,
+    workspace_id: workspaceId,
+    roomId: '',
+    roomName: 'Sala',
+    problemCategory: 'Problema',
+    status: 'aberto',
+    priority,
+    createdAt,
+    updatedAt: createdAt,
+    archived: false,
+  })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    clearCache()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    clearCache()
+  })
+
+  it('SLA aparece para cada unidade, isolado por workspace_id (1 leitura do cache)', async () => {
+    setCol('chamados', [
+      slaTicket('ok-ws1', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
+      slaTicket('overdue-ws1', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString()),
+      slaTicket('ok-ws2', 'ws2', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-within')).toHaveTextContent('Dentro do SLA1')
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
+    expect(screen.getByTestId('sla-stat-rate')).toHaveTextContent('Taxa de SLA50%')
+  })
+
+  it('configuração customizada da unidade é respeitada (sla_configs)', async () => {
+    setCol('chamados', [
+      slaTicket('near-default', 'ws1', new Date(NOW.getTime() - 20 * HOUR).toISOString()),
+    ])
+    setCol('sla_configs', [
+      {
+        id: 'ws1',
+        workspace_id: 'ws1',
+        hours: { baixa: 72, normal: 2, alta: 8, urgente: 2 },
+        createdAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+      },
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
+    expect(screen.getByTestId('sla-stat-near')).toHaveTextContent('Próximos do vencimento0')
+  })
+
+  it('unidade sem chamados com SLA aplicável → zeros honestos e taxa "—"', async () => {
+    setCol('chamados', [
+      {
+        ...slaTicket('resolvido-ws1', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
+        status: 'resolvido',
+      },
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-within')).toHaveTextContent('Dentro do SLA0')
+    expect(screen.getByTestId('sla-stat-rate')).toHaveTextContent('Taxa de SLA—')
+  })
+
+  it('navegação do SLA preserva o mecanismo da Fase 2.1 (setWorkspace persist:false)', async () => {
+    const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
+    workspaceContextMock.workspaces = [target]
+    workspaceContextMock.workspace = { id: 'ws9', name: 'Outra', slug: 'outra' }
+    setCol('chamados', [
+      slaTicket('ok-ws1', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
+    ])
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    renderHome([unitWithData()])
+    await act(async () => {})
+
+    fireEvent.click(screen.getByTestId('sla-stat-within'))
+
+    expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(target, {
+      persist: false,
+    })
+    expect(mockNavigate).toHaveBeenCalledWith('/chamados')
+  })
+})
+
+describe('responsivo (Fase 1) — layout por faixa via camada src/responsive', () => {
     it('compact: coluna única, sem painel lateral (comportamento legado)', async () => {
       setBp('compact')
       renderHome([unitWithData()])
