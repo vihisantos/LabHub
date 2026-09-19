@@ -177,25 +177,47 @@ function slaActionUrl(ticketId: string, state: 'near' | 'overdue'): string {
 }
 
 /**
- * Fase 2.2.2: alertas in-app de SLA (near/overdue) — irmã de syncNewTicketAlerts,
- * mesmo ciclo de execução e mesmo dedupe (por actionUrl). A regra de SLA é
+ * actionUrls de chamados já notificados, lidos do cache BRUTO de notificações
+ * (todas as unidades, sem o filtro do workspace ativo).
+ *
+ * Necessário porque a varredura de tickets (`syncSlaAlerts`) é multinidade:
+ * montar o dedupe com `notificationService.getAll()` (que filtra pelo
+ * workspace ativo) faria cada poll recriar notificações de tickets de outras
+ * unidades — o bug R1 (crescimento ilimitado). O cache de `notifications` é a
+ * visão do próprio usuário após RLS/API (nada fora do escopo chega até aqui),
+ * então este conjunto representa exatamente o que o usuário possui.
+ */
+function chamadoActionUrls(): Set<string> {
+  const urls = new Set<string>()
+  for (const n of getCol<AppNotification>('notifications')) {
+    if (n.module !== 'chamados') continue
+    if (!n.actionUrl?.startsWith('/chamados/tickets/')) continue
+    urls.add(n.actionUrl)
+  }
+  return urls
+}
+
+/**
+ * Fase 2.2.2/2.2.3: alertas in-app de SLA (near/overdue) — irmã de syncNewTicketAlerts,
+ * mesmo ciclo de execução e mesmo dedupe (por actionUrl COMPLETO). A regra de SLA é
  * EXCLUSIVAMENTE a do motor `sla.ts` (`getSlaState`): ok/null não geram alerta.
  * Lê o cache bruto de `chamados` (multiunidade já autorizada pelo backend, sem
  * filtro do workspace ativo) e o `workspace_id` vem SEMPRE do ticket — nunca do
- * workspaceStore.activeWorkspaceId (cenário multiunidade). Sem áudio/browser
- * notification nesta versão: o mute de exibição (notificationAppliesTo) e o de
- * áudio seguem a semântica atual — nenhuma configuração paralela. Sem limpeza
- * automática: notificações de estados anteriores permanecem (limitação conhecida).
+ * workspaceStore.activeWorkspaceId (cenário multiunidade). O dedupe também lê o
+ * cache BRUTO de notificações (Fase 2.2.3): sem isso, a combinação "scan
+ * multinidade + dedupe do workspace ativo" criaria uma notificação nova a cada
+ * polling para chamados fora da unidade ativa (R1). O dedupe persistente já
+ * cobre a mesma aba/sessão (o cache reflete a criação imediatamente), então não
+ * há `seenInSession` específico de SLA — duplicação cross-tab/cross-device fica
+ * para a fase de lifecycle das notificações. Sem áudio/browser notification
+ * nesta versão: o mute de exibição (notificationAppliesTo) e o de áudio seguem
+ * a semântica atual — nenhuma configuração paralela. Sem limpeza automática:
+ * notificações de estados anteriores permanecem (limitação conhecida).
  */
 export function syncSlaAlerts(): AppNotification[] {
   const created: AppNotification[] = []
   const configs = slaConfigService.getHoursForTickets()
-  const existing = new Set(
-    notificationService
-      .getAll()
-      .filter((n) => n.module === 'chamados' && n.actionUrl?.startsWith('/chamados/tickets/'))
-      .map((n) => n.actionUrl),
-  )
+  const existing = chamadoActionUrls()
 
   for (const t of getCol<Ticket>('chamados')) {
     if (!t.workspace_id) continue
