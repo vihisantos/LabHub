@@ -47,6 +47,20 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   getLastCoordinatorServiceError: () => null,
 }))
 
+vi.mock('../../../apps/chamados/hooks/useTickets', () => ({
+  useTickets: () => ({
+    tickets: [],
+    loading: false,
+    syncing: false,
+    reload: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    updateStatus: vi.fn(),
+    claim: vi.fn(),
+    remove: vi.fn(),
+  }),
+}))
+
 const activeUser: User = {
   id: 'u-coord',
   email: 'coord@labhub.com',

@@ -29,6 +29,8 @@ const mockRestoreCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
+const mockUseTickets = vi.hoisted(() => vi.fn())
+const ticketCycleSignal = vi.hoisted(() => ({ value: [] as unknown[] }))
 const workspaceContextMock = vi.hoisted(() => ({
   workspace: null as { id: string; name: string; slug: string } | null,
   workspaces: [] as Array<{ id: string; name: string; slug: string }>,
@@ -69,6 +71,10 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   removeCoordinatorMembership: (...args: unknown[]) => mockRemoveCoordinatorMembership(...args),
   setCoordinatorRole: (...args: unknown[]) => mockSetCoordinatorRole(...args),
   getLastCoordinatorServiceError: () => mockGetLastCoordinatorServiceError(),
+}))
+
+vi.mock('../../../apps/chamados/hooks/useTickets', () => ({
+  useTickets: () => mockUseTickets(),
 }))
 
 const membership = (
@@ -211,6 +217,8 @@ function setBp(bp: BreakpointState['bp']) {
 beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
+  ticketCycleSignal.value = []
+  mockUseTickets.mockReturnValue({ tickets: ticketCycleSignal.value })
   mockNavigate.mockReset()
   workspaceContextMock.workspace = null
   workspaceContextMock.workspaces = []
@@ -1034,6 +1042,35 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
       persist: false,
     })
     expect(mockNavigate).toHaveBeenCalledWith('/chamados')
+  })
+
+  it('SLA reage ao ciclo existente de tickets (cache raw muda + novo sinal → recomputa)', async () => {
+    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
+    mockUseTickets.mockReturnValue({ tickets: [{ id: 't-at', status: 'aberto' }] })
+    mockGetCoordinatorUnitOverview.mockResolvedValue(null)
+    setupOverrides({ units: [unitWithData()] })
+    const element = (
+      <MemoryRouter initialEntries={['/coordenador']}>
+        <CoordinatorHome />
+      </MemoryRouter>
+    )
+    const { rerender } = render(element)
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos1')
+
+    // Ciclo existente (poll/realtime): cache raw atualizado + novo estado do hook
+    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString())])
+    mockUseTickets.mockReturnValue({ tickets: [{ id: 't-at', status: 'aberto' }] })
+    rerender(
+      <MemoryRouter initialEntries={['/coordenador']}>
+        <CoordinatorHome />
+      </MemoryRouter>,
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('sla-stat-overdue')).toHaveTextContent('Vencidos0')
+    expect(screen.getByTestId('sla-stat-within')).toHaveTextContent('Dentro do SLA1')
   })
 })
 

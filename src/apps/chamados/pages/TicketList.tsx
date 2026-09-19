@@ -9,7 +9,7 @@ import {
   TICKET_PRIORITY_COLORS,
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
-import { getPriority, isSlaOverdue } from '../services/sla'
+import { getPriority, getSlaState, isSlaOverdue } from '../services/sla'
 import { useAuth } from '../../../core/auth/useAuth'
 import { icons } from '../../../lib/icons'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
@@ -61,12 +61,16 @@ export function TicketList() {
       ? (param as TicketPriority)
       : ''
   })
+  const [slaFilter] = useState<'near' | 'overdue' | ''>(() => {
+    const param = searchParams.get('sla')
+    return param === 'near' || param === 'overdue' ? param : ''
+  })
   const [roomFilter, setRoomFilter] = useState('')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'recente' | 'prioridade' | 'sla' | 'sala' | 'numero'>('recente')
   const [visibleCount, setVisibleCount] = useState(20)
 
-  useEffect(() => { setVisibleCount(20) }, [statusFilter, mineFilter, unassignedFilter, priorityFilter, roomFilter, search, sortBy])
+  useEffect(() => { setVisibleCount(20) }, [statusFilter, mineFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, sortBy])
 
   const SORT_OPTIONS: { value: typeof sortBy; label: string }[] = [
     { value: 'recente', label: 'Mais recentes' },
@@ -77,6 +81,7 @@ export function TicketList() {
   ]
 
   const filteredTickets = useMemo(() => {
+    const slaByWorkspace = slaConfigService.getHoursForTickets()
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
       if (mineFilter) {
@@ -97,6 +102,7 @@ export function TicketList() {
           }
         }
       }
+      if (slaFilter && getSlaState(t.createdAt, t.priority, t.status, slaByWorkspace[t.workspace_id ?? '']) !== slaFilter) return false
       if (priorityFilter && getPriority(t.priority) !== priorityFilter) return false
       if (roomFilter && t.roomName !== roomFilter) return false
       if (search) {
@@ -110,7 +116,7 @@ export function TicketList() {
       }
       return true
     })
-  }, [tickets, statusFilter, mineFilter, unassignedFilter, priorityFilter, roomFilter, search, user?.id])
+  }, [tickets, statusFilter, mineFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, user?.id])
 
   const uniqueRooms = useMemo(() => {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
