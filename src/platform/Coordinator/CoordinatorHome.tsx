@@ -23,7 +23,7 @@ import {
 } from '../../core/permissions/coordinatorService'
 import type { TeamMember } from '../../core/permissions/membership'
 import type { Ticket } from '../../apps/chamados/types'
-import { TICKET_STATUS_COLORS, TICKET_STATUS_LABELS } from '../../apps/chamados/types'
+import { analyzeTickets } from '../../apps/chamados/services/ticketStats'
 import { getCol, onCollectionChange } from '../../lib/db'
 import { slaConfigService } from '../../apps/chamados/services/slaConfigService'
 import {
@@ -34,14 +34,16 @@ import {
 import { icons } from '../../lib/icons'
 import { cn } from '../../lib/components/ui/utils'
 import { PageContainer, ResponsiveGrid, useBreakpoint } from '../../responsive'
-import { initials, roleLabelFor } from './coordinatorHelpers'
+import { initials, roleLabelFor, summarizePeopleCounts } from './coordinatorHelpers'
 import { isCoordinatorTabId, type CoordinatorTabId } from './coordinatorTabs'
 import { AssignManagerSheet } from './components/AssignManagerSheet'
 import { ConfirmActionSheet } from './components/ConfirmActionSheet'
 import { CoordinatorHeader } from './components/CoordinatorHeader'
-import { CoordinatorMetricCard } from './components/CoordinatorMetricCard'
 import { CoordinatorPanel } from './components/CoordinatorPanel'
 import { CoordinatorTabs } from './components/CoordinatorTabs'
+import { CoordinatorRecentTickets } from './components/CoordinatorRecentTickets'
+import { CoordinatorSlaPanel } from './components/CoordinatorSlaPanel'
+import { CoordinatorTicketsPanel } from './components/CoordinatorTicketsPanel'
 import { InactiveMembers } from './components/InactiveMembers'
 import { LeaderBlock } from './components/LeaderBlock'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
@@ -268,6 +270,9 @@ export function CoordinatorHome() {
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 5)
 
+  /** C5 — stats operacionais do escopo via helper puro (C1), mesmos números do shell. */
+  const ticketStats = analyzeTickets(scopeTickets)
+
   const unitNameOf = (workspaceId?: string) =>
     units.find((u) => u.unitId === workspaceId)?.unitName ?? 'Unidade fora do escopo'
 
@@ -320,6 +325,23 @@ export function CoordinatorHome() {
   const scopeChamados = units.length === 1 ? openChamadosFor(units[0].unitId) : null
 
   /**
+   * C5 — chamado recente da visão geral: mesmo comportamento por ticket do shell
+   * (callback contextual por unidade). Sem nenhum recente acionável (workspace
+   * fora do contexto), o callback fica ausente e o componente renderiza itens
+   * estáticos (fail-safe).
+   */
+  const scopeOpenRecentTicket = (ticketId: string) => {
+    const ticket = recentTickets.find((t) => t.id === ticketId)
+    if (!ticket?.workspace_id) return
+    openTicketFor(ticket.workspace_id)?.(ticketId)
+  }
+  const recentOpenTicket = recentTickets.some(
+    (t) => t.workspace_id && openTicketFor(t.workspace_id) !== null,
+  )
+    ? scopeOpenRecentTicket
+    : undefined
+
+  /**
    * PR C — "Abrir módulo do Ecossistema": navega para a rota EXISTENTE do app
    * no contexto da unidade (mesmo mecanismo do `openChamadosFor`). Não concede
    * permissão; o próprio app revalida o acesso ao abrir.
@@ -333,20 +355,8 @@ export function CoordinatorHome() {
     }
   }
 
-  const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
-  const memberCount = units.reduce(
-    (acc, u) => acc + u.leaders.reduce((a, l) => a + l.members.length, 0),
-    0,
-  )
-  const pendingCount = Object.values(requestsByUnit).reduce((acc, list) => acc + list.length, 0)
-  const suspendedCount = Object.values(inactiveByUnit).reduce(
-    (acc, list) => acc + list.filter((m) => m.membership.status === 'suspended').length,
-    0,
-  )
-  const removedCount = Object.values(inactiveByUnit).reduce(
-    (acc, list) => acc + list.filter((m) => m.membership.status === 'removed').length,
-    0,
-  )
+  const { leaderCount, memberCount, pendingCount, suspendedCount, removedCount } =
+    summarizePeopleCounts(units, requestsByUnit, inactiveByUnit)
 
   const openAssignSheet = (unit: CoordinatedUnit, leader: CoordinatedLeader, member: TeamMember) => {
     setSheetTarget({
@@ -655,163 +665,26 @@ export function CoordinatorHome() {
 
   const overviewPanels = (
     <>
-      <CoordinatorPanel
-        title="KPIs principais"
-        description="Chamados das suas unidades, lendo o mesmo cache autorizado do app de chamados. Com uma única unidade no escopo, os cards abrem os filtros existentes do TicketList."
-        className="mb-6"
-        data-testid="overview-kpis"
-      >
-        <ResponsiveGrid minWidth={220} maxWidth={360} gap={10}>
-          <CoordinatorMetricCard
-            label="Chamados abertos"
-            value={activeKpis.abertos}
-            tone="amber"
-            icon={<icons.ui.inbox size={16} />}
-            data-testid="overview-kpi-aberto"
-            onClick={scopeChamados ? () => scopeChamados('?status=aberto') : undefined}
-          />
-          <CoordinatorMetricCard
-            label="Em atendimento"
-            value={activeKpis.emAtendimento}
-            tone="violet"
-            icon={<icons.ui.userCheck size={16} />}
-            data-testid="overview-kpi-em_atendimento"
-            onClick={scopeChamados ? () => scopeChamados('?status=em_andamento') : undefined}
-          />
-          <CoordinatorMetricCard
-            label="Sem responsável"
-            value={activeKpis.semResponsavel}
-            icon={<icons.ui.user size={16} />}
-            data-testid="overview-kpi-unassigned"
-            onClick={scopeChamados ? () => scopeChamados('?unassigned=1') : undefined}
-          />
-          <CoordinatorMetricCard
-            label="Dentro do SLA"
-            value={activeKpis.dentro}
-            tone="emerald"
-            icon={<icons.ui.circleCheck size={16} />}
-            data-testid="overview-kpi-within"
-            onClick={scopeChamados ? () => scopeChamados() : undefined}
-          />
-          <CoordinatorMetricCard
-            label="Próximos do SLA"
-            value={activeKpis.proximos}
-            tone="amber"
-            icon={<icons.ui.clock size={16} />}
-            data-testid="overview-kpi-near"
-            onClick={scopeChamados ? () => scopeChamados('?sla=near') : undefined}
-          />
-          <CoordinatorMetricCard
-            label="Vencidos"
-            value={activeKpis.vencidos}
-            tone="red"
-            icon={<icons.ui.alertCircle size={16} />}
-            data-testid="overview-kpi-overdue"
-            onClick={scopeChamados ? () => scopeChamados('?sla=overdue') : undefined}
-          />
-        </ResponsiveGrid>
-      </CoordinatorPanel>
+      <CoordinatorTicketsPanel
+        stats={ticketStats}
+        sla={{ within: slaAgg.within, near: slaAgg.near, overdue: slaAgg.overdue }}
+        onOpenChamados={scopeChamados ?? undefined}
+      />
 
       <ResponsiveGrid minWidth={400} gap={12} className="mb-6">
-        <CoordinatorPanel
-          title="Chamados recentes"
-          description="Últimos chamados do cache local dentro do seu escopo."
-          data-testid="overview-recents"
-        >
-          {recentTickets.length === 0 ? (
-            <p className="text-[10px] leading-relaxed text-fg-muted">
-              Nenhum chamado no cache ainda — os números aparecem assim que o app de chamados
-              sincronizar sua unidade.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {recentTickets.map((ticket) => {
-                const row = (
-                  <>
-                    <span className="min-w-0 flex-1 truncate">
-                      {ticket.roomName || 'Chamado'}
-                      {ticket.problemCategory ? ` — ${ticket.problemCategory}` : ''}
-                    </span>
-                    {ticket.ticketNumber > 0 && (
-                      <span className="shrink-0 rounded-full bg-input px-1.5 py-0.5 text-[10px] font-semibold text-fg-dim">
-                        #{ticket.ticketNumber}
-                      </span>
-                    )}
-                    <span
-                      className={cn(
-                        'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-                        TICKET_STATUS_COLORS[ticket.status],
-                      )}
-                    >
-                      {TICKET_STATUS_LABELS[ticket.status]}
-                    </span>
-                    <span className="hidden shrink-0 rounded-full bg-fg-muted/10 px-1.5 py-0.5 text-[10px] font-semibold text-fg-muted sm:inline">
-                      {unitNameOf(ticket.workspace_id)}
-                    </span>
-                  </>
-                )
-                const openTicket = ticket.workspace_id ? openTicketFor(ticket.workspace_id) : null
-                return (
-                  <li key={ticket.id} className="text-[10px] leading-relaxed text-fg-muted">
-                    {openTicket ? (
-                      <button
-                        type="button"
-                        onClick={() => openTicket(ticket.id)}
-                        className="flex w-full items-center gap-2 text-left transition-colors hover:text-fg"
-                        data-testid={`overview-recent-${ticket.id}`}
-                      >
-                        {row}
-                      </button>
-                    ) : (
-                      <span className="flex items-center gap-2" data-testid={`overview-recent-${ticket.id}`}>
-                        {row}
-                      </span>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </CoordinatorPanel>
+        <CoordinatorRecentTickets
+          tickets={recentTickets}
+          resolveUnitName={unitNameOf}
+          onOpenTicket={recentOpenTicket}
+        />
 
-        <CoordinatorPanel
-          title="SLA no escopo"
-          description="Consolidado das suas unidades, sempre via services/sla.ts e reagindo ao cache com sinal passivo (sem novo ciclo ou poll)."
-          data-testid="overview-sla"
-        >
-          <ResponsiveGrid minWidth={180} maxWidth={260} gap={10}>
-            <CoordinatorMetricCard
-              label="Dentro do SLA"
-              value={slaAgg.within}
-              tone="emerald"
-              icon={<icons.ui.circleCheck size={16} />}
-              data-testid="overview-sla-within"
-              onClick={scopeChamados ? () => scopeChamados() : undefined}
-            />
-            <CoordinatorMetricCard
-              label="Próximos do vencimento"
-              value={slaAgg.near}
-              tone="amber"
-              icon={<icons.ui.clock size={16} />}
-              data-testid="overview-sla-near"
-              onClick={scopeChamados ? () => scopeChamados('?sla=near') : undefined}
-            />
-            <CoordinatorMetricCard
-              label="Vencidos"
-              value={slaAgg.overdue}
-              tone="red"
-              icon={<icons.ui.alertCircle size={16} />}
-              data-testid="overview-sla-overdue"
-              onClick={scopeChamados ? () => scopeChamados('?sla=overdue') : undefined}
-            />
-            <CoordinatorMetricCard
-              label="Taxa de SLA"
-              value={slaRateLabel}
-              icon={<icons.ui.fileBarChart size={16} />}
-              data-testid="overview-sla-rate"
-            />
-          </ResponsiveGrid>
-        </CoordinatorPanel>
+        <CoordinatorSlaPanel
+          within={slaAgg.within}
+          near={slaAgg.near}
+          overdue={slaAgg.overdue}
+          rateLabel={slaRateLabel}
+          onOpenChamados={scopeChamados ?? undefined}
+        />
       </ResponsiveGrid>
 
       <CoordinatorPanel

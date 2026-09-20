@@ -51,9 +51,20 @@ interface CoordinatorTicketsPanelProps {
   stats: TicketStatsSummary
   /** Navegação para o app de chamados quando houver escopo de UMA unidade. */
   onOpenChamados?: (query?: string) => void
+  /**
+   * KPIs de SLA do escopo (C5) — quando fornecidos, o painel acrescenta os
+   * cards `overview-kpi-within/near/overdue` com os deep links do shell
+   * (`?sla=near` / `?sla=overdue`). Opcionais e apresentacionais: o cálculo
+   * continua na camada superior (`sla.ts`); nada de regra de SLA aqui.
+   */
+  sla?: { within: number; near: number; overdue: number }
 }
 
-export function CoordinatorTicketsPanel({ stats, onOpenChamados }: CoordinatorTicketsPanelProps) {
+export function CoordinatorTicketsPanel({
+  stats,
+  onOpenChamados,
+  sla,
+}: CoordinatorTicketsPanelProps) {
   const statusData = STATUS_ORDER.map((status) => ({
     label: TICKET_STATUS_LABELS[status],
     value: stats.byStatus[status],
@@ -122,6 +133,34 @@ export function CoordinatorTicketsPanel({ stats, onOpenChamados }: CoordinatorTi
             icon={<icons.ui.alertCircle size={16} />}
             data-testid="overview-kpi-urgentes"
           />
+          {sla && (
+            <>
+              <CoordinatorMetricCard
+                label="Dentro do SLA"
+                value={sla.within}
+                tone="emerald"
+                icon={<icons.ui.circleCheck size={16} />}
+                data-testid="overview-kpi-within"
+                onClick={onOpenChamados ? () => onOpenChamados() : undefined}
+              />
+              <CoordinatorMetricCard
+                label="Próximos do SLA"
+                value={sla.near}
+                tone="amber"
+                icon={<icons.ui.clock size={16} />}
+                data-testid="overview-kpi-near"
+                onClick={onOpenChamados ? () => onOpenChamados('?sla=near') : undefined}
+              />
+              <CoordinatorMetricCard
+                label="Vencidos"
+                value={sla.overdue}
+                tone="red"
+                icon={<icons.ui.alertCircle size={16} />}
+                data-testid="overview-kpi-overdue"
+                onClick={onOpenChamados ? () => onOpenChamados('?sla=overdue') : undefined}
+              />
+            </>
+          )}
         </ResponsiveGrid>
       </CoordinatorPanel>
 

@@ -123,6 +123,39 @@ describe('CoordinatorTicketsPanel — painel apresentacional de chamados (C2, PR
     expect(within(screen.getByTestId('overview-kpis')).queryByRole('button')).toBeNull()
   })
 
+  it('sla opcional (C5): cards dentro do SLA com deep links do shell; ausente → não renderiza', () => {
+    const onOpenChamados = vi.fn()
+    render(
+      <CoordinatorTicketsPanel
+        stats={summary({ total: 5 })}
+        sla={{ within: 3, near: 1, overdue: 1 }}
+        onOpenChamados={onOpenChamados}
+      />,
+    )
+
+    expect(screen.getByTestId('overview-kpi-within')).toHaveTextContent('Dentro do SLA')
+    expect(screen.getByTestId('overview-kpi-within')).toHaveTextContent('3')
+    expect(screen.getByTestId('overview-kpi-near')).toHaveTextContent('Próximos do SLA')
+    expect(screen.getByTestId('overview-kpi-near')).toHaveTextContent('1')
+    expect(screen.getByTestId('overview-kpi-overdue')).toHaveTextContent('Vencidos')
+    expect(screen.getByTestId('overview-kpi-overdue')).toHaveTextContent('1')
+
+    fireEvent.click(screen.getByTestId('overview-kpi-within'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith()
+    fireEvent.click(screen.getByTestId('overview-kpi-near'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith('?sla=near')
+    fireEvent.click(screen.getByTestId('overview-kpi-overdue'))
+    expect(onOpenChamados).toHaveBeenLastCalledWith('?sla=overdue')
+  })
+
+  it('sla omisso não cria os cards de SLA do painel', () => {
+    render(<CoordinatorTicketsPanel stats={summary()} />)
+
+    expect(screen.queryByTestId('overview-kpi-within')).toBeNull()
+    expect(screen.queryByTestId('overview-kpi-near')).toBeNull()
+    expect(screen.queryByTestId('overview-kpi-overdue')).toBeNull()
+  })
+
   it('expõe os testids contratuais da visão geral e das distribuições', () => {
     render(
       <CoordinatorTicketsPanel
