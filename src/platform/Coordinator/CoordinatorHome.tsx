@@ -39,6 +39,7 @@ import { AssignManagerSheet } from './components/AssignManagerSheet'
 import { ConfirmActionSheet } from './components/ConfirmActionSheet'
 import { CoordinatorHeader } from './components/CoordinatorHeader'
 import { CoordinatorTabs } from './components/CoordinatorTabs'
+import { CoordinatorUnitContext } from './components/CoordinatorUnitContext'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
 import { CoordinatorAuditTab } from './tabs/CoordinatorAuditTab'
 import { CoordinatorEcosystemTab } from './tabs/CoordinatorEcosystemTab'
@@ -151,6 +152,29 @@ export function CoordinatorHome() {
     setSearchParams(next)
   }
 
+  /**
+   * PR C (C1/C3) — contexto de EXIBIÇÃO por unidade (`?unit=`), local à Central.
+   * NÃO muda workspace global, cargo ou autorização; não dispara RPC (a leitura
+   * por unidade já acontece para o escopo inteiro em `useCoordinatorPeopleData`,
+   * keyed em `units`). Valor inválido/fora do escopo cai no fail-closed
+   * ("Todas as unidades"), mesmo padrão do `?tab=`.
+   */
+  const rawUnit = searchParams.get('unit')
+  const activeUnitId = rawUnit && units.some((u) => u.unitId === rawUnit) ? rawUnit : null
+  const visibleUnits = useMemo(
+    () => (activeUnitId ? units.filter((u) => u.unitId === activeUnitId) : units),
+    [units, activeUnitId],
+  )
+  const handleUnitChange = (unitId: string | null) => {
+    const next = new URLSearchParams(searchParams)
+    if (unitId) {
+      next.set('unit', unitId)
+    } else {
+      next.delete('unit')
+    }
+    setSearchParams(next)
+  }
+
   const [pending, setPending] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -223,7 +247,7 @@ export function CoordinatorHome() {
    * `useTickets`. Tudo recomputa na renderização disparada pelo sinal passivo
    * (`onCollectionChange`) da PR A.
    */
-  const scopeUnitIds = useMemo(() => new Set(units.map((u) => u.unitId)), [units])
+  const scopeUnitIds = useMemo(() => new Set(visibleUnits.map((u) => u.unitId)), [visibleUnits])
   const scopeTickets = getCol<Ticket>('chamados').filter(
     (t) => t.workspace_id && scopeUnitIds.has(t.workspace_id),
   )
@@ -232,7 +256,7 @@ export function CoordinatorHome() {
     (t) => !isArchivedTicket(t) && isTicketOpen(t.status),
   )
 
-  const slaAgg = units.reduce(
+  const slaAgg = visibleUnits.reduce(
     (acc, u) => {
       const summary = slaByWorkspace[u.unitId]
       if (!summary) return acc
@@ -269,7 +293,7 @@ export function CoordinatorHome() {
   const unitNameOf = (workspaceId?: string) =>
     units.find((u) => u.unitId === workspaceId)?.unitName ?? 'Unidade fora do escopo'
 
-  const allRequests = units.flatMap((u) =>
+  const allRequests = visibleUnits.flatMap((u) =>
     (requestsByUnit[u.unitId] ?? []).map((request) => ({ ...request, unitName: u.unitName })),
   )
 
@@ -315,7 +339,8 @@ export function CoordinatorHome() {
    * multiunidade os KPIs ficam somente-leitura e o detalhe por unidade vive nos
    * cards de "Equipe & Unidades" abaixo.
    */
-  const scopeChamados = units.length === 1 ? openChamadosFor(units[0].unitId) : null
+  const scopeChamados =
+    visibleUnits.length === 1 ? openChamadosFor(visibleUnits[0].unitId) : null
 
   /**
    * C5 — chamado recente da visão geral: mesmo comportamento por ticket do shell
@@ -349,7 +374,7 @@ export function CoordinatorHome() {
   }
 
   const { leaderCount, memberCount, pendingCount, suspendedCount, removedCount } =
-    summarizePeopleCounts(units, requestsByUnit, inactiveByUnit)
+    summarizePeopleCounts(visibleUnits, requestsByUnit, inactiveByUnit)
 
   const openAssignSheet = (unit: CoordinatedUnit, leader: CoordinatedLeader, member: TeamMember) => {
     setSheetTarget({
@@ -580,9 +605,9 @@ export function CoordinatorHome() {
                   <icons.ui.home size={16} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-fg">{units.length}</p>
+                  <p className="text-sm font-bold text-fg">{visibleUnits.length}</p>
                   <p className="text-[10px] text-fg-muted">
-                    unidade{units.length !== 1 ? 's' : ''}
+                    unidade{visibleUnits.length !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
@@ -625,13 +650,23 @@ export function CoordinatorHome() {
               </div>
             )}
 
+            {units.length > 1 && (
+              <div className="mb-4">
+                <CoordinatorUnitContext
+                  units={units}
+                  activeUnitId={activeUnitId}
+                  onSelect={handleUnitChange}
+                />
+              </div>
+            )}
+
             <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
               <CoordinatorTabs className="mb-4" />
 
               <TabsContent value="overview">
                 <CoordinatorOverviewTab
                   wideLayout={wideLayout}
-                  units={units}
+                  units={visibleUnits}
                   ticketStats={ticketStats}
                   slaAgg={slaAgg}
                   slaRateLabel={slaRateLabel}
@@ -672,7 +707,7 @@ export function CoordinatorHome() {
 
               <TabsContent value="people">
                 <CoordinatorPeopleTab
-                  units={units}
+                  units={visibleUnits}
                   requestsByUnit={requestsByUnit}
                   requestsLoading={requestsLoading}
                   requestsFailed={requestsFailed}
@@ -699,7 +734,7 @@ export function CoordinatorHome() {
 
               <TabsContent value="tickets">
                 <CoordinatorTicketsTab
-                  units={units}
+                  units={visibleUnits}
                   activeKpis={activeKpis}
                   recentTickets={recentTickets}
                   unitNameOf={unitNameOf}
@@ -722,7 +757,7 @@ export function CoordinatorHome() {
 
               <TabsContent value="ecosystem">
                 <CoordinatorEcosystemTab
-                  units={units}
+                  units={visibleUnits}
                   workspaces={workspaces}
                   onOpenApp={openAppFor}
                 />
