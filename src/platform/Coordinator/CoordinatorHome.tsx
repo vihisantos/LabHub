@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
+import { useCoordinatorPeopleData } from '../../core/permissions/useCoordinatorPeopleData'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { Tabs, TabsContent } from '../../lib/components/ui/tabs'
 import {
   approveCoordinatorMembership,
   getCoordinatorAssignableRoles,
-  getCoordinatorInactiveMembers,
-  getCoordinatorRequests,
-  getCoordinatorUnitOverview,
   getLastCoordinatorServiceError,
   rejectCoordinatorMembership,
   removeCoordinatorMembership,
@@ -20,7 +18,6 @@ import {
   type CoordinatorInactiveMember,
   type CoordinatorRequest,
   type CoordinatorRoleOption,
-  type CoordinatorUnitOverview,
   type CoordinatedLeader,
   type CoordinatedUnit,
 } from '../../core/permissions/coordinatorService'
@@ -162,19 +159,22 @@ export function CoordinatorHome() {
   const [pending, setPending] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const [overviewByUnit, setOverviewByUnit] = useState<Record<string, CoordinatorUnitOverview>>({})
-  const [overviewLoading, setOverviewLoading] = useState(false)
-  const [overviewFailed, setOverviewFailed] = useState(false)
+  const unitsKey = units.map((u) => u.unitId).join('|')
 
-  const [requestsByUnit, setRequestsByUnit] = useState<Record<string, CoordinatorRequest[]>>({})
-  const [requestsLoading, setRequestsLoading] = useState(false)
-  const [requestsFailed, setRequestsFailed] = useState(false)
-
-  const [inactiveByUnit, setInactiveByUnit] = useState<
-    Record<string, CoordinatorInactiveMember[]>
-  >({})
-  const [inactiveLoading, setInactiveLoading] = useState(false)
-  const [inactiveFailed, setInactiveFailed] = useState(false)
+  const {
+    requestsByUnit,
+    requestsLoading,
+    requestsFailed,
+    loadRequests,
+    inactiveByUnit,
+    inactiveLoading,
+    inactiveFailed,
+    loadInactive,
+    overviewByUnit,
+    overviewLoading,
+    overviewFailed,
+    loadOverview,
+  } = useCoordinatorPeopleData(unitsKey)
 
   const [roles, setRoles] = useState<CoordinatorRoleOption[]>([])
   const [rolesLoading, setRolesLoading] = useState(false)
@@ -198,7 +198,6 @@ export function CoordinatorHome() {
 
   const rolesById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles])
 
-  const unitsKey = units.map((u) => u.unitId).join('|')
 
   /**
    * Fase 2.2.1 — SLA por unidade (services/sla.ts é a única fonte de verdade).
@@ -276,92 +275,7 @@ export function CoordinatorHome() {
     (requestsByUnit[u.unitId] ?? []).map((request) => ({ ...request, unitName: u.unitName })),
   )
 
-  const loadRequests = useCallback(async () => {
-    const currentUnits = unitsKey ? unitsKey.split('|') : []
-    if (currentUnits.length === 0) {
-      setRequestsByUnit({})
-      setRequestsFailed(false)
-      setRequestsLoading(false)
-      return
-    }
-    setRequestsLoading(true)
-    setRequestsFailed(false)
-    const next: Record<string, CoordinatorRequest[]> = {}
-    let anyFailed = false
-    for (const unitId of currentUnits) {
-      const rows = await getCoordinatorRequests(unitId)
-      if (getLastCoordinatorServiceError() !== null) {
-        anyFailed = true
-        break
-      }
-      next[unitId] = rows
-    }
-    setRequestsByUnit(next)
-    setRequestsFailed(anyFailed)
-    setRequestsLoading(false)
-  }, [unitsKey])
 
-  const loadInactive = useCallback(async () => {
-    const currentUnits = unitsKey ? unitsKey.split('|') : []
-    if (currentUnits.length === 0) {
-      setInactiveByUnit({})
-      setInactiveFailed(false)
-      setInactiveLoading(false)
-      return
-    }
-    setInactiveLoading(true)
-    setInactiveFailed(false)
-    const next: Record<string, CoordinatorInactiveMember[]> = {}
-    let anyFailed = false
-    for (const unitId of currentUnits) {
-      const rows = await getCoordinatorInactiveMembers(unitId)
-      if (getLastCoordinatorServiceError() !== null) {
-        anyFailed = true
-        break
-      }
-      next[unitId] = rows
-    }
-    setInactiveByUnit(next)
-    setInactiveFailed(anyFailed)
-    setInactiveLoading(false)
-  }, [unitsKey])
-
-  const loadOverview = useCallback(async () => {
-    const currentUnits = unitsKey ? unitsKey.split('|') : []
-    if (currentUnits.length === 0) {
-      setOverviewByUnit({})
-      setOverviewFailed(false)
-      setOverviewLoading(false)
-      return
-    }
-    setOverviewLoading(true)
-    setOverviewFailed(false)
-    const next: Record<string, CoordinatorUnitOverview> = {}
-    let anyFailed = false
-    for (const unitId of currentUnits) {
-      const overview = await getCoordinatorUnitOverview(unitId)
-      if (getLastCoordinatorServiceError() !== null) {
-        anyFailed = true
-        break
-      }
-      if (overview) next[unitId] = overview
-    }
-    setOverviewByUnit(next)
-    setOverviewFailed(anyFailed)
-    setOverviewLoading(false)
-  }, [unitsKey])
-
-  useEffect(() => {
-    void loadRequests()
-  }, [loadRequests])
-
-  useEffect(() => {
-    void loadInactive()
-  }, [loadInactive])
-
-  useEffect(() => {
-    void loadOverview()
-  }, [loadOverview])
 
   /**
    * "Abrir chamados": reaproveita o app de chamados EXISTENTE no contexto da
