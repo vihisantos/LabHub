@@ -23,6 +23,7 @@ import type { BreakpointState } from '../../../responsive/useBreakpoint'
 const mockUseCoordinator = vi.hoisted(() => vi.fn())
 const mockGetRoleForUser = vi.hoisted(() => vi.fn())
 const mockUseBreakpoint = vi.hoisted(() => vi.fn())
+const mockUseAppAccess = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
@@ -76,6 +77,10 @@ vi.mock('../../../core/permissions/useCoordinator', () => ({
 
 vi.mock('../../../core/permissions/service', () => ({
   permissionService: { getRoleForUser: () => mockGetRoleForUser() },
+}))
+
+vi.mock('../../../core/permissions/usePermissions', () => ({
+  useAppAccess: () => mockUseAppAccess(),
 }))
 
 vi.mock('../../../responsive/useBreakpoint', () => ({
@@ -257,6 +262,13 @@ beforeEach(() => {
   // jsdom não tem matchMedia → o comportamento real já é compact; fixar o mock
   // garante determinismo também para o teste de faixas desktop/wide.
   setBp('compact')
+  // PR D: por padrão o usuário tem acesso a todos os módulos do ecossistema,
+  // preservando o comportamento pré-PR D dos testes existentes.
+  mockUseAppAccess.mockReturnValue({
+    canAccessApp: () => true,
+    getLevel: () => 'full',
+    isFullAccess: () => true,
+  })
 })
 
 describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', () => {
@@ -1885,5 +1897,246 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     expect(probe2).toHaveAttribute('data-search', '?unit=ws2&tab=tickets')
     expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Chamados' })).toHaveAttribute('aria-selected', 'true')
+  })
+})
+
+describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + workspace, sem conceder acesso', () => {
+  function campusB(): CoordinatedUnit {
+    return {
+      coordination: membership('coordination-ws2', 'u-coord', 'ws2'),
+      unitId: 'ws2',
+      unitName: 'Campus B',
+      leaders: [
+        {
+          leadership: membership('ms-lider-b', 'u-lider-b', 'ws2', {
+            managed_by: 'coordination-ws2',
+            role_id: 'role-lider',
+          }),
+          profile: {
+            id: 'u-lider-b',
+            name: 'Bia Líder',
+            email: 'bia@b.com',
+            status: 'active',
+            roleId: 'role-lider',
+          },
+          members: [teamMember('mb1', 'Técnico B', 'role-technician', 'ms-lider-b')],
+        },
+      ],
+    }
+  }
+
+  const twoUnits = () => [unitWithData(), campusB()]
+
+  function renderEcosystem(
+    entry: string,
+    units: CoordinatedUnit[],
+    access: Partial<ReturnType<typeof mockUseAppAccess>> = {},
+    workspaces: Array<{ id: string; name: string; slug: string; disabled_apps?: string[] }> = [],
+  ) {
+    setupOverrides({ units })
+    workspaceContextMock.workspaces = workspaces
+    mockUseAppAccess.mockReturnValue({
+      canAccessApp: () => true,
+      getLevel: () => 'full',
+      isFullAccess: () => true,
+      ...access,
+    })
+    render(
+      <MemoryRouter initialEntries={[entry]}>
+        <CoordinatorHome />
+      </MemoryRouter>,
+    )
+  }
+
+  beforeEach(() => {
+    clearCache()
+  })
+
+  it('módulo ativo e com permissão → "disponível" com botão Abrir que navega preservando o contexto', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-pc-care')
+    expect(within(module).getByText('disponível')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('ecosystem-open-pc-care-ws1'))
+    await act(async () => {})
+
+    expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ws1' }),
+      { persist: false },
+    )
+    expect(mockNavigate).toHaveBeenCalledWith('/pc-care')
+  })
+
+  it('workspace desabilita o módulo (disabled_apps) → "indisponível neste workspace", sem Abrir', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] }],
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-tv-ws1-disabled')).toBeInTheDocument()
+    expect(screen.getByText('indisponível neste workspace')).toBeTruthy()
+    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+  })
+
+  it('papel SEM acesso ao módulo → "acesso restrito", sem Abrir, mesmo com workspace habilitado', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      { canAccessApp: (id: string) => id !== 'reservalab' },
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-reservalab-ws1-restricted')).toBeInTheDocument()
+    expect(screen.getByText('acesso restrito')).toBeTruthy()
+    expect(screen.queryByTestId('ecosystem-open-reservalab-ws1')).toBeNull()
+
+    // demais módulos permanecem disponíveis (restrição é POR módulo)
+    expect(screen.getByTestId('ecosystem-open-pc-care-ws1')).toBeInTheDocument()
+  })
+
+  it('papel SEM acesso tem precedência sobre disabled_apps (mesma ordem do AppGuard)', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      { canAccessApp: () => false },
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] }],
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-tv-ws1-restricted')).toBeInTheDocument()
+    expect(screen.queryByTestId('ecosystem-tv-ws1-disabled')).toBeNull()
+    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+  })
+
+  it('sem workspace no contexto → "fora do contexto", sem Abrir (não inventa disponibilidade)', async () => {
+    renderEcosystem('/coordenador?tab=ecosystem', [unitWithData()], {}, [])
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).getByText('fora do contexto')).toBeTruthy()
+    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+  })
+
+  it('módulos planejados (plannedApps) → bloco "Em breve", sem botão de navegação', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    const planned = screen.getByTestId('ecosystem-planned')
+    expect(planned).toBeInTheDocument()
+    expect(screen.getByText('Em breve')).toBeTruthy()
+    expect(screen.getByTestId('ecosystem-planned-chamados-dashboard')).toBeInTheDocument()
+    expect(
+      within(planned).queryByRole('button', { name: 'Abrir' }),
+    ).toBeNull()
+  })
+
+  it('disponibilidade POR UNIDADE: mesmo módulo disponível em uma unidade e indisponível em outra', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      twoUnits(),
+      {},
+      [
+        { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+        { id: 'ws2', name: 'Campus B', slug: 'campus-b', disabled_apps: ['tv'] },
+      ],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).queryByTestId('ecosystem-tv-ws1-disabled')).toBeNull()
+    expect(within(module).getByTestId('ecosystem-tv-ws2-disabled')).toBeInTheDocument()
+    expect(within(module).getByText('indisponível neste workspace')).toBeTruthy()
+    expect(screen.getByTestId('ecosystem-open-tv-ws1')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-open-pc-care-ws1')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-open-pc-care-ws2')).toBeInTheDocument()
+  })
+
+  it('?unit= filtra o ecossistema para a unidade selecionada, sem RPC novo', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem&unit=ws2',
+      twoUnits(),
+      {},
+      [
+        { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+        { id: 'ws2', name: 'Campus B', slug: 'campus-b' },
+      ],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).queryByText('Campus A')).toBeNull()
+    expect(within(module).getByText('Campus B')).toBeTruthy()
+    expect(screen.getByTestId('ecosystem-open-tv-ws2')).toBeInTheDocument()
+  })
+
+  it('?unit= inválido/fora do escopo → fail-closed (Todas as unidades) no ecossistema', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem&unit=ws999',
+      twoUnits(),
+      {},
+      [
+        { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+        { id: 'ws2', name: 'Campus B', slug: 'campus-b' },
+      ],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).getByText('Campus A')).toBeTruthy()
+    expect(within(module).getByText('Campus B')).toBeTruthy()
+  })
+
+  it('tirar/ampliar o acesso do papel recalcula a disponibilidade na re-render (canAccessApp reativo)', async () => {
+    renderEcosystem('/coordenador?tab=ecosystem', [unitWithData()], {}, [
+      { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+    ])
+    await act(async () => {})
+
+    expect(screen.queryByTestId('ecosystem-reservalab-ws1-restricted')).toBeNull()
+    expect(screen.getByTestId('ecosystem-open-reservalab-ws1')).toBeInTheDocument()
+
+    // re-render com papel sem acesso ao reservalab (troca de aba recompõe a aba)
+    mockUseAppAccess.mockReturnValue({
+      canAccessApp: (id: string) => id !== 'reservalab',
+      getLevel: () => 'full',
+      isFullAccess: () => true,
+    })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chamados' }), { button: 0 })
+    await act(async () => {})
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Ecossistema' }), { button: 0 })
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-reservalab-ws1-restricted')).toBeInTheDocument()
+    expect(screen.queryByTestId('ecosystem-open-reservalab-ws1')).toBeNull()
+  })
+
+  it('coordenador de unidade única também vê disponibilidade por unidade (sem seletor de contexto)', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    expect(screen.queryByTestId('coordinator-unit-context')).toBeNull()
+    expect(screen.getByTestId('ecosystem-module-tv')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-open-tv-ws1')).toBeInTheDocument()
   })
 })

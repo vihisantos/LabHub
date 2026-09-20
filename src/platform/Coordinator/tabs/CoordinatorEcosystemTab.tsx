@@ -1,5 +1,6 @@
-import { appRegistry, type AppModule } from '../../../appRegistry'
+import { appRegistry, plannedApps, type AppModule } from '../../../appRegistry'
 import { isAppDisabled } from '../../../core/workspaces/apps'
+import { useAppAccess } from '../../../core/permissions/usePermissions'
 import type { Workspace } from '../../../core/workspaces/types'
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
 
@@ -12,18 +13,31 @@ export interface CoordinatorEcosystemTabProps {
 }
 
 /**
- * Aba "Ecossistema" da Central (PR C). Lista os módulos operacionais disponíveis
- * na plataforma (via `appRegistry`) e a disponibilidade por unidade do escopo
- * usando APENAS o `disabled_apps` do workspace (a disponibilidade por permissão
- * — `useAppAccess` — continua sendo validada no momento em que o app abre).
- * Nenhuma permissão é concedida aqui; a Central apenas navega para a rota
- * existente do módulo no contexto da unidade.
+ * Aba "Ecossistema" da Central (PR C + PR D). Lista os módulos operacionais da
+ * plataforma (via `appRegistry`) e a disponibilidade POR UNIDADE do escopo.
+ *
+ * PR D — disponibilidade por workspace: a apresentação espelha EXATAMENTE a
+ * mesma checagem do `AppGuard` (papel + workspace), sem criar hardcode por
+ * unidade e sem conceder permissão alguma:
+ *   - sem workspace no contexto (unidade fora do `workspaces` visível) → "fora
+ *     do contexto", sem ação;
+ *   - `isAppDisabled(appId, workspace)` → "indisponível neste workspace", sem
+ *     ação (mesmo rótulo/usabilidade do AppGuard);
+ *   - `useAppAccess().canAccessApp(appId)` falso → "acesso restrito", sem ação
+ *     (mesma ordem do AppGuard: papel antes do workspace);
+ *   - senão → "disponível" + "Abrir" (navega para a rota existente no contexto
+ *     da unidade — o app revalida o acesso ao abrir).
+ *
+ * "Em breve": módulos de roadmap registrados em `plannedApps` (sem página/rota
+ * própria ainda) aparecem em bloco próprio, dados de `appRegistry`, sem botão —
+ * nada de lista fixa por unidade.
  */
 export function CoordinatorEcosystemTab({
   units,
   workspaces,
   onOpenApp,
 }: CoordinatorEcosystemTabProps) {
+  const { canAccessApp } = useAppAccess()
   const modules = ECOSYSTEM_APP_IDS.map((id) => appRegistry.find((app) => app.id === id)).filter(
     (app): app is NonNullable<typeof app> => Boolean(app),
   )
@@ -61,7 +75,10 @@ export function CoordinatorEcosystemTab({
               {units.map((unit) => {
                 const workspaceEntry = workspaces.find((w) => w.id === unit.unitId)
                 const disabled = isAppDisabled(app.id, workspaceEntry)
-                const open = workspaceEntry ? onOpenApp(unit.unitId, app.route) : null
+                const restricted = !canAccessApp(app.id)
+                const open = workspaceEntry && !disabled && !restricted
+                  ? onOpenApp(unit.unitId, app.route)
+                  : null
                 return (
                   <div
                     key={unit.unitId}
@@ -74,12 +91,19 @@ export function CoordinatorEcosystemTab({
                       <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[10px] font-semibold text-fg-muted">
                         fora do contexto
                       </span>
+                    ) : restricted ? (
+                      <span
+                        data-testid={`ecosystem-${app.id}-${unit.unitId}-restricted`}
+                        className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                      >
+                        acesso restrito
+                      </span>
                     ) : disabled ? (
                       <span
                         data-testid={`ecosystem-${app.id}-${unit.unitId}-disabled`}
                         className="shrink-0 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500"
                       >
-                        desabilitado nesta unidade
+                        indisponível neste workspace
                       </span>
                     ) : (
                       <>
@@ -102,6 +126,44 @@ export function CoordinatorEcosystemTab({
             </div>
           </div>
         ))}
+
+        {plannedApps.length > 0 && (
+          <div
+            data-testid="ecosystem-planned"
+            className="rounded-xl border border-dashed border-line bg-surface p-3"
+          >
+            <h3 className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+              Em breve
+            </h3>
+            <div className="mt-2 flex flex-col gap-2">
+              {plannedApps.map((app) => (
+                <div
+                  key={app.id}
+                  data-testid={`ecosystem-planned-${app.id}`}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-card px-3 py-1.5"
+                >
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: `${app.color}1f`, color: app.color }}
+                  >
+                    <IconFor app={app} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[10px] font-semibold text-fg">
+                      {app.name}
+                    </span>
+                    <span className="block truncate text-[10px] text-fg-muted">
+                      {app.description}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[10px] font-semibold text-fg-muted">
+                    em breve
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </section>
   )
