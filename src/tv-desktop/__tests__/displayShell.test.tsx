@@ -3,6 +3,25 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { DisplayShell } from '../DisplayShell'
 import { loadConfig, type DeviceConfig } from '../config'
 
+/* DisplayShell monta o MusicPlayerProvider real, que por sua vez dispara
+ * fetch/realtime/poll assíncronos que podem resolver após o teardown do arquivo
+ * (setState em `window` já desmontado → ReferenceError no CI). Este teste não
+ * valida música, então o provedor entra como pass-through — mesmo padrão de
+ * desktopKeepsPlayer.test.tsx. */
+vi.mock('../../apps/tv/contexts/MusicPlayerContext', () => ({
+  MusicPlayerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMusicPlayer: () => ({
+    currentTrack: null,
+    isPlaying: false,
+    shuffle: false,
+    currentTrackIndex: 0,
+    tracks: [],
+    playOrder: [],
+    togglePlay: vi.fn(),
+    setPlaying: vi.fn(),
+  }),
+}))
+
 /* Mock do ScreenRenderer: prova que o DisplayShell delega a decisão de tela
  * a ele (em vez de montar TvDisplay diretamente) e repassa a config inteira. */
 vi.mock('../ScreenRenderer', () => ({
