@@ -38,7 +38,7 @@ export default defineConfig({
         ],
         shortcuts: [
           { name: 'PCs', short_name: 'PCs', url: '/pc-care/pcs' },
-          { name: 'Scanner', short_name: 'Scanner', url: '/pcare/asset-scanner' },
+          { name: 'Scanner', short_name: 'Scanner', url: '/pc-care/scanner' },
           { name: 'Estoque Geral', short_name: 'Estoque', url: '/general-stock' },
         ],
       },
