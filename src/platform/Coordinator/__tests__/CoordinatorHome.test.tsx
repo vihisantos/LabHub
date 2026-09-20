@@ -1639,3 +1639,251 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(screen.queryByTestId('coordinator-units-grid')).toBeNull()
   })
 })
+
+describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem trocar workspace global', () => {
+  function LocationProbe() {
+    const loc = useLocation()
+    return <span data-testid="context-location-probe" data-search={loc.search} />
+  }
+
+  function campusB(): CoordinatedUnit {
+    return {
+      coordination: membership('coordination-ws2', 'u-coord', 'ws2'),
+      unitId: 'ws2',
+      unitName: 'Campus B',
+      leaders: [
+        {
+          leadership: membership('ms-lider-b', 'u-lider-b', 'ws2', {
+            managed_by: 'coordination-ws2',
+            role_id: 'role-lider',
+          }),
+          profile: {
+            id: 'u-lider-b',
+            name: 'Bia Líder',
+            email: 'bia@b.com',
+            status: 'active',
+            roleId: 'role-lider',
+          },
+          members: [teamMember('mb1', 'Técnico B', 'role-technician', 'ms-lider-b')],
+        },
+      ],
+    }
+  }
+
+  function renderHomeAtContext(
+    entry: string,
+    units: CoordinatedUnit[],
+    over: Partial<ReturnType<typeof mockUseCoordinator>> = {},
+  ) {
+    setupOverrides({ units, ...over })
+    const view = render(
+      <MemoryRouter initialEntries={[entry]}>
+        <CoordinatorHome />
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    return {
+      probe: screen.getByTestId('context-location-probe'),
+      unmount: view.unmount,
+    }
+  }
+
+  const twoUnits = () => [unitWithData(), campusB()]
+
+  const tk = (
+    id: string,
+    workspaceId: string,
+    status:
+      | 'aberto'
+      | 'a_caminho'
+      | 'em_atendimento'
+      | 'resolvido'
+      | 'fechado' = 'aberto',
+    assigned: boolean = false,
+  ) => ({
+    id,
+    workspace_id: workspaceId,
+    roomId: '',
+    roomName: 'Sala',
+    assetName: 'Computador',
+    problemCategory: 'Problema',
+    status,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    archived: false,
+    ...(assigned ? { assignedToUserId: 'u-tec' } : {}),
+  })
+
+  beforeEach(() => {
+    clearCache()
+  })
+
+  it('seletor aparece apenas para coordenador MULTIUNIDADE, com "Todas as unidades" ativo', async () => {
+    renderHomeAtContext('/coordenador', twoUnits())
+    await act(async () => {})
+
+    const scope = screen.getByTestId('coordinator-unit-context')
+    expect(scope).toBeInTheDocument()
+    expect(screen.getByTestId('unit-context-all')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('unit-context-ws1')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('unit-context-ws2')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('Campus A')).toBeTruthy()
+    expect(screen.getByText('Campus B')).toBeTruthy()
+  })
+
+  it('coordenador de UNIDADE ÚNICA não exibe seletor (sem ruído no gesto único)', async () => {
+    renderHomeAtContext('/coordenador', [unitWithData()])
+    await act(async () => {})
+
+    expect(screen.queryByTestId('coordinator-unit-context')).toBeNull()
+    expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+  })
+
+  it('selecionar uma unidade atualiza ?unit= e filtra apresentação sem mudar workspace global', async () => {
+    const { probe } = renderHomeAtContext('/coordenador', twoUnits())
+    await act(async () => {})
+
+    fireEvent.click(screen.getByTestId('unit-context-ws2'))
+    await act(async () => {})
+
+    expect(probe).toHaveAttribute('data-search', '?unit=ws2')
+    expect(workspaceContextMock.setWorkspace).not.toHaveBeenCalled()
+    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
+    expect(screen.queryByText('Unidade: Campus A')).toBeNull()
+    expect(screen.getByTestId('unit-context-ws2')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('unit-context-all')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('voltar a "Todas as unidades" remove ?unit= e restaura o escopo completo', async () => {
+    const { probe } = renderHomeAtContext('/coordenador?unit=ws2', twoUnits())
+    await act(async () => {})
+
+    expect(screen.queryByText('Unidade: Campus A')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('unit-context-all'))
+    await act(async () => {})
+
+    expect(probe).toHaveAttribute('data-search', '')
+    expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
+    expect(screen.getByTestId('unit-context-all')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('filtro é refletido na aba Pessoal (?tab=people&unit=ws2)', async () => {
+    renderHomeAtContext('/coordenador?tab=people&unit=ws2', twoUnits())
+    await act(async () => {})
+
+    expect(screen.getByTestId('tab-people')).toBeInTheDocument()
+    expect(screen.getByTestId('tab-people-unit-ws2')).toBeInTheDocument()
+    expect(screen.queryByTestId('tab-people-unit-ws1')).toBeNull()
+    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
+    expect(screen.queryByText('Unidade: Campus A')).toBeNull()
+  })
+
+  it('filtro é refletido na aba Chamados (?tab=tickets&unit=ws2) — só tickets da unidade', async () => {
+    setCol('chamados', [
+      tk('t-a', 'ws1'),
+      tk('t-b', 'ws2'),
+      tk('t-b2', 'ws2', 'em_atendimento'),
+    ])
+    renderHomeAtContext('/coordenador?tab=tickets&unit=ws2', twoUnits())
+    await act(async () => {})
+
+    expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
+    expect(screen.getByTestId('tickets-kpi-abertos')).toHaveTextContent('1')
+  })
+
+  it('filtro é refletido na aba Ecossistema (?tab=ecosystem&unit=ws2)', async () => {
+    renderHomeAtContext('/coordenador?tab=ecosystem&unit=ws2', twoUnits())
+    await act(async () => {})
+
+    expect(screen.getByTestId('tab-ecosystem')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-module-tv')).toBeInTheDocument()
+    // module rows são por unidade: com filtro ws2 só há uma linha por módulo
+    const tv = screen.getByTestId('ecosystem-module-tv')
+    expect(within(tv).queryByText('Campus A')).toBeNull()
+    expect(within(tv).getByText('Campus B')).toBeTruthy()
+  })
+
+  it('deep link ?unit= válido abre direto na unidade (e ?tab= é preservado)', async () => {
+    const { probe } = renderHomeAtContext('/coordenador?tab=people&unit=ws1', twoUnits())
+    await act(async () => {})
+
+    expect(probe).toHaveAttribute('data-search', '?tab=people&unit=ws1')
+    expect(screen.getByTestId('tab-people-unit-ws1')).toBeInTheDocument()
+    expect(screen.queryByTestId('tab-people-unit-ws2')).toBeNull()
+    expect(screen.getByRole('tab', { name: 'Pessoal' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('?unit= inexistente/fora do escopo cai no fail-closed (Todas as unidades)', async () => {
+    renderHomeAtContext('/coordenador?unit=ws999', twoUnits())
+    await act(async () => {})
+
+    expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
+    expect(screen.getByTestId('unit-context-all')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('preserva os data-testid existentes do escopo com ?unit= ativo', async () => {
+    setBp('desktop')
+    mockGetCoordinatorRequests.mockImplementation(async (ws: string) =>
+      ws === 'ws2' ? [pendingRequest('pb', 'Pessoa B')] : [],
+    )
+    renderHomeAtContext('/coordenador?unit=ws2', twoUnits())
+    await act(async () => {})
+
+    expect(screen.getByTestId('overview-kpis')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-sla')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-recents')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-requests')).toBeInTheDocument()
+    expect(screen.getByTestId('coordinator-units-grid')).toBeInTheDocument()
+    expect(screen.getByTestId('coordinator-side-info')).toBeInTheDocument()
+    expect(screen.getByText('Pessoa B')).toBeTruthy()
+  })
+
+  it('trocar de unidade NÃO dispara nenhuma RPC nova de pessoal/visão (dados já carregados)', async () => {
+    renderHomeAtContext('/coordenador', twoUnits())
+    await act(async () => {})
+
+    const requestsCalls = mockGetCoordinatorRequests.mock.calls.length
+    const inactiveCalls = mockGetCoordinatorInactiveMembers.mock.calls.length
+    const overviewCalls = mockGetCoordinatorUnitOverview.mock.calls.length
+
+    fireEvent.click(screen.getByTestId('unit-context-ws2'))
+    await act(async () => {})
+    fireEvent.click(screen.getByTestId('unit-context-all'))
+    await act(async () => {})
+
+    expect(mockGetCoordinatorRequests.mock.calls.length).toBe(requestsCalls)
+    expect(mockGetCoordinatorInactiveMembers.mock.calls.length).toBe(inactiveCalls)
+    expect(mockGetCoordinatorUnitOverview.mock.calls.length).toBe(overviewCalls)
+    expect(workspaceContextMock.setWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('sem unidades no escopo → o seletor nem aparece (fail-closed)', async () => {
+    renderHomeAtContext('/coordenador', [])
+    await act(async () => {})
+
+    expect(screen.getByText('Você ainda não tem unidades de coordenação atribuídas')).toBeTruthy()
+    expect(screen.queryByTestId('coordinator-unit-context')).toBeNull()
+  })
+
+  it('manter ?unit= ao trocar de aba (voltar/avançar previsível entre abas)', async () => {
+    const { probe, unmount } = renderHomeAtContext('/coordenador?unit=ws2', twoUnits())
+    await act(async () => {})
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chamados' }), { button: 0 })
+    await act(async () => {})
+
+    expect(probe).toHaveAttribute('data-search', '?unit=ws2&tab=tickets')
+    expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
+
+    // "voltar": remonta no URL anterior → mesma unidade restaurada (sem estado extra)
+    unmount()
+    const { probe: probe2 } = renderHomeAtContext('/coordenador?unit=ws2&tab=tickets', twoUnits())
+    await act(async () => {})
+    expect(probe2).toHaveAttribute('data-search', '?unit=ws2&tab=tickets')
+    expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Chamados' })).toHaveAttribute('aria-selected', 'true')
+  })
+})
