@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
+import { Tabs, TabsContent } from '../../lib/components/ui/tabs'
 import {
   approveCoordinatorMembership,
   getCoordinatorAssignableRoles,
@@ -37,15 +38,23 @@ import { icons } from '../../lib/icons'
 import { cn } from '../../lib/components/ui/utils'
 import { PageContainer, ResponsiveGrid, useBreakpoint } from '../../responsive'
 import { initials, roleLabelFor } from './coordinatorHelpers'
+import { isCoordinatorTabId, type CoordinatorTabId } from './coordinatorTabs'
 import { AssignManagerSheet } from './components/AssignManagerSheet'
 import { ConfirmActionSheet } from './components/ConfirmActionSheet'
 import { CoordinatorHeader } from './components/CoordinatorHeader'
 import { CoordinatorMetricCard } from './components/CoordinatorMetricCard'
 import { CoordinatorPanel } from './components/CoordinatorPanel'
+import { CoordinatorTabs } from './components/CoordinatorTabs'
 import { InactiveMembers } from './components/InactiveMembers'
 import { LeaderBlock } from './components/LeaderBlock'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
 import { UnitOverview } from './components/UnitOverview'
+import { CoordinatorAuditTab } from './tabs/CoordinatorAuditTab'
+import { CoordinatorEcosystemTab } from './tabs/CoordinatorEcosystemTab'
+import { CoordinatorPeopleTab } from './tabs/CoordinatorPeopleTab'
+import { CoordinatorReportsTab } from './tabs/CoordinatorReportsTab'
+import { CoordinatorReservaLabTab } from './tabs/CoordinatorReservaLabTab'
+import { CoordinatorTicketsTab } from './tabs/CoordinatorTicketsTab'
 
 interface AssignTarget {
   member: TeamMember
@@ -117,13 +126,38 @@ const CONFIRM_COPY: Record<
  * de solicitações/inativos/cargos continuam por unidade (fetch por seção) — a
  * consolidação em um único serviço composto é melhoria futura documentada (não
  * alterar o contrato de dados nesta fase).
+ *
+ * PR C — Central por abas (Visão Geral | Pessoal | Chamados | ReservaLab |
+ * Relatórios | Auditoria | Ecossistema). O shell mantém as leituras/sheets e
+ * recompõe o conteúdo por abas (faixa em `components/CoordinatorTabs`); a aba
+ * ativa vive na URL (`?tab=`) com fallback seguro para a Visão Geral. A Visão
+ * Geral CONSUME DIRETAMENTE os painéis da PR B/#250 (KPIs, recentes, SLA e
+ * pendências) e a grade de unidades/side rail que a Central já exibia — nada é
+ * reimplementado. Abas de fase futura (ReservaLab/Relatórios/Auditoria) são
+ * informativas — nada é buscado; o Ecossistema lista apps do `appRegistry` com
+ * disponibilidade por unidade (`disabled_apps`) e navega para a rota existente.
+ * Nenhum ciclo de dados novo (sem useTickets/poll/realtime).
  */
 export function CoordinatorHome() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { units, loading, failed, refresh } = useCoordinator()
   const { workspace, workspaces, setWorkspace } = useWorkspace()
   const { isDesktop, isWide } = useBreakpoint()
   const wideLayout = isDesktop || isWide
+
+  /**
+   * PR C — navegação por abas. A aba ativa vive na URL (`?tab=...`): refresh
+   * preserva a aba, voltar/avançar é previsível e `/coordenador` (sem query)
+   * abre sempre a Visão Geral. Tab inexistente cai no fallback seguro.
+   */
+  const rawTab = searchParams.get('tab')
+  const activeTab: CoordinatorTabId = rawTab && isCoordinatorTabId(rawTab) ? rawTab : 'overview'
+  const handleTabChange = (tab: string) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', tab)
+    setSearchParams(next)
+  }
 
   const [pending, setPending] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -370,6 +404,20 @@ export function CoordinatorHome() {
    * cards de "Equipe & Unidades" abaixo.
    */
   const scopeChamados = units.length === 1 ? openChamadosFor(units[0].unitId) : null
+
+  /**
+   * PR C — "Abrir módulo do Ecossistema": navega para a rota EXISTENTE do app
+   * no contexto da unidade (mesmo mecanismo do `openChamadosFor`). Não concede
+   * permissão; o próprio app revalida o acesso ao abrir.
+   */
+  const openAppFor = (unitId: string, path: string): (() => void) | null => {
+    const target = workspaces.find((w) => w.id === unitId)
+    if (!target) return null
+    return () => {
+      if (workspace?.id !== unitId) setWorkspace(target, { persist: false })
+      navigate(path)
+    }
+  }
 
   const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
   const memberCount = units.reduce(
@@ -1033,25 +1081,89 @@ export function CoordinatorHome() {
               </div>
             )}
 
-            {overviewPanels}
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
+              <CoordinatorTabs className="mb-4" />
 
-            {wideLayout ? (
-              <div className="mb-6 flex items-start gap-3">
-                <div className="min-w-0 flex-1">{unitsPanel}</div>
-                <aside
-                  data-testid="coordinator-side-info"
-                  className="sticky top-4 flex w-72 shrink-0 flex-col gap-3"
-                >
-                  {scopeRail}
-                  {infoPanel}
-                </aside>
-              </div>
-            ) : (
-              <div className={cn('mb-6 flex flex-col gap-3')}>
-                {unitsPanel}
-                {infoPanel}
-              </div>
-            )}
+              <TabsContent value="overview">
+                {overviewPanels}
+
+                {wideLayout ? (
+                  <div className="mb-6 flex items-start gap-3">
+                    <div className="min-w-0 flex-1">{unitsPanel}</div>
+                    <aside
+                      data-testid="coordinator-side-info"
+                      className="sticky top-4 flex w-72 shrink-0 flex-col gap-3"
+                    >
+                      {scopeRail}
+                      {infoPanel}
+                    </aside>
+                  </div>
+                ) : (
+                  <div className={cn('mb-6 flex flex-col gap-3')}>
+                    {unitsPanel}
+                    {infoPanel}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="people">
+                <CoordinatorPeopleTab
+                  units={units}
+                  requestsByUnit={requestsByUnit}
+                  requestsLoading={requestsLoading}
+                  requestsFailed={requestsFailed}
+                  onRetryRequests={() => void loadRequests()}
+                  inactiveByUnit={inactiveByUnit}
+                  inactiveLoading={inactiveLoading}
+                  inactiveFailed={inactiveFailed}
+                  onRetryInactive={() => void loadInactive()}
+                  pending={pending}
+                  rolesById={rolesById}
+                  onAssignMember={openAssignSheet}
+                  onUnassign={(member) => void confirmUnassign(member)}
+                  onManage={(member, unitName) => void openManageSheet(member, unitName)}
+                  onApproveRequest={(request) => void approveRequest(request)}
+                  onRejectRequest={(request) => openConfirm({ kind: 'reject', request })}
+                  onRestore={(member) => openConfirm({ kind: 'restore', member })}
+                  pendingCount={pendingCount}
+                  suspendedCount={suspendedCount}
+                  removedCount={removedCount}
+                  leaderCount={leaderCount}
+                  memberCount={memberCount}
+                />
+              </TabsContent>
+
+              <TabsContent value="tickets">
+                <CoordinatorTicketsTab
+                  units={units}
+                  activeKpis={activeKpis}
+                  recentTickets={recentTickets}
+                  unitNameOf={unitNameOf}
+                  openChamadosFor={openChamadosFor}
+                  openTicketFor={openTicketFor}
+                />
+              </TabsContent>
+
+              <TabsContent value="reservalab">
+                <CoordinatorReservaLabTab />
+              </TabsContent>
+
+              <TabsContent value="reports">
+                <CoordinatorReportsTab />
+              </TabsContent>
+
+              <TabsContent value="audit">
+                <CoordinatorAuditTab />
+              </TabsContent>
+
+              <TabsContent value="ecosystem">
+                <CoordinatorEcosystemTab
+                  units={units}
+                  workspaces={workspaces}
+                  onOpenApp={openAppFor}
+                />
+              </TabsContent>
+            </Tabs>
           </>
         )}
 
