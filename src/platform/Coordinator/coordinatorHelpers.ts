@@ -1,6 +1,8 @@
 import type { Membership, TeamMember, TeamMemberProfile } from '../../core/permissions/membership'
 import { permissionService } from '../../core/permissions/service'
 import type {
+  CoordinatorInactiveMember,
+  CoordinatorRequest,
   CoordinatorRoleOption,
   CoordinatedUnit,
 } from '../../core/permissions/coordinatorService'
@@ -72,4 +74,52 @@ export function managerOptionsForMember(
     })
   }
   return options
+}
+
+/**
+ * C4 (PR B #236) — SOMA dos indicadores de Pessoal da Central.
+ *
+ * Função pura equivalente à computação inline de `CoordinatorHome.tsx`
+ * (líderes / membros / pendências / suspensos / removidos). Recebe SOMENTE os
+ * dados que o chamador já autorizou e agrega sobre exatamente esses inputs —
+ * sem descoberta de unidades, sem `profiles.workspace_ids`, sem membership,
+ * Supabase, RPC, hooks ou cache. A autorização é da camada superior.
+ *
+ * Semântica preservada à risca (não simplificar):
+ * - `leaderCount`  = soma de `u.leaders.length`;
+ * - `memberCount`  = soma de `l.members.length` por liderança;
+ * - `pendingCount` = soma dos tamanhos de todas as listas de requests
+ *                    recebidas (conta a lista inteira, como o shell);
+ * - `suspendedCount` = membros inativos com `membership.status === 'suspended'`;
+ * - `removedCount`   = membros inativos com `membership.status === 'removed'`.
+ * Categorias suspensos × removidos permanecem separadas. Zero é legítimo.
+ */
+export interface CoordinatorPeopleSummary {
+  leaderCount: number
+  memberCount: number
+  pendingCount: number
+  suspendedCount: number
+  removedCount: number
+}
+
+export function summarizePeopleCounts(
+  units: CoordinatedUnit[],
+  requestsByUnit: Record<string, CoordinatorRequest[]>,
+  inactiveByUnit: Record<string, CoordinatorInactiveMember[]>,
+): CoordinatorPeopleSummary {
+  const leaderCount = units.reduce((acc, u) => acc + u.leaders.length, 0)
+  const memberCount = units.reduce(
+    (acc, u) => acc + u.leaders.reduce((a, l) => a + l.members.length, 0),
+    0,
+  )
+  const pendingCount = Object.values(requestsByUnit).reduce((acc, list) => acc + list.length, 0)
+  const suspendedCount = Object.values(inactiveByUnit).reduce(
+    (acc, list) => acc + list.filter((m) => m.membership.status === 'suspended').length,
+    0,
+  )
+  const removedCount = Object.values(inactiveByUnit).reduce(
+    (acc, list) => acc + list.filter((m) => m.membership.status === 'removed').length,
+    0,
+  )
+  return { leaderCount, memberCount, pendingCount, suspendedCount, removedCount }
 }
