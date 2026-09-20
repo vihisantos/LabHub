@@ -32,24 +32,17 @@ import {
   type SlaWorkspaceSummary,
 } from '../../apps/chamados/services/sla'
 import { icons } from '../../lib/icons'
-import { cn } from '../../lib/components/ui/utils'
-import { PageContainer, ResponsiveGrid, useBreakpoint } from '../../responsive'
-import { initials, roleLabelFor, summarizePeopleCounts } from './coordinatorHelpers'
+import { PageContainer, useBreakpoint } from '../../responsive'
+import { roleLabelFor, summarizePeopleCounts } from './coordinatorHelpers'
 import { isCoordinatorTabId, type CoordinatorTabId } from './coordinatorTabs'
 import { AssignManagerSheet } from './components/AssignManagerSheet'
 import { ConfirmActionSheet } from './components/ConfirmActionSheet'
 import { CoordinatorHeader } from './components/CoordinatorHeader'
-import { CoordinatorPanel } from './components/CoordinatorPanel'
 import { CoordinatorTabs } from './components/CoordinatorTabs'
-import { CoordinatorRecentTickets } from './components/CoordinatorRecentTickets'
-import { CoordinatorSlaPanel } from './components/CoordinatorSlaPanel'
-import { CoordinatorTicketsPanel } from './components/CoordinatorTicketsPanel'
-import { InactiveMembers } from './components/InactiveMembers'
-import { LeaderBlock } from './components/LeaderBlock'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
-import { UnitOverview } from './components/UnitOverview'
 import { CoordinatorAuditTab } from './tabs/CoordinatorAuditTab'
 import { CoordinatorEcosystemTab } from './tabs/CoordinatorEcosystemTab'
+import { CoordinatorOverviewTab } from './tabs/CoordinatorOverviewTab'
 import { CoordinatorPeopleTab } from './tabs/CoordinatorPeopleTab'
 import { CoordinatorReportsTab } from './tabs/CoordinatorReportsTab'
 import { CoordinatorReservaLabTab } from './tabs/CoordinatorReservaLabTab'
@@ -541,242 +534,6 @@ export function CoordinatorHome() {
 
   const confirmCopy = confirmTarget ? CONFIRM_COPY[confirmTarget.kind] : null
 
-  const unitsPanel = (
-    <ResponsiveGrid minWidth={380} maxWidth={560} data-testid="coordinator-units-grid" gap={12}>
-      {units.map((unit) => {
-        const unitRequests = requestsByUnit[unit.unitId] ?? []
-        return (
-          <section key={unit.unitId} className="rounded-2xl border border-line bg-card p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="min-w-0 truncate text-sm font-semibold text-fg">
-                Unidade: {unit.unitName}
-              </p>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {unitRequests.length > 0 && (
-                  <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                    {unitRequests.length} pendente{unitRequests.length !== 1 ? 's' : ''}
-                  </span>
-                )}
-                <span className="rounded-full bg-input px-2.5 py-0.5 text-[10px] font-semibold text-fg-dim">
-                  {unit.leaders.length} liderança{unit.leaders.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-            </div>
-
-            <UnitOverview
-              overview={overviewByUnit[unit.unitId] ?? null}
-              loading={overviewLoading}
-              failed={overviewFailed}
-              onRetry={() => void loadOverview()}
-              sla={slaByWorkspace[unit.unitId] ?? null}
-              onOpenChamados={openChamadosFor(unit.unitId)}
-              onOpenTicket={openTicketFor(unit.unitId)}
-            />
-
-            <InactiveMembers
-              members={inactiveByUnit[unit.unitId] ?? []}
-              loading={inactiveLoading}
-              failed={inactiveFailed}
-              pending={pending}
-              onRetry={() => void loadInactive()}
-              onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
-            />
-
-            {unit.leaders.length === 0 ? (
-              <p className="mt-3 text-[10px] leading-relaxed text-fg-muted">
-                Nenhuma liderança subordinada nesta unidade ainda.
-              </p>
-            ) : (
-              <ResponsiveGrid minWidth={256} gap={12} className="mt-3">
-                {unit.leaders.map((leader) => (
-                  <LeaderBlock
-                    key={leader.leadership.id}
-                    leader={leader}
-                    rolesById={rolesById}
-                    disabled={pending !== null}
-                    onAssign={(member) => openAssignSheet(unit, leader, member)}
-                    onUnassign={(member) => void confirmUnassign(member)}
-                    onManage={(member) => void openManageSheet(member, unit.unitName)}
-                  />
-                ))}
-              </ResponsiveGrid>
-            )}
-          </section>
-        )
-      })}
-    </ResponsiveGrid>
-  )
-
-  const infoPanel = (
-    <div className="rounded-2xl border border-dashed border-line bg-card p-5 text-center">
-      <p className="text-[10px] leading-relaxed text-fg-muted">
-        Nesta tela você aprova/rejeita solicitações, ajusta cargo (nunca adm ou coordinator) e o
-        status das memberships da unidade, além de vincular membros a um gestor. A criação de
-        memberships segue restrita ao administrador; o Postgres valida cada operação.
-      </p>
-    </div>
-  )
-
-  const scopeRail = (
-    <div className="rounded-2xl border border-line bg-card p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
-        Resumo do escopo
-      </p>
-      <ul className="mt-3 flex flex-col gap-2.5">
-        <li className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
-            <icons.ui.clock size={13} className="shrink-0" />
-            Solicitações pendentes
-          </span>
-          <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-            {pendingCount}
-          </span>
-        </li>
-        <li className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
-            <icons.ui.alertTriangle size={13} className="shrink-0 text-amber-600 dark:text-amber-400" />
-            Suspensos
-          </span>
-          <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-            {suspendedCount}
-          </span>
-        </li>
-        <li className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
-            <icons.ui.close size={13} className="shrink-0 text-red-500" />
-            Removidos
-          </span>
-          <span className="shrink-0 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500">
-            {removedCount}
-          </span>
-        </li>
-        <li className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
-            <icons.ui.shield size={13} className="shrink-0" />
-            Lideranças diretas
-          </span>
-          <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[10px] font-semibold text-fg-dim">
-            {leaderCount}
-          </span>
-        </li>
-      </ul>
-    </div>
-  )
-
-  const overviewPanels = (
-    <>
-      <CoordinatorTicketsPanel
-        stats={ticketStats}
-        sla={{ within: slaAgg.within, near: slaAgg.near, overdue: slaAgg.overdue }}
-        onOpenChamados={scopeChamados ?? undefined}
-      />
-
-      <ResponsiveGrid minWidth={400} gap={12} className="mb-6">
-        <CoordinatorRecentTickets
-          tickets={recentTickets}
-          resolveUnitName={unitNameOf}
-          onOpenTicket={recentOpenTicket}
-        />
-
-        <CoordinatorSlaPanel
-          within={slaAgg.within}
-          near={slaAgg.near}
-          overdue={slaAgg.overdue}
-          rateLabel={slaRateLabel}
-          onOpenChamados={scopeChamados ?? undefined}
-        />
-      </ResponsiveGrid>
-
-      <CoordinatorPanel
-        title="Solicitações / Pendências"
-        description={
-          pendingCount > 0
-            ? 'Aprovar ativa a membership na unidade; o vínculo a uma equipe é ajustado depois pelo gestor da unidade.'
-            : undefined
-        }
-        className="mb-6"
-        data-testid="overview-requests"
-      >
-        {requestsLoading ? (
-          <p className="inline-flex items-center gap-2 text-[10px] text-fg-muted">
-            <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-            Carregando solicitações...
-          </p>
-        ) : requestsFailed ? (
-          <div className="flex items-center gap-2">
-            <p className="flex-1 text-[10px] leading-relaxed text-red-500">
-              Não foi possível carregar as solicitações.
-            </p>
-            <button
-              type="button"
-              onClick={() => void loadRequests()}
-              className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
-            >
-              Tentar novamente
-            </button>
-          </div>
-        ) : allRequests.length === 0 ? (
-          <p className="text-[10px] text-fg-muted">Nenhuma solicitação pendente.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {allRequests.map((request) => {
-              const name = request.profile?.name ?? 'Membro sem perfil'
-              const approveKey = `approve-${request.membership.id}`
-              const rejectKey = `reject-${request.membership.id}`
-              return (
-                <li key={request.membership.id} className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
-                    {initials(name)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-semibold text-fg">{name}</span>
-                    {request.profile && (
-                      <span className="block truncate text-[10px] text-fg-muted">
-                        {request.profile.email}
-                      </span>
-                    )}
-                  </span>
-                  <span className="hidden shrink-0 rounded-full bg-input px-1.5 py-0.5 text-[10px] font-semibold text-fg-dim sm:inline">
-                    {request.unitName}
-                  </span>
-                  <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-                    Pendente
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void approveRequest(request)}
-                    disabled={pending !== null}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
-                  >
-                    {pending === approveKey ? (
-                      <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                    ) : (
-                      <icons.ui.check size={11} />
-                    )}
-                    Aprovar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openConfirm({ kind: 'reject', request })}
-                    disabled={pending !== null}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40"
-                  >
-                    {pending === rejectKey ? (
-                      <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                    ) : (
-                      <icons.ui.close size={11} />
-                    )}
-                    Rejeitar
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </CoordinatorPanel>
-    </>
-  )
-
   return (
     <div className="min-h-dvh bg-surface text-fg">
       <PageContainer className="pt-8 pb-8">
@@ -872,25 +629,45 @@ export function CoordinatorHome() {
               <CoordinatorTabs className="mb-4" />
 
               <TabsContent value="overview">
-                {overviewPanels}
-
-                {wideLayout ? (
-                  <div className="mb-6 flex items-start gap-3">
-                    <div className="min-w-0 flex-1">{unitsPanel}</div>
-                    <aside
-                      data-testid="coordinator-side-info"
-                      className="sticky top-4 flex w-72 shrink-0 flex-col gap-3"
-                    >
-                      {scopeRail}
-                      {infoPanel}
-                    </aside>
-                  </div>
-                ) : (
-                  <div className={cn('mb-6 flex flex-col gap-3')}>
-                    {unitsPanel}
-                    {infoPanel}
-                  </div>
-                )}
+                <CoordinatorOverviewTab
+                  wideLayout={wideLayout}
+                  units={units}
+                  ticketStats={ticketStats}
+                  slaAgg={slaAgg}
+                  slaRateLabel={slaRateLabel}
+                  scopeChamados={scopeChamados}
+                  recentTickets={recentTickets}
+                  unitNameOf={unitNameOf}
+                  recentOpenTicket={recentOpenTicket}
+                  requestsByUnit={requestsByUnit}
+                  requestsLoading={requestsLoading}
+                  requestsFailed={requestsFailed}
+                  onRetryRequests={() => void loadRequests()}
+                  allRequests={allRequests}
+                  inactiveByUnit={inactiveByUnit}
+                  inactiveLoading={inactiveLoading}
+                  inactiveFailed={inactiveFailed}
+                  onRetryInactive={() => void loadInactive()}
+                  overviewByUnit={overviewByUnit}
+                  overviewLoading={overviewLoading}
+                  overviewFailed={overviewFailed}
+                  onRetryOverview={() => void loadOverview()}
+                  slaByWorkspace={slaByWorkspace}
+                  onOpenChamados={openChamadosFor}
+                  onOpenTicket={openTicketFor}
+                  pending={pending}
+                  rolesById={rolesById}
+                  pendingCount={pendingCount}
+                  suspendedCount={suspendedCount}
+                  removedCount={removedCount}
+                  leaderCount={leaderCount}
+                  onAssignMember={openAssignSheet}
+                  onUnassign={(member) => void confirmUnassign(member)}
+                  onManage={(member, unitName) => void openManageSheet(member, unitName)}
+                  onApproveRequest={(request) => void approveRequest(request)}
+                  onRejectRequest={(request) => openConfirm({ kind: 'reject', request })}
+                  onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
+                />
               </TabsContent>
 
               <TabsContent value="people">
