@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom'
 import { clearCache, setCol } from '../../../lib/db'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
+import { isoToBrDate } from '../../../apps/reservalab/utils/tvEvent'
 import { CoordinatorHome } from '../CoordinatorHome'
 import { managerOptionsForMember } from '../coordinatorHelpers'
 import type { Ticket } from '../../../apps/chamados/types'
@@ -37,6 +38,8 @@ const mockRestoreCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
+const mockFetchReservas = vi.hoisted(() => vi.fn())
+const mockFetchTabletReservas = vi.hoisted(() => vi.fn())
 const workspaceContextMock = vi.hoisted(() => ({
   workspace: null as { id: string; name: string; slug: string } | null,
   workspaces: [] as Array<{
@@ -85,6 +88,14 @@ vi.mock('../../../core/permissions/usePermissions', () => ({
 
 vi.mock('../../../responsive/useBreakpoint', () => ({
   useBreakpoint: () => mockUseBreakpoint(),
+}))
+
+vi.mock('../../../apps/reservalab/services/api', () => ({
+  fetchReservas: (...args: unknown[]) => mockFetchReservas(...args),
+}))
+
+vi.mock('../../../apps/reservalab/services/supabase', () => ({
+  fetchTabletReservas: (...args: unknown[]) => mockFetchTabletReservas(...args),
 }))
 
 vi.mock('../../../core/permissions/coordinatorService', () => ({
@@ -218,6 +229,16 @@ function setupOverrides(overrides: Partial<ReturnType<typeof mockUseCoordinator>
   })
 }
 
+/** Chave YYYY-MM-DD de hoje no fuso do negócio (America/Sao_Paulo) — igual à da aba. */
+function spTodayKey(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
 function renderHome(units: CoordinatedUnit[]) {
   const refresh = vi.fn()
   setupOverrides({ units, refresh })
@@ -248,6 +269,8 @@ beforeEach(() => {
   workspaceContextMock.setWorkspace.mockReset()
   mockGetRoleForUser.mockReturnValue({ name: 'Líder' })
   mockGetLastCoordinatorServiceError.mockReturnValue(null)
+  mockFetchReservas.mockResolvedValue({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })
+  mockFetchTabletReservas.mockResolvedValue([])
   mockSetCoordinatorManager.mockResolvedValue(true)
   mockGetCoordinatorRequests.mockResolvedValue([])
   mockGetCoordinatorInactiveMembers.mockResolvedValue([])
@@ -1643,12 +1666,73 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/pc-care')
   })
 
-  it('abas futuras (ReservaLab/Relatórios/Auditoria) são informativas e não buscam nada', async () => {
+  it('abas futuras (Relatórios/Auditoria) são informativas e não buscam nada', async () => {
     renderHomeAt('/coordenador?tab=audit')
     await act(async () => {})
 
     expect(screen.getByTestId('tab-audit')).toBeInTheDocument()
     expect(screen.queryByTestId('coordinator-units-grid')).toBeNull()
+  })
+
+  it('aba ReservaLab (PR E) consolida em leitura: labs via slug, tablets via id, por unidade', async () => {
+    workspaceContextMock.workspaces = [
+      { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+    ]
+    const brKey = isoToBrDate(spTodayKey())
+    mockFetchReservas.mockResolvedValue({
+      lab1_reservas: [],
+      lab2_reservas: [],
+      lab_reservas: {
+        LAB01: [
+          {
+            horario: '07h30 às 09h20',
+            responsavel: 'Prof. Ana',
+            observacao: 'Química',
+            reserva_feita_por: 'Coordenação',
+            alunos: 12,
+            labs: ['LAB01'],
+            lab: 'LAB01',
+            data: brKey,
+          },
+        ],
+      },
+      reservas_semana: [],
+    })
+    mockFetchTabletReservas.mockResolvedValue([
+      {
+        id: 'tb-1',
+        sala: 'Sala 10',
+        quantidade_tablets: 10,
+        professor: 'Prof. Bruno',
+        horario_inicio: `${spTodayKey()}T11:00:00.000Z`,
+        horario_fim: `${spTodayKey()}T13:00:00.000Z`,
+        finalidade: 'Aula',
+        reservado_por: 'Coordenação',
+        status: 'ativa',
+        workspace_id: 'ws1',
+      },
+    ])
+
+    renderHomeAt('/coordenador?tab=reservalab', [unitWithData()])
+    await act(async () => {})
+
+    const unitBlock = screen.getByTestId('reservalab-unit-ws1')
+    expect(within(unitBlock).getByTestId('reservalab-lab-card')).toBeInTheDocument()
+    expect(within(unitBlock).getByText('Lab 01')).toBeInTheDocument()
+    expect(within(unitBlock).getByText(/Prof\. Ana/)).toBeInTheDocument()
+    expect(within(unitBlock).getByTestId('reservalab-tablet-card')).toBeInTheDocument()
+    expect(within(unitBlock).getByText('10 tablets')).toBeInTheDocument()
+
+    // Fontes corretas: labs por slug da workspace, tablets por id.
+    expect(mockFetchReservas).toHaveBeenCalledWith('campus-a')
+    expect(mockFetchTabletReservas).toHaveBeenCalledWith(
+      expect.any(Date),
+      expect.any(Date),
+      'ws1',
+    )
+
+    // Read-only: nenhum botão de criar/editar/cancelar/gerenciar.
+    expect(within(unitBlock).queryByRole('button')).toBeNull()
   })
 })
 

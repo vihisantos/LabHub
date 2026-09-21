@@ -126,9 +126,11 @@ const CONFIRM_COPY: Record<
  * ativa vive na URL (`?tab=`) com fallback seguro para a Visão Geral. A Visão
  * Geral CONSUME DIRETAMENTE os painéis da PR B/#250 (KPIs, recentes, SLA e
  * pendências) e a grade de unidades/side rail que a Central já exibia — nada é
- * reimplementado. Abas de fase futura (ReservaLab/Relatórios/Auditoria) são
- * informativas — nada é buscado; o Ecossistema lista apps do `appRegistry` com
- * disponibilidade por unidade (`disabled_apps`) e navega para a rota existente.
+ * reimplementado. ReservaLab (PR E) consolida, em LEITURA, reservas de labs
+ * (planilha) e tablets (Supabase) por unidade do escopo — sem escrita; as abas
+ * de fase futura (Relatórios/Auditoria) continuam informativas — nada é
+ * buscado; o Ecossistema lista apps do `appRegistry` com disponibilidade por
+ * unidade (`disabled_apps`) e navega para a rota existente.
  * Nenhum ciclo de dados novo (sem useTickets/poll/realtime).
  */
 export function CoordinatorHome() {
@@ -744,7 +746,10 @@ export function CoordinatorHome() {
               </TabsContent>
 
               <TabsContent value="reservalab">
-                <CoordinatorReservaLabTab />
+                <CoordinatorReservaLabTab
+                  units={visibleUnits}
+                  workspaces={workspaces}
+                />
               </TabsContent>
 
               <TabsContent value="reports">
