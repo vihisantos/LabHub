@@ -753,7 +753,7 @@ export function CoordinatorHome() {
               </TabsContent>
 
               <TabsContent value="reports">
-                <CoordinatorReportsTab />
+                <CoordinatorReportsTab units={visibleUnits} workspaces={workspaces} />
               </TabsContent>
 
               <TabsContent value="audit">
