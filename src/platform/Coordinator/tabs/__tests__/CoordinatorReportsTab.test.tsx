@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { CoordinatorReportsTab } from '../CoordinatorReportsTab'
+import { setCol } from '../../../../lib/db'
+import { slaConfigService } from '../../../../apps/chamados/services/slaConfigService'
 import type { CoordinatedUnit } from '../../../../core/permissions/coordinatorService'
 import type { Workspace } from '../../../../core/workspaces/types'
 import type { ChamadosReport } from '../../../../apps/chamados/types/report'
+import type { Ticket } from '../../../../apps/chamados/types'
 
 const mockUseAppAccess = vi.hoisted(() => vi.fn())
 const mockGetReports = vi.hoisted(() => vi.fn())
@@ -57,13 +60,35 @@ function report(): ChamadosReport {
   return {
     total: 6,
     byStatus: { resolvido: 4, aberto: 2 },
-    byPriority: { alta: 1, media: 5 },
+    byPriority: { alta: 1, normal: 5 },
+    byArea: { academica: 6 },
     avgResolutionHours: 18.5,
     feedback: { count: 8, average: 4.2 },
     byTechnician: [],
     byRoom: [],
     byCategory: {},
     period: { from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' },
+  }
+}
+
+function ticket(overrides: Partial<Ticket>): Ticket {
+  return {
+    id: 't1',
+    ticketNumber: 1,
+    workspace_id: 'ws1',
+    roomId: 'r1',
+    roomName: 'Sala 101',
+    assetName: 'Projetor',
+    problemCategory: 'Projetor',
+    problemDescription: 'não liga',
+    status: 'resolvido',
+    reportedBy: 'Prof. A',
+    reportedByEmail: 'a@labhub.local',
+    assignedTo: 'Técnico',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    resolvedAt: null,
+    ...overrides,
   }
 }
 
@@ -182,5 +207,110 @@ describe('CoordinatorReportsTab (F.1 — leitura honesta por unidade)', () => {
       expect.any(Array),
       expect.stringContaining('relatorios'),
     )
+  })
+
+  it('SLA do período varia com o período: 30d inclui resolvido que o intervalo de 7d exclui', async () => {
+    const now = Date.now()
+    const DAY = 24 * 60 * 60 * 1000
+    const resolvedAt = new Date(now - 10 * DAY).toISOString()
+    const createdAt = new Date(now - 11 * DAY).toISOString()
+    setCol('chamados', [
+      ticket({
+        id: 'r-10d',
+        workspace_id: 'ws1',
+        status: 'resolvido',
+        priority: 'normal',
+        createdAt,
+        updatedAt: resolvedAt,
+        resolvedAt,
+      }),
+    ])
+    mockGetReports.mockResolvedValue(report())
+
+    renderTab([unit('ws1', 'Campus A')], [workspace('ws1', 'campus-a')])
+    await waitFor(() => expect(screen.queryByTestId('reports-loading')).toBeNull())
+
+    const periodLine = () => screen.getByTestId('reports-unit-ws1-sla-period')
+    expect(periodLine()).toHaveTextContent(
+      'SLA do período (30d): 100% dentro · 1/1 resolvidos no prazo',
+    )
+
+    fireEvent.click(screen.getByTestId('reports-period-7'))
+    await waitFor(() => expect(mockGetReports).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(periodLine()).toHaveTextContent(
+        'SLA do período (7d): 0% dentro · 0/0 resolvidos no prazo',
+      ),
+    )
+  })
+
+  it('SLA operacional (agora) vem do cache bruto e é separado do SLA do período', async () => {
+    const now = Date.now()
+    const HOUR = 60 * 60 * 1000
+    setCol('chamados', [
+      ticket({
+        id: 'open-1',
+        workspace_id: 'ws1',
+        status: 'aberto',
+        priority: 'urgente',
+        createdAt: new Date(now - 3 * HOUR).toISOString(),
+      }),
+      ticket({
+        id: 'open-2',
+        workspace_id: 'ws1',
+        status: 'em_atendimento',
+        priority: 'normal',
+        createdAt: new Date(now - 30 * 60 * 1000).toISOString(),
+      }),
+    ])
+    mockGetReports.mockResolvedValue(report())
+
+    renderTab([unit('ws1', 'Campus A')], [workspace('ws1', 'campus-a')])
+    await waitFor(() => expect(screen.queryByTestId('reports-loading')).toBeNull())
+
+    expect(screen.getByTestId('reports-unit-ws1-sla-operational')).toHaveTextContent(
+      'SLA operacional (agora): 50% dentro (1 ok · 0 perto · 1 vencido)',
+    )
+    expect(screen.getByTestId('reports-unit-ws1-sla-period')).toHaveTextContent('0/0')
+  })
+
+  it('renderiza gráficos reais por unidade a partir das distribuições do relatório', async () => {
+    mockGetReports.mockResolvedValue(report())
+
+    renderTab([unit('ws1', 'Campus A')], [workspace('ws1', 'campus-a')])
+    await waitFor(() => expect(screen.queryByTestId('reports-loading')).toBeNull())
+
+    expect(screen.getByTestId('reports-unit-ws1-chart-status')).toBeInTheDocument()
+    expect(screen.getByTestId('reports-unit-ws1-chart-priority')).toBeInTheDocument()
+    expect(screen.getByTestId('reports-unit-ws1-chart-area')).toBeInTheDocument()
+    expect(screen.getByTestId('reports-unit-ws1-chart-status')).toHaveTextContent('6')
+  })
+
+  it('read-only: nenhuma escrita do SLA é invocada e toda busca passa workspace_id', async () => {
+    const getForSpy = vi.spyOn(slaConfigService, 'getFor')
+    const getHoursSpy = vi.spyOn(slaConfigService, 'getHours')
+    const updateSpy = vi.spyOn(slaConfigService, 'update')
+    mockGetReports.mockResolvedValue(report())
+
+    renderTab([unit('ws1', 'Campus A')], [workspace('ws1', 'campus-a')])
+    await waitFor(() => expect(screen.queryByTestId('reports-loading')).toBeNull())
+
+    expect(mockGetReports).toHaveBeenCalledTimes(1)
+    const args = mockGetReports.mock.calls[0][0] as {
+      workspace_id?: string
+      from?: string
+      to?: string
+    }
+    expect(args.workspace_id).toBe('ws1')
+    expect(args.from).toBeTruthy()
+    expect(args.to).toBeTruthy()
+
+    expect(getForSpy).not.toHaveBeenCalled()
+    expect(getHoursSpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+
+    getForSpy.mockRestore()
+    getHoursSpy.mockRestore()
+    updateSpy.mockRestore()
   })
 })

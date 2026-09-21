@@ -1,18 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
 import { icons } from '../../../lib/icons'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
-import { analyzeSlaByWorkspace } from '../../../apps/chamados/services/sla'
+import { analyzeSla, analyzeSlaByWorkspace } from '../../../apps/chamados/services/sla'
+import type { SlaAnalysis, SlaWorkspaceSummary } from '../../../apps/chamados/services/sla'
 import { slaConfigService } from '../../../apps/chamados/services/slaConfigService'
 import { exportCSV } from '../../../apps/pcare/utils/export'
 import { useAppAccess } from '../../../core/permissions/usePermissions'
 import { getCol } from '../../../lib/db'
+import { ChartCard, DonutChart, BarChart } from '../../../lib/charts'
 import { cn } from '../../../lib/components/ui/utils'
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
 import type { Workspace } from '../../../core/workspaces/types'
 import type { ChamadosReport } from '../../../apps/chamados/types/report'
 import type { Ticket } from '../../../apps/chamados/types'
+import {
+  PROBLEM_AREA_LABELS,
+  TICKET_PRIORITY_LABELS,
+  TICKET_STATUS_LABELS,
+} from '../../../apps/chamados/types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+const CHART_COLORS = ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#f43f5e', '#eab308', '#a855f7', '#ec4899']
 
 export interface CoordinatorReportsTabProps {
   units: CoordinatedUnit[]
@@ -36,32 +45,96 @@ function periodRange(days: number): { from: string; to: string } {
   return { from: from.toISOString(), to: to.toISOString() }
 }
 
-/** Status do SLA do app Chamados para uma unidade (reuso do cache bruto). */
-type UnitSla = { within: number; near: number; overdue: number; rate: number }
-
 interface UnitReportsState {
   workspace: Workspace | null
   report: ChamadosReport | null
   error: string | null
-  sla: UnitSla
+  /** SLA HISTÓRICO do período: resolvidos por `resolvedAt` no [from,to] da unidade. */
+  period: SlaAnalysis | null
+  /** SLA OPERACIONAL atual: cache bruto (abertos), sem período. */
+  operational: SlaWorkspaceSummary | null
 }
 
 function emptyUnitState(workspace: Workspace | null): UnitReportsState {
-  return { workspace, report: null, error: null, sla: { within: 0, near: 0, overdue: 0, rate: 0 } }
+  return { workspace, report: null, error: null, period: null, operational: null }
+}
+
+/**
+ * Análise histórica honesta do período: apenas chamados RESOLVIDOS da unidade
+ * com `resolvedAt` dentro de [from,to]. Reutiliza `analyzeSla` (mesma semântica
+ * do app) e os hours configurados por workspace (`getHoursForTickets`, leitura).
+ */
+function analyzePeriodSla(
+  tickets: Ticket[],
+  configs: ReturnType<typeof slaConfigService.getHoursForTickets>,
+  workspaceId: string,
+  from: string,
+  to: string,
+): SlaAnalysis {
+  const fromMs = new Date(from).getTime()
+  const toMs = new Date(to).getTime()
+  const resolved = tickets.filter((t) => {
+    if (t.workspace_id !== workspaceId) return false
+    if (!t.resolvedAt) return false
+    const ts = new Date(t.resolvedAt).getTime()
+    if (!Number.isFinite(ts)) return false
+    return ts >= fromMs && ts <= toMs
+  })
+  return analyzeSla(resolved, configs)
+}
+
+interface DonutDatum {
+  name: string
+  value: number
+  color: string
+}
+
+function distDonut(counts: Record<string, number>, labels: Record<string, string>): DonutDatum[] {
+  return Object.entries(counts)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v], i) => ({
+      name: labels[k] ?? k,
+      value: v,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }))
+}
+
+function distTotal(counts: Record<string, number>): number {
+  return Object.values(counts).reduce((s, v) => s + v, 0)
+}
+
+function areaBars(counts: Record<string, number>): { label: string; value: number; color: string }[] {
+  return Object.entries(counts)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v], i) => ({
+      label: PROBLEM_AREA_LABELS[k as keyof typeof PROBLEM_AREA_LABELS] ?? k,
+      value: v,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }))
 }
 
 /**
  * Aba "Relatórios" da Central (Fase F.1) — leitura honesta do escopo.
  *
  * Nenhuma consulta ampla: `getReports` é chamada POR UNIDADE com
- * `workspace_id` do membro da coordenação (o mesmo criterion que a ReservaLab
- * usa para labs). `Promise.allSettled` isola falha por unidade — uma unidade
- * com erro não derruba as demais e não vira "0" falso. O SLA vem do MESMO
- * cache bruto (`chamados`) que a Visão Geral usa (`analyzeSlaByWorkspace` +
- * `getHoursForTickets`), sem novo ciclo de polling/pull — nada é re-buscado.
+ * `workspace_id` do membro da coordenação. `Promise.allSettled` isola falha por
+ * unidade (resultado associado por `workspace_id`) — uma unidade com erro não
+ * derruba as demais e não vira "0" falso.
  *
- * Restrito (honesto): se o papel não pode acessar o app de Chamados, nada é
- * buscard — a aba mostra "acesso restrito" e não inventa número algum.
+ * SLA em DOIS blocos honestos, nunca misturados:
+ *  - "SLA do período": histórico real do intervalo selecionado, via `analyzeSla`
+ *    (resolvidos com `resolvedAt` em [from,to] por `workspace_id`).
+ *  - "SLA operacional (agora)": estado atual dos abertos, via
+ *    `analyzeSlaByWorkspace` sobre o MESMO cache bruto (`chamados`) da Visão
+ *    Geral — independente do período escolhido, rotulado como tal.
+ *
+ * Distribuições reais do período (`byStatus`, `byPriority`, `byArea`) usam os
+ * componentes existentes de `src/lib/charts` — nada de gráfico novo.
+ *
+ * Restrito (honesto): sem leitura de Chamados, a aba mostra "acesso restrito"
+ * e não inventa número algum.
  */
 export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsTabProps) {
   const { canAccessApp } = useAppAccess()
@@ -81,74 +154,84 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
     setLoading(true)
 
     const { from, to } = periodRange(periodKey)
+    const cache = getCol<Ticket>('chamados')
+    const configs = slaConfigService.getHoursForTickets()
 
     async function loadUnit(unit: CoordinatedUnit): Promise<UnitReportsState> {
       const workspace = workspaces.find((w) => w.id === unit.unitId) ?? null
       if (!workspace) {
         return { ...emptyUnitState(null), error: 'workspace não visível no escopo' }
       }
-      try {
-        const report = await ticketService.getReports({ from, to, workspace_id: unit.unitId })
-        return { ...emptyUnitState(workspace), report }
-      } catch {
-        return { ...emptyUnitState(workspace), error: 'Não foi possível carregar os relatórios desta unidade.' }
-      }
+      const report = await ticketService.getReports({ from, to, workspace_id: unit.unitId })
+      return { ...emptyUnitState(workspace), report }
     }
 
-    Promise.all(units.map(loadUnit))
-      .then((states) => {
-        if (cancelled) return
-        setByUnit((prev) => {
-          const next: Record<string, UnitReportsState> = {}
-          for (let i = 0; i < units.length; i++) {
-            const u = units[i]
-            const st = states[i]
-            const ws = st.workspace ?? prev[u.unitId]?.workspace ?? null
-            const wsSla = ws ? slaByWorkspace[ws.id] : undefined
-            next[u.unitId] = { ...st, workspace: ws, sla: wsSla ?? st.sla }
-            if (prev[u.unitId]?.workspace && !next[u.unitId].workspace) {
-              next[u.unitId].workspace = prev[u.unitId].workspace
-            }
+    Promise.allSettled(units.map((unit) => loadUnit(unit))).then((results) => {
+      if (cancelled) return
+      const next: Record<string, UnitReportsState> = {}
+      for (let i = 0; i < units.length; i++) {
+        const unit = units[i]
+        const workspace = workspaces.find((w) => w.id === unit.unitId) ?? null
+        const r = results[i]
+        if (r.status === 'fulfilled') {
+          next[unit.unitId] = r.value
+        } else {
+          next[unit.unitId] = {
+            ...emptyUnitState(workspace),
+            error: 'Não foi possível carregar os relatórios desta unidade.',
           }
-          return next
-        })
+        }
+        next[unit.unitId].period = analyzePeriodSla(cache, configs, unit.unitId, from, to)
+        next[unit.unitId].operational = analyzeSlaByWorkspace(cache, configs)[unit.unitId] ?? null
+      }
+      setByUnit((prev) => {
+        for (const uid of Object.keys(next)) {
+          const st = next[uid]
+          if (!st.workspace && prev[uid]?.workspace) {
+            st.workspace = prev[uid].workspace
+          }
+        }
+        return next
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
 
     return () => {
       cancelled = true
     }
   }, [allowed, units, workspaces, periodKey])
 
-  const slaByWorkspace = useMemo(() => {
-    const tickets = getCol<Ticket>('chamados')
-    const configs = slaConfigService.getHoursForTickets()
-    return analyzeSlaByWorkspace(tickets, configs)
-  }, [byUnit, periodKey])
-
   const unitIds = useMemo(() => units.map((u) => u.unitId), [units])
-  const resolved = byUnit
 
   function handleExportCsv() {
-    const headers = ['Unidade', 'Total', 'Abertos', 'Resolvidos', 'Tempo médio (h)', 'SLA dentro (%)']
+    const headers = [
+      'Unidade',
+      'Total',
+      'Abertos',
+      'Resolvidos',
+      'Tempo médio (h)',
+      'SLA no período (%)',
+      'SLA operacional (agora) (%)',
+    ]
     const rows = unitIds.map((uid) => {
-      const st = resolved[uid]
+      const st = byUnit[uid]
       const ws = st?.workspace
       const report = st?.report
       const total = report?.total ?? 0
       const resolvedCount = report?.byStatus?.resolvido ?? 0
       const open = report ? total - resolvedCount : 0
       const avg = report?.avgResolutionHours != null ? String(report.avgResolutionHours) : ''
-      const rate = st?.sla.rate ?? 0
+      const periodRate = st?.period?.rate ?? 0
+      const operationRate = st?.operational?.rate ?? 0
       return [
         ws?.name ?? uid,
         String(total),
         String(open),
         String(resolvedCount),
         avg,
-        `${rate}%`,
+        `${periodRate}%`,
+        `${operationRate}%`,
       ]
     })
     exportCSV(headers, rows, `relatorios-central-${periodKey}d`)
@@ -244,22 +327,49 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
                   )}
 
                   {!st.error && (
-                    <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                      <Kpi label="Total" value={st.report?.total ?? 0} tone="neutral" />
-                      <Kpi label="Abertos" value={totalOpen(st)} tone="violet" />
-                      <Kpi label="Resolvidos" value={st.report?.byStatus?.resolvido ?? 0} tone="emerald" />
-                      <Kpi label="Tempo médio (h)" value={fmtAvg(st.report?.avgResolutionHours)} tone="neutral" />
-                      <Kpi label="SLA dentro" value={`${st.sla.rate}%`} tone="emerald" />
-                      <Kpi label="Satisfação" value={fmtFeedback(st.report)} tone="neutral" />
-                    </div>
+                    <>
+                      <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                        <Kpi label="Total" value={st.report?.total ?? 0} tone="neutral" />
+                        <Kpi label="Abertos" value={totalOpen(st)} tone="violet" />
+                        <Kpi label="Resolvidos" value={st.report?.byStatus?.resolvido ?? 0} tone="emerald" />
+                        <Kpi label="Tempo médio (h)" value={fmtAvg(st.report?.avgResolutionHours)} tone="neutral" />
+                        <Kpi label="SLA no período" value={`${st.period?.rate ?? 0}%`} tone="emerald" />
+                        <Kpi label="Satisfação" value={fmtFeedback(st.report)} tone="neutral" />
+                      </div>
+
+                      <div className="mt-2 space-y-1 border-t border-line pt-2">
+                        <p data-testid={`reports-unit-${uid}-sla-period`} className="text-[10px] text-fg-muted">
+                          SLA do período ({periodKey}d): {st.period?.rate ?? 0}% dentro ·{' '}
+                          {st.period?.met ?? 0}/{st.period?.total ?? 0} resolvidos no prazo
+                        </p>
+                        <p data-testid={`reports-unit-${uid}-sla-operational`} className="text-[10px] text-fg-muted">
+                          SLA operacional (agora): {st.operational?.rate ?? 0}% dentro (
+                          {st.operational?.within ?? 0} ok · {st.operational?.near ?? 0} perto ·{' '}
+                          {st.operational?.overdue ?? 0} vencido{st.operational?.overdue === 1 ? '' : 's'})
+                        </p>
+                      </div>
+                    </>
                   )}
 
                   {st.report && (
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <p className="text-[11px] font-semibold text-fg">Distribuição</p>
-                      <span className="text-[10px] text-fg-muted">
-                        {Object.keys(st.report.byPriority ?? {}).length} prioridades
-                      </span>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <ChartCard title="Por status" subtitle={`Distribuição do período (${periodKey}d)`}>
+                        <div data-testid={`reports-unit-${uid}-chart-status`}>
+                          <DonutChart data={distDonut(st.report.byStatus, TICKET_STATUS_LABELS)} size={150} centralLabel={String(distTotal(st.report.byStatus))} centralSubLabel="chamados" />
+                        </div>
+                      </ChartCard>
+                      <ChartCard title="Por prioridade" subtitle={`Distribuição do período (${periodKey}d)`}>
+                        <div data-testid={`reports-unit-${uid}-chart-priority`}>
+                          <DonutChart data={distDonut(st.report.byPriority, TICKET_PRIORITY_LABELS)} size={150} centralLabel={String(distTotal(st.report.byPriority))} centralSubLabel="chamados" />
+                        </div>
+                      </ChartCard>
+                      {Object.keys(st.report.byArea).length > 0 && (
+                        <ChartCard title="Por área" subtitle="Chamados por área">
+                          <div data-testid={`reports-unit-${uid}-chart-area`}>
+                            <BarChart data={areaBars(st.report.byArea)} layout="horizontal" height={100} />
+                          </div>
+                        </ChartCard>
+                      )}
                     </div>
                   )}
                 </div>
