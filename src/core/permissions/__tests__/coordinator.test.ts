@@ -42,8 +42,8 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
       'pc-care': 'read',
       tv: 'read',
     })
-    // Nada além do escopo operacional: sem reservalab, sem dashboard, sem admin.
-    expect(role.appAccess.reservalab).toBeUndefined()
+    // PR E — ReservaLab entra em modo leitura (sem escrita). Sem dashboard, sem admin.
+    expect(role.appAccess.reservalab).toBe('read')
     expect(role.appAccess.dashboard).toBeUndefined()
     expect(role.appAccess.admin).toBeUndefined()
     // O default de registro continua sendo o Visualizador (regressão).
@@ -82,8 +82,8 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(permissionService.resolveAppAccess(role, user, 'stock')).toBe('read')
     expect(permissionService.resolveAppAccess(role, user, 'pc-care')).toBe('read')
     expect(permissionService.resolveAppAccess(role, user, 'tv')).toBe('read')
-    // Sem acesso fora do escopo (fail-closed: ausente = sem app).
-    expect(permissionService.resolveAppAccess(role, user, 'reservalab')).toBeNull()
+    // PR E — ReservaLab em leitura para o coordenador (fail-closed mantido p/ admin).
+    expect(permissionService.resolveAppAccess(role, user, 'reservalab')).toBe('read')
     expect(permissionService.resolveAppAccess(role, user, 'admin')).toBeNull()
   })
 
@@ -108,11 +108,13 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(permissionService.canWriteApp('stock')).toBe(true)
 
     as({ roleId: 'role-coordinator', is_super_admin: false })
-    // Coordenador: full em chamados, read (sem escrita) em stock/pc-care/tv.
+    // Coordenador: full em chamados, read (sem escrita) em stock/pc-care/tv/reservalab.
     expect(permissionService.canWriteApp('chamados')).toBe(true)
     expect(permissionService.canWriteApp('stock')).toBe(false)
     expect(permissionService.canWriteApp('pc-care')).toBe(false)
     expect(permissionService.canWriteApp('tv')).toBe(false)
+    // PR E — leitura do ReservaLab não concede escrita.
+    expect(permissionService.canWriteApp('reservalab')).toBe(false)
   })
 
   it('regressão: técnico (full) e visualizador (read) inalterados', () => {

@@ -112,6 +112,9 @@ export const DEFAULT_ROLES: Role[] = [
       stock: 'read',
       tv: 'read',
       chamados: 'full',
+      // PR E — ReservaLab em modo leitura na Central (visão consolidada).
+      // Escrita/gerenciamento continua restrita a quem tem 'full' no app.
+      reservalab: 'read',
     },
     isDefault: false,
     isLeadership: true,
