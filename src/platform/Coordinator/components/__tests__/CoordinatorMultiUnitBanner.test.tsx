@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { CoordinatorMultiUnitBanner } from '../CoordinatorMultiUnitBanner'
@@ -33,5 +35,19 @@ describe('CoordinatorMultiUnitBanner — integração 1:1 do SVG oficial', () =>
     expect(img.className).not.toMatch(
       /(invert|brightness|saturate|contrast|hue-rotate|grayscale|sepia)/,
     )
+  })
+})
+
+describe('CoordinatorMultiUnitBanner — asset (public/coord-banner.svg)', () => {
+  const asset = readFileSync(resolve(process.cwd(), 'public/coord-banner.svg'), 'utf8')
+
+  it('não possui mais o fundo externo sólido #1E1E1E (área externa transparente)', () => {
+    expect(asset).not.toMatch(/<rect width="1900" height="1106"[^>]*fill="#1E1E1E"/i)
+    expect(asset).not.toContain('#1E1E1E')
+  })
+
+  it('preserva dimensões, composição e as fotografias embutidas', () => {
+    expect(asset).toContain('viewBox="0 0 1900 1106"')
+    expect(asset.match(/xlink:href="data:image\//g) ?? []).toHaveLength(4)
   })
 })
