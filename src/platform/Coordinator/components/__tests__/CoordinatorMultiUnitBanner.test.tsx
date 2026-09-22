@@ -21,13 +21,6 @@ describe('CoordinatorMultiUnitBanner — integração 1:1 do SVG oficial', () =>
     expect(img).toHaveAttribute('src', '/coord-banner.svg')
   })
 
-  it('é um link para a rota EXISTENTE da Central do Coordenador (/coordenador)', () => {
-    renderBanner()
-
-    const link = screen.getByRole('link', { name: 'Abrir a Central do Coordenador' })
-    expect(link).toHaveAttribute('href', '/coordenador')
-  })
-
   it('não introduz hacks de tema (sem filter de cor na arte)', () => {
     renderBanner()
 
@@ -35,6 +28,55 @@ describe('CoordinatorMultiUnitBanner — integração 1:1 do SVG oficial', () =>
     expect(img.className).not.toMatch(
       /(invert|brightness|saturate|contrast|hue-rotate|grayscale|sepia)/,
     )
+  })
+})
+
+describe('CoordinatorMultiUnitBanner — interação: só o botão “Entrar” é clicável', () => {
+  it('existe um link CTA para /coordenador com data-testid e aria-label corretos', () => {
+    renderBanner()
+
+    const cta = screen.getByTestId('coordinator-multi-unit-banner-cta')
+    expect(cta.tagName).toBe('A')
+    expect(cta).toHaveAttribute('href', '/coordenador')
+    expect(cta).toHaveAttribute('aria-label', 'Abrir a Central do Coordenador')
+  })
+
+  it('o banner inteiro não é o link (container div, sem href e fora de qualquer <a>)', () => {
+    renderBanner()
+
+    const container = screen.getByTestId('coordinator-multi-unit-banner')
+    expect(container.tagName).toBe('DIV')
+    expect(container).not.toHaveAttribute('href')
+    expect(container.closest('a')).toBeNull()
+  })
+
+  it('o <img> NÃO está dentro de um <a>', () => {
+    renderBanner()
+
+    const img = screen.getByRole('img', { name: 'Central do Coordenador' })
+    expect(img.closest('a')).toBeNull()
+  })
+
+  it('o CTA é um hotspot irmão do <img> dentro do container relativo (não envolve o <img>)', () => {
+    renderBanner()
+
+    const container = screen.getByTestId('coordinator-multi-unit-banner')
+    const img = screen.getByRole('img', { name: 'Central do Coordenador' })
+    const cta = screen.getByTestId('coordinator-multi-unit-banner-cta')
+
+    expect(img.parentElement).toBe(container)
+    expect(cta.parentElement).toBe(container)
+    expect(cta.contains(img)).toBe(false)
+  })
+
+  it('posiciona o hotspot responsivo sobre a região do botão “Entrar” (percentuais do viewBox 1900×1106)', () => {
+    renderBanner()
+
+    const cta = screen.getByTestId('coordinator-multi-unit-banner-cta')
+    expect(cta.style.left).toBe('13.82%')
+    expect(cta.style.top).toBe('58%')
+    expect(cta.style.width).toBe('21.58%')
+    expect(cta.style.height).toBe('8.32%')
   })
 })
 
