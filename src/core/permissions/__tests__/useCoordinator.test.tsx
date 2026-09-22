@@ -44,8 +44,20 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
     expect(mockedScope).toHaveBeenCalledTimes(1)
     expect(result.current.units).toHaveLength(2)
     expect(result.current.isCoordinator).toBe(true)
+    expect(result.current.isCoordinatorMultiUnit).toBe(true)
     expect(result.current.failed).toBe(false)
     expect(result.current.loading).toBe(false)
+  })
+
+  it('o cargo Coordenador Multiunidade é autorizado em UMA unidade (não é contagem >1)', async () => {
+    mockedScope.mockResolvedValue([unit('ws1')])
+    mockedError.mockReturnValue(null)
+
+    const { result } = renderHook(() => useCoordinator())
+    await act(async () => {})
+
+    expect(result.current.units).toHaveLength(1)
+    expect(result.current.isCoordinatorMultiUnit).toBe(true)
   })
 
   it('erro no servidor → failed=true (escopo não é inventado)', async () => {
@@ -58,6 +70,7 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
     expect(result.current.failed).toBe(true)
     expect(result.current.units).toEqual([])
     expect(result.current.isCoordinator).toBe(false)
+    expect(result.current.isCoordinatorMultiUnit).toBe(false)
   })
 
   it('vazio legítimo (sem unidades de coordenação) → failed=false (estado vazio honesto)', async () => {
@@ -69,6 +82,7 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
 
     expect(result.current.failed).toBe(false)
     expect(result.current.isCoordinator).toBe(false)
+    expect(result.current.isCoordinatorMultiUnit).toBe(false)
   })
 
   it('refresh re-consulta o escopo (retry)', async () => {
@@ -89,6 +103,7 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
     expect(result.current.failed).toBe(false)
     expect(result.current.units).toHaveLength(1)
     expect(result.current.isCoordinator).toBe(true)
+    expect(result.current.isCoordinatorMultiUnit).toBe(true)
   })
 
   it('enabled=false (ex.: guard de escopo team) não consulta o servidor nem sinaliza loading', async () => {
@@ -99,5 +114,6 @@ describe('useCoordinator — escopo de coordenação multiunidade (fail-closed)'
     expect(result.current.loading).toBe(false)
     expect(result.current.units).toEqual([])
     expect(result.current.isCoordinator).toBe(false)
+    expect(result.current.isCoordinatorMultiUnit).toBe(false)
   })
 })

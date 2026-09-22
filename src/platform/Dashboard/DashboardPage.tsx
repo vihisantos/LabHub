@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
+import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { useFastSync } from '../../lib/useFastSync'
+import { CoordinatorMultiUnitBanner } from '../Coordinator/components/CoordinatorMultiUnitBanner'
 import { MetricCard } from './MetricCard'
 import { ModuleStats } from './ModuleStats'
 import { QuickActions } from './QuickActions'
@@ -31,6 +33,17 @@ export function DashboardPage() {
   const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
   const { user } = useAuth()
+
+  /**
+   * Banner do Coordenador (Home): EXCLUSIVO do cargo "Coordenador Multiunidade"
+   * (slug `coordinator` no RBAC 2.0). A autorização vem de `isCoordinatorMultiUnit`
+   * do `useCoordinator()` — confirmação server-side (`get_coordinator_units`,
+   * fail-closed: só memberships ATIVAS do cargo). NÃO é inferência por número de
+   * unidades (`units.length > 1`); o número de unidades é consequência do cargo,
+   * não autorização. Sem o cargo, a Home segue como antes (sem espaço vazio).
+   */
+  const { isCoordinatorMultiUnit } = useCoordinator()
+  const showCoordinatorBanner = isCoordinatorMultiUnit
 
   useEffect(() => {
     if (user && !hasCompletedOnboarding(user.id)) {
@@ -89,33 +102,39 @@ export function DashboardPage() {
           </div>
         </header>
 
-        {metrics && (
-          <div className="mb-6 grid grid-cols-2 gap-3">
-            <MetricCard
-              label="Total de Ativos"
-              value={metrics.totalAssets}
-              icon={<icons.ui.package size={20} />}
-              color="#8b5cf6"
-            />
-            <MetricCard
-              label="Chamados Abertos"
-              value={metrics.openTickets}
-              icon={<icons.ui.alertCircle size={20} />}
-              color="#f59e0b"
-            />
-            <MetricCard
-              label="Computadores"
-              value={metrics.computersOnline}
-              icon={<icons.nav.pcs size={20} />}
-              color="#10b981"
-            />
-            <MetricCard
-              label="Críticos"
-              value={metrics.criticalTickets}
-              icon={<icons.ui.alertTriangle size={20} />}
-              color="#ef4444"
-            />
+        {showCoordinatorBanner ? (
+          <div className="mb-6">
+            <CoordinatorMultiUnitBanner />
           </div>
+        ) : (
+          metrics && (
+            <div className="mb-6 grid grid-cols-2 gap-3">
+              <MetricCard
+                label="Total de Ativos"
+                value={metrics.totalAssets}
+                icon={<icons.ui.package size={20} />}
+                color="#8b5cf6"
+              />
+              <MetricCard
+                label="Chamados Abertos"
+                value={metrics.openTickets}
+                icon={<icons.ui.alertCircle size={20} />}
+                color="#f59e0b"
+              />
+              <MetricCard
+                label="Computadores"
+                value={metrics.computersOnline}
+                icon={<icons.nav.pcs size={20} />}
+                color="#10b981"
+              />
+              <MetricCard
+                label="Críticos"
+                value={metrics.criticalTickets}
+                icon={<icons.ui.alertTriangle size={20} />}
+                color="#ef4444"
+              />
+            </div>
+          )
         )}
 
         <div className="mb-6">
