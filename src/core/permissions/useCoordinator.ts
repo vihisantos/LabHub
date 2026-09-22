@@ -16,6 +16,14 @@ import { getCoordinatorScope, getLastCoordinatorServiceError } from './coordinat
  * coordinator). NUNCA deriva de `profiles.role`/`user.roleId` (dados legados):
  * ter o cargo `coordinator` globalmente NÃO dá acesso — a área é das memberships
  * ativas que ele coordena.
+ *
+ * `isCoordinatorMultiUnit` é a presença do CARGO "Coordenador Multiunidade"
+ * (slug `coordinator` no RBAC 2.0) e autoriza o banner exclusivo da Central.
+ * É o MESMO dado server-side (`units` do `get_coordinator_units`, que só
+ * devolve memberships ATIVAS do cargo) — porém é UM CARGO, não uma inferência
+ * por quantidade de unidades: NUNCA `units.length > 1`. O número de unidades é
+ * consequência operacional do cargo, não autorização. Quem tem o cargo em uma
+ * única unidade segue sendo Coordenador Multiunidade.
  */
 export function useCoordinator(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true
@@ -50,5 +58,6 @@ export function useCoordinator(options?: { enabled?: boolean }) {
     failed,
     refresh,
     isCoordinator: units.length > 0,
+    isCoordinatorMultiUnit: units.length > 0,
   }
 }
