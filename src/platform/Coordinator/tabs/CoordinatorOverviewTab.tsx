@@ -117,9 +117,12 @@ export function CoordinatorOverviewTab({
       {units.map((unit) => {
         const unitRequests = requestsByUnit[unit.unitId] ?? []
         return (
-          <section key={unit.unitId} className="rounded-2xl border border-line bg-card p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="min-w-0 truncate text-sm font-semibold text-fg">
+          <section
+            key={unit.unitId}
+            className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-card)]"
+          >
+            <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
+              <p className="min-w-0 truncate text-sm font-semibold tracking-tight text-fg">
                 Unidade: {unit.unitName}
               </p>
               <div className="flex shrink-0 items-center gap-1.5">
@@ -154,23 +157,25 @@ export function CoordinatorOverviewTab({
             />
 
             {unit.leaders.length === 0 ? (
-              <p className="mt-3 text-[10px] leading-relaxed text-fg-muted">
+              <p className="border-t border-line px-4 py-3 text-[10px] leading-relaxed text-fg-muted">
                 Nenhuma liderança subordinada nesta unidade ainda.
               </p>
             ) : (
-              <ResponsiveGrid minWidth={256} gap={12} className="mt-3">
-                {unit.leaders.map((leader) => (
-                  <LeaderBlock
-                    key={leader.leadership.id}
-                    leader={leader}
-                    rolesById={rolesById}
-                    disabled={pending !== null}
-                    onAssign={(member) => onAssignMember(unit, leader, member)}
-                    onUnassign={onUnassign}
-                    onManage={(member) => onManage(member, unit.unitName)}
-                  />
-                ))}
-              </ResponsiveGrid>
+              <div className="border-t border-line px-4 pb-4 pt-3">
+                <ResponsiveGrid minWidth={256} gap={12}>
+                  {unit.leaders.map((leader) => (
+                    <LeaderBlock
+                      key={leader.leadership.id}
+                      leader={leader}
+                      rolesById={rolesById}
+                      disabled={pending !== null}
+                      onAssign={(member) => onAssignMember(unit, leader, member)}
+                      onUnassign={onUnassign}
+                      onManage={(member) => onManage(member, unit.unitName)}
+                    />
+                  ))}
+                </ResponsiveGrid>
+              </div>
             )}
           </section>
         )
@@ -179,8 +184,8 @@ export function CoordinatorOverviewTab({
   )
 
   const infoPanel = (
-    <div className="rounded-2xl border border-dashed border-line bg-card p-5 text-center">
-      <p className="text-[10px] leading-relaxed text-fg-muted">
+    <div className="rounded-2xl border border-dashed border-line bg-card px-5 py-5 text-center">
+      <p className="text-[11px] leading-relaxed text-fg-muted">
         Nesta tela você aprova/rejeita solicitações, ajusta cargo (nunca adm ou coordinator) e o
         status das memberships da unidade, além de vincular membros a um gestor. A criação de
         memberships segue restrita ao administrador; o Postgres valida cada operação.
@@ -189,12 +194,12 @@ export function CoordinatorOverviewTab({
   )
 
   const scopeRail = (
-    <div className="rounded-2xl border border-line bg-card p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+    <div className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-card)]">
+      <p className="border-b border-line px-4 pb-3 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
         Resumo do escopo
       </p>
-      <ul className="mt-3 flex flex-col gap-2.5">
-        <li className="flex items-center justify-between gap-2">
+      <ul className="flex flex-col gap-1 px-4 py-3">
+        <li className="flex items-center justify-between gap-2 rounded-lg px-1.5 py-1.5">
           <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
             <icons.ui.clock size={13} className="shrink-0" />
             Solicitações pendentes
@@ -203,7 +208,7 @@ export function CoordinatorOverviewTab({
             {pendingCount}
           </span>
         </li>
-        <li className="flex items-center justify-between gap-2">
+        <li className="flex items-center justify-between gap-2 rounded-lg px-1.5 py-1.5">
           <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
             <icons.ui.alertTriangle size={13} className="shrink-0 text-amber-600 dark:text-amber-400" />
             Suspensos
@@ -212,7 +217,7 @@ export function CoordinatorOverviewTab({
             {suspendedCount}
           </span>
         </li>
-        <li className="flex items-center justify-between gap-2">
+        <li className="flex items-center justify-between gap-2 rounded-lg px-1.5 py-1.5">
           <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
             <icons.ui.close size={13} className="shrink-0 text-red-500" />
             Removidos
@@ -221,7 +226,7 @@ export function CoordinatorOverviewTab({
             {removedCount}
           </span>
         </li>
-        <li className="flex items-center justify-between gap-2">
+        <li className="flex items-center justify-between gap-2 rounded-lg px-1.5 py-1.5">
           <span className="flex min-w-0 items-center gap-2 text-[11px] text-fg-muted">
             <icons.ui.shield size={13} className="shrink-0" />
             Lideranças diretas
@@ -353,18 +358,18 @@ export function CoordinatorOverviewTab({
       {overviewPanels}
 
       {wideLayout ? (
-        <div className="mb-6 flex items-start gap-3">
+        <div className="mb-6 flex items-start gap-4">
           <div className="min-w-0 flex-1">{unitsPanel}</div>
           <aside
             data-testid="coordinator-side-info"
-            className="sticky top-4 flex w-72 shrink-0 flex-col gap-3"
+            className="sticky top-6 flex w-72 shrink-0 flex-col gap-4"
           >
             {scopeRail}
             {infoPanel}
           </aside>
         </div>
       ) : (
-        <div className={cn('mb-6 flex flex-col gap-3')}>
+        <div className={cn('mb-6 flex flex-col gap-4')}>
           {unitsPanel}
           {infoPanel}
         </div>

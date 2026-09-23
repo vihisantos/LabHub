@@ -29,6 +29,9 @@ interface CoordinatorMetricCardProps {
  * KPI reutilizável da Central do Coordenador: número + rótulo (+ ícone). Sem
  * `onClick` vira um bloco estático de leitura; com `onClick` vira um `<button>`
  * (nunca um div clicável) para preservar foco/teclado/aria.
+ *
+ * Hierarquia tipográfica (PR1): número grande em tabular-nums, rótulo menor e
+ * em tom suave, ícone em caixa tonal — cor é sinal (accent) e não decoração.
  */
 export function CoordinatorMetricCard({
   label,
@@ -43,7 +46,7 @@ export function CoordinatorMetricCard({
       {icon && (
         <span
           className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200',
             TONE_BOX[tone],
           )}
         >
@@ -51,12 +54,17 @@ export function CoordinatorMetricCard({
         </span>
       )}
       <span className="min-w-0">
-        <span className="block truncate text-sm font-bold text-fg">{value}</span>
-        <span className="block truncate text-[10px] text-fg-muted">{label}</span>
+        <span className="block truncate text-[17px] font-bold leading-none tracking-tight text-fg tabular-nums">
+          {value}
+        </span>
+        <span className="mt-1 block truncate text-[11px] font-medium leading-none text-fg-muted">
+          {label}
+        </span>
       </span>
     </>
   )
-  const base = 'flex flex-1 items-center gap-2.5 rounded-xl border border-line bg-card px-3 py-3'
+  const base =
+    'flex flex-1 items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-3.5 transition-colors duration-200'
   if (onClick) {
     return (
       <button

@@ -32,7 +32,7 @@ export function LeaderBlock({
   const name = leader.profile?.name ?? 'Membro sem perfil'
   const leadershipMember: TeamMember = { membership: leader.leadership, profile: leader.profile }
   return (
-    <div key={leader.leadership.id} className="rounded-xl border border-line bg-surface px-3 py-2.5">
+    <div key={leader.leadership.id} className="rounded-xl bg-surface px-3 py-2.5">
       <div className="flex items-center gap-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-[11px] font-bold text-violet-600 dark:text-violet-400">
           {initials(name)}

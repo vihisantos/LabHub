@@ -27,18 +27,21 @@ export function CoordinatorPanel({
   return (
     <section
       data-testid={dataTestId}
-      className={cn('rounded-2xl border border-line bg-card p-4', className)}
+      className={cn(
+        'rounded-2xl border border-line bg-card px-5 py-4 shadow-[var(--shadow-card)]',
+        className,
+      )}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-fg">{title}</h2>
+          <h2 className="text-sm font-semibold tracking-tight text-fg">{title}</h2>
           {description && (
-            <p className="mt-0.5 text-[11px] leading-relaxed text-fg-muted">{description}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">{description}</p>
           )}
         </div>
-        {action && <div className="shrink-0">{action}</div>}
+        {action && <div className="mt-0.5 shrink-0">{action}</div>}
       </div>
-      {children && <div className="mt-3">{children}</div>}
+      {children && <div className="mt-4">{children}</div>}
     </section>
   )
 }

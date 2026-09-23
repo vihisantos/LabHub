@@ -34,15 +34,16 @@ export function CoordinatorUnitContext({
   const current = validActive ? activeUnitId : null
 
   const base =
-    'rounded-xl border border-line bg-card px-3 py-1.5 text-[11px] font-semibold text-fg-muted transition-colors'
-  const active = 'border-violet-500/40 bg-violet-500/15 text-violet-600 dark:text-violet-400'
+    'rounded-lg border border-line bg-card px-3 py-2 text-[11px] font-semibold text-fg-muted transition-all duration-200 hover:bg-input hover:text-fg active:scale-[0.98]'
+  const active =
+    'border-violet-500/40 bg-violet-500/15 text-violet-600 hover:bg-violet-500/15 hover:text-violet-600 shadow-[var(--shadow-card)] dark:text-violet-400'
 
   return (
     <div
       data-testid="coordinator-unit-context"
       role="group"
       aria-label="Contexto de exibição"
-      className="flex w-full flex-wrap items-center gap-1.5"
+      className="flex w-full flex-wrap items-center gap-2"
     >
       <button
         type="button"

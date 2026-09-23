@@ -38,7 +38,10 @@ export function CoordinatorSlaOverview({
   ]
 
   return (
-    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5" data-testid="coordinator-sla-overview">
+    <div
+      className="border-t border-line bg-surface px-4 py-3"
+      data-testid="coordinator-sla-overview"
+    >
       <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
         SLA da unidade
       </p>
@@ -46,10 +49,10 @@ export function CoordinatorSlaOverview({
         {stats.map((stat) => {
           const content = (
             <>
-              <span className="truncate text-[10px] text-fg-muted">{stat.label}</span>
+              <span className="truncate text-[11px] text-fg-muted">{stat.label}</span>
               <span
                 className={cn(
-                  'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold',
+                  'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums',
                   stat.tone,
                 )}
               >
@@ -78,7 +81,7 @@ export function CoordinatorSlaOverview({
           )
         })}
       </div>
-      <p className="mt-2 flex items-center gap-1 text-[10px] leading-relaxed text-fg-muted">
+      <p className="mt-1.5 flex items-center gap-1 text-[10px] leading-relaxed text-fg-muted">
         <icons.ui.clock size={11} className="shrink-0" />
         Mesmo ciclo de atualização do app Chamados — {total} chamado{total === 1 ? '' : 's'} com SLA aplicável.
       </p>

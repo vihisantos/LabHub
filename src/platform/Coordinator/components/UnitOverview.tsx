@@ -76,8 +76,11 @@ export function UnitOverview({
   const plural = (n: number) => (n === 1 ? '' : 's')
 
   return (
-    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5" data-testid="coordinator-unit-overview">
-      <div className="flex items-center justify-between gap-2">
+    <div
+      className="border-y border-line bg-surface"
+      data-testid="coordinator-unit-overview"
+    >
+      <div className="flex items-center justify-between gap-2 px-4 pt-3">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
           Visão da unidade
         </p>
@@ -85,7 +88,7 @@ export function UnitOverview({
           <button
             type="button"
             onClick={() => onOpenChamados()}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line bg-card px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
           >
             <icons.ui.chevronRight size={11} />
             Abrir chamados
@@ -94,12 +97,12 @@ export function UnitOverview({
       </div>
 
       {loading ? (
-        <p className="mt-2 inline-flex items-center gap-2 text-[10px] text-fg-muted">
+        <p className="mt-2.5 inline-flex items-center gap-2 px-4 pb-3 text-[10px] text-fg-muted">
           <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
           Carregando chamados da unidade...
         </p>
       ) : failed ? (
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2.5 flex items-center gap-2 px-4 pb-3">
           <p className="flex-1 text-[10px] leading-relaxed text-red-500">
             Não foi possível carregar a visão desta unidade.
           </p>
@@ -113,7 +116,7 @@ export function UnitOverview({
         </div>
       ) : (
         <>
-          <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-2 gap-1.5 px-4 sm:grid-cols-3">
             {STATS.map((stat) => {
               const value = tickets?.[stat.key] ?? 0
               const tone =
@@ -126,10 +129,10 @@ export function UnitOverview({
                       : 'bg-red-500/10 text-red-500'
               const content = (
                 <>
-                  <span className="truncate text-[10px] text-fg-muted">{stat.label}</span>
+                  <span className="truncate text-[11px] text-fg-muted">{stat.label}</span>
                   <span
                     className={cn(
-                      'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold',
+                      'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums',
                       tone,
                     )}
                   >
@@ -142,7 +145,7 @@ export function UnitOverview({
                   key={stat.key}
                   type="button"
                   onClick={() => onOpenChamados(CONTEXTUAL_DEST[stat.key])}
-                  className="flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-input"
+                  className="flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
                   data-testid={`unit-stat-${stat.key}`}
                 >
                   {content}
@@ -163,7 +166,7 @@ export function UnitOverview({
             onOpenChamados={onOpenChamados ? () => onOpenChamados() : null}
           />
           {(overview?.recent.length ?? 0) > 0 && (
-            <ul className="mt-2 flex flex-col gap-1.5">
+            <ul className="flex flex-col gap-1.5 px-4 pb-1 pt-2">
               {overview?.recent.slice(0, 3).map((ticket) => {
                 const content = (
                   <>
@@ -172,7 +175,7 @@ export function UnitOverview({
                       {ticket.roomName || 'Chamado'}
                       {ticket.problemCategory ? ` — ${ticket.problemCategory}` : ''}
                     </span>
-                    <span className="shrink-0 rounded-full bg-input px-1.5 py-0.5 font-semibold text-fg-dim">
+                    <span className="shrink-0 rounded-full bg-input px-1.5 py-0.5 font-semibold text-fg-dim tabular-nums">
                       #{ticket.ticketNumber}
                     </span>
                   </>
@@ -196,7 +199,7 @@ export function UnitOverview({
               })}
             </ul>
           )}
-          <p className="mt-2 text-[10px] leading-relaxed text-fg-muted">
+          <p className="px-4 pb-3 pt-2 text-[10px] leading-relaxed text-fg-muted">
             Resumo dos chamados ativos — {activeTotal} no total{plural(activeTotal)}. O
             atendimento completo continua no app de chamados da unidade.
           </p>

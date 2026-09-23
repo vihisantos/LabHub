@@ -28,7 +28,7 @@ export function InactiveMembers({
   const removed = members.filter((m) => m.membership.status === 'removed')
 
   return (
-    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5">
+    <div className="bg-surface px-4 py-3">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
         Membros inativos
       </p>

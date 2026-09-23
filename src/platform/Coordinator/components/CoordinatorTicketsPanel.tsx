@@ -87,7 +87,7 @@ export function CoordinatorTicketsPanel({
         className="mb-6"
         data-testid="overview-kpis"
       >
-        <ResponsiveGrid minWidth={220} maxWidth={360} gap={10}>
+        <ResponsiveGrid minWidth={220} maxWidth={360} gap={12}>
           <CoordinatorMetricCard
             label="Chamados operacionais"
             value={stats.total}

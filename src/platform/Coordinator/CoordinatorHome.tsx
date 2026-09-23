@@ -567,12 +567,12 @@ export function CoordinatorHome() {
         <CoordinatorHeader onBack={() => navigate('/')} />
 
         {loading ? (
-          <div className="flex flex-col items-center gap-3 py-14">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+          <div className="flex flex-col items-center gap-4 py-20">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
             <p className="text-xs text-fg-muted">Carregando seu escopo de coordenação...</p>
           </div>
         ) : failed ? (
-          <div className="rounded-2xl border border-dashed border-line bg-card p-6 text-center">
+          <div className="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
             <p className="text-sm font-semibold text-fg">Não foi possível carregar seu escopo</p>
             <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-fg-muted">
               Algo deu errado ao buscar as unidades sob sua coordenação. Tente novamente em
@@ -581,17 +581,17 @@ export function CoordinatorHome() {
             <button
               type="button"
               onClick={() => void refresh()}
-              className="mt-4 rounded-xl bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-400"
+              className="mt-5 rounded-xl bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-400"
             >
               Tentar novamente
             </button>
           </div>
         ) : units.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-line bg-card p-6 text-center">
+          <div className="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-500">
               <icons.ui.shield size={30} />
             </div>
-            <h2 className="mt-4 text-base font-semibold text-fg">
+            <h2 className="mt-5 text-base font-semibold text-fg">
               Você ainda não tem unidades de coordenação atribuídas
             </h2>
             <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-fg-muted">
@@ -601,36 +601,42 @@ export function CoordinatorHome() {
           </div>
         ) : (
           <>
-            <div className="mb-5 flex items-center gap-2.5">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fg-muted/10 text-fg-muted">
-                  <icons.ui.home size={16} />
+            <div className="mb-6 grid grid-cols-1 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card py-1 shadow-[var(--shadow-card)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="flex items-center gap-3.5 px-5 py-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-fg-muted/10 text-fg-muted">
+                  <icons.ui.home size={18} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-fg">{visibleUnits.length}</p>
-                  <p className="text-[10px] text-fg-muted">
+                  <p className="text-2xl font-bold leading-none tracking-tight text-fg tabular-nums">
+                    {visibleUnits.length}
+                  </p>
+                  <p className="mt-1.5 truncate text-[11px] font-medium text-fg-muted">
                     unidade{visibleUnits.length !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fg-muted/10 text-fg-muted">
-                  <icons.ui.shield size={16} />
+              <div className="flex items-center gap-3.5 px-5 py-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                  <icons.ui.shield size={18} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-fg">{leaderCount}</p>
-                  <p className="text-[10px] text-fg-muted">
+                  <p className="text-2xl font-bold leading-none tracking-tight text-fg tabular-nums">
+                    {leaderCount}
+                  </p>
+                  <p className="mt-1.5 truncate text-[11px] font-medium text-fg-muted">
                     liderança{leaderCount !== 1 ? 's' : ''} direta{leaderCount !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fg-muted/10 text-fg-muted">
-                  <icons.ui.userCheck size={16} />
+              <div className="flex items-center gap-3.5 px-5 py-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-fg-muted/10 text-fg-muted">
+                  <icons.ui.userCheck size={18} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-fg">{memberCount}</p>
-                  <p className="text-[10px] text-fg-muted">
+                  <p className="text-2xl font-bold leading-none tracking-tight text-fg tabular-nums">
+                    {memberCount}
+                  </p>
+                  <p className="mt-1.5 truncate text-[11px] font-medium text-fg-muted">
                     membro{memberCount !== 1 ? 's' : ''} nas equipes
                   </p>
                 </div>
