@@ -1,4 +1,4 @@
-import type { Membership, TeamMember, TeamMemberProfile } from '../../core/permissions/membership'
+import type { Membership, MembershipStatus, TeamMember, TeamMemberProfile } from '../../core/permissions/membership'
 import { permissionService } from '../../core/permissions/service'
 import type {
   CoordinatorInactiveMember,
@@ -122,4 +122,143 @@ export function summarizePeopleCounts(
     0,
   )
   return { leaderCount, memberCount, pendingCount, suspendedCount, removedCount }
+}
+
+/**
+ * PR 275 — DIRETÓRIO de pessoas da Central, READ-ONLY.
+ *
+ * A aba Pessoal vira uma visão de LEITURA do pessoal vinculado às unidades do
+ * escopo. Os dados vêm EXCLUSIVAMENTE das leituras fail-closed já existentes
+ * (o shell já as carrega por unidade):
+ *   - `units[].leaders`            → liderança subordinada direta + cada membro
+ *                                    da equipe (RPCs 047, escopo ativo);
+ *   - `requestsByUnit[unit]`       → memberships PENDING (RPC 065/066);
+ *   - `inactiveByUnit[unit]`       → memberships SUSPENDED/REMOVED (RPC 066).
+ *
+ * Nenhuma consulta nova ao banco: a autorização já foi decidida no servidor em
+ * cada uma dessas leituras — o diretório apenas PROJETA o mesmo conjunto.
+ * Administradores de workspace e pares de coordenação NÃO aparecem (linha
+ * vermelha: o coordenador não alcança adm/coordinator) e nenhum status é
+ * inventado — `membership.status` é a fonte de verdade.
+ */
+
+/** Linha do diretório: pessoa + a membership que a vincula à unidade do escopo. */
+export interface PeopleRow {
+  membership: Membership
+  profile: TeamMemberProfile | null
+  roleLabel: string
+  unitId: string
+  unitName: string
+  status: MembershipStatus
+}
+
+/** Status exibível (fonte: `membership.status` — nunca inventado). */
+export function peopleStatusLabel(status: MembershipStatus): string {
+  switch (status) {
+    case 'active':
+      return 'Ativo'
+    case 'pending':
+      return 'Pendente'
+    case 'suspended':
+      return 'Suspenso'
+    case 'removed':
+      return 'Removido'
+  }
+}
+
+/**
+ * Projeta o diretório do escopo (ver doc acima). Ordena por nome (locale pt-BR)
+ * e desduplica por `membership.id` (defesa: uma membership nunca fecha em duas
+ * fontes, mas se vier, não vira duas linhas).
+ */
+export function composePeopleRows(
+  units: CoordinatedUnit[],
+  requestsByUnit: Record<string, CoordinatorRequest[]>,
+  inactiveByUnit: Record<string, CoordinatorInactiveMember[]>,
+  rolesById: Map<string, CoordinatorRoleOption>,
+): PeopleRow[] {
+  const rows: PeopleRow[] = []
+  const seen = new Set<string>()
+  const push = (row: PeopleRow) => {
+    if (seen.has(row.membership.id)) return
+    seen.add(row.membership.id)
+    rows.push(row)
+  }
+
+  for (const unit of units) {
+    for (const leader of unit.leaders) {
+      push({
+        membership: leader.leadership,
+        profile: leader.profile,
+        roleLabel: roleLabelFor(leader.leadership, leader.profile, rolesById),
+        unitId: unit.unitId,
+        unitName: unit.unitName,
+        status: leader.leadership.status,
+      })
+      for (const member of leader.members) {
+        push({
+          membership: member.membership,
+          profile: member.profile,
+          roleLabel: roleLabelFor(member.membership, member.profile, rolesById),
+          unitId: unit.unitId,
+          unitName: unit.unitName,
+          status: member.membership.status,
+        })
+      }
+    }
+    for (const pending of requestsByUnit[unit.unitId] ?? []) {
+      push({
+        membership: pending.membership,
+        profile: pending.profile,
+        roleLabel: roleLabelFor(pending.membership, pending.profile, rolesById),
+        unitId: unit.unitId,
+        unitName: unit.unitName,
+        status: pending.membership.status,
+      })
+    }
+    for (const inactive of inactiveByUnit[unit.unitId] ?? []) {
+      push({
+        membership: inactive.membership,
+        profile: inactive.profile,
+        roleLabel: roleLabelFor(inactive.membership, inactive.profile, rolesById),
+        unitId: unit.unitId,
+        unitName: unit.unitName,
+        status: inactive.membership.status,
+      })
+    }
+  }
+
+  return rows.sort(
+    (a, b) =>
+      (a.profile?.name ?? '—').localeCompare(b.profile?.name ?? '—', 'pt-BR') ||
+      (a.profile?.email ?? '').localeCompare(b.profile?.email ?? ''),
+  )
+}
+
+export interface PeopleFilters {
+  query: string
+  status: MembershipStatus | 'all'
+}
+
+/**
+ * Filtro da UI (busca por nome/e-mail + status). Filtra SOMENTE o conjunto já
+ * escopado pelo servidor; nunca decide autorização. A busca é server-less de
+ * propósito: o volume vem das RPCs por unidade (pequeno) e a lista já está em
+ * memória — paginar no cliente não é necessário aqui.
+ */
+export function filterPeopleRows(
+  rows: PeopleRow[],
+  { query, status }: PeopleFilters,
+): PeopleRow[] {
+  const q = query.trim().toLocaleLowerCase('pt-BR')
+  return rows.filter((row) => {
+    if (status !== 'all' && row.status !== status) return false
+    if (q === '') return true
+    const name = row.profile?.name ?? ''
+    const email = row.profile?.email ?? ''
+    return (
+      name.toLocaleLowerCase('pt-BR').includes(q) ||
+      email.toLocaleLowerCase('pt-BR').includes(q)
+    )
+  })
 }

@@ -734,19 +734,7 @@ export function CoordinatorHome() {
                   inactiveLoading={inactiveLoading}
                   inactiveFailed={inactiveFailed}
                   onRetryInactive={() => void loadInactive()}
-                  pending={pending}
                   rolesById={rolesById}
-                  onAssignMember={openAssignSheet}
-                  onUnassign={(member) => void confirmUnassign(member)}
-                  onManage={(member, unitName) => void openManageSheet(member, unitName)}
-                  onApproveRequest={(request) => void approveRequest(request)}
-                  onRejectRequest={(request) => openConfirm({ kind: 'reject', request })}
-                  onRestore={(member) => openConfirm({ kind: 'restore', member })}
-                  pendingCount={pendingCount}
-                  suspendedCount={suspendedCount}
-                  removedCount={removedCount}
-                  leaderCount={leaderCount}
-                  memberCount={memberCount}
                 />
               </TabsContent>
 
