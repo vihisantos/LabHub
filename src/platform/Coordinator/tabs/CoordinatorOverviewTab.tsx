@@ -125,6 +125,7 @@ export function CoordinatorOverviewTab({
             className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-card)]"
           >
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-3 pt-4">
+              <span aria-hidden="true" className="h-3.5 w-1 shrink-0 rounded-full bg-violet-500/70" />
               <p className="min-w-[7rem] flex-1 truncate text-sm font-semibold tracking-tight text-fg sm:min-w-0">
                 Unidade: {unit.unitName}
               </p>
@@ -198,7 +199,8 @@ export function CoordinatorOverviewTab({
 
   const scopeRail = (
     <div className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-card)]">
-      <p className="border-b border-line px-4 pb-3 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+      <p className="flex items-center gap-2 border-b border-line px-4 pb-3 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+        <span aria-hidden="true" className="h-3.5 w-1 shrink-0 rounded-full bg-violet-500/70" />
         Resumo do escopo
       </p>
       <ul className="flex flex-col gap-1 px-4 py-3">

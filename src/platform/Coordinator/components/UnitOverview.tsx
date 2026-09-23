@@ -143,7 +143,7 @@ export function UnitOverview({
                   key={stat.key}
                   type="button"
                   onClick={() => onOpenChamados(CONTEXTUAL_DEST[stat.key])}
-                  className="flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
+                  className="flex w-full items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-left transition-all duration-150 hover:bg-input active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
                   data-testid={`unit-stat-${stat.key}`}
                 >
                   {content}

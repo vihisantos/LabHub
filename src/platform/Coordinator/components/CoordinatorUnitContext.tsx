@@ -1,4 +1,5 @@
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
+import { icons } from '../../../lib/icons'
 import { cn } from '../../../lib/components/ui/utils'
 
 /**
@@ -34,9 +35,9 @@ export function CoordinatorUnitContext({
   const current = validActive ? activeUnitId : null
 
   const base =
-    'max-w-full truncate rounded-lg border border-line bg-card px-3 py-2 text-[11px] font-semibold text-fg-muted transition-all duration-200 hover:bg-input hover:text-fg active:scale-[0.98]'
+    'max-w-full truncate rounded-lg border border-line bg-card px-3 py-2 text-[11px] font-semibold text-fg-muted transition-all duration-200 hover:bg-input hover:text-fg active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40'
   const active =
-    'border-violet-500/40 bg-violet-500/15 text-violet-600 hover:bg-violet-500/15 hover:text-violet-600 shadow-[var(--shadow-card)] dark:text-violet-400'
+    'border-violet-500/40 bg-violet-500/15 text-violet-600 hover:bg-violet-500/15 hover:text-violet-600 shadow-[var(--shadow-card)] ring-1 ring-violet-500/30 dark:text-violet-400'
 
   return (
     <div
@@ -50,8 +51,17 @@ export function CoordinatorUnitContext({
         data-testid="unit-context-all"
         aria-pressed={current === null}
         onClick={() => onSelect(null)}
-        className={cn(base, current === null && active)}
+        className={cn(base, 'inline-flex w-auto items-center gap-1.5', current === null && active)}
       >
+        <span
+          aria-hidden="true"
+          className={cn(
+            'shrink-0',
+            current === null ? 'text-violet-600 dark:text-violet-400' : 'text-fg-muted',
+          )}
+        >
+          <icons.ui.shield size={12} />
+        </span>
         Todas as unidades
       </button>
       {units.map((unit) => {
