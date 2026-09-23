@@ -2,6 +2,7 @@ import type { Ticket } from '../../../apps/chamados/types'
 import { TICKET_STATUS_COLORS, TICKET_STATUS_LABELS } from '../../../apps/chamados/types'
 import { cn } from '../../../lib/components/ui/utils'
 import { CoordinatorPanel } from './CoordinatorPanel'
+import { EmptyState } from './EmptyState'
 
 /**
  * C2 (PR B #236) — Lista apresentacional de chamados recentes da Central.
@@ -36,10 +37,11 @@ export function CoordinatorRecentTickets({
       data-testid="overview-recents"
     >
       {tickets.length === 0 ? (
-        <p className="text-[10px] leading-relaxed text-fg-muted">
-          Nenhum chamado no cache ainda — os números aparecem assim que o app de chamados
-          sincronizar sua unidade.
-        </p>
+        <EmptyState
+          variant="soft"
+          title="Nenhum chamado no cache ainda"
+          description="Os números aparecem assim que o app de chamados sincronizar sua unidade."
+        />
       ) : (
         <ul className="flex flex-col gap-1.5">
           {tickets.map((ticket) => {

@@ -1,6 +1,9 @@
 import type { CoordinatorRequest } from '../../../core/permissions/coordinatorService'
 import { icons } from '../../../lib/icons'
 import { initials } from '../coordinatorHelpers'
+import { EmptyState } from './EmptyState'
+import { ErrorState } from './ErrorState'
+import { SkeletonRow } from './Skeletons'
 
 interface PendingRequestsProps {
   requests: CoordinatorRequest[]
@@ -31,25 +34,23 @@ export function PendingRequests({
         Solicitações pendentes
       </p>
       {loading ? (
-        <p className="mt-2 inline-flex items-center gap-2 text-[10px] text-fg-muted">
-          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-          Carregando solicitações...
-        </p>
-      ) : failed ? (
-        <div className="mt-2 flex items-center gap-2">
-          <p className="flex-1 text-[10px] leading-relaxed text-red-500">
-            Não foi possível carregar as solicitações desta unidade.
-          </p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
-          >
-            Tentar novamente
-          </button>
+        <div className="mt-3 space-y-2">
+          <SkeletonRow />
+          <SkeletonRow />
         </div>
+      ) : failed ? (
+        <ErrorState
+          className="mt-3"
+          message="Não foi possível carregar as solicitações desta unidade."
+          onRetry={onRetry}
+        />
       ) : requests.length === 0 ? (
-        <p className="mt-2 text-[10px] text-fg-muted">Nenhuma solicitação pendente.</p>
+        <EmptyState
+          variant="soft"
+          className="mt-2"
+          title="Nenhuma solicitação pendente."
+          description="Quando alguém solicitar acesso a esta unidade, o pedido aparece aqui com as ações Aprovar/Rejeitar."
+        />
       ) : (
         <ul className="mt-2 flex flex-col gap-2">
           {requests.map((request) => {
@@ -76,7 +77,7 @@ export function PendingRequests({
                   type="button"
                   onClick={() => onApprove(request)}
                   disabled={pending !== null}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-400"
                 >
                   {pending === approveKey ? (
                     <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
@@ -89,7 +90,7 @@ export function PendingRequests({
                   type="button"
                   onClick={() => onReject(request)}
                   disabled={pending !== null}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
                 >
                   {pending === rejectKey ? (
                     <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />

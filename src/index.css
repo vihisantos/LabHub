@@ -517,6 +517,14 @@
   animation: empty-state-float 3s ease-in-out infinite;
 }
 
+/* Frame de estado respeta prefers-reduced-motion (PR visual — acessibilidade). */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer,
+  .empty-state-icon {
+    animation: none;
+  }
+}
+
 /* ── Celebration sparkle ── */
 @keyframes celebration-sparkle {
   0% { transform: scale(0) rotate(0deg); opacity: 0; }

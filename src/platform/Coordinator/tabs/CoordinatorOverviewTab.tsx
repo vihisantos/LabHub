@@ -18,8 +18,11 @@ import { CoordinatorPanel } from '../components/CoordinatorPanel'
 import { CoordinatorRecentTickets } from '../components/CoordinatorRecentTickets'
 import { CoordinatorSlaPanel } from '../components/CoordinatorSlaPanel'
 import { CoordinatorTicketsPanel } from '../components/CoordinatorTicketsPanel'
+import { EmptyState } from '../components/EmptyState'
+import { ErrorState } from '../components/ErrorState'
 import { InactiveMembers } from '../components/InactiveMembers'
 import { LeaderBlock } from '../components/LeaderBlock'
+import { SkeletonRow } from '../components/Skeletons'
 import { UnitOverview } from '../components/UnitOverview'
 
 export interface CoordinatorOverviewTabProps {
@@ -274,25 +277,21 @@ export function CoordinatorOverviewTab({
         data-testid="overview-requests"
       >
         {requestsLoading ? (
-          <p className="inline-flex items-center gap-2 text-[10px] text-fg-muted">
-            <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-            Carregando solicitações...
-          </p>
-        ) : requestsFailed ? (
-          <div className="flex items-center gap-2">
-            <p className="flex-1 text-[10px] leading-relaxed text-red-500">
-              Não foi possível carregar as solicitações.
-            </p>
-            <button
-              type="button"
-              onClick={onRetryRequests}
-              className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
-            >
-              Tentar novamente
-            </button>
+          <div className="space-y-2">
+            <SkeletonRow />
+            <SkeletonRow />
           </div>
+        ) : requestsFailed ? (
+          <ErrorState
+            message="Não foi possível carregar as solicitações."
+            onRetry={onRetryRequests}
+          />
         ) : allRequests.length === 0 ? (
-          <p className="text-[10px] text-fg-muted">Nenhuma solicitação pendente.</p>
+          <EmptyState
+            variant="soft"
+            title="Nenhuma solicitação pendente."
+            description="Quando alguém solicitar acesso a uma unidade do seu escopo, o pedido aparece aqui para aprovar ou rejeitar."
+          />
         ) : (
           <ul className="flex flex-col gap-2">
             {allRequests.map((request) => {
@@ -322,7 +321,7 @@ export function CoordinatorOverviewTab({
                     type="button"
                     onClick={() => onApproveRequest(request)}
                     disabled={pending !== null}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-400"
                   >
                     {pending === approveKey ? (
                       <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
@@ -335,7 +334,7 @@ export function CoordinatorOverviewTab({
                     type="button"
                     onClick={() => onRejectRequest(request)}
                     disabled={pending !== null}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
                   >
                     {pending === rejectKey ? (
                       <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
