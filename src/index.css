@@ -201,6 +201,53 @@
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Coordenador: navegação mobile animada (PR2) ── */
+/*
+ * Hamburger SVG orgânico (☰ → X): cada linha usa pathLength=1 e morfa via
+ * stroke-dasharray/stroke-dashoffset enquanto rotaciona. Easing do PR2:
+ * cubic-bezier(0.4, 0, 0.2, 1), 280ms.
+ */
+.coordinator-burger-line {
+  transition:
+    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    stroke-dasharray 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    stroke-dashoffset 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.18s ease;
+}
+
+@keyframes coordinator-menu-show {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes coordinator-menu-item-show {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.coordinator-menu-anchor {
+  transform-origin: top right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coordinator-burger-line {
+    transition: none;
+  }
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

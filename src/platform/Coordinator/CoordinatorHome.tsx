@@ -669,7 +669,7 @@ export function CoordinatorHome() {
             )}
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
-              <CoordinatorTabs className="mb-4" />
+              <CoordinatorTabs className="mb-4" activeTab={activeTab} />
 
               <TabsContent value="overview">
                 <CoordinatorOverviewTab
