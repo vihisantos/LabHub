@@ -29,7 +29,7 @@ export function PendingRequests({
   onReject,
 }: PendingRequestsProps) {
   return (
-    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5">
+    <div className="mt-3 rounded-xl bg-surface px-3 py-2.5">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
         Solicitações pendentes
       </p>

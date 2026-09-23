@@ -52,7 +52,7 @@ export function LeaderBlock({
           aria-label={`Gerenciar ${name}`}
           disabled={disabled}
           onClick={() => onManage(leadershipMember)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
         >
           <icons.ui.sliders size={13} />
         </button>

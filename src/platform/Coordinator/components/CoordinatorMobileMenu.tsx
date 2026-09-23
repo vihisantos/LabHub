@@ -129,7 +129,8 @@ export function CoordinatorMobileMenu({ activeTab }: CoordinatorMobileMenuProps)
             'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
             'transition-colors duration-200',
             'hover:bg-violet-500/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40',
-            open ? 'text-violet-600 dark:text-violet-400' : 'text-fg',
+            'active:bg-violet-500/10',
+            open ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'text-fg',
           )}
         >
           <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true" focusable="false">
@@ -144,7 +145,7 @@ export function CoordinatorMobileMenu({ activeTab }: CoordinatorMobileMenuProps)
         <div
           id={panelId}
           data-testid="coordinator-mobile-menu"
-          className="coordinator-menu-anchor absolute right-0 top-full z-50 mt-2 w-60 min-w-56 max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-[var(--shadow-card)] animate-[coordinator-menu-show_200ms_cubic-bezier(0.16,1,0.3,1)] motion-reduce:animate-none"
+          className="coordinator-menu-anchor absolute right-0 top-full z-50 mt-2 w-60 min-w-56 max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-card p-1.5 shadow-[var(--shadow-elevated)] animate-[coordinator-menu-show_200ms_cubic-bezier(0.16,1,0.3,1)] motion-reduce:animate-none"
         >
           <TabsList
             ref={listRef}
@@ -163,9 +164,10 @@ export function CoordinatorMobileMenu({ activeTab }: CoordinatorMobileMenuProps)
                   style={{ animationDelay: `${index * 24}ms` }}
                   className={cn(
                     'w-full justify-start gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-fg-muted',
-                    'transition-colors duration-200',
+                    'transition-all duration-200',
                     'hover:bg-violet-500/5 hover:text-fg',
-                    'data-[state=active]:bg-violet-500/10 data-[state=active]:text-violet-600 dark:data-[state=active]:text-violet-400',
+                    'data-[state=active]:bg-violet-500/10 data-[state=active]:font-semibold data-[state=active]:text-violet-600 dark:data-[state=active]:text-violet-400',
+                    'active:scale-[0.99]',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40',
                     'animate-[coordinator-menu-item-show_220ms_ease-out_both] motion-reduce:animate-none',
                   )}

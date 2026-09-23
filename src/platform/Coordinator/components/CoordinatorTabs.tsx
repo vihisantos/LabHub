@@ -51,13 +51,16 @@ export function CoordinatorTabs({ className, activeTab = 'overview' }: Coordinat
                 key={tab.id}
                 value={tab.id}
                 className={cn(
-                  'w-auto shrink-0 gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[11px] font-semibold text-fg-muted transition-all duration-200',
-                  'data-[state=active]:bg-card data-[state=active]:text-violet-600 data-[state=active]:shadow-[var(--shadow-card)] data-[state=active]:ring-1 data-[state=active]:ring-line dark:data-[state=active]:text-violet-400',
-                  'hover:text-fg',
+                  'group/trigger w-auto shrink-0 gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[11px] font-medium text-fg-muted transition-all duration-200',
+                  'data-[state=active]:bg-input data-[state=active]:font-semibold data-[state=active]:text-violet-600 data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-violet-500/25 dark:data-[state=active]:text-violet-400',
+                  'hover:bg-input/60 hover:text-fg data-[state=active]:hover:bg-input',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40',
                 )}
               >
-                <Icon size={13} />
+                <Icon
+                  size={13}
+                  className="transition-transform duration-200 group-hover/trigger:scale-105 group-data-[state=active]/trigger:scale-110"
+                />
                 {tab.label}
               </TabsTrigger>
             )

@@ -34,7 +34,10 @@ export function CoordinatorPanel({
     >
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight text-fg">{title}</h2>
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="h-3.5 w-1 shrink-0 rounded-full bg-violet-500/70" />
+            <h2 className="text-sm font-semibold tracking-tight text-fg">{title}</h2>
+          </div>
           {description && (
             <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">{description}</p>
           )}
