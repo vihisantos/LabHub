@@ -1726,29 +1726,57 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     })
   })
 
-  it('contexto multiunidade preservado em todas as abas (só o escopo, sem bypass)', async () => {
+  it('contexto multiunidade é refletido na aba Pessoal (diretório por unidade, só o escopo)', async () => {
     const multi: CoordinatedUnit[] = [
       unitWithData(),
-      { ...unitWithData(), unitId: 'ws2', unitName: 'Campus B' },
+      {
+        coordination: membership('coordination-ws2', 'u-coord2', 'ws2'),
+        unitId: 'ws2',
+        unitName: 'Campus B',
+        leaders: [
+          {
+            leadership: membership('ms-lider-b', 'u-lider-b', 'ws2', {
+              managed_by: 'coordination-ws2',
+              role_id: 'role-lider',
+            }),
+            profile: {
+              id: 'u-lider-b',
+              name: 'Bia Líder',
+              email: 'bia@b.com',
+              status: 'active',
+              roleId: 'role-lider',
+            },
+            members: [],
+          },
+        ],
+      },
     ]
     renderHomeAt('/coordenador?tab=people', multi)
     await act(async () => {})
 
     expect(screen.getByText('unidades')).toBeTruthy()
     expect(screen.getByText(/nas equipes$/)).toBeTruthy()
-    expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
-    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
+
+    const tab = screen.getByTestId('tab-people')
+    const rows = within(tab).getAllByTestId(/^people-row-/)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(within(tab).getAllByText('Campus A').length).toBeGreaterThan(0)
+    expect(within(tab).getAllByText('Campus B').length).toBeGreaterThan(0)
   })
 
-  it('aba Pessoal usa os MESMOS RPCs escopados para aprovar', async () => {
+  it('aba Pessoal é somente-leitura: pendências aparecem com status real e SEM ações', async () => {
     mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
     renderHomeAt('/coordenador?tab=people')
     await act(async () => {})
 
-    fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }))
-    await act(async () => {})
+    // A pessoa pendente entra no diretório, honesta, com o status vindo da RPC.
+    const row = screen.getByTestId('people-row-ms-p1')
+    expect(within(row).getByText('Nova Pessoa')).toBeTruthy()
+    expect(within(row).getByText('Pendente')).toBeTruthy()
 
-    expect(mockApproveCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+    // A aba é read-only: nenhuma ação de gestão é oferecida nem disparada aqui.
+    expect(screen.queryByRole('button', { name: /Aprovar/ })).toBeNull()
+    expect(mockApproveCoordinatorMembership).not.toHaveBeenCalled()
   })
 
   it('aba Chamados conta só o escopo coordenação (workspaces fora ficam de fora)', async () => {
@@ -2000,10 +2028,10 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     await act(async () => {})
 
     expect(screen.getByTestId('tab-people')).toBeInTheDocument()
-    expect(screen.getByTestId('tab-people-unit-ws2')).toBeInTheDocument()
-    expect(screen.queryByTestId('tab-people-unit-ws1')).toBeNull()
-    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
-    expect(screen.queryByText('Unidade: Campus A')).toBeNull()
+    // o diretório mostra só o pessoal da unidade ws2 (é o ?unit= ativo)
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).getAllByText('Campus B').length).toBeGreaterThan(0)
+    expect(within(tab).queryByText('Campus A')).toBeNull()
   })
 
   it('filtro é refletido na aba Chamados (?tab=tickets&unit=ws2) — só tickets da unidade', async () => {
@@ -2036,8 +2064,9 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     await act(async () => {})
 
     expect(probe).toHaveAttribute('data-search', '?tab=people&unit=ws1')
-    expect(screen.getByTestId('tab-people-unit-ws1')).toBeInTheDocument()
-    expect(screen.queryByTestId('tab-people-unit-ws2')).toBeNull()
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).getAllByText('Campus A').length).toBeGreaterThan(0)
+    expect(within(tab).queryByText('Campus B')).toBeNull()
     expect(screen.getByRole('tab', { name: 'Pessoal' })).toHaveAttribute('aria-selected', 'true')
   })
 
