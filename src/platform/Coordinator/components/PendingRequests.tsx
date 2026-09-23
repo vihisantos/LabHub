@@ -57,11 +57,11 @@ export function PendingRequests({
             const approveKey = `approve-${request.membership.id}`
             const rejectKey = `reject-${request.membership.id}`
             return (
-              <li key={request.membership.id} className="flex items-center gap-2">
+              <li key={request.membership.id} className="flex flex-wrap items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
                   {initials(name)}
                 </span>
-                <span className="min-w-0 flex-1">
+                <span className="min-w-[9rem] flex-1 sm:min-w-0">
                   <span className="block truncate text-[11px] font-semibold text-fg">{name}</span>
                   {request.profile && (
                     <span className="block truncate text-[10px] text-fg-muted">

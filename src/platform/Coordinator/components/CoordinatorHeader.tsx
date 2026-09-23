@@ -16,7 +16,7 @@ interface CoordinatorHeaderProps {
  */
 export function CoordinatorHeader({ onBack }: CoordinatorHeaderProps) {
   return (
-    <header className="mb-8">
+    <header className="mb-6 sm:mb-8">
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"

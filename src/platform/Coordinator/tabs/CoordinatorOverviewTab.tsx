@@ -121,8 +121,8 @@ export function CoordinatorOverviewTab({
             key={unit.unitId}
             className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-card)]"
           >
-            <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
-              <p className="min-w-0 truncate text-sm font-semibold tracking-tight text-fg">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-3 pt-4">
+              <p className="min-w-[7rem] flex-1 truncate text-sm font-semibold tracking-tight text-fg sm:min-w-0">
                 Unidade: {unit.unitName}
               </p>
               <div className="flex shrink-0 items-center gap-1.5">
@@ -300,11 +300,11 @@ export function CoordinatorOverviewTab({
               const approveKey = `approve-${request.membership.id}`
               const rejectKey = `reject-${request.membership.id}`
               return (
-                <li key={request.membership.id} className="flex items-center gap-2">
+                <li key={request.membership.id} className="flex flex-wrap items-center gap-2">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
                     {initials(name)}
                   </span>
-                  <span className="min-w-0 flex-1">
+                  <span className="min-w-[9rem] flex-1 sm:min-w-0">
                     <span className="block truncate text-[11px] font-semibold text-fg">{name}</span>
                     {request.profile && (
                       <span className="block truncate text-[10px] text-fg-muted">
