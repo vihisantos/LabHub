@@ -40,7 +40,9 @@ import { ConfirmActionSheet } from './components/ConfirmActionSheet'
 import { CoordinatorHeader } from './components/CoordinatorHeader'
 import { CoordinatorTabs } from './components/CoordinatorTabs'
 import { CoordinatorUnitContext } from './components/CoordinatorUnitContext'
+import { EmptyState } from './components/EmptyState'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
+import { SkeletonMetric, SkeletonRow } from './components/Skeletons'
 import { CoordinatorAuditTab } from './tabs/CoordinatorAuditTab'
 import { CoordinatorEcosystemTab } from './tabs/CoordinatorEcosystemTab'
 import { CoordinatorOverviewTab } from './tabs/CoordinatorOverviewTab'
@@ -567,13 +569,28 @@ export function CoordinatorHome() {
         <CoordinatorHeader onBack={() => navigate('/')} />
 
         {loading ? (
-          <div className="flex flex-col items-center gap-4 py-20">
-            <div className="h-9 w-9 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-            <p className="text-xs text-fg-muted">Carregando seu escopo de coordenação...</p>
+          <div className="flex flex-col gap-4" role="status" aria-live="polite">
+            <div className="grid grid-cols-1 gap-2 overflow-hidden rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)] sm:grid-cols-3">
+              <SkeletonMetric />
+              <SkeletonMetric />
+              <SkeletonMetric />
+            </div>
+            <div className="flex flex-col gap-2 rounded-2xl border border-line bg-card px-4 py-4 shadow-[var(--shadow-card)]">
+              <SkeletonRow />
+              <SkeletonRow />
+            </div>
+            <p className="text-center text-xs text-fg-muted">
+              Carregando seu escopo de coordenação...
+            </p>
           </div>
         ) : failed ? (
           <div className="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
-            <p className="text-sm font-semibold text-fg">Não foi possível carregar seu escopo</p>
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-500">
+              <icons.ui.alertTriangle size={24} />
+            </span>
+            <p className="mt-4 text-sm font-semibold text-fg">
+              Não foi possível carregar seu escopo
+            </p>
             <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-fg-muted">
               Algo deu errado ao buscar as unidades sob sua coordenação. Tente novamente em
               instantes.
@@ -581,24 +598,17 @@ export function CoordinatorHome() {
             <button
               type="button"
               onClick={() => void refresh()}
-              className="mt-5 rounded-xl bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-400"
+              className="mt-5 inline-flex items-center gap-1.5 rounded-xl bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
             >
               Tentar novamente
             </button>
           </div>
         ) : units.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-500">
-              <icons.ui.shield size={30} />
-            </div>
-            <h2 className="mt-5 text-base font-semibold text-fg">
-              Você ainda não tem unidades de coordenação atribuídas
-            </h2>
-            <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-fg-muted">
-              Sua coordenação é definida por unidade (membership ativa de coordenação), não
-              globalmente. Peça ao administrador para atribuir as unidades ao seu perfil.
-            </p>
-          </div>
+          <EmptyState
+            icon={<icons.ui.shield size={22} className="text-fg-muted" />}
+            title="Você ainda não tem unidades de coordenação atribuídas"
+            description="Sua coordenação é definida por unidade (membership ativa de coordenação), não globalmente. Peça ao administrador para atribuir as unidades ao seu perfil."
+          />
         ) : (
           <>
             <div className="mb-6 grid grid-cols-1 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card py-1 shadow-[var(--shadow-card)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">

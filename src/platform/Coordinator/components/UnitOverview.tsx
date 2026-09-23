@@ -1,6 +1,8 @@
 import type { CoordinatorUnitOverview } from '../../../core/permissions/coordinatorService'
 import type { SlaWorkspaceSummary } from '../../../apps/chamados/services/sla'
 import { CoordinatorSlaOverview } from './CoordinatorSlaOverview'
+import { ErrorState } from './ErrorState'
+import { SkeletonRow, SkeletonStatGrid } from './Skeletons'
 import { icons } from '../../../lib/icons'
 import { cn } from '../../../lib/components/ui/utils'
 
@@ -88,7 +90,7 @@ export function UnitOverview({
           <button
             type="button"
             onClick={() => onOpenChamados()}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line bg-card px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line bg-card px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
           >
             <icons.ui.chevronRight size={11} />
             Abrir chamados
@@ -97,23 +99,19 @@ export function UnitOverview({
       </div>
 
       {loading ? (
-        <p className="mt-2.5 inline-flex items-center gap-2 px-4 pb-3 text-[10px] text-fg-muted">
-          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-          Carregando chamados da unidade...
-        </p>
-      ) : failed ? (
-        <div className="mt-2.5 flex items-center gap-2 px-4 pb-3">
-          <p className="flex-1 text-[10px] leading-relaxed text-red-500">
-            Não foi possível carregar a visão desta unidade.
-          </p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
-          >
-            Tentar novamente
-          </button>
+        <div className="mt-3 px-4 pb-3" role="status" aria-live="polite">
+          <SkeletonStatGrid />
+          <div className="mt-3 space-y-2">
+            <SkeletonRow />
+          </div>
+          <p className="mt-3 text-[10px] text-fg-muted">Carregando chamados da unidade...</p>
         </div>
+      ) : failed ? (
+        <ErrorState
+          className="mx-4 mt-2.5 mb-3"
+          message="Não foi possível carregar a visão desta unidade."
+          onRetry={onRetry}
+        />
       ) : (
         <>
           <div className="mt-3 grid grid-cols-2 gap-1.5 px-4 sm:grid-cols-3">

@@ -78,7 +78,7 @@ export function LeaderBlock({
                     aria-label={`Vincular ${memberName} a gestor`}
                     disabled={disabled}
                     onClick={() => onAssign(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
                   >
                     <icons.ui.plusCircle size={13} />
                   </button>
@@ -88,7 +88,7 @@ export function LeaderBlock({
                     aria-label={`Gerenciar ${memberName}`}
                     disabled={disabled}
                     onClick={() => onManage(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
                   >
                     <icons.ui.sliders size={13} />
                   </button>
@@ -98,7 +98,7 @@ export function LeaderBlock({
                     aria-label={`Remover ${memberName} da equipe`}
                     disabled={disabled}
                     onClick={() => onUnassign(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40"
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
                   >
                     <icons.ui.minus size={13} />
                   </button>

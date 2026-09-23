@@ -2,6 +2,7 @@ import { TICKET_STATUS_LABELS, type Ticket } from '../../../apps/chamados/types'
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
 import { icons } from '../../../lib/icons'
 import { cn } from '../../../lib/components/ui/utils'
+import { EmptyState } from '../components/EmptyState'
 
 export interface CoordinatorTicketsTabProps {
   units: CoordinatedUnit[]
@@ -71,9 +72,10 @@ export function CoordinatorTicketsTab({
           Chamados recentes no escopo
         </p>
         {recentTickets.length === 0 ? (
-          <p className="mt-2 text-[11px] text-fg-muted">
-            Nenhum chamado ativo encontrado nas unidades do seu escopo.
-          </p>
+          <EmptyState
+            variant="soft"
+            title="Nenhum chamado ativo encontrado nas unidades do seu escopo."
+          />
         ) : (
           <ul className="mt-2 flex flex-col gap-1.5" data-testid="tickets-recent">
             {recentTickets.map((ticket) => {
