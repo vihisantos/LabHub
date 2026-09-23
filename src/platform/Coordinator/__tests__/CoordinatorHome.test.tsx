@@ -1596,6 +1596,136 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(tablist.className).toMatch(/overflow-x-auto/)
   })
 
+  describe('navegação mobile animada (PR2) — hamburger + menu compacto das abas', () => {
+    const openMenu = (): HTMLElement => {
+      const button = screen.getByTestId('coordinator-mobile-menu-button')
+      fireEvent.click(button)
+      return button
+    }
+    const menuTablist = () => screen.getByTestId('coordinator-mobile-tablist')
+    const menuTab = (name: string) => within(menuTablist()).getByRole('tab', { name })
+
+    it('estado fechado: hamburger presente com aria correto e menu não montado', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      const button = screen.getByTestId('coordinator-mobile-menu-button')
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+      expect(button).toHaveAttribute('aria-controls', expect.any(String))
+      expect(button).toHaveAttribute('aria-label', 'Abrir menu da Central do Coordenador')
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+    })
+
+    it('abrir: monta o menu com as 7 abas, destaca a aba ativa e alterna o aria do botão', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador?tab=people')
+      await act(async () => {})
+
+      const button = openMenu()
+      expect(button).toHaveAttribute('aria-expanded', 'true')
+      expect(button).toHaveAttribute('aria-label', 'Fechar menu da Central do Coordenador')
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      const tabs = within(menuTablist()).getAllByRole('tab')
+      expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+        'Visão Geral',
+        'Pessoal',
+        'Chamados',
+        'ReservaLab',
+        'Relatórios',
+        'Auditoria',
+        'Ecossistema',
+      ])
+      expect(menuTab('Pessoal')).toHaveAttribute('aria-selected', 'true')
+      expect(menuTab('Visão Geral')).toHaveAttribute('aria-selected', 'false')
+    })
+
+    it('selecionar aba no menu atualiza a URL, monta o conteúdo e FECHA o menu (sem estado duplicado)', async () => {
+      setBp('compact')
+      const { probe } = renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      openMenu()
+      fireEvent.mouseDown(menuTab('Chamados'), { button: 0 })
+      await act(async () => {})
+
+      expect(probe).toHaveAttribute('data-search', '?tab=tickets')
+      expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(screen.getByTestId('coordinator-mobile-menu-button')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+      expect(screen.queryByTestId('coordinator-mobile-tablist')).toBeNull()
+    })
+
+    it('Escape fecha o menu e devolve o foco ao hamburger', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      const button = openMenu()
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      fireEvent.keyDown(menuTablist(), { key: 'Escape' })
+      await act(async () => {})
+
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+      expect(document.activeElement).toBe(button)
+    })
+
+    it('clique fora do menu fecha (disparado via mouse/pointer fora do wrapper)', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      const button = openMenu()
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      fireEvent.mouseDown(document.body)
+      await act(async () => {})
+
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('selecionar a própria aba ativa fecha o menu mantendo o conteúdo', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador?tab=overview')
+      await act(async () => {})
+
+      openMenu()
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      fireEvent.click(menuTab('Visão Geral'))
+      await act(async () => {})
+
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(screen.getByTestId('coordinator-mobile-menu-button')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+      expect(screen.getByTestId('coordinator-units-grid')).toBeInTheDocument()
+    })
+
+    it('desktop/wide (≥1128px): trilho visível e hamburger/menu ausentes', async () => {
+      setBp('desktop')
+      renderHomeAt('/coordenador?tab=tickets')
+      await act(async () => {})
+
+      const rail = screen.getByTestId('coordinator-tabs')
+      expect(rail).toHaveAttribute('aria-label', 'Central do Coordenador')
+      expect(within(rail).getByRole('tab', { name: 'Chamados' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+      expect(screen.queryByTestId('coordinator-mobile-menu-button')).toBeNull()
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+    })
+  })
+
   it('contexto multiunidade preservado em todas as abas (só o escopo, sem bypass)', async () => {
     const multi: CoordinatedUnit[] = [
       unitWithData(),
