@@ -87,9 +87,9 @@ export function CoordinatorTicketsTab({
                     disabled={!open}
                     data-testid={`tickets-recent-${ticket.id}`}
                     onClick={() => open?.(ticket.id)}
-                    className="flex w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-colors hover:bg-input disabled:cursor-default disabled:opacity-60"
+                    className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-colors hover:bg-input disabled:cursor-default disabled:opacity-60"
                   >
-                    <span className="min-w-0 flex-1">
+                    <span className="min-w-[9rem] flex-1 sm:min-w-0">
                       <span className="block truncate text-[11px] font-semibold text-fg">
                         #{ticket.ticketNumber} — {ticket.assetName || ticket.roomName}
                       </span>
@@ -119,7 +119,7 @@ export function CoordinatorTicketsTab({
                 key={unit.unitId}
                 className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2"
               >
-                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-fg">
+                <span className="min-w-[8rem] flex-1 truncate text-[11px] font-semibold text-fg sm:min-w-0">
                   {unit.unitName}
                 </span>
                 <button

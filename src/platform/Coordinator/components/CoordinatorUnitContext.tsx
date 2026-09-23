@@ -34,7 +34,7 @@ export function CoordinatorUnitContext({
   const current = validActive ? activeUnitId : null
 
   const base =
-    'rounded-lg border border-line bg-card px-3 py-2 text-[11px] font-semibold text-fg-muted transition-all duration-200 hover:bg-input hover:text-fg active:scale-[0.98]'
+    'max-w-full truncate rounded-lg border border-line bg-card px-3 py-2 text-[11px] font-semibold text-fg-muted transition-all duration-200 hover:bg-input hover:text-fg active:scale-[0.98]'
   const active =
     'border-violet-500/40 bg-violet-500/15 text-violet-600 hover:bg-violet-500/15 hover:text-violet-600 shadow-[var(--shadow-card)] dark:text-violet-400'
 

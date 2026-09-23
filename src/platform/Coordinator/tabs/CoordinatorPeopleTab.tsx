@@ -128,8 +128,8 @@ export function CoordinatorPeopleTab({
               data-testid={`tab-people-unit-${unit.unitId}`}
               className="rounded-xl border border-line bg-surface p-3"
             >
-              <div className="flex items-center justify-between gap-3">
-                <p className="min-w-0 truncate text-sm font-semibold text-fg">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <p className="min-w-[7rem] flex-1 truncate text-sm font-semibold text-fg sm:min-w-0">
                   Unidade: {unit.unitName}
                 </p>
                 <div className="flex shrink-0 items-center gap-1.5">

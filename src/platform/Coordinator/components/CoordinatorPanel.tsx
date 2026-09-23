@@ -28,11 +28,11 @@ export function CoordinatorPanel({
     <section
       data-testid={dataTestId}
       className={cn(
-        'rounded-2xl border border-line bg-card px-5 py-4 shadow-[var(--shadow-card)]',
+        'rounded-2xl border border-line bg-card px-4 py-4 shadow-[var(--shadow-card)] sm:px-5',
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold tracking-tight text-fg">{title}</h2>
           {description && (

@@ -33,11 +33,11 @@ export function LeaderBlock({
   const leadershipMember: TeamMember = { membership: leader.leadership, profile: leader.profile }
   return (
     <div key={leader.leadership.id} className="rounded-xl bg-surface px-3 py-2.5">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-[11px] font-bold text-violet-600 dark:text-violet-400">
           {initials(name)}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[9rem] flex-1 sm:min-w-0">
           <p className="truncate text-xs font-semibold text-fg">{name}</p>
           {leader.profile && (
             <p className="truncate text-[10px] text-fg-muted">{leader.profile.email}</p>
@@ -63,11 +63,11 @@ export function LeaderBlock({
           {leader.members.map((member) => {
             const memberName = member.profile?.name ?? 'Membro sem perfil'
             return (
-              <li key={member.membership.id} className="flex items-center gap-2">
+              <li key={member.membership.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fg-muted/10 text-[9px] font-bold text-fg-muted">
                   {initials(memberName)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-fg">{memberName}</span>
+                <span className="min-w-[8rem] flex-1 truncate text-[11px] text-fg sm:min-w-0">{memberName}</span>
                 <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[9px] font-semibold text-fg-dim">
                   {roleLabelFor(member.membership, member.profile, rolesById)}
                 </span>
