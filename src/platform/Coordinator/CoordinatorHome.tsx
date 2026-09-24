@@ -239,9 +239,10 @@ export function CoordinatorHome() {
   const [, bumpTickets] = useState(0)
   useEffect(() => onCollectionChange('chamados', () => bumpTickets((v) => v + 1)), [bumpTickets])
 
+  const slaConfigs = slaConfigService.getHoursForTickets()
   const slaByWorkspace: Record<string, SlaWorkspaceSummary> = analyzeSlaByWorkspace(
     getCol<Ticket>('chamados'),
-    slaConfigService.getHoursForTickets(),
+    slaConfigs,
   )
 
   /**
@@ -743,6 +744,8 @@ export function CoordinatorHome() {
                   units={visibleUnits}
                   activeKpis={activeKpis}
                   recentTickets={recentTickets}
+                  scopeTickets={scopeTickets}
+                  slaConfigs={slaConfigs}
                   unitNameOf={unitNameOf}
                   openChamadosFor={openChamadosFor}
                   openTicketFor={openTicketFor}
