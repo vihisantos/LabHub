@@ -13,6 +13,7 @@ import {
   filterPeopleRows,
   initials,
   peopleStatusLabel,
+  COORDINATOR_LEADER_LABEL,
 } from '../coordinatorHelpers'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
@@ -242,6 +243,19 @@ export function CoordinatorPeopleTab({
                   </div>
                   <p className="mt-1 truncate text-[11px] text-fg-muted">
                     {row.profile?.email || 'Sem e-mail registrado'}
+                  </p>
+                  <p
+                    data-testid={`people-leader-${row.membership.id}`}
+                    className="mt-1 flex items-center gap-1 truncate text-[11px] text-fg-muted"
+                  >
+                    <icons.ui.userCheck size={12} aria-hidden="true" className="shrink-0" />
+                    <span className="truncate">
+                      {row.leader === null
+                        ? 'Sem líder definido'
+                        : row.leader.isCoordination
+                          ? COORDINATOR_LEADER_LABEL
+                          : row.leader.name}
+                    </span>
                   </p>
                 </div>
                 <div className="flex w-28 shrink-0 flex-col items-end gap-1 sm:w-36">
