@@ -142,6 +142,9 @@ export function summarizePeopleCounts(
  * inventado — `membership.status` é a fonte de verdade.
  */
 
+/** Rótulo fixo da coordenação como líder (RPC 047) — mesmo texto do `managerOptionsForMember`. */
+export const COORDINATOR_LEADER_LABEL = 'Coordenador(a) desta unidade'
+
 /** Linha do diretório: pessoa + a membership que a vincula à unidade do escopo. */
 export interface PeopleRow {
   membership: Membership
@@ -150,6 +153,52 @@ export interface PeopleRow {
   unitId: string
   unitName: string
   status: MembershipStatus
+  /** Liderança responsável pela membership (`managed_by` resolvido). */
+  leader: PeopleLeader | null
+}
+
+/** Liderança responsável exibível — `managed_by` da membership resolvido. */
+export interface PeopleLeader {
+  /** membership que EXERCE a liderança (o `managed_by` da linha). */
+  membershipId: string
+  /** Nome exibível; `COORDINATOR_LEADER_LABEL` quando a coordenação. */
+  name: string
+  /** E-mail (liderança real) ou null (coordenação não carrega perfil aqui). */
+  email: string | null
+  /** true quando a liderança é a membership de coordenação da própria unidade. */
+  isCoordination: boolean
+}
+
+/**
+ * Índice de lideranças do escopo da unidade (coordenação + lideranças diretas)
+ * usado para RESOLVER `membership.managed_by` em cada linha do diretório —
+ * mesmo conjunto de candidatos que o RPC 047 aceita; nada inventado.
+ */
+type LeaderIndex = Map<string, PeopleLeader>
+
+function managerIndexForUnit(unit: CoordinatedUnit): LeaderIndex {
+  const index: LeaderIndex = new Map()
+  index.set(unit.coordination.id, {
+    membershipId: unit.coordination.id,
+    name: COORDINATOR_LEADER_LABEL,
+    email: null,
+    isCoordination: true,
+  })
+  for (const leader of unit.leaders) {
+    index.set(leader.leadership.id, {
+      membershipId: leader.leadership.id,
+      name: leader.profile?.name ?? 'Perfil não disponível',
+      email: leader.profile?.email ?? null,
+      isCoordination: false,
+    })
+  }
+  return index
+}
+
+/** Resolve o líder de uma linha; `managed_by` NULL → `null` (sem líder). */
+function leaderForRow(membership: Membership, index: LeaderIndex): PeopleLeader | null {
+  if (membership.managed_by === null) return null
+  return index.get(membership.managed_by) ?? null
 }
 
 /** Status exibível (fonte: `membership.status` — nunca inventado). */
@@ -186,6 +235,7 @@ export function composePeopleRows(
   }
 
   for (const unit of units) {
+    const leaderIndex = managerIndexForUnit(unit)
     for (const leader of unit.leaders) {
       push({
         membership: leader.leadership,
@@ -194,6 +244,7 @@ export function composePeopleRows(
         unitId: unit.unitId,
         unitName: unit.unitName,
         status: leader.leadership.status,
+        leader: leaderForRow(leader.leadership, leaderIndex),
       })
       for (const member of leader.members) {
         push({
@@ -203,6 +254,7 @@ export function composePeopleRows(
           unitId: unit.unitId,
           unitName: unit.unitName,
           status: member.membership.status,
+          leader: leaderForRow(member.membership, leaderIndex),
         })
       }
     }
@@ -214,6 +266,7 @@ export function composePeopleRows(
         unitId: unit.unitId,
         unitName: unit.unitName,
         status: pending.membership.status,
+        leader: leaderForRow(pending.membership, leaderIndex),
       })
     }
     for (const inactive of inactiveByUnit[unit.unitId] ?? []) {
@@ -224,6 +277,7 @@ export function composePeopleRows(
         unitId: unit.unitId,
         unitName: unit.unitName,
         status: inactive.membership.status,
+        leader: leaderForRow(inactive.membership, leaderIndex),
       })
     }
   }
