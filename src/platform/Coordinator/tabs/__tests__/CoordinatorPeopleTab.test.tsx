@@ -8,6 +8,11 @@ import type {
   CoordinatedUnit,
 } from '../../../../core/permissions/coordinatorService'
 import type { Membership, TeamMember, TeamMemberProfile } from '../../../../core/permissions/membership'
+import {
+  COORDINATOR_LEADER_LABEL,
+  GROUP_EMPTY_LEADER_LABEL,
+  GROUP_UNASSIGNED_LABEL,
+} from '../../coordinatorHelpers'
 
 const rolesById = new Map<string, CoordinatorRoleOption>([
   ['role-technician', { id: 'role-technician', slug: 'tec', name: 'Técnico' }],
@@ -123,18 +128,124 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     expect(within(screen.getByTestId('people-row-ms-alpha')).getByText('Técnico Alpha')).toBeTruthy()
   })
 
-  it('ordena as linhas por nome (locale pt-BR)', () => {
+  it('ordena a estrutura por nó (pt-BR): sem responsável → coordenação → líderes', () => {
     renderTab()
 
     const ids = allRows().map((row) => row.getAttribute('data-testid'))
     expect(ids).toEqual([
-      'people-row-ms-l1', // Ana Líder
-      'people-row-ms-l2', // Bruno Líder
-      'people-row-ms-p1', // Clara Pendente
-      'people-row-ms-s1', // Davi Suspenso
-      'people-row-ms-r1', // Eva Removida
-      'people-row-ms-alpha', // Técnico Alpha
+      'people-row-ms-p1', // Clara Pendente → Sem responsável
+      'people-row-ms-s1', // Davi Suspenso → Sem responsável
+      'people-row-ms-r1', // Eva Removida → Sem responsável
+      'people-row-ms-alpha', // Técnico Alpha → Sem responsável
+      'people-row-ms-l1', // Ana Líder → Coordenação
+      'people-row-ms-l2', // Bruno Líder → Coordenação
     ])
+  })
+
+  it('seção fixa "Sem responsável" sobe ao topo com as pessoas de managed_by NULL', () => {
+    renderTab()
+
+    const section = screen.getByTestId('people-group-unassigned')
+    expect(within(section).getByText(GROUP_UNASSIGNED_LABEL)).toBeTruthy()
+    expect(within(section).getByText('Clara Pendente')).toBeTruthy()
+    expect(within(section).getByText('Técnico Alpha')).toBeTruthy()
+    expect(within(section).queryByText('Ana Líder')).toBeNull()
+  })
+
+  it('não renderiza a seção "Sem responsável" quando ninguém está sem líder', () => {
+    const assigned = unit('ws1', [
+      leader('l1', 'Ana Líder', [
+        { membership: mem('ms-alpha', 'u-alpha', { managed_by: 'ms-l1' }), profile: prof('alpha', 'Técnico Alpha') },
+      ]),
+    ], 'Campus A')
+    renderTab({ units: [assigned], requestsByUnit: {}, inactiveByUnit: {} })
+
+    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
+    expect(screen.getByTestId('people-group-leader-ms-l1')).toBeTruthy()
+    expect(within(screen.getByTestId('people-group-leader-ms-l1')).getByText('Técnico Alpha')).toBeTruthy()
+  })
+
+  it('estrutura: coordenação sempre no topo da unidade, líderes depois (alfabético)', () => {
+    renderTab()
+
+    const coords = screen.getByTestId('people-group-coordination-ws1')
+    const title = within(coords).getByTestId('people-group-title-people-group-coordination-ws1')
+    expect(title.textContent).toBe(COORDINATOR_LEADER_LABEL)
+    expect(title.parentElement?.textContent).toContain('Campus A')
+    expect(within(coords).getByText('Ana Líder')).toBeTruthy()
+    expect(within(coords).getByText('Bruno Líder')).toBeTruthy()
+  })
+
+  it('liderança sem membros continua visível na estrutura ("Nenhuma pessoa vinculada")', () => {
+    renderTab()
+
+    expect(screen.getByTestId('people-group-leader-ms-l2')).toBeTruthy()
+    expect(
+      within(screen.getByTestId('people-group-leader-ms-l2')).getByText(GROUP_EMPTY_LEADER_LABEL),
+    ).toBeTruthy()
+  })
+
+  it('filtro "Responsável" por coordenação mostra apenas o nó de coordenação', () => {
+    renderTab()
+
+    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'coordination' } })
+    expect(screen.getByTestId('people-group-coordination-ws1')).toBeTruthy()
+    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
+    expect(screen.queryByTestId('people-group-leader-ms-l2')).toBeNull()
+  })
+
+  it('filtro "Responsável" por líderes mostra apenas líderes (inclusive vazios)', () => {
+    renderTab()
+
+    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'leaders' } })
+    expect(screen.getByTestId('people-group-leader-ms-l1')).toBeTruthy()
+    expect(screen.getByTestId('people-group-leader-ms-l2')).toBeTruthy()
+    expect(screen.queryByTestId('people-group-coordination-ws1')).toBeNull()
+    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
+  })
+
+  it('filtro "Responsável" por sem responsável mostra apenas a seção fixa do topo', () => {
+    renderTab()
+
+    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'unassigned' } })
+    expect(screen.getByTestId('people-group-unassigned')).toBeTruthy()
+    expect(screen.queryByTestId('people-group-coordination-ws1')).toBeNull()
+    expect(screen.queryByTestId('people-group-leader-ms-l1')).toBeNull()
+  })
+
+  it('"Responsável" combina com status (interseção)', () => {
+    renderTab()
+
+    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'unassigned' } })
+    fireEvent.change(screen.getByTestId('people-status-filter'), { target: { value: 'pending' } })
+
+    expect(allRows()).toHaveLength(1)
+    expect(screen.getByTestId('people-row-ms-p1')).toBeInTheDocument()
+  })
+
+  it('"Responsável" combina com busca (interseção)', () => {
+    const withTeam = unit('ws1', [
+      leader('l4', 'Zara Líder', [
+        { membership: mem('ms-zed', 'u-zed', { managed_by: 'ms-l4' }), profile: prof('zed', 'Zelma Membro') },
+      ]),
+    ], 'Campus A')
+    renderTab({ units: [withTeam], requestsByUnit: {}, inactiveByUnit: {} })
+
+    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'leaders' } })
+    fireEvent.change(screen.getByTestId('people-search'), { target: { value: 'zelma' } })
+
+    // Só o nó do líder que gere "Zelma" permanece, com ela dentro.
+    expect(allRows()).toHaveLength(1)
+    expect(screen.getByTestId('people-row-ms-zed')).toBeInTheDocument()
+    expect(screen.queryByTestId('people-group-coordination-ws1')).toBeNull()
+  })
+
+  it('vazio legítimo: nenhuma unidade → sem nós, EmptyState honesto', () => {
+    renderTab({ units: [], requestsByUnit: {}, inactiveByUnit: {} })
+
+    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
+    expect(screen.getByText('Nenhuma pessoa encontrada')).toBeTruthy()
+    expect(screen.getByText(/ainda não há pessoas vinculadas/i)).toBeTruthy()
   })
 
   it('filtro por status é excludente e afeta a lista exibida', () => {
@@ -176,7 +287,7 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
 
     fireEvent.change(screen.getByTestId('people-search'), { target: { value: 'zzz-inexistente' } })
     expect(screen.getByText('Nenhuma pessoa encontrada')).toBeTruthy()
-    expect(screen.getByText(/Ajuste a busca ou o status/)).toBeTruthy()
+    expect(screen.getByText(/Ajuste a busca, o status ou o responsável/)).toBeTruthy()
     expect(screen.queryAllByTestId(/^people-row-/)).toHaveLength(0)
   })
 
@@ -252,7 +363,7 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     }
     renderTab({ units: [hidden], requestsByUnit: {}, inactiveByUnit: {} })
 
-    expect(screen.getByText('Perfil não disponível')).toBeTruthy()
+    expect(within(screen.getByTestId('people-row-ms-h1')).getByText('Perfil não disponível')).toBeTruthy()
     expect(screen.queryByText('Sem e-mail registrado')).toBeTruthy()
   })
 })

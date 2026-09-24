@@ -316,3 +316,200 @@ export function filterPeopleRows(
     )
   })
 }
+
+// ---------------------------------------------------------------------------
+// PR 277 — ESTRUTURA ORGANIZACIONAL do escopo (projeção pura, READ-ONLY).
+// ---------------------------------------------------------------------------
+//
+// Mesmo princípio defendido na PR 276: os dados vêm EXCLUSIVAMENTE das leituras
+// fail-closed que o shell já carrega (`units`, `requestsByUnit`,
+// `inactiveByUnit`, `rolesById`). Nenhuma consulta nova, nenhuma migration,
+// nenhum RPC, nada no Supabase. A autorização continua decidida no servidor; a
+// UI apenas PROJETA a hierarquia sobre o conjunto já escopado.
+//
+// O agrupador abaixo converte a lista plana em:
+//
+//   ➜ UNIDADE
+//   ➜  ├─ Coordenação            (COORDINATOR_LEADER_LABEL)
+//   ➜  │    └─ pessoas (managed_by = coordenação)
+//   ➜  ├─ Líder — Nome           (cada `unit.leaders[]`)
+//   ➜  │    ├─ pessoas (managed_by = líder)
+//   ➜  │    └─ (ou "Nenhuma pessoa vinculada" quando vazia)
+//   ➜  └─ ...demais líderes, em ordem alfabética (pt-BR)
+//
+// Além do topo, uma seção FIXA "Sem responsável" agrega TODAS as memberships
+// com `managed_by = NULL` (independentemente de status/status), com a
+// coordenação tratada como NÍVEL SUPERIOR — nunca como uma linha comum.
+
+export type PeopleResponsibleFilter = 'all' | 'coordination' | 'leaders' | 'unassigned'
+
+/** Nó da hierarquia organizacional exibível pelo Coordenador. */
+export interface PeopleGroup {
+  /** Identificador estável do nó (chave única da UI). */
+  id: string
+  kind: 'coordination' | 'leader' | 'unassigned'
+  /** Unidade de origem (vazia no grupo global "Sem responsável"). */
+  unitId: string
+  unitName: string
+  /** Membership que EXERCE a liderança; no grupo "Sem responsável" = '' (não aplicável). */
+  membershipId: string
+  /** Rótulo do nó: `COORDINATOR_LEADER_LABEL` p/ coordenação, nome do líder, ou "Sem responsável". */
+  label: string
+  /** E-mail da liderança real (null p/ coordenação / grupo unassigned). */
+  email: string | null
+  /** true quando a coordenação da unidade é o responsável. */
+  isCoordination: boolean
+  /** Pessoas vinculadas ao nó (já escopadas + ordenadas). */
+  people: PeopleRow[]
+}
+
+/** Estado de um nó de liderança vazio — a estrutura permanece (nenhuma invenção). */
+export const GROUP_EMPTY_LEADER_LABEL = 'Nenhuma pessoa vinculada'
+/** Rótulo do grupo fixo do topo. */
+export const GROUP_UNASSIGNED_LABEL = 'Sem responsável'
+
+const groupId = (kind: PeopleGroup['kind'], unitId: string, membershipId: string): string =>
+  `${kind}:${unitId}:${membershipId}`
+
+/**
+ * Projeta a ESTRUTURA ORGANIZACIONAL do escopo: por unidade, um nó de
+ * coordenação (sempre no topo da unidade) + um nó por liderança direta
+ * (`unit.leaders[]`, mesmo conjunto do RPC 047 — ordem alfabética pt-BR), e um
+ * nó FIXO "Sem responsável" agrupando todas as memberships com
+ * `managed_by = NULL` (qualquer status).
+ *
+ * Cada membership é roteada pelo MESMO resolvedor da lista plana
+ * (`leaderForRow` + `managerIndexForUnit`): coordenação → nó da coordenação;
+ * líder → nó do líder; NULL → nó "Sem responsável". Lideranças SEM membros
+ * continuam presentes (a estrutura é a organização, não o vínculo atual) e a
+ * coordenação NUNCA vira linha de pessoa comum — é o nível superior.
+ */
+export function composePeopleGroups(
+  units: CoordinatedUnit[],
+  requestsByUnit: Record<string, CoordinatorRequest[]>,
+  inactiveByUnit: Record<string, CoordinatorInactiveMember[]>,
+  rolesById: Map<string, CoordinatorRoleOption>,
+): PeopleGroup[] {
+  const groups: PeopleGroup[] = []
+  const unassigned: PeopleRow[] = []
+
+  // Nós por unidade, na ordem do escopo (coordenação sempre primeiro; líderes
+  // diretos em ordem alfabética pt-BR — mesmo conjunto do RPC 047).
+  for (const unit of units) {
+    groups.push({
+      id: groupId('coordination', unit.unitId, unit.coordination.id),
+      kind: 'coordination',
+      unitId: unit.unitId,
+      unitName: unit.unitName,
+      membershipId: unit.coordination.id,
+      label: COORDINATOR_LEADER_LABEL,
+      email: null,
+      isCoordination: true,
+      people: [],
+    })
+    const leaders = [...unit.leaders].sort((a, b) =>
+      (a.profile?.name ?? '—').localeCompare(b.profile?.name ?? '—', 'pt-BR'),
+    )
+    for (const leader of leaders) {
+      groups.push({
+        id: groupId('leader', unit.unitId, leader.leadership.id),
+        kind: 'leader',
+        unitId: unit.unitId,
+        unitName: unit.unitName,
+        membershipId: leader.leadership.id,
+        label: leader.profile?.name ?? 'Perfil não disponível',
+        email: leader.profile?.email ?? null,
+        isCoordination: false,
+        people: [],
+      })
+    }
+  }
+
+  // Roteia TODAS as linhas planas (MESMA projeção da lista, MESMO resolvedor):
+  // `managed_by` da coordenação → nó da coordenação; de um líder → nó do líder;
+  // NULL → seção fixa "Sem responsável". Nenhuma fila nova, nada inventado.
+  const flat = composePeopleRows(units, requestsByUnit, inactiveByUnit, rolesById)
+  for (const row of flat) {
+    if (row.leader === null) {
+      unassigned.push(row)
+      continue
+    }
+    const target = groups.find((g) =>
+      row.leader?.isCoordination
+        ? g.kind === 'coordination' && g.unitId === row.unitId
+        : g.kind === 'leader' &&
+          g.unitId === row.unitId &&
+          g.membershipId === row.leader?.membershipId,
+    )
+    if (target) target.people.push(row)
+  }
+
+  // Ordena as pessoas de cada nó por nome (pt-BR), estável.
+  const sortByPersonName = (rows: PeopleRow[]): PeopleRow[] =>
+    rows.sort(
+      (a, b) =>
+        (a.profile?.name ?? '—').localeCompare(b.profile?.name ?? '—', 'pt-BR') ||
+        (a.profile?.email ?? '').localeCompare(b.profile?.email ?? ''),
+    )
+  for (const group of groups) sortByPersonName(group.people)
+
+  // Nó fixo do topo: TODAS as memberships sem responsável (qualquer status).
+  const unassignedGroup: PeopleGroup = {
+    id: groupId('unassigned', '', ''),
+    kind: 'unassigned',
+    unitId: '',
+    unitName: '',
+    membershipId: '',
+    label: GROUP_UNASSIGNED_LABEL,
+    email: null,
+    isCoordination: false,
+    people: sortByPersonName(unassigned),
+  }
+
+  // Seção fixa no topo (oculta quando vazia); unidades em seguida.
+  return unassignedGroup.people.length === 0
+    ? groups
+    : [unassignedGroup, ...groups]
+}
+
+export interface GroupFilters extends PeopleFilters {
+  responsible: PeopleResponsibleFilter
+}
+
+/**
+ * Filtro da estrutura por responsável (client-side, sobre dados JÁ escopados).
+ * Aplica o MESMO filtro de busca/status da lista e, além disso, seleciona o
+ * nível do responsável: coordenação / líderes / sem responsável.
+ *
+ * Regras de permanência (aprovadas pelo design):
+ *  - coordenação e lideranças SEM filtro de busca/status ativo ficam sempre
+ *    presentes — lideranças vazias exibem "Nenhuma pessoa vinculada" para que
+ *    todo líder permanente do escopo continue encontrável;
+ *  - com busca/status ativos, nós vazios colapsam (a busca comunica "nada
+ *    casa" em vez de pintar a estrutura inteira de vazia);
+ *  - o nó "Sem responsável" só existe enquanto tiver pessoas que casem.
+ * NUNCA decide autorização.
+ */
+export function filterPeopleGroups(
+  groups: PeopleGroup[],
+  { query, status, responsible }: GroupFilters,
+): PeopleGroup[] {
+  const byResponsible = (group: PeopleGroup): boolean =>
+    responsible === 'all' ||
+    (responsible === 'coordination' && group.kind === 'coordination') ||
+    (responsible === 'leaders' && group.kind === 'leader') ||
+    (responsible === 'unassigned' && group.kind === 'unassigned')
+
+  const activeSearch = query.trim() !== '' || status !== 'all'
+
+  return groups.flatMap((group) => {
+    if (!byResponsible(group)) return []
+    const people = filterPeopleRows(group.people, { query, status })
+    if (group.kind !== 'unassigned') {
+      if (activeSearch && people.length === 0) return []
+      return [{ ...group, people }]
+    }
+    if (people.length === 0) return []
+    return [{ ...group, people }]
+  })
+}

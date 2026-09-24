@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
+  composePeopleGroups,
   composePeopleRows,
+  filterPeopleGroups,
   filterPeopleRows,
   peopleStatusLabel,
+  COORDINATOR_LEADER_LABEL,
+  GROUP_UNASSIGNED_LABEL,
 } from '../coordinatorHelpers'
 import type {
   CoordinatorInactiveMember,
@@ -205,5 +209,182 @@ describe('filterPeopleRows — busca e status sobre o conjunto JÁ escopado', ()
 
   it('sem correspondência → lista vazia honesta', () => {
     expect(filterPeopleRows(rows, { query: 'zzz-inexistente' , status: 'all' })).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR 277 — ESTRUTURA ORGANIZACIONAL (projeção pura do escopo, READ-ONLY)
+// ---------------------------------------------------------------------------
+
+describe('composePeopleGroups — estrutura organizacional do escopo (PR 277)', () => {
+  // Fixtures com `managed_by` apontando PARA a coordenação da própria unidade
+  // (o helper `leader()` acima fixa `coordination-ws1`, só serve ao ws1).
+  function structLeader(
+    id: string,
+    name: string,
+    unitId: string,
+    members: TeamMember[],
+  ): CoordinatedUnit['leaders'][number] {
+    return {
+      leadership: mem(`ms-${id}`, `u-${id}`, { role_id: 'role-lider', managed_by: `coordination-${unitId}` }),
+      profile: prof(id, name),
+      members,
+    }
+  }
+
+  // Unidade com: líder gerenciando alguém, líder vazio, pendência e
+  // suspenso/removido SEM responsável (managed_by NULL) → seção fixa do topo.
+  const structUnit: CoordinatedUnit = {
+    coordination: mem('coordination-wsx', 'u-coord', { role_id: 'role-coordinator' }),
+    unitId: 'wsx',
+    unitName: 'Unidade Estrutura',
+    leaders: [
+      structLeader('zara', 'Zara Líder', 'wsx', [
+        { membership: mem('ms-zico', 'u-zico', { managed_by: 'ms-zara' }), profile: prof('zico', 'Zico Membro') },
+      ]),
+      structLeader('abel', 'Abel Líder', 'wsx', []),
+    ],
+  }
+  const structRequests: Record<string, CoordinatorRequest[]> = {
+    wsx: [request('fre', 'Frei Pendente')],
+  }
+  const structInactive: Record<string, CoordinatorInactiveMember[]> = {
+    wsx: [inactive('sat', 'Só Removido', 'removed')],
+  }
+
+  it('nós por unidade: "Sem responsável" fixo no topo, coordenação primeiro, líderes em ordem alfabética pt-BR', () => {
+    const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById)
+
+    expect(groups.map((g) => g.kind)).toEqual(['unassigned', 'coordination', 'leader', 'leader'])
+    expect(groups[0].label).toBe(GROUP_UNASSIGNED_LABEL)
+    expect(groups[1].label).toBe(COORDINATOR_LEADER_LABEL)
+    expect(groups[2].membershipId).toBe('ms-abel') // Abel antes de Zara
+    expect(groups[3].membershipId).toBe('ms-zara')
+  })
+
+  it('roteia pelo MESMO resolvedor da lista: coordenação → nó da coordenação; líder → nó do líder; NULL → sem responsável', () => {
+    const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById)
+    const coord = groups.find((g) => g.kind === 'coordination')
+    const zara = groups.find((g) => g.kind === 'leader' && g.membershipId === 'ms-zara')
+    const abel = groups.find((g) => g.kind === 'leader' && g.membershipId === 'ms-abel')
+    const un = groups.find((g) => g.kind === 'unassigned')
+
+    // Líderes são gerenciados pela coordenação (managed_by) → vivem no nó dela.
+    expect(coord?.people.map((p) => p.membership.id)).toEqual(['ms-abel', 'ms-zara'])
+    expect(zara?.people.map((p) => p.membership.id)).toEqual(['ms-zico'])
+    expect(abel?.people).toEqual([])
+    expect(un?.people.map((p) => p.membership.id)).toEqual(['ms-fre', 'ms-sat'])
+  })
+
+  it('liderança sem membros permanece no nó como estrutura (sem inventar vínculo)', () => {
+    const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById)
+    const abel = groups.find((g) => g.kind === 'leader' && g.membershipId === 'ms-abel')
+
+    expect(abel?.people).toEqual([])
+  })
+
+  it('seção "Sem responsável" é omitida quando não há ninguém sem responsável', () => {
+    const allManaged: CoordinatedUnit = {
+      coordination: mem('coordination-wsy', 'u-coord', { role_id: 'role-coordinator' }),
+      unitId: 'wsy',
+      unitName: 'Unidade Toda Gerida',
+      leaders: [
+        structLeader('luana', 'Luana Líder', 'wsy', [
+          { membership: mem('ms-leo', 'u-leo', { managed_by: 'ms-luana' }), profile: prof('leo', 'Leo Membro') },
+        ]),
+      ],
+    }
+
+    const groups = composePeopleGroups([allManaged], {}, {}, rolesById)
+
+    expect(groups.some((g) => g.kind === 'unassigned')).toBe(false)
+    expect(groups.map((g) => g.kind)).toEqual(['coordination', 'leader'])
+  })
+
+  it('escopo: só unidades recebidas geram nós — dados fora ficam de fora', () => {
+    const groups = composePeopleGroups(
+      [structUnit],
+      { wsx: structRequests.wsx, wsf: [request('out', 'Fora do Escopo')] },
+      { wsx: structInactive.wsx, wsf: [inactive('out2', 'Fora 2', 'removed')] },
+      rolesById,
+    )
+    const all = groups.flatMap((g) => g.people.map((p) => p.membership.id))
+
+    expect(all).not.toContain('ms-out')
+    expect(all).not.toContain('ms-out2')
+  })
+
+  it('nunca muta as entradas', () => {
+    const snapshot = structuredClone([structUnit])
+
+    composePeopleGroups([structUnit], structRequests, structInactive, rolesById)
+
+    expect([structUnit]).toEqual(snapshot)
+  })
+
+  it('vazio legítimo: nenhuma unidade → zero nós', () => {
+    expect(composePeopleGroups([], {}, {}, rolesById)).toEqual([])
+  })
+})
+
+describe('filterPeopleGroups — filtro por responsável sobre a estrutura (PR 277)', () => {
+  const structUnit: CoordinatedUnit = unit('wsx', [
+    leader('zara', 'Zara Líder', [member('zico', 'Zico Membro', { managed_by: 'ms-zara' })]),
+    leader('abel', 'Abel Líder', []),
+  ], 'Unidade Estrutura')
+  const structRequests: Record<string, CoordinatorRequest[]> = {
+    wsx: [request('fre', 'Frei Pendente')],
+  }
+  const structInactive: Record<string, CoordinatorInactiveMember[]> = {
+    wsx: [inactive('sat', 'Só Removido', 'removed')],
+  }
+  const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById)
+
+  it('"all" devolve a estrutura inteira — nós com e sem pessoas', () => {
+    const out = filterPeopleGroups(groups, { query: '', status: 'all', responsible: 'all' })
+
+    expect(out.map((g) => g.kind)).toEqual(['unassigned', 'coordination', 'leader', 'leader'])
+    expect(out.find((g) => g.kind === 'leader' && g.membershipId === 'ms-abel')?.people).toEqual([])
+  })
+
+  it('"coordination" mantém apenas nós de coordenação', () => {
+    const out = filterPeopleGroups(groups, { query: '', status: 'all', responsible: 'coordination' })
+
+    expect(out.map((g) => g.kind)).toEqual(['coordination'])
+    expect(out[0].label).toBe(COORDINATOR_LEADER_LABEL)
+  })
+
+  it('"leaders" mantém apenas líderes — inclusive os vazios', () => {
+    const out = filterPeopleGroups(groups, { query: '', status: 'all', responsible: 'leaders' })
+
+    expect(out.map((g) => g.membershipId)).toEqual(['ms-abel', 'ms-zara'])
+    expect(out.find((g) => g.membershipId === 'ms-abel')?.people).toEqual([])
+    expect(out.find((g) => g.membershipId === 'ms-zara')?.people).toHaveLength(1)
+  })
+
+  it('"unassigned" mantém apenas o nó "Sem responsável"', () => {
+    const out = filterPeopleGroups(groups, { query: '', status: 'all', responsible: 'unassigned' })
+
+    expect(out.map((g) => g.kind)).toEqual(['unassigned'])
+    expect(out[0].label).toBe(GROUP_UNASSIGNED_LABEL)
+  })
+
+  it('responsável + status combinados (interseção)', () => {
+    const out = filterPeopleGroups(groups, { query: '', status: 'removed', responsible: 'unassigned' })
+
+    expect(out.flatMap((g) => g.people.map((p) => p.membership.id))).toEqual(['ms-sat'])
+  })
+
+  it('responsável + busca combinados', () => {
+    const out = filterPeopleGroups(groups, { query: 'zico', status: 'all', responsible: 'leaders' })
+
+    expect(out.map((g) => g.membershipId)).toEqual(['ms-zara'])
+    expect(out.flatMap((g) => g.people.map((p) => p.membership.id))).toEqual(['ms-zico'])
+  })
+
+  it('busca sem correspondência colapsa os nós vazios → estrutura vazia (EmptyState honesto)', () => {
+    const out = filterPeopleGroups(groups, { query: 'zzz-inexistente', status: 'all', responsible: 'all' })
+
+    expect(out).toEqual([])
   })
 })
