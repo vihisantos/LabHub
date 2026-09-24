@@ -1792,6 +1792,18 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(screen.getByTestId('tickets-recent')).toBeInTheDocument()
   })
 
+  it('listagem da aba Chamados respeita o escopo (chamado fora não vira linha)', async () => {
+    setCol('chamados', [
+      tk('t-list-scope', 'ws1'),
+      tk('t-list-out', 'ws2'),
+    ])
+    renderHomeAt('/coordenador?tab=tickets')
+    await act(async () => {})
+
+    expect(screen.getByTestId('tickets-list-t-list-scope')).toBeInTheDocument()
+    expect(screen.queryByTestId('tickets-list-t-list-out')).toBeNull()
+  })
+
   it('chips da aba Chamados encaminham para os filtros EXISTENTES do app', async () => {
     const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
     workspaceContextMock.workspaces = [target]
@@ -2045,6 +2057,18 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
 
     expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
     expect(screen.getByTestId('tickets-kpi-abertos')).toHaveTextContent('1')
+  })
+
+  it('listagem de chamados segue o ?unit= (só tickets da ws2)', async () => {
+    setCol('chamados', [
+      tk('t-a-list', 'ws1'),
+      tk('t-b-list', 'ws2'),
+    ])
+    renderHomeAtContext('/coordenador?tab=tickets&unit=ws2', twoUnits())
+    await act(async () => {})
+
+    expect(screen.getByTestId('tickets-list-t-b-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('tickets-list-t-a-list')).toBeNull()
   })
 
   it('filtro é refletido na aba Ecossistema (?tab=ecosystem&unit=ws2)', async () => {
