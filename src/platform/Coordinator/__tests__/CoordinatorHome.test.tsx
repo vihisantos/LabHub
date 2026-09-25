@@ -15,6 +15,7 @@ import type { Ticket } from '../../../apps/chamados/types'
 import type {
   CoordinatedUnit,
   CoordinatorInactiveMember,
+  CoordinatorMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
   CoordinatorUnitOverview,
@@ -29,6 +30,7 @@ const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorInactiveMembers = vi.hoisted(() => vi.fn())
+const mockGetCoordinatorMembers = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorUnitOverview = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorAssignableRoles = vi.hoisted(() => vi.fn())
 const mockApproveCoordinatorMembership = vi.hoisted(() => vi.fn())
@@ -102,6 +104,7 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   setCoordinatorManager: (...args: unknown[]) => mockSetCoordinatorManager(...args),
   getCoordinatorRequests: (...args: unknown[]) => mockGetCoordinatorRequests(...args),
   getCoordinatorInactiveMembers: (...args: unknown[]) => mockGetCoordinatorInactiveMembers(...args),
+  getCoordinatorMembers: (...args: unknown[]) => mockGetCoordinatorMembers(...args),
   getCoordinatorUnitOverview: (...args: unknown[]) => mockGetCoordinatorUnitOverview(...args),
   getCoordinatorAssignableRoles: (...args: unknown[]) => mockGetCoordinatorAssignableRoles(...args),
   approveCoordinatorMembership: (...args: unknown[]) => mockApproveCoordinatorMembership(...args),
@@ -227,6 +230,27 @@ function inactiveMember(
   }
 }
 
+function activeMember(
+  id: string,
+  name: string,
+  workspaceId = 'ws1',
+  over: Partial<{ managed_by: string | null; role_id: string }> = {},
+): CoordinatorMember {
+  return {
+    membership: membership(`ms-${id}`, `u-${id}`, workspaceId, {
+      managed_by: over.managed_by ?? null,
+      role_id: over.role_id ?? 'role-technician',
+    }),
+    profile: {
+      id: `u-${id}`,
+      name,
+      email: `${id}@b.com`,
+      status: 'active',
+      roleId: 'role-technician',
+    },
+  }
+}
+
 function setupOverrides(overrides: Partial<ReturnType<typeof mockUseCoordinator>>) {
   mockUseCoordinator.mockReturnValue({
     units: [],
@@ -282,6 +306,7 @@ beforeEach(() => {
   mockSetCoordinatorManager.mockResolvedValue(true)
   mockGetCoordinatorRequests.mockResolvedValue([])
   mockGetCoordinatorInactiveMembers.mockResolvedValue([])
+  mockGetCoordinatorMembers.mockResolvedValue([])
   mockGetCoordinatorUnitOverview.mockResolvedValue(null)
   mockGetCoordinatorAssignableRoles.mockResolvedValue([])
   mockApproveCoordinatorMembership.mockResolvedValue(true)
@@ -2078,6 +2103,31 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     const tab = screen.getByTestId('tab-people')
     expect(within(tab).getAllByText('Campus B').length).toBeGreaterThan(0)
     expect(within(tab).queryByText('Campus A')).toBeNull()
+  })
+
+  it('membro ATIVO sem responsável (RPC 071) respeita o ?unit= ativo (ws2)', async () => {
+    mockGetCoordinatorMembers.mockImplementation(async (ws: string) =>
+      ws === 'ws2' ? [activeMember('unb', 'Ana Sem Responsável B', 'ws2')] : [],
+    )
+    renderHomeAtContext('/coordenador?tab=people&unit=ws2', twoUnits())
+    await act(async () => {})
+
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).getByText('Ana Sem Responsável B')).toBeTruthy()
+    expect(screen.getByTestId('people-group-unassigned')).toBeTruthy()
+    expect(within(tab).queryByText('Campus A')).toBeNull()
+  })
+
+  it('membro ativo sem responsável de outra unidade NUNCA vaza no ?unit= ativo (ws1)', async () => {
+    mockGetCoordinatorMembers.mockImplementation(async (ws: string) =>
+      ws === 'ws2' ? [activeMember('unb', 'Ana Sem Responsável B', 'ws2')] : [],
+    )
+    renderHomeAtContext('/coordenador?tab=people&unit=ws1', twoUnits())
+    await act(async () => {})
+
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).queryByText('Ana Sem Responsável B')).toBeNull()
+    expect(within(tab).getAllByText('Campus A').length).toBeGreaterThan(0)
   })
 
   it('filtro é refletido na aba Chamados (?tab=tickets&unit=ws2) — só tickets da unidade', async () => {

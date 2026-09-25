@@ -199,6 +199,10 @@ export function CoordinatorHome() {
     overviewLoading,
     overviewFailed,
     loadOverview,
+    membersByUnit,
+    membersLoading,
+    membersFailed,
+    loadMembers,
   } = useCoordinatorPeopleData(unitsKey)
 
   const [roles, setRoles] = useState<CoordinatorRoleOption[]>([])
@@ -744,6 +748,10 @@ export function CoordinatorHome() {
                   inactiveLoading={inactiveLoading}
                   inactiveFailed={inactiveFailed}
                   onRetryInactive={() => void loadInactive()}
+                  membersByUnit={membersByUnit}
+                  membersLoading={membersLoading}
+                  membersFailed={membersFailed}
+                  onRetryMembers={() => void loadMembers()}
                   rolesById={rolesById}
                 />
               </TabsContent>

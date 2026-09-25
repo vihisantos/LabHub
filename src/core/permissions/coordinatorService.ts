@@ -22,11 +22,17 @@ import { dbRoleToRoleId } from './membership'
  * `_suspend_` / `_restore_` / `_remove_membership` + `_set_role`): a UI chama e
  * reage ao erro; escopo, transições e cargos permitidos são decididos no banco.
  *
- * Fase 10 (migration 066) adiciona a leitura de memberships INATIVAS
- * (`coordinator_get_inactive_members`) e projeta o perfil dentro dos RPCs de
- * listagem, porque a RLS de `profiles` (044) esconde perfis de memberships não
- * ativas. Restaurar continua sendo `suspended → active` (nunca `removed`) e o
- * servidor rejeita alvos `adm`/`coordinator`.
+*  Fase 10 (migration 066) adiciona a leitura de memberships INATIVAS
+ *  (`coordinator_get_inactive_members`) e projeta o perfil dentro dos RPCs de
+ *  listagem, porque a RLS de `profiles` (044) esconde perfis de memberships não
+ *  ativas. Restaurar continua sendo `suspended → active` (nunca `removed`) e o
+ *  servidor rejeita alvos `adm`/`coordinator`.
+ *
+ *  Fase 11 (migration 071) adiciona a leitura de TODAS as memberships ATIVAS
+ *  da unidade (`coordinator_get_members`), incluindo as sem responsável
+ *  (`managed_by = NULL`) que ficavam fora das leituras anteriores. Mesma
+ *  projeção de perfil embutida e mesma linha vermelha: adm/coordinator nunca
+ *  alcançados. PENDING/SUSPENDED/REMOVED continuam nas RPCs 065/066.
  */
 
 /** Liderança / subordinação direta ao coordenador na unidade + sua equipe. */
@@ -230,6 +236,13 @@ export interface CoordinatorRequest {
 export type CoordinatorInactiveMember = CoordinatorRequest
 
 /**
+ * Alias semântico: membership `active` da unidade coordenada (Fase 11, 071),
+ * inclusive as sem responsável (`managed_by = NULL`). O servidor projeta o
+ * perfil dentro do SECURITY DEFINER e exclui sempre adm/coordinator.
+ */
+export type CoordinatorMember = CoordinatorRequest
+
+/**
  * Central do coordenador (migration 070): visão agregada READ-ONLY da unidade
  * de chamados. O servidor (SECURITY DEFINER fail-closed, `is_coordinator_of`)
  * NEGA explicitamente quem não coordena ativamente a unidade — a UI distingue
@@ -308,7 +321,7 @@ function mapCoordinatorMemberRow(row: CoordinatorMemberRow): CoordinatorRequest 
 }
 
 /** Chamada de leitura de membros da unidade por RPC (projeção com perfil). */
-async function getCoordinatorMembers(
+async function readCoordinatorMemberRows(
   fn: string,
   workspaceId: string,
 ): Promise<CoordinatorRequest[]> {
@@ -359,7 +372,7 @@ async function callCoordinatorRpc(
  * + erro sinalizado (a UI não inventa pedidos).
  */
 export function getCoordinatorRequests(workspaceId: string): Promise<CoordinatorRequest[]> {
-  return getCoordinatorMembers('coordinator_get_requests', workspaceId)
+  return readCoordinatorMemberRows('coordinator_get_requests', workspaceId)
 }
 
 /**
@@ -372,7 +385,19 @@ export function getCoordinatorRequests(workspaceId: string): Promise<Coordinator
 export function getCoordinatorInactiveMembers(
   workspaceId: string,
 ): Promise<CoordinatorInactiveMember[]> {
-  return getCoordinatorMembers('coordinator_get_inactive_members', workspaceId)
+  return readCoordinatorMemberRows('coordinator_get_inactive_members', workspaceId)
+}
+
+/**
+ * Memberships ATIVAS da unidade (migration 071), somente se o chamador
+ * coordena ativamente a unidade. Inclui membros SEM responsável
+ * (`managed_by = NULL`) — antes invisíveis no diretório Pessoal — e projeta o
+ * perfil dentro do SECURITY DEFINER (RLS 044). O servidor exclui sempre
+ * adm/coordinator (linha vermelha). Pending/suspended/removed continuam nas
+ * RPCs 065/066; a UI desduplica por `membership.id`.
+ */
+export function getCoordinatorMembers(workspaceId: string): Promise<CoordinatorMember[]> {
+  return readCoordinatorMemberRows('coordinator_get_members', workspaceId)
 }
 
 /**

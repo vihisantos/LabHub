@@ -4,6 +4,7 @@ import { useCoordinatorPeopleData } from '../useCoordinatorPeopleData'
 import {
   getCoordinatorRequests,
   getCoordinatorInactiveMembers,
+  getCoordinatorMembers,
   getCoordinatorUnitOverview,
   getLastCoordinatorServiceError,
 } from '../coordinatorService'
@@ -11,12 +12,14 @@ import {
 vi.mock('../coordinatorService', () => ({
   getCoordinatorRequests: vi.fn(),
   getCoordinatorInactiveMembers: vi.fn(),
+  getCoordinatorMembers: vi.fn(),
   getCoordinatorUnitOverview: vi.fn(),
   getLastCoordinatorServiceError: vi.fn(),
 }))
 
 const mockGetRequests = vi.mocked(getCoordinatorRequests)
 const mockGetInactive = vi.mocked(getCoordinatorInactiveMembers)
+const mockGetMembers = vi.mocked(getCoordinatorMembers)
 const mockGetOverview = vi.mocked(getCoordinatorUnitOverview)
 const mockGetLastError = vi.mocked(getLastCoordinatorServiceError)
 
@@ -79,6 +82,32 @@ function makeOverview(): import('../coordinatorService').CoordinatorUnitOverview
   }
 }
 
+function makeMember(
+  id: string,
+  over: Partial<import('../coordinatorService').CoordinatorMember> = {},
+): import('../coordinatorService').CoordinatorMember {
+  return {
+    membership: {
+      id: `ms-${id}`,
+      profile_id: `u-${id}`,
+      workspace_id: 'ws1',
+      role_id: 'role-tec',
+      status: 'active',
+      managed_by: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    },
+    profile: {
+      id: `u-${id}`,
+      name: `Ativo ${id}`,
+      email: `${id}@b.com`,
+      status: 'active',
+      roleId: 'role-tec',
+    },
+    ...over,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -89,6 +118,7 @@ beforeEach(() => {
   mockGetLastError.mockReturnValue(null)
   mockGetRequests.mockResolvedValue([])
   mockGetInactive.mockResolvedValue([])
+  mockGetMembers.mockResolvedValue([])
   mockGetOverview.mockResolvedValue(null)
 })
 
@@ -104,6 +134,7 @@ describe('useCoordinatorPeopleData', () => {
 
       expect(mockGetRequests).not.toHaveBeenCalled()
       expect(mockGetInactive).not.toHaveBeenCalled()
+      expect(mockGetMembers).not.toHaveBeenCalled()
       expect(mockGetOverview).not.toHaveBeenCalled()
 
       expect(result.current.requestsByUnit).toEqual({})
@@ -114,6 +145,10 @@ describe('useCoordinatorPeopleData', () => {
       expect(result.current.inactiveLoading).toBe(false)
       expect(result.current.inactiveFailed).toBe(false)
 
+      expect(result.current.membersByUnit).toEqual({})
+      expect(result.current.membersLoading).toBe(false)
+      expect(result.current.membersFailed).toBe(false)
+
       expect(result.current.overviewByUnit).toEqual({})
       expect(result.current.overviewLoading).toBe(false)
       expect(result.current.overviewFailed).toBe(false)
@@ -121,9 +156,10 @@ describe('useCoordinatorPeopleData', () => {
   })
 
   describe('carregamento normal — uma unidade', () => {
-    it('carrega os três loaders e preenche os maps', async () => {
+    it('carrega os loaders e preenche os maps', async () => {
       mockGetRequests.mockResolvedValue([makeRequest('r1')])
       mockGetInactive.mockResolvedValue([makeInactive('i1', 'suspended')])
+      mockGetMembers.mockResolvedValue([makeMember('m1')])
       mockGetOverview.mockResolvedValue(makeOverview())
 
       const { result } = renderHook(() => useCoordinatorPeopleData('ws1'))
@@ -131,18 +167,22 @@ describe('useCoordinatorPeopleData', () => {
 
       expect(mockGetRequests).toHaveBeenCalledWith('ws1')
       expect(mockGetInactive).toHaveBeenCalledWith('ws1')
+      expect(mockGetMembers).toHaveBeenCalledWith('ws1')
       expect(mockGetOverview).toHaveBeenCalledWith('ws1')
 
       expect(result.current.requestsByUnit['ws1']).toHaveLength(1)
       expect(result.current.inactiveByUnit['ws1']).toHaveLength(1)
+      expect(result.current.membersByUnit['ws1']).toHaveLength(1)
       expect(result.current.overviewByUnit['ws1']).toBeDefined()
 
       expect(result.current.requestsLoading).toBe(false)
       expect(result.current.inactiveLoading).toBe(false)
+      expect(result.current.membersLoading).toBe(false)
       expect(result.current.overviewLoading).toBe(false)
 
       expect(result.current.requestsFailed).toBe(false)
       expect(result.current.inactiveFailed).toBe(false)
+      expect(result.current.membersFailed).toBe(false)
       expect(result.current.overviewFailed).toBe(false)
     })
   })
@@ -215,6 +255,19 @@ describe('useCoordinatorPeopleData', () => {
       expect(result.current.inactiveFailed).toBe(true)
       expect(result.current.inactiveByUnit).toEqual({})
     })
+
+    it('membersFailed=true quando a RPC de membros ativos falha (fail-closed)', async () => {
+      mockGetMembers.mockImplementation(async () => {
+        mockGetLastError.mockReturnValue('negado')
+        return []
+      })
+
+      const { result } = renderHook(() => useCoordinatorPeopleData('ws1'))
+      await act(async () => {})
+
+      expect(result.current.membersFailed).toBe(true)
+      expect(result.current.membersByUnit).toEqual({})
+    })
   })
 
   describe('estado de loading', () => {
@@ -268,6 +321,22 @@ describe('useCoordinatorPeopleData', () => {
       })
 
       expect(result.current.inactiveByUnit['ws1']).toHaveLength(1)
+    })
+
+    it('loadMembers() chamado manualmente recarrega o mapa', async () => {
+      mockGetMembers.mockResolvedValueOnce([])
+      mockGetMembers.mockResolvedValueOnce([makeMember('m1')])
+
+      const { result } = renderHook(() => useCoordinatorPeopleData('ws1'))
+      await act(async () => {})
+
+      expect(result.current.membersByUnit['ws1']).toHaveLength(0)
+
+      await act(async () => {
+        await result.current.loadMembers()
+      })
+
+      expect(result.current.membersByUnit['ws1']).toHaveLength(1)
     })
 
     it('loadOverview() chamado manualmente atualiza a visão da unidade', async () => {
@@ -334,6 +403,7 @@ describe('useCoordinatorPeopleData', () => {
     it('adicionar uma unidade ao key dispara novos carregamentos', async () => {
       mockGetRequests.mockResolvedValue([])
       mockGetInactive.mockResolvedValue([])
+      mockGetMembers.mockResolvedValue([])
       mockGetOverview.mockResolvedValue(null)
 
       const { rerender } = renderHook(
@@ -349,8 +419,9 @@ describe('useCoordinatorPeopleData', () => {
       })
       await act(async () => {})
 
-      // Deve ter mais chamadas após o rerender com nova key
+      // Deve ter mais chamadas após o rerender com nova key (todos os loaders).
       expect(mockGetRequests.mock.calls.length).toBeGreaterThan(firstCallCount)
+      expect(mockGetMembers.mock.calls.length).toBeGreaterThan(0)
     })
   })
 })

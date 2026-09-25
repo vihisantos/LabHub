@@ -10,6 +10,7 @@ import {
 } from '../coordinatorHelpers'
 import type {
   CoordinatorInactiveMember,
+  CoordinatorMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
   CoordinatedUnit,
@@ -73,6 +74,10 @@ function inactive(id: string, name: string, status: 'suspended' | 'removed'): Co
   return { membership: mem(`ms-${id}`, `u-${id}`, { status }), profile: prof(id, name) }
 }
 
+function activeMember(id: string, name: string, over: Partial<Membership> = {}): CoordinatorMember {
+  return { membership: mem(`ms-${id}`, `u-${id}`, { status: 'active', ...over }), profile: prof(id, name) }
+}
+
 const ws1 = unit('ws1', [
   leader('l1', 'Ana Líder', [member('alpha', 'Técnico Alpha')]),
   leader('l2', 'Bruno Líder', []),
@@ -127,6 +132,57 @@ describe('composePeopleRows — diretório READ-ONLY do escopo (PR 275)', () => 
     const names = rows.map((r) => r.profile?.name)
     expect(names).toEqual([...names].sort((a, b) => (a ?? '').localeCompare(b ?? '', 'pt-BR')))
     expect([ws1]).toEqual(snapshotUnits)
+  })
+
+  it('membro ATIVO sem responsável (RPC 071, managed_by NULL) entra no diretório com leader null', () => {
+    const membersByUnit: Record<string, CoordinatorMember[]> = {
+      ws1: [activeMember('u1', 'Ana Sem Responsável')],
+    }
+    const rows = composePeopleRows([ws1], ws1Requests, ws1Inactive, rolesById, membersByUnit)
+
+    const row = rows.find((r) => r.membership.id === 'ms-u1')
+    expect(row).toBeDefined()
+    expect(row?.status).toBe('active')
+    expect(row?.leader).toBeNull()
+    expect(row?.unitId).toBe('ws1')
+  })
+
+  it('membro ativo sob liderança resolve o líder corretamente (mesmo resolvedor do escopo 047)', () => {
+    const membersByUnit: Record<string, CoordinatorMember[]> = {
+      ws1: [activeMember('u2', 'Bruno Na Equipe', { managed_by: 'ms-l1' })],
+    }
+    const rows = composePeopleRows([ws1], ws1Requests, ws1Inactive, rolesById, membersByUnit)
+
+    const row = rows.find((r) => r.membership.id === 'ms-u2')
+    expect(row?.leader?.membershipId).toBe('ms-l1')
+    expect(row?.leader?.isCoordination).toBe(false)
+  })
+
+  it('dedup: membro ativo já presente via escopo 047 não vira linha duplicada', () => {
+    const membersByUnit: Record<string, CoordinatorMember[]> = {
+      ws1: [activeMember('alpha', 'Técnico Alpha', { managed_by: 'ms-l1' })],
+    }
+    const rows = composePeopleRows([ws1], ws1Requests, ws1Inactive, rolesById, membersByUnit)
+
+    expect(rows).toHaveLength(6) // mesmo total do cenário base — sem duplicata
+    expect(rows.filter((r) => r.membership.id === 'ms-alpha')).toHaveLength(1)
+  })
+
+  it('escopo: membros ativos de unidade fora do escopo recebido nunca entram', () => {
+    const membersByUnit: Record<string, CoordinatorMember[]> = {
+      ws1: [activeMember('u1', 'Ana Sem Responsável')],
+      ws2: [activeMember('u2', 'Fora do Escopo Ativo')],
+    }
+    const rows = composePeopleRows([ws1], ws1Requests, ws1Inactive, rolesById, membersByUnit)
+
+    expect(rows.some((r) => r.membership.id === 'ms-u2')).toBe(false)
+    expect(rows.some((r) => r.membership.id === 'ms-u1')).toBe(true)
+  })
+
+  it('membersByUnit ausente (default {}) mantém o comportamento antigo', () => {
+    const rows = composePeopleRows([ws1], ws1Requests, ws1Inactive, rolesById)
+
+    expect(rows).toHaveLength(6)
   })
 
   it('desduplica por membership.id (a mesma membership nunca vira duas linhas)', () => {
@@ -320,6 +376,43 @@ describe('composePeopleGroups — estrutura organizacional do escopo (PR 277)', 
     composePeopleGroups([structUnit], structRequests, structInactive, rolesById)
 
     expect([structUnit]).toEqual(snapshot)
+  })
+
+  it('membro ATIVO sem responsável (RPC 071) sobe na seção fixa "Sem responsável"', () => {
+    const membersByUnit: Record<string, CoordinatorMember[]> = {
+      wsx: [activeMember('u1', 'Ana Sem Responsável')],
+    }
+    const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById, membersByUnit)
+    const un = groups.find((g) => g.kind === 'unassigned')
+
+    expect(un?.label).toBe(GROUP_UNASSIGNED_LABEL)
+    expect(un?.people.map((p) => p.membership.id)).toContain('ms-u1')
+  })
+
+  it('membro ativo de membersByUnit roteado pelo MESMO resolvedor: líder → nó do líder', () => {
+    const membersByUnit: Record<string, CoordinatorMember[]> = {
+      wsx: [activeMember('u2', 'Bruno Na Equipe', { managed_by: 'ms-zara' })],
+    }
+    const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById, membersByUnit)
+    const zara = groups.find((g) => g.kind === 'leader' && g.membershipId === 'ms-zara')
+
+    expect(zara?.people.map((p) => p.membership.id)).toContain('ms-u2')
+  })
+
+  it('membro ativo duplicado da hierarquia (047) não duplica no nó', () => {
+    const membersByUnit: Record<string, CoordinatorMember[]> = {
+      wsx: [activeMember('zico', 'Zico Membro', { managed_by: 'ms-zara' })],
+    }
+    const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById, membersByUnit)
+    const zara = groups.find((g) => g.kind === 'leader' && g.membershipId === 'ms-zara')
+
+    expect(zara?.people.filter((p) => p.membership.id === 'ms-zico')).toHaveLength(1)
+  })
+
+  it('membersByUnit ausente (default {}) mantém a estrutura antiga', () => {
+    const groups = composePeopleGroups([structUnit], structRequests, structInactive, rolesById)
+
+    expect(groups.map((g) => g.kind)).toEqual(['unassigned', 'coordination', 'leader', 'leader'])
   })
 
   it('vazio legítimo: nenhuma unidade → zero nós', () => {
