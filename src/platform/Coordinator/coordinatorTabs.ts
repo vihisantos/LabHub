@@ -4,6 +4,7 @@ import { icons } from '../../lib/icons'
 export type CoordinatorTabId =
   | 'overview'
   | 'people'
+  | 'teams'
   | 'tickets'
   | 'reservalab'
   | 'reports'
@@ -19,6 +20,7 @@ export interface CoordinatorTabDef {
 export const COORDINATOR_TABS: readonly CoordinatorTabDef[] = [
   { id: 'overview', label: 'Visão Geral', icon: icons.ui.home },
   { id: 'people', label: 'Pessoal', icon: icons.ui.userCheck },
+  { id: 'teams', label: 'Equipes', icon: icons.ui.users },
   { id: 'tickets', label: 'Chamados', icon: icons.ui.inbox },
   { id: 'reservalab', label: 'ReservaLab', icon: icons.ui.flaskConical },
   { id: 'reports', label: 'Relatórios', icon: icons.ui.fileBarChart },

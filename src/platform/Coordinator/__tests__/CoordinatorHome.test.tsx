@@ -1576,6 +1576,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(tabs.map((t) => t.textContent?.trim())).toEqual([
       'Visão Geral',
       'Pessoal',
+      'Equipes',
       'Chamados',
       'ReservaLab',
       'Relatórios',
@@ -1631,6 +1632,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
       expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
         'Visão Geral',
         'Pessoal',
+        'Equipes',
         'Chamados',
         'ReservaLab',
         'Relatórios',

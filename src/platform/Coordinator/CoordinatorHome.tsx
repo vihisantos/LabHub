@@ -49,6 +49,7 @@ import { CoordinatorOverviewTab } from './tabs/CoordinatorOverviewTab'
 import { CoordinatorPeopleTab } from './tabs/CoordinatorPeopleTab'
 import { CoordinatorReportsTab } from './tabs/CoordinatorReportsTab'
 import { CoordinatorReservaLabTab } from './tabs/CoordinatorReservaLabTab'
+import { CoordinatorTeamsTab } from './tabs/CoordinatorTeamsTab'
 import { CoordinatorTicketsTab } from './tabs/CoordinatorTicketsTab'
 
 interface AssignTarget {
@@ -736,6 +737,16 @@ export function CoordinatorHome() {
                   inactiveFailed={inactiveFailed}
                   onRetryInactive={() => void loadInactive()}
                   rolesById={rolesById}
+                />
+              </TabsContent>
+
+              <TabsContent value="teams">
+                <CoordinatorTeamsTab
+                  units={visibleUnits}
+                  scopeTickets={scopeTickets}
+                  slaConfigs={slaConfigs}
+                  rolesById={rolesById}
+                  openChamadosFor={openChamadosFor}
                 />
               </TabsContent>
 
