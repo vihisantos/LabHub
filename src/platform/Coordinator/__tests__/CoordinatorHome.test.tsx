@@ -113,6 +113,14 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   getLastCoordinatorServiceError: () => mockGetLastCoordinatorServiceError(),
 }))
 
+const mockGetAuditLogs = vi.hoisted(() => vi.fn())
+
+vi.mock('../../../core/logs/serverAuditService', () => ({
+  serverAuditService: {
+    getByWorkspace: (...args: unknown[]) => mockGetAuditLogs(...args),
+  },
+}))
+
 const membership = (
   id: string,
   profileId: string,
@@ -1859,12 +1867,15 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/pc-care')
   })
 
-  it('abas futuras (Relatórios/Auditoria) são informativas e não buscam nada', async () => {
+  it('aba Auditoria (PR F) consulta registros apenas das unidades do escopo visível', async () => {
+    mockGetAuditLogs.mockResolvedValue([])
     renderHomeAt('/coordenador?tab=audit')
     await act(async () => {})
 
     expect(screen.getByTestId('tab-audit')).toBeInTheDocument()
     expect(screen.queryByTestId('coordinator-units-grid')).toBeNull()
+    expect(mockGetAuditLogs).toHaveBeenCalledTimes(1)
+    expect(mockGetAuditLogs).toHaveBeenCalledWith('ws1', 200)
   })
 
   it('aba ReservaLab (PR E) consolida em leitura: labs via slug, tablets via id, por unidade', async () => {
