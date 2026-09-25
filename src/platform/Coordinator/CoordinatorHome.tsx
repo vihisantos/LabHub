@@ -44,6 +44,7 @@ import { EmptyState } from './components/EmptyState'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
 import { SkeletonMetric, SkeletonRow } from './components/Skeletons'
 import { CoordinatorAuditTab } from './tabs/CoordinatorAuditTab'
+import { CoordinatorApprovalsTab } from './tabs/CoordinatorApprovalsTab'
 import { CoordinatorEcosystemTab } from './tabs/CoordinatorEcosystemTab'
 import { CoordinatorOverviewTab } from './tabs/CoordinatorOverviewTab'
 import { CoordinatorPeopleTab } from './tabs/CoordinatorPeopleTab'
@@ -106,7 +107,7 @@ const CONFIRM_COPY: Record<
  * (nunca adm/coordinator); o Postgres revalida tudo.
  *
  * Responsividade (camada `src/responsive`): o shell compõe blocos colocados
- * (`CoordinatorHeader`, `PendingRequests`, `InactiveMembers`, `LeaderBlock`) e
+ * (`CoordinatorHeader`, `InactiveMembers`, `LeaderBlock`) e
  * sheets (`AssignManagerSheet`, `ManageMemberSheet`, `ConfirmActionSheet`) com
  * enquadramento por faixa (BottomSheet mobile / Dialog desktop/wide).
  * - compact: coluna única (comportamento de antes);
@@ -298,10 +299,6 @@ export function CoordinatorHome() {
 
   const unitNameOf = (workspaceId?: string) =>
     units.find((u) => u.unitId === workspaceId)?.unitName ?? 'Unidade fora do escopo'
-
-  const allRequests = visibleUnits.flatMap((u) =>
-    (requestsByUnit[u.unitId] ?? []).map((request) => ({ ...request, unitName: u.unitName })),
-  )
 
 
 
@@ -697,8 +694,7 @@ export function CoordinatorHome() {
                   requestsByUnit={requestsByUnit}
                   requestsLoading={requestsLoading}
                   requestsFailed={requestsFailed}
-                  onRetryRequests={() => void loadRequests()}
-                  allRequests={allRequests}
+                  onOpenApprovals={() => handleTabChange('approvals')}
                   inactiveByUnit={inactiveByUnit}
                   inactiveLoading={inactiveLoading}
                   inactiveFailed={inactiveFailed}
@@ -719,9 +715,21 @@ export function CoordinatorHome() {
                   onAssignMember={openAssignSheet}
                   onUnassign={(member) => void confirmUnassign(member)}
                   onManage={(member, unitName) => void openManageSheet(member, unitName)}
+                  onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
+                />
+              </TabsContent>
+
+              <TabsContent value="approvals">
+                <CoordinatorApprovalsTab
+                  units={visibleUnits}
+                  requestsByUnit={requestsByUnit}
+                  requestsLoading={requestsLoading}
+                  requestsFailed={requestsFailed}
+                  onRetryRequests={() => void loadRequests()}
                   onApproveRequest={(request) => void approveRequest(request)}
                   onRejectRequest={(request) => openConfirm({ kind: 'reject', request })}
-                  onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
+                  pending={pending}
+                  rolesById={rolesById}
                 />
               </TabsContent>
 

@@ -13,13 +13,10 @@ import type { TeamMember } from '../../../core/permissions/membership'
 import { icons } from '../../../lib/icons'
 import { cn } from '../../../lib/components/ui/utils'
 import { ResponsiveGrid } from '../../../responsive'
-import { initials } from '../coordinatorHelpers'
 import { CoordinatorPanel } from '../components/CoordinatorPanel'
 import { CoordinatorRecentTickets } from '../components/CoordinatorRecentTickets'
 import { CoordinatorSlaPanel } from '../components/CoordinatorSlaPanel'
 import { CoordinatorTicketsPanel } from '../components/CoordinatorTicketsPanel'
-import { EmptyState } from '../components/EmptyState'
-import { ErrorState } from '../components/ErrorState'
 import { InactiveMembers } from '../components/InactiveMembers'
 import { LeaderBlock } from '../components/LeaderBlock'
 import { SkeletonRow } from '../components/Skeletons'
@@ -38,8 +35,7 @@ export interface CoordinatorOverviewTabProps {
   requestsByUnit: Record<string, CoordinatorRequest[]>
   requestsLoading: boolean
   requestsFailed: boolean
-  onRetryRequests: () => void
-  allRequests: Array<CoordinatorRequest & { unitName: string }>
+  onOpenApprovals: () => void
   inactiveByUnit: Record<string, CoordinatorInactiveMember[]>
   inactiveLoading: boolean
   inactiveFailed: boolean
@@ -60,8 +56,6 @@ export interface CoordinatorOverviewTabProps {
   onAssignMember: (unit: CoordinatedUnit, leader: CoordinatedLeader, member: TeamMember) => void
   onUnassign: (member: TeamMember) => void
   onManage: (member: TeamMember, unitName: string) => void
-  onApproveRequest: (request: CoordinatorRequest) => void
-  onRejectRequest: (request: CoordinatorRequest) => void
   onRequestRestore: (member: CoordinatorInactiveMember) => void
 }
 
@@ -70,6 +64,11 @@ export interface CoordinatorOverviewTabProps {
  * shell (`CoordinatorHome`) já renderizava inline — nenhuma regra nova, nenhum
  * refactor estrutural: mesma ordem, mesmos `data-testid`, mesmos callbacks e o
  * mesmo comportamento de loading/erro/fail-closed da Visão Geral existente.
+ *
+ * A fila de solicitações pendentes (com Aprovar/Rejeitar) mudou para a aba
+ * "Aprovações"; aqui fica um resumo compacto honesto (contagem real do escopo)
+ * e um CTA que navega para lá via `onOpenApprovals` — a decisão tem spinner e
+ * confirmação próprias da aba.
  *
  * Puramente apresentacional: recebe por props os dados já calculados (KPIs,
  * SLA, recentes, pendências, grade de unidades, rail de escopo) e os callbacks
@@ -89,8 +88,7 @@ export function CoordinatorOverviewTab({
   requestsByUnit,
   requestsLoading,
   requestsFailed,
-  onRetryRequests,
-  allRequests,
+  onOpenApprovals,
   inactiveByUnit,
   inactiveLoading,
   inactiveFailed,
@@ -111,8 +109,6 @@ export function CoordinatorOverviewTab({
   onAssignMember,
   onUnassign,
   onManage,
-  onApproveRequest,
-  onRejectRequest,
   onRequestRestore,
 }: CoordinatorOverviewTabProps) {
   const unitsPanel = (
@@ -269,14 +265,25 @@ export function CoordinatorOverviewTab({
       </ResponsiveGrid>
 
       <CoordinatorPanel
-        title="Solicitações / Pendências"
+        title="Aprovações"
         description={
           pendingCount > 0
-            ? 'Aprovar ativa a membership na unidade; o vínculo a uma equipe é ajustado depois pelo gestor da unidade.'
-            : undefined
+            ? `${pendingCount} solicitação(ões) de acesso pendente(s). Use a aba Aprovações para revisar e decidir cada pedido.`
+            : 'Solicitações de acesso às suas unidades aparecem aqui quando chegarem.'
         }
         className="mb-6"
-        data-testid="overview-requests"
+        data-testid="overview-approvals"
+        action={
+          <button
+            type="button"
+            data-testid="overview-open-approvals"
+            onClick={onOpenApprovals}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-[11px] font-semibold text-violet-600 transition-colors hover:bg-violet-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40 dark:text-violet-400"
+          >
+            <icons.ui.checkCircle size={12} />
+            Ver aprovações
+          </button>
+        }
       >
         {requestsLoading ? (
           <div className="space-y-2">
@@ -284,71 +291,20 @@ export function CoordinatorOverviewTab({
             <SkeletonRow />
           </div>
         ) : requestsFailed ? (
-          <ErrorState
-            message="Não foi possível carregar as solicitações."
-            onRetry={onRetryRequests}
-          />
-        ) : allRequests.length === 0 ? (
-          <EmptyState
-            variant="soft"
-            title="Nenhuma solicitação pendente."
-            description="Quando alguém solicitar acesso a uma unidade do seu escopo, o pedido aparece aqui para aprovar ou rejeitar."
-          />
+          <p className="text-[11px] leading-relaxed text-red-600 dark:text-red-400">
+            Não foi possível carregar as solicitações. Abra a aba Aprovações para tentar novamente.
+          </p>
+        ) : pendingCount === 0 ? (
+          <p className="text-[11px] leading-relaxed text-fg-muted">
+            Nenhuma solicitação pendente. Quando alguém solicitar acesso a uma unidade do seu
+            escopo, o pedido aparece na aba Aprovações para decidir.
+          </p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {allRequests.map((request) => {
-              const name = request.profile?.name ?? 'Membro sem perfil'
-              const approveKey = `approve-${request.membership.id}`
-              const rejectKey = `reject-${request.membership.id}`
-              return (
-                <li key={request.membership.id} className="flex flex-wrap items-center gap-2">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
-                    {initials(name)}
-                  </span>
-                  <span className="min-w-[9rem] flex-1 sm:min-w-0">
-                    <span className="block truncate text-[11px] font-semibold text-fg">{name}</span>
-                    {request.profile && (
-                      <span className="block truncate text-[10px] text-fg-muted">
-                        {request.profile.email}
-                      </span>
-                    )}
-                  </span>
-                  <span className="hidden shrink-0 rounded-full bg-input px-1.5 py-0.5 text-[10px] font-semibold text-fg-dim sm:inline">
-                    {request.unitName}
-                  </span>
-                  <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-                    Pendente
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onApproveRequest(request)}
-                    disabled={pending !== null}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-400"
-                  >
-                    {pending === approveKey ? (
-                      <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                    ) : (
-                      <icons.ui.check size={11} />
-                    )}
-                    Aprovar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRejectRequest(request)}
-                    disabled={pending !== null}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
-                  >
-                    {pending === rejectKey ? (
-                      <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                    ) : (
-                      <icons.ui.close size={11} />
-                    )}
-                    Rejeitar
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+          <p className="text-[11px] leading-relaxed text-fg-muted">
+            {pendingCount} solicitação{pendingCount !== 1 ? 'ões' : ''} aguardando decisão. Aprovar
+            ativa a membership na unidade; o vínculo a uma equipe é ajustado depois pelo gestor da
+            unidade.
+          </p>
         )}
       </CoordinatorPanel>
     </>

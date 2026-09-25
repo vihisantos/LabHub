@@ -403,14 +403,27 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
     })
   })
 
-  describe('solicitações pendentes por unidade (Fase 1 RPC 065)', () => {
+  describe('solicitações pendentes (aba Aprovações, RPC 065)', () => {
+    /** A fila agora vive na aba Aprovações; a Overview mantém apenas resumo + CTA. */
+    function renderApprovals(units: CoordinatedUnit[]) {
+      const refresh = vi.fn()
+      setupOverrides({ units, refresh })
+      render(
+        <MemoryRouter initialEntries={['/coordenador?tab=approvals']}>
+          <CoordinatorHome />
+        </MemoryRouter>,
+      )
+      return refresh
+    }
+
     it('lista nome, e-mail e estado pendente (sem inventar pedidos)', async () => {
       mockGetCoordinatorRequests.mockImplementation(async (ws: string) =>
         ws === 'ws1' ? [pendingRequest('p1', 'Nova Pessoa')] : [],
       )
-      renderHome([unitWithData()])
+      renderApprovals([unitWithData()])
       await act(async () => {})
 
+      expect(screen.getByTestId('tab-approvals')).toBeInTheDocument()
       expect(screen.getByText('Nova Pessoa')).toBeTruthy()
       expect(screen.getByText('p1@b.com')).toBeTruthy()
       expect(screen.getByText('Pendente')).toBeTruthy()
@@ -420,7 +433,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('aprovar chama o RPC, recarrega escopo e solicitações (sem reload de página)', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
-      const refresh = renderHome([unitWithData()])
+      const refresh = renderApprovals([unitWithData()])
       await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }))
@@ -433,7 +446,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('rejeitar exige confirmação e só então chama o RPC', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
-      const refresh = renderHome([unitWithData()])
+      const refresh = renderApprovals([unitWithData()])
       await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: /Rejeitar/ }))
@@ -450,7 +463,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('erro ao aprovar → banner honesto e sem refresh falso', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
-      const refresh = renderHome([unitWithData()])
+      const refresh = renderApprovals([unitWithData()])
       await act(async () => {})
 
       mockApproveCoordinatorMembership.mockResolvedValue(false)
@@ -465,17 +478,17 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('falha ao carregar solicitações → retry recarrega sem derrubar o escopo', async () => {
       mockGetLastCoordinatorServiceError.mockReturnValue('requests denied')
-      renderHome([unitWithData()])
+      renderApprovals([unitWithData()])
       await act(async () => {})
 
-      expect(screen.getByText(/Não foi possível carregar as solicitações/)).toBeTruthy()
+      expect(screen.getByText(/Não foi possível carregar as solicitações pendentes/)).toBeTruthy()
 
       mockGetLastCoordinatorServiceError.mockReturnValue(null)
-      fireEvent.click(screen.getAllByRole('button', { name: 'Tentar novamente' })[0])
+      fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
       await act(async () => {})
 
-      expect(screen.getByText('Nenhuma solicitação pendente.')).toBeTruthy()
-      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+      expect(screen.getByText('Nenhuma solicitação pendente')).toBeTruthy()
+      expect(screen.getByTestId('tab-approvals')).toBeInTheDocument()
     })
   })
 
@@ -1307,23 +1320,24 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
     ).toBeNull()
   })
 
-  it('solicitações globais consolidam as unidades e substituem o bloco da grid', async () => {
+  it('solicitações globais consolidam as unidades em um resumo compacto + CTA para a aba Aprovações', async () => {
     mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
     renderHome([unitWithData()])
     await act(async () => {})
 
-    const panel = screen.getByTestId('overview-requests')
-    expect(within(panel).getByText('Nova Pessoa')).toBeTruthy()
-    expect(within(panel).getByText('p1@b.com')).toBeTruthy()
-    expect(within(panel).getByText('Pendente')).toBeTruthy()
-    expect(within(panel).getByText('Campus A')).toBeTruthy()
-    // Consolidação: o nome aparece só uma vez na tela (não duplicado na grid).
-    expect(screen.getAllByText('Nova Pessoa')).toHaveLength(1)
+    // Overview: resumo honesto (contagem) + CTA; a fila completa vive na aba Aprovações.
+    const panel = screen.getByTestId('overview-approvals')
+    expect(within(panel).queryByText('Nova Pessoa')).toBeNull()
+    expect(within(panel).getByText(/1 solicitação aguardando decisão/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Aprovar/ })).toBeNull()
 
-    fireEvent.click(within(panel).getByRole('button', { name: /Aprovar/ }))
+    // CTA navega para a aba Aprovações com o escopo preservado.
+    fireEvent.click(within(panel).getByTestId('overview-open-approvals'))
     await act(async () => {})
-    expect(mockApproveCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+
+    expect(screen.getByTestId('tab-approvals')).toBeInTheDocument()
+    expect(screen.getByText('Nova Pessoa')).toBeTruthy()
   })
 
   it('SLA global reage ao cache bruto pelo sinal passivo da PR A', async () => {
@@ -1392,7 +1406,12 @@ describe('responsivo (Fase 1) — layout por faixa via camada src/responsive', (
     it('confirmação destrutiva preserva alertdialog também no desktop', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
       setBp('wide')
-      renderHome([unitWithData()])
+      setupOverrides({ units: [unitWithData()], refresh: vi.fn() })
+      render(
+        <MemoryRouter initialEntries={['/coordenador?tab=approvals']}>
+          <CoordinatorHome />
+        </MemoryRouter>,
+      )
       await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: /Rejeitar/ }))
@@ -1520,7 +1539,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(screen.getByTestId('overview-kpi-aberto')).toHaveTextContent('1')
     expect(screen.getByTestId('overview-sla')).toBeInTheDocument()
     expect(screen.getByTestId('overview-recents')).toBeInTheDocument()
-    expect(screen.getByTestId('overview-requests')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-approvals')).toBeInTheDocument()
   })
 
   it('trocar de aba atualiza a URL (?tab=) e monta o conteúdo certo (com desmonte da antiga)', async () => {
@@ -1576,6 +1595,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(tabs.map((t) => t.textContent?.trim())).toEqual([
       'Visão Geral',
       'Pessoal',
+      'Aprovações',
       'Equipes',
       'Chamados',
       'ReservaLab',
@@ -1618,7 +1638,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
       expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
     })
 
-    it('abrir: monta o menu com as 7 abas, destaca a aba ativa e alterna o aria do botão', async () => {
+    it('abrir: monta o menu com as 9 abas, destaca a aba ativa e alterna o aria do botão', async () => {
       setBp('compact')
       renderHomeAt('/coordenador?tab=people')
       await act(async () => {})
@@ -1632,6 +1652,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
       expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
         'Visão Geral',
         'Pessoal',
+        'Aprovações',
         'Equipes',
         'Chamados',
         'ReservaLab',
@@ -2116,10 +2137,10 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     expect(screen.getByTestId('overview-kpis')).toBeInTheDocument()
     expect(screen.getByTestId('overview-sla')).toBeInTheDocument()
     expect(screen.getByTestId('overview-recents')).toBeInTheDocument()
-    expect(screen.getByTestId('overview-requests')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-approvals')).toBeInTheDocument()
+    expect(within(screen.getByTestId('overview-approvals')).getByText(/1 solicitação aguardando decisão/)).toBeTruthy()
     expect(screen.getByTestId('coordinator-units-grid')).toBeInTheDocument()
     expect(screen.getByTestId('coordinator-side-info')).toBeInTheDocument()
-    expect(screen.getByText('Pessoa B')).toBeTruthy()
   })
 
   it('trocar de unidade NÃO dispara nenhuma RPC nova de pessoal/visão (dados já carregados)', async () => {
