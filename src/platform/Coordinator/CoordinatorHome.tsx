@@ -783,7 +783,7 @@ export function CoordinatorHome() {
               </TabsContent>
 
               <TabsContent value="audit">
-                <CoordinatorAuditTab />
+                <CoordinatorAuditTab units={visibleUnits} unitNameOf={unitNameOf} />
               </TabsContent>
 
               <TabsContent value="ecosystem">
