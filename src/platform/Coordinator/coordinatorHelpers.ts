@@ -2,6 +2,7 @@ import type { Membership, MembershipStatus, TeamMember, TeamMemberProfile } from
 import { permissionService } from '../../core/permissions/service'
 import type {
   CoordinatorInactiveMember,
+  CoordinatorMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
   CoordinatedUnit,
@@ -133,10 +134,14 @@ export function summarizePeopleCounts(
  *   - `units[].leaders`            → liderança subordinada direta + cada membro
  *                                    da equipe (RPCs 047, escopo ativo);
  *   - `requestsByUnit[unit]`       → memberships PENDING (RPC 065/066);
- *   - `inactiveByUnit[unit]`       → memberships SUSPENDED/REMOVED (RPC 066).
+ *   - `inactiveByUnit[unit]`       → memberships SUSPENDED/REMOVED (RPC 066);
+ *   - `membersByUnit[unit]`        → memberships ATIVAS da unidade, INCLUSIVE as
+ *                                    sem responsável (`managed_by = NULL`) que
+ *                                    ficavam fora da hierarquia (RPC 071).
  *
- * Nenhuma consulta nova ao banco: a autorização já foi decidida no servidor em
- * cada uma dessas leituras — o diretório apenas PROJETA o mesmo conjunto.
+ * Nenhuma decisão de autorização mora aqui: cada fonte já foi escopada pelo
+ * servidor (fail-closed por `auth.uid()` + `is_coordinator_of`); o diretório
+ * apenas PROJETA o mesmo conjunto e desduplica por `membership.id`.
  * Administradores de workspace e pares de coordenação NÃO aparecem (linha
  * vermelha: o coordenador não alcança adm/coordinator) e nenhum status é
  * inventado — `membership.status` é a fonte de verdade.
@@ -225,6 +230,7 @@ export function composePeopleRows(
   requestsByUnit: Record<string, CoordinatorRequest[]>,
   inactiveByUnit: Record<string, CoordinatorInactiveMember[]>,
   rolesById: Map<string, CoordinatorRoleOption>,
+  membersByUnit: Record<string, CoordinatorMember[]> = {},
 ): PeopleRow[] {
   const rows: PeopleRow[] = []
   const seen = new Set<string>()
@@ -236,6 +242,22 @@ export function composePeopleRows(
 
   for (const unit of units) {
     const leaderIndex = managerIndexForUnit(unit)
+    // Membros ATIVOS da unidade (RPC 071) — inclui os sem responsável
+    // (`managed_by = NULL`), que não têm nó próprio na hierarquia. A dedup por
+    // `membership.id` garante que lideranças/equipes vindas do escopo 047 não
+    // virem linhas duplicadas. A linha de um membro SEM responsável resolve
+    // `leader = null` e cai no grupo fixo "Sem responsável".
+    for (const member of membersByUnit[unit.unitId] ?? []) {
+      push({
+        membership: member.membership,
+        profile: member.profile,
+        roleLabel: roleLabelFor(member.membership, member.profile, rolesById),
+        unitId: unit.unitId,
+        unitName: unit.unitName,
+        status: member.membership.status,
+        leader: leaderForRow(member.membership, leaderIndex),
+      })
+    }
     for (const leader of unit.leaders) {
       push({
         membership: leader.leadership,
@@ -323,8 +345,8 @@ export function filterPeopleRows(
 //
 // Mesmo princípio defendido na PR 276: os dados vêm EXCLUSIVAMENTE das leituras
 // fail-closed que o shell já carrega (`units`, `requestsByUnit`,
-// `inactiveByUnit`, `rolesById`). Nenhuma consulta nova, nenhuma migration,
-// nenhum RPC, nada no Supabase. A autorização continua decidida no servidor; a
+// `inactiveByUnit`, `rolesById` e, desde a Fase 11/071, `membersByUnit`). A
+// autorização continua decidida no servidor (auth.uid + is_coordinator_of); a
 // UI apenas PROJETA a hierarquia sobre o conjunto já escopado.
 //
 // O agrupador abaixo converte a lista plana em:
@@ -389,6 +411,7 @@ export function composePeopleGroups(
   requestsByUnit: Record<string, CoordinatorRequest[]>,
   inactiveByUnit: Record<string, CoordinatorInactiveMember[]>,
   rolesById: Map<string, CoordinatorRoleOption>,
+  membersByUnit: Record<string, CoordinatorMember[]> = {},
 ): PeopleGroup[] {
   const groups: PeopleGroup[] = []
   const unassigned: PeopleRow[] = []
@@ -428,7 +451,7 @@ export function composePeopleGroups(
   // Roteia TODAS as linhas planas (MESMA projeção da lista, MESMO resolvedor):
   // `managed_by` da coordenação → nó da coordenação; de um líder → nó do líder;
   // NULL → seção fixa "Sem responsável". Nenhuma fila nova, nada inventado.
-  const flat = composePeopleRows(units, requestsByUnit, inactiveByUnit, rolesById)
+  const flat = composePeopleRows(units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit)
   for (const row of flat) {
     if (row.leader === null) {
       unassigned.push(row)

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type {
   CoordinatorInactiveMember,
+  CoordinatorMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
   CoordinatedUnit,
@@ -30,7 +31,10 @@ import { SkeletonRow } from '../components/Skeletons'
  * (sempre no topo) + um nó por liderança direta (ordem alfabética pt-BR), e uma
  * seção FIXA "Sem responsável" agregando memberships sem `managed_by` — tudo
  * projetado client-side sobre as leituras fail-closed que o shell já carrega
- * (`units`/`requestsByUnit`/`inactiveByUnit`). NENHUMA ação de gestão vive aqui.
+ * (`units`/`requestsByUnit`/`inactiveByUnit`/`membersByUnit`). Desde a Fase 11
+ * (071), `membersByUnit` traz TODOS os membros ativos da unidade, inclusive os
+ * sem responsável que ficavam fora da hierarquia. NENHUMA ação de gestão vive
+ * aqui.
  *
  * Filtros: busca por nome/e-mail + status (mesmos da lista) + "Responsável"
  * (Todos / Coordenação / Líderes / Sem responsável). Lideranças sem membros
@@ -100,6 +104,10 @@ export interface CoordinatorPeopleTabProps {
   inactiveLoading: boolean
   inactiveFailed: boolean
   onRetryInactive: () => void
+  membersByUnit: Record<string, CoordinatorMember[]>
+  membersLoading: boolean
+  membersFailed: boolean
+  onRetryMembers: () => void
   rolesById: Map<string, CoordinatorRoleOption>
 }
 
@@ -181,22 +189,26 @@ export function CoordinatorPeopleTab({
   inactiveLoading,
   inactiveFailed,
   onRetryInactive,
+  membersByUnit,
+  membersLoading,
+  membersFailed,
+  onRetryMembers,
   rolesById,
 }: CoordinatorPeopleTabProps) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<MembershipStatus | 'all'>('all')
   const [responsible, setResponsible] = useState<PeopleResponsibleFilter>('all')
 
-  const loading = requestsLoading || inactiveLoading
-  const failed = requestsFailed || inactiveFailed
+  const loading = requestsLoading || inactiveLoading || membersLoading
+  const failed = requestsFailed || inactiveFailed || membersFailed
 
   const rows = useMemo(
-    () => composePeopleRows(units, requestsByUnit, inactiveByUnit, rolesById),
-    [units, requestsByUnit, inactiveByUnit, rolesById],
+    () => composePeopleRows(units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit),
+    [units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit],
   )
   const groups = useMemo(
-    () => composePeopleGroups(units, requestsByUnit, inactiveByUnit, rolesById),
-    [units, requestsByUnit, inactiveByUnit, rolesById],
+    () => composePeopleGroups(units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit),
+    [units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit],
   )
   const visibleGroups = useMemo(
     () => filterPeopleGroups(groups, { query, status, responsible }),
@@ -218,6 +230,7 @@ export function CoordinatorPeopleTab({
   const onRetry = () => {
     if (requestsFailed) onRetryRequests()
     if (inactiveFailed) onRetryInactive()
+    if (membersFailed) onRetryMembers()
   }
 
   return (

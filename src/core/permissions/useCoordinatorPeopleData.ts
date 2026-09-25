@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   getCoordinatorInactiveMembers,
+  getCoordinatorMembers,
   getCoordinatorRequests,
   getCoordinatorUnitOverview,
   getLastCoordinatorServiceError,
   type CoordinatorInactiveMember,
+  type CoordinatorMember,
   type CoordinatorRequest,
   type CoordinatorUnitOverview,
 } from './coordinatorService'
@@ -16,6 +18,7 @@ import {
  *   - solicitações pendentes por unidade  (`requestsByUnit`)
  *   - membros inativos por unidade        (`inactiveByUnit`)
  *   - visão geral (chamados) por unidade  (`overviewByUnit`)
+ *   - membros ATIVOS por unidade          (`membersByUnit`, Fase 11/071)
  *
  * Recebe `unitsKey` — string derivada dos `unitId` separados por `|`, exatamente
  * como era gerada no shell — para preservar a semântica de invalidação: quando
@@ -27,10 +30,10 @@ import {
  * roles ou qualquer regra de autorização — é exclusivamente gestão de estado
  * de carregamento assíncrono.
  *
- * Os loaders (`loadRequests`, `loadInactive`, `loadOverview`) são estáveis entre
- * renders (via `useCallback`), portanto podem ser chamados diretamente pelas
- * mutações do shell após approve/reject/suspend/restore/remove sem criar ciclos
- * extras.
+ * Os loaders (`loadRequests`, `loadInactive`, `loadOverview`, `loadMembers`)
+ * são estáveis entre renders (via `useCallback`), portanto podem ser chamados
+ * diretamente pelas mutações do shell após approve/reject/suspend/restore/remove
+ * sem criar ciclos extras.
  */
 export function useCoordinatorPeopleData(unitsKey: string) {
   const [requestsByUnit, setRequestsByUnit] = useState<Record<string, CoordinatorRequest[]>>({})
@@ -46,6 +49,35 @@ export function useCoordinatorPeopleData(unitsKey: string) {
   const [overviewByUnit, setOverviewByUnit] = useState<Record<string, CoordinatorUnitOverview>>({})
   const [overviewLoading, setOverviewLoading] = useState(false)
   const [overviewFailed, setOverviewFailed] = useState(false)
+
+  const [membersByUnit, setMembersByUnit] = useState<Record<string, CoordinatorMember[]>>({})
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [membersFailed, setMembersFailed] = useState(false)
+
+  const loadMembers = useCallback(async () => {
+    const currentUnits = unitsKey ? unitsKey.split('|') : []
+    if (currentUnits.length === 0) {
+      setMembersByUnit({})
+      setMembersFailed(false)
+      setMembersLoading(false)
+      return
+    }
+    setMembersLoading(true)
+    setMembersFailed(false)
+    const next: Record<string, CoordinatorMember[]> = {}
+    let anyFailed = false
+    for (const unitId of currentUnits) {
+      const rows = await getCoordinatorMembers(unitId)
+      if (getLastCoordinatorServiceError() !== null) {
+        anyFailed = true
+        break
+      }
+      next[unitId] = rows
+    }
+    setMembersByUnit(next)
+    setMembersFailed(anyFailed)
+    setMembersLoading(false)
+  }, [unitsKey])
 
   const loadRequests = useCallback(async () => {
     const currentUnits = unitsKey ? unitsKey.split('|') : []
@@ -134,6 +166,10 @@ export function useCoordinatorPeopleData(unitsKey: string) {
     void loadOverview()
   }, [loadOverview])
 
+  useEffect(() => {
+    void loadMembers()
+  }, [loadMembers])
+
   return {
     requestsByUnit,
     requestsLoading,
@@ -147,5 +183,9 @@ export function useCoordinatorPeopleData(unitsKey: string) {
     overviewLoading,
     overviewFailed,
     loadOverview,
+    membersByUnit,
+    membersLoading,
+    membersFailed,
+    loadMembers,
   }
 }
