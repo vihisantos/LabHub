@@ -10,8 +10,6 @@ import { initials } from '../coordinatorHelpers'
 import { composeTeams, type TeamGroup, type TeamMemberRow } from '../coordinatorTeams'
 import type { ScopeSlaConfigs } from '../coordinatorTickets'
 import { EmptyState } from '../components/EmptyState'
-import { ErrorState } from '../components/ErrorState'
-import { SkeletonRow } from '../components/Skeletons'
 
 export interface CoordinatorTeamsTabProps {
   units: CoordinatedUnit[]
@@ -19,9 +17,6 @@ export interface CoordinatorTeamsTabProps {
   slaConfigs: ScopeSlaConfigs
   rolesById: Map<string, CoordinatorRoleOption>
   openChamadosFor: (unitId: string) => ((query?: string) => void) | null
-  loading?: boolean
-  failed?: boolean
-  onRetry?: () => void
 }
 
 const STAT_LABELS: ReadonlyArray<{ key: 'open' | 'inProgress' | 'highPriority' | 'slaRisk'; label: string }> = [
@@ -140,7 +135,7 @@ function TeamCard({
           className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-[11px] font-semibold text-violet-600 transition-colors hover:bg-violet-500/25 disabled:cursor-default disabled:opacity-50 dark:text-violet-400"
         >
           <icons.ui.inbox size={12} />
-          Ver chamados da equipe
+          Ver chamados da unidade
         </button>
       </div>
     </div>
@@ -161,7 +156,7 @@ function TeamCard({
  * é a estrutura, não o vínculo do momento) e membros sem responsável resolvível
  * caem na seção "Sem responsável" (nunca inventamos um líder).
  *
- * Navegação: "Ver chamados da equipe" reutiliza o mecanismo existente
+ * Navegação: "Ver chamados da unidade" reutiliza o mecanismo existente
  * `openChamadosFor` (troca de workspace + rota `/chamados`). Limitação V1
  * documentada: o TicketList não possui query param para filtrar por múltiplos
  * responsáveis — então não inventamos query nova; abrimos a fila da unidade e
@@ -173,9 +168,6 @@ export function CoordinatorTeamsTab({
   slaConfigs,
   rolesById,
   openChamadosFor,
-  loading = false,
-  failed = false,
-  onRetry,
 }: CoordinatorTeamsTabProps) {
   const projection = useMemo(
     () => composeTeams(units, scopeTickets, slaConfigs, rolesById),
@@ -217,7 +209,7 @@ export function CoordinatorTeamsTab({
           </p>
         </div>
         <div className="col-span-2 rounded-xl border border-line bg-surface px-3.5 py-3 sm:col-span-1">
-          <p className="text-[10px] text-fg-muted">Chamados abertos</p>
+          <p className="text-[10px] text-fg-muted">Chamados dos membros</p>
           <p className="mt-1 text-xl font-bold leading-none text-fg tabular-nums" data-testid="teams-summary-open">
             {projection.summary.openCount}
           </p>
@@ -225,24 +217,7 @@ export function CoordinatorTeamsTab({
       </div>
 
       <div className="mt-4">
-        {loading ? (
-          <div
-            data-testid="teams-loading"
-            role="status"
-            aria-live="polite"
-            aria-label="Carregando equipes do escopo"
-            className="flex flex-col gap-2"
-          >
-            <SkeletonRow />
-            <SkeletonRow />
-            <SkeletonRow />
-          </div>
-        ) : failed ? (
-          <ErrorState
-            message="Não foi possível carregar as equipes do escopo. Os dados já autorizados estão preservados; tente novamente em instantes."
-            onRetry={onRetry}
-          />
-        ) : !hasTeams && !hasUnassigned ? (
+        {!hasTeams && !hasUnassigned ? (
           <EmptyState
             icon={<icons.ui.users size={20} className="text-fg-muted" />}
             variant="soft"

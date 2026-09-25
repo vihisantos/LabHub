@@ -110,14 +110,27 @@ afterEach(() => {
 })
 
 describe('CoordinatorTeamsTab — organização e operação das equipes (V1)', () => {
-  it('renderiza a aba com faixa de resumo (equipes/membros/chamados abertos)', () => {
+  it('renderiza a aba com faixa de resumo (equipes/membros/chamados dos membros)', () => {
     const ws1 = unit('ws1', [leader('l1', 'Ana Líder', [member('alpha', 'Técnico Alpha')])], 'Campus A')
     renderTab([ws1])
 
     expect(screen.getByTestId('tab-teams')).toBeInTheDocument()
+    expect(screen.getByText('Chamados dos membros')).toBeInTheDocument()
     expect(screen.getByTestId('teams-summary-teams')).toHaveTextContent('1')
     expect(screen.getByTestId('teams-summary-members')).toHaveTextContent('2')
     expect(screen.getByTestId('teams-summary-open')).toHaveTextContent('0')
+  })
+
+  it('resumo "Chamados dos membros" conta apenas chamados de pessoas projetadas (não o KPI da unidade)', () => {
+    const ws1 = unit('ws1', [leader('l1', 'Ana Líder', [member('alpha', 'Técnico Alpha')])], 'Campus A')
+    const tickets = [
+      tk({ id: 't-do-membro', assignedToUserId: 'u-alpha' }),
+      tk({ id: 't-fora-da-projecao', assignedToUserId: 'u-externo' }),
+    ]
+    renderTab([ws1], tickets)
+
+    expect(screen.getByTestId('teams-summary-open')).toHaveTextContent('1')
+    expect(screen.getByTestId('teams-team-open-ms-l1')).toHaveTextContent('1 chamado')
   })
 
   it('agrupa por unidade e identifica a unidade de cada equipe (multiunidade)', () => {
@@ -208,29 +221,20 @@ describe('CoordinatorTeamsTab — organização e operação das equipes (V1)', 
     expect(screen.queryByTestId('teams-unassigned')).toBeNull()
   })
 
-  it('loading mostra skeleton existente (não inventa números)', () => {
+  it('não possui estados internos de loading/erro — o shell controla isso ao redor da aba', () => {
     const ws1 = unit('ws1', [leader('l1', 'Ana Líder', [])], 'Campus A')
-    renderTab([ws1], [], { loading: true })
+    renderTab([ws1])
 
-    expect(screen.getByTestId('teams-loading')).toBeInTheDocument()
-    expect(screen.queryByTestId('teams-team-ws1-ms-l1')).toBeNull()
+    expect(screen.queryByTestId('teams-loading')).toBeNull()
+    expect(screen.queryByText(/Não foi possível carregar as equipes/)).toBeNull()
+    expect(screen.getByTestId('tab-teams')).toBeInTheDocument()
   })
 
-  it('erro usa ErrorState com retry enviado pelo chamador', () => {
-    const ws1 = unit('ws1', [leader('l1', 'Ana Líder', [])], 'Campus A')
-    const onRetry = vi.fn()
-    renderTab([ws1], [], { failed: true, onRetry })
-
-    expect(screen.getByText(/Não foi possível carregar as equipes/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
-    expect(onRetry).toHaveBeenCalledTimes(1)
-  })
-
-  it('"Ver chamados da equipe" reutiliza openChamadosFor da unidade dentro do escopo', () => {
+  it('"Ver chamados da unidade" reutiliza openChamadosFor da unidade dentro do escopo', () => {
     const ws1 = unit('ws1', [leader('l1', 'Ana Líder', [])], 'Campus A')
     const { onOpenChamados } = renderTab([ws1])
 
-    fireEvent.click(screen.getByTestId('teams-open-ws1-ms-l1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Ver chamados da unidade' }))
     expect(onOpenChamados).toHaveBeenCalledTimes(1)
   })
 
