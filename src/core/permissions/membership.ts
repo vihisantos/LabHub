@@ -115,6 +115,14 @@ export function assignableRoleIds(roleIds: string[]): string[] {
   return (roleIds ?? []).filter((id) => ROLE_ID_TO_SLUG[id] !== undefined)
 }
 
+/**
+ * Slugs que podem gerenciar outra membership (trigger
+ * trg_memberships_manager_guard, 045+046: gestor precisa ser liderança;
+ * lider NÃO gerencia lider na mesma unidade; sem ciclos). Usado só para
+ * OFERECER candidatos na UI — a autoridade é o trigger, fail-closed.
+ */
+export const LEADERSHIP_SLUGS: readonly string[] = ['lider', 'coordinator']
+
 /** Pode entrar na Área do Líder (scope team). Só o cargo decide — nunca appAccess. */
 export function canViewTeam(ctx: TeamContext): boolean {
   if (!ctx.user) return false

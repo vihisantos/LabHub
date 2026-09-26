@@ -414,6 +414,8 @@ describe('UserDetailPage', () => {
 
     renderPage()
 
+    // Aguarda os candidatos (dependem de roleInfo assíncrono)
+    await screen.findByRole('option', { name: 'Líder Léo · Líder' })
     const managerSelect = await screen.findByRole('combobox', { name: 'Responsável em Campus Mooca' })
     expect(managerSelect).toHaveDisplayValue('Sem responsável')
     fireEvent.change(managerSelect, {
@@ -426,5 +428,33 @@ describe('UserDetailPage', () => {
       )
     })
     expect(screen.getByText('Responsável atualizado')).toBeInTheDocument()
+  })
+
+  it('só cargos de liderança são oferecidos como responsável', async () => {
+    const tecUser = {
+      ...activeUser,
+      id: 'u-tec',
+      name: 'Téc Nico',
+      email: 'nico@mooca.edu.br',
+      roleId: 'role-technician',
+      memberships: [{
+        id: 'm-tec-ws-mooca', profile_id: 'u-tec', workspace_id: 'ws-mooca',
+        role_id: 'r-a', status: 'active', managed_by: null, created_at: '', updated_at: '',
+      }],
+      membershipsLoaded: true,
+    }
+    mockAdminService.listAllProfiles.mockResolvedValue([activeUser, tecUser])
+    mockMembershipsFromFixtures([activeUser, tecUser])
+
+    renderPage()
+
+    // O filtro roda após carregar os cargos (não confundir com "ainda carregando")
+    await waitFor(() => {
+      expect(mockResolveRoleInfo).toHaveBeenCalled()
+    })
+    const managerSelect = await screen.findByRole('combobox', { name: 'Responsável em Campus Mooca' })
+    // Técnico não é liderança (trigger 045+046) → só "Sem responsável"
+    expect(managerSelect.querySelectorAll('option')).toHaveLength(1)
+    expect(screen.queryByText(/Nico/)).not.toBeInTheDocument()
   })
 })

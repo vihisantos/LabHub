@@ -3,7 +3,7 @@ import type { User } from '../../../core/auth/types'
 import type { Workspace } from '../../../core/workspaces/types'
 import type { Role } from '../../../core/permissions/types'
 import type { Membership } from '../../../core/permissions/membership'
-import { SLUG_TO_ROLE_ID, assignableRoleIds } from '../../../core/permissions/membership'
+import { SLUG_TO_ROLE_ID, assignableRoleIds, LEADERSHIP_SLUGS } from '../../../core/permissions/membership'
 import { adminService } from '../../../core/auth/adminService'
 import { membershipService } from '../../../core/memberships/service'
 import { icons } from '../../../lib/icons'
@@ -110,11 +110,17 @@ export function AccessConfigurationSection({
   }
 
   function candidatesFor(membership: Membership): { membership: Membership; ownerName: string }[] {
+    // Só cargos de liderança podem gerenciar (trigger 045+046 — a UI oferece,
+    // o servidor decide). O próprio membro nunca é candidato.
     return allMemberships
       .filter(
         ({ membership: m }) =>
           m.workspace_id === membership.workspace_id && m.status === 'active' && m.id !== membership.id,
       )
+      .filter(({ membership: m }) => {
+        const slug = roleInfo.get(m.role_id)?.slug
+        return !!slug && (LEADERSHIP_SLUGS as readonly string[]).includes(slug)
+      })
       .map(({ membership: m, owner }) => ({ membership: m, ownerName: owner.name }))
   }
 

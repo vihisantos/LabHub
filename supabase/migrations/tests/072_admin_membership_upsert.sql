@@ -141,7 +141,10 @@ LOOP
   IF v_def NOT LIKE '%SECURITY DEFINER%' THEN
     RAISE EXCEPTION 'FAIL: function must be SECURITY DEFINER';
   END IF;
-  IF v_def NOT LIKE '%SET search_path = public%' THEN
+  -- pg_get_functiondef normaliza o SET conforme a versão do PG
+  -- ('= public' ou "TO 'public'"): aceitar ambas as formas.
+  IF v_def NOT LIKE '%SET search_path = public%'
+     AND v_def NOT LIKE '%SET search_path TO %public%' THEN
     RAISE EXCEPTION 'FAIL: function must pin search_path=public';
   END IF;
 END LOOP;

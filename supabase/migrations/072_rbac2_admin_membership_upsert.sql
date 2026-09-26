@@ -95,8 +95,7 @@ BEGIN
       updated_at = now()
   WHERE id = p_user_id;
 
-  -- Retorno singular (função NÃO-SETOF: SELECT INTO + RETURN, nunca
-  -- RETURN QUERY — erro 42804).
+  -- Retorno singular (função NÃO-SETOF: SELECT INTO + RETURN).
   SELECT * INTO v_row
   FROM public.memberships
   WHERE profile_id = p_user_id AND workspace_id = p_workspace_id;
@@ -221,8 +220,7 @@ BEGIN
       updated_at = now()
   WHERE id = v_target_id;
 
-  -- Retorno singular (função NÃO-SETOF: SELECT INTO + RETURN, nunca
-  -- RETURN QUERY — erro 42804).
+  -- Retorno singular (função NÃO-SETOF: SELECT INTO + RETURN).
   SELECT * INTO v_row FROM public.memberships WHERE id = v_target_id;
   RETURN v_row;
 END;
