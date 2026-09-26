@@ -48,17 +48,30 @@ IF v_def NOT LIKE '%''lider''%' OR v_def NOT LIKE '%''role-lider''%' THEN
   RAISE EXCEPTION 'FAIL: profiles_role_check does not accept lider/role-lider (%)', v_def;
 END IF;
 
--- ── 3. sync_user_memberships mapeia lider/role-lider → slug lider ───────────
-SELECT pg_get_functiondef(p.oid) INTO v_def
+-- ── 3. sync_user_memberships REMOVIDA (contrato pós-067 trust boundary) ─────
+-- A migration 067 removeu deliberadamente a função legada (executável por
+-- authenticated) e o wrapper de trigger associado. O teste valida o estado
+-- final: nenhum resquício do mecanismo legado permanece em public.
+SELECT count(*) INTO v_count
 FROM pg_proc p
 JOIN pg_namespace nsp ON nsp.oid = p.pronamespace
-WHERE nsp.nspname = 'public' AND p.proname = 'sync_user_memberships';
+WHERE nsp.nspname = 'public'
+  AND p.proname IN ('sync_user_memberships', 'trg_sync_user_memberships');
 
-IF v_def IS NULL THEN
-  RAISE EXCEPTION 'FAIL: function sync_user_memberships(uuid) is missing';
+IF v_count <> 0 THEN
+  RAISE EXCEPTION 'FAIL: sync_user_memberships/trg_sync_user_memberships still present post-067 (found %)', v_count;
 END IF;
-IF v_def NOT LIKE '%''lider'', %''role-lider''%' THEN
-  RAISE EXCEPTION 'FAIL: sync_user_memberships does not map lider/role-lider';
+
+SELECT count(*) INTO v_count
+FROM pg_trigger t
+JOIN pg_class rel ON rel.oid = t.tgrelid
+JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+WHERE nsp.nspname = 'public'
+  AND rel.relname = 'profiles'
+  AND t.tgname = 'trg_profiles_sync_memberships';
+
+IF v_count <> 0 THEN
+  RAISE EXCEPTION 'FAIL: legacy trigger trg_profiles_sync_memberships still present (found %)', v_count;
 END IF;
 
 -- ── 4. memberships.managed_by existente (coluna + FK + not-self + índices) ──

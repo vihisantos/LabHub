@@ -50,8 +50,51 @@ A linha de baseline fica gravada em `schema_migrations` com `filename =
 ```sh
 python -m pip install requests python-dotenv
 SUPABASE_PROJECT_REF=... SUPABASE_ACCESS_TOKEN=... BASELINE_VERSION=035 python scripts/migrate.py
-python scripts/migrate.py --dry-run        # só lista pendentes, não executa
+python scripts/migrate.py --dry-run        # plan/print SÓ (leitura); nunca escreve
+                                                           # CREATE TABLE, INSERT de
+                                                           # baseline nem migrations
 ```
+
+### Banco novo vs produção (separação de conceitos, FASE 3)
+
+O runner tem DUAS interpretações de "tabela vazia", e elas NÃO devem ser misturadas:
+
+- **Produção legada** (tabela vazia + sem `BASELINE_VERSION`): baseline implícito =
+  **maior versão do repositório**. Nada é reaplicado; só o que vier depois.
+- **Banco novo/efêmero** (CI, staging zerado): use `--from-scratch` (ou env
+  `MIGRATE_FROM_SCRATCH=1`) — aplica **TODAS** as migrations, `000` em diante,
+  sem gravar linha de baseline. Nunca rode `--from-scratch` numa unidade real; é
+  voltado ao PostgreSQL descartável do CI.
+
+### Transação embutida na 000 (normalização no runner)
+
+A `000_bootstrap_baseline.sql` contém `BEGIN;`/`COMMIT;` de nível de arquivo
+(baselined em produção, nunca aplicada pelo runner). Como o runner é o dono da
+transação (wrapper advisory lock + registro + commit), o corpo passou por
+`strip_inner_transaction` no momento de executar — remove UM `BEGIN;` top-level
+inicial e UM `COMMIT;` final, se existirem — o que torna a `000` aplicável numa
+cadeia `000→072` de banco novo sem quebrar a atomicidade do registro.
+
+### Validação em CI (PR) — nunca toca DEV/PROD
+
+`.github/workflows/migrations-ci.yml` roda em Pull Request (path-filtered):
+cria um **PostgreSQL 16 descartável** (`services: postgres`) no próprio job e:
+
+1. prova que `scripts/migrate.py --dry-run` é **read-only** (nem a tabela
+   `schema_migrations` é criada — ver `scripts/ci/ci_dry_run_smoke.py`);
+2. aplica `000→072` via runner com `--from-scratch` (exercita a cadeia real);
+3. verifica idempotência (rerun não duplica) e consistência de
+   `schema_migrations`;
+4. roda todos os `supabase/migrations/tests/*.sql` (estruturais + behavioral);
+5. roda o behavioral da **072** (`scripts/ci/behavioral_072.py`, 13 pontos);
+6. roda a suíte unitária do runner (`scripts/tests/test_migrations.py`).
+
+A **aplicação real** continua no `migrations.yml` (pós-merge em `main`, via
+Management API + `BASELINE_VERSION=035`). O workflow de PR não conhece nenhum
+secreto de DEV/PROD — só a `DATABASE_URL` do próprio banco efêmero.
+
+Para executar o mesmo fluxo fora do Actions (precisa de um PostgreSQL local ou
+container): `DATABASE_URL=postgresql://... python scripts/ci/ci_migration_suite.py`.
 
 ### Troubleshooting
 

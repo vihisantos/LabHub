@@ -3,7 +3,7 @@
 -- =============================================================================
 -- Asserções da Fase 9.3-C (migration 053): sincronização legada desligada.
 --  1. Trigger trg_profiles_sync_memberships NÃO existe em public.profiles.
---  2. Função sync_user_memberships(uuid) AINDA existe (rollback operacional).
+--  2. Função sync_user_memberships(uuid) REMOVIDA (estado final pós-067).
 --  3. handle_new_user() NÃO referencia workspace_ids (DEFAULT cobre).
 --  4. Trigger on_auth_user_created ainda existe (signup cria perfil pendente).
 --  5. Espelho 052 intacto (admin_set_user_memberships existe).
@@ -32,14 +32,14 @@ IF v_count <> 0 THEN
   RAISE EXCEPTION 'FAIL: trg_profiles_sync_memberships still present (expected 0, found %)', v_count;
 END IF;
 
--- ── 2. Função mantida para rollback ───────────────────────────────────────────
+-- ── 2. Função REMOVIDA (estado final pós-067 trust boundary) ─────────────────
 SELECT count(*) INTO v_count
 FROM pg_proc p
 JOIN pg_namespace nsp ON nsp.oid = p.pronamespace
 WHERE nsp.nspname = 'public' AND p.proname = 'sync_user_memberships';
 
-IF v_count < 1 THEN
-  RAISE EXCEPTION 'FAIL: sync_user_memberships function must be kept for operational rollback';
+IF v_count <> 0 THEN
+  RAISE EXCEPTION 'FAIL: sync_user_memberships function must be REMOVED post-067 (found %)', v_count;
 END IF;
 
 -- ── 3. handle_new_user sem a coluna ───────────────────────────────────────────

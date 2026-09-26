@@ -91,6 +91,46 @@ def latest_version(migrations: list[Migration]) -> str | None:
     return max(migrations, key=lambda m: m.number).version
 
 
+# ---------------------------------------------------------------------------
+# normalização de transação embutida em arquivos de migration
+# ---------------------------------------------------------------------------
+#
+# D2 documentado: a 000_bootstrap_baseline.sql (baselined manualmente em
+# produção, nunca aplicada pelo runner) contém `BEGIN;`/`COMMIT;` de nível de
+# arquivo. O runner é o dono da transação (wrapper BEGIN→lock→corpo→INSERT
+# registro→COMMIT); um `COMMIT;` interno encerraria a transação ANTES do
+# registro em schema_migrations (quebra atômica) e o COMMIT final do wrapper
+# falharia ("no transaction in progress"). A normalização abaixo remove UM
+# `BEGIN;` e UM `COMMIT;` na posição de comando top-level (primeira/última
+# linha executável), tornando a aplicação via runner segura em banco novo.
+#
+# Segurança do regex: `BEGIN;` e `COMMIT;` exigem o `;` na própria linha;
+# blocos `DO $$ ... BEGIN ... END $$;` usam `begin`/`end` SEM ponto-e-vírgula
+# nessa posição e não são atingidos. Nenhuma migration atual (fora a 000)
+# possui BEGIN/COMMIT top-level — a normalização é no-op para 001-072.
+_BEGIN_STMT_RE = re.compile(r"^\s*BEGIN\s*;\s*$", re.IGNORECASE)
+_COMMIT_STMT_RE = re.compile(r"^\s*COMMIT\s*;", re.IGNORECASE)
+
+
+def strip_inner_transaction(sql: str) -> str:
+    """Remove um ``BEGIN;`` top-level inicial e um ``COMMIT;`` final (se houver).
+
+    Devolve o SQL sem os delimitadores de transação embutidos; o chamador
+    (runner) controla a transação. Não é alteração de migration — é a
+    normalização aplicada apenas no momento de executar.
+    """
+    lines = sql.split("\n")
+    for i, line in enumerate(lines):
+        if _BEGIN_STMT_RE.match(line):
+            lines.pop(i)
+            break
+    for i in range(len(lines) - 1, -1, -1):
+        if _COMMIT_STMT_RE.match(lines[i]):
+            lines.pop(i)
+            break
+    return "\n".join(lines)
+
+
 def pending_migrations(
     migrations: list[Migration],
     applied_versions: set[str],
