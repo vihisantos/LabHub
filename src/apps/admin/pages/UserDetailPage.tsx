@@ -11,7 +11,6 @@ import type { AppAccessOverride } from '../../../core/permissions/types'
 import { useActorLogs } from '../../../core/logs/useServerLogs'
 import { attachMemberships, isActiveMember, membershipService } from '../../../core/memberships/service'
 import { appRegistry } from '../../../appRegistry'
-import { ApproveUserModal } from '../components/ApproveUserModal'
 import { PersonAvatar, statusStyle, formatAge } from '../components/personShared'
 import { icons } from '../../../lib/icons'
 
@@ -45,7 +44,6 @@ export function UserDetailPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const [approvingViaModal, setApprovingViaModal] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const isSuperAdmin = !!currentUser?.is_super_admin
@@ -86,29 +84,19 @@ export function UserDetailPage() {
     return names.join(', ') || 'Workspace não encontrado'
   }, [person, workspaces])
 
-  async function handleApprove(
-    userId: string,
-    roleId: string,
-    appAccess: Record<string, AppAccessOverride>,
-    workspaceIds: string[],
-  ): Promise<boolean> {
+  async function handleApprove(userId: string): Promise<void> {
     setSaving(true)
-    const success = await adminService.approveUser(userId, {
-      roleId,
-      app_access: appAccess,
-      workspace_ids: workspaceIds,
-    })
+    // Aprovação GLOBAL de conta: responde só se a conta é autorizada a
+    // existir. Não cria memberships, não escolhe unidade, não atribui cargo.
+    const success = await adminService.approveUser(userId)
     if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId
-        ? { ...u, status: 'active', roleId, workspace_ids: workspaceIds }
-        : u))
-      setFeedback({ type: 'success', message: 'Acesso concedido' })
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, status: 'active' } : u))
+      setFeedback({ type: 'success', message: 'Conta aprovada — acesso ainda não configurado' })
     } else {
       setFeedback({ type: 'error', message: 'Erro ao aprovar' })
     }
     setSaving(false)
     setTimeout(() => setFeedback(null), 3000)
-    return success
   }
 
   async function handleReject() {
@@ -224,6 +212,14 @@ export function UserDetailPage() {
   const st = statusStyle(person.status)
   const isPending = person.status === 'pending'
   const isAdminAbs = !!person.is_super_admin
+  // Conta APROVADA mas sem membership ativa em nenhuma unidade:
+  // autorizada a existir, aguardando configuração de acesso (próxima etapa).
+  const needsAccessSetup =
+    !isPending &&
+    person.status === 'active' &&
+    !isAdminAbs &&
+    person.membershipsLoaded === true &&
+    (person.memberships ?? []).filter((m) => m.status === 'active').length === 0
 
   return (
     <div className="space-y-4">
@@ -305,7 +301,7 @@ export function UserDetailPage() {
           {isPending && (
             <button
               type="button"
-              onClick={() => setApprovingViaModal(true)}
+              onClick={() => handleApprove(person.id)}
               disabled={saving}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
@@ -316,14 +312,14 @@ export function UserDetailPage() {
         </div>
       </div>
 
-      {/* Ações de aprovação p/ pendente */}
+      {/* Ações de aprovação p/ conta pendente */}
       {isPending && (
         <div className="rounded-xl bg-amber-500/10 p-4 ring-1 ring-amber-500/20">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500">
               <icons.ui.inbox size={16} />
             </div>
-            <p className="text-xs text-fg">Esta pessoa aguarda aprovação de acesso.</p>
+            <p className="text-xs text-fg">Esta conta aguarda aprovação da administração.</p>
           </div>
           <button
             type="button"
@@ -333,6 +329,21 @@ export function UserDetailPage() {
           >
             Recusar solicitação
           </button>
+        </div>
+      )}
+
+      {/* Conta aprovada sem membership ativa: autorizada, aguardando acesso */}
+      {needsAccessSetup && (
+        <div className="rounded-xl bg-emerald-500/10 p-4 ring-1 ring-emerald-500/20">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-500">
+              <icons.ui.circleCheck size={16} />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-fg">Conta aprovada</p>
+              <p className="text-[11px] text-fg-muted">Acesso ainda não configurado.</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -510,16 +521,6 @@ export function UserDetailPage() {
         </div>
       </div>
 
-      {approvingViaModal && person && (
-        <ApproveUserModal
-          user={person}
-          workspaces={workspaces}
-          onClose={() => setApprovingViaModal(false)}
-          onConfirm={(roleId, appAccess, workspaceIds) =>
-            handleApprove(person.id, roleId, appAccess, workspaceIds)
-          }
-        />
-      )}
     </div>
   )
 }

@@ -10,6 +10,17 @@ const mockAdminService = vi.hoisted(() => ({
 
 const mockNavigate = vi.hoisted(() => vi.fn())
 
+// Auth mutável: permite simular admin global e coordenador (não-admin).
+const mockAuthUser = vi.hoisted(() => ({
+  current: {
+    id: 'me',
+    name: 'Admin',
+    is_super_admin: true,
+    status: 'active',
+    workspace_ids: [],
+  } as Record<string, unknown>,
+}))
+
 vi.mock('react-router-dom', async (importActual) => {
   const actual = await importActual<typeof import('react-router-dom')>()
   return { ...actual, useNavigate: () => mockNavigate }
@@ -20,33 +31,7 @@ vi.mock('../../../../core/auth/adminService', () => ({
 }))
 
 vi.mock('../../../../core/auth/AuthContext', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'me',
-      name: 'Admin',
-      is_super_admin: true,
-      status: 'active',
-      workspace_ids: [],
-    },
-  }),
-}))
-
-vi.mock('../../../../core/workspaces/service', () => ({
-  workspaceService: mockWorkspaceService,
-}))
-
-const mockWorkspaceService = vi.hoisted(() => ({
-  syncFromSupabase: vi.fn(),
-}))
-
-vi.mock('../../../../core/permissions/usePermissions', () => ({
-  useRoles: () => ({
-    roles: [
-      { id: 'role-technician', name: 'Técnico', appAccess: {}, isDefault: false },
-      { id: 'role-viewer', name: 'Visualizador', appAccess: {}, isDefault: true },
-    ],
-    loading: false,
-  }),
+  useAuth: () => ({ user: mockAuthUser.current }),
 }))
 
 import { RequestsPage } from '../RequestsPage'
@@ -61,8 +46,8 @@ const pendingUser: User = {
   workspace_ids: [],
   accent: 'emerald',
   theme_variant: 'dark',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
+  created_at: '2026-09-20T10:00:00.000Z',
+  updated_at: '2026-09-20T10:00:00.000Z',
 }
 
 function renderPage() {
@@ -73,14 +58,20 @@ function renderPage() {
   )
 }
 
-describe('RequestsPage', () => {
+describe('RequestsPage — fila GLOBAL de contas', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
+    mockAuthUser.current = {
+      id: 'me',
+      name: 'Admin',
+      is_super_admin: true,
+      status: 'active',
+      workspace_ids: [],
+    }
     mockAdminService.listPendingProfiles.mockResolvedValue([pendingUser])
     mockAdminService.approveUser.mockResolvedValue(true)
     mockAdminService.rejectUser.mockResolvedValue(true)
-    mockWorkspaceService.syncFromSupabase.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -105,7 +96,7 @@ describe('RequestsPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Tudo em dia')).toBeInTheDocument()
     })
-    expect(screen.getByText(/Nenhuma solicitação de acesso aguardando revisão/)).toBeInTheDocument()
+    expect(screen.getByText(/Nenhuma conta pendente de aprovação/)).toBeInTheDocument()
   })
 
   it('exibe estado de erro quando o serviço falha', async () => {
@@ -118,45 +109,79 @@ describe('RequestsPage', () => {
     })
   })
 
-  it('revisar abre o modal de aprovação com campus obrigatório', async () => {
-    const workspaces = [
-      { id: 'ws-mooca', name: 'Campus Mooca', slug: 'mooca', location: '', spreadsheet_url: '', created_at: '', updated_at: '' },
-    ]
-    mockWorkspaceService.syncFromSupabase.mockResolvedValue(workspaces)
+  it('lista TODAS as contas pendentes sem separar por campus/unidade', async () => {
+    const ana: User = { ...pendingUser, id: 'u-ana', name: 'Ana Outra', email: 'ana@outra.edu.br' }
+    const bia: User = { ...pendingUser, id: 'u-bia', name: 'Bia Terceira', email: 'bia@terceira.edu.br' }
+    mockAdminService.listPendingProfiles.mockResolvedValue([pendingUser, ana, bia])
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Revisar' })).toBeInTheDocument()
+      expect(screen.getByText('3 aguardando revisão')).toBeInTheDocument()
     })
+    expect(screen.getByText('João Silva')).toBeInTheDocument()
+    expect(screen.getByText('Ana Outra')).toBeInTheDocument()
+    expect(screen.getByText('Bia Terceira')).toBeInTheDocument()
+    // Sem campus, sem filtro por unidade: a fila é uma lista única de contas
+    expect(screen.queryByText(/campus/i)).not.toBeInTheDocument()
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Revisar' }))
-    expect(screen.getByText('Aprovar cadastro')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Aprovar e conceder acesso' }))
+  it('mostra a data de cadastro como informação contextual', async () => {
+    renderPage()
 
     await waitFor(() => {
-      expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123', {
-        roleId: 'role-viewer',
-        app_access: {},
-        workspace_ids: ['ws-mooca'],
-      })
+      expect(screen.getByText(/Cadastrado em 20\/09\/2026/)).toBeInTheDocument()
     })
+  })
+
+  it('aprova direto pelo botão (sem campus, sem cargo): approveUser recebe só o id', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Aprovar' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aprovar' }))
+
+    await waitFor(() => {
+      expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123')
+    })
+    expect(mockAdminService.approveUser).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Conta aprovada — acesso ainda não configurado')).toBeInTheDocument()
+    expect(screen.queryByText('João Silva')).not.toBeInTheDocument()
   })
 
   it('recusa uma solicitação', async () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Recusar' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Rejeitar' })).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Recusar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rejeitar' }))
 
     await waitFor(() => {
       expect(mockAdminService.rejectUser).toHaveBeenCalledWith('u-123')
     })
+    expect(screen.getByText('Conta rejeitada e removida')).toBeInTheDocument()
+    expect(screen.queryByText('João Silva')).not.toBeInTheDocument()
+  })
+
+  it('coordenador (não-admin) NÃO acessa a fila administrativa global', async () => {
+    mockAuthUser.current = {
+      id: 'coord-1',
+      name: 'Coordenador',
+      is_super_admin: false,
+      status: 'active',
+      workspace_ids: ['ws-mooca'],
+    }
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Apenas administradores podem revisar solicitações.')).toBeInTheDocument()
+    })
+    expect(mockAdminService.listPendingProfiles).not.toHaveBeenCalled()
     expect(screen.queryByText('João Silva')).not.toBeInTheDocument()
   })
 })

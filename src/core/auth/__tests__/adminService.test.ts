@@ -47,46 +47,37 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('adminService — criação/aprovação de usuários por workspace', () => {
+describe('adminService — aprovação GLOBAL de contas', () => {
   describe('approveUser', () => {
-    it('grava memberships no servidor primeiro e depois status/cargo (sem workspace_ids no PATCH)', async () => {
+    it('muda só o status para active (sem memberships, cargo, app_access ou workspace_ids no PATCH)', async () => {
       const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
 
-      const ok = await adminService.approveUser('u-1', { roleId: 'role-technician', workspace_ids: ['ws-a'] })
+      const ok = await adminService.approveUser('u-1')
 
       expect(ok).toBe(true)
-      // 1. Endpoint atômico com role + workspaces
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/admin/users/u-1/memberships',
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({ Authorization: 'Bearer token-123' }),
-        }),
-      )
-      const [, opts] = mockFetch.mock.calls[0] as any[]
-      expect(JSON.parse(opts.body)).toEqual({ workspace_ids: ['ws-a'], role: 'role-technician' })
-      // 2. PATCH só com status/cargo (espelho já foi gravado pelo RPC)
+      // PATCH só com status (a conta é autorizada a existir; o acesso vem depois)
       const [payload] = chain.update.mock.calls[0]
-      expect(payload).toMatchObject({ status: 'active', role: 'technician' })
-      expect(payload).not.toHaveProperty('workspace_ids')
-      expect(payload.roleId).toBeUndefined()
-      expect(payload.updated_at).toBeTruthy()
+      expect(payload).toEqual({ status: 'active', updated_at: expect.any(String) })
       expect(chain.eq).toHaveBeenCalledWith('id', 'u-1')
     })
 
-    it('aborta sem PATCH quando o endpoint falha (nada mudou)', async () => {
-      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
-      mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'x' }) })
+    it('aprovar NÃO cria membership: não chama o endpoint nem escreve em memberships', async () => {
+      makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+      mockFetch.mockClear()
+      mockFrom.mockClear()
 
-      const ok = await adminService.approveUser('u-1', { roleId: 'role-technician', workspace_ids: ['ws-a'] })
+      const ok = await adminService.approveUser('u-1')
 
-      expect(ok).toBe(false)
-      expect(chain.update).not.toHaveBeenCalled()
+      expect(ok).toBe(true)
+      expect(mockFetch).not.toHaveBeenCalled()
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('memberships')
+      expect(tables).toContain('profiles')
     })
 
-    it('retorna false quando o update retorna 0 linhas (RLS bloqueou)', async () => {
+    it('retorna false quando o update retorna 0 linhas (RLS bloqueou — sem permissão)', async () => {
       makeUpdateChain({ data: [], error: null })
-      const ok = await adminService.approveUser('u-1', { roleId: 'role-viewer' })
+      const ok = await adminService.approveUser('u-1')
       expect(ok).toBe(false)
     })
 
@@ -112,6 +103,20 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       makeUpdateChain({ data: [], error: null })
       const ok = await adminService.rejectUser('u-1')
       expect(ok).toBe(false)
+    })
+
+    it('rejeitar NÃO cria membership: só deleta o perfil', async () => {
+      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+      mockFetch.mockClear()
+      mockFrom.mockClear()
+
+      const ok = await adminService.rejectUser('u-1')
+
+      expect(ok).toBe(true)
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(chain.delete).toHaveBeenCalledOnce()
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('memberships')
     })
   })
 
@@ -179,11 +184,11 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       expect(tables).not.toContain('memberships')
     })
 
-    it('approveUser também nunca escreve memberships direto (só endpoint + PATCH status/cargo)', async () => {
+    it('approveUser nunca escreve memberships (só o PATCH de status em profiles)', async () => {
       makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
       mockFrom.mockClear()
 
-      await adminService.approveUser('u-1', { roleId: 'role-technician', workspace_ids: ['ws-a'] })
+      await adminService.approveUser('u-1')
 
       const tables = mockFrom.mock.calls.map(([t]) => t)
       expect(tables).not.toContain('memberships')

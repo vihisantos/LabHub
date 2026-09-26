@@ -6,6 +6,7 @@ const mockAdminService = vi.hoisted(() => ({
   listAllProfiles: vi.fn(),
   updateUserProfile: vi.fn(),
   setUserMemberships: vi.fn(),
+  approveUser: vi.fn(),
   rejectUser: vi.fn(),
 }))
 
@@ -227,6 +228,43 @@ describe('UserDetailPage', () => {
       expect(screen.getByRole('button', { name: 'Aprovar' })).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: 'Recusar solicitação' })).toBeInTheDocument()
+    expect(screen.getByText('Esta conta aguarda aprovação da administração.')).toBeInTheDocument()
+  })
+
+  it('aprova a conta direto (sem campus/cargo): approveUser recebe só o id', async () => {
+    mockAdminService.listAllProfiles.mockResolvedValue([{ ...activeUser, status: 'pending', roleId: 'role-viewer' }])
+    mockAdminService.approveUser.mockResolvedValue(true)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Aprovar' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Aprovar' }))
+
+    await waitFor(() => {
+      expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123')
+    })
+    expect(mockAdminService.approveUser).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Conta aprovada — acesso ainda não configurado')).toBeInTheDocument()
+  })
+
+  it('conta ativa sem membership mostra "acesso ainda não configurado"', async () => {
+    mockAdminService.listAllProfiles.mockResolvedValue([{
+      ...activeUser,
+      status: 'active',
+      memberships: [],
+      membershipsLoaded: true,
+    }])
+    mockMembershipsFromFixtures([{ id: 'u-123', memberships: [] }])
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Maria Mooca')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Conta aprovada')).toBeInTheDocument()
+    expect(screen.getByText('Acesso ainda não configurado.')).toBeInTheDocument()
   })
 
   it('exibe os workspaces a partir das memberships ativas', async () => {
