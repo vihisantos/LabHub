@@ -335,6 +335,15 @@ def require_auth(f):
         if profile.get('status') == 'blocked':
             return _auth_error('Account is blocked')
 
+        # #286 PR-1: `rejected` e estado TERMINAL de rejeicao administrativa
+        # (migration 074). Nao e operacao autenticada no LabHub: a conta foi
+        # recusada na fila global e a identidade Auth foi desativada pelo
+        # endpoint de rejeicao. `pending` NAO entra aqui de proposito — a
+        # aprovacao global e o que autoriza a conta a existir, e o restante do
+        # sistema decide por memberships (fail-closed).
+        if profile.get('status') == 'rejected':
+            return _auth_error('User account rejected')
+
         g.user = profile
         g.user_id = user_id
         # Uniformização 9.2-B4: o campo segue no dict como compat, mas DERIVADO

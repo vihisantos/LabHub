@@ -4,7 +4,16 @@ import type { Membership } from '../permissions/membership'
 export type Accent = 'emerald' | 'cyan' | 'blue' | 'purple'
 export type ThemeVariant = 'dark' | 'dim' | 'light'
 
-export type UserStatus = 'active' | 'pending'
+/**
+ * Estados de `profiles.status` (migration 074).
+ * - `pending`: cadastrada, aguardando aprovação global (#283);
+ * - `active`: aprovada — pode receber memberships (#284);
+ * - `rejected`: REJEITADA na fila global — estado TERMINAL (#286 PR-1). A
+ *   identidade Auth é desativada e o `require_auth` nega a conta; o perfil é
+ *   preservado. Não volta para a fila sem uma decisão explícita de produto;
+ * - `blocked`: bloqueada pela plataforma.
+ */
+export type UserStatus = 'active' | 'pending' | 'rejected' | 'blocked'
 
 /** Modo de exibição da tela inicial (Launcher) */
 export type HomeMode = 'compact' | 'dynamic'

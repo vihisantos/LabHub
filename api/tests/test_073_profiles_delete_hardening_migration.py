@@ -16,9 +16,11 @@ do DDL). O que é verificável estaticamente E provado aqui:
      única policy permissiva reabriria o furo — o teste fecha essa porta;
   4. `admin_abs_delete_profiles` (022) continua intocada e restrita;
   5. a 073 não toca nenhuma outra policy/tabela/coluna/RPC/trigger;
-  6. o fluxo administrativo de rejeição (`adminService.rejectUser`) segue
-     deletando `profiles` e continua sendo o ÚNICO `.delete()` sobre `profiles`
-     no frontend (nenhum caminho de autoexclusão foi reintroduzido).
+  6. o frontend NÃO possui nenhum caminho de DELETE em `profiles`: nem
+     autoexclusão, nem qualquer outra exclusão direta no browser. A exclusão
+     pela fila de aprovação deixou de existir no client (virou endpoint de
+     rejeição no backend, #286 PR-1), então o requisito aqui é exatamente
+     zero `.delete()` sobre `profiles` — mais forte que tolerar um.
 
 LIMITAÇÃO DOCUMENTADA (teste comportamental de RLS):
     Não é possível provar o comportamento por ator (`authenticated` comum /
@@ -183,16 +185,29 @@ def test_migration_does_not_touch_out_of_scope(migration_sql: str) -> None:
 
 
 def test_reject_user_admin_flow_preserved() -> None:
-    """`rejectUser()` continua deletando `profiles` (ato do Super Admin).
+    """O frontend não pode apagar `public.profiles` diretamente.
 
-    Também garante que não existe outro `.delete()` sobre `profiles` no
-    frontend — ou seja, nenhum caminho de autoexclusão foi (re)introduzido.
+    A intenção original (PR-2/#294) era garantir que o browser não tivesse um
+    caminho de DELETE em `profiles`. Na época, a exclusão pela fila de
+    aprovação (o único `.delete()` tolerado) ainda existia no client; ela foi
+    substituída por um endpoint de rejeição no backend (#286 PR-1), então a
+    premissa "o rejectUser apaga o profile" não descreve mais o código.
+
+    O que continua garantido aqui, sem acoplar a este teste ao fluxo de
+    rejeição (que tem suíte própria):
+      * `adminService.rejectUser` não apaga `profiles`;
+      * NENHUM arquivo do frontend apaga `profiles` — portanto não existe
+        caminho de exclusão, nem de autoexclusão, no browser.
+
+    É uma afirmação mais forte que a original (que permitia exatamente um
+    `.delete()`, em `rejectUser`).
     """
     source = ADMIN_SERVICE.read_text(encoding="utf-8")
-    assert re.search(
-        r"rejectUser:[\s\S]*?\.from\('profiles'\)[\s\S]*?\.delete\(\)",
-        source,
-    ), "rejectUser deixou de deletar profiles (fluxo administrativo quebrado)"
+    reject_body = re.search(r"rejectUser:[\s\S]*?\n  \},", source)
+    assert reject_body, "rejectUser não encontrado no adminService"
+    assert ".delete()" not in reject_body.group(0), (
+        "rejectUser não deve apagar profiles diretamente"
+    )
 
     frontend = [
         path
@@ -209,22 +224,9 @@ def test_reject_user_admin_flow_preserved() -> None:
                 line = text[: match.start()].count("\n") + 1
                 offenders.append((path.name, line))
 
-    assert len(offenders) == 1, (
-        f"exclusão de profiles fora do rejectUser administrativo: {offenders}"
-    )
-    offender_file, offender_line = offenders[0]
-    assert offender_file == "adminService.ts", (
-        f"profiles deletado em {offender_file} — só o rejectUser administrativo pode"
-    )
-    lines = source.splitlines()
-    start = next(i for i, line in enumerate(lines, 1) if "rejectUser:" in line)
-    end = next(
-        (i for i, line in enumerate(lines, 1) if i > start and "updateUserAvatar:" in line),
-        len(lines),
-    )
-    assert start < offender_line < end, (
-        f"o .delete() em profiles (linha {offender_line}) saiu do corpo de rejectUser "
-        f"(linhas {start}-{end})"
+    assert offenders == [], (
+        "o frontend nao deve apagar profiles via PostgREST (caminho de exclusao "
+        f"/autoexclusao no browser): {offenders}"
     )
 
 
