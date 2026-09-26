@@ -163,7 +163,7 @@ describe('RequestsPage — fila GLOBAL de contas', () => {
     await waitFor(() => {
       expect(mockAdminService.rejectUser).toHaveBeenCalledWith('u-123')
     })
-    expect(screen.getByText('Conta rejeitada e removida')).toBeInTheDocument()
+    expect(screen.getByText('Conta rejeitada')).toBeInTheDocument()
     expect(screen.queryByText('João Silva')).not.toBeInTheDocument()
   })
 

@@ -93,8 +93,10 @@ export const adminService = {
    *   - escrita: policy `profiles_update` (067) + trigger
    *     `guard_profile_privileged_columns` (067, is_super_admin()) — usuário
    *     comum NÃO altera `status` de ninguém (raise 42501 / 0 linhas).
-   * A rejeição física (DELETE) segue em rejectUser (policy
-   * `admin_abs_delete_profiles`, 022, super admin only).
+   * A rejeição NÃO é feita aqui: desde o #286 PR-1 ela é um estado terminal
+   * (`rejected`, migration 074) gravado por `rejectUser` via endpoint
+   * Super-Admin-only, que também desativa a identidade Auth. O `profiles` e o
+   * `auth.users` são PRESERVADOS.
    */
   approveUser: async (userId: string): Promise<boolean> => {
     if (!defaultDb) return false
@@ -116,25 +118,43 @@ export const adminService = {
     return true
   },
 
+  /**
+   * Rejeição GLOBAL de conta (#286 PR-1, migration 074).
+   *
+   * NÃO remove mais o profile. O endpoint backend `POST
+   * /api/admin/users/:id/reject` grava o estado terminal `rejected` e DESATIVA a
+   * identidade Auth (ban, sem apagar `auth.users`).
+   *
+   * Por que o `DELETE` foi removido: o micro-audit no Supabase DEV provou que
+   * apagar `public.profiles` NÃO revoga a identidade — o mesmo usuário volta a
+   * obter sessão no Auth, o profile não é recriado e a conta fica invisível
+   * para a fila (que lê `profiles`), ou seja, "rejeitar" não rejeitava nada.
+   *
+   * Autorização: Super Admin only, server-side (`require_auth` + `require_admin`).
+   * Transição: apenas `pending` -> `rejected`; outros estados devolvem 409.
+   */
   rejectUser: async (userId: string): Promise<boolean> => {
     if (!defaultDb) return false
-
-    // Delete the auth user and profile
-    // For now, just delete the profile (auth user must be deleted from Supabase dashboard)
-    const { data, error } = await defaultDb
-      .from('profiles')
-      .delete()
-      .eq('id', userId)
-      .select('id')
-
-    if (error || !data || data.length === 0) {
-      console.error('[Admin] Failed to reject user:', error?.message ?? '0 linhas alteradas')
+    try {
+      const { data: { session } } = await defaultDb.auth.getSession()
+      if (!session) return false
+      const res = await fetch(`/api/admin/users/${userId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        console.error('[Admin] Failed to reject user:', data?.error ?? res.status)
+        return false
+      }
+      return true
+    } catch (e) {
+      console.error('[Admin] Failed to reject user:', e)
       return false
     }
-
-    await notifyUser(userId, 'Conta negada', 'Sua conta foi recusada pelo administrador.')
-
-    return true
   },
 
   updateUserAvatar: async (userId: string, avatar: string): Promise<boolean> => {

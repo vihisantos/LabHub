@@ -89,33 +89,54 @@ describe('adminService — aprovação GLOBAL de contas', () => {
   })
 
   describe('rejectUser', () => {
-    it('remove o perfil do usuário (delete) quando o cadastro é recusado', async () => {
-      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+    // #286 PR-1: a rejeição virou estado terminal (`rejected`, migration 074)
+    // gravado por endpoint Super-Admin-only, que também desativa a identidade
+    // Auth. O profile NÃO é mais apagado.
+    function mockRejectFetch(status = 200, body: unknown = { ok: true, status: 'rejected' }) {
+      mockFetch.mockImplementation(async () => ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+      }))
+    }
+
+    it('chama o endpoint de rejeição em vez de apagar o profile', async () => {
+      mockFetch.mockClear()
+      mockFrom.mockClear()
+      mockRejectFetch()
 
       const ok = await adminService.rejectUser('u-1')
 
       expect(ok).toBe(true)
-      expect(chain.delete).toHaveBeenCalledOnce()
-      expect(chain.eq).toHaveBeenCalledWith('id', 'u-1')
+      expect(mockFetch).toHaveBeenCalledOnce()
+      const [url, opts] = mockFetch.mock.calls[0] as unknown as [string, RequestInit]
+      expect(url).toBe('/api/admin/users/u-1/reject')
+      expect(opts.method).toBe('POST')
+      expect((opts.headers as Record<string, string>).Authorization).toBe('Bearer token-123')
+      // nenhuma escrita direta no banco pelo browser
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('profiles')
+      expect(tables).not.toContain('memberships')
     })
 
-    it('retorna false quando o delete não afeta linhas (usuário já removido/RLS)', async () => {
-      makeUpdateChain({ data: [], error: null })
+    it('retorna false quando o endpoint recusa (ex.: 409 estado inválido)', async () => {
+      mockFetch.mockClear()
+      mockRejectFetch(409, { error: 'Conta não está pendente' })
+
       const ok = await adminService.rejectUser('u-1')
       expect(ok).toBe(false)
     })
 
-    it('rejeitar NÃO cria membership: só deleta o perfil', async () => {
-      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+    it('rejeitar NÃO apaga o profile e NÃO cria membership', async () => {
       mockFetch.mockClear()
       mockFrom.mockClear()
+      mockRejectFetch()
 
       const ok = await adminService.rejectUser('u-1')
 
       expect(ok).toBe(true)
-      expect(mockFetch).not.toHaveBeenCalled()
-      expect(chain.delete).toHaveBeenCalledOnce()
       const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('profiles')
       expect(tables).not.toContain('memberships')
     })
   })

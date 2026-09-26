@@ -46,6 +46,13 @@ export function statusStyle(status: string): { dot: string; label: string; text:
         text: 'text-emerald-600 dark:text-emerald-400',
         chip: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
       }
+    case 'rejected':
+      return {
+        dot: 'bg-slate-500',
+        label: 'Rejeitada',
+        text: 'text-slate-600 dark:text-slate-300',
+        chip: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
+      }
     case 'blocked':
     case 'inactive':
       return {

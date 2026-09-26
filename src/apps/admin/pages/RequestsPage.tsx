@@ -82,7 +82,7 @@ export function RequestsPage() {
     const success = await adminService.rejectUser(userId)
     if (success) {
       setRequests((prev) => prev.filter((u) => u.id !== userId))
-      setFeedback({ type: 'success', message: 'Conta rejeitada e removida' })
+      setFeedback({ type: 'success', message: 'Conta rejeitada' })
       if (requests.length === 1) setPhase('empty')
     } else {
       setFeedback({ type: 'error', message: 'Erro ao recusar solicitação' })

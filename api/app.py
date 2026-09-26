@@ -4553,6 +4553,222 @@ def admin_set_manager(user_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Rejeição global de conta (#286 PR-1, migration 074)
+# ──────────────────────────────────────────────────────────────────────────────
+# Substitui o `DELETE` em `public.profiles` por um fluxo explícito e auditável:
+#   pending -> rejected  +  identidade Auth DESATIVADA (nunca apagada).
+#
+# Por que não basta o status: o micro-audit no DEV comprovou que o Supabase Auth
+# segue emitindo sessão para uma identidade sem profile. Por que não deletamos o
+# profile: o `DELETE` não revoga a identidade e torna a conta inalcançável pela
+# fila (que lê `profiles`). Por que não apagamos `auth.users`: perderíamos o
+# histórico e o mesmo e-mail poderia se cadastrar de novo como `pending`.
+#
+# FALHA PARCIAL (Postgres + Auth são dois sistemas, sem transação conjunta):
+#   A) profile=rejected + Auth desativado ....... OK
+#   B) falha ao desativar o Auth ................ COMPENSA: volta o status para
+#      o valor anterior e devolve 502 com o erro do Auth (nada fica rejeitado
+#      "por Half"); a conta segue pendente e visível na fila.
+#   C) a compensação também falha ............... 502 fail-closed: o profile
+#      PERMANECE `rejected` e o `require_auth` continua negando `rejected`, ou
+#      seja, a conta rejeitada NÃO fica operacional mesmo sem o ban. O erro do
+#      Auth é registrado e devolvido (nunca engolido).
+#   A ordem (profile -> Auth) é deliberada: `require_auth` é o portão do LabHub
+#   e já nega `rejected`, então o invariante "rejeitada => não opera no LabHub"
+#   vale nos três desfechos.
+
+_REJECTABLE_STATUS = 'pending'
+_REJECTED_STATUS = 'rejected'
+
+# Ban de 100 anos: suficiente para impedir emissão de nova sessão e reversível
+# (basta um PUT com ban_duration="none" no futuro). A garantia real de bloqueio
+# é dupla: o ban no Auth E o `rejected` barrado pelo `require_auth`.
+_REJECT_BAN_DURATION = '876000h'
+
+
+def _auth_admin_ban(user_id: str, duration: str):
+    """Desativa a identidade Auth via Admin API (PUT /auth/v1/admin/users/<id>).
+
+    NUNCA faz DELETE: a identidade é preservada (UUID, histórico, FKs).
+    """
+    return requests.put(
+        f'{_SUPABASE_URL}/auth/v1/admin/users/{user_id}',
+        headers=_supabase_headers(),
+        json={'ban_duration': duration},
+        timeout=30,
+    )
+
+
+def _profiles_patch(user_id: str, payload: dict):
+    return requests.patch(
+        f'{_SUPABASE_URL}/rest/v1/profiles',
+        params={'id': f'eq.{user_id}'},
+        headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+        json=payload,
+        timeout=30,
+    )
+
+
+def _log_rejection_audit(actor: dict, target: dict, prev_status: str) -> bool:
+    """Grava a auditoria explícita da rejeição em `app_audit_logs`.
+
+    O gatilho `trg_app_audit_profiles` (054/065) já registra `status_changed`,
+    porém com `auth.uid()` NULL quando a escrita usa `service_role` — o ator se
+    perde. Aqui o ator é gravado. Mesma tabela, nenhuma infra nova.
+    """
+    actor_id = (actor or {}).get('id')
+    workspace_id = None
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/memberships',
+            params={
+                'profile_id': f'eq.{target["id"]}',
+                'status': 'eq.active',
+                'select': 'workspace_id',
+                'limit': '1',
+            },
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if resp.ok and resp.json():
+            workspace_id = resp.json()[0].get('workspace_id')
+    except Exception as e:  # noqa: BLE001 - auditoria nunca derruba a operação
+        logger.warning("[reject] workspace_id para auditoria indisponivel: %s", e)
+
+    payload = {
+        'workspace_id': workspace_id,
+        'actor_id': actor_id,
+        'actor_name': (actor or {}).get('name') or (actor or {}).get('email') or '',
+        'action': 'account_rejected',
+        'entity': 'user',
+        'entity_id': str(target.get('id') or ''),
+        'entity_label': target.get('name') or target.get('email') or '',
+        'meta': {
+            'prev_status': prev_status,
+            'new_status': _REJECTED_STATUS,
+            'auth_disabled': True,
+        },
+    }
+    try:
+        resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/app_audit_logs',
+            headers=_supabase_headers(),
+            json=payload,
+            timeout=30,
+        )
+        if not resp.ok:
+            logger.error("[reject] falha ao gravar auditoria: %s %s",
+                         resp.status_code, resp.text[:300])
+            return False
+        return True
+    except Exception as e:  # noqa: BLE001 - auditoria nunca derruba a operação
+        logger.error("[reject] excecao ao gravar auditoria: %s", e)
+        return False
+
+
+@app.route('/api/admin/users/<user_id>/reject', methods=['POST'])
+@require_auth
+@require_admin
+def admin_reject_user(user_id):
+    """Rejeita uma conta pendente: status terminal + identidade Auth desativada.
+
+    Super-admin-only (require_admin). Só transiciona `pending` -> `rejected`.
+    `rejected` -> `rejected` é idempotente (200, sem nova escrita); qualquer
+    outro estado (`active`, `blocked`) é 409 — não há transição silenciosa.
+    O profile NUNCA é apagado e `auth.users` NUNCA é apagado.
+    """
+    if not _require_supabase():
+        return _supabase_unavailable()
+    if not user_id or not _UUID_RE.match(user_id):
+        return jsonify({'error': 'ID de usuário inválido'}), 400
+
+    actor = g.user or {}
+
+    try:
+        # 1. Carrega o alvo (service_role, ignora RLS).
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles',
+            params={'id': f'eq.{user_id}', 'select': 'id,email,name,status'},
+            headers=_supabase_headers(),
+            timeout=30,
+        )
+        if not resp.ok:
+            logger.error("[reject] leitura do profile falhou: %s %s",
+                         resp.status_code, resp.text[:300])
+            return jsonify({'error': 'Não foi possível ler a conta'}), 502
+        rows = resp.json() or []
+        if not rows:
+            return jsonify({'error': 'Conta não encontrada'}), 404
+
+        target = rows[0]
+        current = target.get('status')
+
+        # 2. Valida a transição.
+        if current == _REJECTED_STATUS:
+            return jsonify({
+                'ok': True,
+                'status': _REJECTED_STATUS,
+                'idempotent': True,
+            })
+        if current != _REJECTABLE_STATUS:
+            return jsonify({
+                'error': ('Conta não está pendente; rejeição só se aplica a '
+                          'contas aguardando decisão'),
+                'status': current,
+            }), 409
+
+        # 3. pending -> rejected.
+        upd = _profiles_patch(user_id, {
+            'status': _REJECTED_STATUS,
+            'updated_at': datetime.now(timezone.utc).isoformat(),
+        })
+        if not upd.ok:
+            logger.error("[reject] update do profile falhou: %s %s",
+                         upd.status_code, upd.text[:300])
+            return jsonify({'error': 'Não foi possível rejeitar a conta'}), 502
+
+        # 4. Desativa a identidade Auth (nunca apaga).
+        ban = _auth_admin_ban(user_id, _REJECT_BAN_DURATION)
+        if not ban.ok:
+            auth_err = (ban.text or '')[:300]
+            logger.error("[reject] desativacao do Auth falhou: %s %s",
+                         ban.status_code, auth_err)
+            # 4b. COMPENSAÇÃO: volta o status anterior para não deixar a conta
+            #     rejeitada pela metade (e ainda visível/recuperável na fila).
+            back = _profiles_patch(user_id, {
+                'status': current,
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            })
+            if back.ok:
+                return jsonify({
+                    'error': 'Não foi possível desativar a identidade da conta',
+                    'auth_disabled': False,
+                    'rolled_back': True,
+                }), 502
+            # Compensação falhou: fail-closed. O profile segue `rejected` e o
+            # require_auth já o nega — a conta NÃO fica operacional no LabHub.
+            return jsonify({
+                'error': 'Rejeição aplicada, mas a identidade não pôde ser '
+                         'desativada nem revertida; conta não tem acesso ao LabHub',
+                'auth_disabled': False,
+                'rolled_back': False,
+            }), 502
+
+        # 5. Auditoria (não derruba a operação; o estado já está correto).
+        audited = _log_rejection_audit(actor, target, current)
+
+        return jsonify({
+            'ok': True,
+            'status': _REJECTED_STATUS,
+            'auth_disabled': True,
+            'audited': audited,
+        })
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
 

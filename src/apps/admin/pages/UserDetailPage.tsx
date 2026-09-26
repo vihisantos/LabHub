@@ -105,7 +105,7 @@ export function UserDetailPage() {
     setSaving(true)
     const success = await adminService.rejectUser(person.id)
     if (success) {
-      setFeedback({ type: 'success', message: 'Solicitação recusada e removida' })
+      setFeedback({ type: 'success', message: 'Solicitação recusada' })
       setTimeout(() => navigate('/admin/requests'), 900)
     } else {
       setFeedback({ type: 'error', message: 'Erro ao recusar solicitação' })
@@ -186,6 +186,10 @@ export function UserDetailPage() {
 
   const st = statusStyle(person.status)
   const isPending = person.status === 'pending'
+  // #286 PR-1: `rejected` e estado TERMINAL. A conta recusada nao volta para a
+  // fila de aprovacao, nao configura acesso e nao tem cargo a editar. O badge de
+  // status (statusStyle) ja a exibe como "Rejeitada".
+  const isRejected = person.status === 'rejected'
   const isAdminAbs = !!person.is_super_admin
   // Conta APROVADA mas sem membership ativa em nenhuma unidade:
   // autorizada a existir, aguardando configuração de acesso (próxima etapa).
@@ -322,9 +326,26 @@ export function UserDetailPage() {
         </div>
       )}
 
+      {/* Conta rejeitada (#286 PR-1): estado terminal, sem ações */}
+      {isRejected && (
+        <div className="rounded-xl bg-slate-500/10 p-4 ring-1 ring-slate-500/20">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-500/15 text-slate-500">
+              <icons.ui.shield size={16} />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-fg">Conta rejeitada</p>
+              <p className="text-[11px] text-fg-muted">
+                Decisão final registrada. O perfil foi preservado e a identidade de acesso foi desativada.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Acesso por aplicativo (override individual — mecanismo preservado).
-          Conta pending não configura acesso: só após aprovação. */}
-      {!isPending && (
+          Conta pending/rejected não configura acesso: só após aprovação. */}
+      {!isPending && !isRejected && (
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h2 className="text-xs font-semibold text-fg-muted mb-3">Acesso por aplicativo</h2>
         {isAdminAbs ? (
@@ -387,7 +408,7 @@ export function UserDetailPage() {
       {/* Configuração de acesso (PR #284): memberships por unidade, sem
           propagação global de cargo. Conta pending não configura acesso —
           só aprova/rejeita (servidor também rejeita — RPC 072). */}
-      {!isPending && !isAdminAbs && person && (
+      {!isPending && !isRejected && !isAdminAbs && person && (
         <AccessConfigurationSection
           person={person}
           people={users}
@@ -399,7 +420,7 @@ export function UserDetailPage() {
 
       {/* Cargo de acesso aos módulos (camada legada profiles.role → AppGuard).
           Desacoplado das memberships: o cargo OPERACIONAL é por unidade, acima. */}
-      {!isPending && !isAdminAbs && (
+      {!isPending && !isRejected && !isAdminAbs && (
         <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
           <h2 className="text-xs font-semibold text-fg-muted mb-1">Cargo de acesso</h2>
           <p className="mb-3 text-[10px] text-fg-dim">
