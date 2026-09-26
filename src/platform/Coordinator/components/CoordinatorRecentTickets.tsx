@@ -2,6 +2,7 @@ import type { Ticket } from '../../../apps/chamados/types'
 import { TICKET_STATUS_COLORS, TICKET_STATUS_LABELS } from '../../../apps/chamados/types'
 import { cn } from '../../../lib/components/ui/utils'
 import { CoordinatorPanel } from './CoordinatorPanel'
+import { EmptyState } from './EmptyState'
 
 /**
  * C2 (PR B #236) — Lista apresentacional de chamados recentes da Central.
@@ -36,16 +37,17 @@ export function CoordinatorRecentTickets({
       data-testid="overview-recents"
     >
       {tickets.length === 0 ? (
-        <p className="text-[10px] leading-relaxed text-fg-muted">
-          Nenhum chamado no cache ainda — os números aparecem assim que o app de chamados
-          sincronizar sua unidade.
-        </p>
+        <EmptyState
+          variant="soft"
+          title="Nenhum chamado no cache ainda"
+          description="Os números aparecem assim que o app de chamados sincronizar sua unidade."
+        />
       ) : (
         <ul className="flex flex-col gap-1.5">
           {tickets.map((ticket) => {
             const row = (
               <>
-                <span className="min-w-0 flex-1 truncate">
+                <span className="min-w-[9rem] flex-1 truncate sm:min-w-0">
                   {ticket.roomName || 'Chamado'}
                   {ticket.problemCategory ? ` — ${ticket.problemCategory}` : ''}
                 </span>
@@ -75,13 +77,13 @@ export function CoordinatorRecentTickets({
                   <button
                     type="button"
                     onClick={() => onOpenTicket(ticket.id)}
-                    className="flex w-full items-center gap-2 text-left transition-colors hover:text-fg"
+                    className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-left transition-colors hover:text-fg"
                     data-testid={`overview-recent-${ticket.id}`}
                   >
                     {row}
                   </button>
                 ) : (
-                  <span className="flex items-center gap-2" data-testid={`overview-recent-${ticket.id}`}>
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid={`overview-recent-${ticket.id}`}>
                     {row}
                   </span>
                 )}

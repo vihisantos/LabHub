@@ -32,12 +32,12 @@ export function LeaderBlock({
   const name = leader.profile?.name ?? 'Membro sem perfil'
   const leadershipMember: TeamMember = { membership: leader.leadership, profile: leader.profile }
   return (
-    <div key={leader.leadership.id} className="rounded-xl border border-line bg-surface px-3 py-2.5">
-      <div className="flex items-center gap-3">
+    <div key={leader.leadership.id} className="rounded-xl bg-surface px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-[11px] font-bold text-violet-600 dark:text-violet-400">
           {initials(name)}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[9rem] flex-1 sm:min-w-0">
           <p className="truncate text-xs font-semibold text-fg">{name}</p>
           {leader.profile && (
             <p className="truncate text-[10px] text-fg-muted">{leader.profile.email}</p>
@@ -52,7 +52,7 @@ export function LeaderBlock({
           aria-label={`Gerenciar ${name}`}
           disabled={disabled}
           onClick={() => onManage(leadershipMember)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
         >
           <icons.ui.sliders size={13} />
         </button>
@@ -63,11 +63,11 @@ export function LeaderBlock({
           {leader.members.map((member) => {
             const memberName = member.profile?.name ?? 'Membro sem perfil'
             return (
-              <li key={member.membership.id} className="flex items-center gap-2">
+              <li key={member.membership.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fg-muted/10 text-[9px] font-bold text-fg-muted">
                   {initials(memberName)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-fg">{memberName}</span>
+                <span className="min-w-[8rem] flex-1 truncate text-[11px] text-fg sm:min-w-0">{memberName}</span>
                 <span className="shrink-0 rounded-full bg-input px-2 py-0.5 text-[9px] font-semibold text-fg-dim">
                   {roleLabelFor(member.membership, member.profile, rolesById)}
                 </span>
@@ -78,7 +78,7 @@ export function LeaderBlock({
                     aria-label={`Vincular ${memberName} a gestor`}
                     disabled={disabled}
                     onClick={() => onAssign(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
                   >
                     <icons.ui.plusCircle size={13} />
                   </button>
@@ -88,7 +88,7 @@ export function LeaderBlock({
                     aria-label={`Gerenciar ${memberName}`}
                     disabled={disabled}
                     onClick={() => onManage(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40"
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-violet-500/10 hover:text-violet-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
                   >
                     <icons.ui.sliders size={13} />
                   </button>
@@ -98,7 +98,7 @@ export function LeaderBlock({
                     aria-label={`Remover ${memberName} da equipe`}
                     disabled={disabled}
                     onClick={() => onUnassign(member)}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40"
+                    className="flex h-6 w-6 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
                   >
                     <icons.ui.minus size={13} />
                   </button>

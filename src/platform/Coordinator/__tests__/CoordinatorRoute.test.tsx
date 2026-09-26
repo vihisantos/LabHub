@@ -36,6 +36,7 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   setCoordinatorManager: vi.fn(),
   getCoordinatorRequests: vi.fn(async () => []),
   getCoordinatorInactiveMembers: vi.fn(async () => []),
+  getCoordinatorMembers: vi.fn(async () => []),
   getCoordinatorUnitOverview: vi.fn(async () => null),
   getCoordinatorAssignableRoles: vi.fn(async () => []),
   approveCoordinatorMembership: vi.fn(async () => true),

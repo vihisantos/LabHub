@@ -45,7 +45,7 @@ export function CoordinatorSlaPanel({
       description="Consolidado das suas unidades, sempre via services/sla.ts e reagindo ao cache com sinal passivo (sem novo ciclo ou poll)."
       data-testid="overview-sla"
     >
-      <ResponsiveGrid minWidth={180} maxWidth={260} gap={10}>
+      <ResponsiveGrid minWidth={180} maxWidth={260} gap={12}>
         <CoordinatorMetricCard
           label="Dentro do SLA"
           value={within}

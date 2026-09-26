@@ -1,6 +1,9 @@
 import type { CoordinatorInactiveMember } from '../../../core/permissions/coordinatorService'
 import { icons } from '../../../lib/icons'
 import { initials } from '../coordinatorHelpers'
+import { EmptyState } from './EmptyState'
+import { ErrorState } from './ErrorState'
+import { SkeletonRow } from './Skeletons'
 
 interface InactiveMembersProps {
   members: CoordinatorInactiveMember[]
@@ -28,30 +31,28 @@ export function InactiveMembers({
   const removed = members.filter((m) => m.membership.status === 'removed')
 
   return (
-    <div className="mt-3 rounded-xl border border-line bg-surface px-3 py-2.5">
+    <div className="bg-surface px-4 py-3">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
         Membros inativos
       </p>
       {loading ? (
-        <p className="mt-2 inline-flex items-center gap-2 text-[10px] text-fg-muted">
-          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-          Carregando membros inativos...
-        </p>
-      ) : failed ? (
-        <div className="mt-2 flex items-center gap-2">
-          <p className="flex-1 text-[10px] leading-relaxed text-red-500">
-            Não foi possível carregar os membros inativos desta unidade.
-          </p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[10px] font-semibold text-fg transition-colors hover:bg-input"
-          >
-            Tentar novamente
-          </button>
+        <div className="mt-3 space-y-2">
+          <SkeletonRow />
+          <SkeletonRow />
         </div>
+      ) : failed ? (
+        <ErrorState
+          className="mt-3"
+          message="Não foi possível carregar os membros inativos desta unidade."
+          onRetry={onRetry}
+        />
       ) : members.length === 0 ? (
-        <p className="mt-2 text-[10px] text-fg-muted">Nenhum membro suspenso ou removido.</p>
+        <EmptyState
+          variant="soft"
+          className="mt-2"
+          icon={<icons.ui.user size={20} className="text-fg-muted" />}
+          title="Nenhum membro suspenso ou removido."
+        />
       ) : (
         <div className="mt-2 flex flex-col gap-3">
           {suspended.length > 0 && (
@@ -64,11 +65,11 @@ export function InactiveMembers({
                   const name = member.profile?.name ?? 'Membro sem perfil'
                   const restoreKey = `restore-${member.membership.id}`
                   return (
-                    <li key={member.membership.id} className="flex items-center gap-2">
+                    <li key={member.membership.id} className="flex flex-wrap items-center gap-2">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-[9px] font-bold text-amber-600 dark:text-amber-400">
                         {initials(name)}
                       </span>
-                      <span className="min-w-0 flex-1">
+                      <span className="min-w-[9rem] flex-1 sm:min-w-0">
                         <span className="block truncate text-[11px] font-semibold text-fg">
                           {name}
                         </span>
@@ -86,7 +87,7 @@ export function InactiveMembers({
                         aria-label={`Restaurar ${name}`}
                         disabled={pending !== null}
                         onClick={() => onRequestRestore(member)}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 dark:text-emerald-400"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/25 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 dark:text-emerald-400"
                       >
                         {pending === restoreKey ? (
                           <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
@@ -111,11 +112,11 @@ export function InactiveMembers({
                 {removed.map((member) => {
                   const name = member.profile?.name ?? 'Membro sem perfil'
                   return (
-                    <li key={member.membership.id} className="flex items-center gap-2">
+                    <li key={member.membership.id} className="flex flex-wrap items-center gap-2">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-[9px] font-bold text-red-500">
                         {initials(name)}
                       </span>
-                      <span className="min-w-0 flex-1">
+                      <span className="min-w-[9rem] flex-1 sm:min-w-0">
                         <span className="block truncate text-[11px] font-semibold text-fg">
                           {name}
                         </span>

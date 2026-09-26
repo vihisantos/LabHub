@@ -1,17 +1,17 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- tests/072_admin_membership_upsert.sql
 -- =============================================================================
--- Asser├º├Áes da Fase PR #284 (migration 072): escrita administrativa de
--- memberships POR UNIDADE (cargo por unidade, sem propaga├º├úo global).
---   1. Fun├º├Áes existem com as assinaturas exatas:
+-- Asserções da Fase PR #284 (migration 072): escrita administrativa de
+-- memberships POR UNIDADE (cargo por unidade, sem propagação global).
+--   1. Funções existem com as assinaturas exatas:
 --      admin_upsert_membership(uuid, uuid, text),
 --      admin_remove_membership(uuid, uuid),
 --      admin_set_manager(uuid, uuid, uuid).
---   2. Upsert exige conta active (pending n├úo recebe membership); remove n├úo
+--   2. Upsert exige conta active (pending não recebe membership); remove não
 --      exige (limpeza); set_manager exige conta active.
---   3. Upsert preserva managed_by (nunca escreve a coluna); set_manager ├® o
---      ├║nico escritor dedicado (guarda estrutural no trigger 045).
---   4. Espelho profiles.workspace_ids recomputado na mesma fun├º├úo.
+--   3. Upsert preserva managed_by (nunca escreve a coluna); set_manager é o
+--      único escritor dedicado (guarda estrutural no trigger 045).
+--   4. Espelho profiles.workspace_ids recomputado na mesma função.
 --   5. SECURITY DEFINER + search_path travado.
 --   6. ACL: somente service_role; anon/PUBLIC/authenticated revogados.
 --
@@ -19,9 +19,9 @@
 -- Every check raises an exception on drift; a clean run ends with
 -- "OK: 072 admin membership upsert checks passed".
 --
--- Behavior checks (upsert/remove/manager/mirror/audit) dependem de dados ÔÇö
--- execute adicionalmente em staging com service_role; aqui os checks s├úo
--- estruturais/cat├ílogo.
+-- Behavior checks (upsert/remove/manager/mirror/audit) dependem de dados —
+-- execute adicionalmente em staging com service_role; aqui os checks são
+-- estruturais/catálogo.
 -- =============================================================================
 
 DO $$
@@ -30,7 +30,7 @@ DECLARE
   v_def   text;
 BEGIN
 
--- ÔöÇÔöÇ 1. Assinaturas exatas ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+-- ── 1. Assinaturas exatas ───────────────────────────────────────────────────
 SELECT count(*) INTO v_count
 FROM pg_proc p
 JOIN pg_namespace nsp ON nsp.oid = p.pronamespace
@@ -64,7 +64,7 @@ IF v_count <> 1 THEN
   RAISE EXCEPTION 'FAIL: admin_set_manager signature drifted (expected 1, found %)', v_count;
 END IF;
 
--- ÔöÇÔöÇ 2. Conta active exigida no upsert e no set_manager ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+-- ── 2. Conta active exigida no upsert e no set_manager ───────────────────────
 SELECT pg_get_functiondef(p.oid) INTO v_def
 FROM pg_proc p
 JOIN pg_namespace nsp ON nsp.oid = p.pronamespace
@@ -95,7 +95,7 @@ IF v_def NOT LIKE '%membership not found%' THEN
   RAISE EXCEPTION 'FAIL: admin_set_manager missing membership-exists guard';
 END IF;
 
--- ÔöÇÔöÇ 3. managed_by: upsert nunca escreve; set_manager ├® o escritor ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+-- ── 3. managed_by: upsert nunca escreve; set_manager é o escritor ────────────
 SELECT pg_get_functiondef(p.oid) INTO v_def
 FROM pg_proc p
 JOIN pg_namespace nsp ON nsp.oid = p.pronamespace
@@ -117,7 +117,7 @@ IF v_def NOT LIKE '%SET managed_by =%' AND v_def NOT LIKE '%SET managed_by=%' TH
   RAISE EXCEPTION 'FAIL: admin_set_manager must write managed_by';
 END IF;
 
--- ÔöÇÔöÇ 4. Espelho workspace_ids recomputado nas escritas ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+-- ── 4. Espelho workspace_ids recomputado nas escritas ────────────────────────
 FOR v_def IN
   SELECT pg_get_functiondef(p.oid)
   FROM pg_proc p
@@ -130,7 +130,7 @@ LOOP
   END IF;
 END LOOP;
 
--- ÔöÇÔöÇ 5. SECURITY DEFINER + search_path + retorno singular ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+-- ── 5. SECURITY DEFINER + search_path + retorno singular ────────────────────
 FOR v_def IN
   SELECT pg_get_functiondef(p.oid)
   FROM pg_proc p
@@ -141,7 +141,7 @@ LOOP
   IF v_def NOT LIKE '%SECURITY DEFINER%' THEN
     RAISE EXCEPTION 'FAIL: function must be SECURITY DEFINER';
   END IF;
-  -- pg_get_functiondef normaliza o SET conforme a vers├úo do PG
+  -- pg_get_functiondef normaliza o SET conforme a versão do PG
   -- ('= public' ou "TO 'public'"): aceitar ambas as formas.
   IF v_def NOT LIKE '%SET search_path = public%'
      AND v_def NOT LIKE '%SET search_path TO %public%' THEN
@@ -149,8 +149,8 @@ LOOP
   END IF;
 END LOOP;
 
--- upsert/set_manager retornam UMA membership (N├âO-SETOF): RETURN QUERY ├®
--- erro 42804 ÔÇö retorno via SELECT INTO + RETURN.
+-- upsert/set_manager retornam UMA membership (NÃO-SETOF): RETURN QUERY é
+-- erro 42804 — retorno via SELECT INTO + RETURN.
 FOR v_def IN
   SELECT pg_get_functiondef(p.oid)
   FROM pg_proc p
@@ -163,7 +163,7 @@ LOOP
   END IF;
 END LOOP;
 
--- ÔöÇÔöÇ 6. ACL: somente service_role ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+-- ── 6. ACL: somente service_role ─────────────────────────────────────────────
 SELECT count(*) INTO v_count
 FROM information_schema.role_routine_grants g
 JOIN pg_proc p ON p.proname = g.routine_name

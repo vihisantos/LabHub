@@ -47,46 +47,37 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('adminService — criação/aprovação de usuários por workspace', () => {
+describe('adminService — aprovação GLOBAL de contas', () => {
   describe('approveUser', () => {
-    it('grava memberships no servidor primeiro e depois status/cargo (sem workspace_ids no PATCH)', async () => {
+    it('muda só o status para active (sem memberships, cargo, app_access ou workspace_ids no PATCH)', async () => {
       const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
 
-      const ok = await adminService.approveUser('u-1', { roleId: 'role-technician', workspace_ids: ['ws-a'] })
+      const ok = await adminService.approveUser('u-1')
 
       expect(ok).toBe(true)
-      // 1. Endpoint atômico com role + workspaces
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/admin/users/u-1/memberships',
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({ Authorization: 'Bearer token-123' }),
-        }),
-      )
-      const [, opts] = mockFetch.mock.calls[0] as any[]
-      expect(JSON.parse(opts.body)).toEqual({ workspace_ids: ['ws-a'], role: 'role-technician' })
-      // 2. PATCH só com status/cargo (espelho já foi gravado pelo RPC)
+      // PATCH só com status (a conta é autorizada a existir; o acesso vem depois)
       const [payload] = chain.update.mock.calls[0]
-      expect(payload).toMatchObject({ status: 'active', role: 'technician' })
-      expect(payload).not.toHaveProperty('workspace_ids')
-      expect(payload.roleId).toBeUndefined()
-      expect(payload.updated_at).toBeTruthy()
+      expect(payload).toEqual({ status: 'active', updated_at: expect.any(String) })
       expect(chain.eq).toHaveBeenCalledWith('id', 'u-1')
     })
 
-    it('aborta sem PATCH quando o endpoint falha (nada mudou)', async () => {
-      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
-      mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'x' }) })
+    it('aprovar NÃO cria membership: não chama o endpoint nem escreve em memberships', async () => {
+      makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+      mockFetch.mockClear()
+      mockFrom.mockClear()
 
-      const ok = await adminService.approveUser('u-1', { roleId: 'role-technician', workspace_ids: ['ws-a'] })
+      const ok = await adminService.approveUser('u-1')
 
-      expect(ok).toBe(false)
-      expect(chain.update).not.toHaveBeenCalled()
+      expect(ok).toBe(true)
+      expect(mockFetch).not.toHaveBeenCalled()
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('memberships')
+      expect(tables).toContain('profiles')
     })
 
-    it('retorna false quando o update retorna 0 linhas (RLS bloqueou)', async () => {
+    it('retorna false quando o update retorna 0 linhas (RLS bloqueou — sem permissão)', async () => {
       makeUpdateChain({ data: [], error: null })
-      const ok = await adminService.approveUser('u-1', { roleId: 'role-viewer' })
+      const ok = await adminService.approveUser('u-1')
       expect(ok).toBe(false)
     })
 
@@ -112,6 +103,20 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       makeUpdateChain({ data: [], error: null })
       const ok = await adminService.rejectUser('u-1')
       expect(ok).toBe(false)
+    })
+
+    it('rejeitar NÃO cria membership: só deleta o perfil', async () => {
+      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
+      mockFetch.mockClear()
+      mockFrom.mockClear()
+
+      const ok = await adminService.rejectUser('u-1')
+
+      expect(ok).toBe(true)
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(chain.delete).toHaveBeenCalledOnce()
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('memberships')
     })
   })
 
@@ -179,15 +184,138 @@ describe('adminService — criação/aprovação de usuários por workspace', ()
       expect(tables).not.toContain('memberships')
     })
 
-    it('approveUser também nunca escreve memberships direto (só endpoint + PATCH status/cargo)', async () => {
+    it('approveUser nunca escreve memberships (só o PATCH de status em profiles)', async () => {
       makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
       mockFrom.mockClear()
 
-      await adminService.approveUser('u-1', { roleId: 'role-technician', workspace_ids: ['ws-a'] })
+      await adminService.approveUser('u-1')
 
       const tables = mockFrom.mock.calls.map(([t]) => t)
       expect(tables).not.toContain('memberships')
       expect(tables).toContain('profiles')
+    })
+  })
+
+  describe('setMembership — upsert por unidade via servidor (PR #284)', () => {
+    const row = {
+      id: 'm-1', profile_id: 'u-1', workspace_id: 'ws-a', role_id: 'r-tec',
+      status: 'active', managed_by: null, created_at: '', updated_at: '',
+    }
+
+    beforeEach(() => {
+      mockFetch.mockImplementation(async () => ({
+        ok: true, json: async () => ({ ok: true, membership: row }),
+      }))
+    })
+
+    it('envia unidade + cargo ao endpoint singular e devolve a membership', async () => {
+      const out = await adminService.setMembership('u-1', 'ws-a', 'role-technician')
+
+      expect(out).toMatchObject({ workspace_id: 'ws-a', status: 'active' })
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/admin/users/u-1/membership',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer token-123' }),
+        }),
+      )
+      const [, opts] = mockFetch.mock.calls[0] as any[]
+      expect(JSON.parse(opts.body)).toEqual({ workspace_id: 'ws-a', role: 'role-technician' })
+    })
+
+    it('retorna null quando o endpoint responde erro (ex.: pending → 403)', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'x' }) })
+      expect(await adminService.setMembership('u-1', 'ws-a', 'role-technician')).toBeNull()
+    })
+
+    it('retorna null sem sessão (não chama o endpoint)', async () => {
+      mockGetSession.mockResolvedValueOnce({ data: { session: null }, error: null })
+      mockFetch.mockClear()
+      expect(await adminService.setMembership('u-1', 'ws-a', 'role-technician')).toBeNull()
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('nunca escreve memberships direto no client', async () => {
+      mockFrom.mockClear()
+      await adminService.setMembership('u-1', 'ws-a', 'role-technician')
+      const tables = mockFrom.mock.calls.map(([t]) => t)
+      expect(tables).not.toContain('memberships')
+    })
+  })
+
+  describe('removeMembership — remoção por unidade via servidor (PR #284)', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(async () => ({
+        ok: true, json: async () => ({ ok: true, removed: true }),
+      }))
+    })
+
+    it('chama DELETE no endpoint singular e retorna true', async () => {
+      const ok = await adminService.removeMembership('u-1', 'ws-a')
+
+      expect(ok).toBe(true)
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/admin/users/u-1/membership',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+      const [, opts] = mockFetch.mock.calls[0] as any[]
+      expect(JSON.parse(opts.body)).toEqual({ workspace_id: 'ws-a' })
+    })
+
+    it('retorna false quando o endpoint responde erro', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'x' }) })
+      expect(await adminService.removeMembership('u-1', 'ws-a')).toBe(false)
+    })
+
+    it('retorna false sem sessão (não chama o endpoint)', async () => {
+      mockGetSession.mockResolvedValueOnce({ data: { session: null }, error: null })
+      mockFetch.mockClear()
+      expect(await adminService.removeMembership('u-1', 'ws-a')).toBe(false)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('setMembershipManager — responsável por unidade via servidor (PR #284)', () => {
+    const row = {
+      id: 'm-1', profile_id: 'u-1', workspace_id: 'ws-a', role_id: 'r-tec',
+      status: 'active', managed_by: 'm-lider', created_at: '', updated_at: '',
+    }
+
+    beforeEach(() => {
+      mockFetch.mockImplementation(async () => ({
+        ok: true, json: async () => ({ ok: true, membership: row }),
+      }))
+    })
+
+    it('envia unidade + manager (ou null) e devolve a membership', async () => {
+      const out = await adminService.setMembershipManager('u-1', 'ws-a', 'm-lider')
+
+      expect(out).toMatchObject({ managed_by: 'm-lider' })
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/admin/users/u-1/manager',
+        expect.objectContaining({ method: 'POST' }),
+      )
+      const [, opts] = mockFetch.mock.calls[0] as any[]
+      expect(JSON.parse(opts.body)).toEqual({ workspace_id: 'ws-a', manager_membership_id: 'm-lider' })
+    })
+
+    it('limpar responsável envia null', async () => {
+      await adminService.setMembershipManager('u-1', 'ws-a', null)
+
+      const [, opts] = mockFetch.mock.calls[0] as any[]
+      expect(JSON.parse(opts.body)).toEqual({ workspace_id: 'ws-a', manager_membership_id: null })
+    })
+
+    it('retorna null quando o endpoint responde erro', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'x' }) })
+      expect(await adminService.setMembershipManager('u-1', 'ws-a', 'm-lider')).toBeNull()
+    })
+
+    it('retorna null sem sessão (não chama o endpoint)', async () => {
+      mockGetSession.mockResolvedValueOnce({ data: { session: null }, error: null })
+      mockFetch.mockClear()
+      expect(await adminService.setMembershipManager('u-1', 'ws-a', 'm-lider')).toBeNull()
+      expect(mockFetch).not.toHaveBeenCalled()
     })
   })
 

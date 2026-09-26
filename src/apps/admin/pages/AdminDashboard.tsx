@@ -158,7 +158,7 @@ export function AdminDashboard() {
         {hasAttention && (
           <button
             type="button"
-            onClick={() => navigate('/admin/users')}
+            onClick={() => navigate('/admin/requests')}
             className="mt-3 w-full rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 transition-colors hover:bg-amber-500/20"
           >
             Revisar solicitações
@@ -289,7 +289,7 @@ export function AdminDashboard() {
 
           <button
             type="button"
-            onClick={() => navigate('/admin/users')}
+            onClick={() => navigate('/admin/requests')}
             className="flex items-center gap-3 rounded-xl bg-input p-3 text-left transition-colors hover:bg-card-hover"
           >
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">

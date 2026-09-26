@@ -8,12 +8,14 @@ import {
 } from 'react-router-dom'
 import { clearCache, setCol } from '../../../lib/db'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
+import { isoToBrDate } from '../../../apps/reservalab/utils/tvEvent'
 import { CoordinatorHome } from '../CoordinatorHome'
 import { managerOptionsForMember } from '../coordinatorHelpers'
 import type { Ticket } from '../../../apps/chamados/types'
 import type {
   CoordinatedUnit,
   CoordinatorInactiveMember,
+  CoordinatorMember,
   CoordinatorRequest,
   CoordinatorRoleOption,
   CoordinatorUnitOverview,
@@ -23,10 +25,12 @@ import type { BreakpointState } from '../../../responsive/useBreakpoint'
 const mockUseCoordinator = vi.hoisted(() => vi.fn())
 const mockGetRoleForUser = vi.hoisted(() => vi.fn())
 const mockUseBreakpoint = vi.hoisted(() => vi.fn())
+const mockUseAppAccess = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorInactiveMembers = vi.hoisted(() => vi.fn())
+const mockGetCoordinatorMembers = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorUnitOverview = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorAssignableRoles = vi.hoisted(() => vi.fn())
 const mockApproveCoordinatorMembership = vi.hoisted(() => vi.fn())
@@ -36,6 +40,8 @@ const mockRestoreCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockRemoveCoordinatorMembership = vi.hoisted(() => vi.fn())
 const mockSetCoordinatorRole = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
+const mockFetchReservas = vi.hoisted(() => vi.fn())
+const mockFetchTabletReservas = vi.hoisted(() => vi.fn())
 const workspaceContextMock = vi.hoisted(() => ({
   workspace: null as { id: string; name: string; slug: string } | null,
   workspaces: [] as Array<{
@@ -78,14 +84,27 @@ vi.mock('../../../core/permissions/service', () => ({
   permissionService: { getRoleForUser: () => mockGetRoleForUser() },
 }))
 
+vi.mock('../../../core/permissions/usePermissions', () => ({
+  useAppAccess: () => mockUseAppAccess(),
+}))
+
 vi.mock('../../../responsive/useBreakpoint', () => ({
   useBreakpoint: () => mockUseBreakpoint(),
+}))
+
+vi.mock('../../../apps/reservalab/services/api', () => ({
+  fetchReservas: (...args: unknown[]) => mockFetchReservas(...args),
+}))
+
+vi.mock('../../../apps/reservalab/services/supabase', () => ({
+  fetchTabletReservas: (...args: unknown[]) => mockFetchTabletReservas(...args),
 }))
 
 vi.mock('../../../core/permissions/coordinatorService', () => ({
   setCoordinatorManager: (...args: unknown[]) => mockSetCoordinatorManager(...args),
   getCoordinatorRequests: (...args: unknown[]) => mockGetCoordinatorRequests(...args),
   getCoordinatorInactiveMembers: (...args: unknown[]) => mockGetCoordinatorInactiveMembers(...args),
+  getCoordinatorMembers: (...args: unknown[]) => mockGetCoordinatorMembers(...args),
   getCoordinatorUnitOverview: (...args: unknown[]) => mockGetCoordinatorUnitOverview(...args),
   getCoordinatorAssignableRoles: (...args: unknown[]) => mockGetCoordinatorAssignableRoles(...args),
   approveCoordinatorMembership: (...args: unknown[]) => mockApproveCoordinatorMembership(...args),
@@ -95,6 +114,14 @@ vi.mock('../../../core/permissions/coordinatorService', () => ({
   removeCoordinatorMembership: (...args: unknown[]) => mockRemoveCoordinatorMembership(...args),
   setCoordinatorRole: (...args: unknown[]) => mockSetCoordinatorRole(...args),
   getLastCoordinatorServiceError: () => mockGetLastCoordinatorServiceError(),
+}))
+
+const mockGetAuditLogs = vi.hoisted(() => vi.fn())
+
+vi.mock('../../../core/logs/serverAuditService', () => ({
+  serverAuditService: {
+    getByWorkspace: (...args: unknown[]) => mockGetAuditLogs(...args),
+  },
 }))
 
 const membership = (
@@ -203,6 +230,27 @@ function inactiveMember(
   }
 }
 
+function activeMember(
+  id: string,
+  name: string,
+  workspaceId = 'ws1',
+  over: Partial<{ managed_by: string | null; role_id: string }> = {},
+): CoordinatorMember {
+  return {
+    membership: membership(`ms-${id}`, `u-${id}`, workspaceId, {
+      managed_by: over.managed_by ?? null,
+      role_id: over.role_id ?? 'role-technician',
+    }),
+    profile: {
+      id: `u-${id}`,
+      name,
+      email: `${id}@b.com`,
+      status: 'active',
+      roleId: 'role-technician',
+    },
+  }
+}
+
 function setupOverrides(overrides: Partial<ReturnType<typeof mockUseCoordinator>>) {
   mockUseCoordinator.mockReturnValue({
     units: [],
@@ -211,6 +259,16 @@ function setupOverrides(overrides: Partial<ReturnType<typeof mockUseCoordinator>
     refresh: vi.fn(),
     ...overrides,
   })
+}
+
+/** Chave YYYY-MM-DD de hoje no fuso do negócio (America/Sao_Paulo) — igual à da aba. */
+function spTodayKey(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
 }
 
 function renderHome(units: CoordinatedUnit[]) {
@@ -243,9 +301,12 @@ beforeEach(() => {
   workspaceContextMock.setWorkspace.mockReset()
   mockGetRoleForUser.mockReturnValue({ name: 'Líder' })
   mockGetLastCoordinatorServiceError.mockReturnValue(null)
+  mockFetchReservas.mockResolvedValue({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })
+  mockFetchTabletReservas.mockResolvedValue([])
   mockSetCoordinatorManager.mockResolvedValue(true)
   mockGetCoordinatorRequests.mockResolvedValue([])
   mockGetCoordinatorInactiveMembers.mockResolvedValue([])
+  mockGetCoordinatorMembers.mockResolvedValue([])
   mockGetCoordinatorUnitOverview.mockResolvedValue(null)
   mockGetCoordinatorAssignableRoles.mockResolvedValue([])
   mockApproveCoordinatorMembership.mockResolvedValue(true)
@@ -257,6 +318,13 @@ beforeEach(() => {
   // jsdom não tem matchMedia → o comportamento real já é compact; fixar o mock
   // garante determinismo também para o teste de faixas desktop/wide.
   setBp('compact')
+  // PR D: por padrão o usuário tem acesso a todos os módulos do ecossistema,
+  // preservando o comportamento pré-PR D dos testes existentes.
+  mockUseAppAccess.mockReturnValue({
+    canAccessApp: () => true,
+    getLevel: () => 'full',
+    isFullAccess: () => true,
+  })
 })
 
 describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', () => {
@@ -368,14 +436,27 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
     })
   })
 
-  describe('solicitações pendentes por unidade (Fase 1 RPC 065)', () => {
+  describe('solicitações pendentes (aba Aprovações, RPC 065)', () => {
+    /** A fila agora vive na aba Aprovações; a Overview mantém apenas resumo + CTA. */
+    function renderApprovals(units: CoordinatedUnit[]) {
+      const refresh = vi.fn()
+      setupOverrides({ units, refresh })
+      render(
+        <MemoryRouter initialEntries={['/coordenador?tab=approvals']}>
+          <CoordinatorHome />
+        </MemoryRouter>,
+      )
+      return refresh
+    }
+
     it('lista nome, e-mail e estado pendente (sem inventar pedidos)', async () => {
       mockGetCoordinatorRequests.mockImplementation(async (ws: string) =>
         ws === 'ws1' ? [pendingRequest('p1', 'Nova Pessoa')] : [],
       )
-      renderHome([unitWithData()])
+      renderApprovals([unitWithData()])
       await act(async () => {})
 
+      expect(screen.getByTestId('tab-approvals')).toBeInTheDocument()
       expect(screen.getByText('Nova Pessoa')).toBeTruthy()
       expect(screen.getByText('p1@b.com')).toBeTruthy()
       expect(screen.getByText('Pendente')).toBeTruthy()
@@ -385,7 +466,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('aprovar chama o RPC, recarrega escopo e solicitações (sem reload de página)', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
-      const refresh = renderHome([unitWithData()])
+      const refresh = renderApprovals([unitWithData()])
       await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }))
@@ -398,7 +479,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('rejeitar exige confirmação e só então chama o RPC', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
-      const refresh = renderHome([unitWithData()])
+      const refresh = renderApprovals([unitWithData()])
       await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: /Rejeitar/ }))
@@ -415,7 +496,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('erro ao aprovar → banner honesto e sem refresh falso', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
-      const refresh = renderHome([unitWithData()])
+      const refresh = renderApprovals([unitWithData()])
       await act(async () => {})
 
       mockApproveCoordinatorMembership.mockResolvedValue(false)
@@ -430,17 +511,17 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
 
     it('falha ao carregar solicitações → retry recarrega sem derrubar o escopo', async () => {
       mockGetLastCoordinatorServiceError.mockReturnValue('requests denied')
-      renderHome([unitWithData()])
+      renderApprovals([unitWithData()])
       await act(async () => {})
 
-      expect(screen.getByText(/Não foi possível carregar as solicitações/)).toBeTruthy()
+      expect(screen.getByText(/Não foi possível carregar as solicitações pendentes/)).toBeTruthy()
 
       mockGetLastCoordinatorServiceError.mockReturnValue(null)
-      fireEvent.click(screen.getAllByRole('button', { name: 'Tentar novamente' })[0])
+      fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
       await act(async () => {})
 
-      expect(screen.getByText('Nenhuma solicitação pendente.')).toBeTruthy()
-      expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
+      expect(screen.getByText('Nenhuma solicitação pendente')).toBeTruthy()
+      expect(screen.getByTestId('tab-approvals')).toBeInTheDocument()
     })
   })
 
@@ -1272,23 +1353,24 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
     ).toBeNull()
   })
 
-  it('solicitações globais consolidam as unidades e substituem o bloco da grid', async () => {
+  it('solicitações globais consolidam as unidades em um resumo compacto + CTA para a aba Aprovações', async () => {
     mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
     renderHome([unitWithData()])
     await act(async () => {})
 
-    const panel = screen.getByTestId('overview-requests')
-    expect(within(panel).getByText('Nova Pessoa')).toBeTruthy()
-    expect(within(panel).getByText('p1@b.com')).toBeTruthy()
-    expect(within(panel).getByText('Pendente')).toBeTruthy()
-    expect(within(panel).getByText('Campus A')).toBeTruthy()
-    // Consolidação: o nome aparece só uma vez na tela (não duplicado na grid).
-    expect(screen.getAllByText('Nova Pessoa')).toHaveLength(1)
+    // Overview: resumo honesto (contagem) + CTA; a fila completa vive na aba Aprovações.
+    const panel = screen.getByTestId('overview-approvals')
+    expect(within(panel).queryByText('Nova Pessoa')).toBeNull()
+    expect(within(panel).getByText(/1 solicitação aguardando decisão/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Aprovar/ })).toBeNull()
 
-    fireEvent.click(within(panel).getByRole('button', { name: /Aprovar/ }))
+    // CTA navega para a aba Aprovações com o escopo preservado.
+    fireEvent.click(within(panel).getByTestId('overview-open-approvals'))
     await act(async () => {})
-    expect(mockApproveCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+
+    expect(screen.getByTestId('tab-approvals')).toBeInTheDocument()
+    expect(screen.getByText('Nova Pessoa')).toBeTruthy()
   })
 
   it('SLA global reage ao cache bruto pelo sinal passivo da PR A', async () => {
@@ -1357,7 +1439,12 @@ describe('responsivo (Fase 1) — layout por faixa via camada src/responsive', (
     it('confirmação destrutiva preserva alertdialog também no desktop', async () => {
       mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
       setBp('wide')
-      renderHome([unitWithData()])
+      setupOverrides({ units: [unitWithData()], refresh: vi.fn() })
+      render(
+        <MemoryRouter initialEntries={['/coordenador?tab=approvals']}>
+          <CoordinatorHome />
+        </MemoryRouter>,
+      )
       await act(async () => {})
 
       fireEvent.click(screen.getByRole('button', { name: /Rejeitar/ }))
@@ -1485,7 +1572,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(screen.getByTestId('overview-kpi-aberto')).toHaveTextContent('1')
     expect(screen.getByTestId('overview-sla')).toBeInTheDocument()
     expect(screen.getByTestId('overview-recents')).toBeInTheDocument()
-    expect(screen.getByTestId('overview-requests')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-approvals')).toBeInTheDocument()
   })
 
   it('trocar de aba atualiza a URL (?tab=) e monta o conteúdo certo (com desmonte da antiga)', async () => {
@@ -1541,6 +1628,8 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(tabs.map((t) => t.textContent?.trim())).toEqual([
       'Visão Geral',
       'Pessoal',
+      'Aprovações',
+      'Equipes',
       'Chamados',
       'ReservaLab',
       'Relatórios',
@@ -1561,29 +1650,189 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(tablist.className).toMatch(/overflow-x-auto/)
   })
 
-  it('contexto multiunidade preservado em todas as abas (só o escopo, sem bypass)', async () => {
+  describe('navegação mobile animada (PR2) — hamburger + menu compacto das abas', () => {
+    const openMenu = (): HTMLElement => {
+      const button = screen.getByTestId('coordinator-mobile-menu-button')
+      fireEvent.click(button)
+      return button
+    }
+    const menuTablist = () => screen.getByTestId('coordinator-mobile-tablist')
+    const menuTab = (name: string) => within(menuTablist()).getByRole('tab', { name })
+
+    it('estado fechado: hamburger presente com aria correto e menu não montado', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      const button = screen.getByTestId('coordinator-mobile-menu-button')
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+      expect(button).toHaveAttribute('aria-controls', expect.any(String))
+      expect(button).toHaveAttribute('aria-label', 'Abrir menu da Central do Coordenador')
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+    })
+
+    it('abrir: monta o menu com as 9 abas, destaca a aba ativa e alterna o aria do botão', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador?tab=people')
+      await act(async () => {})
+
+      const button = openMenu()
+      expect(button).toHaveAttribute('aria-expanded', 'true')
+      expect(button).toHaveAttribute('aria-label', 'Fechar menu da Central do Coordenador')
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      const tabs = within(menuTablist()).getAllByRole('tab')
+      expect(tabs.map((t) => t.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+        'Visão Geral',
+        'Pessoal',
+        'Aprovações',
+        'Equipes',
+        'Chamados',
+        'ReservaLab',
+        'Relatórios',
+        'Auditoria',
+        'Ecossistema',
+      ])
+      expect(menuTab('Pessoal')).toHaveAttribute('aria-selected', 'true')
+      expect(menuTab('Visão Geral')).toHaveAttribute('aria-selected', 'false')
+    })
+
+    it('selecionar aba no menu atualiza a URL, monta o conteúdo e FECHA o menu (sem estado duplicado)', async () => {
+      setBp('compact')
+      const { probe } = renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      openMenu()
+      fireEvent.mouseDown(menuTab('Chamados'), { button: 0 })
+      await act(async () => {})
+
+      expect(probe).toHaveAttribute('data-search', '?tab=tickets')
+      expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(screen.getByTestId('coordinator-mobile-menu-button')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+      expect(screen.queryByTestId('coordinator-mobile-tablist')).toBeNull()
+    })
+
+    it('Escape fecha o menu e devolve o foco ao hamburger', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      const button = openMenu()
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      fireEvent.keyDown(menuTablist(), { key: 'Escape' })
+      await act(async () => {})
+
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+      expect(document.activeElement).toBe(button)
+    })
+
+    it('clique fora do menu fecha (disparado via mouse/pointer fora do wrapper)', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador')
+      await act(async () => {})
+
+      const button = openMenu()
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      fireEvent.mouseDown(document.body)
+      await act(async () => {})
+
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('selecionar a própria aba ativa fecha o menu mantendo o conteúdo', async () => {
+      setBp('compact')
+      renderHomeAt('/coordenador?tab=overview')
+      await act(async () => {})
+
+      openMenu()
+      expect(screen.getByTestId('coordinator-mobile-menu')).toBeInTheDocument()
+
+      fireEvent.click(menuTab('Visão Geral'))
+      await act(async () => {})
+
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+      expect(screen.getByTestId('coordinator-mobile-menu-button')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+      expect(screen.getByTestId('coordinator-units-grid')).toBeInTheDocument()
+    })
+
+    it('desktop/wide (≥1128px): trilho visível e hamburger/menu ausentes', async () => {
+      setBp('desktop')
+      renderHomeAt('/coordenador?tab=tickets')
+      await act(async () => {})
+
+      const rail = screen.getByTestId('coordinator-tabs')
+      expect(rail).toHaveAttribute('aria-label', 'Central do Coordenador')
+      expect(within(rail).getByRole('tab', { name: 'Chamados' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+      expect(screen.queryByTestId('coordinator-mobile-menu-button')).toBeNull()
+      expect(screen.queryByTestId('coordinator-mobile-menu')).toBeNull()
+    })
+  })
+
+  it('contexto multiunidade é refletido na aba Pessoal (diretório por unidade, só o escopo)', async () => {
     const multi: CoordinatedUnit[] = [
       unitWithData(),
-      { ...unitWithData(), unitId: 'ws2', unitName: 'Campus B' },
+      {
+        coordination: membership('coordination-ws2', 'u-coord2', 'ws2'),
+        unitId: 'ws2',
+        unitName: 'Campus B',
+        leaders: [
+          {
+            leadership: membership('ms-lider-b', 'u-lider-b', 'ws2', {
+              managed_by: 'coordination-ws2',
+              role_id: 'role-lider',
+            }),
+            profile: {
+              id: 'u-lider-b',
+              name: 'Bia Líder',
+              email: 'bia@b.com',
+              status: 'active',
+              roleId: 'role-lider',
+            },
+            members: [],
+          },
+        ],
+      },
     ]
     renderHomeAt('/coordenador?tab=people', multi)
     await act(async () => {})
 
     expect(screen.getByText('unidades')).toBeTruthy()
     expect(screen.getByText(/nas equipes$/)).toBeTruthy()
-    expect(screen.getByText('Unidade: Campus A')).toBeTruthy()
-    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
+
+    const tab = screen.getByTestId('tab-people')
+    const rows = within(tab).getAllByTestId(/^people-row-/)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(within(tab).getAllByText('Campus A').length).toBeGreaterThan(0)
+    expect(within(tab).getAllByText('Campus B').length).toBeGreaterThan(0)
   })
 
-  it('aba Pessoal usa os MESMOS RPCs escopados para aprovar', async () => {
+  it('aba Pessoal é somente-leitura: pendências aparecem com status real e SEM ações', async () => {
     mockGetCoordinatorRequests.mockResolvedValue([pendingRequest('p1', 'Nova Pessoa')])
     renderHomeAt('/coordenador?tab=people')
     await act(async () => {})
 
-    fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }))
-    await act(async () => {})
+    // A pessoa pendente entra no diretório, honesta, com o status vindo da RPC.
+    const row = screen.getByTestId('people-row-ms-p1')
+    expect(within(row).getByText('Nova Pessoa')).toBeTruthy()
+    expect(within(row).getByText('Pendente')).toBeTruthy()
 
-    expect(mockApproveCoordinatorMembership).toHaveBeenCalledWith('ms-p1')
+    // A aba é read-only: nenhuma ação de gestão é oferecida nem disparada aqui.
+    expect(screen.queryByRole('button', { name: /Aprovar/ })).toBeNull()
+    expect(mockApproveCoordinatorMembership).not.toHaveBeenCalled()
   })
 
   it('aba Chamados conta só o escopo coordenação (workspaces fora ficam de fora)', async () => {
@@ -1597,6 +1846,18 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
 
     expect(screen.getByTestId('tickets-kpi-abertos')).toHaveTextContent('1')
     expect(screen.getByTestId('tickets-recent')).toBeInTheDocument()
+  })
+
+  it('listagem da aba Chamados respeita o escopo (chamado fora não vira linha)', async () => {
+    setCol('chamados', [
+      tk('t-list-scope', 'ws1'),
+      tk('t-list-out', 'ws2'),
+    ])
+    renderHomeAt('/coordenador?tab=tickets')
+    await act(async () => {})
+
+    expect(screen.getByTestId('tickets-list-t-list-scope')).toBeInTheDocument()
+    expect(screen.queryByTestId('tickets-list-t-list-out')).toBeNull()
   })
 
   it('chips da aba Chamados encaminham para os filtros EXISTENTES do app', async () => {
@@ -1631,12 +1892,76 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/pc-care')
   })
 
-  it('abas futuras (ReservaLab/Relatórios/Auditoria) são informativas e não buscam nada', async () => {
+  it('aba Auditoria (PR F) consulta registros apenas das unidades do escopo visível', async () => {
+    mockGetAuditLogs.mockResolvedValue([])
     renderHomeAt('/coordenador?tab=audit')
     await act(async () => {})
 
     expect(screen.getByTestId('tab-audit')).toBeInTheDocument()
     expect(screen.queryByTestId('coordinator-units-grid')).toBeNull()
+    expect(mockGetAuditLogs).toHaveBeenCalledTimes(1)
+    expect(mockGetAuditLogs).toHaveBeenCalledWith('ws1', 200)
+  })
+
+  it('aba ReservaLab (PR E) consolida em leitura: labs via slug, tablets via id, por unidade', async () => {
+    workspaceContextMock.workspaces = [
+      { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+    ]
+    const brKey = isoToBrDate(spTodayKey())
+    mockFetchReservas.mockResolvedValue({
+      lab1_reservas: [],
+      lab2_reservas: [],
+      lab_reservas: {
+        LAB01: [
+          {
+            horario: '07h30 às 09h20',
+            responsavel: 'Prof. Ana',
+            observacao: 'Química',
+            reserva_feita_por: 'Coordenação',
+            alunos: 12,
+            labs: ['LAB01'],
+            lab: 'LAB01',
+            data: brKey,
+          },
+        ],
+      },
+      reservas_semana: [],
+    })
+    mockFetchTabletReservas.mockResolvedValue([
+      {
+        id: 'tb-1',
+        sala: 'Sala 10',
+        quantidade_tablets: 10,
+        professor: 'Prof. Bruno',
+        horario_inicio: `${spTodayKey()}T11:00:00.000Z`,
+        horario_fim: `${spTodayKey()}T13:00:00.000Z`,
+        finalidade: 'Aula',
+        reservado_por: 'Coordenação',
+        status: 'ativa',
+        workspace_id: 'ws1',
+      },
+    ])
+
+    renderHomeAt('/coordenador?tab=reservalab', [unitWithData()])
+    await act(async () => {})
+
+    const unitBlock = screen.getByTestId('reservalab-unit-ws1')
+    expect(within(unitBlock).getByTestId('reservalab-lab-card')).toBeInTheDocument()
+    expect(within(unitBlock).getByText('Lab 01')).toBeInTheDocument()
+    expect(within(unitBlock).getByText(/Prof\. Ana/)).toBeInTheDocument()
+    expect(within(unitBlock).getByTestId('reservalab-tablet-card')).toBeInTheDocument()
+    expect(within(unitBlock).getByText('10 tablets')).toBeInTheDocument()
+
+    // Fontes corretas: labs por slug da workspace, tablets por id.
+    expect(mockFetchReservas).toHaveBeenCalledWith('campus-a')
+    expect(mockFetchTabletReservas).toHaveBeenCalledWith(
+      expect.any(Date),
+      expect.any(Date),
+      'ws1',
+    )
+
+    // Read-only: nenhum botão de criar/editar/cancelar/gerenciar.
+    expect(within(unitBlock).queryByRole('button')).toBeNull()
   })
 })
 
@@ -1774,10 +2099,35 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     await act(async () => {})
 
     expect(screen.getByTestId('tab-people')).toBeInTheDocument()
-    expect(screen.getByTestId('tab-people-unit-ws2')).toBeInTheDocument()
-    expect(screen.queryByTestId('tab-people-unit-ws1')).toBeNull()
-    expect(screen.getByText('Unidade: Campus B')).toBeTruthy()
-    expect(screen.queryByText('Unidade: Campus A')).toBeNull()
+    // o diretório mostra só o pessoal da unidade ws2 (é o ?unit= ativo)
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).getAllByText('Campus B').length).toBeGreaterThan(0)
+    expect(within(tab).queryByText('Campus A')).toBeNull()
+  })
+
+  it('membro ATIVO sem responsável (RPC 071) respeita o ?unit= ativo (ws2)', async () => {
+    mockGetCoordinatorMembers.mockImplementation(async (ws: string) =>
+      ws === 'ws2' ? [activeMember('unb', 'Ana Sem Responsável B', 'ws2')] : [],
+    )
+    renderHomeAtContext('/coordenador?tab=people&unit=ws2', twoUnits())
+    await act(async () => {})
+
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).getByText('Ana Sem Responsável B')).toBeTruthy()
+    expect(screen.getByTestId('people-group-unassigned')).toBeTruthy()
+    expect(within(tab).queryByText('Campus A')).toBeNull()
+  })
+
+  it('membro ativo sem responsável de outra unidade NUNCA vaza no ?unit= ativo (ws1)', async () => {
+    mockGetCoordinatorMembers.mockImplementation(async (ws: string) =>
+      ws === 'ws2' ? [activeMember('unb', 'Ana Sem Responsável B', 'ws2')] : [],
+    )
+    renderHomeAtContext('/coordenador?tab=people&unit=ws1', twoUnits())
+    await act(async () => {})
+
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).queryByText('Ana Sem Responsável B')).toBeNull()
+    expect(within(tab).getAllByText('Campus A').length).toBeGreaterThan(0)
   })
 
   it('filtro é refletido na aba Chamados (?tab=tickets&unit=ws2) — só tickets da unidade', async () => {
@@ -1791,6 +2141,18 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
 
     expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
     expect(screen.getByTestId('tickets-kpi-abertos')).toHaveTextContent('1')
+  })
+
+  it('listagem de chamados segue o ?unit= (só tickets da ws2)', async () => {
+    setCol('chamados', [
+      tk('t-a-list', 'ws1'),
+      tk('t-b-list', 'ws2'),
+    ])
+    renderHomeAtContext('/coordenador?tab=tickets&unit=ws2', twoUnits())
+    await act(async () => {})
+
+    expect(screen.getByTestId('tickets-list-t-b-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('tickets-list-t-a-list')).toBeNull()
   })
 
   it('filtro é refletido na aba Ecossistema (?tab=ecosystem&unit=ws2)', async () => {
@@ -1810,8 +2172,9 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     await act(async () => {})
 
     expect(probe).toHaveAttribute('data-search', '?tab=people&unit=ws1')
-    expect(screen.getByTestId('tab-people-unit-ws1')).toBeInTheDocument()
-    expect(screen.queryByTestId('tab-people-unit-ws2')).toBeNull()
+    const tab = screen.getByTestId('tab-people')
+    expect(within(tab).getAllByText('Campus A').length).toBeGreaterThan(0)
+    expect(within(tab).queryByText('Campus B')).toBeNull()
     expect(screen.getByRole('tab', { name: 'Pessoal' })).toHaveAttribute('aria-selected', 'true')
   })
 
@@ -1835,10 +2198,10 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     expect(screen.getByTestId('overview-kpis')).toBeInTheDocument()
     expect(screen.getByTestId('overview-sla')).toBeInTheDocument()
     expect(screen.getByTestId('overview-recents')).toBeInTheDocument()
-    expect(screen.getByTestId('overview-requests')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-approvals')).toBeInTheDocument()
+    expect(within(screen.getByTestId('overview-approvals')).getByText(/1 solicitação aguardando decisão/)).toBeTruthy()
     expect(screen.getByTestId('coordinator-units-grid')).toBeInTheDocument()
     expect(screen.getByTestId('coordinator-side-info')).toBeInTheDocument()
-    expect(screen.getByText('Pessoa B')).toBeTruthy()
   })
 
   it('trocar de unidade NÃO dispara nenhuma RPC nova de pessoal/visão (dados já carregados)', async () => {
@@ -1885,5 +2248,246 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     expect(probe2).toHaveAttribute('data-search', '?unit=ws2&tab=tickets')
     expect(screen.getByTestId('tab-tickets')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Chamados' })).toHaveAttribute('aria-selected', 'true')
+  })
+})
+
+describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + workspace, sem conceder acesso', () => {
+  function campusB(): CoordinatedUnit {
+    return {
+      coordination: membership('coordination-ws2', 'u-coord', 'ws2'),
+      unitId: 'ws2',
+      unitName: 'Campus B',
+      leaders: [
+        {
+          leadership: membership('ms-lider-b', 'u-lider-b', 'ws2', {
+            managed_by: 'coordination-ws2',
+            role_id: 'role-lider',
+          }),
+          profile: {
+            id: 'u-lider-b',
+            name: 'Bia Líder',
+            email: 'bia@b.com',
+            status: 'active',
+            roleId: 'role-lider',
+          },
+          members: [teamMember('mb1', 'Técnico B', 'role-technician', 'ms-lider-b')],
+        },
+      ],
+    }
+  }
+
+  const twoUnits = () => [unitWithData(), campusB()]
+
+  function renderEcosystem(
+    entry: string,
+    units: CoordinatedUnit[],
+    access: Partial<ReturnType<typeof mockUseAppAccess>> = {},
+    workspaces: Array<{ id: string; name: string; slug: string; disabled_apps?: string[] }> = [],
+  ) {
+    setupOverrides({ units })
+    workspaceContextMock.workspaces = workspaces
+    mockUseAppAccess.mockReturnValue({
+      canAccessApp: () => true,
+      getLevel: () => 'full',
+      isFullAccess: () => true,
+      ...access,
+    })
+    render(
+      <MemoryRouter initialEntries={[entry]}>
+        <CoordinatorHome />
+      </MemoryRouter>,
+    )
+  }
+
+  beforeEach(() => {
+    clearCache()
+  })
+
+  it('módulo ativo e com permissão → "disponível" com botão Abrir que navega preservando o contexto', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-pc-care')
+    expect(within(module).getByText('disponível')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('ecosystem-open-pc-care-ws1'))
+    await act(async () => {})
+
+    expect(workspaceContextMock.setWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ws1' }),
+      { persist: false },
+    )
+    expect(mockNavigate).toHaveBeenCalledWith('/pc-care')
+  })
+
+  it('workspace desabilita o módulo (disabled_apps) → "indisponível neste workspace", sem Abrir', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] }],
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-tv-ws1-disabled')).toBeInTheDocument()
+    expect(screen.getByText('indisponível neste workspace')).toBeTruthy()
+    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+  })
+
+  it('papel SEM acesso ao módulo → "acesso restrito", sem Abrir, mesmo com workspace habilitado', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      { canAccessApp: (id: string) => id !== 'reservalab' },
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-reservalab-ws1-restricted')).toBeInTheDocument()
+    expect(screen.getByText('acesso restrito')).toBeTruthy()
+    expect(screen.queryByTestId('ecosystem-open-reservalab-ws1')).toBeNull()
+
+    // demais módulos permanecem disponíveis (restrição é POR módulo)
+    expect(screen.getByTestId('ecosystem-open-pc-care-ws1')).toBeInTheDocument()
+  })
+
+  it('papel SEM acesso tem precedência sobre disabled_apps (mesma ordem do AppGuard)', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      { canAccessApp: () => false },
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] }],
+    )
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-tv-ws1-restricted')).toBeInTheDocument()
+    expect(screen.queryByTestId('ecosystem-tv-ws1-disabled')).toBeNull()
+    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+  })
+
+  it('sem workspace no contexto → "fora do contexto", sem Abrir (não inventa disponibilidade)', async () => {
+    renderEcosystem('/coordenador?tab=ecosystem', [unitWithData()], {}, [])
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).getByText('fora do contexto')).toBeTruthy()
+    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+  })
+
+  it('módulos planejados (plannedApps) → bloco "Em breve", sem botão de navegação', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    const planned = screen.getByTestId('ecosystem-planned')
+    expect(planned).toBeInTheDocument()
+    expect(screen.getByText('Em breve')).toBeTruthy()
+    expect(screen.getByTestId('ecosystem-planned-chamados-dashboard')).toBeInTheDocument()
+    expect(
+      within(planned).queryByRole('button', { name: 'Abrir' }),
+    ).toBeNull()
+  })
+
+  it('disponibilidade POR UNIDADE: mesmo módulo disponível em uma unidade e indisponível em outra', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      twoUnits(),
+      {},
+      [
+        { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+        { id: 'ws2', name: 'Campus B', slug: 'campus-b', disabled_apps: ['tv'] },
+      ],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).queryByTestId('ecosystem-tv-ws1-disabled')).toBeNull()
+    expect(within(module).getByTestId('ecosystem-tv-ws2-disabled')).toBeInTheDocument()
+    expect(within(module).getByText('indisponível neste workspace')).toBeTruthy()
+    expect(screen.getByTestId('ecosystem-open-tv-ws1')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-open-pc-care-ws1')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-open-pc-care-ws2')).toBeInTheDocument()
+  })
+
+  it('?unit= filtra o ecossistema para a unidade selecionada, sem RPC novo', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem&unit=ws2',
+      twoUnits(),
+      {},
+      [
+        { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+        { id: 'ws2', name: 'Campus B', slug: 'campus-b' },
+      ],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).queryByText('Campus A')).toBeNull()
+    expect(within(module).getByText('Campus B')).toBeTruthy()
+    expect(screen.getByTestId('ecosystem-open-tv-ws2')).toBeInTheDocument()
+  })
+
+  it('?unit= inválido/fora do escopo → fail-closed (Todas as unidades) no ecossistema', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem&unit=ws999',
+      twoUnits(),
+      {},
+      [
+        { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+        { id: 'ws2', name: 'Campus B', slug: 'campus-b' },
+      ],
+    )
+    await act(async () => {})
+
+    const module = screen.getByTestId('ecosystem-module-tv')
+    expect(within(module).getByText('Campus A')).toBeTruthy()
+    expect(within(module).getByText('Campus B')).toBeTruthy()
+  })
+
+  it('tirar/ampliar o acesso do papel recalcula a disponibilidade na re-render (canAccessApp reativo)', async () => {
+    renderEcosystem('/coordenador?tab=ecosystem', [unitWithData()], {}, [
+      { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
+    ])
+    await act(async () => {})
+
+    expect(screen.queryByTestId('ecosystem-reservalab-ws1-restricted')).toBeNull()
+    expect(screen.getByTestId('ecosystem-open-reservalab-ws1')).toBeInTheDocument()
+
+    // re-render com papel sem acesso ao reservalab (troca de aba recompõe a aba)
+    mockUseAppAccess.mockReturnValue({
+      canAccessApp: (id: string) => id !== 'reservalab',
+      getLevel: () => 'full',
+      isFullAccess: () => true,
+    })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chamados' }), { button: 0 })
+    await act(async () => {})
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Ecossistema' }), { button: 0 })
+    await act(async () => {})
+
+    expect(screen.getByTestId('ecosystem-reservalab-ws1-restricted')).toBeInTheDocument()
+    expect(screen.queryByTestId('ecosystem-open-reservalab-ws1')).toBeNull()
+  })
+
+  it('coordenador de unidade única também vê disponibilidade por unidade (sem seletor de contexto)', async () => {
+    renderEcosystem(
+      '/coordenador?tab=ecosystem',
+      [unitWithData()],
+      {},
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
+    )
+    await act(async () => {})
+
+    expect(screen.queryByTestId('coordinator-unit-context')).toBeNull()
+    expect(screen.getByTestId('ecosystem-module-tv')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-open-tv-ws1')).toBeInTheDocument()
   })
 })

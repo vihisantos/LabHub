@@ -162,19 +162,21 @@ describe('UsersPage deep link (aprovação)', () => {
     vi.useFakeTimers()
   })
 
-  it('abre o modal de aprovação quando ?pending=<id> corresponde a um usuário pendente', async () => {
+  it('navega para o detalhe da pessoa quando ?pending=<id> corresponde a um usuário pendente', async () => {
     currentSearchParams.set('pending', 'u-123')
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Aprovar cadastro')).toBeInTheDocument()
+      expect(mockAdminService.listAllProfiles).toHaveBeenCalled()
     })
-    expect(screen.getByRole('button', { name: 'Aprovar e conceder acesso' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/users/u-123')
+    })
     expect(mockSetSearchParams).toHaveBeenCalledWith({}, { replace: true })
   })
 
-  it('não abre o modal quando ?pending=<id> não corresponde a um pendente', async () => {
+  it('não navega quando ?pending=<id> não corresponde a um pendente', async () => {
     currentSearchParams.set('pending', 'nao-existe')
 
     renderPage()
@@ -182,34 +184,7 @@ describe('UsersPage deep link (aprovação)', () => {
     await waitFor(() => {
       expect(mockAdminService.listAllProfiles).toHaveBeenCalled()
     })
-    expect(screen.queryByText('Aprovar cadastro')).not.toBeInTheDocument()
-  })
-
-  it('confirma a aprovação com cargo, app_access e campus obrigatório', async () => {
-    currentSearchParams.set('pending', 'u-123')
-
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByText('Aprovar cadastro')).toBeInTheDocument()
-    })
-
-    expect(screen.getByRole('button', { name: 'Aprovar e conceder acesso' })).toBeDisabled()
-    expect(screen.getByText('Selecione ao menos um campus para aprovar.')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Técnico' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Campus Mooca' }))
-    expect(screen.getByRole('button', { name: 'Aprovar e conceder acesso' })).toBeEnabled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Aprovar e conceder acesso' }))
-
-    await waitFor(() => {
-      expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123', {
-        roleId: 'role-technician',
-        app_access: {},
-        workspace_ids: ['ws-mooca'],
-      })
-    })
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 })
 
@@ -342,17 +317,17 @@ describe('UsersPage listagem (Pessoas)', () => {
     expect(screen.getByText('José São José')).toBeInTheDocument()
   })
 
-  it('mostra o banner de solicitações e navega para a inbox quando há pendentes', async () => {
+  it('mostra o banner de aprovações e navega para a fila global quando há pendentes', async () => {
     mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, pendingUser])
 
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Solicitações de acesso')).toBeInTheDocument()
+      expect(screen.getByText('Aprovações pendentes')).toBeInTheDocument()
     })
-    expect(screen.getByText('1 aguardando revisão')).toBeInTheDocument()
+    expect(screen.getByText('1 conta aguardando revisão')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('Solicitações de acesso'))
+    fireEvent.click(screen.getByText('Aprovações pendentes'))
     expect(mockNavigate).toHaveBeenCalledWith('/admin/requests')
   })
 

@@ -57,6 +57,10 @@ function mockDb() {
           lastQuery = { ...lastQuery, table, selection, column, value }
           return { ...thenable(dbResult), maybeSingle: () => Promise.resolve(dbResult) }
         },
+        in: (column: string, value: unknown) => {
+          lastQuery = { ...lastQuery, table, selection, column, value }
+          return { ...thenable(dbResult) }
+        },
       }
     },
   }))
@@ -175,7 +179,7 @@ describe('membershipService.getByUser — só contexto administrativo (anti-IDOR
 describe('membershipService.resolveRoleSlug — só ações/badges, nunca visibilidade', () => {
   it('resolve o slug do cargo pelo role_id', async () => {
     const service = await loadMembershipService()
-    dbResult = { data: { slug: 'tec' }, error: null }
+    dbResult = { data: [{ id: 'role-uuid-1', slug: 'tec', name: 'Técnico' }], error: null }
 
     const slug = await service.resolveRoleSlug('role-uuid-1')
 
@@ -194,6 +198,52 @@ describe('membershipService.resolveRoleSlug — só ações/badges, nunca visibi
     const service = await loadMembershipService()
     dbResult = { data: null, error: { message: 'denied' } }
     expect(await service.resolveRoleSlug('role-uuid-9')).toBeNull()
+  })
+})
+
+describe('membershipService.resolveRoleInfo — slug+nome em uma query (PR #284)', () => {
+  async function loadService() {
+    vi.resetModules()
+    const mod = await import('../service')
+    return mod.membershipService
+  }
+
+  it('resolve vários role_ids de uma vez', async () => {
+    const service = await loadService()
+    dbResult = {
+      data: [
+        { id: 'r-a', slug: 'tec', name: 'Técnico' },
+        { id: 'r-b', slug: 'lider', name: 'Líder' },
+      ],
+      error: null,
+    }
+
+    const map = await service.resolveRoleInfo(['r-a', 'r-b', 'r-a'])
+
+    expect(map.get('r-a')).toEqual({ slug: 'tec', name: 'Técnico' })
+    expect(map.get('r-b')).toEqual({ slug: 'lider', name: 'Líder' })
+    expect(lastQuery.table).toBe('roles')
+    expect(lastQuery.column).toBe('id')
+    expect(lastQuery.value).toEqual(['r-a', 'r-b'])
+  })
+
+  it('lista vazia não consulta (retorna mapa vazio)', async () => {
+    const service = await loadService()
+    mockFrom.mockClear()
+
+    const map = await service.resolveRoleInfo([])
+
+    expect(map.size).toBe(0)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('erro ⇒ mapa vazio (degrada exibição, nunca quebra a página)', async () => {
+    const service = await loadService()
+    dbResult = { data: null, error: { message: 'denied' } }
+
+    const map = await service.resolveRoleInfo(['r-a'])
+
+    expect(map.size).toBe(0)
   })
 })
 

@@ -194,8 +194,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }
 
   const isPublicChamados = location.pathname.startsWith('/chamados-publico')
+  // A área administrativa é GLOBAL (AdminGuard = is_super_admin): a fila de
+  // aprovação (/admin/requests) não pode exigir a escolha prévia de uma
+  // unidade — o workspace segue como contexto opcional dentro do /admin.
+  const isAdminArea = location.pathname.startsWith('/admin')
 
-  if (pendingSelection && !loading && !isPublicChamados) {
+  if (pendingSelection && !loading && !isPublicChamados && !isAdminArea) {
     return (
       <WorkspaceContext.Provider value={value}>
         <WorkspaceGate

@@ -40,13 +40,17 @@ import { ConfirmActionSheet } from './components/ConfirmActionSheet'
 import { CoordinatorHeader } from './components/CoordinatorHeader'
 import { CoordinatorTabs } from './components/CoordinatorTabs'
 import { CoordinatorUnitContext } from './components/CoordinatorUnitContext'
+import { EmptyState } from './components/EmptyState'
 import { ManageMemberSheet } from './components/ManageMemberSheet'
+import { SkeletonMetric, SkeletonRow } from './components/Skeletons'
 import { CoordinatorAuditTab } from './tabs/CoordinatorAuditTab'
+import { CoordinatorApprovalsTab } from './tabs/CoordinatorApprovalsTab'
 import { CoordinatorEcosystemTab } from './tabs/CoordinatorEcosystemTab'
 import { CoordinatorOverviewTab } from './tabs/CoordinatorOverviewTab'
 import { CoordinatorPeopleTab } from './tabs/CoordinatorPeopleTab'
 import { CoordinatorReportsTab } from './tabs/CoordinatorReportsTab'
 import { CoordinatorReservaLabTab } from './tabs/CoordinatorReservaLabTab'
+import { CoordinatorTeamsTab } from './tabs/CoordinatorTeamsTab'
 import { CoordinatorTicketsTab } from './tabs/CoordinatorTicketsTab'
 
 interface AssignTarget {
@@ -103,7 +107,7 @@ const CONFIRM_COPY: Record<
  * (nunca adm/coordinator); o Postgres revalida tudo.
  *
  * Responsividade (camada `src/responsive`): o shell compõe blocos colocados
- * (`CoordinatorHeader`, `PendingRequests`, `InactiveMembers`, `LeaderBlock`) e
+ * (`CoordinatorHeader`, `InactiveMembers`, `LeaderBlock`) e
  * sheets (`AssignManagerSheet`, `ManageMemberSheet`, `ConfirmActionSheet`) com
  * enquadramento por faixa (BottomSheet mobile / Dialog desktop/wide).
  * - compact: coluna única (comportamento de antes);
@@ -126,9 +130,11 @@ const CONFIRM_COPY: Record<
  * ativa vive na URL (`?tab=`) com fallback seguro para a Visão Geral. A Visão
  * Geral CONSUME DIRETAMENTE os painéis da PR B/#250 (KPIs, recentes, SLA e
  * pendências) e a grade de unidades/side rail que a Central já exibia — nada é
- * reimplementado. Abas de fase futura (ReservaLab/Relatórios/Auditoria) são
- * informativas — nada é buscado; o Ecossistema lista apps do `appRegistry` com
- * disponibilidade por unidade (`disabled_apps`) e navega para a rota existente.
+ * reimplementado. ReservaLab (PR E) consolida, em LEITURA, reservas de labs
+ * (planilha) e tablets (Supabase) por unidade do escopo — sem escrita; as abas
+ * de fase futura (Relatórios/Auditoria) continuam informativas — nada é
+ * buscado; o Ecossistema lista apps do `appRegistry` com disponibilidade por
+ * unidade (`disabled_apps`) e navega para a rota existente.
  * Nenhum ciclo de dados novo (sem useTickets/poll/realtime).
  */
 export function CoordinatorHome() {
@@ -193,6 +199,10 @@ export function CoordinatorHome() {
     overviewLoading,
     overviewFailed,
     loadOverview,
+    membersByUnit,
+    membersLoading,
+    membersFailed,
+    loadMembers,
   } = useCoordinatorPeopleData(unitsKey)
 
   const [roles, setRoles] = useState<CoordinatorRoleOption[]>([])
@@ -235,9 +245,10 @@ export function CoordinatorHome() {
   const [, bumpTickets] = useState(0)
   useEffect(() => onCollectionChange('chamados', () => bumpTickets((v) => v + 1)), [bumpTickets])
 
+  const slaConfigs = slaConfigService.getHoursForTickets()
   const slaByWorkspace: Record<string, SlaWorkspaceSummary> = analyzeSlaByWorkspace(
     getCol<Ticket>('chamados'),
-    slaConfigService.getHoursForTickets(),
+    slaConfigs,
   )
 
   /**
@@ -292,10 +303,6 @@ export function CoordinatorHome() {
 
   const unitNameOf = (workspaceId?: string) =>
     units.find((u) => u.unitId === workspaceId)?.unitName ?? 'Unidade fora do escopo'
-
-  const allRequests = visibleUnits.flatMap((u) =>
-    (requestsByUnit[u.unitId] ?? []).map((request) => ({ ...request, unitName: u.unitName })),
-  )
 
 
 
@@ -565,13 +572,28 @@ export function CoordinatorHome() {
         <CoordinatorHeader onBack={() => navigate('/')} />
 
         {loading ? (
-          <div className="flex flex-col items-center gap-3 py-14">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-            <p className="text-xs text-fg-muted">Carregando seu escopo de coordenação...</p>
+          <div className="flex flex-col gap-4" role="status" aria-live="polite">
+            <div className="grid grid-cols-1 gap-2 overflow-hidden rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)] sm:grid-cols-3">
+              <SkeletonMetric />
+              <SkeletonMetric />
+              <SkeletonMetric />
+            </div>
+            <div className="flex flex-col gap-2 rounded-2xl border border-line bg-card px-4 py-4 shadow-[var(--shadow-card)]">
+              <SkeletonRow />
+              <SkeletonRow />
+            </div>
+            <p className="text-center text-xs text-fg-muted">
+              Carregando seu escopo de coordenação...
+            </p>
           </div>
         ) : failed ? (
-          <div className="rounded-2xl border border-dashed border-line bg-card p-6 text-center">
-            <p className="text-sm font-semibold text-fg">Não foi possível carregar seu escopo</p>
+          <div className="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-500">
+              <icons.ui.alertTriangle size={24} />
+            </span>
+            <p className="mt-4 text-sm font-semibold text-fg">
+              Não foi possível carregar seu escopo
+            </p>
             <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-fg-muted">
               Algo deu errado ao buscar as unidades sob sua coordenação. Tente novamente em
               instantes.
@@ -579,56 +601,55 @@ export function CoordinatorHome() {
             <button
               type="button"
               onClick={() => void refresh()}
-              className="mt-4 rounded-xl bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-400"
+              className="mt-5 inline-flex items-center gap-1.5 rounded-xl bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
             >
               Tentar novamente
             </button>
           </div>
         ) : units.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-line bg-card p-6 text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-500">
-              <icons.ui.shield size={30} />
-            </div>
-            <h2 className="mt-4 text-base font-semibold text-fg">
-              Você ainda não tem unidades de coordenação atribuídas
-            </h2>
-            <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-fg-muted">
-              Sua coordenação é definida por unidade (membership ativa de coordenação), não
-              globalmente. Peça ao administrador para atribuir as unidades ao seu perfil.
-            </p>
-          </div>
+          <EmptyState
+            icon={<icons.ui.shield size={22} className="text-fg-muted" />}
+            title="Você ainda não tem unidades de coordenação atribuídas"
+            description="Sua coordenação é definida por unidade (membership ativa de coordenação), não globalmente. Peça ao administrador para atribuir as unidades ao seu perfil."
+          />
         ) : (
           <>
-            <div className="mb-5 flex items-center gap-2.5">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fg-muted/10 text-fg-muted">
-                  <icons.ui.home size={16} />
+            <div className="mb-6 grid grid-cols-1 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card py-1 shadow-[var(--shadow-card)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="flex items-center gap-3.5 px-5 py-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-fg-muted/10 text-fg-muted">
+                  <icons.ui.home size={18} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-fg">{visibleUnits.length}</p>
-                  <p className="text-[10px] text-fg-muted">
+                  <p className="text-2xl font-bold leading-none tracking-tight text-fg tabular-nums">
+                    {visibleUnits.length}
+                  </p>
+                  <p className="mt-1.5 truncate text-[11px] font-medium text-fg-muted">
                     unidade{visibleUnits.length !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fg-muted/10 text-fg-muted">
-                  <icons.ui.shield size={16} />
+              <div className="flex items-center gap-3.5 px-5 py-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                  <icons.ui.shield size={18} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-fg">{leaderCount}</p>
-                  <p className="text-[10px] text-fg-muted">
+                  <p className="text-2xl font-bold leading-none tracking-tight text-fg tabular-nums">
+                    {leaderCount}
+                  </p>
+                  <p className="mt-1.5 truncate text-[11px] font-medium text-fg-muted">
                     liderança{leaderCount !== 1 ? 's' : ''} direta{leaderCount !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-fg-muted/10 text-fg-muted">
-                  <icons.ui.userCheck size={16} />
+              <div className="flex items-center gap-3.5 px-5 py-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-fg-muted/10 text-fg-muted">
+                  <icons.ui.userCheck size={18} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-fg">{memberCount}</p>
-                  <p className="text-[10px] text-fg-muted">
+                  <p className="text-2xl font-bold leading-none tracking-tight text-fg tabular-nums">
+                    {memberCount}
+                  </p>
+                  <p className="mt-1.5 truncate text-[11px] font-medium text-fg-muted">
                     membro{memberCount !== 1 ? 's' : ''} nas equipes
                   </p>
                 </div>
@@ -661,7 +682,7 @@ export function CoordinatorHome() {
             )}
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
-              <CoordinatorTabs className="mb-4" />
+              <CoordinatorTabs className="mb-4" activeTab={activeTab} />
 
               <TabsContent value="overview">
                 <CoordinatorOverviewTab
@@ -677,8 +698,7 @@ export function CoordinatorHome() {
                   requestsByUnit={requestsByUnit}
                   requestsLoading={requestsLoading}
                   requestsFailed={requestsFailed}
-                  onRetryRequests={() => void loadRequests()}
-                  allRequests={allRequests}
+                  onOpenApprovals={() => handleTabChange('approvals')}
                   inactiveByUnit={inactiveByUnit}
                   inactiveLoading={inactiveLoading}
                   inactiveFailed={inactiveFailed}
@@ -699,9 +719,21 @@ export function CoordinatorHome() {
                   onAssignMember={openAssignSheet}
                   onUnassign={(member) => void confirmUnassign(member)}
                   onManage={(member, unitName) => void openManageSheet(member, unitName)}
+                  onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
+                />
+              </TabsContent>
+
+              <TabsContent value="approvals">
+                <CoordinatorApprovalsTab
+                  units={visibleUnits}
+                  requestsByUnit={requestsByUnit}
+                  requestsLoading={requestsLoading}
+                  requestsFailed={requestsFailed}
+                  onRetryRequests={() => void loadRequests()}
                   onApproveRequest={(request) => void approveRequest(request)}
                   onRejectRequest={(request) => openConfirm({ kind: 'reject', request })}
-                  onRequestRestore={(member) => openConfirm({ kind: 'restore', member })}
+                  pending={pending}
+                  rolesById={rolesById}
                 />
               </TabsContent>
 
@@ -716,19 +748,21 @@ export function CoordinatorHome() {
                   inactiveLoading={inactiveLoading}
                   inactiveFailed={inactiveFailed}
                   onRetryInactive={() => void loadInactive()}
-                  pending={pending}
+                  membersByUnit={membersByUnit}
+                  membersLoading={membersLoading}
+                  membersFailed={membersFailed}
+                  onRetryMembers={() => void loadMembers()}
                   rolesById={rolesById}
-                  onAssignMember={openAssignSheet}
-                  onUnassign={(member) => void confirmUnassign(member)}
-                  onManage={(member, unitName) => void openManageSheet(member, unitName)}
-                  onApproveRequest={(request) => void approveRequest(request)}
-                  onRejectRequest={(request) => openConfirm({ kind: 'reject', request })}
-                  onRestore={(member) => openConfirm({ kind: 'restore', member })}
-                  pendingCount={pendingCount}
-                  suspendedCount={suspendedCount}
-                  removedCount={removedCount}
-                  leaderCount={leaderCount}
-                  memberCount={memberCount}
+                />
+              </TabsContent>
+
+              <TabsContent value="teams">
+                <CoordinatorTeamsTab
+                  units={visibleUnits}
+                  scopeTickets={scopeTickets}
+                  slaConfigs={slaConfigs}
+                  rolesById={rolesById}
+                  openChamadosFor={openChamadosFor}
                 />
               </TabsContent>
 
@@ -737,6 +771,8 @@ export function CoordinatorHome() {
                   units={visibleUnits}
                   activeKpis={activeKpis}
                   recentTickets={recentTickets}
+                  scopeTickets={scopeTickets}
+                  slaConfigs={slaConfigs}
                   unitNameOf={unitNameOf}
                   openChamadosFor={openChamadosFor}
                   openTicketFor={openTicketFor}
@@ -744,15 +780,18 @@ export function CoordinatorHome() {
               </TabsContent>
 
               <TabsContent value="reservalab">
-                <CoordinatorReservaLabTab />
+                <CoordinatorReservaLabTab
+                  units={visibleUnits}
+                  workspaces={workspaces}
+                />
               </TabsContent>
 
               <TabsContent value="reports">
-                <CoordinatorReportsTab />
+                <CoordinatorReportsTab units={visibleUnits} workspaces={workspaces} />
               </TabsContent>
 
               <TabsContent value="audit">
-                <CoordinatorAuditTab />
+                <CoordinatorAuditTab units={visibleUnits} unitNameOf={unitNameOf} />
               </TabsContent>
 
               <TabsContent value="ecosystem">

@@ -147,13 +147,28 @@ export const membershipService = {
    * Falha degrada ação/badge (retorna null), jamais bloqueia o workspace.
    */
   async resolveRoleSlug(roleId: string): Promise<string | null> {
+    const info = await membershipService.resolveRoleInfo([roleId])
+    return info.get(roleId)?.slug ?? null
+  },
+
+  /**
+   * RBAC 2.0 (PR #284): slug + nome dos cargos de uma lista de `role_id`s em
+   * UMA query (tabela `roles`). Para exibição administrativa por unidade
+   * (Configuração de acesso). Falha ⇒ mapa vazio (o chamador usa fallback).
+   */
+  async resolveRoleInfo(roleIds: string[]): Promise<Map<string, { slug: string; name: string }>> {
+    const out = new Map<string, { slug: string; name: string }>()
+    const ids = [...new Set((roleIds ?? []).filter(Boolean))]
+    if (ids.length === 0) return out
     requireDb()
     const { data, error } = await defaultDb!
       .from('roles')
-      .select('slug')
-      .eq('id', roleId)
-      .maybeSingle()
-    if (error) return null
-    return data?.slug ?? null
+      .select('id,slug,name')
+      .in('id', ids)
+    if (error || !Array.isArray(data)) return out
+    for (const r of data as { id: string; slug: string; name: string }[]) {
+      if (r?.id) out.set(r.id, { slug: r.slug, name: r.name })
+    }
+    return out
   },
 }
