@@ -14,7 +14,8 @@ dentro do banco descartável) + os 13 pontos da PR #284:
    7. managed_by válido (mesma unidade, gestor ativo de cargo de liderança);
    8. gestor de OUTRA unidade é rejeitado (guarda 045);
    9. auto-gestão (managed_by = própria membership) é rejeitada (045);
-  10. ciclo de gestão é rejeitado (045, v_depth 64);
+  10. ciclo de gestão é rejeitado (guarda 046: v_depth 64, elo
+      lider -> coordinator -> lider para alcançar a detecção);
   11. role não-privilegiada (anon) NÃO executa as RPCs (ACL service_role);
   12. espelho profiles.workspace_ids fica sincronizado após upsert/remoção;
   13. trigger de auditoria registra membership_added/removed/changed.
@@ -46,16 +47,19 @@ class _Fixtures:
         self.b_email = f"072-b-{self.uid()[:8]}@labhub-ci.test"
         self.c_email = f"072-c-{self.uid()[:8]}@labhub-ci.test"
         self.d_email = f"072-d-{self.uid()[:8]}@labhub-ci.test"
+        self.e_email = f"072-e-{self.uid()[:8]}@labhub-ci.test"
         self.ws_a = None
         self.ws_b = None
         self.p_active = self.uid()
         self.p_pending = self.uid()
         self.p_lead_a = self.uid()
         self.p_lead_b = self.uid()
+        self.p_coord = self.uid()
         self.m_a = None  # membership de p_active em A
         self.m_b = None  # membership de p_active em B
         self.m_lead_a = None
         self.m_lead_b = None
+        self.m_coord_a = None  # coordinator em A (cenario de ciclo)
 
 
 class Behavioral072:
@@ -74,11 +78,16 @@ class Behavioral072:
         try:
             fn()
         except Exception as exc:  # noqa: BLE001 - coleta de falha de teste
-            self.results.append((name, False, str(exc)))
-            self._log(f"FAIL: {name} -> {str(exc)[:300]}")
+            detail = f"{type(exc).__name__}: {exc}"[:500]
+            self.results.append((name, False, detail))
+            # Diagnóstico SEMPRE impresso (independe de `quiet`): caso contrário
+            # o STEP 7 reporta apenas "N/13 checks" e o check que falhou fica
+            # invisível no log do Actions. A exceção não é engolida: fica
+            # registrada em self.results e no detalhe do relatório do suite.
+            print(f"[072] FAIL - {name} :: {detail}", flush=True)
         else:
             self.results.append((name, True, ""))
-            self._log(f"OK  : {name}")
+            print(f"[072] PASS - {name}", flush=True)
 
     def expect_error(self, fn, fragment: str | None = None) -> None:
         try:
@@ -101,9 +110,9 @@ class Behavioral072:
         role_slugs = [r["slug"] for r in q(
             "SELECT slug FROM public.roles ORDER BY slug"
         ) or []]
-        for slug in ("tec", "lider", "opv"):
+        for slug in ("tec", "lider", "opv", "coordinator"):
             if slug not in role_slugs:
-                raise AssertionError(f"cargo esperado da 036 nao existe: {slug}")
+                raise AssertionError(f"cargo esperado da 036/040 nao existe: {slug}")
 
         f.ws_a = q(
             "INSERT INTO public.workspaces (slug, name) VALUES "
@@ -143,11 +152,13 @@ class Behavioral072:
         auth_user(f.p_pending, f.b_email)
         auth_user(f.p_lead_a, f.c_email)
         auth_user(f.p_lead_b, f.d_email)
+        auth_user(f.p_coord, f.e_email)
 
         profile(f.p_active, f.a_email, "active")
         profile(f.p_pending, f.b_email, "pending")
         profile(f.p_lead_a, f.c_email, "active")
         profile(f.p_lead_b, f.d_email, "active")
+        profile(f.p_coord, f.e_email, "active")
 
     def upsert(self, user: str, ws: str, slug: str) -> str:
         """Roda admin_upsert_membership e devolve o id da membership."""
@@ -225,7 +236,7 @@ class Behavioral072:
             self.q(
                 f"DELETE FROM auth.users "
                 f"WHERE id IN ('{self.fx.p_active}', '{self.fx.p_pending}', "
-                f"'{self.fx.p_lead_a}', '{self.fx.p_lead_b}'); "
+                f"'{self.fx.p_lead_a}', '{self.fx.p_lead_b}', '{self.fx.p_coord}'); "
                 f"DELETE FROM public.workspaces "
                 f"WHERE id IN ('{self.fx.ws_a}', '{self.fx.ws_b}');"
             )
@@ -252,6 +263,11 @@ class Behavioral072:
         # lider_ativo em A (gestor valido p/ p_active.A)
         self.fx.m_lead_a = up(self.fx.p_lead_a, self.fx.ws_a, "lider")
         self.fx.m_lead_b = up(self.fx.p_lead_b, self.fx.ws_b, "lider")
+        # coordinator em A: elo de liderança EXCLUSIVO do cenário de ciclo.
+        # A guarda 046 proíbe 'lider' gerenciando outro 'lider' na mesma
+        # unidade, então o elo inverso do ciclo precisa de 'coordinator'
+        # (lider -> coordinator -> lider) para alcançar a detecção de ciclo.
+        self.fx.m_coord_a = up(self.fx.p_coord, self.fx.ws_a, "coordinator")
 
     def _manager_valid(self):
         q = self.q
@@ -282,11 +298,26 @@ class Behavioral072:
         )
 
     def _manager_cycle(self):
-        # p_active.A já é gerenciado por p_lead_a.A; tentar inverter = ciclo
+        # Ciclo REAL, montado com dois cargos de liderança (guarda 046/045):
+        #   p_active.A  --managed_by--> lider.A      (check 7)
+        #   lider.A      --managed_by--> coordinator.A
+        #   coordinator.A --managed_by--> lider.A     => cycle detected
+        # O cargo do gestor em cada elo é de liderança e o alvo nunca é 'lider'
+        # gerenciado por 'lider', então a validação de cargo passa e a detecção
+        # de ciclo (aqui testada) é efetivamente alcançada.
+        q = self.q
+        q(
+            f"SELECT public.admin_set_manager('{self.fx.p_active}', "
+            f"'{self.fx.ws_a}', '{self.fx.m_lead_a}')"
+        )
+        q(
+            f"SELECT public.admin_set_manager('{self.fx.p_lead_a}', "
+            f"'{self.fx.ws_a}', '{self.fx.m_coord_a}')"
+        )
         self.expect_error(
-            lambda: self.q(
-                f"SELECT public.admin_set_manager('{self.fx.p_lead_a}', "
-                f"'{self.fx.ws_a}', '{self.fx.m_a}')"
+            lambda: q(
+                f"SELECT public.admin_set_manager('{self.fx.p_coord}', "
+                f"'{self.fx.ws_a}', '{self.fx.m_lead_a}')"
             ),
             "cycle detected",
         )
@@ -353,9 +384,7 @@ def _main() -> int:
         return 2
     behavioral = Behavioral072(executor, quiet=False)
     ok = behavioral.run()
-    for name, passed, detail in behavioral.results:
-        print(f"[072] {'PASS' if passed else 'FAIL'} - {name}"
-              + (f" :: {detail}" if detail else ""))
+    # check() já imprime PASS/FAIL por check (diagnóstico sempre visível).
     return 0 if ok else 1
 
 

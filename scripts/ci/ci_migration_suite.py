@@ -168,10 +168,15 @@ def step_behavioral_072(executor) -> None:
     except Exception as exc:  # noqa: BLE001 - import de módulo irmão
         _fail("STEP 7 - behavioral 072 (13 pontos)", exc)
         return
+    passed = len([r for r in behavioral.results if r[1]])
+    detail = f"{passed}/{len(behavioral.results)} checks"
+    failed = [r[0] for r in behavioral.results if not r[1]]
+    if failed:
+        detail += f"; FALHAS: {failed}"
     report(
         "STEP 7 - behavioral 072 (13 pontos)",
         ok,
-        f"{len([r for r in behavioral.results if r[1]])}/{len(behavioral.results)} checks",
+        detail,
     )
 
 
