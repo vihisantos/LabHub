@@ -9,9 +9,10 @@ import { useRoles } from '../../../core/permissions/usePermissions'
 import { roleBadgeClass, APP_ACCESS_LABELS } from '../../../core/permissions/types'
 import type { AppAccessOverride } from '../../../core/permissions/types'
 import { useActorLogs } from '../../../core/logs/useServerLogs'
-import { attachMemberships, isActiveMember, membershipService } from '../../../core/memberships/service'
+import { attachMemberships, membershipService } from '../../../core/memberships/service'
 import { appRegistry } from '../../../appRegistry'
 import { PersonAvatar, statusStyle, formatAge } from '../components/personShared'
+import { AccessConfigurationSection } from '../components/AccessConfigurationSection'
 import { icons } from '../../../lib/icons'
 
 const ACTION_META: Record<string, { icon: keyof typeof icons.ui; color: string; label: string }> = {
@@ -116,57 +117,31 @@ export function UserDetailPage() {
   async function handleRoleChange(userId: string, newRoleId: string) {
     if (!person) return
     setSaving(true)
+    // Cargo de acesso aos MÓDULOS (camada legada profiles.role → AppGuard).
+    // Desacoplado das memberships (PR #284): o cargo OPERACIONAL é por
+    // unidade, na seção "Configuração de acesso". Sem propagação global.
     const okProfile = await adminService.updateUserProfile(userId, { roleId: newRoleId })
     if (!okProfile) {
       setFeedback({ type: 'error', message: 'Erro ao atualizar cargo' })
-      setSaving(false)
-      setTimeout(() => setFeedback(null), 3000)
-      return
-    }
-    // Propaga o cargo às memberships via endpoint 052 (9.3-C: sem trigger).
-    // Endpoint por último vence com ou sem trigger ativo (idempotente).
-    let rows = null
-    try {
-      const current = await membershipService.getByUser(userId)
-      const ws = [...new Set(
-        current.filter((m) => m.status === 'active').map((m) => m.workspace_id),
-      )]
-      rows = await adminService.setUserMemberships(userId, ws, newRoleId)
-    } catch {
-      rows = null
-    }
-    if (rows) {
-      setUsers((prev) => prev.map((u) => u.id === userId
-        ? { ...u, roleId: newRoleId, workspace_ids: rows.filter((m) => m.status === 'active').map((m) => m.workspace_id), memberships: rows, membershipsLoaded: true }
-        : u))
-      setFeedback({ type: 'success', message: `Cargo alterado para ${roleList.find((r) => r.id === newRoleId)?.name ?? 'novo cargo'}` })
     } else {
       setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, roleId: newRoleId } : u))
-      setFeedback({ type: 'error', message: 'Cargo salvo, mas memberships não propagadas — tente de novo' })
+      setFeedback({ type: 'success', message: `Cargo alterado para ${roleList.find((r) => r.id === newRoleId)?.name ?? 'novo cargo'}` })
     }
     setSaving(false)
     setTimeout(() => setFeedback(null), 3000)
   }
 
-  async function toggleWorkspace(userId: string, workspaceId: string) {
-    if (!person || person.membershipsLoaded !== true) return
-    setSaving(true)
-    const current = (person.memberships ?? [])
-      .filter((m) => m.status === 'active')
-      .map((m) => m.workspace_id)
-    const has = current.includes(workspaceId)
-    const newIds = has ? current.filter((id) => id !== workspaceId) : [...current, workspaceId]
-    // Escrita atômica via servidor (9.2-C); o retorno já traz as memberships.
-    const rows = await adminService.setUserMemberships(userId, newIds, person.roleId)
-    if (rows) {
-      const mirror = rows.filter((m) => m.status === 'active').map((m) => m.workspace_id)
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, workspace_ids: mirror, memberships: rows, membershipsLoaded: true } : u))
-      setFeedback({ type: 'success', message: has ? 'Acesso removido' : 'Acesso concedido' })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar workspaces' })
+  /** Recarrega as memberships da pessoa após configurar acesso (fonte: tabela). */
+  async function refreshMemberships(): Promise<void> {
+    if (!person) return
+    try {
+      const rows = await membershipService.getByUser(person.id)
+      setUsers((prev) => prev.map((u) => u.id === person.id
+        ? { ...u, memberships: rows, membershipsLoaded: true }
+        : u))
+    } catch {
+      // Mantém o estado anterior; o feedback da ação já foi exibido.
     }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
   }
 
   async function handleAppAccessChange(userId: string, appId: string, override: AppAccessOverride | null) {
@@ -347,7 +322,9 @@ export function UserDetailPage() {
         </div>
       )}
 
-      {/* Acesso */}
+      {/* Acesso por aplicativo (override individual — mecanismo preservado).
+          Conta pending não configura acesso: só após aprovação. */}
+      {!isPending && (
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h2 className="text-xs font-semibold text-fg-muted mb-3">Acesso por aplicativo</h2>
         {isAdminAbs ? (
@@ -405,78 +382,53 @@ export function UserDetailPage() {
           </div>
         )}
       </div>
+      )}
 
-      {/* Administração */}
-      {!isAdminAbs && (
+      {/* Configuração de acesso (PR #284): memberships por unidade, sem
+          propagação global de cargo. Conta pending não configura acesso —
+          só aprova/rejeita (servidor também rejeita — RPC 072). */}
+      {!isPending && !isAdminAbs && person && (
+        <AccessConfigurationSection
+          person={person}
+          people={users}
+          workspaces={workspaces}
+          roles={roleList}
+          onChanged={refreshMemberships}
+        />
+      )}
+
+      {/* Cargo de acesso aos módulos (camada legada profiles.role → AppGuard).
+          Desacoplado das memberships: o cargo OPERACIONAL é por unidade, acima. */}
+      {!isPending && !isAdminAbs && (
         <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-          <h2 className="text-xs font-semibold text-fg-muted mb-3">Administração</h2>
+          <h2 className="text-xs font-semibold text-fg-muted mb-1">Cargo de acesso</h2>
+          <p className="mb-3 text-[10px] text-fg-dim">
+            Define os aplicativos visíveis. O cargo operacional é configurado por unidade, acima.
+          </p>
 
           {expanded && (
-            <div className="space-y-4">
-              <div>
-                <p className="text-[10px] font-semibold text-fg-muted mb-1.5">Cargo</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {roleList.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => handleRoleChange(person.id, r.id)}
-                      disabled={saving}
-                      className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all disabled:opacity-50 ${
-                        r.id === person.roleId
-                          ? `${roleBadgeClass(r)} ring-1 ring-slate-500/30`
-                          : 'bg-input text-fg-muted hover:text-fg'
-                      }`}
-                    >
-                      {r.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-[10px] font-semibold text-fg-muted mb-1.5">
-                  {person.membershipsLoaded === true
-                    ? `Workspaces (${(person.memberships ?? []).filter((m) => m.status === 'active').length} de ${workspaces.length})`
-                    : `Workspaces (… de ${workspaces.length})`}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {workspaces.length === 0 ? (
-                    <p className="rounded-lg bg-input/40 px-3 py-2 text-[11px] text-fg-dim">
-                      Nenhum campus cadastrado.
-                    </p>
-                  ) : (
-                    workspaces.map((ws) => {
-                      // Exibição por memberships (9.2-B5); a escrita do toggle
-                      // segue na coluna legada até a 9.2-C.
-                      const hasAccess = person.membershipsLoaded === true
-                        && isActiveMember(person.memberships, ws.id)
-                      const unknownAccess = person.membershipsLoaded !== true
-                      return (
-                        <button
-                          key={ws.id}
-                          type="button"
-                          onClick={() => toggleWorkspace(person.id, ws.id)}
-                          disabled={saving || unknownAccess}
-                          className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all disabled:opacity-50 ${
-                            hasAccess
-                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/40'
-                              : 'bg-input text-fg-muted hover:text-fg'
-                          }`}
-                        >
-                          {hasAccess ? <><icons.ui.check size={10} className="inline mr-1" />{ws.name}</> : <><icons.ui.plus size={10} className="inline mr-1" />{ws.name}</>}
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {roleList.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => handleRoleChange(person.id, r.id)}
+                  disabled={saving}
+                  className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all disabled:opacity-50 ${
+                    r.id === person.roleId
+                      ? `${roleBadgeClass(r)} ring-1 ring-slate-500/30`
+                      : 'bg-input text-fg-muted hover:text-fg'
+                  }`}
+                >
+                  {r.name}
+                </button>
+              ))}
             </div>
           )}
 
           {!expanded && (
             <p className="rounded-lg bg-input/40 px-3 py-2 text-[11px] text-fg-dim">
-              Toque em "Editar" acima para alterar cargo e workspaces.
+              Toque em "Editar" acima para alterar o cargo de acesso.
             </p>
           )}
         </div>

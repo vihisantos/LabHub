@@ -84,6 +84,37 @@ export function dbRoleToRoleId(dbRole: string): string {
   return DB_ROLE_TO_ID[dbRole] ?? `role-${dbRole}`
 }
 
+/**
+ * roleId do frontend → slug estável de public.roles (espelho de
+ * api/app.py::_ROLE_ID_TO_SLUG, usado pelos endpoints de membership).
+ * Somente cargos canônicos têm representação no servidor; cargos
+ * personalizados locais não podem virar membership (o servidor responde 400).
+ */
+export const ROLE_ID_TO_SLUG: Record<string, string> = {
+  'role-technician': 'tec',
+  'role-viewer': 'vis',
+  'role-admin': 'adm',
+  'role-coordinator': 'coordinator',
+  'role-lider': 'lider',
+}
+
+/**
+ * slug de public.roles → roleId do frontend (reverso). `est`/`opv` não têm
+ * equivalente na coleção local de cargos.
+ */
+export const SLUG_TO_ROLE_ID: Record<string, string> = {
+  tec: 'role-technician',
+  vis: 'role-viewer',
+  adm: 'role-admin',
+  coordinator: 'role-coordinator',
+  lider: 'role-lider',
+}
+
+/** Filtra os roleIds que podem ser atribuídos por unidade (têm slug no servidor). */
+export function assignableRoleIds(roleIds: string[]): string[] {
+  return (roleIds ?? []).filter((id) => ROLE_ID_TO_SLUG[id] !== undefined)
+}
+
 /** Pode entrar na Área do Líder (scope team). Só o cargo decide — nunca appAccess. */
 export function canViewTeam(ctx: TeamContext): boolean {
   if (!ctx.user) return false
