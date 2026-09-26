@@ -275,7 +275,9 @@ class Behavioral072:
             f"SELECT id, managed_by FROM public.admin_set_manager("
             f"'{self.fx.p_active}', '{self.fx.ws_a}', '{self.fx.m_lead_a}')"
         )[0]
-        assert str(m["managed_by"]) == self.fx.m_lead_a, (
+        # psycopg3 devolve colunas uuid como uuid.UUID; o id do fixture/up() pode
+        # ser str. Normaliza os DOIS lados — comparar str com UUID nunca fechava.
+        assert str(m["managed_by"]) == str(self.fx.m_lead_a), (
             f"managed_by deveria apontar p/ lider de A ({self.fx.m_lead_a})"
         )
 
