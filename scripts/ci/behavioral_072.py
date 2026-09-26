@@ -114,12 +114,35 @@ class Behavioral072:
             "('ci072b_' || gen_random_uuid()::text, 'CI 072 B') RETURNING id"
         )[0]["id"]
 
+        def auth_user(uid: str, email: str) -> None:
+            q(
+                f"INSERT INTO auth.users (id, instance_id, aud, role, email, "
+                f"email_confirmed_at, raw_app_meta_data, raw_user_meta_data, "
+                f"is_sso_user, is_anonymous, created_at, updated_at) "
+                f"VALUES ('{uid}', '00000000-0000-0000-0000-000000000000', "
+                f"'authenticated', 'authenticated', '{email}', now(), "
+                f"'{{\"provider\":\"email\",\"providers\":[\"email\"]}}'::jsonb, "
+                f"'{{\"name\":\"CI 072\"}}'::jsonb, false, false, now(), now()) "
+                f"ON CONFLICT (id) DO NOTHING"
+            )
+
         def profile(uid: str, email: str, status: str) -> None:
             q(
                 f"INSERT INTO public.profiles (id, email, name, status, created_at, updated_at) "
                 f"VALUES ('{uid}', '{email}', 'CI 072', '{status}', now(), now()) "
-                f"ON CONFLICT (id) DO NOTHING"
+                f"ON CONFLICT (id) DO UPDATE SET "
+                f"email = EXCLUDED.email, name = EXCLUDED.name, "
+                f"status = EXCLUDED.status, updated_at = now()"
             )
+
+        # auth.users PRIMEIRO (profiles.id REFERENCES auth.users(id) — a FK da
+        # 001/CASCADE exige o usuário antes do profile). O trigger 053
+        # on_auth_user_created cria o profile pending automaticamente no insert;
+        # o upsert abaixo garante o status determinístico pedido por cada check.
+        auth_user(f.p_active, f.a_email)
+        auth_user(f.p_pending, f.b_email)
+        auth_user(f.p_lead_a, f.c_email)
+        auth_user(f.p_lead_b, f.d_email)
 
         profile(f.p_active, f.a_email, "active")
         profile(f.p_pending, f.b_email, "pending")
@@ -197,12 +220,14 @@ class Behavioral072:
         if self.fx is None:
             return
         try:
+            # auth.users primeiro: o ON DELETE CASCADE da FK (001) remove os
+            # profiles (e, via 036, as memberships) — nenhum resíduo no efêmero.
             self.q(
-                f"DELETE FROM public.workspaces "
-                f"WHERE id IN ('{self.fx.ws_a}', '{self.fx.ws_b}'); "
-                f"DELETE FROM public.profiles "
+                f"DELETE FROM auth.users "
                 f"WHERE id IN ('{self.fx.p_active}', '{self.fx.p_pending}', "
-                f"'{self.fx.p_lead_a}', '{self.fx.p_lead_b}');"
+                f"'{self.fx.p_lead_a}', '{self.fx.p_lead_b}'); "
+                f"DELETE FROM public.workspaces "
+                f"WHERE id IN ('{self.fx.ws_a}', '{self.fx.ws_b}');"
             )
         except Exception as exc:  # noqa: BLE001 - banco efêmero; não falha o suite
             self._log(f"[072] cleanup parcial (banco efêmero): {str(exc)[:200]}")

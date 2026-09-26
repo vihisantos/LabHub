@@ -23,6 +23,7 @@ DECLARE
   v_vol       text;
   v_cfg       text;
   v_acl       integer;
+  v_rls       boolean;
   v_pol       text;
   v_uses_func integer;
   v_uses_ubtw integer;
@@ -132,11 +133,11 @@ IF v_uses_ubtw <> 1 THEN
 END IF;
 
 -- ── 7. As demais policies (SELECT/INSERT/DELETE) permanecem com RLS ativa ────
-SELECT relrowsecurity INTO v_acl
+SELECT relrowsecurity INTO v_rls
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public' AND c.relname = 'tablet_reservations';
 
-IF v_acl IS NOT TRUE THEN
+IF v_rls IS NOT TRUE THEN
   RAISE EXCEPTION 'FAIL: public.tablet_reservations sem ROW LEVEL SECURITY ativa';
 END IF;
 
