@@ -229,4 +229,99 @@ export const adminService = {
       return null
     }
   },
+
+  /**
+   * RBAC 2.0 (PR #284): cria ou atualiza a membership de UMA unidade, com o
+   * cargo daquela unidade (sempre active; managed_by preservado).
+   * Endpoint: POST /api/admin/users/:id/membership → RPC 072.
+   * Retorna a membership resultante (null em falha). Super-admin-only.
+   * O servidor exige conta active: pending não recebe membership (403 → null).
+   */
+  setMembership: async (
+    userId: string,
+    workspaceId: string,
+    roleId: string,
+  ): Promise<Membership | null> => {
+    if (!defaultDb) return null
+    try {
+      const { data: { session } } = await defaultDb.auth.getSession()
+      if (!session) return null
+      const res = await fetch(`/api/admin/users/${userId}/membership`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, role: roleId }),
+      })
+      if (!res.ok) return null
+      const data = await res.json().catch(() => null)
+      if (!data?.ok || !data?.membership || typeof data.membership !== 'object') return null
+      return data.membership as Membership
+    } catch (e) {
+      console.error('[Admin] Failed to set membership:', e)
+      return null
+    }
+  },
+
+  /**
+   * RBAC 2.0 (PR #284): remove a membership de UMA unidade (as demais seguem
+   * intactas). Endpoint: DELETE /api/admin/users/:id/membership → RPC 072.
+   * Retorna true em sucesso (inclui idempotente), false em falha.
+   */
+  removeMembership: async (userId: string, workspaceId: string): Promise<boolean> => {
+    if (!defaultDb) return false
+    try {
+      const { data: { session } } = await defaultDb.auth.getSession()
+      if (!session) return false
+      const res = await fetch(`/api/admin/users/${userId}/membership`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ workspace_id: workspaceId }),
+      })
+      if (!res.ok) return false
+      const data = await res.json().catch(() => null)
+      return data?.ok === true
+    } catch (e) {
+      console.error('[Admin] Failed to remove membership:', e)
+      return false
+    }
+  },
+
+  /**
+   * RBAC 2.0 (PR #284): define/limpa o responsável (managed_by) da membership
+   * da unidade. managerMembershipId null = sem responsável. Endpoint:
+   * POST /api/admin/users/:id/manager → RPC 072 (guarda estrutural no
+   * trigger 045: mesma unidade, gestor ativo, sem ciclo).
+   * Retorna a membership resultante (null em falha). Super-admin-only.
+   */
+  setMembershipManager: async (
+    userId: string,
+    workspaceId: string,
+    managerMembershipId: string | null,
+  ): Promise<Membership | null> => {
+    if (!defaultDb) return null
+    try {
+      const { data: { session } } = await defaultDb.auth.getSession()
+      if (!session) return null
+      const res = await fetch(`/api/admin/users/${userId}/manager`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, manager_membership_id: managerMembershipId }),
+      })
+      if (!res.ok) return null
+      const data = await res.json().catch(() => null)
+      if (!data?.ok || !data?.membership || typeof data.membership !== 'object') return null
+      return data.membership as Membership
+    } catch (e) {
+      console.error('[Admin] Failed to set membership manager:', e)
+      return null
+    }
+  },
 }

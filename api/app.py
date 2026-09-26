@@ -4412,6 +4412,147 @@ def admin_set_user_memberships(user_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
+# ── Admin: membership por unidade (RBAC 2.0, PR #284) ──
+# Configuração de acesso pós-aprovação: cargo DIFERENTE por unidade
+# (Unidade A → Técnico, Unidade B → Líder). A RPC 052 (conjunto + cargo
+# único) não expressa isso — estas rotas usam as RPCs singulares da
+# migration 072 (upsert/remove/manager), mesmos padrões: service_role,
+# atômico, managed_by preservado no upsert, conta active exigida para
+# conceder acesso. Super-admin-only (plataforma).
+
+
+def _admin_membership_rpc_error(resp, log_tag):
+    """Extrai a mensagem de erro da RPC (sem vazar SQL) para mapeamento."""
+    try:
+        msg = (resp.json() or {}).get('message') or ''
+    except Exception:
+        msg = ''
+    logger.error("[admin] %s rpc %s: %s", log_tag, resp.status_code, (resp.text or '')[:300])
+    return msg
+
+
+@app.route('/api/admin/users/<user_id>/membership', methods=['POST'])
+@require_auth
+@require_admin
+def admin_upsert_membership(user_id):
+    """Cria ou atualiza a membership de UMA unidade (migration 072).
+
+    Body: {"workspace_id": uuid, "role": "role-technician"}.
+    Sempre ativa (reativa suspensas/removidas); managed_by preservado.
+    Exige conta active — pending não recebe acesso (403).
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not user_id or not _UUID_RE.match(user_id):
+        return jsonify({'error': 'ID de usuário inválido'}), 400
+    try:
+        body = request.get_json(silent=True) or {}
+        workspace_id = body.get('workspace_id')
+        if not isinstance(workspace_id, str) or not _UUID_RE.match(workspace_id):
+            return jsonify({'error': 'workspace_id inválido'}), 400
+        slug = _ROLE_ID_TO_SLUG.get(str(body.get('role') or ''))
+        if not slug:
+            return jsonify({'error': 'Cargo desconhecido ou sem representação no servidor'}), 400
+
+        resp = _rpc('admin_upsert_membership', {
+            'p_user_id': user_id,
+            'p_workspace_id': str(workspace_id),
+            'p_role_slug': slug,
+        })
+        if resp.status_code != 200:
+            msg = _admin_membership_rpc_error(resp, 'upsert_membership')
+            if 'profile not found' in msg:
+                return jsonify({'error': 'Usuário não encontrado'}), 404
+            if 'workspace not found' in msg:
+                return jsonify({'error': 'Unidade não encontrada'}), 404
+            if 'not active' in msg:
+                return jsonify({'error': 'A conta precisa estar ativa para receber acesso'}), 403
+            return jsonify({'error': 'Não foi possível gravar a membership'}), 502
+        return jsonify({'ok': True, 'membership': resp.json() or {}})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/users/<user_id>/membership', methods=['DELETE'])
+@require_auth
+@require_admin
+def admin_remove_membership(user_id):
+    """Remove a membership de UMA unidade (migration 072).
+
+    Body: {"workspace_id": uuid}. Idempotente (inexistente → removed=false).
+    Dependentes de managed_by caem para NULL (FK 045). Não exige conta
+    active (limpeza só reduz acesso).
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not user_id or not _UUID_RE.match(user_id):
+        return jsonify({'error': 'ID de usuário inválido'}), 400
+    try:
+        body = request.get_json(silent=True) or {}
+        workspace_id = body.get('workspace_id')
+        if not isinstance(workspace_id, str) or not _UUID_RE.match(workspace_id):
+            return jsonify({'error': 'workspace_id inválido'}), 400
+
+        resp = _rpc('admin_remove_membership', {
+            'p_user_id': user_id,
+            'p_workspace_id': str(workspace_id),
+        })
+        if resp.status_code != 200:
+            msg = _admin_membership_rpc_error(resp, 'remove_membership')
+            if 'profile not found' in msg:
+                return jsonify({'error': 'Usuário não encontrado'}), 404
+            return jsonify({'error': 'Não foi possível remover a membership'}), 502
+        return jsonify({'ok': True, 'removed': bool(resp.json())})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/admin/users/<user_id>/manager', methods=['POST'])
+@require_auth
+@require_admin
+def admin_set_manager(user_id):
+    """Define/limpa o responsável (managed_by) da membership da unidade (072).
+
+    Body: {"workspace_id": uuid, "manager_membership_id": uuid|null}.
+    Guarda estrutural no trigger 045 (mesma unidade, gestor ativo, sem
+    ciclo) — violações viram 400. Exige conta active.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not user_id or not _UUID_RE.match(user_id):
+        return jsonify({'error': 'ID de usuário inválido'}), 400
+    try:
+        body = request.get_json(silent=True) or {}
+        workspace_id = body.get('workspace_id')
+        if not isinstance(workspace_id, str) or not _UUID_RE.match(workspace_id):
+            return jsonify({'error': 'workspace_id inválido'}), 400
+        manager_id = body.get('manager_membership_id')
+        if manager_id is not None and (not isinstance(manager_id, str) or not _UUID_RE.match(manager_id)):
+            return jsonify({'error': 'manager_membership_id inválido'}), 400
+
+        resp = _rpc('admin_set_manager', {
+            'p_user_id': user_id,
+            'p_workspace_id': str(workspace_id),
+            'p_manager_membership_id': str(manager_id) if manager_id else None,
+        })
+        if resp.status_code != 200:
+            msg = _admin_membership_rpc_error(resp, 'set_manager')
+            if 'profile not found' in msg or 'membership not found' in msg:
+                return jsonify({'error': 'Membership não encontrada'}), 404
+            if 'not active' in msg:
+                return jsonify({'error': 'A conta precisa estar ativa para configurar responsável'}), 403
+            if ('same workspace' in msg or 'must be active' in msg
+                    or 'cycle' in msg or 'itself' in msg):
+                return jsonify({'error': 'Responsável inválido para esta unidade'}), 400
+            return jsonify({'error': 'Não foi possível definir o responsável'}), 502
+        return jsonify({'ok': True, 'membership': resp.json() or {}})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
 
