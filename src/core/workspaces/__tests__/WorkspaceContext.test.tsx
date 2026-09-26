@@ -109,9 +109,9 @@ function idsOf(workspaces: Workspace[] | undefined): string {
   return (workspaces ?? []).map((w) => w.id).join(',')
 }
 
-function renderProvider() {
+function renderProvider(entries: string[] = ['/']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={entries}>
       <WorkspaceProvider>
         <Probe />
       </WorkspaceProvider>
@@ -261,6 +261,16 @@ describe('WorkspaceContext — usuários e seus workspaces (fonte: memberships)'
     const props = await waitForGate()
     expect(idsOf(props.workspaces)).toBe('ws-sjc,ws-mooca')
     expect(props.canCreate).toBe(false)
+  })
+
+  it('área /admin NÃO passa pelo gate: aprovação global não exige unidade', async () => {
+    mockUseAuth.mockReturnValue({ user: makeUser({ is_super_admin: true }) })
+
+    renderProvider(['/admin/requests'])
+
+    // Probe renderiza = gate NÃO bloqueou a área administrativa
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
+    expect(mockGateProps.current).toBeNull()
   })
 
   it('gate não reabre para super admin que já escolheu, mesmo com re-render do auth', async () => {

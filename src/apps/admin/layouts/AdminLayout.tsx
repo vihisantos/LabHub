@@ -48,8 +48,10 @@ export function AdminLayout() {
     return workspaces.findIndex((w) => w.id === workspace.id) % WS_BG_GRADIENTS.length
   }, [workspace, workspaces])
 
-  // Show workspace selection page until user picks one
-  if (showSelector || !workspace) {
+  // A área administrativa é GLOBAL (AdminGuard = is_super_admin): ela renderiza
+  // sem exigir workspace selecionado — aprovar uma conta não pode depender de
+  // uma unidade. O seletor permanece disponível como troca explícita de ambiente.
+  if (showSelector) {
     return <WorkspaceSelectionPage onSelect={handleSelect} />
   }
 
@@ -72,6 +74,16 @@ export function AdminLayout() {
             </Link>
 
             <div className="flex items-center gap-2 ml-auto">
+              {!workspace && (
+                <button
+                  type="button"
+                  onClick={handleChangeWorkspace}
+                  className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-input hover:text-fg"
+                >
+                  <icons.ui.mapPin size={12} />
+                  Selecionar ambiente
+                </button>
+              )}
               {user && (
                 <button
                   type="button"

@@ -3,13 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { adminService } from '../../../core/auth/adminService'
 import type { User } from '../../../core/auth/types'
 import { useAuth } from '../../../core/auth/AuthContext'
-import { workspaceService } from '../../../core/workspaces/service'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import type { Workspace } from '../../../core/workspaces/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
 import { roleBadgeClass } from '../../../core/permissions/types'
-import type { AppAccessOverride } from '../../../core/permissions/types'
-import { ApproveUserModal } from '../components/ApproveUserModal'
 import { PersonAvatar, statusStyle } from '../components/personShared'
 import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
 import { icons } from '../../../lib/icons'
@@ -28,26 +24,18 @@ export function UsersPage() {
   const { user: currentUser } = useAuth()
   const isSuperAdmin = !!currentUser?.is_super_admin
   const [users, setUsers] = useState<User[]>([])
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const [approvingUser, setApprovingUser] = useState<User | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const { roles: roleList } = useRoles()
   const { workspace } = useWorkspace()
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
-    const [u, w] = await Promise.all([
-      adminService.listAllProfiles(),
-      workspaceService.syncFromSupabase(),
-    ])
+    const u = await adminService.listAllProfiles()
     // Leitura administrativa por memberships (9.2-B5); escritas seguem na 9.2-C.
     setUsers(await attachMemberships(u))
-    setWorkspaces(w)
     if (!silent) setLoading(false)
   }, [])
 
@@ -57,9 +45,7 @@ export function UsersPage() {
 
   // Polling: mantém a lista atualizada (aprovações e cargos de outros admins)
   useEffect(() => {
-    const refresh = () => {
-      if (!saving) load(true)
-    }
+    const refresh = () => load(true)
     const id = window.setInterval(refresh, 10000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh()
@@ -71,18 +57,19 @@ export function UsersPage() {
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [load, saving])
+  }, [load])
 
-  // Deep link ?pending=<id> abre o modal de aprovação
+  // Deep link ?pending=<id> leva à página da pessoa (lá estão as ações
+  // globais de aprovar/recusar a conta).
   useEffect(() => {
     const pendingId = searchParams.get('pending')
     if (!pendingId || !isSuperAdmin) return
     const target = users.find((u) => u.id === pendingId && u.status === 'pending')
     if (target) {
-      setApprovingUser(target)
       setSearchParams({}, { replace: true })
+      navigate(`/admin/users/${pendingId}`)
     }
-  }, [users, searchParams, setSearchParams, isSuperAdmin])
+  }, [users, searchParams, setSearchParams, isSuperAdmin, navigate])
 
   const pendingUsers = users.filter((u) => u.status === 'pending')
   const activeUsers = users.filter((u) => u.status !== 'pending')
@@ -121,32 +108,6 @@ export function UsersPage() {
     )
   }, [scopedActiveUsers, pendingUsers, filter, search])
 
-  async function handleApprove(
-    userId: string,
-    roleId: string,
-    appAccess: Record<string, AppAccessOverride>,
-    workspaceIds: string[],
-  ): Promise<boolean> {
-    setSaving(true)
-    const success = await adminService.approveUser(userId, {
-      roleId,
-      app_access: appAccess,
-      workspace_ids: workspaceIds,
-    })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId
-        ? { ...u, status: 'active', roleId, workspace_ids: workspaceIds }
-        : u))
-      setApprovingUser(null)
-      setFeedback({ type: 'success', message: `Usuário aprovado como ${roleList.find((r) => r.id === roleId)?.name ?? 'cargo'}` })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao aprovar usuário' })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
-    return success
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -169,31 +130,21 @@ export function UsersPage() {
         </p>
       </div>
 
-      {feedback && (
-        <div className={`rounded-xl p-3 text-xs font-medium ${
-          feedback.type === 'success'
-            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-            : 'bg-red-500/10 text-red-600 dark:text-red-400'
-        }`}>
-          {feedback.message}
-        </div>
-      )}
-
       {isSuperAdmin && pendingUsers.length > 0 && (
         <button
           type="button"
           onClick={() => navigate('/admin/requests')}
-          className="w-full rounded-xl bg-amber-500/10 p-4 text-left ring-1 ring-amber-500/20 transition-colors hover:bg-amber-500/15"
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500">
-              <icons.ui.inbox size={18} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-fg">Solicitações de acesso</p>
-              <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                {pendingUsers.length} aguardando revisão
-              </p>
+            className="w-full rounded-xl bg-amber-500/10 p-4 text-left ring-1 ring-amber-500/20 transition-colors hover:bg-amber-500/15"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500">
+                <icons.ui.inbox size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-fg">Aprovações pendentes</p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  {pendingUsers.length} conta{pendingUsers.length !== 1 ? 's' : ''} aguardando revisão
+                </p>
             </div>
             <icons.ui.chevronRight size={16} className="text-fg-muted" />
           </div>
@@ -290,16 +241,6 @@ export function UsersPage() {
         </div>
       )}
 
-      {approvingUser && (
-        <ApproveUserModal
-          user={approvingUser}
-          workspaces={workspaces}
-          onClose={() => setApprovingUser(null)}
-          onConfirm={(role, appAccess, workspaceIds) =>
-            handleApprove(approvingUser.id, role, appAccess, workspaceIds)
-          }
-        />
-      )}
     </div>
   )
 }

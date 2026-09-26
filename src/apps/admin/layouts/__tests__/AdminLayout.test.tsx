@@ -1,6 +1,16 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '../../../../test/helpers'
+
+// Workspace mutável: a área administrativa é global e renderiza mesmo sem
+// ambiente selecionado (a fila de aprovação não exige unidade).
+const mockWorkspaceCtx = vi.hoisted(() => ({
+  workspace: { id: 'ws-1', name: 'Lab A', location: 'Sala 101' } as {
+    id: string
+    name: string
+    location: string
+  } | null,
+}))
 
 vi.mock('../../../../core/auth/AuthContext', () => ({
   useAuth: () => ({
@@ -20,8 +30,8 @@ vi.mock('../../../../core/auth/AuthContext', () => ({
 
 vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
   useWorkspace: () => ({
-    workspace: { id: 'ws-1', name: 'Lab A', location: 'Sala 101' },
-    workspaces: [{ id: 'ws-1', name: 'Lab A', location: 'Sala 101' }],
+    workspace: mockWorkspaceCtx.workspace,
+    workspaces: mockWorkspaceCtx.workspace ? [mockWorkspaceCtx.workspace] : [],
   }),
 }))
 
@@ -51,6 +61,9 @@ function isActive(label: string): boolean {
 }
 
 describe('AdminLayout', () => {
+  beforeEach(() => {
+    mockWorkspaceCtx.workspace = { id: 'ws-1', name: 'Lab A', location: 'Sala 101' }
+  })
   it('renderiza as cinco áreas principais da navegação', () => {
     renderWithProviders(<AdminLayout />, { initialEntries: ['/admin'] })
 
@@ -146,5 +159,17 @@ describe('AdminLayout', () => {
 
     expect(screen.getByText('Lab A')).toBeInTheDocument()
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
+  })
+
+  it('sem workspace selecionado a área renderiza (sem exigir unidade) + oferece o seletor', () => {
+    mockWorkspaceCtx.workspace = null
+
+    renderWithProviders(<AdminLayout />, { initialEntries: ['/admin/requests'] })
+
+    // Navegação presente (o gate de seleção não bloqueia o /admin)
+    expect(screen.getByLabelText('Início')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pessoas')).toBeInTheDocument()
+    // Seletor explícito de ambiente no header
+    expect(screen.getByText('Selecionar ambiente')).toBeInTheDocument()
   })
 })

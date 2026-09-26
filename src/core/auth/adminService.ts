@@ -20,7 +20,7 @@ function toDbUser(data: Record<string, unknown>): Record<string, unknown> {
   return { ...rest, ...(roleId !== undefined ? { role: ROLE_ID_TO_DB[String(roleId)] ?? roleId } : {}) }
 }
 
-async function notifyUser(userId: string, title: string, body: string): Promise<void> {
+async function notifyUser(userId: string, title: string, body: string, actionUrl = '/'): Promise<void> {
   if (!stockDb) return
   try {
     await stockDb.from('notifications').insert({
@@ -30,7 +30,10 @@ async function notifyUser(userId: string, title: string, body: string): Promise<
       type: 'approval',
       severity: 'info',
       module: 'auth',
-      actionUrl: `/admin/users?pending=${userId}`,
+      // A notificação da conta aprovada vai para o USUÁRIO (que não acessa
+      // /admin): sem ?pending= não há botões inline de aprovar/recusar
+      // (NotificationItem) — o clique entra no LabHub.
+      actionUrl,
       read: false,
       createdAt: new Date().toISOString(),
       audience: 'user',
@@ -75,25 +78,30 @@ export const adminService = {
     return ((data || []) as Record<string, unknown>[]).map((row) => fromDbUser(row) as unknown as User)
   },
 
-  approveUser: async (
-    userId: string,
-    extra?: { roleId?: string; app_access?: User['app_access']; workspace_ids?: string[] },
-  ): Promise<boolean> => {
+  /**
+   * Aprovação GLOBAL de conta (NÃO de membership).
+   *
+   * Responde somente: "esta conta está autorizada a existir no LabHub?"
+   *   - NÃO cria memberships (acesso operacional segue fail-closed: sem
+   *     memberships o motor RBAC 2.0 nega tudo);
+   *   - NÃO escolhe workspace/unidade, NÃO atribui cargo, NÃO toca app_access
+   *     (etapa posterior de configuração de acesso).
+   * Depois da aprovação a conta fica: ativa + aguardando configuração de acesso.
+   *
+   * Autorização (fail-closed, server-side):
+   *   - fila: RLS `profiles_select` (044) — só super admin enxerga pendentes;
+   *   - escrita: policy `profiles_update` (067) + trigger
+   *     `guard_profile_privileged_columns` (067, is_super_admin()) — usuário
+   *     comum NÃO altera `status` de ninguém (raise 42501 / 0 linhas).
+   * A rejeição física (DELETE) segue em rejectUser (policy
+   * `admin_abs_delete_profiles`, 022, super admin only).
+   */
+  approveUser: async (userId: string): Promise<boolean> => {
     if (!defaultDb) return false
 
-    // 1. Memberships + espelho (atômico, servidor). Falhou ⇒ nada mudou.
-    const roleId = extra?.roleId ?? 'role-viewer'
-    const memberships = await adminService.setUserMemberships(userId, extra?.workspace_ids ?? [], roleId)
-    if (!memberships) {
-      console.error('[Admin] Failed to approve user: memberships write failed')
-      return false
-    }
-
-    // 2. Status/cargo/app_access (trigger 041 re-sincroniza de forma idempotente
-    // a partir do espelho já gravado).
     const { data, error } = await defaultDb
       .from('profiles')
-      .update({ status: 'active', ...toDbUser({ roleId, app_access: extra?.app_access }), updated_at: new Date().toISOString() })
+      .update({ status: 'active', updated_at: new Date().toISOString() })
       .eq('id', userId)
       .select('id')
 
@@ -103,7 +111,7 @@ export const adminService = {
       return false
     }
 
-    await notifyUser(userId, 'Conta aprovada', 'Sua conta foi aprovada pelo administrador.')
+    await notifyUser(userId, 'Conta aprovada', 'Sua conta foi aprovada. O administrador configurará seu acesso em seguida.')
 
     return true
   },
