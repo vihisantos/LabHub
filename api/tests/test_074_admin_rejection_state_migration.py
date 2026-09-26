@@ -127,6 +127,32 @@ def test_nao_recria_policy_redundante(ddl: str) -> None:
     assert "admin_abs_delete_profiles" not in ddl
 
 
+def test_precheck_do_operador_documentado() -> None:
+    """O pre-check read-only precisa continuar documentado na migration.
+
+    Não existe etapa de preflight no Migration CI e a 074 NÃO saneia dados;
+    como o constraint é `NOT VALID`, a aplicação não falha — o risco é um
+    UPDATE posterior em linha legada. A.query que o operador deve rodar antes
+    de aplicar é, portanto, parte do contrato da migration.
+    """
+    text = MIGRATION.read_text(encoding="utf-8")
+    assert re.search(
+        r"SELECT\s+status\s*,\s*count\(\*\)\s*FROM\s+public\.profiles\s+"
+        r"GROUP BY status",
+        _normalize(text),
+        re.IGNORECASE,
+    ), "a migration perdeu a query de pre-check do operador"
+    assert "PRE-CHECK OBRIGATÓRIO" in text, (
+        "a migration perdeu o aviso de pre-check obrigatório"
+    )
+    # a migration não pode sanear dados automaticamente
+    ddl = _normalize(_strip_comments(text))
+    for destrutivo in ("UPDATE public.profiles", "DELETE FROM public.profiles"):
+        assert destrutivo not in ddl, (
+            f"a 074 não pode sanear dados automaticamente ({destrutivo})"
+        )
+
+
 def test_status_e_text_e_nao_enum() -> None:
     """Trava o mecanismo real: `status` é TEXT (012), não enum/domínio."""
     origin = _normalize(

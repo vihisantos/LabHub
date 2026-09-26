@@ -37,12 +37,32 @@
 --      (e dos scripts) em um PR futuro.
 --   4. O constraint é criado `NOT VALID` de propósito: ele passa a valer para
 --      toda ESCRITA nova/alterada, mas NÃO é validado contra as linhas já
---      existentes. Isso torna a migration IMPOSSÍVEL de falhar em qualquer
---      ambiente (ex.: PROD pode conter valores fora do conjunto) e ainda assim
---      impede estados novos inválidos. A validação histórica é opt-in:
---        SELECT DISTINCT status FROM public.profiles;         -- pré-check
---        -- quando a lista for exatamente o conjunto esperado:
+--      existentes. Isso torna a migration IMPOSSÍVEL de falhar na aplicação
+--      em qualquer ambiente (ex.: PROD pode conter valores fora do conjunto).
+--
+--      ⚠ ATENÇÃO DO OPERADOR — PRE-CHECK OBRIGATÓRIO ANTES DE APLICAR
+--      (read-only; não há etapa de preflight no Migration CI e esta migration
+--      NÃO saneia dados — saneamento é decisão manual e à parte):
+--
+--        SELECT status, count(*) FROM public.profiles GROUP BY status
+--        ORDER BY status;
+--
+--      Esperado: SOMENTE pending, active, blocked, suspended (e rejected, se a
+--      074 já tiver sido aplicada antes neste mesmo banco).
+--
+--      Se aparecer QUALQUER valor fora desse conjunto (ex.: 'inactive', legado
+--      de uma era anterior), PARE e não aplique. Escolha uma das duas saídas,
+--      ambas manuais e reversíveis:
+--        (a) corrigir os dados para um estado canônico; ou
+--        (b) ampliar o conjunto na linha `CHECK (...)` desta migration,
+--            incluindo o valor encontrado, e revisar o comentário acima.
+--      Sem esse passo, a aplicação em si NÃO falha (por isso `NOT VALID`), mas
+--      qualquer UPDATE posterior na linha legada passa a violar o CHECK.
+--
+--      Depois de confirmar que o pre-check está limpo, e apenas então, a
+--      validação definitiva (opcional, pode ser feita em outro momento):
 --        ALTER TABLE public.profiles VALIDATE CONSTRAINT profiles_status_check;
+--
 --   5. A identidade Auth é DESATIVADA (ban) pelo endpoint, nunca apagada:
 --      o profile é preservado (histórico, auditoria, FKs) e a desativação é
 --      reversível. Remover `auth.users` abriria caminho para novo cadastro com o

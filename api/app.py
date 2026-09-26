@@ -4600,10 +4600,25 @@ def _auth_admin_ban(user_id: str, duration: str):
     )
 
 
-def _profiles_patch(user_id: str, payload: dict):
+def _profiles_patch(user_id: str, payload: dict, expected_status: str | None = None):
+    """PATCH em `profiles` (service_role).
+
+    Quando `expected_status` é informado, o filtro vai PARA A MESMA INSTRUÇÃO
+    do UPDATE (PostgREST: `?id=eq.X&status=eq.<esperado>`), o que equivale a
+        UPDATE public.profiles SET ... WHERE id = <id> AND status = <esperado>
+    isto é, a pré-condição é garantida pelo BANCO, na escrita atômica — e não
+    por uma segunda leitura em Python (que abriria corrida).
+
+    `Prefer: return=representation` devolve as linhas EFETIVAMENTE alteradas:
+    lista vazia significa que a condição não casou (outro fluxo já mudou o
+    registro). O chamador DEVE interpretar a contagem, nunca só o HTTP 200.
+    """
+    params = {'id': f'eq.{user_id}'}
+    if expected_status is not None:
+        params['status'] = f'eq.{expected_status}'
     return requests.patch(
         f'{_SUPABASE_URL}/rest/v1/profiles',
-        params={'id': f'eq.{user_id}'},
+        params=params,
         headers={**_supabase_headers(), 'Prefer': 'return=representation'},
         json=payload,
         timeout=30,
@@ -4718,15 +4733,52 @@ def admin_reject_user(user_id):
                 'status': current,
             }), 409
 
-        # 3. pending -> rejected.
+        # 3. pending -> rejected. A escrita é CONDICIONAL: a condição
+        #    `status = 'pending'` mora no próprio UPDATE (PostgREST), então o
+        #    banco decide atomicamente. A leitura acima serve apenas para
+        #    classificar o caso (404 / idempotente / 409) e para a auditoria —
+        #    NÃO é a garantia da transição (isso seria TOCTOU).
         upd = _profiles_patch(user_id, {
             'status': _REJECTED_STATUS,
             'updated_at': datetime.now(timezone.utc).isoformat(),
-        })
+        }, expected_status=_REJECTABLE_STATUS)
         if not upd.ok:
             logger.error("[reject] update do profile falhou: %s %s",
                          upd.status_code, upd.text[:300])
             return jsonify({'error': 'Não foi possível rejeitar a conta'}), 502
+
+        # 3b. HTTP 200 NAO significa transição: a condição pode não ter casado
+        #     porque outro fluxo (ex.: aprovação) mudou o registro. Nesse caso
+        #     NÃO bane — banir aqui poderia banir uma conta já aprovada.
+        try:
+            updated_rows = upd.json() or []
+        except Exception:  # noqa: BLE001 - resposta inesperada do PostgREST
+            updated_rows = []
+        if not updated_rows:
+            logger.warning(
+                "[reject] transicao condicional nao casou (id=%s, status lido=%s); "
+                "conflito concorrente, sem ban", user_id, current)
+            fresh = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/profiles',
+                params={'id': f'eq.{user_id}', 'select': 'id,status'},
+                headers=_supabase_headers(),
+                timeout=30,
+            )
+            fresh_rows = (fresh.json() if fresh.ok else []) or []
+            if not fresh_rows:
+                return jsonify({'error': 'Conta não encontrada'}), 404
+            now = fresh_rows[0].get('status')
+            if now == _REJECTED_STATUS:
+                return jsonify({
+                    'ok': True,
+                    'status': _REJECTED_STATUS,
+                    'idempotent': True,
+                })
+            return jsonify({
+                'error': ('Conta não está pendente; rejeição só se aplica a '
+                          'contas aguardando decisão'),
+                'status': now,
+            }), 409
 
         # 4. Desativa a identidade Auth (nunca apaga).
         ban = _auth_admin_ban(user_id, _REJECT_BAN_DURATION)
@@ -4736,11 +4788,17 @@ def admin_reject_user(user_id):
                          ban.status_code, auth_err)
             # 4b. COMPENSAÇÃO: volta o status anterior para não deixar a conta
             #     rejeitada pela metade (e ainda visível/recuperável na fila).
+            #     Também condicional: só reverte se a linha ainda estiver no
+            #     estado que NÓS gravamos.
             back = _profiles_patch(user_id, {
                 'status': current,
                 'updated_at': datetime.now(timezone.utc).isoformat(),
-            })
-            if back.ok:
+            }, expected_status=_REJECTED_STATUS)
+            try:
+                back_rows = (back.json() if back.ok else []) or []
+            except Exception:  # noqa: BLE001
+                back_rows = []
+            if back.ok and back_rows:
                 return jsonify({
                     'error': 'Não foi possível desativar a identidade da conta',
                     'auth_disabled': False,

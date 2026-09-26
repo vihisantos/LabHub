@@ -92,6 +92,15 @@ class FakeRequests:
             (url_part, param_needle, response)
         )
 
+    def replace_param(self, method, url_part, param_needle, response):
+        """Substitui a rota parametrizada (simula outro fluxo já ter mudado a linha)."""
+        kept = [
+            (p, n, r)
+            for (p, n, r) in self._param_routes.get(method, [])
+            if not (p == url_part and n == param_needle)
+        ]
+        self._param_routes[method] = kept + [(url_part, param_needle, response)]
+
     def _do(self, method, url, **kwargs):
         self.calls.append({"method": method, "url": url, "kwargs": kwargs})
         for part, response in self._routes.get(method, []):
@@ -297,6 +306,137 @@ class TestRejeicaoTransicao:
 
 
 # ─────────────────────────── falha parcial ───────────────────────────
+# ───────────────── atomicidade / corrida (approve x reject) ─────────────────
+class TestRejeicaoAtomicidade:
+    """A transição `pending -> rejected` precisa ser garantida pelo BANCO.
+
+    O bug (TOCTOU) anterior era: ler o status -> PATCH só por `id`. Duas
+    requisições simultâneas (aprovar + rejeitar) podiam deixar `profile active`
+    com Auth banido. Agora o filtro `status = 'pending'` mora no próprio UPDATE
+    e o resultado é verificado pela contagem de linhas devolvidas.
+    """
+
+    def test_escrita_traz_a_condicao_pending_no_update(self, client, fake_requests,
+                                                      monkeypatch):
+        """Guard estrutural: o PATCH da transição NÃO pode ser só por `id`."""
+        headers = _setup(monkeypatch, fake_requests, ADMIN_PROFILE)
+        client.post(f"/api/admin/users/{UID_PENDING}/reject", headers=headers)
+        patches = fake_requests.calls_for("PATCH", "/rest/v1/profiles")
+        assert patches, "nenhum PATCH em profiles"
+        first_params = patches[0]["kwargs"]["params"]
+        assert "status" in first_params, (
+            f"o PATCH da transição precisa filtrar por status (TOCTOU): {first_params}"
+        )
+        assert first_params["status"] == "eq.pending", (
+            f"condição atômica errada: {first_params['status']}"
+        )
+        assert first_params["id"] == f"eq.{UID_PENDING}"
+
+    def test_aprova_ganha_a_corrida_409_e_nao_bane(self, client, fake_requests,
+                                                   monkeypatch):
+        """Caso B: outro fluxo gravou `active` -> a condição não casa.
+
+        Resultado exigido: 409 e NENHUM ban (banir aqui deixaria uma conta já
+        aprovada com a identidade banida).
+        """
+        headers = _setup(monkeypatch, fake_requests, ADMIN_PROFILE)
+        # a escrita condicional não casa (0 linhas) ...
+        fake_requests._routes.pop("PATCH", None)
+        fake_requests.route("PATCH", "/rest/v1/profiles", FakeResponse([]))
+        # ... e a releitura mostra que a aprovação aconteceu
+        fake_requests.replace_param(
+            "GET", "/rest/v1/profiles", f"eq.{UID_PENDING}",
+            FakeResponse([{"id": UID_PENDING, "email": "p@test.com", "name": "P",
+                           "status": "active"}]),
+        )
+        resp = client.post(f"/api/admin/users/{UID_PENDING}/reject", headers=headers)
+        assert resp.status_code == 409
+        assert resp.get_json()["status"] == "active"
+        assert fake_requests.calls_for("PUT", "/auth/v1/admin/users") == [], (
+            "NÃO pode banir uma conta que já foi aprovada"
+        )
+        assert fake_requests.calls_for("POST", "/rest/v1/app_audit_logs") == [], (
+            "não deve auditar uma rejeição que não ocorreu"
+        )
+
+    def test_corrida_e_alvo_removido_404(self, client, fake_requests, monkeypatch):
+        """Condição não casa e a linha sumiu -> 404, sem ban."""
+        headers = _setup(monkeypatch, fake_requests, ADMIN_PROFILE)
+        fake_requests._routes.pop("PATCH", None)
+        fake_requests.route("PATCH", "/rest/v1/profiles", FakeResponse([]))
+        fake_requests.replace_param(
+            "GET", "/rest/v1/profiles", f"eq.{UID_PENDING}", FakeResponse([]),
+        )
+        resp = client.post(f"/api/admin/users/{UID_PENDING}/reject", headers=headers)
+        assert resp.status_code == 404
+        assert fake_requests.calls_for("PUT", "/auth/v1/admin/users") == []
+
+    def test_corrida_e_ja_rejected_idempotente(self, client, fake_requests,
+                                                monkeypatch):
+        """Condição não casa porque OUTRO reject já concluiu -> 200 idempotente."""
+        headers = _setup(monkeypatch, fake_requests, ADMIN_PROFILE)
+        fake_requests._routes.pop("PATCH", None)
+        fake_requests.route("PATCH", "/rest/v1/profiles", FakeResponse([]))
+        fake_requests.replace_param(
+            "GET", "/rest/v1/profiles", f"eq.{UID_PENDING}",
+            FakeResponse([{"id": UID_PENDING, "email": "p@test.com", "name": "P",
+                           "status": "rejected"}]),
+        )
+        resp = client.post(f"/api/admin/users/{UID_PENDING}/reject", headers=headers)
+        assert resp.status_code == 200
+        assert resp.get_json()["idempotent"] is True
+        assert fake_requests.calls_for("PUT", "/auth/v1/admin/users") == []
+
+    def test_200_sem_linhas_alteradas_nao_e_sucesso(self, client, fake_requests,
+                                                     monkeypatch):
+        """HTTP 200 com 0 linhas não pode virar 200 de sucesso."""
+        headers = _setup(monkeypatch, fake_requests, ADMIN_PROFILE)
+        fake_requests._routes.pop("PATCH", None)
+        fake_requests.route("PATCH", "/rest/v1/profiles", FakeResponse([]))
+        fake_requests.replace_param(
+            "GET", "/rest/v1/profiles", f"eq.{UID_PENDING}",
+            FakeResponse([{"id": UID_PENDING, "status": "blocked"}]),
+        )
+        resp = client.post(f"/api/admin/users/{UID_PENDING}/reject", headers=headers)
+        assert resp.status_code == 409, "200 indevido para transição que não ocorreu"
+        assert resp.get_json()["status"] == "blocked"
+
+    def test_compensacao_tambem_e_condicional(self, client, fake_requests,
+                                              monkeypatch):
+        """A reversão só acontece se a linha ainda estiver no estado gravado."""
+        headers = _setup(monkeypatch, fake_requests, ADMIN_PROFILE)
+        fake_requests._routes.pop("PUT", None)
+        fake_requests.route("PUT", "/auth/v1/admin/users",
+                           FakeResponse({"msg": "boom"}, 500, ok=False))
+        resp = client.post(f"/api/admin/users/{UID_PENDING}/reject", headers=headers)
+        assert resp.status_code == 502
+        patches = fake_requests.calls_for("PATCH", "/rest/v1/profiles")
+        assert len(patches) == 2
+        back_params = patches[1]["kwargs"]["params"]
+        assert back_params.get("status") == "eq.rejected", (
+            f"a compensação também deve ser condicional: {back_params}"
+        )
+
+    def test_compensacao_sem_linhas_cai_em_fail_closed(self, client, fake_requests,
+                                                      monkeypatch):
+        """Se a compensação não casou, é fail-closed (rolled_back=False)."""
+        headers = _setup(monkeypatch, fake_requests, ADMIN_PROFILE)
+        fake_requests._routes.pop("PUT", None)
+        fake_requests.route("PUT", "/auth/v1/admin/users",
+                           FakeResponse({"msg": "boom"}, 500, ok=False))
+        # 1a escrita casa; a compensação responde 200 porém com 0 linhas
+        fake_requests._routes.pop("PATCH", None)
+        fake_requests.route_seq("PATCH", "/rest/v1/profiles", [
+            FakeResponse([{"id": UID_PENDING}]),
+            FakeResponse([]),
+        ])
+        resp = client.post(f"/api/admin/users/{UID_PENDING}/reject", headers=headers)
+        assert resp.status_code == 502
+        body = resp.get_json()
+        assert body["rolled_back"] is False
+        assert body["auth_disabled"] is False
+
+
 class TestFalhaParcial:
     def test_ban_falha_compensa_e_nao_retorna_sucesso(self, client, fake_requests, monkeypatch):
         """Caso B: Auth não desativou => status volta e 502 (sem falso sucesso)."""
