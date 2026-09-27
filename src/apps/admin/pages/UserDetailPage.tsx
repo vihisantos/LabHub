@@ -2,15 +2,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { adminService } from '../../../core/auth/adminService'
 import type { User } from '../../../core/auth/types'
-import { useAuth } from '../../../core/auth/AuthContext'
 import { workspaceService } from '../../../core/workspaces/service'
 import type { Workspace } from '../../../core/workspaces/types'
 import { useRoles } from '../../../core/permissions/usePermissions'
-import { roleBadgeClass, APP_ACCESS_LABELS } from '../../../core/permissions/types'
-import type { AppAccessOverride } from '../../../core/permissions/types'
+import { roleBadgeClass } from '../../../core/permissions/types'
 import { useActorLogs } from '../../../core/logs/useServerLogs'
 import { attachMemberships, membershipService } from '../../../core/memberships/service'
-import { appRegistry } from '../../../appRegistry'
 import { PersonAvatar, statusStyle, formatAge } from '../components/personShared'
 import { AccessConfigurationSection } from '../components/AccessConfigurationSection'
 import { icons } from '../../../lib/icons'
@@ -35,19 +32,14 @@ const ACTION_META: Record<string, { icon: keyof typeof icons.ui; color: string; 
 export function UserDetailPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
-  const { user: currentUser } = useAuth()
   const { roles: roleList } = useRoles()
   const { logs: activity } = useActorLogs(id ?? '')
-  const editableApps = appRegistry.filter((app) => app.id !== 'admin')
 
   const [users, setUsers] = useState<User[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [expanded, setExpanded] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-
-  const isSuperAdmin = !!currentUser?.is_super_admin
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -114,23 +106,6 @@ export function UserDetailPage() {
     setTimeout(() => setFeedback(null), 3000)
   }
 
-  async function handleRoleChange(userId: string, newRoleId: string) {
-    if (!person) return
-    setSaving(true)
-    // Cargo de acesso aos MÓDULOS (camada legada profiles.role → AppGuard).
-    // Desacoplado das memberships (PR #284): o cargo OPERACIONAL é por
-    // unidade, na seção "Configuração de acesso". Sem propagação global.
-    const okProfile = await adminService.updateUserProfile(userId, { roleId: newRoleId })
-    if (!okProfile) {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar cargo' })
-    } else {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, roleId: newRoleId } : u))
-      setFeedback({ type: 'success', message: `Cargo alterado para ${roleList.find((r) => r.id === newRoleId)?.name ?? 'novo cargo'}` })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
-  }
-
   /** Recarrega as memberships da pessoa após configurar acesso (fonte: tabela). */
   async function refreshMemberships(): Promise<void> {
     if (!person) return
@@ -142,23 +117,6 @@ export function UserDetailPage() {
     } catch {
       // Mantém o estado anterior; o feedback da ação já foi exibido.
     }
-  }
-
-  async function handleAppAccessChange(userId: string, appId: string, override: AppAccessOverride | null) {
-    if (!person) return
-    setSaving(true)
-    const current = { ...(person.app_access || {}) }
-    if (override === null) delete current[appId]
-    else current[appId] = override
-    const success = await adminService.updateUserProfile(userId, { app_access: current })
-    if (success) {
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, app_access: current } : u))
-      setFeedback({ type: 'success', message: override === null ? 'Acesso restaurado para o padrão do cargo' : 'Acesso individual atualizado' })
-    } else {
-      setFeedback({ type: 'error', message: 'Erro ao atualizar acesso' })
-    }
-    setSaving(false)
-    setTimeout(() => setFeedback(null), 3000)
   }
 
   if (loading) {
@@ -267,16 +225,6 @@ export function UserDetailPage() {
         </div>
 
         <div className="mt-4 flex gap-2">
-          {isSuperAdmin && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
-            >
-              <icons.ui.edit size={14} />
-              {expanded ? 'Concluído' : 'Editar'}
-            </button>
-          )}
           {isPending && (
             <button
               type="button"
@@ -343,68 +291,6 @@ export function UserDetailPage() {
         </div>
       )}
 
-      {/* Acesso por aplicativo (override individual — mecanismo preservado).
-          Conta pending/rejected não configura acesso: só após aprovação. */}
-      {!isPending && !isRejected && (
-      <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-        <h2 className="text-xs font-semibold text-fg-muted mb-3">Acesso por aplicativo</h2>
-        {isAdminAbs ? (
-          <p className="rounded-lg bg-purple-500/5 px-3 py-2 text-[11px] text-purple-500">
-            <icons.ui.shield size={10} className="inline mr-1" />
-            Admin absoluto — acesso total a todos os workspaces e aplicativos.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {!role ? (
-              <p className="rounded-lg bg-input/40 px-3 py-2 text-[11px] text-fg-dim">
-                Sem cargo atribuído — sem acesso a aplicativos.
-              </p>
-            ) : (
-              editableApps.map((app) => {
-                const override = person.app_access?.[app.id] ?? null
-                const roleLevel = role.appAccess?.[app.id]
-                const effective = override ?? roleLevel
-                return (
-                  <div key={app.id} className="flex items-center gap-3 rounded-xl border border-line bg-input/30 px-3 py-2.5">
-                    <div
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${effective ? '' : 'opacity-40 grayscale'}`}
-                      style={{ backgroundColor: app.color + '15', color: app.color }}
-                    >
-                      <app.icon size={15} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-fg">{app.name}</p>
-                      <p className="text-[10px] text-fg-muted">
-                        {effective ? APP_ACCESS_LABELS[effective] : 'Sem acesso'}
-                        {override && override !== roleLevel && ' · override'}
-                      </p>
-                    </div>
-                    {expanded && isSuperAdmin && !isAdminAbs && (
-                      <select
-                        value={override ?? 'inherit'}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          handleAppAccessChange(person.id, app.id, v === 'inherit' ? null : (v as AppAccessOverride))
-                        }}
-                        disabled={saving}
-                        className="rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-fg focus:outline-none disabled:opacity-50"
-                      >
-                        <option value="inherit">Padrão</option>
-                        <option value="none">Sem</option>
-                        <option value="dash">Dash</option>
-                        <option value="read">Leitura</option>
-                        <option value="full">Total</option>
-                      </select>
-                    )}
-                  </div>
-                )
-              })
-            )}
-          </div>
-        )}
-      </div>
-      )}
-
       {/* Configuração de acesso (PR #284): memberships por unidade, sem
           propagação global de cargo. Conta pending não configura acesso —
           só aprova/rejeita (servidor também rejeita — RPC 072). */}
@@ -416,43 +302,6 @@ export function UserDetailPage() {
           roles={roleList}
           onChanged={refreshMemberships}
         />
-      )}
-
-      {/* Cargo de acesso aos módulos (camada legada profiles.role → AppGuard).
-          Desacoplado das memberships: o cargo OPERACIONAL é por unidade, acima. */}
-      {!isPending && !isRejected && !isAdminAbs && (
-        <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-          <h2 className="text-xs font-semibold text-fg-muted mb-1">Cargo de acesso</h2>
-          <p className="mb-3 text-[10px] text-fg-dim">
-            Define os aplicativos visíveis. O cargo operacional é configurado por unidade, acima.
-          </p>
-
-          {expanded && (
-            <div className="flex flex-wrap gap-1.5">
-              {roleList.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => handleRoleChange(person.id, r.id)}
-                  disabled={saving}
-                  className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all disabled:opacity-50 ${
-                    r.id === person.roleId
-                      ? `${roleBadgeClass(r)} ring-1 ring-slate-500/30`
-                      : 'bg-input text-fg-muted hover:text-fg'
-                  }`}
-                >
-                  {r.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!expanded && (
-            <p className="rounded-lg bg-input/40 px-3 py-2 text-[11px] text-fg-dim">
-              Toque em "Editar" acima para alterar o cargo de acesso.
-            </p>
-          )}
-        </div>
       )}
 
       {/* Atividade */}

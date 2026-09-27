@@ -4,7 +4,6 @@ import { MemoryRouter } from 'react-router-dom'
 
 const mockAdminService = vi.hoisted(() => ({
   listAllProfiles: vi.fn(),
-  updateUserProfile: vi.fn(),
   setMembership: vi.fn(),
   removeMembership: vi.fn(),
   setMembershipManager: vi.fn(),
@@ -148,7 +147,6 @@ describe('UserDetailPage', () => {
     vi.useRealTimers()
     mockAdminService.listAllProfiles.mockResolvedValue([activeUser])
     mockMembershipsFromFixtures([activeUser])
-    mockAdminService.updateUserProfile.mockResolvedValue(true)
     mockAdminService.setMembership.mockResolvedValue({
       id: 'm-u-123-ws-mooca', profile_id: 'u-123', workspace_id: 'ws-mooca',
       role_id: 'r-b', status: 'active', managed_by: null, created_at: '', updated_at: '',
@@ -181,48 +179,30 @@ describe('UserDetailPage', () => {
     expect(screen.getAllByText('Técnico').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('mostra a seção de acesso por aplicativo', async () => {
+  it('não oferece mais edição legacy e mantém o cargo em modo somente leitura', async () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('Acesso por aplicativo')).toBeInTheDocument()
+      expect(screen.getByText('Maria Mooca')).toBeInTheDocument()
     })
-    expect(screen.getByText('ReservaLab')).toBeInTheDocument()
-    expect(screen.getByText('Acesso total')).toBeInTheDocument()
+    // F2-B: a edição de "Cargo de acesso" e "Acesso por aplicativo" foi removida.
+    expect(screen.queryByText('Cargo de acesso')).not.toBeInTheDocument()
+    expect(screen.queryByText('Acesso por aplicativo')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument()
+    // A leitura do cargo segue presente como informação (badge read-only).
+    expect(screen.getAllByText('Técnico').length).toBeGreaterThanOrEqual(1)
+    // O caminho RBAC2 por unidade continua intacto.
+    expect(screen.getByText('Configuração de acesso')).toBeInTheDocument()
   })
 
   it('mostra estado vazio de atividade quando não há logs', async () => {
+    mockGetActorLogs.mockReturnValue([])
     renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('Atividade')).toBeInTheDocument()
     })
     expect(screen.getByText('Nenhuma atividade registrada.')).toBeInTheDocument()
-  })
-
-  it('expande o cargo de acesso e altera sem propagar para memberships', async () => {
-    renderPage()
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
-
-    // Cargo editável fica visível na seção "Cargo de acesso"
-    expect(screen.getByText('Cargo de acesso')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Visualizador' }))
-
-    await waitFor(() => {
-      expect(mockAdminService.updateUserProfile).toHaveBeenCalledWith('u-123', { roleId: 'role-viewer' })
-    })
-    // PR #284: sem propagação global — memberships NÃO são tocadas
-    // PR-3 (#296): setUserMemberships removido; o invariante passa a ser
-    // verificado contra as rotas 072 (upsert/remove/manager por unidade).
-    expect(mockAdminService.setMembership).not.toHaveBeenCalled()
-    expect(mockAdminService.removeMembership).not.toHaveBeenCalled()
-    expect(mockAdminService.setMembershipManager).not.toHaveBeenCalled()
-    expect(screen.getByText('Cargo alterado para Visualizador')).toBeInTheDocument()
   })
 
   it('mostra aprovação/rejeição para usuário pendente', async () => {

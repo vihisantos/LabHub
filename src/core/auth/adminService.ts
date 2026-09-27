@@ -173,7 +173,22 @@ export const adminService = {
     return true
   },
 
-  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'roleId' | 'accent' | 'theme_variant' | 'avatar' | 'app_access' | 'notify_settings'>>): Promise<boolean> => {
+  /**
+   * Atualiza campos de perfil/administrativos de um usuário.
+   *
+   * F2-B: `roleId` e `app_access` foram REMOVIDOS desta assinatura — a edição
+   * legacy de "Cargo de acesso" e de "Acesso por aplicativo" saiu do Admin
+   * (UserDetailPage). A coluna `profiles.role`/`profiles.app_access` segue
+   * existindo e continua sendo LIDA (resolveAppAccess/fromDbUser), mas não é
+   * mais escrita pela camada de admin. `toDbUser`/`ROLE_ID_TO_DB` são mantidos
+   * para compatibilidade interna até a remoção estrutural (F2-E).
+   *
+   * Uso atual: NotificationRulesTab → `{ notify_settings }`.
+   *
+   * Autorização: RLS `profiles_update` (067) + trigger `guard_profile_privileged_columns`
+   * (067) — sem alteração aqui.
+   */
+  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'accent' | 'theme_variant' | 'avatar' | 'notify_settings'>>): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { data: updated, error } = await defaultDb
