@@ -359,7 +359,7 @@ class TestEscopoNaoAlterado:
         assert "app_access = COALESCE(app_access, '{}'::jsonb) - 'tv'" in body
 
     def test_diagnostico_continua_leitura_antes_da_revogacao(self, body):
-        selects = re.findall(r"SELECT count\\(\\*\\)[^;]*FROM public\\.profiles[^;]*", body, re.S)
+        selects = re.findall(r"SELECT count\(\*\)[^;]*FROM public\.profiles[^;]*", body, re.S)
         assert selects, "deve haver contagem dos dependentes legados antes da revogação"
         assert "RAISE NOTICE" in body
 
