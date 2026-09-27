@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom'
 const mockAdminService = vi.hoisted(() => ({
   listAllProfiles: vi.fn(),
   updateUserProfile: vi.fn(),
-  setUserMemberships: vi.fn(),
   setMembership: vi.fn(),
   removeMembership: vi.fn(),
   setMembershipManager: vi.fn(),
@@ -218,7 +217,11 @@ describe('UserDetailPage', () => {
       expect(mockAdminService.updateUserProfile).toHaveBeenCalledWith('u-123', { roleId: 'role-viewer' })
     })
     // PR #284: sem propagação global — memberships NÃO são tocadas
-    expect(mockAdminService.setUserMemberships).not.toHaveBeenCalled()
+    // PR-3 (#296): setUserMemberships removido; o invariante passa a ser
+    // verificado contra as rotas 072 (upsert/remove/manager por unidade).
+    expect(mockAdminService.setMembership).not.toHaveBeenCalled()
+    expect(mockAdminService.removeMembership).not.toHaveBeenCalled()
+    expect(mockAdminService.setMembershipManager).not.toHaveBeenCalled()
     expect(screen.getByText('Cargo alterado para Visualizador')).toBeInTheDocument()
   })
 

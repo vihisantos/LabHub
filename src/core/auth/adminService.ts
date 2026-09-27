@@ -208,49 +208,6 @@ export const adminService = {
   },
 
   /**
-   * @deprecated Use setUserMemberships (9.2-C, atômico via servidor).
-   * Adapter: preserva o cargo atual e delega ao endpoint.
-   */
-  updateUserWorkspaces: async (userId: string, workspace_ids: string[]): Promise<boolean> => {
-    const users = await adminService.listAllProfiles()
-    const roleId = users.find((u) => u.id === userId)?.roleId ?? 'role-viewer'
-    return (await adminService.setUserMemberships(userId, workspace_ids, roleId)) !== null
-  },
-
-  /**
-   * RBAC 2.0 (9.2-C): define os workspaces do usuário de forma ATÔMICA via
-   * endpoint backend (`POST /api/admin/users/:id/memberships` → RPC 052:
-   * memberships + espelho na mesma transação; managed_by preservado).
-   * Retorna as memberships resultantes (null em falha). Super-admin-only.
-   */
-  setUserMemberships: async (
-    userId: string,
-    workspaceIds: string[],
-    roleId: string,
-  ): Promise<Membership[] | null> => {
-    if (!defaultDb) return null
-    try {
-      const { data: { session } } = await defaultDb.auth.getSession()
-      if (!session) return null
-      const res = await fetch(`/api/admin/users/${userId}/memberships`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ workspace_ids: workspaceIds, role: roleId }),
-      })
-      if (!res.ok) return null
-      const data = await res.json().catch(() => null)
-      if (!data?.ok || !Array.isArray(data?.memberships)) return null
-      return data.memberships as Membership[]
-    } catch (e) {
-      console.error('[Admin] Failed to set user memberships:', e)
-      return null
-    }
-  },
-
-  /**
    * RBAC 2.0 (PR #284): cria ou atualiza a membership de UMA unidade, com o
    * cargo daquela unidade (sempre active; managed_by preservado).
    * Endpoint: POST /api/admin/users/:id/membership → RPC 072.

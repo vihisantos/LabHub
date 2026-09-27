@@ -84,7 +84,7 @@ Regras do trigger (espelho da spec §8/§10):
 | 2 | `WorkspaceContext.assignedWorkspaces` (WorkspaceContext.tsx:59,88) | Frontend | Filtra workspaces visíveis: `user.workspace_ids.includes(w.id)` |
 | 3 | `useWorkspaceFilter` (useWorkspaceFilter.ts:11,18,26) | Frontend | Filtra itens e notificações por workspace do usuário |
 | 4 | `workspaceStore.set()` (WorkspaceContext.tsx:162) | Frontend | Sincroniza o store de isolamento (localstorage) |
-| 5 | `adminService.updateUserWorkspaces()` (adminService.ts:172) | Frontend/Admin | Super admin escreve assignments de workspace → PATCH profiles |
+| 5 | `adminService.updateUserWorkspaces()` (adminService.ts:172) | Frontend/Admin | Super admin escreve assignments de workspace → PATCH profiles — **REMOVIDO no PR-3 (#296)**; a configuração de acesso passou a ser por unidade (RPCs 072) |
 | 6 | `app.py:680` (legacy gateway) | Backend | `workspace_id not in workspace_ids` → check de auth do caminho legado |
 | 7 | `SetupFlow` (tv-desktop:44-45) | Frontend | Filtra workspaces de TV para o dispositivo |
 | 8 | `buildPushUser.ts:28` | Frontend | Propaga `workspace_ids` para o serviço de push |
