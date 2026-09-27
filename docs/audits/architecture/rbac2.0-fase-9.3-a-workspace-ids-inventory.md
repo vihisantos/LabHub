@@ -79,7 +79,7 @@ Varredura de todos os pontos de decisão conhecidos; cada um lê memberships:
 |---|---|---|---|---|---|
 | B1 | Campo `workspace_ids` no payload push (`PushUserInfo`, inscrição Redis, auditoria `push/admin/subscriptions`) | `buildPushUser` (derivado de memberships), `push/subscribe` (derivado via `_get_user_workspace_ids`) | `_target_subs`, tela de diagnóstico | Contrato de segmentação do push; inscrições antigas no Redis têm o campo | 9.3-E: parar de persistir após janela; `_target_subs` passa a resolver memberships por `user.id` |
 | B2 | Campo `workspace_ids` no dict `g.user` | `require_auth` (uniformizado: derivado de memberships) | 9 leituras em `api/app.py` (chamados list/manage/reports etc.) | Evita reescrever cada ponto; semântica idêntica | 9.3-E: trocar leituras por helper direto ou remover o campo |
-| B3 | Input `workspace_ids` em `approveUser`/`ApproveUserModal`/endpoint | UI admin (campus escolhidos) | `setUserMemberships` → RPC 052 | É o dado de entrada da operação (não leitura de autoridade) | 9.3-E: renomear para `workspaceIds` de intenção (cosmético) ou manter |
+| B3 | Input de unidades na configuração de acesso | UI admin (campus escolhidos) | `setMembership`/`removeMembership` → RPCs 072 | Dado de entrada da operação, **por unidade** (o modelo antigo `workspace_ids[] + cargo único` da 052 não expressa cargos diferentes por unidade) | **Resolvido no PR-3 (#296):** `setUserMemberships` e o endpoint `/memberships` foram removidos; resta o caminho por unidade da 072 |
 | B4 | `updateUserProfile` genérico aceita `workspace_ids` | tipo TS | nenhum chamador atual passa a coluna | Capacidade residual do PATCH | 9.3-E: remover do `Pick` |
 | B5 | `User.workspace_ids: string[]` (tipo) | `auth/types.ts` | fixtures, espelho local pós-toggle/approve | Shape do perfil vindo do banco | 9.3-F: remover junto com a coluna (quebra fixtures — atualizar) |
 
@@ -96,11 +96,21 @@ Varredura de todos os pontos de decisão conhecidos; cada um lê memberships:
 
 | Mecanismo | Origem | Observação |
 |---|---|---|
-| `052 admin_set_user_memberships` (espelho na mesma transação) | 052 (9.2-C) | **Único mecanismo D. NÃO remover** até 9.3-E/F; é o que mantém leitores legados convergentes |
+| `052 admin_set_user_memberships` (espelho na mesma transação) | 052 (9.2-C) | **LEGIADO/REMOVIDO do estado final no PR-3 (#296, migration 075).** Era o único mecanismo D; ver ressalva abaixo |
+| `072 admin_upsert_membership` (espelho na mesma transação, por unidade) | 072 (RBAC 2.0) | **Mecanismo D vigente.** Recomputa `workspace_ids` das memberships ativas a cada concessão, na mesma transação |
 | `approveUser` PATCH sem `workspace_ids` | frontend 9.2-C | Não escreve a coluna (só status/cargo); trigger re-sincroniza idempotente |
 | Toggle/detail optimistic `workspace_ids: mirror` | frontend 9.2-C | Espelho local do retorno do RPC; convergente por construção |
 
-Confirmado: **não existem outros** mecanismos D além do 052.
+> **Ressalva — supersedido pelo PR-3 (#296).** Este inventário foi escrito na
+> 9.3-A, quando a 052 era o escritor único de `workspace_ids` e a instrução
+> era "NÃO remover". O RBAC 2.0 mudou o quadro: a configuração de acesso passou
+> às RPCs da 072 (cargo **por unidade**), e o PR-3 removeu o último consumidor
+> interno da 052 e derrubou a função (migration 075). O espelho
+> `profiles.workspace_ids` **continua existindo** — como compatibilidade para
+> leitores legados — e agora é recomputado pela 072, não pela 052.
+
+Confirmado: o único mecanismo D **vigente** é a 072. A 052 permanece apenas
+como registro histórico das migrations 052–074.
 
 ### E — DTO / TIPAGEM / FIXTURES / TESTES
 
@@ -170,7 +180,8 @@ UPDATE profiles SET status|role|workspace_ids|is_super_admin
 | `user_belongs_to_workspace` (049) | **não lê** (memberships) | DEFINER, uso em RLS |
 | `profile_visible_to_me` (044) | **não lê** (memberships) | DEFINER, uso em RLS |
 | `get_leader_team` (045/046), RPCs 047, `coordinator_set_manager` | **não leem** (memberships/`managed_by`) | authenticated + checks internos; escrita 047 delega à trigger 046 |
-| `admin_set_user_memberships` (052) | **escreve** a coluna (espelho D, mesma transação) | somente `service_role` |
+| `admin_upsert_membership` (072) | **escreve** a coluna (espelho D, mesma transação, por unidade) | somente `service_role` |
+| `admin_set_user_memberships` (052) | **REMOVIDA do estado final** (PR-3/#296, migration 075) | sem consumidor interno; era somente `service_role` |
 | `handle_new_user` (015) | **escreve** `'{}'` no signup | trigger em `auth.users`, DEFINER |
 
 ---
@@ -198,8 +209,9 @@ UPDATE profiles SET status|role|workspace_ids|is_super_admin
   `assignedWorkspaceIds`/`isActiveMember`/`attachMemberships` são a fonte única.
 - `resolveRoleSlug`: zero chamadores em produção (só badges/ações futuras).
 - `getByUser`: filtro + RLS do token; teste IDOR verde.
-- `setUserMemberships`/`approveUser`: só via RPC (teste de proibição de escrita
-  direta verde).
+- `setMembership`/`removeMembership`/`approveUser`: só via RPC 072/servidor
+  (teste de proibição de escrita direta verde). `setUserMemberships` foi
+  removido no PR-3 (#296) junto com a 052.
 - `useMemberships`: expõe o flag (nenhum consumidor ainda — sem decisão).
 - `useWorkspaceFilter`: removido (9.2-B2).
 

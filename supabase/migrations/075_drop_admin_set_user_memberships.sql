@@ -1,0 +1,49 @@
+-- =============================================================================
+-- 075_drop_admin_set_user_memberships.sql
+-- =============================================================================
+-- #296 (PR-3) — REMOÇÃO DO CAMINHO RUNTIME DO RPC LEGADO 052.
+--
+-- Objetivo: eliminar do estado final do banco a função
+--   public.admin_set_user_memberships(uuid, uuid[], text)
+-- introduzida pela migration 052 (Fase 9.2-C). A 052 é HISTÓRICA e permanece
+-- no repositório e no histórico do banco; o que muda aqui é o ESTADO FINAL:
+-- depois desta migration a função não existe mais.
+--
+-- Por que remover (modelo legado, NÃO expressa o RBAC 2.0):
+--   A 052 recebia um CONJUNTO de workspaces + UM ÚNICO cargo para todo o
+--   conjunto, e espelhava o resultado em `profiles.workspace_ids` na mesma
+--   transação. Isso é insuficiente para o modelo atual, em que o cargo é
+--   POR UNIDADE (a mesma pessoa pode ser Técnico na unidade A e Líder na B).
+--   O modelo vigente é a migration 072:
+--     · admin_upsert_membership(uuid, uuid, text)   — cria/atualiza 1 unidade
+--     · admin_remove_membership(uuid, uuid)         — remove 1 unidade
+--     · admin_set_manager(uuid, uuid)               — gestor da unidade
+--   Aprovação global (profiles.status: pending -> active) é separada da
+--   configuração de acesso e NÃO cria memberships por si só.
+--
+-- Pré-condições (por que é seguro remover):
+--   · Nenhum consumidor interno restou. Removidos neste PR-3:
+--       - endpoint legado `POST /api/admin/users/<id>/memberships` (api/app.py);
+--       - `adminService.setUserMemberships()` e `updateUserWorkspaces()`;
+--       - consumo do `scripts/e2e_db.py` (agora usa a 072);
+--       - `api/tests/test_admin_set_memberships.py`.
+--   · A 072 é o caminho de escrita vigente e NÃO é alterada aqui.
+--
+-- O QUE ESTA MIGRATION NÃO FAZ (deliberadamente):
+--   · NÃO altera dados: nenhum DELETE/UPDATE/INSERT em profiles, memberships,
+--     roles ou workspaces;
+--   · NÃO altera `profiles.role`, `profiles.app_access` nem a semântica de
+--     `profiles.workspace_ids` (a coluna permanece como espelho legado de
+--     compatibilidade, recomputado pela 072);
+--   · NÃO recria a função nem cria mecanismo equivalente;
+--   · NÃO toca nas RPCs 072 nem em `user_belongs_to_workspace()` / `pg_sql()`;
+--   · NÃO mexe em RLS/policies.
+--
+-- IDEMPOTÊNCIA: `DROP FUNCTION IF EXISTS` é seguro quando a função já não
+-- existe (no-op); replay não aplica nada. A assinatura é explícita
+-- (argumentos de identidade), nunca `DROP ... CASCADE` — nada depende da 052
+-- por dependência de objeto, e CASCADE seria o vetor de remoção em cascata
+-- indevida.
+-- =============================================================================
+
+DROP FUNCTION IF EXISTS public.admin_set_user_memberships(uuid, uuid[], text);

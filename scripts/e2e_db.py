@@ -4,8 +4,17 @@
 Subcomandos:
   bootstrap                 cria workspaces fixture e2e-ws-a/b/c (idempotente)
   signup-state EMAIL        estado do profile + contagem de memberships (JSON)
-  approve EMAIL ROLE WS_SLUGS   aprova via RPC 052 (memberships + espelho) e
-                                PATCH status/role (9.3-C: sem trigger 041)
+  approve EMAIL [ASSIGNMENTS]
+                            RBAC 2.0 (PR-3/#296). Aprovação global é SÓ o
+                            status (pending -> active). ASSIGNMENTS é opcional
+                            e configura o ACESSO por unidade, no formato
+                            <workspace_slug>:<role>, separados por vírgula:
+                              approve user@x.com e2e-ws-a:tecnico,e2e-ws-b:lider
+                            Cada assignment vira uma membership via RPC 072
+                            (admin_upsert_membership). Sem assignments, apenas
+                            aprova. Aprovação e acesso são operações distintas.
+                            NÃO usa a 052 (conjunto + cargo único) nem escreve
+                            workspace_ids.
   memberships EMAIL         lista memberships {ws, role, status} (JSON)
   suspend EMAIL | activate EMAIL | set-super EMAIL true|false
   confirm-email EMAIL       marca email_confirmed_at (equivale ao clique no link)
@@ -44,9 +53,9 @@ WS = {
 }
 
 ROLE_TO_SLUG = {
-    "technician": "tec",
-    "viewer": "vis",
-    "admin": "adm",
+    "technician": "tec", "tecnico": "tec", "tec": "tec",
+    "viewer": "vis", "vis": "vis",
+    "admin": "adm", "adm": "adm",
     "coordinator": "coordinator",
     "lider": "lider",
 }
@@ -103,25 +112,53 @@ def main() -> int:
         out(rows[0] if rows else {})
 
     elif cmd == "approve":
-        # 9.3-C: aprova pelo caminho real (RPC 052 + PATCH status/role).
-        # Nunca escreve workspace_ids para produzir memberships.
-        email, role = esc(sys.argv[2]), sys.argv[3]
-        slugs = [s.strip() for s in (sys.argv[4] if len(sys.argv) > 4 else "").split(",") if s.strip()]
-        if role not in ROLE_TO_SLUG:
-            print(f"role sem slug no servidor: {role}", file=sys.stderr)
-            return 2
-        ws_ids = [WS[s] for s in slugs]
+        # RBAC 2.0 (PR-3/#296): DUAS operações conceitualmente distintas.
+        #   1. aprovação global ....... profiles.status: pending -> active
+        #   2. configuração de acesso . memberships por unidade via RPC 072
+        # A 052 (conjunto de workspaces + cargo único + espelho em
+        # workspace_ids) NÃO é usada, e workspace_ids nunca é escrito aqui:
+        # o espelho é recomputado pela própria 072.
+        email = esc(sys.argv[2])
+        spec = (sys.argv[3] if len(sys.argv) > 3 else "").strip()
+
+        # Valida TUDO antes de qualquer escrita (falha não deixa estado parcial).
+        planned = []
+        for item in [s.strip() for s in spec.split(",") if s.strip()]:
+            if ":" not in item:
+                print(f"assignment inválido (esperado <workspace_slug>:<role>): {item}", file=sys.stderr)
+                return 2
+            ws_slug, role_raw = (p.strip() for p in item.split(":", 1))
+            if ws_slug not in WS:
+                print(f"workspace desconhecido: {ws_slug}", file=sys.stderr)
+                return 2
+            role_slug = ROLE_TO_SLUG.get(role_raw.lower())
+            if not role_slug:
+                print(f"role sem slug no servidor: {role_raw}", file=sys.stderr)
+                return 2
+            planned.append((ws_slug, role_slug))
+
         rows = q(f"SELECT id::text AS id FROM public.profiles WHERE email='{email}'")
         if not rows:
             print(f"profile não encontrado: {email}", file=sys.stderr)
             return 2
         uid = rows[0]["id"]
-        rpc("admin_set_user_memberships", {
-            "p_user_id": uid, "p_workspace_ids": ws_ids, "p_role_slug": ROLE_TO_SLUG[role],
-        })
-        q(f"""UPDATE public.profiles SET status='active', role='{role}'
-                WHERE email='{email}'""")
-        out({"ok": True, "role": role, "workspaces": slugs})
+
+        # 1) Aprovação global. Precisa vir ANTES das memberships: a 072 exige
+        #    conta ATIVA para conceder acesso.
+        q(f"UPDATE public.profiles SET status='active' WHERE id='{uid}'")
+
+        # 2) Configuração de acesso: uma chamada da 072 por unidade, cada uma
+        #    com o cargo DAQUELA unidade (pode diferir entre unidades).
+        granted = []
+        for ws_slug, role_slug in planned:
+            rpc("admin_upsert_membership", {
+                "p_user_id": uid,
+                "p_workspace_id": WS[ws_slug],
+                "p_role_slug": role_slug,
+            })
+            granted.append({"workspace": ws_slug, "role": role_slug})
+
+        out({"ok": True, "status": "active", "memberships": granted})
 
     elif cmd == "memberships":
         email = esc(sys.argv[2])
