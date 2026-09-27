@@ -96,10 +96,13 @@
 --     Estoque, Coordinator, Admin, migrations 030/059/060/062/064;
 --   · NAO recria Actions granulares de TV nem mexe nelas.
 --
--- BACKFILL: ver a secao DIAGNOSTICO. Resumindo: o seed da Action por role e
--- deterministico e e feito aqui. A conversao de USUARIOS que hoje dependem de
--- `app_access->>'tv' = 'full'` NAO e feita, porque `app_access` nao tem dimensao
--- de workspace — e inventar a associacao seria criar acesso por acidente.
+-- LEGACY ACCESS REVOGATION: esta migration NAO promove automaticamente nenhum
+-- perfil legado para `tv.manage`. Em vez disso, encerra de forma deterministica
+-- o override legado: remove apenas a chave `tv` de `profiles.app_access` para
+-- todo perfil que ainda tenha `app_access->>'tv' = 'full'`. Isso significa que
+-- usuarios sem `tv.manage` perdem a escrita da TV e podem ser regularizados
+-- depois, conscientemente, por membership/RBAC. Nenhuma role e promovida por
+-- acidente e nenhuma outra chave de `app_access` e alterada.
 -- =============================================================================
 
 -- ─── 1. Action `tv.manage` + seed determinístico por role ───────────────────
@@ -172,12 +175,12 @@ REVOKE EXECUTE ON FUNCTION public.user_can_manage_tv(uuid) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.user_can_manage_tv(uuid) TO authenticated;
 GRANT  EXECUTE ON FUNCTION public.user_can_manage_tv(uuid) TO service_role;
 
--- ─── 3. DIAGNÓSTICO (read-only; não altera dado algum) ───────────────────────
---     Quem perde acesso de TV se ainda não tiver `tv.manage`? Esta PR não
---     regulariza esses perfis: `app_access` é um override POR PERFIL, sem
---     dimensão de workspace, então não existe conversão determinística para
---     (membership, role). A regularização é via RPC 072
---     (admin_upsert_membership), por unidade, com decisão humana.
+-- ─── 3. REVOGAÇÃO EXPLÍCITA DO LEGADO ────────────────────────────────────────
+--     Não há backfill automático. O acesso legado é removido deliberadamente:
+--     só a chave `tv` é retirada de `app_access`; dashboard/reservelab/etc.
+--     permanecem intactos. Quem realmente precisar de escrita de TV será
+--     configurado depois via RBAC 2.0 (membership + role/action), por unidade.
+--     A operação é idempotente e limitada aos perfis que ainda têm tv=full.
 DO $$
 DECLARE
   v_dep        integer;
@@ -203,11 +206,17 @@ BEGIN
 
   v_perdendo := v_dep - v_jah_coberto;
 
-  RAISE NOTICE 'tv.manage — dependentes de app_access->>''tv''=''full'': %; já cobertos por RBAC 2.0: %; PERDERÃO acesso de TV até regularização via RPC 072: %',
+  RAISE NOTICE 'tv.manage — legado encontrado: % perfil(s); já cobertos por RBAC 2.0: %; sem tv.manage: %',
     v_dep, v_jah_coberto, v_perdendo;
 
-  IF v_perdendo > 0 THEN
-    RAISE WARNING 'ATENÇÃO: % perfil(s) com app_access->>''tv''=''full'' sem `tv.manage` em membership ativa. Regularize via admin_upsert_membership (migration 072) antes de decidir sobre remover app_access.',
-      v_perdendo;
+  -- Revoga SOMENTE o override legado de TV. Não cria memberships, não promove
+  -- roles e não altera qualquer outra chave de app_access.
+  IF v_dep > 0 THEN
+    UPDATE public.profiles
+       SET app_access = COALESCE(app_access, '{}'::jsonb) - 'tv'
+     WHERE COALESCE(app_access->>'tv', '') = 'full';
+
+    RAISE NOTICE 'tv.manage — override legado app_access.tv revogado de % perfil(s)', v_dep;
   END IF;
+END $;
 END $$;
