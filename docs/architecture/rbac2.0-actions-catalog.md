@@ -196,13 +196,13 @@ Classificação: `ACTION` (capacidade controlável) · `RULE` (regra de negócio
 | `reservelab.lab.view` | Ver reservas de laboratório (planilha) | `Reservas.tsx:239-261`; `services/api.ts:12-15`; `GET /api/reservas` (`src/apps/reservalab/api/app.py:406-458`, **sem auth decorator**) | workspaces.spreadsheet_url | público (slug) | lê planilha externa | `PUBLIC` (leitura pública por design) |
 | `reservelab.tablet.view` | Ver reservas de tablets | `services/supabase.ts:16-38`; RLS `028:214-221` | tablet_reservations | workspace | leitura | leitura (implícita pelo App Access) |
 | `reservelab.tablet.reserve` | Reservar tablet | `Tablets.tsx:126-135`; `services/supabase.ts:40-45`; UI gate `getLevel==='full'` `Tablets.tsx:51`; RLS insert membro `028:223-230` | tablet_reservations | workspace | cria reserva | `ACTION` |
-| `reservelab.tablet.cancel` | Cancelar reserva de tablet | `Tablets.tsx:150-157`; `services/supabase.ts:52-55` (hard delete); RLS delete **super admin only** `028:245-251` | tablet_reservations | workspace | hard delete (sem soft) | `ACTION` |
+| `reservelab.tablet.cancel` | Cancelar reserva de tablet | `Tablets.tsx:150-157`; `services/supabase.ts:52-55` (hard delete); RLS delete/update delegam a `user_can_cancel_tablet_reservation` (`050`), agora RBAC 2.0 (`078`) | tablet_reservations | workspace | hard delete (sem soft) | `ACTION` (definida em `078`, default `tec`) |
 | `reservelab.push.manage` | Enviar push broadcast / subscribe | `NotificationSendTab.tsx:97-112` → `POST /api/push/send` (`app.py:616-647`); subscribe `app.py:498-567` (público) | push subs (Redis) | workspace/global | envia web push | `ADMIN` (send); `INTERNAL` (subscribe) |
 | `reservelab.dashboard.view` | Ver dashboard | `Dashboard.tsx:30-53`; `AppGuard 'reservalab'` `src/App.tsx:104-110`; `'dash'` → só dashboard (`ReservaLabLayout.tsx:17-23`) | dashboard | workspace | leitura | leitura (constraint de nível `dash`) |
 
 **Notas ReservaLab**
 - **Deve continuar protegido por Membership/App Access** (decisão já tomada) — AppGuard `reservalab`, níveis `dash/read/full`. A leitura de **lab (planilha) é pública por design** (`/api/reservas` sem auth, por slug); **não** vira Action privada. Os tablets (escrita) são o alvo das capabilities.
-- `reservelab.tablet.cancel` hoje tem **inconsistência**: UI mostra "Cancelar" para qualquer nível `full` (`Tablets.tsx:51`), mas RLS `delete` só super admin — usuário `full` não-super-admin falha no banco (`028:245-251`). Isso será resolvido quando `reservelab.tablet.cancel` virar Action controlável.
+- `reservelab.tablet.cancel` resolvido (PR-4D-A): a migração `078` redefine `user_can_cancel_tablet_reservation` para autorizar **só** por Action RBAC 2.0 (`reservelab.tablet.cancel`) + membership ativa — o ramo legado de `profiles.app_access` do `050` é removido. Seeding de fábrica: cargo `tec` (único com a Action). A UI segue exigindo App Access `full`; o side effect continua **hard delete sem soft** (`services/supabase.ts:52-55`). O bypass de `is_super_admin()` no topo das policies é mantido.
 - ReservaLab não é `configurable` no registry (não tem `settings`/`clearable`), mas **está** em `APPS_CONFIGURABLE` (`apps.ts:6-8`, exclui só `admin`/`dashboard`) → pode ser ativado/desativado por workspace.
 
 ### 4.6 Admin
@@ -211,9 +211,9 @@ Classificação: `ACTION` (capacidade controlável) · `RULE` (regra de negócio
 
 | Action | Descrição | Evidência | Entidade | Scope | Side Effect | Classificação |
 |---|---|---|---|---|---|---|
-| `admin.user.approve` | Aprovar usuário | `adminService.approveUser` `adminService.ts:76-97`; `UsersPage.tsx:124`, `UserDetailPage.tsx:87` | profiles + stock.notifications | global | ativa perfil + notifica | `ADMIN` |
-| `admin.user.reject` | Recusar usuário | `adminService.rejectUser` `adminService.ts:99-118` (deleta só a linha do perfil; **não remove** `auth.users`) | profiles + notifications | global | apaga linha; auth user permanece | `ADMIN` |
-| `admin.user.edit` | Editar perfil/cargo/workspaces/overrides (incl. `is_super_admin`) | `adminService.updateUserProfile` `adminService.ts:153-168`; `updateUserRole` `:136-151` | profiles | global | atualiza perfil; pode conceder super admin | `ADMIN` |
+| `admin.user.approve` | Aprovar usuário | `adminService.approveUser` `adminService.ts:101-119`; `UsersPage.tsx:124`, `UserDetailPage.tsx:87` | profiles + stock.notifications | global | ativa perfil + notifica | `ADMIN` |
+| `admin.user.reject` | Recusar usuário | `adminService.rejectUser` `adminService.ts:136-158` → `POST /api/admin/users/:id/reject` (#286 PR-1, migração 074) | profiles + auth.users + app_audit_logs | global | estado terminal `rejected` + ban da identidade Auth (NUNCA apaga) | `ADMIN` |
+| `admin.user.edit` | Editar perfil/cargo/workspaces/overrides | cargo/workspaces via `adminService.setMembership` `adminService.ts:200-...` (RPC 072); `updateUserProfile` `adminService.ts:176-191` grava name/accent/theme_variant/avatar/app_access/notify_settings; `is_super_admin` NÃO é gravável pelo frontend via `updateUserProfile` (removido do tipo, PR-4D-A) | profiles + memberships | global | atualiza perfil; `is_super_admin` fica sob o guard/RLS da `067` | `ADMIN` |
 | `admin.role.create` | Criar cargo | `permissionService.create` `permissions/service.ts:30-32`; `RolesPage.tsx:133-149` | roles (local-only) | global/device | cria cargo local | `ADMIN` (local-only) |
 | `admin.role.edit` | Editar cargo (appAccess, `manageQr`, `leaderId`) | `permissionService.update` `service.ts:34`; `RolesPage.tsx:106-131` | roles (local) | global/device | atualiza cargo local | `ADMIN` (local-only) |
 | `admin.role.delete` | Excluir cargo | `permissionService.remove` `service.ts:36`; `RolesPage.tsx:151-165` | roles (local) | global/device | remove cargo local | `ADMIN` (local-only) |
@@ -234,6 +234,8 @@ Classificação: `ACTION` (capacidade controlável) · `RULE` (regra de negócio
 **Notas Admin**
 - **Admin = somente `is_super_admin`** (`AdminGuard.tsx:19`). Não há "admin por workspace" hoje, exceto a purga de app via `_require_workspace_app_manager` (super admin **ou** `profile.role='admin'` — conceito legado resgatado no backend, `api/app.py:2692-2705`).
 - **Nenhuma Action admin existe hoje como permission** — o gate é binário `is_super_admin`.
+- **`is_super_admin`: quem escreve, e como (estado atual)** — a coluna é de `019` (`BOOLEAN NOT NULL DEFAULT false`). A proteção efetiva de escrita é o trigger `trg_profiles_guard_privileged` + a policy `profiles_update` da **`067`**, não o frontend: `auth.uid() IS NULL` (contexto confiável: `service_role`/signup) libera; `is_super_admin()` libera a edição de `is_super_admin`/`role`/`status`/`app_access` por um **Super Admin já existente**; usuário comum tem os quatro negados com `42501` (foi o que fechou a autoelevação). O PR-4D-A removeu `is_super_admin` do tipo de `updateUserProfile`, fechando a porta no cliente — barreira de **compilação**, não de runtime, já que `toDbUser` espalha o resto do objeto.
+- **Não existe hoje fluxo de produto para promoção de Super Admin** — não há RPC, edge function, endpoint Python nem ação de UI que conceda o campo (`UserDetailPage.tsx:351-355` apenas exibe o badge "Admin absoluto" quando o alvo já é super admin). Alterar o campo hoje exige, tecnicamente, uma sessão **Super Admin existente** gravando via PostgREST, ou um contexto `service_role`. Tratar a promoção como produto é trabalho separado, a deliberar.
 
 ---
 
@@ -317,7 +319,7 @@ Para cada Action, nível mínimo de App Access necessário. Onde o código atual
 | `stock.*` (criar/editar/excluir/movimentar/kit/inventory/maintenance) | `full` | `requireWrite('stock')` |
 | `pcare.*` (criar/editar/partes/manutenção/import) | `full` | `requireWrite('pc-care')` |
 | `reservelab.tablet.reserve` | `full` (UI) — **A DEFINIR** (RLS permite membro) | `Tablets.tsx:51` vs RLS `028:223-230` |
-| `reservelab.tablet.cancel` | **A DEFINIR** | UI `full` vs RLS super admin — inconsistência atual |
+| `reservelab.tablet.cancel` | `full` (UI) — Action `reservelab.tablet.cancel` (078) | `Tablets.tsx:51`; helper RBAC 2.0 `078` |
 | `admin.*` | **independente** (`is_super_admin`) | `AdminGuard.tsx:19` |
 
 > **Não inventar níveis**: o código atual só modela `dash/read/full` + `manageQr` + `is_super_admin`. Qualquer nível abaixo de "existe hoje" é proposta futura explícita.
@@ -496,7 +498,7 @@ Procurar operações onde duas pessoas agem sobre a mesma entidade.
 | ReservaLab | `reservelab.lab.view` | PUBLIC | Não | — | público | — |
 | ReservaLab | `reservelab.tablet.view` | leitura | Não | read | workspace | — |
 | ReservaLab | `reservelab.tablet.reserve` | ACTION | Sim | full (A DEFINIR) | workspace | Sim |
-| ReservaLab | `reservelab.tablet.cancel` | ACTION | Não | A DEFINIR | workspace | A definir |
+| ReservaLab | `reservelab.tablet.cancel` | ACTION | Não | full (UI) — Action `078` | workspace | Sim |
 | ReservaLab | `reservelab.push.manage` | ADMIN | Não | admin | workspace/global | Não |
 | Admin | `admin.user.approve` | ADMIN | Não | super admin | global | Não |
 | Admin | `admin.user.reject` | ADMIN | Não | super admin | global | Não |
@@ -539,7 +541,7 @@ Procurar operações onde duas pessoas agem sobre a mesma entidade.
 3. `stock.movement.manage` precisa existir separadamente de `stock.movement.create`?
 4. `music.moderate` deve exigir ter acesso ao app TV ou basta a capability isolada? E quem pode concedê-la (só super admin? admin de workspace?)?
 5. As rotas legadas `profile.role='admin'` (usadas em `_require_workspace_app_manager`) devem virar explicitamente "admin de workspace" no RBAC 2.0, ou serem eliminadas?
-6. `reservelab.tablet.cancel` — como resolver a inconsistência atual (UI full vs RLS super admin)? Vira Action com escopo workspace?
+6. ~~`reservelab.tablet.cancel` — como resolver a inconsistência atual (UI full vs RLS super admin)? Vira Action com escopo workspace?~~ **RESOLVIDO (PR-4D-A, migração 078):** Action `reservelab.tablet.cancel` @workspace, default `tec`; UI mantém `full`; RLS continua hard delete, agora controlado por membership+Action (is_super_admin bypass preservado).
 7. Escopo por Action é propriedade da Action ou da Membership/override?
 8. Quais Actions admin (aprovar/rejeitar usuário, wipe, backup) devem ser delegáveis a "admin de workspace" no futuro — e em quais limites?
 9. `stock.qr.activateAsPC` — é uma Action própria ou efeito de `stock.item.edit` + `pcare.asset.create`?
