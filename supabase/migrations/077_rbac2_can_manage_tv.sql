@@ -219,4 +219,3 @@ BEGIN
     RAISE NOTICE 'tv.manage — override legado app_access.tv revogado de % perfil(s)', v_dep;
   END IF;
 END $;
-END $$;
