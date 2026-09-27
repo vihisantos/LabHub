@@ -3,7 +3,7 @@ import json
 import hmac
 from flask import Flask, jsonify, request, g
 from openpyxl import load_workbook
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, timezone
 from flask_cors import CORS
 import os
 import sys
@@ -854,11 +854,140 @@ def _supabase_headers():
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# Rejeição de conta (estado terminal + ban da identidade Auth) — helpers
+# COMPARTILHADAS com `api/app.py` (PR-4D-A). Vivem aqui porque `api/app.py`
+# importa este módulo primeiro (linha 7); movê-las só para `api/app.py`
+# criaria import circular. A semântica é idêntica ao endpoint
+# POST /api/admin/users/<id>/reject (#286 PR-1, migration 074):
+#   · o profile NUNCA é apagado (DELETE removido porque não revoga sessão);
+#   · a identidade `auth.users` NUNCA é apagada — só desativada por ban;
+#   · a transição é `pending -> rejected`, condicionada no próprio UPDATE
+#     (PostgREST: id + status na mesma instrução — sem corrida);
+#   · em falha do ban, a operação COMPENSA (volta o status anterior); se a
+#     compensação também falha, o `rejected` permanece e o `require_auth`
+#     continua negando (nada fica operacional pela metade).
+# ==============================================================================
+
+_REJECTABLE_STATUS = 'pending'
+_REJECTED_STATUS = 'rejected'
+
+# Ban de 100 anos: suficiente para impedir emissão de nova sessão e reversível
+# (basta um PUT com ban_duration="none" no futuro). A garantia real de bloqueio
+# é dupla: o ban no Auth E o `rejected` barrado pelo `require_auth`.
+_REJECT_BAN_DURATION = '876000h'
+
+
+def _auth_admin_ban(user_id, duration):
+    """Desativa a identidade Auth via Admin API (PUT /auth/v1/admin/users/<id>).
+
+    NUNCA faz DELETE: a identidade é preservada (UUID, histórico, FKs).
+    """
+    return requests.put(
+        f'{_SUPABASE_URL}/auth/v1/admin/users/{user_id}',
+        headers=_supabase_headers(),
+        json={'ban_duration': duration},
+        timeout=30,
+    )
+
+
+def _profiles_patch(user_id, payload, expected_status=None):
+    """PATCH em `profiles` (service_role).
+
+    Quando `expected_status` é informado, o filtro vai PARA A MESMA INSTRUÇÃO
+    do UPDATE (PostgREST: `?id=eq.X&status=eq.<esperado>`), o que equivale a
+        UPDATE public.profiles SET ... WHERE id = <id> AND status = <esperado>
+    isto é, a pré-condição é garantida pelo BANCO, na escrita atômica — e não
+    por uma segunda leitura em Python (que abriria corrida).
+
+    `Prefer: return=representation` devolve as linhas EFETIVAMENTE alteradas:
+    lista vazia significa que a condição não casou (outro fluxo já mudou o
+    registro). O chamador DEVE interpretar a contagem, nunca só o HTTP 200.
+    """
+    params = {'id': f'eq.{user_id}'}
+    if expected_status is not None:
+        params['status'] = f'eq.{expected_status}'
+    return requests.patch(
+        f'{_SUPABASE_URL}/rest/v1/profiles',
+        params=params,
+        headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+        json=payload,
+        timeout=30,
+    )
+
+
+def _log_rejection_audit(actor, target, prev_status):
+    """Grava a auditoria explícita da rejeição em `app_audit_logs`.
+
+    O gatilho `trg_app_audit_profiles` (054/065) já registra `status_changed`,
+    porém com `auth.uid()` NULL quando a escrita usa `service_role` — o ator se
+    perde. Aqui o ator é gravado. Mesma tabela, nenhuma infra nova.
+    """
+    actor_id = (actor or {}).get('id')
+    workspace_id = None
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/memberships',
+            params={
+                'profile_id': f'eq.{target["id"]}',
+                'status': 'eq.active',
+                'select': 'workspace_id',
+                'limit': '1',
+            },
+            headers=_supabase_headers(),
+            timeout=15,
+        )
+        if resp.ok and resp.json():
+            workspace_id = resp.json()[0].get('workspace_id')
+    except Exception as e:  # noqa: BLE001 - auditoria nunca derruba a operação
+        logger.warning("[reject] workspace_id para auditoria indisponivel: %s", e)
+
+    payload = {
+        'workspace_id': workspace_id,
+        'actor_id': actor_id,
+        'actor_name': (actor or {}).get('name') or (actor or {}).get('email') or '',
+        'action': 'account_rejected',
+        'entity': 'user',
+        'entity_id': str(target.get('id') or ''),
+        'entity_label': target.get('name') or target.get('email') or '',
+        'meta': {
+            'prev_status': prev_status,
+            'new_status': _REJECTED_STATUS,
+            'auth_disabled': True,
+        },
+    }
+    try:
+        resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/app_audit_logs',
+            headers=_supabase_headers(),
+            json=payload,
+            timeout=30,
+        )
+        if not resp.ok:
+            logger.error("[reject] falha ao gravar auditoria: %s %s",
+                         resp.status_code, resp.text[:300])
+            return False
+        return True
+    except Exception as e:  # noqa: BLE001 - auditoria nunca derruba a operação
+        logger.error("[reject] excecao ao gravar auditoria: %s", e)
+        return False
+
+
 @app.route('/api/push/action', methods=['POST'])
 @require_auth
 @require_admin
 def push_action():
-    """Aprova ou rejeita um usuário pendente. Requer super admin."""
+    """Aprova ou rejeita um usuário pendente. Requer super admin.
+
+    PR-4D-A (fechamento das escritas legadas):
+      · approve → grava SOMENTE `status='active'`. NÃO escreve role/app_access
+        (cargo/overrides são configurados depois via RBAC 2.0 — memberships +
+        role_permissions) e NÃO cria membership.
+      · reject → NÃO apaga o profile (DELETE nunca revogou a sessão Auth).
+        Transição condicional `pending -> rejected` + ban da identidade Auth
+        (helpers `_auth_admin_ban`/`_profiles_patch`/`_log_rejection_audit`
+        compartilhadas com o endpoint /api/admin/users/<id>/reject).
+    """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return jsonify({'error': 'Supabase not configured'}), 503
     try:
@@ -869,16 +998,8 @@ def push_action():
             return jsonify({'error': 'action (approve|reject) e userId são obrigatórios'}), 400
 
         if action == 'approve':
-            role = body.get('role', 'viewer')
-            if role not in ('viewer', 'technician', 'admin'):
-                role = 'viewer'
-            app_access = body.get('app_access')
-            if not isinstance(app_access, dict):
-                app_access = {}
             payload = {
                 'status': 'active',
-                'role': role,
-                'app_access': app_access,
                 'updated_at': datetime.now().isoformat(),
             }
             resp = requests.patch(
@@ -890,19 +1011,99 @@ def push_action():
             if not resp.ok:
                 logger.error(f"Approve profile error: {resp.status_code} {resp.text}")
                 return jsonify({'error': f'Erro ao aprovar: {resp.status_code}'}), resp.status_code
-            logger.info(f"Push action: approved user {user_id[:8]} role={role}")
-            return jsonify({'status': 'approved', 'role': role})
+            logger.info(f"Push action: approved user {user_id[:8]} (status-only)")
+            return jsonify({'status': 'approved'})
         else:
-            resp = requests.delete(
-                f"{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}",
-                headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
-                timeout=10,
+            actor = g.user or {}
+            # 1. Carrega o alvo (service_role, ignora RLS).
+            resp = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/profiles',
+                params={'id': f'eq.{quote(user_id)}', 'select': 'id,email,name,status'},
+                headers=_supabase_headers(),
+                timeout=15,
             )
             if not resp.ok:
-                logger.error(f"Reject profile error: {resp.status_code} {resp.text}")
-                return jsonify({'error': f'Erro ao rejeitar: {resp.status_code}'}), resp.status_code
-            logger.info(f"Push action: rejected user {user_id[:8]}")
-            return jsonify({'status': 'rejected'})
+                logger.error(f"Reject profile read error: {resp.status_code} {resp.text}")
+                return jsonify({'error': 'Não foi possível ler a conta'}), 502
+            rows = resp.json() or []
+            if not rows:
+                return jsonify({'error': 'Conta não encontrada'}), 404
+
+            target = rows[0]
+            current = target.get('status')
+
+            # 2. Valida a transição.
+            if current == _REJECTED_STATUS:
+                return jsonify({'status': 'rejected', 'idempotent': True})
+            if current != _REJECTABLE_STATUS:
+                return jsonify({
+                    'error': 'Conta não está pendente; rejeição só se aplica a contas aguardando decisão',
+                    'status': current,
+                }), 409
+
+            # 3. pending -> rejected CONDICIONAL (a condição mora no UPDATE).
+            upd = _profiles_patch(user_id, {
+                'status': _REJECTED_STATUS,
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            }, expected_status=_REJECTABLE_STATUS)
+            if not upd.ok:
+                logger.error(f"Reject profile update error: {upd.status_code} {upd.text}")
+                return jsonify({'error': 'Não foi possível rejeitar a conta'}), 502
+
+            # 3b. HTTP 200 pode significar condição não casada (corrida).
+            try:
+                updated_rows = upd.json() or []
+            except Exception:  # noqa: BLE001 - resposta inesperada do PostgREST
+                updated_rows = []
+            if not updated_rows:
+                logger.warning("[reject] transicao condicional nao casou (id=%s, status lido=%s); conflito concorrente, sem ban", user_id, current)
+                fresh = requests.get(
+                    f'{_SUPABASE_URL}/rest/v1/profiles',
+                    params={'id': f'eq.{quote(user_id)}', 'select': 'id,status'},
+                    headers=_supabase_headers(),
+                    timeout=15,
+                )
+                fresh_rows = (fresh.json() if fresh.ok else []) or []
+                if not fresh_rows:
+                    return jsonify({'error': 'Conta não encontrada'}), 404
+                now = fresh_rows[0].get('status')
+                if now == _REJECTED_STATUS:
+                    return jsonify({'status': 'rejected', 'idempotent': True})
+                return jsonify({
+                    'error': 'Conta não está pendente; rejeição só se aplica a contas aguardando decisão',
+                    'status': now,
+                }), 409
+
+            # 4. Desativa a identidade Auth (nunca apaga).
+            ban = _auth_admin_ban(user_id, _REJECT_BAN_DURATION)
+            if not ban.ok:
+                auth_err = (ban.text or '')[:300]
+                logger.error(f"Reject auth ban error: {ban.status_code} {auth_err}")
+                back = _profiles_patch(user_id, {
+                    'status': current,
+                    'updated_at': datetime.now(timezone.utc).isoformat(),
+                }, expected_status=_REJECTED_STATUS)
+                try:
+                    back_rows = (back.json() if back.ok else []) or []
+                except Exception:  # noqa: BLE001
+                    back_rows = []
+                if back.ok and back_rows:
+                    return jsonify({
+                        'error': 'Não foi possível desativar a identidade da conta',
+                        'auth_disabled': False,
+                        'rolled_back': True,
+                    }), 502
+                # Compensação falhou: fail-closed. O profile segue `rejected` e o
+                # require_auth já o nega — a conta NÃO fica operacional no LabHub.
+                return jsonify({
+                    'error': 'Rejeição aplicada, mas a identidade não pôde ser desativada nem revertida; conta não tem acesso ao LabHub',
+                    'auth_disabled': False,
+                    'rolled_back': False,
+                }), 502
+
+            # 5. Auditoria (não derruba a operação; o estado já está correto).
+            _log_rejection_audit(actor, target, current)
+            return jsonify({'status': 'rejected', 'auth_disabled': True})
     except Exception as e:
         logger.error("Push action error: %s", e)
         return jsonify({'error': 'Erro ao processar ação de usuário'}), 500
@@ -1498,14 +1699,14 @@ def _check_pending_users():
             title = 'Novo usuário pendente'
             body = f"{nome} ({u.get('email') or ''}) aguarda aprovação"
             for sub in subs:
+                # PR-4D-A (Option B): notificação INFORMATIVA. Sem botões
+                # approve/reject — um Service Worker não consegue autenticar com
+                # segurança uma ação crítica em segundo plano (o POST ficaria
+                # também sem Authorization => 401). O click abre a fila de
+                # pendentes: /admin/users?pending=<id> (AdminGuard + RLS).
                 push_notify(
                     sub, title, body,
                     url=f"/admin/users?pending={u.get('id')}",
-                    actions=[
-                        {'action': 'approve', 'title': 'Aprovar'},
-                        {'action': 'reject', 'title': 'Recusar'},
-                    ],
-                    user_id=u.get('id'),
                 )
             redis.setex(f'push:sent:{nid}', 604800, '1')
             sent += 1
