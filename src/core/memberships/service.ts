@@ -43,6 +43,21 @@ export function isActiveMember(
 }
 
 /**
+ * Membership ATIVA do usuário numa unidade específica (RBAC 2.0).
+ * É o elo que liga `user → workspace → role_id`, usado tanto por `can()`
+ * quanto pela resolução de cargo por unidade. `undefined` ⇒ nenhuma.
+ */
+export function activeMembershipIn(
+  memberships: Pick<Membership, 'workspace_id' | 'status' | 'role_id'>[] | undefined,
+  workspaceId: string | null | undefined,
+): Pick<Membership, 'workspace_id' | 'status' | 'role_id'> | undefined {
+  if (!memberships || !workspaceId) return undefined
+  return memberships.find(
+    (m) => m.workspace_id === workspaceId && m.status === ACTIVE,
+  )
+}
+
+/**
  * Seleção de workspaces atribuídos — FONTE ÚNICA de visibilidade (design 9.2,
  * §3.2). Pertencimento = membership ATIVA; `membershipsLoaded !== true` ⇒ nada
  * visível. `profiles.workspace_ids` nunca participa (compat, nunca autorização).
@@ -170,5 +185,72 @@ export const membershipService = {
       if (r?.id) out.set(r.id, { slug: r.slug, name: r.name })
     }
     return out
+  },
+
+  /**
+   * RBAC 2.0 — AUTORIZAÇÃO POR ACTION (fonte de verdade do backend/RLS).
+   *
+   * Cadeia, espelhando `user_can_manage_tv` (077) e
+   * `can_manage_workspace_apps` (076):
+   *
+   *   is_super_admin                    → true (bypass global)
+   *   membership do usuário na unidade
+   *     status = 'active'                → senão false
+   *   role_permissions
+   *     role_id  = membership.role_id
+   *     action   = <action>
+   *     scope    = 'workspace'           → senão false
+   *
+   * DECISÕES (por que é fail-closed em cada etapa):
+   *  · `user` ausente/vazio → false. Nunca "adivinhe" o caller.
+   *  · `workspaceId` ausente → false: Action com escopo `workspace` não tem
+   *    contexto de unidade para resolver a membership. Coerente com
+   *    `rbac_can` no Python (`if not workspace_id: return False`).
+   *  · `membershipsLoaded !== true` → false. Antes do carregamento não há
+   *    decisão; nunca cair em `workspace_ids` nem em `[]` silencioso.
+   *  · memberships `pending/suspended/removed` → false.
+   *  · membership em OUTRA unidade → false. O vínculo é sempre
+   *    `m.workspace_id === workspaceId`; é isto que garante o isolamento
+   *    multiunidade exigido pelo servidor.
+   *  · erro de rede/RLS/query → false. `error` NUNCA vira `true`.
+   *
+   * Leitura feita com a SESSÃO DO USUÁRIO (`defaultDb`, token do Supabase
+   * Auth) — nunca `service_role`. A exposição é decidida pela RLS
+   * `role_permissions_select` (036), que já permite a roles globais
+   * (`workspace_id IS NULL`), como `tec`/`opv`/`adm`.
+   */
+  async can(
+    user: User | null | undefined,
+    action: string,
+    workspaceId: string | null | undefined,
+  ): Promise<boolean> {
+    // Super Admin: bypass global, independente de membership (como em
+    // `tv_can_manage_workspace` e `rbac_can`).
+    if (!user) return false
+    if (user.is_super_admin === true) return true
+
+    const wanted = String(action ?? '').trim()
+    if (!wanted) return false
+    if (!workspaceId) return false
+    if (user.membershipsLoaded !== true) return false
+
+    const membership = activeMembershipIn(user.memberships, workspaceId)
+    if (!membership?.role_id) return false
+
+    try {
+      requireDb()
+      const { data, error } = await defaultDb!
+        .from('role_permissions')
+        .select('id')
+        .eq('role_id', membership.role_id)
+        .eq('action', wanted)
+        .eq('scope', 'workspace')
+        .limit(1)
+      if (error) return false
+      return Array.isArray(data) && data.length > 0
+    } catch {
+      // Falha fechada: exceção jamais concede acesso.
+      return false
+    }
   },
 }

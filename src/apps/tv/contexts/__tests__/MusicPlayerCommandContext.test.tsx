@@ -5,7 +5,9 @@ import type { TvMusicTrack } from '../../types'
 
 /* ── Mocks de infraestrutura ── */
 const supabase = vi.hoisted(() => ({ defaultDb: { rpc: vi.fn() } as any }))
-const access = vi.hoisted(() => ({ level: 'full' as string }))
+// RBAC 2.0 (#296 PR-4C): o gate e' a Action 	v.manage, nao pp_access.tv.
+// pp_access nao participa deste teste.
+const access = vi.hoisted(() => ({ allowed: true, loading: false, action: '' as string }))
 const sendSignal = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../../lib/supabase', () => ({ defaultDb: supabase.defaultDb }))
@@ -13,7 +15,13 @@ vi.mock('../../../../core/workspaces/store', () => ({
   workspaceStore: { activeWorkspaceId: 'ws-x', filter: <T,>(rows: T[]) => rows },
 }))
 vi.mock('../../../../core/permissions/usePermissions', () => ({
-  useAppAccess: () => ({ getLevel: () => access.level }),
+  useCanAccessAction: (action: string) => {
+    access.action = action
+    return { allowed: access.allowed, loading: access.loading }
+  },
+}))
+vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
+  useWorkspace: () => ({ workspace: { id: 'ws-x' } }),
 }))
 vi.mock('../../../../lib/useRealtimeBroadcast', () => ({
   useRealtimeBroadcast: () => ({ send: sendSignal }),
@@ -59,7 +67,8 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 
 beforeEach(() => {
   vi.clearAllMocks()
-  access.level = 'full'
+  access.allowed = true
+  access.loading = false
   supabase.defaultDb.rpc.mockImplementation(async (fn: string) => {
     if (fn === 'station_get_snapshot') return { data: snapshot, error: null }
     if (fn === 'station_track_change') return { data: commandResult, error: null }
@@ -68,6 +77,53 @@ beforeEach(() => {
   })
 })
 
+describe('RBAC 2.0 — gate da estação usa a Action tv.manage (#296 PR-4C)', () => {
+  it('consulta exatamente a Action tv.manage', async () => {
+    access.allowed = true
+    access.loading = false
+    renderHook(() => useMusicPlayerCommand(), { wrapper })
+    expect(access.action).toBe('tv.manage')
+  })
+
+  it('SEM tv.manage => ACCESS_DENIED e a RPC não é chamada', async () => {
+    access.allowed = false
+    access.loading = false
+    const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
+
+    await expect(result.current.playNext(track)).rejects.toMatchObject({
+      code: 'ACCESS_DENIED',
+    })
+    const mutating = supabase.defaultDb.rpc.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).startsWith('station_') && c[0] !== 'station_get_snapshot',
+    )
+    expect(mutating).toHaveLength(0)
+  })
+
+  it('app_access NÃO é consultado para autorizar (a Action decide)', async () => {
+    access.allowed = true
+    access.loading = false
+    const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
+    await result.current.playNext(track)
+    // Nenhuma chamada a profiles/app_access; só a RPC da estação.
+    const calls = supabase.defaultDb.rpc.mock.calls.map((c: unknown[]) => String(c[0]))
+    expect(calls.some((fn: string) => /app_access|profiles/.test(fn))).toBe(false)
+
+  })
+
+  it('fail-closed enquanto a consulta da Action não resolve (loading)', async () => {
+    access.allowed = false
+    access.loading = true
+    const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
+
+    await expect(result.current.playNext(track)).rejects.toMatchObject({
+      code: 'ACCESS_DENIED',
+    })
+    const mutating = supabase.defaultDb.rpc.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).startsWith('station_') && c[0] !== 'station_get_snapshot',
+    )
+    expect(mutating).toHaveLength(0)
+  })
+})
 describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   it('fornece superfície de comando SEM player/iframe/áudio', () => {
     renderHook(() => useMusicPlayerCommand(), { wrapper })
@@ -77,7 +133,8 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it('com acesso full: emite station_track_change e sinal mínimo de broadcast', async () => {
-    access.level = 'full'
+    access.allowed = true
+  access.loading = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     await result.current.playNext(track)
@@ -100,7 +157,7 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it('com acesso read: NÃO emite mutação (ACCESS_DENIED) e não transmite', async () => {
-    access.level = 'read'
+    access.allowed = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     await expect(result.current.playNext(track)).rejects.toMatchObject({ code: 'ACCESS_DENIED' })
@@ -111,7 +168,8 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it('stop() com full: emite station_stop e sinal mínimo (sem áudio/iframe)', async () => {
-    access.level = 'full'
+    access.allowed = true
+  access.loading = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     await result.current.stop()
@@ -131,7 +189,7 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it('stop() com read: NÃO emite station_stop (ACCESS_DENIED)', async () => {
-    access.level = 'read'
+    access.allowed = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     await expect(result.current.stop()).rejects.toMatchObject({ code: 'ACCESS_DENIED' })
@@ -142,7 +200,8 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it.each(['pause', 'resume'] as const)('%s() com full: emite station_%s e sinal mínimo', async (op) => {
-    access.level = 'full'
+    access.allowed = true
+  access.loading = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     if (op === 'pause') await result.current.pause()
@@ -161,7 +220,7 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it.each(['pause', 'resume'] as const)('%s() com read: NÃO emite station_%s (ACCESS_DENIED)', async (op) => {
-    access.level = 'read'
+    access.allowed = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     const p = op === 'pause' ? result.current.pause() : result.current.resume()
@@ -173,7 +232,8 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it.each(['next', 'previous'] as const)('%s() com full: emite station_%s e sinal mínimo', async (op) => {
-    access.level = 'full'
+    access.allowed = true
+  access.loading = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     if (op === 'next') await result.current.next()
@@ -192,7 +252,7 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it.each(['next', 'previous'] as const)('%s() com read: NÃO emite station_%s (ACCESS_DENIED)', async (op) => {
-    access.level = 'read'
+    access.allowed = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     const p = op === 'next' ? result.current.next() : result.current.previous()
@@ -204,7 +264,8 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it('seek() com full: emite station_seek com a posição e sinal mínimo', async () => {
-    access.level = 'full'
+    access.allowed = true
+  access.loading = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     await result.current.seek(42)
@@ -223,7 +284,7 @@ describe('MusicPlayerCommandProvider — comando real (Fase 2.2)', () => {
   })
 
   it('seek() com read: NÃO emite station_seek (ACCESS_DENIED)', async () => {
-    access.level = 'read'
+    access.allowed = false
     const { result } = renderHook(() => useMusicPlayerCommand(), { wrapper })
 
     await expect(result.current.seek(42)).rejects.toMatchObject({ code: 'ACCESS_DENIED' })
