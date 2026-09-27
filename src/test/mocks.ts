@@ -8,7 +8,12 @@ vi.mock('../core/permissions/usePermissions', () => ({
     getLevel: () => 'full',
     canAccessApp: () => true,
     isFullAccess: () => true,
+    canAccessByAction: async () => true,
   }),
+  // RBAC 2.0 (#296 PR-4C): gate por Action. Default = concedido, para não
+  // trancar as telas de escrita nos testes que não exercitam autorização.
+  // Testes de autorização sobrescrevem via `mockUseCanAccessAction`.
+  useCanAccessAction: () => ({ allowed: true, loading: false }),
 }))
 
 vi.mock('../core/workspaces/store', () => ({

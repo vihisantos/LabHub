@@ -25,11 +25,18 @@ export function LeadershipAreaGuard({
   children: ReactNode
 }) {
   const { user, loading: authLoading } = useAuth()
-  const { isLeadership, area } = useLeadership()
+  // RBAC 2.0 (#296 PR-4C): `isLeadership`/`area` vêm do slug da membership ATIVA
+  // da unidade selecionada. `loading` entra no gate para não denying antes de a
+  // consulta resolver (fail-closed sem piscar "acesso restrito").
+  const { isLeadership, area, loading: leadershipLoading } = useLeadership()
   const coordinator = useCoordinator({ enabled: scope === 'coordination' })
   const navigate = useNavigate()
 
-  if (authLoading || (scope === 'coordination' && coordinator.loading)) {
+  if (
+    authLoading ||
+    leadershipLoading ||
+    (scope === 'coordination' && coordinator.loading)
+  ) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-surface">
         <div className="flex flex-col items-center gap-3">
@@ -114,6 +121,8 @@ export function LeadershipAreaGuard({
     return <>{children}</>
   }
 
+  // Escopo `team`: liderança na UNIDADE ATIVA. Uma membership de liderança em
+  // A não abre a área em B — o cargo vem da membership da unidade corrente.
   const denied = !isLeadership || area !== 'team'
 
   if (denied) {

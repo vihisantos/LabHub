@@ -1,5 +1,6 @@
 import { createContext, useContext, useCallback, type ReactNode } from 'react'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { useRealtimeBroadcast } from '../../../lib/useRealtimeBroadcast'
 import {
   playTrackNow,
@@ -56,7 +57,16 @@ export function useMusicPlayerCommand(): MusicPlayerCommandValue {
 }
 
 export function MusicPlayerCommandProvider({ children }: { children: ReactNode }) {
-  const { getLevel } = useAppAccess()
+  const { workspace } = useWorkspace()
+
+  // RBAC 2.0 (#296 PR-4C): comandar a estação é ESCRITA na TV. O gate passa a
+  // ser a Action `tv.manage` — a mesma que o RLS exige em
+  // `station_begin_mutation` → `tv_can_manage_workspace` →
+  // `user_can_manage_tv` (migration 077). Antes esta checagem usava
+  // `app_access.tv === 'full'`, que divergia do enforcement do banco.
+  // Fail-closed: enquanto a consulta não responde, nega.
+  const { allowed: canManageTv, loading: canManageTvLoading } =
+    useCanAccessAction('tv.manage', workspace?.id ?? null)
 
   // Sinal mínimo p/ o Desktop reconsultar o snapshot (não é autoridade).
   const { send } = useRealtimeBroadcast<StationChangedSignal>(
@@ -69,8 +79,7 @@ export function MusicPlayerCommandProvider({ children }: { children: ReactNode }
   /** Gate (full) + RPC + sinal mínimo. Compartilhado por playNext/stop. */
   const emit = useCallback(
     async (command: () => Promise<StationCommandOutcome>) => {
-      const level = getLevel('tv')
-      if (level !== 'full') {
+      if (!canManageTv || canManageTvLoading) {
         throw new StationError('ACCESS_DENIED', 'Sem permissão para comandar a estação de música')
       }
       const outcome = await command()
@@ -81,7 +90,7 @@ export function MusicPlayerCommandProvider({ children }: { children: ReactNode }
         sequence: outcome.result.state_sequence,
       })
     },
-    [getLevel, send],
+    [canManageTv, canManageTvLoading, send],
   )
 
   const playNext = useCallback((track: TvMusicTrack) => emit(() => playTrackNow(track)), [emit])

@@ -10,7 +10,7 @@ import { useGalleries } from '../hooks/useGallery'
 import { useUrgentAnnouncements } from '../hooks/useUrgentAnnouncements'
 import { useDevices } from '../hooks/useDevices'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useAppAccess, useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { useToast } from '../../../lib/ToastContext'
 import { useMusicPlayerCommand } from '../contexts/MusicPlayerCommandContext'
 import { StationError } from '../services/stationService'
@@ -66,12 +66,25 @@ export function AdminView() {
   const [seekSeconds, setSeekSeconds] = useState('')
   const [seeking, setSeeking] = useState(false)
 
-  // Acesso real à TV (cargo local + override individual em profiles.app_access)
+  // VISIBILIDADE/LEITURA da TV: mecanismo próprio (nível do app). Não é
+  // autorização de escrita — o RLS de leitura é `can_access_tv_workspace`
+  // (membership), independente deste nível.
   const { getLevel } = useAppAccess()
   const tvLevel = getLevel('tv')
-  const isFullAccess = tvLevel === 'full'
-  const tvReadOnly = tvLevel === 'read'
   const noTvAccess = tvLevel !== 'full' && tvLevel !== 'read'
+
+  // RBAC 2.0 (#296 PR-4C): ESCRITA/ADMINISTRAÇÃO da TV passa a usar a Action
+  // `tv.manage`, a MESMA que o RLS exige em `user_can_manage_tv` (migration
+  // 077). Antes esta tela decidia escrita por `app_access.tv === 'full'`, o que
+  // divergia do banco. `profiles.app_access` NÃO decide mais esta operação.
+  // Fail-closed: enquanto a consulta não responde, `allowed` é false.
+  const { allowed: canManageTv, loading: canManageTvLoading } =
+    useCanAccessAction('tv.manage')
+  const isFullAccess = canManageTv
+  // Escrita bloqueada = NÃO tem `tv.manage`, que é o que o RLS exige. Cobre
+  // tanto o nível `read` do app quanto o caso `full` sem permissão RBAC 2.0 —
+  // antes esses dois casos divergiam do banco.
+  const tvWriteBlocked = !canManageTv
 
   const handleStop = async () => {
     setStopping(true)
@@ -332,7 +345,7 @@ export function AdminView() {
                   {stopping ? 'Parando…' : 'Parar'}
                 </button>
               )}
-              {!tvReadOnly && (
+              {!tvWriteBlocked && !canManageTvLoading && (
                 <button
                   onClick={() => setShowUrgentModal(true)}
                   className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
@@ -557,7 +570,7 @@ export function AdminView() {
                       onDelete={deleteEvent}
                       initialValues={initialEventValues}
                       devices={devices}
-                      readOnly={tvReadOnly}
+                      readOnly={tvWriteBlocked}
                     />
                   )}
                   {activeTab === 'playlists' && (
@@ -566,14 +579,14 @@ export function AdminView() {
                       onAdd={addPlaylist}
                       onEdit={editPlaylist}
                       onDelete={deletePlaylist}
-                      readOnly={tvReadOnly}
+                      readOnly={tvWriteBlocked}
                     />
                   )}
                   {activeTab === 'music' && (
-                    <QueueManager readOnly={tvReadOnly} />
+                    <QueueManager readOnly={tvWriteBlocked} />
                   )}
                   {activeTab === 'requests' && (
-                    <MusicRequestManager readOnly={tvReadOnly} />
+                    <MusicRequestManager readOnly={tvWriteBlocked} />
                   )}
                   {activeTab === 'gallery' && (
                     <GalleryManager
@@ -581,7 +594,7 @@ export function AdminView() {
                       onCreate={createGallery}
                       onDelete={removeGallery}
                       onToggleActive={toggleGalleryActive}
-                      readOnly={tvReadOnly}
+                      readOnly={tvWriteBlocked}
                     />
                   )}
                   {activeTab === 'announcements' && (
@@ -592,7 +605,7 @@ export function AdminView() {
                       onRemove={removeAnnouncement}
                       onMoveUp={moveUp}
                       onMoveDown={moveDown}
-                      readOnly={tvReadOnly}
+                      readOnly={tvWriteBlocked}
                     />
                   )}
                   {activeTab === 'devices' && (
@@ -613,7 +626,7 @@ export function AdminView() {
                     )
                   )}
                   {activeTab === 'calendar' && (
-                    <CalendarManager readOnly={tvReadOnly} />
+                    <CalendarManager readOnly={tvWriteBlocked} />
                   )}
                   {activeTab === 'install' && (
                     <TvDesktopInstall />
