@@ -139,13 +139,19 @@ class TestExistenciaEOrdenacao:
     def test_migration_075_existe(self):
         assert MIGRATION.is_file(), "a migration 075 deve existir"
 
-    def test_075_e_a_migration_mais_recente(self):
+    def test_075_esta_sequenciada_apos_a_074(self):
+        """A 075 precisa vir depois da 074, mas NÃO precisa ser a última: a 076
+        (#296 PR-4A) já a segue. O que trava é o sequenciamento, não o topo."""
         nums = sorted(
             int(m.group(1))
             for m in (re.match(r"^(\d+)_", p.name) for p in MIGRATIONS_DIR.glob("*.sql"))
             if m
         )
-        assert nums[-1] == 75, f"a 075 deveria ser a última migration (encontrado: {nums[-1]})"
+        assert 75 in nums, f"a 075 deveria existir na sequência (numeros: {nums})"
+        assert 74 in nums, f"a 074 deveria existir na sequência (numeros: {nums})"
+        assert nums.index(75) > nums.index(74), "a 075 precisa vir depois da 074"
+        # 075 não pode reaparecer duplicada nem colidir com outra migration.
+        assert nums.count(75) == 1, f"a 075 aparece {nums.count(75)}x na sequência"
 
     def test_075_vem_apos_a_074(self):
         assert (MIGRATIONS_DIR / "074_admin_rejection_state.sql").is_file()
