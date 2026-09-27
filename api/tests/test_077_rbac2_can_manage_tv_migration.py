@@ -17,8 +17,9 @@ O que é verificado aqui (mesmo padrão de `api/tests`: leitura estática):
      vigente desde a 059, verificado também em test_059);
   7. a ACL é reaplicada e idêntica à da 059 (2 REVOKE + 2 GRANT);
   8. as funções consumidoras (`tv_can_manage_workspace`) NÃO são reescritas;
-  9. a migration não faz DML em `profiles`/`memberships`, não cria Actions
-     granulares, não toca RBAC_2_ENABLED nem ReservationLab.
+  9. a migration não faz backfill/promoção de `profiles`/`memberships`; ela
+     remove apenas a chave legada `app_access.tv` (sem tocar outras chaves),
+     não cria Actions granulares, não toca RBAC_2_ENABLED nem ReservationLab.
 
 CUIDADO COM FALSOS POSITIVOS DE SUBSTRING (o mesmo bug que quebrou o Migrations
 CI no PR-4A): `role_permissions` e `rp.role_id` contêm a substring `p.role`.
@@ -336,36 +337,31 @@ class TestEscopoNaoAlterado:
     def test_token_proibido_ausente(self, body, token):
         assert token not in body, f"a 077 nao deveria conter {token!r}"
 
-    def test_nao_faz_dml_em_profiles_ou_memberships(self, body):
-        assert "UPDATE public.profiles" not in body
-        assert "UPDATE public.memberships" not in body
-        assert "DELETE FROM" not in body
-
-    def test_nao_faz_backfill_de_usuarios(self, body):
-        """Só o seed por role (deterministico). Converter app_access -> membership
-        nao tem dimensao de workspace e seria acesso-por-acidente.
-
-        O unico acesso a `profiles` e o SELECT de diagnostico (ver
-        test_diagnostico_e_read_only): nenhuma ESCRITA em profiles/memberships.
+    def test_nao_faz_backfill_ou_promocao_de_usuarios(self, body):
+        """A 077 não converte app_access em membership/role/action.
+        O único DML deliberado em profiles é a revogação da chave legada
+        app_access.tv; nenhuma outra chave é alterada e memberships/roles
+        não são promovidos automaticamente.
         """
-        for write in (
-            "INSERT INTO public.profiles",
-            "UPDATE public.profiles",
-            "DELETE FROM public.profiles",
-            "INSERT INTO public.memberships",
-            "UPDATE public.memberships",
-            "DELETE FROM public.memberships",
-            "UPDATE public.roles",
-        ):
-            assert write not in body, f"a 077 nao pode escrever em dados: {write}"
+        assert "INSERT INTO public.profiles" not in body
+        assert "UPDATE public.memberships" not in body
+        assert "DELETE FROM public.profiles" not in body
+        assert "INSERT INTO public.memberships" not in body
+        assert "DELETE FROM public.memberships" not in body
+        assert "UPDATE public.roles" not in body
+        assert "UPDATE public.profiles" in body
+        assert "SET app_access = COALESCE(app_access, '{}'::jsonb) - 'tv'" in body
+        assert "WHERE COALESCE(app_access->>'tv', '') = 'full'" in body
         assert "unnest" not in body
 
-    def test_diagnostico_e_read_only(self, body):
-        """O unico SELECT a profiles e o diagnostico, que nao escreve nada."""
-        selects = re.findall(r"SELECT count\(\*\)[^;]*FROM public\.profiles[^;]*", body, re.S)
-        assert selects, "deve haver o diagnostico read-only"
-        assert "INSERT INTO public.profiles" not in body
-        assert "UPDATE public.profiles" not in body
+    def test_revogacao_nao_mexe_em_outras_chaves(self, body):
+        """A expressão jsonb - 'tv' remove somente a chave legada de TV."""
+        assert "app_access = COALESCE(app_access, '{}'::jsonb) - 'tv'" in body
+
+    def test_diagnostico_continua_leitura_antes_da_revogacao(self, body):
+        selects = re.findall(r"SELECT count\\(\\*\\)[^;]*FROM public\\.profiles[^;]*", body, re.S)
+        assert selects, "deve haver contagem dos dependentes legados antes da revogação"
+        assert "RAISE NOTICE" in body
 
     def test_nao_altera_reservalab(self, body):
         assert "tablet_reservation" not in body
