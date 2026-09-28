@@ -7,7 +7,7 @@ import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { ChecklistItemDef, ChecklistTemplateForm } from '../types/checklist'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 const emptyForm = (): ChecklistTemplateForm => ({
   name: '',
@@ -24,8 +24,15 @@ const categories = [
 export function ChecklistTemplates() {
   const navigate = useNavigate()
   const { templates, loading, create, update, remove } = useChecklistTemplates()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  // RBAC 2.0 (F2-D-G): a escrita de template passa a ser decidida pelas
+  // Actions `pcare.checklist.create|edit|delete` (migration 079) — as MESMAS
+  // que o RLS de `pcare.checklist_templates` exige no banco. Antes esta tela
+  // usava `isFullAccess('pc-care')`, que vem de `Role.appAccess` /
+  // `profiles.app_access` e por isso podia divergir do enforcement.
+  // Fail-closed: enquanto a consulta não responde, `allowed` é false.
+  const { allowed: canCreate } = useCanAccessAction('pcare.checklist.create')
+  const { allowed: canEdit } = useCanAccessAction('pcare.checklist.edit')
+  const { allowed: canDelete } = useCanAccessAction('pcare.checklist.delete')
   const [showForm, setShowForm] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [form, setForm] = useState<ChecklistTemplateForm>(emptyForm())
@@ -69,6 +76,9 @@ export function ChecklistTemplates() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // Guarda de escrita por Action: o botão que abre o form já é gated, mas o
+    // submit re-checa a Action da operação (fail-closed).
+    if (editingId ? !canEdit : !canCreate) return
     const validItems = form.items.filter((i) => i.label.trim())
     const data = { ...form, items: validItems }
     if (editingId) {
@@ -80,6 +90,7 @@ export function ChecklistTemplates() {
   }
 
   function startEdit(t: (typeof templates)[0]) {
+    if (!canEdit) return
     setForm({
       name: t.name,
       labName: t.labName,
@@ -95,7 +106,7 @@ export function ChecklistTemplates() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Checklists</h2>
-        {canWrite && (
+        {canCreate && (
           <button
             type="button"
             onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyForm()) }}
@@ -206,7 +217,7 @@ export function ChecklistTemplates() {
           icon={icons.nav.checklists}
           title="Nenhum checklist"
           description="Crie templates de checklist para os laboratórios."
-          action={canWrite ? { label: 'Criar Template', onClick: () => setShowForm(true) } : undefined}
+          action={canCreate ? { label: 'Criar Template', onClick: () => setShowForm(true) } : undefined}
         />
       ) : (
         <div className="flex flex-col gap-3">
@@ -219,10 +230,10 @@ export function ChecklistTemplates() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => navigate(`/pc-care/checklists/${t.id}/execute`)} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1 text-xs font-medium text-fg shadow-sm shadow-violet-500/20 transition-all hover:shadow-md">Executar</button>
-                  {canWrite && (
+                  {canEdit && (
                     <button type="button" onClick={() => startEdit(t)} className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">Editar</button>
                   )}
-                  {canWrite && (
+                  {canDelete && (
                     <button type="button" onClick={() => setConfirmRemove(t.id)} className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">Excluir</button>
                   )}
                 </div>
