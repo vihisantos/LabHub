@@ -786,20 +786,237 @@ def _resolve_batch_memberships(subs):
         return {}
 
 
-def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None):
-    """Filtra os subscribers pela segmentação de notificações.
+# ── Targeting de push por módulo (RBAC2, resolução no servidor) ─────────────
+# Ações exigidas por módulo para receber push. Fonte: catálogo de Actions
+# (docs/architecture/rbac2.0-actions-catalog.md) + seeds 036/040/078. O campo
+# `apps` do snapshot da inscrição NUNCA decide o targeting — a autoridade é a
+# membership ativa + as Actions do role (service_role). A chave é o antigo
+# `min_level` ('full' = somente Actions operacionais; None = qualquer Action do
+# módulo). Módulo ou nível sem critério cadastrado ⇒ fail-closed (somente super
+# admin recebe).
+_MODULE_PUSH_ACTIONS = {
+    'chamados': {
+        None: frozenset({
+            'ticket.create', 'ticket.view', 'ticket.edit', 'ticket.status',
+            'ticket.assign', 'ticket.comment', 'ticket.close', 'ticket.reopen',
+            'ticket.delete', 'ticket.qr', 'ticket.report',
+        }),
+        'full': frozenset({
+            'ticket.edit', 'ticket.status', 'ticket.assign', 'ticket.comment',
+            'ticket.close', 'ticket.reopen', 'ticket.delete', 'ticket.qr',
+        }),
+    },
+    'reservalab': {
+        'full': frozenset({'reservelab.tablet.reserve', 'reservelab.tablet.cancel'}),
+    },
+    'stock': {
+        None: frozenset({
+            'stock.item.create', 'stock.item.edit', 'stock.item.delete',
+            'stock.movement.create', 'stock.movement.manage', 'stock.kit.audit',
+            'stock.inventory.run', 'stock.maintenance.manage', 'stock.export',
+        }),
+    },
+    'pc-care': {
+        None: frozenset({
+            'pcare.asset.create', 'pcare.asset.edit', 'pcare.asset.manage',
+            'pcare.part.create', 'pcare.part.edit', 'pcare.part.delete',
+            'pcare.maintenance.manage', 'pcare.export', 'pcare.import',
+        }),
+    },
+    'tv': {
+        None: frozenset({
+            'tv.content.manage', 'tv.urgentAnnouncement', 'music.request',
+            'music.moderate', 'tv.settings.manage', 'tv.device.manage',
+        }),
+    },
+}
 
-    - módulo: usuário precisa ter acesso resolvido ao app (campo `apps` da inscrição).
-      Inscrições legadas (sem `apps`) continuam recebendo de todos os módulos.
-    - min_level: nível mínimo de acesso ao módulo para receber o push
-      (ex.: 'full'). Super admin sempre passa; inscrição legada com valor
-      booleano `true` (anterior à segmentação por nível) é tratada como full.
+
+def _resolve_batch_rbac(subs):
+    """Memberships ativas com papel por usuário: {uid: {ws: {'membership_id', 'role_id'}}}.
+
+    Mesma guarda de UUID do batch de workspaces (`_resolve_batch_memberships`):
+    IDs não-UUID são ignorados (nunca entram na query PostgREST — 22P02) e
+    falha real na consulta ⇒ {} (fail-closed: sem membership resolvida, sem
+    envio). SELECT carrega id + role_id — a base para resolver as Actions de
+    cada papel por lote no targeting de push.
+    """
+    ids = sorted({str((s.get('user') or {}).get('id') or '') for s in subs})
+    ids = [i for i in ids if i]
+    if not ids or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return {}
+    try:
+        valid_ids = [i for i in ids if _is_valid_uuid(i)]
+        invalid_ids = [i for i in ids if not _is_valid_uuid(i)]
+        if invalid_ids:
+            logger.warning(
+                "push: %d user_id(s) não-UUID ignorados no batch de RBAC",
+                len(invalid_ids),
+            )
+        if not valid_ids:
+            return {}
+        in_list = ','.join(f'"{i}"' for i in valid_ids)
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/memberships'
+            f'?profile_id=in.({quote(in_list)})&status=eq.active'
+            '&select=profile_id,workspace_id,id,role_id',
+            headers={
+                'apikey': _SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            return {}
+        out = {}
+        for r in (resp.json() or []):
+            uid, ws = r.get('profile_id'), r.get('workspace_id')
+            if uid and ws:
+                entry = out.setdefault(str(uid), {}).setdefault(str(ws), {})
+                entry['membership_id'] = r.get('id')
+                entry['role_id'] = r.get('role_id')
+        return out
+    except Exception:
+        return {}
+
+
+def _resolve_batch_role_permissions(role_ids):
+    """Actions por role (escopo 'workspace' apenas): {role_id: {action}}.
+
+    Falha/impossível ⇒ {} (fail-closed). Ações de outro escopo (global/self)
+    não entram — push é segmentação por workspace.
+    """
+    role_ids = sorted({str(r) for r in (role_ids or []) if r})
+    if not role_ids or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return {}
+    try:
+        in_list = ','.join(f'"{r}"' for r in role_ids)
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/role_permissions'
+            f'?role_id=in.({quote(in_list)})&select=role_id,action,scope',
+            headers={
+                'apikey': _SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            return {}
+        out = {}
+        for r in (resp.json() or []):
+            if str(r.get('scope') or 'workspace') != 'workspace':
+                continue
+            action = str(r.get('action') or '').strip()
+            if action:
+                out.setdefault(str(r.get('role_id')), set()).add(action)
+        return out
+    except Exception:
+        return {}
+
+
+def _resolve_batch_overrides(membership_ids):
+    """Overrides por membership: {membership_id: {action: 'allow'|'deny'}}.
+
+    Falha ⇒ {} (fail-closed) — na ausência de override o papel base decide.
+    """
+    membership_ids = sorted({str(m) for m in (membership_ids or []) if m})
+    if not membership_ids or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return {}
+    try:
+        in_list = ','.join(f'"{m}"' for m in membership_ids)
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/membership_overrides'
+            f'?membership_id=in.({quote(in_list)})&select=membership_id,action,effect',
+            headers={
+                'apikey': _SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            return {}
+        out = {}
+        for r in (resp.json() or []):
+            if r.get('effect') in ('allow', 'deny') and r.get('action'):
+                out.setdefault(str(r.get('membership_id')), {})[str(r['action'])] = r['effect']
+        return out
+    except Exception:
+        return {}
+
+
+def _module_action_ok(u, module, min_level, rbac_members, role_actions, overrides, workspace_id=None):
+    """Tem Action do módulo numa membership ativa (resolução no servidor)?
+
+    - super admin ⇒ True (bypass preservado);
+    - módulo ou nível sem critério cadastrado ⇒ False (fail-closed);
+    - com workspace_id, a Action é exigida NAQUELE workspace; sem workspace_id,
+      qualquer membership ativa do usuário conta.
+    """
+    if u.get('is_super_admin'):
+        return True
+    criteria = _MODULE_PUSH_ACTIONS.get(module)
+    actions = (criteria or {}).get(min_level) if criteria else None
+    if not actions:
+        return False
+    uid = str(u.get('id') or '')
+    user_ws = rbac_members.get(uid) or {}
+    if workspace_id:
+        memberships = {}
+        if workspace_id in user_ws:
+            memberships[workspace_id] = user_ws[workspace_id]
+    else:
+        memberships = user_ws
+    for mem in memberships.values():
+        if not mem:
+            continue
+        role_id = mem.get('role_id')
+        base = role_actions.get(role_id, set()) if role_id else set()
+        override_map = overrides.get(mem.get('membership_id') or '', {})
+        for action in actions:
+            effect = override_map.get(action)
+            if effect == 'deny':
+                continue
+            if effect == 'allow':
+                return True
+            if action in base:
+                return True
+    return False
+
+
+def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None):
+    """Filtra os subscribers pela segmentação de notificações (RBAC2).
+
+    - módulo: destinatário precisa de membership ATIVA + Action do módulo
+      (`_MODULE_PUSH_ACTIONS`), resolvidas no servidor por lote. O campo `apps`
+      do snapshot NUNCA decide; módulo/nível sem critério ⇒ só super admin.
+    - min_level: camada do módulo (ex.: 'full' ⇒ somente Actions operacionais).
     - workspace: super admin vê todos; demais precisam de membership ATIVA
-      resolvida na hora (9.3-B — o campo gravado na inscrição não é lido).
+      resolvida na hora (9.3-B). Com módulo+workspace, a Action é exigida NESSE
+      workspace.
+    - user_id/role: filtros operacionais preservados (destinatário direto).
     - notify_settings: mudo global e canal `push` por app são respeitados.
     """
     subs = _get_subs()
-    member_ws = _resolve_batch_memberships(subs) if workspace_id else {}
+    needs_rbac = bool(module)
+    if needs_rbac:
+        rbac_members = _resolve_batch_rbac(subs)
+        role_ids = {
+            m.get('role_id') for ws in rbac_members.values()
+            for m in ws.values() if m.get('role_id')
+        }
+        role_actions = _resolve_batch_role_permissions(role_ids)
+        membership_ids = {
+            m.get('membership_id') for ws in rbac_members.values()
+            for m in ws.values() if m.get('membership_id')
+        }
+        overrides = _resolve_batch_overrides(membership_ids)
+        member_ws = {uid: set(ws_map.keys()) for uid, ws_map in rbac_members.items()}
+    elif workspace_id:
+        member_ws = _resolve_batch_memberships(subs)
+        rbac_members, role_actions, overrides = {}, {}, {}
+    else:
+        rbac_members, role_actions, overrides = {}, {}, {}
+        member_ws = {}
     out = []
     for s in subs:
         u = s.get('user') or {}
@@ -808,42 +1025,19 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
         if role and u.get('role') != role:
             continue
         if module:
-            if u.get('role') != 'admin' and not u.get('is_super_admin'):
-                apps = u.get('apps')
-                if apps is not None and not apps.get(module):
-                    continue
+            if not _module_action_ok(u, module, min_level, rbac_members, role_actions, overrides, workspace_id):
+                continue
             ns = u.get('notify_settings') or {}
             if ns.get('muted'):
                 continue
             ch = (ns.get('apps') or {}).get(module)
             if ch is not None and not ch.get('push', True):
                 continue
-            if min_level and not u.get('is_super_admin'):
-                if _resolve_push_level((u.get('apps') or {}).get(module)) < _PUSH_LEVEL_RANK.get(min_level):
-                    continue
         if workspace_id:
             if not u.get('is_super_admin') and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
                 continue
         out.append(s)
     return out
-
-
-# Rank de níveis de acesso para segmentação de push por nível mínimo.
-_PUSH_LEVEL_RANK = {'dash': 1, 'read': 2, 'full': 3}
-
-
-def _resolve_push_level(value):
-    """Rank do nível de acesso enviado na inscrição.
-
-    - novo payload (buildPushUser): string ('dash' | 'read' | 'full');
-    - inscrição legada: booleano `true` = tinha acesso (tratado como full);
-    - sem acesso / booleano `false`: rank 0.
-    """
-    if value is True:
-        return _PUSH_LEVEL_RANK['full']
-    if isinstance(value, str):
-        return _PUSH_LEVEL_RANK.get(value, 0)
-    return 0
 
 
 def _supabase_headers():
@@ -1689,7 +1883,11 @@ def _check_pending_users():
             return {'error': f'Supabase query failed: {resp.status_code}'}
 
         pending = resp.json() or []
-        subs = _target_subs(module='auth', role='admin')
+        # RBAC2: aprovação de pendentes é privilégio de plataforma
+        # (`admin.user.approve`/`reject` são scope global ⇒ somente super admin).
+        # Módulo 'auth' não tem Actions de workspace ⇒ fail-closed: só super
+        # admin é destinatário (sem dependência do snapshot `profile.role`).
+        subs = _target_subs(module='auth')
         sent = 0
         for u in pending:
             nid = hashlib.md5(f"pending|{u.get('id')}".encode()).hexdigest()

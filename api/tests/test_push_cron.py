@@ -330,12 +330,14 @@ def test_push_check_reserva_de_lab_mira_so_o_campus(push_module, monkeypatch):
 def test_target_subs_filtra_por_workspace(push_module, monkeypatch):
     """Alerta de tablets de um campus só chega para quem tem acesso àquele workspace.
 
-    Cobre a mudança do /api/push/check: reserva de tablets com workspace_id passa
-    a mirar apenas os assinantes do campus (super admin vê todos).
+    RBAC2: destino = super admin (bypass) + membership ATIVA com Action do
+    módulo resolvida NO workspace do campus (9.3-B). O payload da inscrição
+    (apps/workspace_ids) nunca decide — o tech do campus B com `apps` True e
+    membro de B não recebe o alerta de A.
     """
-    admin = {'id': '11111111-1111-4111-8111-111111111111', 'role': 'admin', 'is_super_admin': True, 'workspace_ids': ['a', 'b'], 'apps': {}, 'notify_settings': {}}
-    tech_a = {'id': '22222222-2222-4222-8222-222222222222', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
-    tech_b = {'id': '33333333-3333-4333-8333-333333333333', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['b'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    admin = {'id': '11111111-1111-4111-8111-111111111111', 'role': 'adm', 'is_super_admin': True, 'workspace_ids': [], 'apps': {}, 'notify_settings': {}}
+    tech_a = {'id': '22222222-2222-4222-8222-222222222222', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': [], 'apps': {'reservalab': False}, 'notify_settings': {}}
+    tech_b = {'id': '33333333-3333-4333-8333-333333333333', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': [], 'apps': {'reservalab': True}, 'notify_settings': {}}
 
     fake = FakeRedis({
         json.dumps(_push_sub(admin), ensure_ascii=False),
@@ -343,32 +345,48 @@ def test_target_subs_filtra_por_workspace(push_module, monkeypatch):
         json.dumps(_push_sub(tech_b), ensure_ascii=False),
     })
     monkeypatch.setattr(push_module, 'redis', fake)
-    _mock_memberships(push_module, monkeypatch, {'22222222-2222-4222-8222-222222222222': ['a'], '33333333-3333-4333-8333-333333333333': ['b']})
+    _mock_rbac(push_module, monkeypatch, {
+        '22222222-2222-4222-8222-222222222222': {'a': 'role-tec'},
+        '33333333-3333-4333-8333-333333333333': {'b': 'role-tec'},
+    }, {'role-tec': {'reservelab.tablet.reserve'}})
 
-    out = push_module._target_subs(module='reservalab', workspace_id='a')
+    out = push_module._target_subs(module='reservalab', workspace_id='a', min_level='full')
     ids = sorted(s['user']['id'] for s in out)
 
-    # Admin absoluto vê todos; tech do campus B fica de fora
+    # Admin absoluto vê todos; tech do campus B fica de fora (mesmo com apps True)
     assert ids == ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
 
 
 def test_target_subs_workspace_resolvido_por_memberships(push_module, monkeypatch):
-    """O payload gravado é ignorado: manda quem tem membership ativa (9.3-B)."""
+    """O payload gravado é ignorado: manda quem tem membership ativa (9.3-B).
+
+    O `workspace_ids` do snapshot aponta para 'stale'; a membership ativa
+    resolve 'a' — e sem membership no workspace pedido, ninguém é selecionado.
+    """
     tech = {'id': '22222222-2222-4222-8222-222222222222', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['stale'], 'apps': {'reservalab': True}, 'notify_settings': {}}
 
     fake = FakeRedis({json.dumps(_push_sub(tech), ensure_ascii=False)})
     monkeypatch.setattr(push_module, 'redis', fake)
-    _mock_memberships(push_module, monkeypatch, {'22222222-2222-4222-8222-222222222222': ['a']})
+    _mock_rbac(push_module, monkeypatch, {
+        '22222222-2222-4222-8222-222222222222': {'a': 'role-tec'},
+    }, {'role-tec': {'reservelab.tablet.reserve'}})
 
-    out = push_module._target_subs(module='reservalab', workspace_id='a')
+    out = push_module._target_subs(module='reservalab', workspace_id='a', min_level='full')
     assert [s['user']['id'] for s in out] == ['22222222-2222-4222-8222-222222222222']
 
-    out = push_module._target_subs(module='reservalab', workspace_id='stale')
+    out = push_module._target_subs(module='reservalab', workspace_id='stale', min_level='full')
     assert out == []
 
 
-def _mock_memberships(push_module, monkeypatch, by_user):
-    """Fake de requests servindo memberships ativas por usuário (9.3-B)."""
+def _mock_rbac(push_module, monkeypatch, memberships, role_actions, overrides=None):
+    """Fake do PostgREST para o targeting RBAC2 do _target_subs.
+
+    - memberships: {uid: {workspace_id: role_slug}} → memberships ativas com id
+      e role_id próprios (ignoradas as colunas extras do SELECT);
+    - role_actions: {role_slug: set(action)} → linhas de role_permissions
+      (escopo 'workspace' — o fake devolve tudo, sem filtrar os in.(...));
+    - overrides: {mem_id: {action: effect}} → membership_overrides.
+    """
 
     class _Resp:
         ok = True
@@ -379,17 +397,37 @@ def _mock_memberships(push_module, monkeypatch, by_user):
         def json(self):
             return self._payload
 
-    def _fake_get(url, **kwargs):
-        rows = []
-        for uid, ws_ids in by_user.items():
-            for ws in ws_ids:
-                rows.append({'profile_id': uid, 'workspace_id': ws, 'status': 'active'})
-        return _Resp(rows)
+    def _handle(url):
+        if '/rest/v1/memberships' in url:
+            rows = []
+            for uid, ws_map in (memberships or {}).items():
+                for ws, role_slug in ws_map.items():
+                    rows.append({
+                        'profile_id': uid,
+                        'workspace_id': ws,
+                        'status': 'active',
+                        'id': f'mem-{uid}-{ws}',
+                        'role_id': role_slug,
+                    })
+            return _Resp(rows)
+        if '/rest/v1/role_permissions' in url:
+            rows = []
+            for role_slug, actions in (role_actions or {}).items():
+                for a in actions:
+                    rows.append({'role_id': role_slug, 'action': a, 'scope': 'workspace'})
+            return _Resp(rows)
+        if '/rest/v1/membership_overrides' in url:
+            rows = []
+            for mem_id, effs in (overrides or {}).items():
+                for a, eff in effs.items():
+                    rows.append({'membership_id': mem_id, 'action': a, 'effect': eff})
+            return _Resp(rows)
+        raise AssertionError(f'URL inesperada: {url}')
 
     class _Requests:
         @staticmethod
         def get(url, **kwargs):
-            return _fake_get(url, **kwargs)
+            return _handle(url)
 
     monkeypatch.setattr(push_module, '_SUPABASE_URL', 'https://test.supabase.co')
     monkeypatch.setattr(push_module, '_SUPABASE_SERVICE_KEY', 'test-service-key')
@@ -397,69 +435,59 @@ def _mock_memberships(push_module, monkeypatch, by_user):
 
 
 def test_target_subs_sem_workspace_atinge_todos(push_module, monkeypatch):
-    """Reserva de tablets sem workspace_id mantém o comportamento legado (todos os assinantes)."""
-    tech_a = {'id': 'u-a', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
-    tech_b = {'id': 'u-b', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['b'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    """Push de tablets sem workspace_id mantém o comportamento legado: todos os
+    assinantes ELEGÍVEIS do módulo (membership + Action resolvidas) recebem."""
+    tech_a = {'id': '22222222-2222-4222-8222-222222222222', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
+    tech_b = {'id': '33333333-3333-4333-8333-333333333333', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['b'], 'apps': {'reservalab': False}, 'notify_settings': {}}
 
     fake = FakeRedis({
         json.dumps(_push_sub(tech_a), ensure_ascii=False),
         json.dumps(_push_sub(tech_b), ensure_ascii=False),
     })
     monkeypatch.setattr(push_module, 'redis', fake)
+    _mock_rbac(push_module, monkeypatch, {
+        '22222222-2222-4222-8222-222222222222': {'a': 'role-tec'},
+        '33333333-3333-4333-8333-333333333333': {'b': 'role-tec'},
+    }, {'role-tec': {'reservelab.tablet.reserve'}})
 
-    out = push_module._target_subs(module='reservalab')
+    out = push_module._target_subs(module='reservalab', min_level='full')
     ids = sorted(s['user']['id'] for s in out)
 
-    assert ids == ['u-a', 'u-b']
+    # O `apps.reservalab: False` do tech_b NÃO exclui — quem decide é a Action
+    assert ids == ['22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333']
 
 
 # ── Filtro por nível mínimo (full) no push de reservas ─────────────────────
 
 
-def test_target_subs_min_level_somente_full(push_module, monkeypatch):
-    """Push de reserva só chega para quem tem nível 'full' no reservalab.
+def test_target_subs_requer_membership_e_action(push_module, monkeypatch):
+    """Push de reserva só chega para quem tem membership ativa + Action do módulo.
 
-    Usuários 'read'/'dash' assinam o push (para outros módulos), mas não
-    recebem o alerta de reserva deste app.
+    Usuário com membership mas SEM Action (ex.: role sem reservelab) ainda
+    assina o push, mas não recebe o alerta deste app.
     """
-    full = {'id': 'u-full', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'full'}, 'notify_settings': {}}
-    read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
-    dash = {'id': 'u-dash', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'dash'}, 'notify_settings': {}}
-    sem = {'id': 'u-sem', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': False}, 'notify_settings': {}}
+    com_action = {'id': '44444444-4444-4444-8444-444444444444', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'full'}, 'notify_settings': {}}
+    sem_action = {'id': '55555555-5555-4555-8555-555555555555', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'full'}, 'notify_settings': {}}
 
     fake = FakeRedis({
-        json.dumps(_push_sub(full), ensure_ascii=False),
-        json.dumps(_push_sub(read), ensure_ascii=False),
-        json.dumps(_push_sub(dash), ensure_ascii=False),
-        json.dumps(_push_sub(sem), ensure_ascii=False),
+        json.dumps(_push_sub(com_action), ensure_ascii=False),
+        json.dumps(_push_sub(sem_action), ensure_ascii=False),
     })
     monkeypatch.setattr(push_module, 'redis', fake)
+    _mock_rbac(push_module, monkeypatch, {
+        '44444444-4444-4444-8444-444444444444': {'a': 'role-tec'},
+        '55555555-5555-4555-8555-555555555555': {'a': 'role-vis'},
+    }, {'role-tec': {'reservelab.tablet.reserve'}, 'role-vis': {'ticket.view'}})
 
     out = push_module._target_subs(module='reservalab', min_level='full')
     ids = sorted(s['user']['id'] for s in out)
 
-    assert ids == ['u-full']
+    # O `apps: {'reservalab': 'full'}` no payload NÃO basta: sem Action, fica fora
+    assert ids == ['44444444-4444-4444-8444-444444444444']
 
 
-def test_target_subs_min_level_full_considera_legado_true(push_module, monkeypatch):
-    """Inscrição legada com `apps.reservalab: true` (pré-níveis) é tratada como full."""
-    legado = {'id': 'u-legado', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': True}, 'notify_settings': {}}
-    read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
-
-    fake = FakeRedis({
-        json.dumps(_push_sub(legado), ensure_ascii=False),
-        json.dumps(_push_sub(read), ensure_ascii=False),
-    })
-    monkeypatch.setattr(push_module, 'redis', fake)
-
-    out = push_module._target_subs(module='reservalab', min_level='full')
-    ids = sorted(s['user']['id'] for s in out)
-
-    assert ids == ['u-legado']
-
-
-def test_target_subs_min_level_super_admin_sempre_recebe(push_module, monkeypatch):
-    """Super admin recebe o push de reservas mesmo sem nível resolvido no payload."""
+def test_target_subs_super_admin_sempre_recebe(push_module, monkeypatch):
+    """Super admin recebe o push de reservas mesmo sem membership/Action resolvida."""
     admin = {'id': 'u-admin', 'role': 'coordinator', 'is_super_admin': True, 'workspace_ids': [], 'apps': {}, 'notify_settings': {}}
     read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
 
@@ -468,6 +496,7 @@ def test_target_subs_min_level_super_admin_sempre_recebe(push_module, monkeypatc
         json.dumps(_push_sub(read), ensure_ascii=False),
     })
     monkeypatch.setattr(push_module, 'redis', fake)
+    _mock_rbac(push_module, monkeypatch, {}, {})
 
     out = push_module._target_subs(module='reservalab', min_level='full')
     ids = sorted(s['user']['id'] for s in out)
@@ -475,20 +504,21 @@ def test_target_subs_min_level_super_admin_sempre_recebe(push_module, monkeypatc
     assert ids == ['u-admin']
 
 
-def test_target_subs_min_level_read_atinge_read_e_full(push_module, monkeypatch):
-    """min_level='read' inclui 'read' e 'full' (só 'dash' fica de fora)."""
-    full = {'id': 'u-full', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'full'}, 'notify_settings': {}}
-    read = {'id': 'u-read', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'read'}, 'notify_settings': {}}
-    dash = {'id': 'u-dash', 'role': 'viewer', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'reservalab': 'dash'}, 'notify_settings': {}}
+def test_target_subs_modulo_sem_criterio_somente_super_admin(push_module, monkeypatch):
+    """Módulo sem Actions cadastradas (ex.: plataforma) ⇒ fail-closed: só super admin."""
+    admin = {'id': 'u-admin', 'role': 'adm', 'is_super_admin': True, 'workspace_ids': [], 'apps': {}, 'notify_settings': {}}
+    tech = {'id': 'u-tech', 'role': 'tech', 'is_super_admin': False, 'workspace_ids': ['a'], 'apps': {'auth': True}, 'notify_settings': {}}
 
     fake = FakeRedis({
-        json.dumps(_push_sub(full), ensure_ascii=False),
-        json.dumps(_push_sub(read), ensure_ascii=False),
-        json.dumps(_push_sub(dash), ensure_ascii=False),
+        json.dumps(_push_sub(admin), ensure_ascii=False),
+        json.dumps(_push_sub(tech), ensure_ascii=False),
     })
     monkeypatch.setattr(push_module, 'redis', fake)
+    _mock_rbac(push_module, monkeypatch, {'u-tech': {'a': 'role-tec'}}, {'role-tec': {'ticket.edit'}})
 
-    out = push_module._target_subs(module='reservalab', min_level='read')
+    # Mesmo com `apps.auth: True` no payload, um não-super sem Action de 'auth'
+    # (módulo não mapeado) não é destinatário — espelha o fim do role 'admin'.
+    out = push_module._target_subs(module='auth')
     ids = sorted(s['user']['id'] for s in out)
 
-    assert ids == ['u-full', 'u-read']
+    assert ids == ['u-admin']
