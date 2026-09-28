@@ -56,6 +56,24 @@ export const APP_ACCESS_DESCRIPTIONS: Record<AppAccessLevel, string> = {
  * Cargos padrão — o admin absoluto (is_super_admin) não tem cargo.
  * Acesso administrativo ao app "admin" só existe via is_super_admin.
  * Ids fixos (determinísticos) para funcionarem entre dispositivos.
+ *
+ * ── `appAccess` aqui é VISIBILIDADE, não autorização (auditoria F2-D-H) ────
+ * `DEFAULT_ROLES[].appAccess` alimenta `permissionService.resolveAppAccess`, e
+ * daí só a UI (AppGuard, launcher, command palette, badges, abas). O banco
+ * NUNCA consultou esta estrutura:
+ *   · a tabela `public.roles` (036) tem shape RBAC2 (`slug`, `workspace_id`,
+ *     `is_system`) incompatível com este shape local (`key`, `appAccess`);
+ *   · a coleção `roles` está em `LOCAL_ONLY_COLLECTIONS` (lib/sync.ts), logo
+ *     nunca sincroniza — o cargo é autoridade puramente local do dispositivo. * Por isso `appAccess` não PODE ser autoridade de nada no servidor, e nenhuma
+ * escrita do produto depende dele: as Actions RBAC2 (`pcare.checklist.*`,
+ * `chamados.settings.manage`, `ticket.*`, `stock.*`, `tv.manage`, …) é que
+ * decide, no frontend via `useCanAccessAction` e no banco via RLS/RPC.
+ *
+ * ESTE OBJETO ESTÁ INTACTO por decisão do F2-D-I: removê-lo junto com
+ * `profiles.app_access` depende de uma decisão de PRODUTO sobre o destino da
+ * visibilidade de módulos (AppGuard precisa de alguma fonte de verdade por
+ * app). Ver `permissionService.resolveAppAccess` para a classificação dos
+ * callers.
  */
 export const DEFAULT_ROLES: Role[] = [
   {

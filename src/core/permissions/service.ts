@@ -94,6 +94,29 @@ export const permissionService = {
   /**
    * Nível de acesso efetivo de um usuário a um app.
    * Override individual (user.app_access) vence o cargo.
+   *
+   * ── CLASSIFICAÇÃO (auditoria F2-D-H, base `fed1f99`) ─────────────────────
+   * Esta função é **VISIBILIDADE + COMPATIBILIDADE**. NÃO é autorização:
+   *   · AUTORIZAÇÃO — nenhum caller. `canWriteApp`/`requireWrite` (logo abaixo)
+   *     são os únicos nomes de escrita legados, e hoje só são chamados por
+   *     `pcChecklistService`, `partUsageService` e `roomService`, os TRÊS
+   *     serviços sem consumidor de produção (F2-D-F). O Checklist Templates
+   *     e o SLA — os últimos fluxos vivos — foram migrados na 079
+   *     (`pcare.checklist.*`, `chamados.settings.manage`).
+   *   · VISIBILIDADE — AppGuard, Launcher, QuickActions, CommandPalette,
+   *     badges de notificação, Navbar e as abas do Coordinator leem daqui.
+   *   · COMPATIBILIDADE — `user.app_access` (coluna `profiles.app_access`) e
+   *     `Role.appAccess` (coleção LOCAL `roles`, que nunca sincroniza) são
+   *     estrutura legada preservada para a UI. Nenhum policy, função, RPC ou
+   *     rota do backend os consulta (F2-D-H §A/§D).
+   *   · MORTO — `canWriteApp`/`requireWrite` (só services mortos) e
+   *     `permissionService.create/update/remove` de cargo (só `RolesPage`).
+   *
+   * A remoção de `app_access`/`Role.appAccess` depende de uma decisão de
+   * PRODUTO (o destino da visibilidade de módulos), não de segurança — por isso
+   * o F2-D-I apenas isolou a dependência e não a removeu. Autorização por
+   * Action vive em `useCanAccessAction` (UI) e nas policies/helper RBAC2
+   * (`membershipService.can`, `public.user_has_action`).
    */
   resolveAppAccess: (
     role: Role | undefined,
