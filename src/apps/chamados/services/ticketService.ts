@@ -3,7 +3,6 @@ import type { TicketEvent, TicketEventInput } from '../types'
 import { createSyncService } from '../../../lib/sync'
 import { getCol, setCol } from '../../../lib/db'
 import { logService } from '../../../core/logs/service'
-import { permissionService } from '../../../core/permissions/service'
 import { defaultDb } from '../../../lib/supabase'
 
 const local = createSyncService<Ticket>('chamados')
@@ -128,7 +127,6 @@ export const ticketService = {
   },
 
   update: (id: string, data: Partial<Ticket>) => {
-    permissionService.requireWrite('chamados')
     const ticket = local.update(id, data)
     if (ticket) {
       logService.log({
@@ -153,7 +151,6 @@ export const ticketService = {
   },
 
   remove: (id: string) => {
-    permissionService.requireWrite('chamados')
     const ok = local.remove(id)
     if (ok) {
       request(`${API_BASE}/${id}`, { method: 'DELETE' }).catch(() => {})

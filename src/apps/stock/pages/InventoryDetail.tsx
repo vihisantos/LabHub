@@ -6,7 +6,7 @@ import { ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockSections } from '../types'
 import { stockPath } from '../utils/stockPath'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 type Step = 'counting' | 'review' | 'done'
 
@@ -16,8 +16,7 @@ export function InventoryDetail() {
   const location = useLocation()
   const { cycles, completeCycle, removeCycle } = useInventory()
   const { items } = useStock()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canWrite } = useCanAccessAction('stock.inventory.run')
   const { counts, saveCount } = useInventoryCounts(id || '')
 
   const cycle = cycles.find((c) => c.id === id)

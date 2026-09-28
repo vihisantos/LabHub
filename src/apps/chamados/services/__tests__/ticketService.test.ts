@@ -12,13 +12,6 @@ vi.mock('../../../../lib/supabase', () => ({
   },
 }))
 
-// Mock permissionService so requireWrite does not throw in unit tests
-vi.mock('../../../../core/permissions/service', () => ({
-  permissionService: {
-    requireWrite: vi.fn(),
-  },
-}))
-
 function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   return {
     id: 't1',

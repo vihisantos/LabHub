@@ -2,11 +2,11 @@ import { useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAssets } from '../hooks/useAssets'
 import { ARCHITECTURE_LABELS, ASSET_STATUS_LABELS, OPERATING_SYSTEM_LABELS, STORAGE_TYPE_LABELS } from '../types'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 export function PCDetail() {
   const { id } = useParams(); const navigate = useNavigate(); const { assets, loading } = useAssets(); const asset = assets.find((item) => item.id === id)
-  const { isFullAccess } = useAppAccess(); const canWrite = isFullAccess('pc-care')
+  const { allowed: canWrite } = useCanAccessAction('pcare.asset.edit')
   const children = useMemo(() => asset ? assets.filter((item) => item.parentAssetId === asset.id || asset.childAssetIds.includes(item.id)) : [], [asset, assets])
   if (loading) return null
   if (!asset) return <div className="py-12 text-center"><p className="text-sm text-fg-muted">Ativo não encontrado.</p><button type="button" onClick={() => navigate('/pc-care/assets')} className="mt-3 text-sm text-violet-500">Voltar ao inventário</button></div>

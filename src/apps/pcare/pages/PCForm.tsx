@@ -4,7 +4,7 @@ import { useAssets } from '../hooks/useAssets'
 import type { AssetFormData, AssetStatus, Architecture, EquipmentType, OperatingSystem, StorageType } from '../types'
 import { ARCHITECTURE_LABELS, ASSET_STATUS_LABELS, emptyLicense, emptyNetworkInfo, emptyTechnicalInfo, emptyWarrantyInfo, EQUIPMENT_TYPES, OPERATING_SYSTEM_LABELS, STORAGE_TYPE_LABELS } from '../types'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../lib/components/ui'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { icons } from '../../../lib/icons'
 
 const emptyForm = (): AssetFormData => ({ assetTag: '', equipmentType: 'Desktop', manufacturer: '', model: '', serialNumber: '', location: '', status: 'available', observations: '', technical: emptyTechnicalInfo(), network: emptyNetworkInfo(), parentAssetId: null, childAssetIds: [], photos: [], warranty: emptyWarrantyInfo(), licenses: [] })
@@ -12,7 +12,7 @@ const inputClass = 'w-full rounded-lg border border-line bg-card px-3 py-2 text-
 export function PCForm() {
   const { id } = useParams(); const navigate = useNavigate(); const { assets, create, update } = useAssets(); const asset = assets.find((item) => item.id === id); const [form, setForm] = useState<AssetFormData>(emptyForm())
   useEffect(() => { if (asset) { const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...data } = asset; setForm((current) => ({ ...current, ...data, warranty: { ...current.warranty, ...data.warranty }, licenses: data.licenses ?? [] })) } }, [asset])
-  const isNew = !id; const { isFullAccess } = useAppAccess(); const canWrite = isFullAccess('pc-care')
+  const isNew = !id; const { allowed: canWrite } = useCanAccessAction(isNew ? 'pcare.asset.create' : 'pcare.asset.edit')
   const set = <K extends keyof AssetFormData>(key: K, value: AssetFormData[K]) => setForm((current) => ({ ...current, [key]: value }))
   const technical = <K extends keyof AssetFormData['technical']>(key: K, value: AssetFormData['technical'][K]) => setForm((current) => ({ ...current, technical: { ...current.technical, [key]: value } }))
   const network = <K extends keyof AssetFormData['network']>(key: K, value: AssetFormData['network'][K]) => setForm((current) => ({ ...current, network: { ...current.network, [key]: value } }))

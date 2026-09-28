@@ -1,6 +1,5 @@
 import type { StockItem, StockItemFormData } from '../types'
 import { createSyncService } from '../../../lib/sync'
-import { permissionService } from '../../../core/permissions/service'
 
 const service = createSyncService<StockItem>('stock_items')
 
@@ -19,17 +18,14 @@ export const stockService = {
   getById: (id: string) => service.getById(id),
 
   create: (data: StockItemFormData) => {
-    permissionService.requireWrite('stock')
     return service.create(serialize(data))
   },
 
   update: (id: string, data: Partial<StockItem>) => {
-    permissionService.requireWrite('stock')
     return service.update(id, data)
   },
 
   remove: (id: string) => {
-    permissionService.requireWrite('stock')
     return service.remove(id)
   },
 

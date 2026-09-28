@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useAppAccess, useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { exportCSV, exportXLSX, pcToRows, partToRows } from '../utils/export'
 import { pcService } from '../services/pcService'
 import { partService } from '../services/partService'
@@ -186,7 +186,8 @@ export function Settings() {
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmClearFinal, setConfirmClearFinal] = useState(false)
   const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  const { allowed: canImport } = useCanAccessAction('pcare.import')
+  const canClear = isFullAccess('pc-care')
 
   function handleExportAll() {
     const all = {
@@ -338,7 +339,7 @@ export function Settings() {
         </button>
       </section>
 
-      {canWrite && (
+      {canImport && (
         <section className="rounded-xl border border-line bg-card/50 p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Importar Dados</h3>
           <p className="mb-2 text-xs text-fg-muted">O nome do arquivo deve conter "PC" (para PCs) ou "peca" (para peças) para identificar automaticamente o tipo.</p>
@@ -364,7 +365,7 @@ export function Settings() {
 
       <section className="rounded-xl border border-red-900/30 bg-red-950/20 p-4">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">Zona de Perigo</h3>
-        {canWrite && (
+        {canClear && (
           <button
             type="button"
             onClick={() => setConfirmClear(true)}

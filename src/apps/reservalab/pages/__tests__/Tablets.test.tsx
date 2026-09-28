@@ -15,7 +15,8 @@ vi.mock('../../hooks/useIsMobile', () => ({
   useIsMobile: vi.fn(() => false),
 }))
 
-// Mock useAppAccess — teste assume cargo com acesso total
+// RBAC 2.0: controla useCanAccessAction por teste (default = concedido).
+const { mockUseCanAccessAction } = vi.hoisted(() => ({ mockUseCanAccessAction: vi.fn() }))
 vi.mock('../../../../core/permissions/usePermissions', () => ({
   useAppAccess: () => ({
     getLevel: () => 'full',
@@ -23,6 +24,7 @@ vi.mock('../../../../core/permissions/usePermissions', () => ({
     isFullAccess: () => true,
     role: undefined,
   }),
+  useCanAccessAction: (..._args: unknown[]) => mockUseCanAccessAction(..._args),
 }))
 
 // Mock TimeInput
@@ -72,6 +74,7 @@ function renderTablets() {
 describe('TabletsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseCanAccessAction.mockReturnValue({ allowed: true, loading: false })
     vi.useRealTimers()
     ;(fetchTabletReservas as any).mockResolvedValue(mockReservas)
     ;(useIsMobile as any).mockReturnValue(false)
@@ -215,5 +218,30 @@ describe('TabletsView', () => {
     ;(fetchTabletReservas as any).mockRejectedValue(new Error('Erro'))
     renderTablets()
     expect(await screen.findByText('Nenhuma reserva encontrada')).toBeInTheDocument()
+  })
+
+  it('oculta "Nova reserva" quando a Action reservelab.tablet.reserve nega', async () => {
+    mockUseCanAccessAction.mockImplementation((action: string) =>
+      action === 'reservelab.tablet.reserve'
+        ? { allowed: false, loading: false }
+        : { allowed: true, loading: false },
+    )
+    renderTablets()
+    await waitFor(() => {
+      expect(screen.queryByText('Nova reserva')).not.toBeInTheDocument()
+    })
+  })
+
+  it('oculta editar/cancelar quando a Action reservelab.tablet.cancel nega', async () => {
+    mockUseCanAccessAction.mockImplementation((action: string) =>
+      action === 'reservelab.tablet.cancel'
+        ? { allowed: false, loading: false }
+        : { allowed: true, loading: false },
+    )
+    renderTablets()
+    await waitFor(() => {
+      expect(screen.queryAllByText('Cancelar').length).toBe(0)
+    })
+    expect(screen.queryAllByText('Editar').length).toBe(0)
   })
 })

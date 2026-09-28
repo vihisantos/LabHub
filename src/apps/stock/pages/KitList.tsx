@@ -6,13 +6,12 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import type { Kit, KitFormData } from '../types'
 
 export function KitList() {
   const { kits, loading, create, remove, reload } = useKits()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canWrite } = useCanAccessAction('stock.kit.audit')
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [newKitName, setNewKitName] = useState('')

@@ -1,6 +1,5 @@
 import type { InventoryCycle, InventoryCycleFormData, InventoryCount } from '../types'
 import { createSyncService } from '../../../lib/sync'
-import { permissionService } from '../../../core/permissions/service'
 
 const cycleService = createSyncService<InventoryCycle>('inventory_cycles')
 const countService = createSyncService<InventoryCount>('inventory_counts')
@@ -27,12 +26,10 @@ export const inventoryService = {
   getCycle: (id: string) => cycleService.getById(id),
 
   createCycle: (data: InventoryCycleFormData) => {
-    permissionService.requireWrite('stock')
     return cycleService.create(serializeCycle(data))
   },
 
   completeCycle: (id: string, stats: { verifiedCount: number; missingCount: number; damagedCount: number }) => {
-    permissionService.requireWrite('stock')
     const now = new Date().toISOString()
     return cycleService.update(id, {
       status: 'completed',
@@ -43,14 +40,12 @@ export const inventoryService = {
   },
 
   removeCycle: (id: string) => {
-    permissionService.requireWrite('stock')
     return cycleService.remove(id)
   },
 
   getCounts: (cycleId: string) => countService.query((c) => c.cycleId === cycleId),
 
   saveCount: (data: InventoryCount) => {
-    permissionService.requireWrite('stock')
     const existing = countService.query((c) => c.cycleId === data.cycleId && c.itemId === data.itemId)
     if (existing.length > 0) {
       countService.update(existing[0].id, data)

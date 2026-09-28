@@ -8,7 +8,7 @@ import { SkeletonCard } from '../../pcare/components/Skeletons'
 import { ConfirmDialog } from '../../pcare/components/Modal'
 import type { StockMaintenance } from '../types/maintenance'
 import { icons } from '../../../lib/icons'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 type StockMaintenanceType = StockMaintenance['type']
 
@@ -40,8 +40,7 @@ export function StockMaintenance() {
   const navigate = useNavigate()
   const { items } = useStock()
   const { all, upcoming, overdue, loading, create, complete, remove, reload } = useStockMaintenance()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canWrite } = useCanAccessAction('stock.maintenance.manage')
   const [showForm, setShowForm] = useState(false)
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
