@@ -1,9 +1,7 @@
-import type { ChecklistTemplate, ChecklistTemplateForm, PCChecklist } from '../types/checklist'
+import type { ChecklistTemplate, ChecklistTemplateForm } from '../types/checklist'
 import { createSyncService } from '../../../lib/sync'
-import { permissionService } from '../../../core/permissions/service'
 
 const templateStore = createSyncService<ChecklistTemplate>('checklist_templates')
-const pcChecklistStore = createSyncService<PCChecklist>('pc_checklists')
 
 function serialize<T>(data: T) {
   const now = new Date().toISOString()
@@ -50,35 +48,16 @@ export const checklistTemplateService = {
   getByLab: (labName: string) => templateStore.query((t) => t.labName === labName),
 }
 
-/**
- * `pcChecklistService` — NÃO MIGRADO (F2-D-G §11).
- *
- * A auditoria F2-D-F provou que não há consumidor de produção (só
- * `usePCChecklists`, que só testes importam), e a feature está marcada como
- * DEPRECATED no catálogo. O guard legado `requireWrite('pc-care')` foi mantido
- * deliberadamente: migrar código morto para Action criaria Actions sem
- * dono real e um segundo caminho de autorização sem consumidor. A tabela
- * remota `pcare.pc_checklists` foi endurecida no RLS pela 079 (defesa em
- * profundidade do dado), mas este service fica como está até a remoção da
- * feature — quando o guard e o service saem juntos.
- */
-export const pcChecklistService = {
-  getAll: () => pcChecklistStore.getAll(),
-  getByPC: (pcId: string) => pcChecklistStore.query((c) => c.pcId === pcId),
-  create: (data: Omit<PCChecklist, 'id' | 'createdAt' | 'updatedAt'>) => {
-    permissionService.requireWrite('pc-care')
-    const checklist = serialize(data) as unknown as PCChecklist
-    return pcChecklistStore.create(checklist)
-  },
-  update: (id: string, data: Partial<PCChecklist>) => {
-    permissionService.requireWrite('pc-care')
-    return pcChecklistStore.update(id, {
-      ...data,
-      updatedAt: new Date().toISOString(),
-    })
-  },
-  remove: (id: string) => {
-    permissionService.requireWrite('pc-care')
-    return pcChecklistStore.remove(id)
-  },
-}
+// F2-D-N2: `pcChecklistService` foi REMOVIDO, junto com o store de
+// `pcare.pc_checklists` e o hook `usePCChecklists`.
+//
+// Motivo: era o ÚNICO detentor do gate legado `permissionService.requireWrite
+// ('pc-care')`, que decidia por `Role.appAccess` + `profiles.app_access`. Como o
+// F2-D-F provou que não há consumidor de produção (só testes importavam o hook),
+// e o F2-D-N2 removeu `requireWrite`/`canWriteApp`/`resolveAppAccess`, não havia
+// o que manter.
+//
+// A feature de checklist por PC continua DEPRECATED no catálogo, e a tabela
+// remota `pcare.pc_checklists` segue endurecida no RLS pela 079 (defesa em
+// profundidade do dado) — nada disso foi tocado aqui. Nenhuma Action fictícia
+// foi criada para "salvar" o código morto.

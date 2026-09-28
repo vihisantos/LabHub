@@ -1,35 +1,27 @@
-import type { Room, RoomFormData } from '../types'
+import type { Room } from '../types'
 import { createSyncService } from '../../../lib/sync'
-import { permissionService } from '../../../core/permissions/service'
 
 const service = createSyncService<Room>('rooms')
 
-function serialize(data: RoomFormData): Room {
-  const now = new Date().toISOString()
-  return { ...data, createdAt: now, updatedAt: now } as Room
-}
-
+/**
+ * Leitura de salas (Chamados público + formulários).
+ *
+ * F2-D-N2: os métodos de escrita (`create`/`update`/`remove`) foram REMOVIDOS.
+ * Eles guardavam escrita com `permissionService.requireWrite('chamados')`, um
+ * gate local que decidia por `Role.appAccess` + `profiles.app_access` — cadeia
+ * que o RBAC 2.0 substituiu por Action + RLS. O único caminho que os chamava
+ * era o hook `useRooms`, que não tinha consumidor de produção.
+ *
+ * Não foram recriados como Action: a tabela `rooms` é LOCAL_ONLY
+ * (lib/sync.ts) e nenhuma tela do produto edita salas. Deixar os métodos
+ * existindo sem o gate seria pior — uma escrita sem nenhuma proteção.
+ */
 export const roomService = {
   getAll: () => service.getAll(),
 
   getAllUnfiltered: () => service.getAll(true),
 
   getById: (id: string) => service.getById(id),
-
-  create: (data: RoomFormData) => {
-    permissionService.requireWrite('chamados')
-    return service.create(serialize(data))
-  },
-
-  update: (id: string, data: Partial<Room>) => {
-    permissionService.requireWrite('chamados')
-    return service.update(id, data)
-  },
-
-  remove: (id: string) => {
-    permissionService.requireWrite('chamados')
-    return service.remove(id)
-  },
 
   query: (predicate: (item: Room) => boolean) => service.query(predicate),
 }

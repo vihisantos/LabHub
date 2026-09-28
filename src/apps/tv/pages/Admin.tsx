@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+﻿import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, Monitor, Tv, ListMusic, Calendar, HelpCircle, Disc3, Megaphone, Images, AlertTriangle, BookOpen, Download, ListChecks, Square, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -84,7 +84,6 @@ export function AdminView() {
   // Fail-closed: enquanto a consulta não responde, `allowed` é false.
   const { allowed: canManageTv, loading: canManageTvLoading } =
     useCanAccessAction('tv.manage')
-  const isFullAccess = canManageTv
   // Escrita bloqueada = NÃO tem `tv.manage`, que é o que o RLS exige. Cobre
   // tanto o nível `read` do app quanto o caso `full` sem permissão RBAC 2.0 —
   // antes esses dois casos divergiam do banco.
@@ -162,7 +161,7 @@ export function AdminView() {
     }
   }
 
-  const visibleTabs = isFullAccess
+  const visibleTabs = canManageTv
     ? tabs
     : tabs.filter(t => t.id !== 'devices' && t.id !== 'install')
 
@@ -273,7 +272,7 @@ export function AdminView() {
                   <span className="text-[11px] text-fg-dim">Sem música</span>
                 </div>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handlePrevious}
                   disabled={previousing}
@@ -284,7 +283,7 @@ export function AdminView() {
                   Anterior
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handlePause}
                   disabled={pausing}
@@ -295,7 +294,7 @@ export function AdminView() {
                   {pausing ? 'Pausando…' : 'Pausar'}
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handleResume}
                   disabled={resuming}
@@ -306,7 +305,7 @@ export function AdminView() {
                   {resuming ? 'Retomando…' : 'Retomar'}
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handleNext}
                   disabled={nexting}
@@ -317,7 +316,7 @@ export function AdminView() {
                   Próxima
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <div className="flex items-center gap-1 rounded-xl border border-line bg-input py-1 pl-2 pr-1">
                   <input
                     value={seekSeconds}
@@ -338,7 +337,7 @@ export function AdminView() {
                   </button>
                 </div>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handleStop}
                   disabled={stopping}

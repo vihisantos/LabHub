@@ -3,13 +3,10 @@ import { authService } from '../core/auth/service'
 import type { User } from '../core/auth/types'
 
 vi.mock('../core/permissions/usePermissions', () => ({
-  useAppAccess: () => ({
-    role: { id: 'test-role', name: 'Administrador', key: 'admin', appAccess: {} },
-    getLevel: () => 'full',
-    canAccessApp: () => true,
-    isFullAccess: () => true,
-    canAccessByAction: async () => true,
-  }),
+  // F2-D-N2: o hook `useAppAccess` (e seus getters `getLevel`/`canAccessApp`/
+  // `isFullAccess`) foi REMOVIDO junto com a cadeia legada de `appAccess`. Só
+  // o gate RBAC2 por Action permanece.
+  //
   // RBAC 2.0 (#296 PR-4C): gate por Action. Default = concedido, para não
   // trancar as telas de escrita nos testes que não exercitam autorização.
   // Testes de autorização sobrescrevem via `mockUseCanAccessAction`.

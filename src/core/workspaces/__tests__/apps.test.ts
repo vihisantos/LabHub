@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { APPS_CONFIGURABLE, isAppDisabled, filterAppsByWorkspace, isModuleAvailable } from '../apps'
+import { APPS_CONFIGURABLE, isAppDisabled, filterAppsByWorkspace } from '../apps'
 import type { Workspace } from '../types'
 
 const ws: Workspace = {
@@ -69,34 +69,7 @@ describe('filterAppsByWorkspace', () => {
   })
 })
 
-describe('isModuleAvailable', () => {
-  const alwaysTrue = () => true
-  const alwaysFalse = () => false
-
-  it('módulo habilitado + acesso full → true', () => {
-    expect(isModuleAvailable('reservalab', ws, alwaysTrue)).toBe(true)
-  })
-
-  it('módulo habilitado + sem acesso → false', () => {
-    expect(isModuleAvailable('reservalab', ws, alwaysFalse)).toBe(false)
-  })
-
-  it('módulo desabilitado + acesso full → false', () => {
-    expect(isModuleAvailable('tv', ws, alwaysTrue)).toBe(false)
-  })
-
-  it('módulo desabilitado + sem acesso → false', () => {
-    expect(isModuleAvailable('tv', ws, alwaysFalse)).toBe(false)
-  })
-
-  it('sem workspace → respeita canAccessApp', () => {
-    expect(isModuleAvailable('tv', null, alwaysTrue)).toBe(true)
-    expect(isModuleAvailable('tv', null, alwaysFalse)).toBe(false)
-  })
-
-  it('workspace com disabled_apps ausente → respeita canAccessApp', () => {
-    const clean: Workspace = { ...ws, disabled_apps: undefined }
-    expect(isModuleAvailable('tv', clean, alwaysTrue)).toBe(true)
-    expect(isModuleAvailable('tv', clean, alwaysFalse)).toBe(false)
-  })
-})
+// F2-D-N2: `isModuleAvailable` foi removida de `../apps` — existia só para
+// combinar `disabled_apps` com o getter legado `canAccessApp`. A combinação dos
+// dois eixos agora acontece em `useModuleVisibility`, e por isso não há mais
+// função equivalente para testar aqui.

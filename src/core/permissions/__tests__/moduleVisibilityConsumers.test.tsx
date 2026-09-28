@@ -15,7 +15,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { DEFAULT_ROLES } from '../types'
 import { moduleLevelForSlug } from '../moduleVisibility'
 
 // O Launcher/ReservaLab usam `matchMedia` e o ecosystemo do Coordinator consulta
@@ -322,40 +321,34 @@ describe('guards que NÃO migraram (devem continuar próprios)', () => {
 })
 
 describe('nenhum consumidor de produção ficou na fonte legada', () => {
-  // Trava permanente do §22 (F2-D-L) — ampliada no F2-D-N1.
+  // Trava permanente do §22 (F2-D-L) — ampliada no F2-D-N1 e F2-D-N2.
   //
   // A primeira versão cobria só a VISIBILIDADE (`useAppAccess`/`getLevel`/
-  // `canAccessApp`/`isFullAccess`). A auditoria F2-D-M §6 mostrou a lacuna: os
-  // gates de ESCRITA (`canWriteApp`/`requireWrite`, que decidem por
-  // `resolveAppAccess` → `User.app_access`/`Role.appAccess`) NÃO eram cobertos.
-  // Hoje são inalcançáveis da UI (§9 abaixo), mas um PR futuro poderia
-  // reintroduzir autorização legada por essa porta sem trippingar a trava.
+  // `canAccessApp`/`isFullAccess`). O F2-D-N1 somou os gates de ESCRITA
+  // (`canWriteApp`/`requireWrite`, que decidem por `resolveAppAccess` → `User.
+  // app_access`/`Role.appAccess`). O F2-D-N2 removeu toda a implementação, então
+  // a lista de permitidos ficou VAZIA: nenhuma exceção é necessária.
   //
-  // Ficam de fora de propósito apenas: a própria implementação legada e os TRÊS
-  // services mortos que ainda chamam `requireWrite` — removidos juntos no PR de
-  // remoção do frontend legado, não agora (F2-D-N1 §1/§9).
-  const LEGADO_PERMITIDO = new Set([
-    'core/permissions/usePermissions.ts',       // define os getters (fachada)
-    'core/permissions/service.ts',            // resolveAppAccess + getters
-    'core/permissions/types.ts',              // DEFAULT_ROLES[].appAccess
-    'core/workspaces/apps.ts',                // assinatura de isModuleAvailable
-    // Gates de escrita legados, inalcançáveis da UI. Cada um é removido no PR
-    // do frontend legado; até lá, são os únicos detentores de `requireWrite`.
-    'apps/chamados/services/roomService.ts',     // via useRooms, sem consumidor
-    'apps/pcare/services/partUsageService.ts',   // só leitura em produção
-    'apps/pcare/services/checklistService.ts',   // pcChecklistService (DEPRECATED)
+  // Se alguém reintroduzir qualquer uma destas APIs, o teste falha. Os padrões
+  // casam o IDENTIFICADOR (não só a chamada), cobrindo consumo desestruturado,
+  // referência e passagem como callback — todas continuam sendo autorização
+  // legada.
+  const LEGADO_PERMITIDO = new Set<string>([
+    // NENHUMA exceção. A implementação legada foi removida; os três services
+    // que ainda a usavam (roomService, partUsageService, pcChecklistService)
+    // tiveram os métodos de escrita removidos, e o último foi deletado.
   ])
   const PADROES: Array<[RegExp, string]> = [
-    [/useAppAccess\s*\(/, 'useAppAccess()'],
-    [/\.getLevel\s*\(/, '.getLevel()'],
-    [/\.canAccessApp\s*\(/, '.canAccessApp()'],
-    [/\bisFullAccess\s*\(/, 'isFullAccess()'],
+    [/useAppAccess\b/, 'useAppAccess'],
+    [/\bgetLevel\b/, 'getLevel'],
+    [/\bcanAccessApp\b/, 'canAccessApp'],
+    [/\bisFullAccess\b/, 'isFullAccess'],
     // Gates de escrita legados (F2-D-N1 §8): decidem por resolveAppAccess.
-    // Casam o IDENTIFICADOR, não só a chamada, para cobrir também o consumo
-    // desestruturado (`const { requireWrite } = usePermissions()`) e a passagem
-    // como callback — que continuariam sendo autorização legada.
     [/\bcanWriteApp\b/, 'canWriteApp'],
     [/\brequireWrite\b/, 'requireWrite'],
+    // A resolução raiz, de onde saía `user.app_access` (F2-D-N2 §4).
+    [/\bresolveAppAccess\b/, 'resolveAppAccess'],
+    [/\bappAccess\b/, 'appAccess'],
   ]
 
   it('nenhum arquivo de produção consome a visibilidade legada', () => {
@@ -389,12 +382,12 @@ describe('nenhum consumidor de produção ficou na fonte legada', () => {
     expect(offenders).toEqual([])
   })
 
-  it('o detector realmente pega os gates de escrita (trava não-vazia)', () => {
+  it('o detector realmente pega a cadeia legada (trava não-vazia)', () => {
     // Uma trava que nunca falharia não é trava. Aqui a MESMA lógica de
     // detecção (padrões + remoção de comentários) é exercitada contra fontes
-    // sintéticas, cobrindo as duas formas de chamada em produção:
+    // sintéticas, cobrindo as formas como a cadeia volta de fato:
     //   · acesso por propriedade — `permissionService.requireWrite('x')`
-    //   · acesso desestruturado — `const { requireWrite } = usePermissions()`
+    //   · acesso desestruturado  — `const { requireWrite } = usePermissions()`
     const detectar = (fonte: string): string[] => {
       const limpo = fonte
         .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -407,8 +400,14 @@ describe('nenhum consumidor de produção ficou na fonte legada', () => {
     expect(detectar(`const { requireWrite, canWriteApp } = usePermissions()`)).toEqual(
       expect.arrayContaining(['requireWrite', 'canWriteApp']),
     )
-    // E NÃO dispara em código legítimo: quem escreve de verdade usa a Action.
+    expect(detectar(`permissionService.resolveAppAccess(role, user, 'tv')`)).toEqual(['resolveAppAccess'])
+    expect(detectar(`const { getLevel } = useAppAccess()`)).toEqual(
+      expect.arrayContaining(['useAppAccess', 'getLevel']),
+    )
+    // E NÃO dispara em código legítimo: quem escreve de verdade usa a Action,
+    // quem vê módulo usa a matriz RBAC2.
     expect(detectar(`const { allowed } = useCanAccessAction('ticket.edit')`)).toEqual([])
+    expect(detectar(`const { isVisible } = useModuleVisibilities(['tv'])`)).toEqual([])
     // Mesmo uma referência sem chamada é consumo legado e é barrada: passar o
     // gate adiante (callback, comparação) autorizaria igual.
     expect(detectar(`if (roomService.requireWrite) {}`)).toEqual(['requireWrite'])
@@ -418,7 +417,7 @@ describe('nenhum consumidor de produção ficou na fonte legada', () => {
 })
 
 describe('a matriz do F2-D-K não foi alterada', () => {
-  it('continua igual a DEFAULT_ROLES (e adm segue fora dela)', () => {
+  it('segue idêntica à política do F2-D-J (e adm continua fora dela)', () => {
     for (const [slug, esperado] of Object.entries(MATRIX)) {
       for (const appId of MODULES) {
         expect(moduleLevelForSlug(slug, appId)).toBe(esperado[appId] ?? 'none')
@@ -428,8 +427,7 @@ describe('a matriz do F2-D-K não foi alterada', () => {
     for (const appId of MODULES) {
       expect(moduleLevelForSlug('adm', appId)).toBe('none')
     }
-    // E continua coerente com DEFAULT_ROLES.
-    const legado = DEFAULT_ROLES.find((r) => r.key === 'technician')!
-    expect(moduleLevelForSlug('tec', 'pc-care')).toBe(legado.appAccess['pc-care'])
+    // F2-D-N2: o oráculo passou a ser a matriz RBAC2, e não mais
+    // `DEFAULT_ROLES[].appAccess` (removido junto com a cadeia legada).
   })
 })

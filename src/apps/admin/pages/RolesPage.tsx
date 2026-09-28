@@ -1,50 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRoles } from '../../../core/permissions/usePermissions'
-import {
-  APP_ACCESS_DESCRIPTIONS,
-  APP_ACCESS_LABELS,
-  APP_ACCESS_LEVELS,
-  type AppAccessLevel,
-  type Role,
-} from '../../../core/permissions/types'
+import { type Role } from '../../../core/permissions/types'
 import { adminService } from '../../../core/auth/adminService'
 import type { User } from '../../../core/auth/types'
 import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { appRegistry } from '../../../appRegistry'
 import { icons } from '../../../lib/icons'
 import { PersonAvatar } from '../components/personShared'
-
-const LEVEL_BADGES: Record<'none' | AppAccessLevel, { chip: string; dot: string }> = {
-  none: { chip: 'bg-input text-fg-muted', dot: 'bg-fg-muted/40' },
-  dash: { chip: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', dot: 'bg-amber-500' },
-  read: { chip: 'bg-blue-500/15 text-blue-600 dark:text-blue-400', dot: 'bg-blue-500' },
-  full: { chip: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' },
-}
-
-interface LevelOption {
-  value: AppAccessLevel | null
-  label: string
-  desc: string
-}
-
-const LEVEL_OPTIONS: LevelOption[] = [
-  { value: null, label: 'Sem acesso', desc: 'Não enxerga nem utiliza o aplicativo' },
-  ...APP_ACCESS_LEVELS.map((lvl) => ({
-    value: lvl as AppAccessLevel | null,
-    label: APP_ACCESS_LABELS[lvl],
-    desc: APP_ACCESS_DESCRIPTIONS[lvl],
-  })),
-]
-
-interface LevelPickerState {
-  roleId: string
-  appId: string
-  appName: string
-  level: AppAccessLevel | null
-}
-
-const ACCESSIBLE_APPS = appRegistry.filter((app) => app.id !== 'admin')
 
 export function RolesPage() {
   const { roles, loading, update, create, remove } = useRoles()
@@ -53,10 +15,6 @@ export function RolesPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<User[]>([])
   const [profilesLoading, setProfilesLoading] = useState(true)
-
-  // Nível de acesso por aplicativo (bottom sheet)
-  const [picking, setPicking] = useState<LevelPickerState | null>(null)
-  const [draftLevel, setDraftLevel] = useState<AppAccessLevel | null>(null)
 
   // Novo cargo
   const [creating, setCreating] = useState(false)
@@ -101,28 +59,6 @@ export function RolesPage() {
     [activeUsers, workspaceId],
   )
 
-  function openLevelPicker(role: Role, appId: string) {
-    const app = appRegistry.find((a) => a.id === appId)
-    const level = (role.appAccess || {})[appId] ?? null
-    setPicking({ roleId: role.id, appId, appName: app?.name ?? appId, level })
-    setDraftLevel(level)
-  }
-
-  async function applyLevel() {
-    if (!picking) return
-    const { roleId, appId } = picking
-    setSaving(roleId)
-    const next = { ...(roles.find((r) => r.id === roleId)?.appAccess || {}) }
-    if (draftLevel === null) {
-      delete next[appId]
-    } else {
-      next[appId] = draftLevel
-    }
-    update(roleId, { appAccess: next })
-    setSaving(null)
-    setPicking(null)
-  }
-
   async function handleSetLeader(role: Role, leaderId: string | null) {
     setSaving(role.id)
     update(role.id, { leaderId: leaderId ?? undefined })
@@ -135,7 +71,6 @@ export function RolesPage() {
     create({
       name: newName.trim(),
       description: newDesc.trim() || 'Cargo personalizado',
-      appAccess: {},
       isDefault: false,
       ...(newLeaderId ? { leaderId: newLeaderId } : {}),
     })
@@ -196,7 +131,6 @@ export function RolesPage() {
 
       <div className="space-y-3">
         {roles.map((role) => {
-          const access = role.appAccess || {}
           const isExpanded = expandedRole === role.id
           const leader = scopedActiveUsers.find((u) => u.id === role.leaderId)
           const members = scopedActiveUsers.filter((u) => u.roleId === role.id)
@@ -234,7 +168,7 @@ export function RolesPage() {
               </button>
 
               {isExpanded && (
-                <div className="border-t border-line px-4 py-4 lg:grid lg:grid-cols-2 lg:gap-6">
+                <div className="border-t border-line px-4 py-4">
                   {/* Coluna: informações do cargo */}
                   <div className="space-y-5">
                     {/* Pessoas */}
@@ -295,7 +229,7 @@ export function RolesPage() {
                     </section>
 
                     {!role.isDefault && (
-                      <section className="lg:col-span-2">
+                      <section>
                         <button
                           type="button"
                           onClick={() => setDeleting(role)}
@@ -308,112 +242,12 @@ export function RolesPage() {
                       </section>
                     )}
                   </div>
-
-                  {/* Coluna: acesso aos aplicativos */}
-                  <section>
-                    <p className="mb-1 text-[10px] font-semibold text-fg-muted">Acesso aos aplicativos</p>
-                    <p className="mb-2.5 text-[10px] text-fg-dim">
-                      O nível define como quem usa este cargo enxerga cada aplicativo. Overrides individuais são
-                      ajustados em Pessoas.
-                    </p>
-                    <div className="space-y-2.5">
-                      {ACCESSIBLE_APPS.map((app) => {
-                        const level = access[app.id] ?? null
-                        const badge = LEVEL_BADGES[level ?? 'none']
-                        return (
-                          <button
-                            key={app.id}
-                            type="button"
-                            onClick={() => openLevelPicker(role, app.id)}
-                            disabled={saving === role.id}
-                            className="flex w-full items-center gap-3 rounded-xl border border-line bg-input/20 px-3 py-3 text-left transition-colors hover:bg-input/40 disabled:opacity-50"
-                          >
-                            <div
-                              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                              style={{ backgroundColor: app.color + '15', color: app.color }}
-                            >
-                              <app.icon size={18} />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-semibold text-fg">{app.name}</p>
-                              <p className="text-[10px] text-fg-muted">Acesso do cargo</p>
-                            </div>
-                            <span className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-semibold ${badge.chip}`}>
-                              <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
-                              {LEVEL_OPTIONS.find((o) => o.value === level)?.label ?? 'Sem acesso'}
-                            </span>
-                            <icons.ui.chevronRight size={14} className="shrink-0 text-fg-dim" />
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {/* Futuro: Ações permitidas (ausente até existirem dados reais) */}
-                  </section>
                 </div>
               )}
             </div>
           )
         })}
       </div>
-
-      {/* Bottom sheet: nível de acesso por aplicativo */}
-      {picking && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
-          onClick={() => setPicking(null)}
-        >
-          <div
-            className="w-full max-w-sm overflow-hidden rounded-2xl border border-line bg-card shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="border-b border-line px-4 py-3">
-              <h3 className="text-sm font-semibold text-fg">{picking.appName}</h3>
-              <p className="text-[11px] text-fg-muted">Nível de acesso</p>
-            </div>
-            <div className="space-y-1 p-3">
-              {LEVEL_OPTIONS.map((opt) => {
-                const isActive = draftLevel === opt.value
-                const badge = LEVEL_BADGES[opt.value ?? 'none']
-                return (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    onClick={() => setDraftLevel(opt.value)}
-                    className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                      isActive ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line bg-input/20 hover:bg-input/40'
-                    }`}
-                  >
-                    <span className={`h-3 w-3 shrink-0 rounded-full border-2 ${isActive ? `border-emerald-500 ${badge.dot}` : 'border-fg-muted/40'}`} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-fg">{opt.label}</p>
-                      <p className="text-[10px] text-fg-muted">{opt.desc}</p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-            <div className="flex gap-2 border-t border-line p-3">
-              <button
-                type="button"
-                onClick={() => setPicking(null)}
-                disabled={saving === picking.roleId}
-                className="flex-1 rounded-xl bg-input py-2.5 text-xs font-semibold text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={applyLevel}
-                disabled={saving === picking.roleId}
-                className="flex-1 rounded-xl bg-emerald-500 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                Aplicar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {creating && (
         <div

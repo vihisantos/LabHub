@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -75,7 +75,6 @@ const roles = [
     key: 'technician',
     name: 'Técnico',
     description: 'Acesso aos aplicativos de operação',
-    appAccess: { 'pc-care': 'full', stock: 'full' },
     isDefault: false,
     leaderId: null,
   },
@@ -84,7 +83,6 @@ const roles = [
     key: 'viewer',
     name: 'Visualizador',
     description: 'Somente leitura',
-    appAccess: {},
     isDefault: true,
     leaderId: null,
   },
@@ -228,7 +226,7 @@ describe('RolesPage escopo por workspace', () => {
   })
 })
 
-describe('RolesPage — nivel de acesso por aplicativo (bottom sheet)', () => {
+describe('RolesPage — a edição de acesso por app não existe mais (F2-D-N2)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useRealTimers()
@@ -237,42 +235,31 @@ describe('RolesPage — nivel de acesso por aplicativo (bottom sheet)', () => {
     mockAdminService.listAllProfiles.mockResolvedValue([moocaUser, sjcUser])
   })
 
-  it('abre o bottom sheet ao tocar em um aplicativo e aplica o novo nivel', async () => {
+  it('não expõe grade de acesso por aplicativo nem bottom sheet de nível', async () => {
     renderPage()
     await waitFor(() => {
       expect(screen.getByText('Técnico')).toBeInTheDocument()
     })
+    // Expandindo o cargo: a coluna "Acesso aos aplicativos" e seus cards sumiram.
     fireEvent.click(screen.getByText('Técnico'))
 
-    const pcCareCard = await screen.findByText('PC Care')
-    fireEvent.click(pcCareCard)
-
-    expect(screen.getByText('Nível de acesso')).toBeInTheDocument()
-    expect(screen.getAllByText('Sem acesso').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Só leitura').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Acesso total').length).toBeGreaterThan(0)
-
-    fireEvent.click(screen.getByText('Só leitura'))
-    fireEvent.click(screen.getByText('Aplicar'))
-
-    expect(mockUseRoles.update).toHaveBeenCalledWith('role-technician', {
-      appAccess: { 'pc-care': 'read', stock: 'full' },
-    })
+    expect(screen.queryByText('Acesso aos aplicativos')).not.toBeInTheDocument()
+    expect(screen.queryByText('PC Care')).not.toBeInTheDocument()
+    expect(screen.queryByText('Acesso do cargo')).not.toBeInTheDocument()
+    // Nada tocou a edição de acesso por app.
+    expect(mockUseRoles.update).not.toHaveBeenCalled()
   })
 
-  it('cancelar fecha o bottom sheet sem mudar nada', async () => {
+  it('os rótulos de nível legados não existem mais na tela', async () => {
     renderPage()
     await waitFor(() => {
       expect(screen.getByText('Técnico')).toBeInTheDocument()
     })
     fireEvent.click(screen.getByText('Técnico'))
 
-    const pcCareCard = await screen.findByText('PC Care')
-    fireEvent.click(pcCareCard)
-    fireEvent.click(screen.getByText('Cancelar'))
-
-    expect(screen.queryByText('Nível de acesso')).not.toBeInTheDocument()
-    expect(mockUseRoles.update).not.toHaveBeenCalled()
+    for (const rotulo of ['Sem acesso', 'Só leitura', 'Acesso total', 'Nível de acesso']) {
+      expect(screen.queryByText(rotulo)).not.toBeInTheDocument()
+    }
   })
 })
 
@@ -295,7 +282,7 @@ describe('RolesPage — criar cargo', () => {
     fireEvent.click(screen.getByText('Criar cargo'))
 
     expect(mockUseRoles.create).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Consultor', appAccess: {}, isDefault: false }),
+      expect.objectContaining({ name: 'Consultor', isDefault: false }),
     )
   })
 })
@@ -306,7 +293,6 @@ describe('RolesPage — excluir cargo', () => {
     key: 'custom',
     name: 'Consultor',
     description: 'Cargo personalizado de teste',
-    appAccess: {},
     isDefault: false,
     leaderId: null,
   }

@@ -1,12 +1,12 @@
-import type { Role, AppAccessLevel, AppAccessOverride } from './types'
+﻿import type { Role } from './types'
 import { DEFAULT_ROLES, LeadershipLevel, resolveRoleId } from './types'
 import { createSyncService } from '../../lib/sync'
-import { authService } from '../auth/service'
 
 // Cargos são globais (não têm workspace_id) — nunca filtrar por workspace.
-// Com o filtro ativo, usuários com workspace ativo "perdiam" o cargo na leitura
-// (getRoleForUser/hasAppAccess retornavam undefined) e notificações por módulo
-// eram descartadas.
+// Com o filtro ativo, usuários com workspace ativo "perdiam" o cargo na leitura.
+// A coleção `roles` está em LOCAL_ONLY_COLLECTIONS (lib/sync.ts): é estado local
+// do dispositivo, apenas NOME/IDENTIDADE de cargo. Nunca foi autoridade, e
+// depois do F2-D-N2 também não guarda mais acesso por app.
 const service = createSyncService<Role>('roles', false)
 
 function serialize(data: Omit<Role, 'id'>): Role {
@@ -18,12 +18,6 @@ function keyFor(role: { key?: string; name: string }): string {
   const name = role.name.toLowerCase()
   if (name.includes('téc') || name.includes('tec')) return 'technician'
   return 'viewer'
-}
-
-function defaultAccessFor(role: { key?: string; name: string }): Partial<Record<string, AppAccessLevel>> {
-  const key = keyFor(role)
-  const match = DEFAULT_ROLES.find((r) => r.key === key) ?? DEFAULT_ROLES.find((r) => r.isDefault)
-  return match ? { ...match.appAccess } : {}
 }
 
 export const permissionService = {
@@ -40,11 +34,15 @@ export const permissionService = {
   remove: (id: string) => service.remove(id),
 
   /**
-   * Migração de cargos:
-   * - semeia cargos padrão ausentes (novos defaults como o Coordenador
-   *   Multiunidade entram também em dispositivos que já tinham a coleção);
-   * - remove o cargo 'admin' (não existe mais — acesso admin é só is_super_admin);
-   * - garante que cargos legados ganhem `key` e `appAccess`.
+   * Semeia/backfill da coleção local de cargos.
+   *
+   * NÃO é o mecanismo de inicialização do RBAC 2.0 — a autorização vive de
+   * `memberships → role_permissions → Action` (`useCanAccessAction`) e a
+   * visibilidade de `moduleVisibility`. Isto aqui só mantém a lista de NOMES de
+   * cargo que as telas admin exibem consistente entre dispositivos.
+   *
+   * O F2-D-N2 removeu o backfill de `appAccess`: o campo não existe mais, e
+   * nenhuma decisão de visibilidade ou autorização passa por ele.
    */
   migrate: () => {
     for (const def of DEFAULT_ROLES) {
@@ -60,9 +58,6 @@ export const permissionService = {
       }
       const patch: Partial<Role> = {}
       if (!role.key) patch.key = keyFor(role)
-      if (!role.appAccess || Object.keys(role.appAccess).length === 0) {
-        patch.appAccess = defaultAccessFor(role)
-      }
       // Backfill Fase 4/5: classificação de liderança ausente volta ao canônico
       // (cargo default) ou a executante (custom) — fail-closed, nunca sobrescreve
       // valor explícito.
@@ -89,72 +84,6 @@ export const permissionService = {
 
   getDefaultRole: (): Role | undefined => {
     return service.query((r) => r.isDefault)[0]
-  },
-
-  /**
-   * Nível de acesso efetivo de um usuário a um app.
-   * Override individual (user.app_access) vence o cargo.
-   *
-   * ── CLASSIFICAÇÃO (auditoria F2-D-H, base `fed1f99`) ─────────────────────
-   * Esta função é **VISIBILIDADE + COMPATIBILIDADE**. NÃO é autorização:
-   *   · AUTORIZAÇÃO — nenhum caller. `canWriteApp`/`requireWrite` (logo abaixo)
-   *     são os únicos nomes de escrita legados, e hoje só são chamados por
-   *     `pcChecklistService`, `partUsageService` e `roomService`, os TRÊS
-   *     serviços sem consumidor de produção (F2-D-F). O Checklist Templates
-   *     e o SLA — os últimos fluxos vivos — foram migrados na 079
-   *     (`pcare.checklist.*`, `chamados.settings.manage`).
-   *   · VISIBILIDADE — AppGuard, Launcher, QuickActions, CommandPalette,
-   *     badges de notificação, Navbar e as abas do Coordinator leem daqui.
-   *   · COMPATIBILIDADE — `user.app_access` (coluna `profiles.app_access`) e
-   *     `Role.appAccess` (coleção LOCAL `roles`, que nunca sincroniza) são
-   *     estrutura legada preservada para a UI. Nenhum policy, função, RPC ou
-   *     rota do backend os consulta (F2-D-H §A/§D).
-   *   · MORTO — `canWriteApp`/`requireWrite` (só services mortos) e
-   *     `permissionService.create/update/remove` de cargo (só `RolesPage`).
-   *
-   * A remoção de `app_access`/`Role.appAccess` depende de uma decisão de
-   * PRODUTO (o destino da visibilidade de módulos), não de segurança — por isso
-   * o F2-D-I apenas isolou a dependência e não a removeu. Autorização por
-   * Action vive em `useCanAccessAction` (UI) e nas policies/helper RBAC2
-   * (`membershipService.can`, `public.user_has_action`).
-   */
-  resolveAppAccess: (
-    role: Role | undefined,
-    user: { app_access?: Partial<Record<string, AppAccessOverride>> } | null | undefined,
-    appId: string,
-  ): AppAccessLevel | null => {
-    if (!user) return null
-    const override = user.app_access?.[appId]
-    if (override === 'none') return null
-    if (override) return override
-    if (!role) return null
-    return role.appAccess?.[appId] ?? null
-  },
-
-  canAccessApp: (
-    role: Role | undefined,
-    user: { app_access?: Partial<Record<string, AppAccessOverride>> } | null | undefined,
-    appId: string,
-  ): boolean => {
-    return permissionService.resolveAppAccess(role, user, appId) !== null
-  },
-
-  /** Guarda imperativa de escrita (defesa em profundidade).
-   * Só nível 'full' permite modificar dados do app.
-   */
-  canWriteApp: (appId: string): boolean => {
-    const user = authService.getCurrentUser()
-    if (!user) return false
-    if (user.is_super_admin) return true
-    const role = permissionService.getRoleForUser(user.roleId)
-    return permissionService.resolveAppAccess(role, user, appId) === 'full'
-  },
-
-  /** Lança erro se o usuário atual não puder escrever no app. */
-  requireWrite: (appId: string): void => {
-    if (!permissionService.canWriteApp(appId)) {
-      throw new Error('Permissão insuficiente: seu acesso a este módulo é somente leitura.')
-    }
   },
 
   /** Resolve o cargo pelo id (novo) ou pelo valor legado (key/name — migração). */

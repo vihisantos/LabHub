@@ -14,7 +14,7 @@ vi.mock('../../../../core/permissions/usePermissions', () => ({
   useRoles: () => ({
     loading: false,
     roles: [
-      { id: 'role-technician', key: 'technician', name: 'Técnico', appAccess: { chamados: 'full' }, isDefault: false },
+      { id: 'role-technician', key: 'technician', name: 'Técnico', isDefault: false },
     ],
   }),
 }))

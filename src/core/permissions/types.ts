@@ -9,14 +9,12 @@ export interface Role {
   key?: string
   name: string
   description: string
-  /** Nível de acesso por aplicativo (id do appRegistry) — ausente = sem acesso */
-  appAccess: Partial<Record<string, AppAccessLevel>>
   isDefault: boolean
   /** Id do usuário (profile) que lidera o setor do cargo */
   leaderId?: string
   /**
    * FASE 4/5 (RBAC 2.0): classificação do CARGO como de liderança.
-   * Independe de appAccess — "liderar" é propriedade do cargo.
+   * "Liderar" é propriedade do cargo, independente de qualquer acesso por app.
    * Ausente em cargos antigos até o migrate() backfill.
    */
   isLeadership?: boolean
@@ -37,43 +35,28 @@ export const LEADERSHIP_LEVEL_LABELS: Record<number, string> = {
   [LeadershipLevel.Coordinator]: 'Coordenador multiunidades',
 }
 
-export const APP_ACCESS_LEVELS: AppAccessLevel[] = ['dash', 'read', 'full']
-
-export const APP_ACCESS_LABELS: Record<AppAccessOverride, string> = {
-  dash: 'Dashboard',
-  read: 'Só leitura',
-  full: 'Acesso total',
-  none: 'Sem acesso',
-}
-
-export const APP_ACCESS_DESCRIPTIONS: Record<AppAccessLevel, string> = {
-  dash: 'Somente o dashboard para verificação de quantidades',
-  read: 'Visualização dos dados, sem criar ou editar',
-  full: 'Pode visualizar, criar, editar e excluir',
-}
-
 /**
  * Cargos padrão — o admin absoluto (is_super_admin) não tem cargo.
  * Acesso administrativo ao app "admin" só existe via is_super_admin.
  * Ids fixos (determinísticos) para funcionarem entre dispositivos.
  *
- * ── `appAccess` aqui é VISIBILIDADE, não autorização (auditoria F2-D-H) ────
- * `DEFAULT_ROLES[].appAccess` alimenta `permissionService.resolveAppAccess`, e
- * daí só a UI (AppGuard, launcher, command palette, badges, abas). O banco
- * NUNCA consultou esta estrutura:
- *   · a tabela `public.roles` (036) tem shape RBAC2 (`slug`, `workspace_id`,
- *     `is_system`) incompatível com este shape local (`key`, `appAccess`);
- *   · a coleção `roles` está em `LOCAL_ONLY_COLLECTIONS` (lib/sync.ts), logo
- *     nunca sincroniza — o cargo é autoridade puramente local do dispositivo. * Por isso `appAccess` não PODE ser autoridade de nada no servidor, e nenhuma
- * escrita do produto depende dele: as Actions RBAC2 (`pcare.checklist.*`,
- * `chamados.settings.manage`, `ticket.*`, `stock.*`, `tv.manage`, …) é que
- * decide, no frontend via `useCanAccessAction` e no banco via RLS/RPC.
+ * ── Onde a visibilidade de módulo vive agora (F2-D-N2) ──────────────────────
+ * Este objeto NÃO tem mais `appAccess`, e isso é intencional. Ele serve só para
+ * NOME e identidade de cargo (rótulos em telas admin, `resolveRoleId`, badges).
+ * A visibilidade de módulo é resolvida pela matriz RBAC2
+ * (`core/permissions/moduleVisibility.ts`), a partir de membership ativa →
+ * `roles.slug` → matriz, somada a `workspace.disabled_apps` e ao bypass de super
+ * admin. A autorização de operação é por Action (`useCanAccessAction`).
  *
- * ESTE OBJETO ESTÁ INTACTO por decisão do F2-D-I: removê-lo junto com
- * `profiles.app_access` depende de uma decisão de PRODUTO sobre o destino da
- * visibilidade de módulos (AppGuard precisa de alguma fonte de verdade por
- * app). Ver `permissionService.resolveAppAccess` para a classificação dos
- * callers.
+ * A remoção de `appAccess` foi feita depois que o F2-D-N1 encerrou a ÚLTIMA
+ * leitura viva da cadeia legada (`buildPushUser`). Nada aqui é mais consultado
+ * pelo banco — a tabela `public.roles` (036) tem shape RBAC2 (`slug`,
+ * `workspace_id`, `is_system`) e a coleção local está em
+ * `LOCAL_ONLY_COLLECTIONS` (lib/sync.ts), logo nunca sincroniza.
+ *
+ * `AppAccessLevel`/`AppAccessOverride` continuam existindo APENAS como tipo do
+ * campo `User.app_access` (compatibilidade de payload enquanto a coluna
+ * `profiles.app_access` não for removida na etapa de banco).
  */
 export const DEFAULT_ROLES: Role[] = [
   {
@@ -81,12 +64,6 @@ export const DEFAULT_ROLES: Role[] = [
     key: 'technician',
     name: 'Técnico',
     description: 'Acesso aos aplicativos de operação',
-    appAccess: {
-      'pc-care': 'full',
-      stock: 'full',
-      reservalab: 'read',
-      chamados: 'full',
-    },
     isDefault: false,
     isLeadership: false,
     leadershipLevel: LeadershipLevel.None,
@@ -96,12 +73,6 @@ export const DEFAULT_ROLES: Role[] = [
     key: 'viewer',
     name: 'Visualizador',
     description: 'Acesso somente leitura aos aplicativos liberados',
-    appAccess: {
-      'pc-care': 'read',
-      stock: 'read',
-      reservalab: 'dash',
-      chamados: 'read',
-    },
     isDefault: true,
     isLeadership: false,
     leadershipLevel: LeadershipLevel.None,
@@ -111,11 +82,6 @@ export const DEFAULT_ROLES: Role[] = [
     key: 'lider',
     name: 'Líder',
     description: 'Gestão da unidade, sem acesso administrativo global',
-    appAccess: {
-      'pc-care': 'read',
-      stock: 'read',
-      chamados: 'full',
-    },
     isDefault: false,
     isLeadership: true,
     leadershipLevel: LeadershipLevel.Leader,
@@ -125,15 +91,6 @@ export const DEFAULT_ROLES: Role[] = [
     key: 'coordinator',
     name: 'Coordenador Multiunidade',
     description: 'Gestão operacional de múltiplas unidades, sem acesso administrativo global',
-    appAccess: {
-      'pc-care': 'read',
-      stock: 'read',
-      tv: 'read',
-      chamados: 'full',
-      // PR E — ReservaLab em modo leitura na Central (visão consolidada).
-      // Escrita/gerenciamento continua restrita a quem tem 'full' no app.
-      reservalab: 'read',
-    },
     isDefault: false,
     isLeadership: true,
     leadershipLevel: LeadershipLevel.Coordinator,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -46,11 +46,11 @@ vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
 vi.mock('../../../../core/permissions/usePermissions', () => ({
   useRoles: () => ({
     roles: [
-      { id: 'role-technician', name: 'Técnico', appAccess: { reservalab: 'full' }, isDefault: false },
-      { id: 'role-viewer', name: 'Visualizador', appAccess: { reservalab: 'read' }, isDefault: true },
-      { id: 'role-lider', name: 'Líder', appAccess: { chamados: 'full' }, isDefault: false },
-      { id: 'role-admin', name: 'Admin de Workspace', appAccess: {}, isDefault: false },
-      { id: 'role-coordinator', name: 'Coordenador', appAccess: {}, isDefault: false },
+      { id: 'role-technician', name: 'Técnico', isDefault: false },
+      { id: 'role-viewer', name: 'Visualizador', isDefault: true },
+      { id: 'role-lider', name: 'Líder', isDefault: false },
+      { id: 'role-admin', name: 'Admin de Workspace', isDefault: false },
+      { id: 'role-coordinator', name: 'Coordenador', isDefault: false },
     ],
     loading: false,
   }),

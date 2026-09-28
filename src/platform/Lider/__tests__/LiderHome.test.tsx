@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { LiderHome } from '../LiderHome'
@@ -66,7 +66,7 @@ beforeEach(() => {
   mockUseLeadership.mockReturnValue({
     isLeadership: true,
     area: 'team',
-    role: { id: 'role-lider', key: 'lider', name: 'Líder', appAccess: {} },
+    role: { id: 'role-lider', key: 'lider', name: 'Líder' },
   })
   mockUseWorkspace.mockReturnValue({ workspace: ws1 })
   mockGetRoleForUser.mockReturnValue({ name: 'Técnico' })

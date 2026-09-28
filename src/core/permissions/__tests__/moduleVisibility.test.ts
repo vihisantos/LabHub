@@ -2,10 +2,10 @@
  * F2-D-K — Nova fonte de visibilidade de módulos (RBAC 2.0).
  *
  * Três blocos:
- *   1. EQUIVALÊNCIA — a matriz nova é comparada, célula a célula, com
- *      `DEFAULT_ROLES[].appAccess` (a fonte legada que ela substitui). Se a
- *      matriz divergir do comportamento atual, o teste falha: o F2-D-K proíbe
- *      redesenho de política.
+ *   1. A MATRIZ — verificada célula a célula contra a política do F2-D-J §D.
+ *      Até o F2-D-N2 ela era comparada com `DEFAULT_ROLES[].appAccess`; com a
+ *      fonte legada removida, o oráculo é a matriz esperada escrita à mão, e
+ *      cada cargo tem teste de "nada fora do esperado é concedido".
  *   2. SEGURANÇA / FONTE DE DADOS — a nova resolução NÃO pode ler
  *      `user.app_access`, `Role.appAccess` nem `profiles.role`, e não infere
  *      permissão a partir de Actions.
@@ -17,7 +17,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { User } from '../../auth/types'
 import type { Workspace } from '../../workspaces/types'
-import { DEFAULT_ROLES } from '../types'
 import type { Membership } from '../membership'
 import {
   MODULE_IDS,
@@ -117,8 +116,10 @@ beforeEach(() => {
 // 1. EQUIVALÊNCIA COM A MATRIZ LEGADA (DEFAULT_ROLES)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('equivalência com DEFAULT_ROLES (fonte legada substituída)', () => {
-  // Mapa explícito: `key` legado -> `slug` canônico de public.roles.
+describe('a matriz RBAC2 é a fonte de verdade (fonte legada removida no F2-D-N2)', () => {
+  // Mapa explícito: `key` legado -> `slug` canônico de public.roles. Mantido
+  // como documentação da correspondência (o `DEFAULT_ROLES[].appAccess` que
+  // servia de oráculo foi removido no F2-D-N2).
   const LEGACY_KEY_TO_SLUG: Record<string, string> = {
     technician: 'tec',
     viewer: 'vis',
@@ -126,14 +127,15 @@ describe('equivalência com DEFAULT_ROLES (fonte legada substituída)', () => {
     coordinator: 'coordinator',
   }
 
-  it('a matriz cobre exatamente os 4 cargos com appAccess declarado', () => {
+  it('a matriz cobre exatamente os 4 cargos mapeados', () => {
     expect(Object.keys(MODULE_VISIBILITY_BY_SLUG).sort()).toEqual(
       Object.values(LEGACY_KEY_TO_SLUG).sort(),
     )
   })
 
-  // Matriz esperada, escrita à mão a partir do F2-D-J §D (role x app). Serve de
-  // trava contra alguém "melhorar" a política sem querer.
+  // Matriz esperada, escrita à mão a partir do F2-D-J §D (role x app). É o
+  // oráculo permanente: com a matriz legada removida, este é o teste que trava
+  // contra alguém "melhorar" a política sem querer.
   const ESPERADO: Record<string, Partial<Record<ModuleId, ModuleLevel>>> = {
     tec: { 'pc-care': 'full', stock: 'full', reservalab: 'read', chamados: 'full' },
     vis: { 'pc-care': 'read', stock: 'read', reservalab: 'dash', chamados: 'read' },
@@ -154,14 +156,10 @@ describe('equivalência com DEFAULT_ROLES (fonte legada substituída)', () => {
       }
     })
 
-    it(`${slug}: é idêntico ao appAccess do DEFAULT_ROLES legado`, () => {
-      const legado = DEFAULT_ROLES.find(
-        (r) => r.key === Object.keys(LEGACY_KEY_TO_SLUG).find((k) => LEGACY_KEY_TO_SLUG[k] === slug),
-      )
-      expect(legado, `DEFAULT_ROLES deveria ter o cargo do slug ${slug}`).toBeDefined()
-      for (const appId of MODULE_IDS) {
-        const viaLegado = (legado!.appAccess as Record<string, ModuleLevel | undefined>)[appId]
-        expect(moduleLevelForSlug(slug, appId)).toBe(viaLegado ?? 'none')
+    it(`${slug}: nenhum nível fora do esperado é concedido`, () => {
+      // Fecha a matriz: um app fora de MODULE_IDS não pode vazar acesso.
+      for (const appId of ['dashboard', 'admin', 'pedir-musica']) {
+        expect(moduleLevelForSlug(slug, appId)).toBe('none')
       }
     })
   }
