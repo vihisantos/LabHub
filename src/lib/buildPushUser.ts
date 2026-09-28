@@ -1,8 +1,6 @@
 import type { User } from '../core/auth/types'
 import type { PushUserInfo } from './usePushNotifications'
-import { permissionService } from '../core/permissions/service'
 import { assignedWorkspaceIds } from '../core/memberships/service'
-import { appRegistry } from '../appRegistry'
 
 /**
  * Monta o payload de segmentação do push (inscrição) a partir do usuário logado.
@@ -11,30 +9,44 @@ import { appRegistry } from '../appRegistry'
  * Chamados, PushStatusCard) — o backend filtra as inscrições por esse payload
  * (módulo `apps`, `workspace_ids`, `notify_settings`).
  *
- * ── `apps`: PAYLOAD LEGADO, SEM PODER DE DECISÃO (F2-D-H §E) ─────────────
- * O mapa `apps` (nível efetivo por app, derivado de `resolveAppAccess`) é
- * gravado no snapshot da inscrição e devolvido na listagem administrativa, mas
- * **não participa mais do targeting**: desde o F2-D-E (`09ecff4`) o
- * `_target_subs` decide por membership ativa + `role_permissions`, resolvidos
- * no servidor (`_module_action_ok` em `reservalab/api/app.py:947`). O
- * comentário do backend e os testes `test_push_targeting_rbac2.py` travam isso
- * (`apps.reservalab='full'` no snapshot NÃO concede envio).
+ * ── `apps`: VAZIO POR DECISÃO DE ARQUITETURA (F2-D-N1) ────────────────────────
  *
- * MANTIDO de propósito: removê-lo mudaria o contrato de exibição da tela
- * administrativa de inscrições e esvaziaria o campo de linhas já gravadas, sem
- * ganho funcional. Fica como compatibilidade até a decisão de produto sobre a
- * visibilidade de módulos. Não use este campo para autorizar nada.
+ * ANTES (legado): `apps[appId] = permissionService.resolveAppAccess(role, user,
+ * appId) ?? false`, isto é, o nível efetivo GLOBAL do usuário — o cargo local
+ * (`Role.appAccess`) sobrescrito pelo override individual (`User.app_access`, a
+ * coluna `profiles.app_access`).
+ *
+ * DEPOIS: `{}`. O campo continua no contrato (e, portanto, na tela de
+ * diagnóstico de inscrições), mas vazio — e isso é intencional, não um efeito
+ * colateral. Motivos, na ordem:
+ *
+ *   1. A cadeia legada acabou. `resolveAppAccess` lia `User.app_access` e
+ *      `Role.appAccess`, e era a ÚLTIMA leitura viva dela no sistema. Com o
+ *      F2-D-K/L a visibilidade passou a vir de `membership ativa → roles.slug →
+ *      matriz`, e nada mais consome a coluna.
+ *   2. Não existe representação GLOBAL fiel. A matriz RBAC2 é resolvida POR
+ *      WORKSPACE (`resolveModuleVisibilities` exige `workspaceId` e resolve o
+ *      slug de forma assíncrona), enquanto `apps` é um snapshot único por
+ *      dispositivo, válido para todos os workspaces. Qualquer agregação
+ *      (união/intersecção/maior nível) seria uma semântica INVENTADA, e um valor
+ *      por unidade num campo global seria enganoso. Por isso o campo esvazia em
+ *      vez de mentir.
+ *   3. O campo nunca teve poder de decisão. O targeting é resolvido no SERVIDOR
+ *      por membership ativa + `role_permissions`, via `_target_subs` +
+ *      `_MODULE_PUSH_ACTIONS` (`reservalab/api/app.py:947`), e é fail-closed.
+ *      Registros antigos com `apps: {reservalab: 'full'}` nunca concederam envio
+ *      algum — é travado em `api/tests/test_push_targeting_rbac2.py`.
+ *
+ * O backend tolera a ausência e normaliza sozinho (`user.get('apps') or {}`,
+ * `app.py:589`), então nenhuma alteração de backend foi necessária — e nenhuma
+ * foi feita. Inscrições já gravadas no Redis continuam legíveis: o registro
+ * antigo continua exibindo seus níveis, o novo mostra `{}`.
+ *
+ * ⚠️ NÃO use este campo para autorizar, segmentar ou granting nada. Para saber
+ * o que o usuário pode ver, use `useModuleVisibility`; para saber o que ele pode
+ * FAZER, use a Action (`useCanAccessAction`) ou o RLS.
  */
 export function buildPushUser(user: User): PushUserInfo {
-  const apps: Record<string, boolean | string> = {}
-  if (user.is_super_admin) {
-    for (const app of appRegistry) apps[app.id] = 'full'
-  } else {
-    const role = permissionService.getRoleForUser(user.roleId)
-    for (const app of appRegistry) {
-      apps[app.id] = permissionService.resolveAppAccess(role, user, app.id) ?? false
-    }
-  }
   return {
     id: user.id,
     name: user.name,
@@ -43,7 +55,9 @@ export function buildPushUser(user: User): PushUserInfo {
     // Compat de payload (o backend filtra por este campo): origem = memberships
     // ativas, nunca a coluna legada.
     workspace_ids: assignedWorkspaceIds(user),
-    apps,
+    // Vazio por decisão — ver a nota acima. Mantido no payload para não alterar
+    // o contrato nem a tela de diagnóstico.
+    apps: {},
     notify_settings: user.notify_settings,
   }
 }

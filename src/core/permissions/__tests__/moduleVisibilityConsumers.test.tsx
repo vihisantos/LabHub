@@ -322,20 +322,40 @@ describe('guards que NÃO migraram (devem continuar próprios)', () => {
 })
 
 describe('nenhum consumidor de produção ficou na fonte legada', () => {
-  // Trava permanente do §22. Sem isto, `useAppAccess`/`getLevel`/`canAccessApp`/
-  // `isFullAccess` voltariam a aparecer na UI sem nenhum teste quebrando.
-  // A própria implementação legada e o payload de push ficam de fora de propósito.
+  // Trava permanente do §22 (F2-D-L) — ampliada no F2-D-N1.
+  //
+  // A primeira versão cobria só a VISIBILIDADE (`useAppAccess`/`getLevel`/
+  // `canAccessApp`/`isFullAccess`). A auditoria F2-D-M §6 mostrou a lacuna: os
+  // gates de ESCRITA (`canWriteApp`/`requireWrite`, que decidem por
+  // `resolveAppAccess` → `User.app_access`/`Role.appAccess`) NÃO eram cobertos.
+  // Hoje são inalcançáveis da UI (§9 abaixo), mas um PR futuro poderia
+  // reintroduzir autorização legada por essa porta sem trippingar a trava.
+  //
+  // Ficam de fora de propósito apenas: a própria implementação legada e os TRÊS
+  // services mortos que ainda chamam `requireWrite` — removidos juntos no PR de
+  // remoção do frontend legado, não agora (F2-D-N1 §1/§9).
   const LEGADO_PERMITIDO = new Set([
     'core/permissions/usePermissions.ts',       // define os getters (fachada)
     'core/permissions/service.ts',            // resolveAppAccess + getters
     'core/permissions/types.ts',              // DEFAULT_ROLES[].appAccess
     'core/workspaces/apps.ts',                // assinatura de isModuleAvailable
+    // Gates de escrita legados, inalcançáveis da UI. Cada um é removido no PR
+    // do frontend legado; até lá, são os únicos detentores de `requireWrite`.
+    'apps/chamados/services/roomService.ts',     // via useRooms, sem consumidor
+    'apps/pcare/services/partUsageService.ts',   // só leitura em produção
+    'apps/pcare/services/checklistService.ts',   // pcChecklistService (DEPRECATED)
   ])
   const PADROES: Array<[RegExp, string]> = [
     [/useAppAccess\s*\(/, 'useAppAccess()'],
     [/\.getLevel\s*\(/, '.getLevel()'],
     [/\.canAccessApp\s*\(/, '.canAccessApp()'],
     [/\bisFullAccess\s*\(/, 'isFullAccess()'],
+    // Gates de escrita legados (F2-D-N1 §8): decidem por resolveAppAccess.
+    // Casam o IDENTIFICADOR, não só a chamada, para cobrir também o consumo
+    // desestruturado (`const { requireWrite } = usePermissions()`) e a passagem
+    // como callback — que continuariam sendo autorização legada.
+    [/\bcanWriteApp\b/, 'canWriteApp'],
+    [/\brequireWrite\b/, 'requireWrite'],
   ]
 
   it('nenhum arquivo de produção consome a visibilidade legada', () => {
@@ -367,6 +387,33 @@ describe('nenhum consumidor de produção ficou na fonte legada', () => {
     andar(raiz)
 
     expect(offenders).toEqual([])
+  })
+
+  it('o detector realmente pega os gates de escrita (trava não-vazia)', () => {
+    // Uma trava que nunca falharia não é trava. Aqui a MESMA lógica de
+    // detecção (padrões + remoção de comentários) é exercitada contra fontes
+    // sintéticas, cobrindo as duas formas de chamada em produção:
+    //   · acesso por propriedade — `permissionService.requireWrite('x')`
+    //   · acesso desestruturado — `const { requireWrite } = usePermissions()`
+    const detectar = (fonte: string): string[] => {
+      const limpo = fonte
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+      return PADROES.filter(([re]) => re.test(limpo)).map(([, rotulo]) => rotulo)
+    }
+
+    expect(detectar(`permissionService.requireWrite('chamados')`)).toEqual(['requireWrite'])
+    expect(detectar(`permissionService.canWriteApp('stock')`)).toEqual(['canWriteApp'])
+    expect(detectar(`const { requireWrite, canWriteApp } = usePermissions()`)).toEqual(
+      expect.arrayContaining(['requireWrite', 'canWriteApp']),
+    )
+    // E NÃO dispara em código legítimo: quem escreve de verdade usa a Action.
+    expect(detectar(`const { allowed } = useCanAccessAction('ticket.edit')`)).toEqual([])
+    // Mesmo uma referência sem chamada é consumo legado e é barrada: passar o
+    // gate adiante (callback, comparação) autorizaria igual.
+    expect(detectar(`if (roomService.requireWrite) {}`)).toEqual(['requireWrite'])
+    // Comentário mencionando a API legada não pode trippingar a trava.
+    expect(detectar(`// antes era permissionService.requireWrite('pc-care')`)).toEqual([])
   })
 })
 
