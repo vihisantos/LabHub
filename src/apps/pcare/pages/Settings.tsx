@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAppAccess, useCanAccessAction } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
+import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
 import { exportCSV, exportXLSX, pcToRows, partToRows } from '../utils/export'
 import { pcService } from '../services/pcService'
 import { partService } from '../services/partService'
@@ -185,9 +186,26 @@ export function Settings() {
   const [importResult, setImportResult] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmClearFinal, setConfirmClearFinal] = useState(false)
-  const { isFullAccess } = useAppAccess()
   const { allowed: canImport } = useCanAccessAction('pcare.import')
-  const canClear = isFullAccess('pc-care')
+  // RBAC 2.0 (F2-D-K): `pcare.data.clear` é uma operação DESTRUTIVA local
+  // (apaga todas as chaves `labhub_*`), portanto NÃO é "visibilidade" — não
+  // pode ser derivada de Action como `pcare.import` (que é escrita em massa,
+  // não deleção de dados).
+  //
+  // Não existe Action para ela: no catálogo ela é `INTERNAL`/destrutiva e nunca
+  // foi semeada. Criar `pcare.data.clear` exigiria uma MIGRATION (seed em
+  // `role_permissions`), o que está fora do escopo do F2-D-K (§19) — então a
+  // lacuna fica DOCUMENTADA, não improvisada.
+  //
+  // A POLÍTICA é preservada exatamente: a fonte nova resolve o nível de
+  // `pc-care` por `membership ativa → roles.slug`, e `full` em `pc-care` existe
+  // só para `tec` (único cargo com `pc-care = full` em `DEFAULT_ROLES`). Logo o
+  // botão continua restrito ao técnico — sem ampliar, sem estreitar.
+  //
+  // Pendência para a fase seguinte: semear `pcare.data.clear` e trocar este gate
+  // por `useCanAccessAction`.
+  const { level: pcCareLevel } = useModuleLevel('pc-care')
+  const canClear = pcCareLevel === 'full'
 
   function handleExportAll() {
     const all = {

@@ -6,15 +6,29 @@ import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { PCChecklistItem } from '../types/checklist'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 export function ChecklistExecute() {
   const { templateId } = useParams()
   const navigate = useNavigate()
   const { templates } = useChecklistTemplates()
   const { pcs } = usePCs()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  // RBAC 2.0 (F2-D-K): a execução de um template num PC é a criação de uma
+  // instância de checklist (`pcare.pc_checklists`), logo a Action que a
+  // representa é `pcare.checklist.create` — a MESMA que o RLS exige em
+  // `pc_checklists_insert` (migration 079). Antes esta tela usava
+  // `isFullAccess('pc-care')`, que vinha de `Role.appAccess` e podia divergir do
+  // banco. Fail-closed: enquanto a consulta não responde, `allowed` é false.
+  //
+  // Observação honesta: hoje a execução é em memória (não persiste), então a
+  // Action é um gate de UX. Se a feature passar a persistir, a mesma Action já
+  // passa a ser exigida pelo RLS — nada a inventar.
+  //
+  // Semântica preservada: `pcare.checklist.create` é semeada apenas em `tec`, o
+  // único cargo que tinha `pc-care = full` em `DEFAULT_ROLES`.
+  const { allowed: canWrite, loading: canWriteLoading } = useCanAccessAction(
+    'pcare.checklist.create',
+  )
 
   const template = templates.find((t) => t.id === templateId)
 
@@ -59,6 +73,17 @@ export function ChecklistExecute() {
         <icons.nav.checklists size={40} />
         <p className="text-sm text-fg-dim">Template não encontrado</p>
         <button type="button" onClick={() => navigate('/pc-care/checklists')} className="rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2 text-sm font-medium text-fg">Voltar</button>
+      </div>
+    )
+  }
+
+  if (canWriteLoading) {
+    // Fail-closed sem piscar "somente leitura": enquanto a Action não
+    // responde, mostramos carregamento (mesmo padrão de `tv/pages/Admin.tsx`).
+    return (
+      <div className="flex items-center justify-center gap-2 py-20 text-center">
+        <icons.ui.shield size={28} className="mx-auto animate-pulse text-fg-muted" />
+        <p className="text-xs text-fg-muted">Verificando permissão…</p>
       </div>
     )
   }
