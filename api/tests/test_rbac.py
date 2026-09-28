@@ -4,8 +4,11 @@ Covers:
   1. rbac_can resolver — deterministic order:
      super_admin ⇒ ALLOW; não membro ⇒ DENY; role permission ⇒ base;
      override.deny ⇒ DENY; override.allow ⇒ ALLOW; default deny. Fail-closed.
-  2. require_action decorator — 401/403/allow + feature-flag passthrough.
-  3. _require_workspace_app_manager drift fix (RBAC vs legacy).
+  2. require_action decorator — always enforces the Action (401/403/allow);
+     no feature flag, no legacy no-op path.
+  3. _require_workspace_app_manager — RBAC 2.0 is the only authority
+     (admin.app.purge via membership/role_permissions; profile.role is NOT
+     consulted — F2-C removed the legacy fallback).
 """
 
 import base64
@@ -264,7 +267,6 @@ def root_client(root_api_module, fake_requests, monkeypatch):
         monkeypatch.setattr(rbac_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
-    monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
     root_api_module._rate_limit_store.clear()
     return root_api_module.app.test_client()
 
@@ -281,11 +283,11 @@ class TestRequireActionDecorator:
             "status": "active",
         }
 
-    def test_flag_off_passthrough(self, root_client, fake_requests, monkeypatch, rbac_module):
-        """RBAC_2_ENABLED off ⇒ decorator is a no-op (legacy path preserved)."""
+    def test_action_allowed_passes(self, root_client, fake_requests, monkeypatch, rbac_module):
+        """Action permitida ⇒ decorator deixa passar (RBAC 2.0 sempre ativo)."""
         _patch_supabase_profile(fake_requests, self._profile(is_super=True))
         _patch_workspace(fake_requests)
-        monkeypatch.setattr(rbac_module, "rbac_can", lambda *a, **k: False)
+        monkeypatch.setattr(rbac_module, "rbac_can", lambda *a, **k: True)
         resp = root_client.post(
             "/api/tv/cloudinary/delete",
             json={"workspace_id": "ws-test", "image_url": "https://test.com/img.jpg"},
@@ -293,10 +295,10 @@ class TestRequireActionDecorator:
         )
         assert resp.status_code == 200
 
-    def test_flag_on_deny_403(self, root_client, fake_requests, monkeypatch, rbac_module):
+    def test_action_absent_deny_403(self, root_client, fake_requests, monkeypatch, rbac_module):
+        """Action ausente ⇒ 403, independentemente de qualquer env var."""
         _patch_supabase_profile(fake_requests, self._profile(is_super=False))
         _patch_workspace(fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
         monkeypatch.setattr(rbac_module, "rbac_can", lambda *a, **k: False)
         resp = root_client.post(
             "/api/tv/cloudinary/delete",
@@ -307,22 +309,9 @@ class TestRequireActionDecorator:
         body = resp.get_json() or {}
         assert body.get("error") == "Permissão insuficiente"
 
-    def test_flag_on_allow_passes(self, root_client, fake_requests, monkeypatch, rbac_module):
-        _patch_supabase_profile(fake_requests, self._profile(is_super=True))
-        _patch_workspace(fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
-        monkeypatch.setattr(rbac_module, "rbac_can", lambda *a, **k: True)
-        resp = root_client.post(
-            "/api/tv/cloudinary/delete",
-            json={"workspace_id": "ws-test", "image_url": "https://test.com/img.jpg"},
-            headers=_auth_headers(),
-        )
-        assert resp.status_code == 200
-
-    def test_flag_on_deny_records_audit(self, root_client, fake_requests, monkeypatch, rbac_module):
+    def test_action_absent_records_audit(self, root_client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, self._profile(is_super=False))
         _patch_workspace(fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
         monkeypatch.setattr(rbac_module, "rbac_can", lambda *a, **k: False)
         resp = root_client.post(
             "/api/tv/cloudinary/delete",
@@ -335,7 +324,13 @@ class TestRequireActionDecorator:
 
 
 class TestRequireWorkspaceAppManager:
-    """Drift fix: legacy mirror vs RBAC authority for on/off admin.app.purge."""
+    """Gateway de describe/purge de dados do app do workspace (RBAC 2.0 ON-only).
+
+    Protege os RPCs SECURITY DEFINER purge_tv_app_data / describe_tv_app_data.
+    A autoridade é apenas `admin.app.purge` (workspace) via membership +
+    role_permissions, ou super admin (bypass). profile.role == 'admin' NÃO
+    concede mais nada (F2-C removeu o fallback legacy).
+    """
 
     def _profile(self, role="technician", is_super=False):
         return {
@@ -348,8 +343,20 @@ class TestRequireWorkspaceAppManager:
             "status": "active",
         }
 
-    def _describe(self, root_client, fake_requests, headers, ws):
-        _patch_supabase_profile(fake_requests, ws)
+    def _describe(self, root_client, fake_requests, headers, ws, role_id=None, perms=()):
+        fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([ws]))
+        if role_id:
+            fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
+                {"id": "m-user-1-ws-test", "profile_id": "user-1",
+                 "workspace_id": "ws-test", "role_id": role_id, "status": "active"}
+            ]))
+            fake_requests.route("GET", "/rest/v1/role_permissions", FakeResponse(perms))
+            fake_requests.route("GET", "/rest/v1/membership_overrides", FakeResponse([]))
+        else:
+            fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
+                {"profile_id": ws.get("id"), "workspace_id": w, "status": "active"}
+                for w in (ws.get("workspace_ids") or [])
+            ]))
         _patch_workspace(fake_requests)
         return root_client.post(
             "/api/admin/app-data/describe",
@@ -357,18 +364,55 @@ class TestRequireWorkspaceAppManager:
             headers=headers,
         )
 
-    def test_legacy_non_admin_403(self, root_client, fake_requests, monkeypatch):
-        """Flag off + role != admin ⇒ workspace admin gate denies."""
+    def test_non_action_member_deny_403(self, root_client, fake_requests, monkeypatch):
+        """Membro ativo sem a Action ⇒ 403 (default deny)."""
         resp = self._describe(
             root_client, fake_requests,
             _auth_headers(),
             self._profile(role="technician"),
         )
-        # Gate runs before RPC; without a route for the RPC the request would
-        # reach 'Não foi possível...' only if the gate passes. Non-admin ⇒ 403.
         assert resp.status_code == 403
 
-    def test_legacy_super_admin_allowed(self, root_client, fake_requests, monkeypatch):
+    def test_role_admin_without_action_deny_403(self, root_client, fake_requests, monkeypatch):
+        """O caso mais importante do F2-C: role='admin' no perfil NÃO concede
+        describe — só a Action `admin.app.purge` (membership/role_permissions)."""
+        resp = self._describe(
+            root_client, fake_requests,
+            _auth_headers(),
+            self._profile(role="admin"),
+            role_id="r-admin",
+            perms=[],
+        )
+        assert resp.status_code == 403
+
+    def test_role_with_purge_action_allowed(self, root_client, fake_requests, monkeypatch):
+        """Role com Action admin.app.purge (workspace) ⇒ PERMITIR."""
+        fake_requests.route(
+            "POST", "/rest/v1/rpc/describe_tv_app_data",
+            FakeResponse({"tables": {}, "total": 0}),
+        )
+        resp = self._describe(
+            root_client, fake_requests,
+            _auth_headers(),
+            self._profile(role="admin"),
+            role_id="r-admin",
+            perms=[{"action": "admin.app.purge", "scope": "workspace"}],
+        )
+        assert resp.status_code == 200
+
+    def test_global_scope_purge_does_not_grant_workspace(self, root_client, fake_requests, monkeypatch):
+        """Grant scope=global não satisfaz o check workspace ⇒ fail-closed."""
+        resp = self._describe(
+            root_client, fake_requests,
+            _auth_headers(),
+            self._profile(role="admin"),
+            role_id="r-admin",
+            perms=[{"action": "admin.app.purge", "scope": "global"}],
+        )
+        assert resp.status_code == 403
+
+    def test_super_admin_bypass_allowed(self, root_client, fake_requests, monkeypatch):
+        """Super admin mantém o bypass (não depende de membership/Action)."""
         fake_requests.route(
             "POST", "/rest/v1/rpc/describe_tv_app_data",
             FakeResponse({"tables": {}, "total": 0}),
@@ -379,14 +423,3 @@ class TestRequireWorkspaceAppManager:
             self._profile(role="viewer", is_super=True),
         )
         assert resp.status_code == 200
-
-    def test_rbac_on_deny_403(self, root_client, fake_requests, monkeypatch, rbac_module):
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
-        monkeypatch.setattr(rbac_module, "rbac_can", lambda *a, **k: False)
-        resp = self._describe(
-            root_client, fake_requests,
-            _auth_headers(),
-            self._profile(role="admin", is_super=False),
-        )
-        assert resp.status_code == 403
-        assert (resp.get_json() or {}).get("error") == "Permissão insuficiente"

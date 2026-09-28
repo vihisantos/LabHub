@@ -4,7 +4,7 @@
 
 Aceita (substituída pelo RBAC 2.0 no enforcement de backend)
 
-> **Nota:** o RBAC 2.0 (migration 036) introduz autorização por Action no backend. O modelo de três camadas é preservado como fallback quando `RBAC_2_ENABLED=0`. Consulte o [índice do RBAC 2.0](../rbac/README.md) para o modelo vigente.
+> **Nota:** o RBAC 2.0 (migration 036) é a autorização autoritativa de backend e é **ON-only** desde o F2-C (a flag `RBAC_2_ENABLED` foi removida do runtime). O modelo de três camadas segue existindo apenas como legado de frontend (F2-D). Consulte o [índice do RBAC 2.0](../rbac/README.md) para o modelo vigente.
 
 ## Contexto
 

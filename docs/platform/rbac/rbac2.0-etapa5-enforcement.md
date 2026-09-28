@@ -1,5 +1,10 @@
 # LabHub — RBAC 2.0 · ETAPA 5: Enforcement (Rotas) + Rollout Controlado
 
+> **Atualização pós-F2-C:** a flag `RBAC_2_ENABLED` foi **removida do runtime**
+> (RBAC 2.0 ON-only). As menções à flag e ao "flag OFF / rollout reversível" abaixo são
+> **históricas**, registram a etapa 5 na época em que o rollout era controlado por chave e
+> não descrevem o estado atual.
+
 > Documento da **ETAPA 5** (aplicação do controle RBAC 2.0 no backend + rollout controlado).
 > Regra deste documento: nenhuma ambiguidade é resolvida por suposição; rotas só são
 > protegidas com Actions **literais** comprovadas no catálogo

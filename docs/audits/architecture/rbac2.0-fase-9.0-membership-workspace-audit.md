@@ -185,6 +185,10 @@ trigger, que só dispara em `profiles`).
 Quando `RBAC_2_ENABLED=false` (default), só o legacy path roda. Quando habilitado,
 os dois rodam (legacy como fallback, RBAC como gate).
 
+> **Pós-F2-C:** este item 5.6 é **histórico** — a flag foi removida do runtime e o
+> RBAC 2.0 é ON-only (não existe mais caminho "só legacy"). A "bomba-relógio" registrada
+> permanece válida como dependência do trigger 041 para a resolução de membership.
+
 **Risco:** se o trigger falhar ou houver drift, os dois caminhos decidem diferente.
 Hoje OK (trigger funciona). Bomba-relógio se alguém desabilitar o trigger ou editar
 `memberships` diretamente.

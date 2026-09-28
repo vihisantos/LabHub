@@ -1,7 +1,7 @@
 """Security tests for the RBAC 2.0 "Coordenador Multiunidade" role (040).
 
 Covers the enforcement engine resolved for the coordinator role (migration
-040 seeds) — the guarantees that matter when ``RBAC_2_ENABLED`` is on:
+040 seeds) — the guarantees that hold with RBAC 2.0 as the only authority:
 
   1. Coordenador (membership ativa em ws A) recebe as Actions operacionais
      do cargo em ws A (ticket.* exceto os proibidos, stock.export, pcare.export).

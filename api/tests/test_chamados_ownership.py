@@ -1,7 +1,7 @@
 """Chamados — Claim atômico + Ownership de Atendimento + Atribuição do Líder.
 
-Cobre o modelo definitivo de atribuição de Chamados em RBAC OFF e ON, com
-segurança real no backend:
+Cobre o modelo definitivo de atribuição de Chamados com RBAC 2.0 como
+autoridade única (ON-only), com segurança real no backend:
 
 Claim:
   - Caso 1: chamado sem responsável → técnico A assume (200, assignedToUserId=A).
@@ -12,10 +12,11 @@ Ownership:
   - A = responsável; B = outro técnico. B recebe 403 ao tentar comment/edit/status.
 
 Líder/assigner:
-  - Pode atribuir, reatribuir e remover responsável.
-  - Atribuição para usuário de outro workspace falha.
+  - Pode atribuir, reatribuir e remover responsável (Action `ticket.assign`).
+  - Atribuição sem a Action falha (técnico comum ⇒ 403).
 
-RBAC OFF e ON: o enforcement de ownership/claim vale nos dois modos.
+O enforcement de ownership/claim é regra de negócio e vale sempre; as Actions
+RBAC 2.0 são sempre avaliadas (não há flag OFF).
 """
 
 import base64
@@ -172,13 +173,18 @@ def client(api_module, fake_requests, monkeypatch):
         monkeypatch.setattr(rbac_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
-    monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
     api_module._rate_limit_store.clear()
     return api_module.app.test_client()
 
 
-def _setup_as(client, fake_requests, monkeypatch, profile, rbac_on=False):
-    """Ativa auth como `profile` e opcionalmente RBAC_2_ENABLED=1."""
+def _setup_as(client, fake_requests, monkeypatch, profile, actions=None):
+    """Ativa auth como `profile` e define as Actions RBAC 2.0 do ator.
+
+    RBAC 2.0 é sempre a autoridade (ON-only): quando `actions` não é None,
+    as Actions são concedidas exatamente como especificado; o que estiver fora
+    do conjunto é negado (fail-closed). `actions=None` mantém o resolver real
+    (usado para exercitar o bypass de super admin).
+    """
     auth_mod = sys.modules.get("auth")
     if auth_mod is not None:
         monkeypatch.setattr(auth_mod, "_verify_jwt", lambda t: {"sub": profile["id"]})
@@ -187,10 +193,15 @@ def _setup_as(client, fake_requests, monkeypatch, profile, rbac_on=False):
         {"profile_id": profile["id"], "workspace_id": w, "status": "active"}
         for w in (profile.get("workspace_ids") or [])
     ]))
-    if rbac_on:
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
-    else:
-        monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
+    if actions is not None:
+        mod = sys.modules.get("chamados_ownership_api")
+        if mod is None:
+            for key in ("chamados_api", "root_api"):
+                m = sys.modules.get(key)
+                if m is not None and getattr(m, "app", None) is not None:
+                    mod = m
+                    break
+        monkeypatch.setattr(mod, "rbac_two_can", lambda *a: str(a[2]) in actions)
     return {"Authorization": f"Bearer {_make_jwt({'sub': profile['id']})}"}
 
 
@@ -227,7 +238,7 @@ SUPER = _profile("user-super", role="admin", is_super=True)
 # ── CLAIM ─────────────────────────────────────────────────────────────────────
 
 def test_claim_sem_responsavel_tecnico_assume(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A)
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A, actions={"ticket.claim"})
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
     claimed = dict(ticket, assignedToUserId="user-a", assignedTo="User user-a", status="a_caminho")
@@ -261,7 +272,7 @@ def test_claim_super_admin_assume_como_tecnico(client, fake_requests, monkeypatc
 
 
 def test_claim_chamado_ja_assumido_por_outro_409(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B)
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B, actions={"ticket.claim"})
     ticket = _make_ticket(assignedTo="User user-a", assignedToUserId="user-a")
     _route_ticket(fake_requests, ticket)
     # Update atômico afeta 0 linhas (já assumido por A).
@@ -276,7 +287,7 @@ def test_claim_chamado_ja_assumido_por_outro_409(client, fake_requests, monkeypa
 def test_claim_concorrencia_so_um_consegue(client, fake_requests, monkeypatch):
     """Simula dois claims simultâneos: o 2º update atômico retorna 0 linhas."""
     # Técnico A ganha a corrida.
-    h_a = _setup_as(client, fake_requests, monkeypatch, TEC_A)
+    h_a = _setup_as(client, fake_requests, monkeypatch, TEC_A, actions={"ticket.claim"})
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
     claimed = dict(ticket, assignedToUserId="user-a", assignedTo="User user-a")
@@ -288,7 +299,7 @@ def test_claim_concorrencia_so_um_consegue(client, fake_requests, monkeypatch):
     # Técnico B tenta sobre o mesmo chamado já assumido → 0 linhas → 409/403.
     _route_ticket(fake_requests, claimed)
     _route_claim_update(fake_requests, [])
-    h_b = _setup_as(client, fake_requests, monkeypatch, TEC_B)
+    h_b = _setup_as(client, fake_requests, monkeypatch, TEC_B, actions={"ticket.claim"})
     resp_b = client.post("/api/chamados/t-1/claim", headers=h_b)
     assert resp_b.status_code in (403, 409)
     # Nenhum update afetou linhas para B.
@@ -298,7 +309,7 @@ def test_claim_concorrencia_so_um_consegue(client, fake_requests, monkeypatch):
 # ── OWNERSHIP (técnico comum não opera chamado de outro) ─────────────────────
 
 def test_ownership_tecnico_b_nao_comenta_chamado_de_a(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B)
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B, actions={"ticket.comment"})
     ticket = _make_ticket(assignedTo="User user-a", assignedToUserId="user-a")
     _route_ticket(fake_requests, ticket)
     _route_events(fake_requests)
@@ -310,7 +321,7 @@ def test_ownership_tecnico_b_nao_comenta_chamado_de_a(client, fake_requests, mon
 
 
 def test_ownership_tecnico_b_nao_muda_status_chamado_de_a(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B)
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B, actions={"ticket.status"})
     ticket = _make_ticket(assignedTo="User user-a", assignedToUserId="user-a", status="aberto")
     _route_ticket(fake_requests, ticket)
     _route_events(fake_requests)
@@ -322,7 +333,7 @@ def test_ownership_tecnico_b_nao_muda_status_chamado_de_a(client, fake_requests,
 
 
 def test_ownership_tecnico_a_pode_operar_proprio_chamado(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A)
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A, actions={"ticket.status"})
     ticket = _make_ticket(assignedTo="User user-a", assignedToUserId="user-a", status="aberto")
     _route_ticket(fake_requests, ticket)
     updated = dict(ticket, status="em_atendimento")
@@ -338,7 +349,7 @@ def test_ownership_tecnico_a_pode_operar_proprio_chamado(client, fake_requests, 
 # ── LÍDER / ASSIGNER ─────────────────────────────────────────────────────────
 
 def test_lider_pode_atribuir_para_tecnico(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, LEADER)
+    headers = _setup_as(client, fake_requests, monkeypatch, LEADER, actions={"ticket.assign"})
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
     updated = dict(ticket, assignedTo="User user-a", assignedToUserId="user-a")
@@ -353,7 +364,7 @@ def test_lider_pode_atribuir_para_tecnico(client, fake_requests, monkeypatch):
 
 
 def test_lider_pode_reatribuir_e_remover_responsavel(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, LEADER)
+    headers = _setup_as(client, fake_requests, monkeypatch, LEADER, actions={"ticket.assign"})
     ticket = _make_ticket(assignedTo="User user-a", assignedToUserId="user-a")
 
     # Reatribuir A → B
@@ -377,7 +388,7 @@ def test_lider_pode_reatribuir_e_remover_responsavel(client, fake_requests, monk
 
 
 def test_tecnico_comum_nao_pode_atribuir_para_outro(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A)
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A, actions=set())
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
     _route_events(fake_requests)
@@ -388,37 +399,3 @@ def test_tecnico_comum_nao_pode_atribuir_para_outro(client, fake_requests, monke
 
     assert resp.status_code == 403
     assert not fake_requests.calls_for("PATCH", "or=(assignedToUserId.is.null,assignedToUserId.eq.)")
-
-
-# ── RBAC ON ainda protege ────────────────────────────────────────────────────
-
-def test_ownership_valido_com_rbac_on(client, fake_requests, monkeypatch, api_module):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B, rbac_on=True)
-    # TEC_B não é líder: pode claim/comment, mas NÃO tem ticket.assign → não é
-    # assigner, então ownership bloqueia a operação no chamado de outro.
-    monkeypatch.setattr(
-        api_module, "rbac_two_can",
-        lambda *a: str(a[2]) in ("ticket.comment", "ticket.claim"),
-    )
-    ticket = _make_ticket(assignedTo="User user-a", assignedToUserId="user-a")
-    _route_ticket(fake_requests, ticket)
-    _route_events(fake_requests)
-
-    resp = client.post("/api/chamados/t-1/events",
-                       json={"content": "intromissão"}, headers=headers)
-
-    assert resp.status_code == 403
-
-
-def test_claim_valido_com_rbac_on(client, fake_requests, monkeypatch, api_module):
-    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A, rbac_on=True)
-    monkeypatch.setattr(api_module, "rbac_two_can", lambda *a, **k: True)
-    ticket = _make_ticket(assignedTo="", assignedToUserId="")
-    _route_ticket(fake_requests, ticket)
-    claimed = dict(ticket, assignedToUserId="user-a", assignedTo="User user-a")
-    _route_claim_update(fake_requests, [claimed])
-    _route_events(fake_requests)
-
-    resp = client.post("/api/chamados/t-1/claim", headers=headers)
-
-    assert resp.status_code == 200

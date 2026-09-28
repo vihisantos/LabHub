@@ -33,11 +33,9 @@ flowchart TD
     A -->|falha| E401["401"]
     A -->|ok| W{"require_workspace / require_module"}
     W -->|falha| E403["403 (MODULE_DISABLED ou sem acesso)"]
-    W -->|ok| R{"RBAC_2_ENABLED = 1 ?"}
-    R -->|não| H["Handler (caminho legado)"]
-    R -->|sim| AC{"require_action_rbac ou _require_action_in_handler"}
+    W -->|ok| AC{"require_action_rbac ou _require_action_in_handler"}
     AC -->|negado| E403B["403 Permissão insuficiente"]
-    AC -->|permitido| H
+    AC -->|permitido| H["Handler"]
     H --> SB["Supabase (service_role)"]
     H --> RD["Upstash Redis (push e cache)"]
     H --> SP["SharePoint (reservas)"]
@@ -45,7 +43,7 @@ flowchart TD
     H --> RESP["Resposta JSON"]
 ```
 
-Os gates de autenticação, workspace e módulo valem sempre. O gate de Action só entra em jogo com a flag ligada; o handler é o mesmo nos dois caminhos.
+Os gates de autenticação, workspace e módulo valem sempre. O gate de Action (RBAC 2.0) é sempre avaliado — ON-only, sem flag (F2-C).
 
 ## Grupos de rotas
 
@@ -160,7 +158,7 @@ Os dois mecanismos são *fail-closed*: qualquer erro na engine de autorização 
 
 ## Segurança
 
-- **RBAC 2.0** — autorização por Action, quando `RBAC_2_ENABLED=1`
+- **RBAC 2.0** — autorização por Action, sempre ativa (ON-only, sem flag)
 - **Bypass de RLS** — uso de `SUPABASE_SERVICE_KEY` para operações que exigem permissão elevada
 - **CORS** — habilitado para o domínio do frontend
 - **Proteção de cron** — rotas `/api/push/check*` exigem `CRON_SECRET` no cabeçalho `Authorization`
@@ -224,7 +222,6 @@ class DateEncoder(json.JSONEncoder):
 |----------|-------------|-----------|
 | `SUPABASE_URL` | Sim | URL do projeto Supabase |
 | `SUPABASE_SERVICE_KEY` | Sim | Chave de serviço (ignora RLS) |
-| `RBAC_2_ENABLED` | Não | Liga o enforcement do RBAC 2.0 (`1` = ligado) |
 | `UPSTASH_REDIS_REST_URL` | Não | Redis para push e cache |
 | `UPSTASH_REDIS_REST_TOKEN` | Não | Token do Redis |
 | `VAPID_PUBLIC_KEY` | Não | Chave pública de Web Push |

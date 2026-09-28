@@ -1,5 +1,8 @@
 # LabHub — RBAC 2.0 Etapa 7 — Fechamento de decisões e ativação controlada
 
+> **Atualização pós-F2-C:** `RBAC_2_ENABLED` foi **removida do runtime** (RBAC 2.0 ON-only).
+> As seções abaixo que se referem à ativação/rollback via flag são **históricas**.
+
 ## Objetivo
 
 Fechar os `NEEDS_DECISION` da Etapa 6 sem inventar Actions, sem remover gates legados e sem ativar `RBAC_2_ENABLED` neste passo.
@@ -90,7 +93,7 @@ Portanto:
 | Push notify loan/return | legado |
 | `ticket.weeklyEmail` | global, reproduz gate super-admin |
 | `admin` → `adm` | decidido como canônico para RBAC; legado preservado até cutover da UI |
-| `RBAC_2_ENABLED` | **ativado em PROD (2026-09-07) e Preview** |
+| `RBAC_2_ENABLED` | historico — ativado em PROD (2026-09-07) e Preview; **removido do runtime no F2-C (ON-only)** |
 
 > **Atualização pós-ativação (2026-09-07):** a ativação em produção foi executada (`RBAC_2_ENABLED=1` em Production e Preview) e a auditoria pós-produção concluiu com veredito **HEALTHY WITH OBSERVATIONS**. RBAC 2.0 permanece ativo.
 >
@@ -142,6 +145,10 @@ RBAC_2_ENABLED=0
 ```
 
 O rollback é seguro porque os decorators/helpers retornam ao caminho legado quando a flag está OFF.
+
+> **Pós-F2-C:** o runbook acima é histórico. A flag não existe mais no runtime; o enforcement é
+> incondicional (ON-only). O valor residual de `RBAC_2_ENABLED` nas env vars da Vercel é inócuo
+> e deve ser removido como limpeza operacional.
 
 ### Fase 3 — pós-ativação
 

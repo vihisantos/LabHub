@@ -309,10 +309,11 @@ class TestEscopoNaoAlterado:
         assert not re.search(r"\bpr\.role\b", body)
 
     def test_nao_altera_a_api(self):
-        """`_require_workspace_app_manager` e os fallbacks ficam para outra PR."""
+        """F2-C removeu o fallback legacy `role == 'admin'` da API: o gateway
+        `_require_workspace_app_manager` responde apenas a `admin.app.purge`."""
         app = _read(API_APP)
-        assert "role != 'admin'" in app
-        assert "return str(user.get('role') or '') == 'admin'" in app
+        assert "role != 'admin'" not in app
+        assert "return str(user.get('role') or '') == 'admin'" not in app
         assert f"'{ACTION}'" in app
 
     def test_nao_toca_tv_nem_reservalab(self, body):
