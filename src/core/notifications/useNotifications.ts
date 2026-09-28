@@ -5,6 +5,8 @@ import { authService } from '../auth/service'
 import { defaultDb } from '../../lib/supabase'
 import { workspaceStore } from '../workspaces/store'
 import { notificationAppliesTo } from './visibility'
+import { useModuleVisibilities } from '../permissions/useModuleVisibility'
+import { appRegistry } from '../../appRegistry'
 import type { User } from '../auth/types'
 
 // ── Date grouping helpers ────────────────────────────────────────────────
@@ -129,7 +131,14 @@ export function useNotifications() {
 
   void storeVersion
 
-  const visibleNotifications = notifications.filter((n) => notificationAppliesTo(n, user))
+  // RBAC 2.0 (F2-D-L): a visibilidade de módulo vem da nova fonte, resolvida UMA
+  // vez por render e injetada no filtro puro. O parâmetro é obrigatório, então
+  // não há caminho de volta para `Role.appAccess`/`profiles.app_access`.
+  const { isVisible } = useModuleVisibilities(
+    appRegistry.map((app) => app.id),
+    { ignoreDisabledApps: true },
+  )
+  const visibleNotifications = notifications.filter((n) => notificationAppliesTo(n, user, isVisible))
   const unreadCount = visibleNotifications.filter((n) => !n.read).length
 
   const create = useCallback((data: NotificationFormData) => {

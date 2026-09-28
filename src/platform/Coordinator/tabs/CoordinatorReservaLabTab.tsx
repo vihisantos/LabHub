@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { icons } from '../../../lib/icons'
 import { fetchReservas } from '../../../apps/reservalab/services/api'
 import { fetchTabletReservas } from '../../../apps/reservalab/services/supabase'
 import { getLabDisplayName } from '../../../apps/reservalab/utils/labUtils'
 import { isoToBrDate } from '../../../apps/reservalab/utils/tvEvent'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
 import type { Workspace } from '../../../core/workspaces/types'
 import type {
@@ -161,12 +161,14 @@ function collectTablets(rows: TabletReserva[] | undefined, selectedKey: string):
  * Data em America/Sao_Paulo (nunca UTC/toISOString).
  */
 export function CoordinatorReservaLabTab({ units, workspaces }: CoordinatorReservaLabTabProps) {
-  const { canAccessApp } = useAppAccess()
+  // RBAC 2.0 (F2-D-L): só a visibilidade do módulo muda; a área de coordenação
+  // continua autorizada pelo LeadershipAreaGuard + get_coordinator_units.
+  const { visible: canAccessReservaLab } = useModuleLevel('reservalab', { ignoreDisabledApps: true })
   const [selectedKey, setSelectedKey] = useState(() => spDateKey(new Date()))
   const [loading, setLoading] = useState(true)
   const [byUnit, setByUnit] = useState<Record<string, UnitReservasState>>({})
 
-  const allowed = canAccessApp('reservalab')
+  const allowed = canAccessReservaLab
 
   useEffect(() => {
     if (!allowed) return

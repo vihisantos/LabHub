@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bell, Monitor, X } from 'lucide-react'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { useUpcomingReservations } from '../hooks/useUpcomingReservations'
 import { pickUpcomingReservation } from '../utils/upcomingReservation'
@@ -18,8 +18,10 @@ import { pickUpcomingReservation } from '../utils/upcomingReservation'
 export function UpcomingReservationPopup() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
-  const { getLevel } = useAppAccess()
-  const canSee = getLevel('reservalab') === 'full'
+  // RBAC 2.0 (F2-D-L): `full` continua sendo o requisito — `read`/`dash` não
+  // consultam reservas. O nível vem da nova fonte (mesmo `getLevel` puro de antes).
+  const { level } = useModuleLevel('reservalab', { ignoreDisabledApps: true })
+  const canSee = level === 'full'
 
   const { labReservas, tabletReservas } = useUpcomingReservations(
     canSee ? workspace?.slug : undefined,

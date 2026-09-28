@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { icons } from '../../../lib/icons'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
 import { analyzeSla, analyzeSlaByWorkspace } from '../../../apps/chamados/services/sla'
 import type { SlaAnalysis, SlaWorkspaceSummary } from '../../../apps/chamados/services/sla'
 import { slaConfigService } from '../../../apps/chamados/services/slaConfigService'
 import { exportCSV } from '../../../apps/pcare/utils/export'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
 import { getCol } from '../../../lib/db'
 import { ChartCard, DonutChart, BarChart } from '../../../lib/charts'
 import { cn } from '../../../lib/components/ui/utils'
@@ -137,12 +137,14 @@ function areaBars(counts: Record<string, number>): { label: string; value: numbe
  * e não inventa número algum.
  */
 export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsTabProps) {
-  const { canAccessApp } = useAppAccess()
+  // RBAC 2.0 (F2-D-L): dentro de uma área JÁ autorizada pelo LeadershipAreaGuard,
+  // a nova fonte responde apenas qual módulo aparece. O guard da área não muda.
+  const { visible: canAccessChamados } = useModuleLevel('chamados', { ignoreDisabledApps: true })
   const [periodKey, setPeriodKey] = useState<7 | 30 | 90>(30)
   const [loading, setLoading] = useState(true)
   const [byUnit, setByUnit] = useState<Record<string, UnitReportsState>>({})
 
-  const allowed = canAccessApp('chamados')
+  const allowed = canAccessChamados
 
   useEffect(() => {
     if (!allowed) return

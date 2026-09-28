@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
-const { mockGetLevel, mockNavigate } = vi.hoisted(() => ({
-  mockGetLevel: vi.fn(),
+const { mockUseModuleLevel, mockNavigate } = vi.hoisted(() => ({
+  mockUseModuleLevel: vi.fn(),
   mockNavigate: vi.fn(),
 }))
 
@@ -18,8 +18,8 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
-vi.mock('@/core/permissions/usePermissions', () => ({
-  useAppAccess: () => ({ getLevel: mockGetLevel }),
+vi.mock('@/core/permissions/useModuleVisibility', () => ({
+  useModuleLevel: (...args: unknown[]) => mockUseModuleLevel(...args),
 }))
 
 vi.mock('@/core/workspaces/WorkspaceContext', () => ({
@@ -43,7 +43,7 @@ describe('UpcomingReservationPopup', () => {
   })
 
   it('mostra o pop-up para quem tem acesso full ao ReservaLab', () => {
-    mockGetLevel.mockReturnValue('full')
+    mockUseModuleLevel.mockReturnValue({ level: 'full', visible: true, loading: false })
     render(<UpcomingReservationPopup />)
 
     expect(screen.getByRole('dialog', { name: 'Reserva chegando' })).toBeInTheDocument()
@@ -51,14 +51,14 @@ describe('UpcomingReservationPopup', () => {
   })
 
   it('não mostra para quem não tem acesso full', () => {
-    mockGetLevel.mockReturnValue('read')
+    mockUseModuleLevel.mockReturnValue({ level: 'read', visible: true, loading: false })
     render(<UpcomingReservationPopup />)
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('"Ver reservas" navega para o ReservaLab', () => {
-    mockGetLevel.mockReturnValue('full')
+    mockUseModuleLevel.mockReturnValue({ level: 'full', visible: true, loading: false })
     render(<UpcomingReservationPopup />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Ver reservas' }))
@@ -66,7 +66,7 @@ describe('UpcomingReservationPopup', () => {
   })
 
   it('"Dispensar" fecha o pop-up', () => {
-    mockGetLevel.mockReturnValue('full')
+    mockUseModuleLevel.mockReturnValue({ level: 'full', visible: true, loading: false })
     render(<UpcomingReservationPopup />)
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()

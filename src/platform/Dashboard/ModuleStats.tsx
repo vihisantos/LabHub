@@ -1,11 +1,9 @@
-import { useMemo } from 'react'
+﻿import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { pcService } from '../../apps/pcare/services/pcService'
 import { stockService } from '../../apps/stock/services/stockService'
 import { ticketService } from '../../apps/chamados/services/ticketService'
-import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
-import { useAppAccess } from '../../core/permissions/usePermissions'
-import { isModuleAvailable } from '../../core/workspaces/apps'
+import { useModuleVisibilities } from '../../core/permissions/useModuleVisibility'
 import { icons } from '../../lib/icons'
 
 interface ModuleStat {
@@ -42,8 +40,10 @@ const MODULE_APP_ID: Record<string, string> = {
  */
 export function ModuleStats() {
   const navigate = useNavigate()
-  const { workspace } = useWorkspace()
-  const { canAccessApp } = useAppAccess()
+  // RBAC 2.0 (F2-D-L): só a FONTE da visibilidade muda. O eixo
+  // `disabled_apps` continua incluído (o legado usava `isModuleAvailable`), e os
+  // dados exibidos são os mesmos — a leitura dos services segue no mesmo memo.
+  const { isVisible } = useModuleVisibilities(Object.values(MODULE_APP_ID))
 
   const modules = useMemo<ModuleStat[]>(() => {
     const pcs = pcService.getAll()
@@ -104,8 +104,10 @@ export function ModuleStats() {
         route: '/tv',
         stats: [{ label: 'Display', value: 'Mural digital' }],
       },
-    ].filter((m) => isModuleAvailable(MODULE_APP_ID[m.id], workspace, canAccessApp))
-  }, [workspace, canAccessApp])
+    ].filter((m) => isVisible(MODULE_APP_ID[m.id]))
+    // Só `isVisible` participa: o eixo `disabled_apps` já está resolvido dentro
+    // dele (a fonte nova), então `workspace` não é mais lido neste memo.
+  }, [isVisible])
 
   return (
     <section aria-labelledby="resumo-modulos-titulo">

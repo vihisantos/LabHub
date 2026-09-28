@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const mockAdminService = vi.hoisted(() => ({
@@ -35,8 +35,20 @@ const mockGetByUser = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../../core/memberships/service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../core/memberships/service')>()
+  // RBAC 2.0 (F2-D-L): o componente chama `membershipService.resolveRoleInfo`
+  // (método do objeto), então é o OBJETO que precisa ser substituído — sobrescrever
+  // só o export solto deixaria a implementação real, que consulta a rede.
+  const resolveRoleInfo = async (roleIds: string[]) => {
+    const map = new Map<string, { slug: string; name: string }>()
+    for (const id of roleIds ?? []) {
+      if (id === 'r-a') map.set(id, { slug: 'tec', name: 'Técnico' })
+    }
+    return map
+  }
   return {
     ...actual,
+    membershipService: { ...actual.membershipService, resolveRoleInfo },
+    resolveRoleInfo,
     attachMemberships: async (users: any[]) =>
       Promise.all(
         users.map(async (u) => {

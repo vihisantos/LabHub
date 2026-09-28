@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRoles } from '../../../core/permissions/usePermissions'
-import { permissionService } from '../../../core/permissions/service'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { adminService } from '../../../core/auth/adminService'
 import type { User, UserNotifySettings, NotifyChannelSettings } from '../../../core/auth/types'
-import { attachMemberships, isActiveMember } from '../../../core/memberships/service'
+import { attachMemberships, isActiveMember, membershipService } from '../../../core/memberships/service'
+import { moduleLevelForSlug, type ModuleLevel } from '../../../core/permissions/moduleVisibility'
+import { SLUG_TO_ROLE_ID } from '../../../core/permissions/membership'
 import type { Role } from '../../../core/permissions/types'
 import { appRegistry } from '../../../appRegistry'
 import { Switch } from '../../../lib/components/ui/switch'
@@ -13,12 +14,6 @@ import { icons } from '../../../lib/icons'
 const MODULES = appRegistry.filter((app) => app.id !== 'admin')
 
 const EMPTY_SETTINGS: UserNotifySettings = { muted: false, apps: {} }
-
-function userHasAppAccess(user: User, roles: Role[], appId: string): boolean {
-  if (user.is_super_admin) return true
-  const role = roles.find((r) => r.id === user.roleId)
-  return permissionService.resolveAppAccess(role, user, appId) !== null
-}
 
 function inWorkspaceScope(user: User, workspaceFilter: string): boolean {
   if (workspaceFilter === 'all') return true
@@ -29,7 +24,25 @@ function inWorkspaceScope(user: User, workspaceFilter: string): boolean {
   return isActiveMember(user.memberships, workspaceFilter)
 }
 
+/**
+ * Nome dos cargos que TÊM acesso a um app, lido da MATRIZ de visibilidade (a
+ * nova fonte) em vez de `Role.appAccess`. Um cargo só entra se a matriz declarar
+ * algum nível para o app — logo `opv`/`est`/`adm` (fora da matriz) não aparecem,
+ * que é a decisão F2-D-L.
+ */
+function rolesWithAccess(roles: Role[], appId: string): string[] {
+  return roles
+    .filter((r) => {
+      const slug = Object.entries(SLUG_TO_ROLE_ID).find(([, id]) => id === r.id)?.[0]
+      return slug ? moduleLevelForSlug(slug, appId) !== 'none' : false
+    })
+    .map((r) => r.name)
+}
 export function NotificationRulesTab() {
+  // RBAC 2.0 (F2-D-L): slug do cargo por role_id, resolvido em UMA query.
+  const [roleInfo, setRoleInfo] = useState<Map<string, { slug: string; name: string }>>(
+    new Map(),
+  )
   const { roles } = useRoles()
   const { workspaces } = useWorkspace()
   const [profiles, setProfiles] = useState<User[]>([])
@@ -41,9 +54,19 @@ export function NotificationRulesTab() {
   useEffect(() => {
     let active = true
     adminService.listAllProfiles().then(async (users) => {
+      const attached = (await attachMemberships(users)).filter((u) => u.status === 'active')
+      // RBAC 2.0 (F2-D-L): os slugs de cargo de TODA a lista são resolvidos em
+      // UMA query e salvos no MESMO passo dos perfis — assim não existe um
+      // segundo round-trip (nem um "0 usuários" transitório) antes de a lista
+      // poder ser filtrada pela nova fonte.
+      const roleIds = [
+        ...new Set(attached.flatMap((u) => u.memberships ?? []).map((m) => m.role_id).filter(Boolean)),
+      ]
+      const info =
+        roleIds.length > 0 ? await membershipService.resolveRoleInfo(roleIds) : new Map()
       if (active) {
-        // Leitura administrativa por memberships (9.2-D.1).
-        setProfiles((await attachMemberships(users)).filter((u) => u.status === 'active'))
+        setProfiles(attached)
+        setRoleInfo(info)
         setLoading(false)
       }
     })
@@ -52,12 +75,30 @@ export function NotificationRulesTab() {
     }
   }, [])
 
+  /** Nível de um usuário na unidade do filtro, pela nova fonte. */
+  const levelForUser = useCallback(
+    (u: User, appId: string): ModuleLevel => {
+      if (u.is_super_admin) return 'full'
+      if (u.membershipsLoaded !== true) return 'none'
+      const active = (u.memberships ?? []).find((m) => m.status === 'active')
+      if (!active) return 'none'
+      const slug = roleInfo.get(active.role_id)?.slug
+      return moduleLevelForSlug(slug, appId)
+    },
+    [roleInfo],
+  )
+
+  const userHasAppAccess = useCallback(
+    (u: User, appId: string) => levelForUser(u, appId) !== 'none',
+    [levelForUser],
+  )
+
   const usersWithAccess = useMemo(() => {
     if (!selectedApp) return []
     return profiles.filter(
-      (u) => userHasAppAccess(u, roles, selectedApp) && inWorkspaceScope(u, workspaceFilter),
+      (u) => userHasAppAccess(u, selectedApp) && inWorkspaceScope(u, workspaceFilter),
     )
-  }, [profiles, roles, selectedApp, workspaceFilter])
+  }, [profiles, userHasAppAccess, selectedApp, workspaceFilter])
 
   async function saveSettings(user: User, next: UserNotifySettings) {
     setSaving(user.id)
@@ -219,10 +260,8 @@ export function NotificationRulesTab() {
       ) : (
         <div className="space-y-2">
           {MODULES.map((app) => {
-            const withAccess = profiles.filter((u) => userHasAppAccess(u, roles, app.id) && inWorkspaceScope(u, workspaceFilter))
-            const rolesWithAccess = roles
-              .filter((r) => r.appAccess?.[app.id])
-              .map((r) => r.name)
+            const withAccess = profiles.filter((u) => userHasAppAccess(u, app.id) && inWorkspaceScope(u, workspaceFilter))
+            const rolesWithAppAccess = rolesWithAccess(roles, app.id)
             return (
               <button
                 key={app.id}
@@ -239,8 +278,8 @@ export function NotificationRulesTab() {
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-fg">{app.name}</p>
                   <p className="mt-0.5 truncate text-[10px] text-fg-muted">
-                    {rolesWithAccess.length > 0
-                      ? `Cargos com acesso: ${rolesWithAccess.join(', ')}`
+                    {rolesWithAppAccess.length > 0
+                      ? `Cargos com acesso: ${rolesWithAppAccess.join(', ')}`
                       : 'Só admin absoluto'}
                   </p>
                 </div>
