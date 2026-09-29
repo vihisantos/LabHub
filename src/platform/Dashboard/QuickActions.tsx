@@ -27,11 +27,13 @@ const actions = [
     appId: 'pc-care',
   },
   {
-    label: 'Estoque',
-    icon: <icons.ui.package size={18} />,
-    route: '/stock',
-    color: '#10b981',
-    appId: 'stock',
+    label: 'Pedir Música',
+    icon: <icons.ui.music size={18} />,
+    route: '/pedir-musica',
+    color: '#ef4444',
+    // Pedir Música não é um app do registry: a rota só exige login, então
+    // aparece para todos — mesma regra do Launcher.
+    appId: null as string | null,
   },
 ]
 

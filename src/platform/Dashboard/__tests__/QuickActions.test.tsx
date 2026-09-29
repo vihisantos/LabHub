@@ -57,24 +57,23 @@ afterEach(() => {
 describe('QuickActions — a cor de fundo segue o tema', () => {
   it('o cartão usa --bg-quick-card, não --bg-card direto', () => {
     renderQuick()
-    const botao = screen.getByRole('button', { name: /Estoque/ })
+    const botao = screen.getByRole('button', { name: /Pedir Música/ })
     expect(botao.className).toContain('bg-quick-card')
     // Se voltar a bg-card, o Sutil perde o pareamento com o Resumo.
     expect(botao.className).not.toMatch(/\bbg-card\b/)
   })
 
-  it('no Sutil, Ações Rápidas usa a MESMA superfície do Resumo por Módulo', () => {
-    // Só no Sutil. Nos outros temas o cartão é o de sempre.
-    expect(token('.dim', '--bg-quick-card')).toBe('var(--bg-module-card)')
-    expect(token(':root', '--bg-quick-card')).toBe('var(--bg-card)')
-    expect(token('.dark', '--bg-quick-card')).toBe('var(--bg-card)')
+  it('nos três temas, Ações Rápidas usa a MESMA superfície do Resumo por Módulo', () => {
+    for (const tema of [':root', '.dark', '.dim']) {
+      expect(token(tema, '--bg-quick-card'), tema).toBe('var(--bg-module-card)')
+    }
   })
 
-  it('o Sutil realmente resolve os dois para a mesma cor', () => {
-    const dim = token('.dim', '--bg-module-card')
-    // var(--bg-module-card) precisa apontar para um hex, não para outra
-    // variável, senão o teste acima passaria sem resolver nada.
-    expect(dim).toMatch(/^#[0-9a-f]{6}$/i)
+  it('os três temas realmente resolvem --bg-module-card para um hex', () => {
+    for (const tema of [':root', '.dark', '.dim']) {
+      // Se virar var() de var(), o teste acima passaria sem resolver nada.
+      expect(token(tema, '--bg-module-card'), tema).toMatch(/^#[0-9a-f]{6}$/i)
+    }
   })
 })
 
@@ -104,14 +103,38 @@ describe('QuickActions — as cores dos ícones continuam distintas', () => {
   })
 })
 
-describe('QuickActions — o filtro de acesso não mudou', () => {
-  it('só mostra as ações permitidas', () => {
-    mockCanAccessApp.mockImplementation((id: string) => id === 'stock')
-    // Novo Chamado tem regra própria: basta estar desabilitado no workspace.
+describe('QuickActions — Estoque saiu, Pedir Música entrou', () => {
+  it('não tem mais o atalho de Estoque', () => {
+    renderQuick()
+    expect(screen.queryByRole('button', { name: /Estoque/ })).not.toBeInTheDocument()
+  })
+
+  it('Pedir Música navega para /pedir-musica', () => {
+    renderQuick()
+    fireEvent.click(screen.getByRole('button', { name: /Pedir Música/ }))
+    expect(mockNavigate).toHaveBeenCalledWith('/pedir-musica')
+  })
+
+  it('Pedir Música não depende de módulo: fica visível mesmo com tudo desligado', () => {
+    // A rota /pedir-musica só exige login (sem AppGuard), então o atalho não
+    // pode sumir por workspace desabilitado nem por falta de permissão.
+    mockCanAccessApp.mockReturnValue(false)
     mockDisabledApps.mockReturnValue(['chamados', 'reservalab', 'pc-care'])
     renderQuick()
-    expect(screen.getByRole('button', { name: /Estoque/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Pedir Música/ })).toBeInTheDocument()
     expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+})
+
+describe('QuickActions — o filtro de acesso não mudou', () => {
+  it('só mostra as ações permitidas, mais Pedir Música', () => {
+    mockCanAccessApp.mockImplementation((id: string) => id === 'reservalab')
+    // Novo Chamado tem regra própria: basta estar desabilitado no workspace.
+    mockDisabledApps.mockReturnValue(['chamados', 'pc-care'])
+    renderQuick()
+    expect(screen.getByRole('button', { name: /Reservas/ })).toBeInTheDocument()
+    // Reservas + Pedir Música (sempre visível).
+    expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 
   it('navigate vai para a rota da ação', () => {
