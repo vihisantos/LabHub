@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../../lib/ThemeContext'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { COORDINATOR_HOME_BANNER, HOME_THEME_LABELS, homeBannersFor } from './homeBanners'
@@ -10,6 +11,13 @@ interface BannerImageProps {
   alt: string
   /** Prioridade de rede (banner acima da dobra). */
   eager?: boolean
+  /**
+   * Sobreposição clicável alinhada a um CTA já DESENHADO no SVG. Não acrescenta
+   * pixel algum: só torna a área do CTA acionável. As coordenadas são
+   * percentuais do viewBox, então o hotspot acompanha o banner em qualquer
+   * largura (desktop, tablet, mobile/PWA) sem media query.
+   */
+  hotspot?: { to: string; label: string; box: { left: number; top: number; width: number; height: number } }
 }
 
 /**
@@ -22,7 +30,7 @@ interface BannerImageProps {
  * - A troca SÓ acontece quando `src` muda — ou seja, quando o `theme_variant`
  *   global muda no Perfil. Sem carousel, sem autoplay, sem controle na Home.
  */
-function BannerImage({ src, alt, eager = false }: BannerImageProps) {
+function BannerImage({ src, alt, eager = false, hotspot }: BannerImageProps) {
   // `base` = banner visível; `top` = próximo banner (carregando por cima).
   const [base, setBase] = useState(src)
   const [top, setTop] = useState<string | null>(null)
@@ -74,9 +82,48 @@ function BannerImage({ src, alt, eager = false }: BannerImageProps) {
           style={{ opacity: topReady ? 1 : 0, transitionDuration: `${FADE_MS}ms` }}
         />
       )}
+      {hotspot && <BannerHotspot {...hotspot} />}
     </div>
   )
 }
+
+/**
+ * Link transparente sobre o CTA desenhado no SVG do banner.
+ *
+ * O `<a>` é real (navegação do SPA via `useNavigate`, com fallback para o
+ * `href` se o clique não for tratado) e tem `aria-label`, então é alcançável
+ * por teclado e anunciado por leitores de tela sem duplicar o texto "Entrar"
+ * nem desenhar um botão por cima da arte.
+ */
+function BannerHotspot({ to, label, box }: NonNullable<BannerImageProps['hotspot']>) {
+  const navigate = useNavigate()
+
+  function onClick(e: MouseEvent<HTMLAnchorElement>) {
+    // Modificador/teclas de navegação: deixa o browser tratar (abrir em nova aba).
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+    e.preventDefault()
+    navigate(to)
+  }
+
+  return (
+    <a
+      href={to}
+      onClick={onClick}
+      aria-label={label}
+      className="absolute cursor-pointer rounded-[999px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+      style={{ left: `${box.left}%`, top: `${box.top}%`, width: `${box.width}%`, height: `${box.height}%` }}
+    />
+  )
+}
+
+/**
+ * Área do CTA "Entrar" em `coordenador.svg`, em % do viewBox 3723×1845.
+ *
+ * Origem: a pílula do CTA no asset é o `<rect x="279" y="1458" width="1407"
+ * height="202" rx="101">`. Convertido para porcentagem, o hotspot cobre
+ * exatamente a pílula — e só a pílula, sem invadir a arte ao redor.
+ */
+const COORDINATOR_CTA_BOX = { left: 7.49, top: 79.02, width: 37.79, height: 10.95 } as const
 
 /**
  * Banner principal da Home — SVG completo do tema global ativo.
@@ -87,6 +134,11 @@ function BannerImage({ src, alt, eager = false }: BannerImageProps) {
  * da fonte já existente `useCoordinator`) vê `/banners/coordenador.svg` em
  * QUALQUER tema — o asset não varia com Claro/Sutil/Escuro neste momento.
  * Usuários comuns continuam no par do `theme_variant` (light/dim/dark → 1/2/3).
+ *
+ * Nesse banner, o próprio CTA "Entrar" da arte leva para `/coordenador` — é o
+ * único ponto de acesso à área de Coordenação na Home. A condição é a MESMA
+ * que já decide a exibição do asset (`isCoordinatorMultiUnit`); nenhuma regra
+ * de acesso é criada ou alterada aqui.
  */
 export function HomeBanner() {
   const { theme } = useTheme()
@@ -98,6 +150,11 @@ export function HomeBanner() {
         src={COORDINATOR_HOME_BANNER}
         alt="Banner principal da Home — Coordenador Multiunidade"
         eager
+        hotspot={{
+          to: '/coordenador',
+          label: 'Entrar na área de Coordenação',
+          box: COORDINATOR_CTA_BOX,
+        }}
       />
     )
   }

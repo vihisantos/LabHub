@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ThemeVariant } from '../../../core/auth/types'
@@ -28,6 +29,20 @@ function bannerSrcs(): string[] {
   return Array.from(document.querySelectorAll('img[src^="/banners/"]')).map(
     (img) => img.getAttribute('src') ?? '',
   )
+}
+
+/** O CTA do banner do coordenador navega via `useNavigate`: precisa de Router. */
+function renderBanners() {
+  return render(
+    <MemoryRouter>
+      <HomeBanner />
+      <HomeBannerSecondary />
+    </MemoryRouter>,
+  )
+}
+
+function coordinatorCta(): HTMLAnchorElement | null {
+  return document.querySelector<HTMLAnchorElement>('a[aria-label="Entrar na área de Coordenação"]')
 }
 
 beforeEach(() => {
@@ -152,12 +167,7 @@ describe('HomeBanner — Coordenador Multiunidade (exceção ao tema)', () => {
     mockIsCoordinatorMultiUnit.mockReturnValue(true)
     for (const theme of ['light', 'dim', 'dark'] as const) {
       mockTheme.mockReturnValue(theme)
-      const { unmount } = render(
-        <>
-          <HomeBanner />
-          <HomeBannerSecondary />
-        </>,
-      )
+      const { unmount } = renderBanners()
       const srcs = bannerSrcs()
       // Principal: sempre o banner do Coordenador, independente do tema.
       expect(srcs).toContain('/banners/coordenador.svg')
@@ -173,6 +183,49 @@ describe('HomeBanner — Coordenador Multiunidade (exceção ao tema)', () => {
 
   it('constante aponta para o asset oficial /banners/coordenador.svg', () => {
     expect(COORDINATOR_HOME_BANNER).toBe('/banners/coordenador.svg')
+  })
+
+  it('o CTA "Entrar" existe e aponta para /coordenador', () => {
+    mockIsCoordinatorMultiUnit.mockReturnValue(true)
+    renderBanners()
+    const cta = coordinatorCta()
+    expect(cta).not.toBeNull()
+    expect(cta).toHaveAttribute('href', '/coordenador')
+    expect(cta).toHaveAttribute('aria-label', 'Entrar na área de Coordenação')
+  })
+
+  it('o CTA é transparente e cobre só a pílula desenhada no SVG', () => {
+    mockIsCoordinatorMultiUnit.mockReturnValue(true)
+    renderBanners()
+    const cta = coordinatorCta()!
+    // Sem fundo, sem borda, sem texto: o visual continua sendo o do SVG.
+    expect(cta.className).not.toMatch(/bg-|background/)
+    expect(cta.textContent).toBe('')
+    expect(cta.className).toContain('cursor-pointer')
+    // Alinhado ao <rect x=279 y=1458 w=1407 h=202> do viewBox 3723x1845.
+    expect(cta.style.left).toBe('7.49%')
+    expect(cta.style.top).toBe('79.02%')
+    expect(cta.style.width).toBe('37.79%')
+    expect(cta.style.height).toBe('10.95%')
+  })
+
+  it('o CTA é acessível: link real, nome acessível e alvo correto', () => {
+    mockIsCoordinatorMultiUnit.mockReturnValue(true)
+    renderBanners()
+    // O href garante navegação mesmo sem o preventDefault (link nativo).
+    const cta = coordinatorCta()!
+    expect(cta.tagName).toBe('A')
+    expect(cta.getAttribute('href')).toBe('/coordenador')
+    // O nome acessível não duplica o texto "Entrar" da arte.
+    expect(cta.getAttribute('aria-label')).toBe('Entrar na área de Coordenação')
+    expect(cta.getAttribute('aria-hidden')).toBeNull()
+  })
+
+  it('usuário comum NÃO recebe o CTA (sem link fantasma para /coordenador)', () => {
+    mockIsCoordinatorMultiUnit.mockReturnValue(false)
+    renderBanners()
+    expect(coordinatorCta()).toBeNull()
+    expect(document.querySelector('a[href="/coordenador"]')).toBeNull()
   })
 
   it('usuário comum (sem o cargo) continua no par do tema — sem vazamento da exceção', () => {

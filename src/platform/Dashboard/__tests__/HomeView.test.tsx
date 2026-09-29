@@ -194,8 +194,9 @@ describe('HomeView — Coordenador Multiunidade', () => {
     expect(srcs).toContain(`/banners/${folder}/secundario.svg`)
     expect(srcs).not.toContain(homeBannersFor(theme).main)
 
-    // O atalho da área do Coordenador continua presente (não foi removido).
-    expect(screen.getByText('Área do Coordenador Multiunidades')).toBeInTheDocument()
+    // O acesso à área de Coordenação virou o CTA "Entrar" do próprio banner.
+    const cta = screen.getByRole('link', { name: 'Entrar na área de Coordenação' })
+    expect(cta).toHaveAttribute('href', '/coordenador')
   })
 
   it('sem o cargo, o banner do coordenador não aparece (sem vazamento)', () => {
@@ -204,5 +205,33 @@ describe('HomeView — Coordenador Multiunidade', () => {
     renderHome()
     expect(bannerSrcs()).not.toContain('/banners/coordenador.svg')
     expect(bannerSrcs()).toContain('/banners/tema-2/principal.svg')
+  })
+
+  it('o card separado "Coordenação" saiu da Home — para qualquer cargo', () => {
+    mockIsCoordinator.mockReturnValue(true)
+    mockIsCoordinatorMultiUnit.mockReturnValue(true)
+    renderHome()
+    expect(screen.queryByText('Coordenação')).not.toBeInTheDocument()
+    expect(screen.queryByText('Área do Coordenador Multiunidades')).not.toBeInTheDocument()
+  })
+
+  it('usuário comum também não vê o card nem o CTA do coordenador', () => {
+    mockIsCoordinator.mockReturnValue(false)
+    mockIsCoordinatorMultiUnit.mockReturnValue(false)
+    renderHome()
+    expect(screen.queryByText('Coordenação')).not.toBeInTheDocument()
+    expect(screen.queryByText('Área do Coordenador Multiunidades')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Entrar na área de Coordenação' })).not.toBeInTheDocument()
+  })
+
+  it('o CTA fica acima do banner secundário e abaixo do resumo por módulo', () => {
+    mockIsCoordinator.mockReturnValue(true)
+    mockIsCoordinatorMultiUnit.mockReturnValue(true)
+    renderHome()
+    const order = Array.from(document.body.querySelectorAll('img[src^="/banners/"]'))
+    const main = order.find((el) => el.getAttribute('src') === '/banners/coordenador.svg')!
+    const secondary = order.find((el) => el.getAttribute('src') === homeBannersFor('dim').secondary)!
+    // o CTA vive dentro do banner principal, logo antes do secundário
+    expect(main.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

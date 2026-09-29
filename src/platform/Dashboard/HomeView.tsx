@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
-import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { useFastSync } from '../../lib/useFastSync'
 import { useOnlineSync } from '../../lib/useOnlineSync'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
@@ -30,20 +29,23 @@ function getGreeting(): string {
  *   → Ações rápidas
  *   → Resumo por módulo
  *   → Banner secundário (mesmo tema global)
- *   → atalho Coordenação (apenas quando `isCoordinator`)
+ *   → Footer
  *
  * A preferência de tema é o `theme_variant` global já existente — a Home
  * apenas lê e reage a ele (via `ThemeContext`); não há seletor de banner aqui.
  * A seção "Seus Apps" foi removida: o Resumo por módulos (ModuleStats) já
  * representa os módulos acessíveis — sem duplicação de navegação e sem Home
- * longa. RBAC/visibilidade continuam vindo de `QuickActions`, `ModuleStats` e
- * `useCoordinator` (nenhuma lógica nova de acesso neste arquivo).
+ * longa.
+ *
+ * O atalho em card para a área de Coordenação também saiu daqui: o acesso passa
+ * a ser o próprio CTA "Entrar" desenhado no banner do Coordenador Multiunidade
+ * (`HomeBanner`). A decisão de quem enxerga esse banner continua em
+ * `useCoordinator().isCoordinatorMultiUnit` — nenhuma regra de acesso nova.
  */
 export function HomeView() {
   const navigate = useNavigate()
   const { unreadCount } = useNotifications()
   const { user } = useAuth()
-  const { isCoordinator } = useCoordinator()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
@@ -129,28 +131,6 @@ export function HomeView() {
         <div className="mb-6">
           <HomeBannerSecondary />
         </div>
-
-        {/* Área de Coordenação — RBAC 2.0: concedida pela membership ATIVA de
-            coordenação (servidor confirma ≥1 unidade sob coordenação). NUNCA
-            pelo cargo global/legado profiles.role. */}
-        {isCoordinator && (
-          <div className="mb-6">
-            <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Coordenação</p>
-            <div className="flex flex-wrap justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => navigate('/coordenador')}
-                className="flex w-36 flex-col items-center gap-2.5 rounded-2xl bg-card p-4 text-center shadow-sm transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
-              >
-                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-500">
-                  <icons.ui.userCheck size={26} />
-                </span>
-                <span className="text-sm font-semibold text-fg">Coordenação</span>
-                <span className="text-[11px] leading-snug text-fg-muted">Área do Coordenador Multiunidades</span>
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Footer */}
         <footer className="text-center">

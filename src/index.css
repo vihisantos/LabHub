@@ -56,23 +56,31 @@
     --color-chart-bar: var(--accent);
   }
 
-  /* Sutil (dim) — lilás clarinho: tema intermediário claro entre Claro e Escuro.
-     Identidade visual nova (PR-4); tokens semânticos inalterados em nome/estrutura. */
+  /* Sutil (dim) — lilás: tema intermediário claro entre Claro e Escuro.
+     Identidade visual nova (PR-4); tokens semânticos inalterados em nome/estrutura.
+     Base #c9a8e6: lilás definido, inequivocamente fora do branco. Ainda é o
+     tema claro do conjunto, mas a base agora é saturada o bastante para que o
+     tom apareça sem ajuste de monitor.
+     Como a base é bem mais escura que antes, TODO o resto derivou junto:
+     superfícies continuam mais claras que a base (cards e inputs) para
+     destacar, e bordas e textos escurecem para manter contraste e
+     hierarquia. Contraste medido sobre a base: primário 8.0:1,
+     secundário 4.8:1, muted 5.1:1, borda 1.7:1. */
   .dim {
-    --bg-primary: #f6f3fa;
-    --bg-secondary: #f0ebf7;
-    --bg-card: #fbf9fd;
-    --bg-input: #f0ebf7;
-    --border: #ded6ea;
+    --bg-primary: #c9a8e6;
+    --bg-secondary: #bb90dd;
+    --bg-card: #f3e8fc;
+    --bg-input: #dcc6f2;
+    --border: #a179c4;
     --border-focus: var(--accent);
-    --text-primary: #292331;
-    --text-secondary: #6f667a;
-    --text-muted: #9a90ab;
-    --shadow-card: 0 1px 3px rgba(74, 58, 104, 0.06), 0 1px 2px rgba(74, 58, 104, 0.05);
-    --shadow-elevated: 0 4px 16px rgba(74, 58, 104, 0.1);
-    --bg-card-hover: #f1ecf8;
-    --bg-segmented: #e2daee;
-    --color-chart-hover: rgba(41, 35, 49, 0.03);
+    --text-primary: #241b30;
+    --text-secondary: #4a3d5c;
+    --text-muted: #473a58;
+    --shadow-card: 0 1px 3px rgba(58, 36, 84, 0.16), 0 1px 2px rgba(58, 36, 84, 0.12);
+    --shadow-elevated: 0 4px 16px rgba(58, 36, 84, 0.24);
+    --bg-card-hover: #c4a6e2;
+    --bg-segmented: #bb99da;
+    --color-chart-hover: rgba(36, 27, 48, 0.08);
     --color-chart-bar: var(--accent);
   }
 
