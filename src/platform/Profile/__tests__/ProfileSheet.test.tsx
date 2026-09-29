@@ -242,12 +242,12 @@ describe('ProfileSheet — seções', () => {
     expect(screen.queryByText('Configurações do Admin')).not.toBeInTheDocument()
   })
 
-  it('Cor do App e Tema ficam no mesmo card de Aparência', () => {
+  it('Cor de destaque e Tema ficam no mesmo card de Aparência', () => {
     renderSheet()
-    const corDoApp = screen.getByText('Cor do App')
+    const destaque = screen.getByText('Cor de destaque')
     const tema = screen.getByText('Tema')
     // Mesmo ancestral de card = uma decisão de aparência só.
-    const card = corDoApp.closest('div.rounded-xl')
+    const card = destaque.closest('div.rounded-xl')
     expect(card).not.toBeNull()
     expect(card).toContainElement(tema)
   })
@@ -287,6 +287,60 @@ describe('ProfileSheet — acessibilidade e alvos de toque', () => {
     expect(screen.getByRole('button', { name: 'Escuro' })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByRole('button', { name: 'Azul' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Roxo' })).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+describe('ProfileSheet — o seletor de cor de destaque', () => {
+  it('é só a amostra: nenhuma cor do accent vira texto', () => {
+    renderSheet()
+    // Antes cada opção era um botão com fundo accent+15 e TEXTO na cor do
+    // accent, o que dava 1.92:1 a 3.59:1 no Sutil. A cor agora é a amostra
+    // sólida e não há texto algum para contrastar.
+    const rotulos = screen.getAllByRole('button', { name: /Azul|Esmeralda|Ciano|Roxo/ })
+    expect(rotulos).toHaveLength(4)
+    for (const b of rotulos) {
+      expect(b.className).not.toMatch(/text-\[|text-(?:xs|sm|base|md|lg)/)
+      expect(b).toHaveTextContent('')
+    }
+  })
+
+  it('cada amostra é um círculo de 44px com a cor do accent', () => {
+    renderSheet()
+    for (const [nome, cor] of [
+      ['Azul', '#3b82f6'],
+      ['Esmeralda', '#10b981'],
+      ['Ciano', '#06b6d4'],
+      ['Roxo', '#a855f7'],
+    ] as const) {
+      const b = screen.getByRole('button', { name: nome })
+      expect(b.className, nome).toMatch(/rounded-full/)
+      expect(b.className, nome).toMatch(/h-11 w-11/)
+      expect(b.style.backgroundColor).toBeTruthy()
+      expect(cor).toMatch(/^#[0-9a-f]{6}$/i)
+    }
+  })
+
+  it('a amostra escolhida é a única com anel', () => {
+    renderSheet()
+    const azul = screen.getByRole('button', { name: 'Azul' })
+    const roxo = screen.getByRole('button', { name: 'Roxo' })
+    expect(azul.className).toMatch(/ring-2 ring-fg ring-offset-2/)
+    expect(roxo.className).not.toMatch(/ring-2/)
+  })
+
+  it('não usa opacity-60 para desligar as não escolhidas', () => {
+    renderSheet()
+    // Esmaecer o não-escolhido era o que derrubava o texto a 1.5:1-3.1:1.
+    for (const nome of ['Azul', 'Esmeralda', 'Ciano', 'Roxo']) {
+      expect(screen.getByRole('button', { name: nome }).className, nome).not.toMatch(/opacity-\d/)
+    }
+  })
+
+  it('o nome da cor continua acessível e no hover', () => {
+    renderSheet()
+    const azul = screen.getByRole('button', { name: 'Azul' })
+    expect(azul).toHaveAttribute('aria-label', 'Azul')
+    expect(azul).toHaveAttribute('title', 'Azul')
   })
 })
 

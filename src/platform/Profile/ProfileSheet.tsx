@@ -387,25 +387,32 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                 <section>
                   <SectionTitle>Aparência</SectionTitle>
                   <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-                    <p className="mb-2 text-xs font-semibold text-fg-muted">Cor do App</p>
-                    <div className="mb-4 flex flex-wrap gap-2">
-                      {ACCENTS.map((a) => (
-                        <button
-                          key={a.value}
-                          type="button"
-                          aria-pressed={user.accent === a.value}
-                          onClick={() => handleAccentChange(a.value)}
-                          onMouseEnter={() => themeStore.previewAccent(a.value)}
-                          onMouseLeave={() => themeStore.resetAccent()}
-                          className={`flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-all ${
-                            user.accent === a.value ? 'ring-2 ring-offset-2 ring-offset-card' : 'opacity-60 hover:opacity-100'
-                          }`}
-                          style={{ backgroundColor: a.color + '15', color: a.color }}
-                        >
-                          <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: a.color }} />
-                          {a.label}
-                        </button>
-                      ))}
+                    <p className="mb-2 text-xs font-semibold text-fg-muted">Cor de destaque</p>
+                    <div className="mb-4 flex flex-wrap gap-3">
+                      {ACCENTS.map((a) => {
+                        const ativo = user.accent === a.value
+                        return (
+                          <button
+                            key={a.value}
+                            type="button"
+                            // O nome vem por aria-label/title porque não há texto
+                            // visível: a cor É a amostra, e o texto repetia a cor
+                            // duas vezes (no rótulo e no ponto) — malhando.
+                            aria-label={a.label}
+                            aria-pressed={ativo}
+                            title={a.label}
+                            onClick={() => handleAccentChange(a.value)}
+                            onMouseEnter={() => themeStore.previewAccent(a.value)}
+                            onMouseLeave={() => themeStore.resetAccent()}
+                            className={`h-11 w-11 shrink-0 rounded-full transition-transform motion-reduce:hover:scale-100 ${
+                              ativo
+                                ? 'ring-2 ring-fg ring-offset-2 ring-offset-card'
+                                : 'hover:scale-105'
+                            }`}
+                            style={{ backgroundColor: a.color }}
+                          />
+                        )
+                      })}
                     </div>
 
                     <p className="mb-2 text-xs font-semibold text-fg-muted">Tema</p>
