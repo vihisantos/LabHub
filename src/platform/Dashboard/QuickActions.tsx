@@ -57,9 +57,11 @@ export function QuickActions() {
             key={action.label}
             type="button"
             onClick={() => navigate(action.route)}
-            className="flex flex-col items-center gap-2 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
+            className="flex flex-col items-center gap-2 rounded-xl bg-quick-card p-3 shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
           >
             <div
+              data-testid="quick-icon"
+              aria-hidden="true"
               className="flex h-10 w-10 items-center justify-center rounded-xl"
               style={{ backgroundColor: action.color + '15', color: action.color }}
             >
