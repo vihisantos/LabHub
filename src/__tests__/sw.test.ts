@@ -283,48 +283,22 @@ describe('sw.ts — notificationclick handler', () => {
     expect(fakeClient.focus).not.toHaveBeenCalled()
     expect(fakeSelf.clients.openWindow).toHaveBeenCalledWith('/chamados-publico/feedback/t-1')
   })
-})
 
-// ── Notificationclick: approve/reject ─────────────────────────────────────
+  it('PR-4D-A: sem botões — clique não chama fetch nem /api/push/action', async () => {
+    fakeSelf.clients.matchAll.mockResolvedValue([])
 
-describe('sw.ts — notificationclick approve/reject', () => {
-  beforeEach(async () => {
-    await importSW()
-  })
-
-  it('action "approve" envia POST para /api/push/action', async () => {
     const handler = listeners['notificationclick']?.[0]
-    const event = makeNotificationClickEvent('approve', { userId: 'u-1' })
+    const event = makeNotificationClickEvent('', {
+      url: '/admin/users?pending=bbbbbbbb-0000-0000-0000-000000000002',
+    })
 
     handler(event)
     await event.waitUntil.mock.calls[0]?.[0]
-
-    expect(fetch).toHaveBeenCalledWith('/api/push/action', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ action: 'approve', userId: 'u-1' }),
-    }))
-  })
-
-  it('action "reject" envia POST para /api/push/action', async () => {
-    const handler = listeners['notificationclick']?.[0]
-    const event = makeNotificationClickEvent('reject', { userId: 'u-2' })
-
-    handler(event)
-    await event.waitUntil.mock.calls[0]?.[0]
-
-    expect(fetch).toHaveBeenCalledWith('/api/push/action', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ action: 'reject', userId: 'u-2' }),
-    }))
-  })
-
-  it('action "approve" sem userId não envia fetch', async () => {
-    const handler = listeners['notificationclick']?.[0]
-    const event = makeNotificationClickEvent('approve', {})
-
-    handler(event)
 
     expect(fetch).not.toHaveBeenCalled()
+    expect(fakeSelf.clients.openWindow).toHaveBeenCalledWith(
+      '/admin/users?pending=bbbbbbbb-0000-0000-0000-000000000002',
+    )
   })
 })
 

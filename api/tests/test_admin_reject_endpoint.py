@@ -166,6 +166,16 @@ def client(api_module, fake_requests, monkeypatch):
         monkeypatch.setattr(auth_mod, "requests", fake_requests)
         monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
+    # As helpers de rejeição (`_auth_admin_ban`/`_profiles_patch`/
+    # `_log_rejection_audit`) moram no módulo legado `app` (PR-4D-A — o legado é
+    # importado por api/app.py e o contrário criaria import circular). Elas
+    # resolvem `requests`/`_SUPABASE_URL` no namespace daquele módulo, então o
+    # fake precisa ser injetado lá também (mesmo tratamento dado ao `auth`).
+    legacy_mod = sys.modules.get("app")
+    if legacy_mod is not None:
+        monkeypatch.setattr(legacy_mod, "requests", fake_requests)
+        monkeypatch.setattr(legacy_mod, "_SUPABASE_URL", SUPABASE_URL)
+        monkeypatch.setattr(legacy_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
     api_module._rate_limit_store.clear()

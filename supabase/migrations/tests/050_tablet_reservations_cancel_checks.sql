@@ -2,7 +2,10 @@
 -- tests/050_tablet_reservations_cancel_checks.sql
 -- =============================================================================
 -- Asserções ESTRUTURAIS para a migration 050 (restringir cancelamento de
--- reserva de tablet ao nível `full` do app ReservaLab).
+-- reserva de tablet ao nível `full` do app ReservaLab), ATUALIZADAS pela 078
+-- (PR-4D-A): o override legado `profiles.app_access` deixou de autorizar — a
+-- helper agora é exclusivamente RBAC 2.0 (membership ativa + Action
+-- `reservelab.tablet.cancel`@workspace).
 --
 -- How to run: paste into the Supabase SQL Editor (or psql) AFTER 050 is applied.
 -- Every check raises an exception on drift; a clean run ends with
@@ -61,10 +64,11 @@ IF v_cfg IS DISTINCT FROM '{search_path=public}' THEN
   RAISE EXCEPTION 'FAIL: user_can_cancel_tablet_reservation sem search_path pinado em public';
 END IF;
 
--- Deve consultar o override de app (profiles.app_access) e o RBAC 2.0
+-- Desde a 078 (PR-4D-A) o ramo legado de app_access foi removido: a helper
+-- NÃO pode mais ler profiles/app_access; a autoridade é exclusivamente RBAC 2.0
 -- (memberships + role_permissions), com status active.
-IF v_src NOT LIKE '%public.profiles%' OR v_src NOT LIKE '%app_access%' THEN
-  RAISE EXCEPTION 'FAIL: user_can_cancel_tablet_reservation não lê profiles.app_access (override full)';
+IF v_src LIKE '%public.profiles%' OR v_src LIKE '%app_access%' THEN
+  RAISE EXCEPTION 'FAIL: user_can_cancel_tablet_reservation não pode mais ler profiles.app_access (PR-4D-A/078)';
 END IF;
 
 IF v_src NOT LIKE '%public.memberships%' OR v_src NOT LIKE '%public.role_permissions%' THEN

@@ -284,7 +284,6 @@ describe('adminService — aprovação GLOBAL de contas', () => {
       const ok = await adminService.updateUserProfile('u-1', {
         roleId: 'role-admin',
         name: 'Novo Nome',
-        is_super_admin: true,
       })
 
       expect(ok).toBe(true)
@@ -292,9 +291,9 @@ describe('adminService — aprovação GLOBAL de contas', () => {
       expect(payload).toMatchObject({
         role: 'admin',
         name: 'Novo Nome',
-        is_super_admin: true,
       })
       expect(payload).not.toHaveProperty('workspace_ids')
+      expect(payload).not.toHaveProperty('is_super_admin')
       expect(payload.roleId).toBeUndefined()
     })
 

@@ -4,7 +4,24 @@ from io import BytesIO
 from urllib.parse import urlparse, parse_qs, quote, urljoin
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api')))
-from app import app, _SUPABASE_URL, _SUPABASE_SERVICE_KEY, _supabase_headers, _target_subs, push_notify, redis, logger, _is_safe_url, _cache_path
+from app import (
+    app,
+    _SUPABASE_URL,
+    _SUPABASE_SERVICE_KEY,
+    _supabase_headers,
+    _target_subs,
+    push_notify,
+    redis,
+    logger,
+    _is_safe_url,
+    _cache_path,
+    _REJECTABLE_STATUS,
+    _REJECTED_STATUS,
+    _REJECT_BAN_DURATION,
+    _auth_admin_ban,
+    _profiles_patch,
+    _log_rejection_audit,
+)
 from auth import (
     require_auth,
     require_module as require_module_auth,
@@ -4533,109 +4550,11 @@ def admin_set_manager(user_id):
 #   A ordem (profile -> Auth) é deliberada: `require_auth` é o portão do LabHub
 #   e já nega `rejected`, então o invariante "rejeitada => não opera no LabHub"
 #   vale nos três desfechos.
-
-_REJECTABLE_STATUS = 'pending'
-_REJECTED_STATUS = 'rejected'
-
-# Ban de 100 anos: suficiente para impedir emissão de nova sessão e reversível
-# (basta um PUT com ban_duration="none" no futuro). A garantia real de bloqueio
-# é dupla: o ban no Auth E o `rejected` barrado pelo `require_auth`.
-_REJECT_BAN_DURATION = '876000h'
-
-
-def _auth_admin_ban(user_id: str, duration: str):
-    """Desativa a identidade Auth via Admin API (PUT /auth/v1/admin/users/<id>).
-
-    NUNCA faz DELETE: a identidade é preservada (UUID, histórico, FKs).
-    """
-    return requests.put(
-        f'{_SUPABASE_URL}/auth/v1/admin/users/{user_id}',
-        headers=_supabase_headers(),
-        json={'ban_duration': duration},
-        timeout=30,
-    )
-
-
-def _profiles_patch(user_id: str, payload: dict, expected_status: str | None = None):
-    """PATCH em `profiles` (service_role).
-
-    Quando `expected_status` é informado, o filtro vai PARA A MESMA INSTRUÇÃO
-    do UPDATE (PostgREST: `?id=eq.X&status=eq.<esperado>`), o que equivale a
-        UPDATE public.profiles SET ... WHERE id = <id> AND status = <esperado>
-    isto é, a pré-condição é garantida pelo BANCO, na escrita atômica — e não
-    por uma segunda leitura em Python (que abriria corrida).
-
-    `Prefer: return=representation` devolve as linhas EFETIVAMENTE alteradas:
-    lista vazia significa que a condição não casou (outro fluxo já mudou o
-    registro). O chamador DEVE interpretar a contagem, nunca só o HTTP 200.
-    """
-    params = {'id': f'eq.{user_id}'}
-    if expected_status is not None:
-        params['status'] = f'eq.{expected_status}'
-    return requests.patch(
-        f'{_SUPABASE_URL}/rest/v1/profiles',
-        params=params,
-        headers={**_supabase_headers(), 'Prefer': 'return=representation'},
-        json=payload,
-        timeout=30,
-    )
-
-
-def _log_rejection_audit(actor: dict, target: dict, prev_status: str) -> bool:
-    """Grava a auditoria explícita da rejeição em `app_audit_logs`.
-
-    O gatilho `trg_app_audit_profiles` (054/065) já registra `status_changed`,
-    porém com `auth.uid()` NULL quando a escrita usa `service_role` — o ator se
-    perde. Aqui o ator é gravado. Mesma tabela, nenhuma infra nova.
-    """
-    actor_id = (actor or {}).get('id')
-    workspace_id = None
-    try:
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/memberships',
-            params={
-                'profile_id': f'eq.{target["id"]}',
-                'status': 'eq.active',
-                'select': 'workspace_id',
-                'limit': '1',
-            },
-            headers=_supabase_headers(),
-            timeout=15,
-        )
-        if resp.ok and resp.json():
-            workspace_id = resp.json()[0].get('workspace_id')
-    except Exception as e:  # noqa: BLE001 - auditoria nunca derruba a operação
-        logger.warning("[reject] workspace_id para auditoria indisponivel: %s", e)
-
-    payload = {
-        'workspace_id': workspace_id,
-        'actor_id': actor_id,
-        'actor_name': (actor or {}).get('name') or (actor or {}).get('email') or '',
-        'action': 'account_rejected',
-        'entity': 'user',
-        'entity_id': str(target.get('id') or ''),
-        'entity_label': target.get('name') or target.get('email') or '',
-        'meta': {
-            'prev_status': prev_status,
-            'new_status': _REJECTED_STATUS,
-            'auth_disabled': True,
-        },
-    }
-    try:
-        resp = requests.post(
-            f'{_SUPABASE_URL}/rest/v1/app_audit_logs',
-            headers=_supabase_headers(),
-            json=payload,
-            timeout=30,
-        )
-        if not resp.ok:
-            logger.error("[reject] falha ao gravar auditoria: %s %s",
-                         resp.status_code, resp.text[:300])
-            return False
-        return True
-    except Exception as e:  # noqa: BLE001 - auditoria nunca derruba a operação
-        logger.error("[reject] excecao ao gravar auditoria: %s", e)
-        return False
+#
+# As helpers abaixo (constantes, `_auth_admin_ban`, `_profiles_patch` e
+# `_log_rejection_audit`) moram no módulo legado `src/apps/reservalab/api/app.py`
+# e são importadas no topo deste arquivo (PR-4D-A): o legado é importado por
+# este módulo e o contrário criaria import circular. A semântica é idêntica.
 
 
 @app.route('/api/admin/users/<user_id>/reject', methods=['POST'])

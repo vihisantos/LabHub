@@ -40,23 +40,14 @@ self.addEventListener('push', (event: PushEvent) => {
 /* ------------------------------------------------------------------ */
 
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
-  const action = event.action
   const data = event.notification.data || {}
   event.notification.close()
 
-  // Aprovar / Recusar direto pela notificação
-  if (action === 'approve' || action === 'reject') {
-    if (data.userId) {
-      event.waitUntil(
-        fetch('/api/push/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, userId: data.userId }),
-        }).catch(() => {})
-      )
-    }
-    return
-  }
+  // PR-4D-A: sem botões approve/reject na notificação (Option B). A antiga
+  // chamada a /api/push/action era feita sem Authorization (sempre 401) e
+  // abriria uma escrita sensível fora do app autenticado. O clique agora só
+  // abre a URL informativa (ex.: /admin/users?pending=<id>); a decisão é
+  // tomada dentro do app, com require_auth/require_admin.
 
   const rawUrl: string = data.url || '/'
 

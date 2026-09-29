@@ -173,24 +173,7 @@ export const adminService = {
     return true
   },
 
-  updateUserRole: async (userId: string, roleId: string): Promise<boolean> => {
-    if (!defaultDb) return false
-
-    const { data, error } = await defaultDb
-      .from('profiles')
-      .update({ role: ROLE_ID_TO_DB[roleId] ?? roleId, updated_at: new Date().toISOString() })
-      .eq('id', userId)
-      .select('id')
-
-    if (error || !data || data.length === 0) {
-      console.error('[Admin] Failed to update user role:', error?.message ?? '0 linhas alteradas')
-      return false
-    }
-
-    return true
-  },
-
-  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'roleId' | 'accent' | 'theme_variant' | 'avatar' | 'app_access' | 'is_super_admin' | 'notify_settings'>>): Promise<boolean> => {
+  updateUserProfile: async (userId: string, data: Partial<Pick<User, 'name' | 'roleId' | 'accent' | 'theme_variant' | 'avatar' | 'app_access' | 'notify_settings'>>): Promise<boolean> => {
     if (!defaultDb) return false
 
     const { data: updated, error } = await defaultDb
