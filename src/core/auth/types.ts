@@ -35,7 +35,20 @@ export const DEFAULT_NOTIFY_SETTINGS: UserNotifySettings = { muted: false, apps:
 
 export interface User {
   id: string
+  /**
+   * E-mail DA CONTA — o endereço com que a pessoa entra. É a identidade que o
+   * admin usa para achar a conta, e o que os blocos de liderança/coordenação
+   * exibem. NÃO confundir com `institutionalEmail`.
+   */
   email: string
+  /**
+   * E-mail INSTITUCIONAL de contato (migration 079). Coluna própria e
+   * nullable: o e-mail @labhub da conta é provisório, e o contato real é
+   * informação a mais, que pode não existir. Não participa de busca, e nunca
+   * substitui `email` para autenticar. `null` = não informado; a coluna pode
+   * devolver NULL do banco, então o tipo reflete isso.
+   */
+  institutionalEmail?: string | null
   name: string
   avatar?: string
   banner?: string
