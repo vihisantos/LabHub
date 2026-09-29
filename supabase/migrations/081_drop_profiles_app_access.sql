@@ -1,0 +1,82 @@
+-- =============================================================================
+-- 081_drop_profiles_app_access.sql
+-- =============================================================================
+-- F2-D-N3 — REMOÇÃO DEFINITIVA DE `public.profiles.app_access`.
+--
+-- CONTEXTO (por que esta coluna pode sair agora):
+--   A cadeia legada de autorização/visibilidade por `appAccess` foi
+--   desmontada em três etapas, e cada uma foi verificada contra o BANCO REAL,
+--   não contra o texto das migrations:
+--
+--     · F2-D-N1 (`57c1a47`) — `buildPushUser` deixou de ler a coluna; era a
+--       ÚLTIMA leitura viva da cadeia.
+--     · F2-D-N2 (`9716067`) — `Role.appAccess`, `resolveAppAccess`,
+--       `canAccessApp`, `getLevel`, `isFullAccess`, `canWriteApp`,
+--       `requireWrite`, `useAppAccess`, `defaultAccessFor` e
+--       `isModuleAvailable` foram removidos; o `RolesPage` deixou de editar
+--       acesso por app.
+--     · F2-D-N2 (`65181b2`) — o validador do trust boundary 067 deixou de
+--       referenciar a coluna (a proteção que ele testava foi desfeita de
+--       propósito pela 080, já que a coluna não concede autoridade).
+--
+--   As migrations 077/078 tiraram a coluna da autoridade de escrita no
+--   servidor (`user_can_manage_tv`, `user_can_cancel_tablet_reservation`) e a
+--   080 tirou dos 2 triggers vivos de `public.profiles`.
+--
+--   AUDITORIA LIVE (executada em DEV e PROD, antes desta migration):
+--     · `pg_depend` de `public.profiles.app_access` ........ 0 dependências
+--     · triggers de `public.profiles` ...................... 2, ambos da 080,
+--       nenhum mencionando `app_access`
+--     · funções (todos os schemas) ......................... 0 com referência
+--       EXECUTÁVEL a `app_access` (a única menção é comentário em
+--       `guard_profile_privileged_columns`, que registra a remoção)
+--     · views / índices / policies .......................... 0 referências
+--     · validador 067 ...................................... 26/26 (transação
+--       revertida, sem resíduo)
+--     · schema: `pg_depend = 0` é o critério MECÂNICO — sem ele o `DROP`
+--       falharia, porque uma dependência não interna impede a remoção.
+--
+-- O QUE ESTA MIGRATION FAZ: exatamente uma coisa.
+--
+--   ALTER TABLE public.profiles DROP COLUMN IF EXISTS app_access;
+--
+-- O QUE ELA NÃO FAIT (deliberadamente):
+--   · NÃO usa `CASCADE`. Se o PostgreSQL encontrar qualquer dependência
+--     inesperada, a migration FALHA e a transação do runner reverte. Remover o
+--     objeto dependente automaticamente esconderia exatamente o problema que
+--     a auditoria existe para detectar.
+--   · NÃO altera `role`, `workspace_ids`, `status`, `is_super_admin`, `id` nem
+--     qualquer outra coluna de `public.profiles`.
+--   · NÃO toca RLS, policies, triggers, funções, RPCs, `memberships`,
+--     `role_permissions`, Actions, `auth.users` nem frontend.
+--   · NÃO faz backfill, seed, GRANT ou REVOKE.
+--
+-- ONDE A COLUNA AINDA É REFERENCIADA (e por que isso é seguro):
+--   · migrations HISTÓRICAS — 013 (criou), 050/054/059/067 (leram, todas
+--     substituídas por 077/078/080), 077 (removeu a chave `tv`). Não são
+--     dependências: são histórico imutável, e o replay as executa
+--     ANTES desta migration, com a coluna ainda presente.
+--   · `src/core/auth/types.ts` — o campo opcional `User.app_access`. Ele é
+--     carregado por spread genérico de `fromDbUser`; com a coluna removida a
+--     chave simplesmente não vem mais, e `undefined` é o valor esperado. Não
+--     há consumidor funcional (N2 removeu o último).
+--   · comentários em arquivos de código, que registram a remoção.
+--
+-- TABELA `public.profiles` APÓS ESTA MIGRATION:
+--   colunas de identidade/configuração (`id`, `role`, `workspace_ids`,
+--   `status`, `is_super_admin`) permanecem — `role` e `workspace_ids` são
+--   espelho/compatibilidade e NÃO decidem autorização. Autoridade: `memberships`
+--   + `role_permissions` + Action. Visibilidade de módulo:
+--   `core/permissions/moduleVisibility.ts`.
+--
+-- IDEMPOTÊNCIA: `DROP COLUMN IF EXISTS` é no-op quando a coluna não existe,
+-- então replay não quebra.
+--
+-- CONDIÇÃO DE USO: exige 080 aplicada. Aplicar a 081 sem a 080 FALHA — e é o
+-- comportamento correto, porque nesse estado os triggers ainda leriam a
+-- coluna e o `DROP` deixaria `record "new" has no field "app_access"` em todo
+-- `UPDATE` de `public.profiles`.
+-- =============================================================================
+
+ALTER TABLE public.profiles
+DROP COLUMN IF EXISTS app_access;
