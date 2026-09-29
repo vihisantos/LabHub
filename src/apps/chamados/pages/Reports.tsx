@@ -222,7 +222,12 @@ export function Reports() {
               value={emailTo}
               onChange={(e) => setEmailTo(e.target.value)}
               onFocus={() => {
-                if (!emailTo && user?.email) setEmailTo(user.email)
+                // O institucional primeiro: o e-mail da conta é o @labhub
+                // provisório e não existe como caixa de entrada, então
+                // pré-preencher com ele mandava o resumo para o vazio.
+                if (!emailTo) {
+                  setEmailTo(user?.institutionalEmail?.trim() || user?.email || '')
+                }
               }}
               placeholder="email@exemplo.com"
               className="mb-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none"

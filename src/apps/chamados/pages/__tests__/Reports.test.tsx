@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
 const mockGetReports = vi.hoisted(() => vi.fn())
+const mockUser = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }))
 
 const REPORT = vi.hoisted(() => ({
   total: 3,
@@ -29,6 +30,10 @@ const REPORT = vi.hoisted(() => ({
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }))
+// O Reports importa useAuth de core/auth/useAuth (não de AuthContext).
+vi.mock('../../../../core/auth/useAuth', () => ({
+  useAuth: () => ({ user: mockUser.current }),
+}))
 vi.mock('../../services/ticketService', () => ({
   ticketService: { getReports: mockGetReports },
 }))
@@ -42,6 +47,7 @@ describe('Reports — relatório de chamados', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetReports.mockResolvedValue(REPORT)
+    mockUser.current = { id: 'u-1', name: 'Vitor', email: 'vitor@labhub.app' }
   })
 
   it('carrega e exibe as métricas do período', async () => {
@@ -68,5 +74,68 @@ describe('Reports — relatório de chamados', () => {
     const last = calls[calls.length - 1][0]
     expect(last.from).toContain('2026-06-18')
     expect(last.workspace_id).toBe('ws-a')
+  })
+})
+
+describe('Reports — destinatário do resumo por email', () => {
+  function campoEmail(): HTMLInputElement {
+    return screen.getByPlaceholderText('email@exemplo.com') as HTMLInputElement
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetReports.mockResolvedValue(REPORT)
+  })
+
+  it('usa o e-mail institucional quando existe', async () => {
+    mockUser.current = {
+      id: 'u-1',
+      name: 'Vitor',
+      email: 'vitor@labhub.app',
+      institutionalEmail: 'vitor@univ.edu',
+    }
+    render(<Reports />)
+    await act(async () => {})
+
+    fireEvent.focus(campoEmail())
+    expect(campoEmail().value).toBe('vitor@univ.edu')
+  })
+
+  it('cai no e-mail da conta quando não há institucional', async () => {
+    mockUser.current = { id: 'u-1', name: 'Vitor', email: 'vitor@labhub.app' }
+    render(<Reports />)
+    await act(async () => {})
+
+    fireEvent.focus(campoEmail())
+    expect(campoEmail().value).toBe('vitor@labhub.app')
+  })
+
+  it('ignora institucional vazio, em vez de pré-preencher ""', async () => {
+    mockUser.current = {
+      id: 'u-1',
+      name: 'Vitor',
+      email: 'vitor@labhub.app',
+      institutionalEmail: '   ',
+    }
+    render(<Reports />)
+    await act(async () => {})
+
+    fireEvent.focus(campoEmail())
+    expect(campoEmail().value).toBe('vitor@labhub.app')
+  })
+
+  it('não sobrescreve o que a pessoa já digitou', async () => {
+    mockUser.current = {
+      id: 'u-1',
+      name: 'Vitor',
+      email: 'vitor@labhub.app',
+      institutionalEmail: 'vitor@univ.edu',
+    }
+    render(<Reports />)
+    await act(async () => {})
+
+    fireEvent.change(campoEmail(), { target: { value: 'coorte@univ.edu' } })
+    fireEvent.focus(campoEmail())
+    expect(campoEmail().value).toBe('coorte@univ.edu')
   })
 })
