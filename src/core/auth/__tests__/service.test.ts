@@ -320,3 +320,89 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
     expect(authService.getCurrentUser()?.memberships).toEqual([])
   })
 })
+
+describe('authService.signIn — auto-heal de profile ausente (F1-B)', () => {
+  beforeEach(() => {
+    mockSignIn.mockReset()
+    mockGetSession.mockReset()
+    mockFrom.mockReset()
+    mockGetMine.mockReset()
+  })
+
+  it('recria o profile como pending — NUNCA active — sem autorização implícita de workspace', async () => {
+    // Auth user válido, mas o profile row não existe (fetchUserProfile → null).
+    mockSignIn.mockResolvedValue({
+      data: { user: { id: 'u-orphan', email: 'orphan@labhub.com' } },
+      error: null,
+    })
+    mockGetMine.mockRejectedValue(new Error('RLS: denied'))
+
+    let insertPayload: Record<string, unknown> | null = null
+    // Chain dupla: SELECT (perfil ausente) e INSERT (auto-heal).
+    mockFrom.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+      }),
+      insert: (payload: Record<string, unknown>) => {
+        insertPayload = payload
+        return {
+          select: () => ({
+            single: async () => ({ data: { ...payload, role: 'viewer' }, error: null }),
+          }),
+        }
+      },
+    }))
+
+    const authService = await loadAuthService()
+    const user = await authService.signIn({ email: 'orphan@labhub.com', password: 'secret' })
+
+    // Perfil recriado como PENDING (estado inicial de conta ainda não aprovada).
+    expect(insertPayload).not.toBeNull()
+    expect(insertPayload!.status).toBe('pending')
+    expect(insertPayload!.status).not.toBe('active')
+    // Sem autorização implícita: nenhum workspace atribuído no auto-heal.
+    expect(insertPayload!.workspace_ids).toEqual([])
+    expect(insertPayload!.is_super_admin).toBe(false)
+    // toDbUser converte roleId → role no payload gravado (viewer, nunca admin).
+    expect(insertPayload!.role).toBe('role-viewer')
+
+    // O usuário resultante do login é pending (AuthGuard → /approval-pending).
+    expect(user.status).toBe('pending')
+    expect(user.status).not.toBe('active')
+  })
+
+  it('não invoca o auto-heal quando o profile já existe (pending preservado)', async () => {
+    mockSignIn.mockResolvedValue({
+      data: { user: { id: 'u-pendente', email: 'pend@labhub.com' } },
+      error: null,
+    })
+
+    let insertCalled = false
+    mockFrom.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: {
+              id: 'u-pendente', email: 'pend@labhub.com', name: 'Pend', role: 'role-viewer',
+              status: 'pending', is_super_admin: false, workspace_ids: [],
+              accent: 'blue', theme_variant: 'dark',
+            },
+            error: null,
+          }),
+        }),
+      }),
+      insert: () => {
+        insertCalled = true
+        return { select: () => ({ single: async () => ({ data: null, error: null }) }) }
+      },
+    }))
+    mockGetMine.mockRejectedValue(new Error('RLS: denied'))
+
+    const authService = await loadAuthService()
+    const user = await authService.signIn({ email: 'pend@labhub.com', password: 'secret' })
+
+    expect(user.status).toBe('pending')
+    // Perfil já existe → o login apenas lê; NENHUM INSERT de auto-heal ocorre.
+    expect(insertCalled).toBe(false)
+  })
+})
