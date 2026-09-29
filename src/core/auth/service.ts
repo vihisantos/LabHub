@@ -256,7 +256,10 @@ export const authService = {
       email,
       name: name || email.split('@')[0],
       roleId: 'role-viewer',
-      status: 'active',
+      // F1-B: auto-heal NUNCA cria conta ativa. A aprovação administrativa é a
+      // única transição pending → active (fila #283/RPC 072); recriar como
+      // active contornaria a autoridade de aprovação para perfis que sumiram.
+      status: 'pending',
       is_super_admin: false,
       workspace_ids: [],
       accent: 'blue',
