@@ -58,24 +58,26 @@
 
   /* Sutil (dim) — lilás clarinho: tema intermediário claro entre Claro e Escuro.
      Identidade visual nova (PR-4); tokens semânticos inalterados em nome/estrutura.
-     Base #f6eafe. As superfícies DERIVAM dela em vez de repetir o mesmo tom:
-     cards e inputs ficam mais claros que a base para destacar, e bordas/texto
-     escurecem o bastante para manter a hierarquia e o contraste. */
+     Base #e9d7f8: lilás o bastante para o tom aparecer contra o branco, mas
+     claro o bastante para continuar sendo o tema intermediário. As superfícies
+     DERIVAM dela em vez de repetir o mesmo tom — cards e inputs ficam mais
+     claros que a base para destacar, e bordas/texto escurecem o bastante para
+     manter hierarquia e contraste. */
   .dim {
-    --bg-primary: #f6eafe;
-    --bg-secondary: #efe3fb;
-    --bg-card: #fdfaff;
-    --bg-input: #f1e7fc;
-    --border: #c4aedd;
+    --bg-primary: #e9d7f8;
+    --bg-secondary: #e2cbf6;
+    --bg-card: #fbf5ff;
+    --bg-input: #eddefa;
+    --border: #b89ad9;
     --border-focus: var(--accent);
     --text-primary: #241b30;
-    --text-secondary: #5d4f70;
-    --text-muted: #70607d;
-    --shadow-card: 0 1px 3px rgba(74, 58, 104, 0.08), 0 1px 2px rgba(74, 58, 104, 0.06);
-    --shadow-elevated: 0 4px 16px rgba(74, 58, 104, 0.14);
-    --bg-card-hover: #f3eafd;
-    --bg-segmented: #e2d0f5;
-    --color-chart-hover: rgba(36, 27, 48, 0.04);
+    --text-secondary: #584a6b;
+    --text-muted: #665779;
+    --shadow-card: 0 1px 3px rgba(74, 58, 104, 0.1), 0 1px 2px rgba(74, 58, 104, 0.07);
+    --shadow-elevated: 0 4px 16px rgba(74, 58, 104, 0.16);
+    --bg-card-hover: #eee0fa;
+    --bg-segmented: #d9bff0;
+    --color-chart-hover: rgba(36, 27, 48, 0.05);
     --color-chart-bar: var(--accent);
   }
 

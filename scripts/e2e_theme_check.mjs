@@ -76,7 +76,7 @@ async function main() {
   await page.screenshot({ path: `${outDir}/01-dark-tablets.png` })
 
   await setTheme('dim')
-  record('4. dim: body rgb(246,234,254) — lilás clarinho', (await bodyBg()) === 'rgb(246, 234, 254)', await bodyBg())
+  record('4. dim: body rgb(233,215,248) — lilás clarinho', (await bodyBg()) === 'rgb(233, 215, 248)', await bodyBg())
   await page.screenshot({ path: `${outDir}/02-dim-tablets.png` })
 
   await setTheme('light')
