@@ -56,21 +56,23 @@
     --color-chart-bar: var(--accent);
   }
 
+  /* Sutil (dim) — lilás clarinho: tema intermediário claro entre Claro e Escuro.
+     Identidade visual nova (PR-4); tokens semânticos inalterados em nome/estrutura. */
   .dim {
-    --bg-primary: #1a1b2e;
-    --bg-secondary: #222338;
-    --bg-card: #262840;
-    --bg-input: #32335a;
-    --border: rgba(255, 255, 255, 0.07);
+    --bg-primary: #f6f3fa;
+    --bg-secondary: #f0ebf7;
+    --bg-card: #fbf9fd;
+    --bg-input: #f0ebf7;
+    --border: #ded6ea;
     --border-focus: var(--accent);
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
-    --text-muted: #6b7280;
-    --shadow-card: 0 1px 3px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.15);
-    --shadow-elevated: 0 4px 16px rgba(0,0,0,0.35);
-    --bg-card-hover: #32335a;
-    --bg-segmented: #38386a;
-    --color-chart-hover: rgba(255,255,255,0.03);
+    --text-primary: #292331;
+    --text-secondary: #6f667a;
+    --text-muted: #9a90ab;
+    --shadow-card: 0 1px 3px rgba(74, 58, 104, 0.06), 0 1px 2px rgba(74, 58, 104, 0.05);
+    --shadow-elevated: 0 4px 16px rgba(74, 58, 104, 0.1);
+    --bg-card-hover: #f1ecf8;
+    --bg-segmented: #e2daee;
+    --color-chart-hover: rgba(41, 35, 49, 0.03);
     --color-chart-bar: var(--accent);
   }
 
