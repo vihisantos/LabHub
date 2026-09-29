@@ -11,8 +11,8 @@ import { icons } from '../../lib/icons'
 interface ModuleStat {
   id: string
   name: string
-  icon: React.ReactNode
-  color: string
+  /** Componente do ícone — guardado como tipo, não como elemento já montado. */
+  icon: (props: { size?: number }) => React.ReactNode
   route: string
   stats: { label: string; value: number | string }[]
 }
@@ -26,6 +26,19 @@ const MODULE_APP_ID: Record<string, string> = {
   tv: 'tv',
 }
 
+/**
+ * Resumo por Módulo — cartão de cada módulo acessível, com os números em
+ * destaque.
+ *
+ * A identidade visual vem do TEMA: o tile do ícone usa `--accent-soft` e o
+ * glifo usa `--accent-strong`, o mesmo accent que o usuário escolhe no Perfil
+ * e que as `[data-accent]` definem. Nada de cor fixa por módulo, e o ícone
+ * tem 3:1 de contraste sobre o tile em Claro, Sutil e Escuro — usar
+ * `--accent` direto sumiria com emerald e cyan.
+ *
+ * A lista de módulos e o filtro de acesso NÃO mudam: continuam vindo de
+ * `isModuleAvailable` sobre o `MODULE_APP_ID`, exatamente como antes.
+ */
 export function ModuleStats() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
@@ -36,7 +49,9 @@ export function ModuleStats() {
     const stockItems = stockService.getAll()
     const tickets = ticketService.getAll()
 
-    const openTickets = tickets.filter((t) => t.status === 'aberto' || t.status === 'a_caminho' || t.status === 'em_atendimento')
+    const openTickets = tickets.filter(
+      (t) => t.status === 'aberto' || t.status === 'a_caminho' || t.status === 'em_atendimento',
+    )
     const resolvedToday = tickets.filter((t) => {
       if (!t.resolvedAt) return false
       const today = new Date().toISOString().slice(0, 10)
@@ -47,8 +62,7 @@ export function ModuleStats() {
       {
         id: 'pcare',
         name: 'Inventário',
-        icon: <icons.nav.pcs size={20} />,
-        color: '#8b5cf6',
+        icon: icons.nav.pcs,
         route: '/pc-care',
         stats: [
           { label: 'PCs', value: pcs.length },
@@ -58,8 +72,7 @@ export function ModuleStats() {
       {
         id: 'chamados',
         name: 'Chamados',
-        icon: <icons.ui.alertCircle size={20} />,
-        color: '#f59e0b',
+        icon: icons.ui.messageSquareWarning,
         route: '/chamados',
         stats: [
           { label: 'Abertos', value: openTickets.length },
@@ -69,8 +82,7 @@ export function ModuleStats() {
       {
         id: 'stock',
         name: 'Estoque',
-        icon: <icons.ui.package size={20} />,
-        color: '#10b981',
+        icon: icons.ui.package,
         route: '/stock',
         stats: [
           { label: 'Itens', value: stockItems.length },
@@ -80,59 +92,100 @@ export function ModuleStats() {
       {
         id: 'reservalab',
         name: 'ReservaLab',
-        icon: <icons.ui.flaskConical size={20} />,
-        color: '#6366f1',
+        icon: icons.ui.flaskConical,
         route: '/reservalab',
-        stats: [
-          { label: 'Laboratórios', value: 'Reservas e tablets' },
-        ],
+        stats: [{ label: 'Laboratórios', value: 'Reservas e tablets' }],
       },
       {
         id: 'tv',
         name: 'TV Corporativa',
-        icon: <icons.ui.tv size={20} />,
-        color: '#ef4444',
+        icon: icons.ui.tv,
         route: '/tv',
-        stats: [
-          { label: 'Display', value: 'Mural digital' },
-        ],
+        stats: [{ label: 'Display', value: 'Mural digital' }],
       },
     ].filter((m) => isModuleAvailable(MODULE_APP_ID[m.id], workspace, canAccessApp))
   }, [workspace, canAccessApp])
 
   return (
-    <div className="rounded-xl bg-card shadow-[var(--shadow-card)]">
-      <div className="border-b border-line px-4 py-3">
-        <h3 className="text-xs font-semibold text-fg-muted">Resumo por Módulo</h3>
-      </div>
-      <div className="divide-y divide-line">
-        {modules.map((mod) => (
-          <button
-            key={mod.id}
-            type="button"
-            onClick={() => navigate(mod.route)}
-            className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-input"
-          >
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-              style={{ backgroundColor: mod.color + '15', color: mod.color }}
-            >
-              {mod.icon}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-fg">{mod.name}</p>
-              <div className="mt-1 flex gap-3">
-                {mod.stats.map((stat) => (
-                  <span key={stat.label} className="text-[10px] text-fg-muted">
-                    {stat.value} {stat.label}
+    <section aria-labelledby="resumo-modulos-titulo">
+      <h3 id="resumo-modulos-titulo" className="mb-3 px-1 text-xs font-semibold text-fg-muted">
+        Resumo por Módulo
+      </h3>
+
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {modules.map((mod) => {
+          const Icon = mod.icon
+          const [primary, ...rest] = mod.stats
+          return (
+            <li key={mod.id}>
+              <button
+                type="button"
+                onClick={() => navigate(mod.route)}
+                className="group flex w-full items-center gap-3 rounded-2xl bg-card p-3.5 text-left shadow-[var(--shadow-card)] ring-1 ring-line transition-all hover:shadow-[var(--shadow-elevated)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98] motion-reduce:active:scale-100"
+              >
+                <span
+                  data-testid="mod-icon"
+                  aria-hidden="true"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                  style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent-strong)' }}
+                >
+                  <Icon size={21} />
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1">
+                    <span className="truncate text-sm font-semibold text-fg">{mod.name}</span>
+                    <icons.ui.chevronRight
+                      size={14}
+                      className="shrink-0 text-fg-muted transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                    />
                   </span>
-                ))}
-              </div>
-            </div>
-            <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
-          </button>
-        ))}
-      </div>
-    </div>
+
+                  <span className="mt-0.5 block truncate text-[11px] leading-tight text-fg-muted">
+                    <StatValue stat={primary} />
+                  </span>
+                </span>
+
+                {rest.length > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="flex shrink-0 flex-col items-end gap-0.5 border-l border-line pl-3"
+                  >
+                    {rest.map((stat) => (
+                      <span key={stat.label} className="whitespace-nowrap text-right">
+                        <span className="block text-sm font-semibold leading-tight text-fg">
+                          {stat.value}
+                        </span>
+                        <span className="block text-[10px] leading-tight text-fg-muted">{stat.label}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/**
+ * Stat principal do cartão.
+ *
+ * Número grande (destaque, o que se quer ver primeiro) com a etiqueta ao lado.
+ * Quando o valor é texto ("Reservas e tablets"), não há número para destacar:
+ * o texto vira o destaque e a etiqueta some, para não repetir a mesma
+ * informação duas vezes.
+ */
+function StatValue({ stat }: { stat: { label: string; value: number | string } }) {
+  if (typeof stat.value === 'string') {
+    return <span className="font-medium text-fg-dim">{stat.value}</span>
+  }
+  return (
+    <>
+      <span className="text-sm font-semibold text-fg">{stat.value}</span>
+      <span className="ml-1">{stat.label}</span>
+    </>
   )
 }

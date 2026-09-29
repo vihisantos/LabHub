@@ -84,10 +84,17 @@
     --color-chart-bar: var(--accent);
   }
 
-  [data-accent="blue"]    { --accent: #3b82f6; --accent-soft: rgba(59,130,246,0.15);  --accent-ring: rgba(59,130,246,0.3); }
-  [data-accent="emerald"] { --accent: #10b981; --accent-soft: rgba(16,185,129,0.15); --accent-ring: rgba(16,185,129,0.3); }
-  [data-accent="cyan"]    { --accent: #06b6d4; --accent-soft: rgba(6,182,212,0.15);  --accent-ring: rgba(6,182,212,0.3); }
-  [data-accent="purple"]  { --accent: #a855f7; --accent-soft: rgba(168,85,247,0.15);  --accent-ring: rgba(168,85,247,0.3); }
+  /* --accent é a cor de preenchimento (barras, anéis, bordas). Ela é clara de
+     propósito, mas por isso não serve para ÍCONE ou TEXTO sobre um fundo
+     `--accent-soft` (o accent a 15% da própria cor): emerald e cyan caem
+     para ~2:1 em Claro e ~1.8:1 em Sutil, e o ícone some.
+     --accent-strong é o mesmo accent escurecido até o ícone atingir 3:1
+     (mínimo de contraste não-textual, WCAG 1.4.11) sobre o tile — medido nos
+     TRÊS temas com os QUATRO accents: min 3.07:1, típico 3.2:1. */
+  [data-accent="blue"]    { --accent: #3b82f6; --accent-soft: rgba(59,130,246,0.15);  --accent-ring: rgba(59,130,246,0.3);  --accent-strong: #3575dd; }
+  [data-accent="emerald"] { --accent: #10b981; --accent-soft: rgba(16,185,129,0.15); --accent-ring: rgba(16,185,129,0.3); --accent-strong: #0c8b61; }
+  [data-accent="cyan"]    { --accent: #06b6d4; --accent-soft: rgba(6,182,212,0.15);  --accent-ring: rgba(6,182,212,0.3);  --accent-strong: #04859b; }
+  [data-accent="purple"]  { --accent: #a855f7; --accent-soft: rgba(168,85,247,0.15); --accent-ring: rgba(168,85,247,0.3); --accent-strong: #9c4fe6; }
 
   body {
     background-color: var(--bg-primary);
