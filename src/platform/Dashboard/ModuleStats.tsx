@@ -30,11 +30,12 @@ const MODULE_APP_ID: Record<string, string> = {
  * Resumo por Módulo — cartão de cada módulo acessível, com os números em
  * destaque.
  *
- * A identidade visual vem do TEMA: o tile do ícone usa `--accent-soft` e o
- * glifo usa `--accent-strong`, o mesmo accent que o usuário escolhe no Perfil
- * e que as `[data-accent]` definem. Nada de cor fixa por módulo, e o ícone
- * tem 3:1 de contraste sobre o tile em Claro, Sutil e Escuro — usar
- * `--accent` direto sumiria com emerald e cyan.
+ * A identidade visual vem do TEMA: o cartão usa `--bg-module-card` (um passo
+ * fora do branco na direção da cor de identidade, para o bloco se destacar sem
+ * virar outra cor), o tile do ícone usa `--accent-soft` e o glifo usa
+ * `--accent-strong`, o mesmo accent que o usuário escolhe no Perfil. Nada de
+ * cor fixa por módulo, e o ícone tem 3:1 de contraste sobre o tile em Claro,
+ * Sutil e Escuro — usar `--accent` direto sumiria com emerald e cyan.
  *
  * A lista de módulos e o filtro de acesso NÃO mudam: continuam vindo de
  * `isModuleAvailable` sobre o `MODULE_APP_ID`, exatamente como antes.
@@ -121,7 +122,7 @@ export function ModuleStats() {
               <button
                 type="button"
                 onClick={() => navigate(mod.route)}
-                className="group flex w-full items-center gap-3 rounded-2xl bg-card p-3.5 text-left shadow-[var(--shadow-card)] ring-1 ring-line transition-all hover:shadow-[var(--shadow-elevated)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98] motion-reduce:active:scale-100"
+                className="group flex w-full items-center gap-3 rounded-2xl bg-module-card p-3.5 text-left shadow-[var(--shadow-card)] ring-1 ring-line transition-all hover:shadow-[var(--shadow-elevated)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98] motion-reduce:active:scale-100"
               >
                 <span
                   data-testid="mod-icon"

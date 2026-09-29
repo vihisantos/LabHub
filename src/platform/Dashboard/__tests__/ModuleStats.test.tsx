@@ -72,6 +72,43 @@ function contrastRatio(a: string, b: string): number {
   return (x + 0.05) / (y + 0.05)
 }
 
+/** Distância euclidiana em RGB: "quão diferente uma cor é da outra". */
+function colorDistance(a: string, b: string): number {
+  const [x, y] = [toRgb(a), toRgb(b)]
+  return Math.round(Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) * 10) / 10
+}
+
+/** Lê do index.css a superfície da página, do cartão e do cartão de módulo, por tema. */
+function themeSurfaces(css: string): {
+  surfaces: Record<string, { fundo: string; card: string; modulo: string }>
+} {
+  const bloco = (seletor: string) => {
+    const m = css.match(new RegExp(`(?:^|\\s)${seletor}\\s*(?:,\\s*\\.dark)?\\s*\\{([^}]*)\\}`, 'm'))
+    expect(m, `bloco ${seletor} não encontrado no index.css`).toBeTruthy()
+    return m![1]
+  }
+  const hex = (corpo: string, token: string) => {
+    const v = corpo.match(new RegExp(`${token}:\\s*(#[0-9a-f]{6})`))?.[1]
+    expect(v, `${token} ausente ou não-hex`).toBeTruthy()
+    return v!
+  }
+
+  const surfaces: Record<string, { fundo: string; card: string; modulo: string }> = {}
+  for (const [tema, seletor] of [
+    ['light', ':root'],
+    ['dark', '.dark'],
+    ['dim', '.dim'],
+  ] as const) {
+    const corpo = bloco(seletor)
+    surfaces[tema] = {
+      fundo: hex(corpo, '--bg-primary'),
+      card: hex(corpo, '--bg-card'),
+      modulo: hex(corpo, '--bg-module-card'),
+    }
+  }
+  return { surfaces }
+}
+
 beforeEach(() => {
   mockCanAccessApp.mockReturnValue(true)
   mockDisabledApps.mockReturnValue([])
@@ -104,25 +141,65 @@ describe('ModuleStats — a cor vem do tema, não de uma cor fixa por módulo', 
     }
   })
 
-  it('--accent-strong está definido para os quatro accents, com 3:1 no tile', () => {
+  it('o cartão usa --bg-module-card, um passo fora do branco na direção da identidade', () => {
     const css = readFileSync(resolve(__dirname, '../../../index.css'), 'utf8')
+    const { surfaces } = themeSurfaces(css)
+
+    // Um passo: longe o bastante para o cartão não ler como branco, perto o
+    // bastante para continuar sendo o mesmo cartão, não uma cor nova. A faixa
+    // é absoluta de propósito — a distância entre página e cartão muda muito
+    // entre os temas (8.7 no Claro, 79.6 no Sutil), então medir em % do que o
+    // tema já separa não diria nada.
+    for (const [tema, { modulo, card }] of Object.entries(surfaces)) {
+      const passo = colorDistance(modulo, card)
+      expect(passo, `${tema}: ${modulo} precisa se destacar de ${card}`).toBeGreaterThanOrEqual(10)
+      expect(passo, `${tema}: ${modulo} longe demais de ${card}, virou outra cor`).toBeLessThanOrEqual(20)
+    }
+
+    // E o passo tem que ser na direção certa: mais claro que o cartão nos
+    // temas claros, mais escuro no Escuro. Sem isso, "variação do lilás" viraria
+    // "mais lilás ainda" no escuro.
+    for (const [tema, { modulo, card }] of Object.entries(surfaces)) {
+      const lum = relativeLuminance(modulo) - relativeLuminance(card)
+      expect(Math.sign(lum), `${tema}: ${modulo} vs ${card}`).toBe(tema === 'dark' ? 1 : -1)
+    }
+  })
+
+  it('o cartão do módulo difere do cartão padrão nos três temas', () => {
+    const { surfaces } = themeSurfaces(readFileSync(resolve(__dirname, '../../../index.css'), 'utf8'))
+    for (const [tema, { modulo, card }] of Object.entries(surfaces)) {
+      // Se fossem iguais, o bloco inteiro sumiria dentro de qualquer cartão
+      // branco ao redor — que é exatamente o que o token novo evita.
+      expect(modulo, `${tema}: ${modulo} === ${card}`).not.toBe(card)
+    }
+  })
+
+  it('--accent-strong dá 3:1 no tile de cada tema, com os quatro accents', () => {
+    const css = readFileSync(resolve(__dirname, '../../../index.css'), 'utf8')
+    const { surfaces } = themeSurfaces(css)
+    const darkUsaPuro = /\.dark\s*\{[^}]*--accent-strong:\s*var\(--accent\)/s.test(css)
+    expect(darkUsaPuro, 'o Escuro deve devolver o accent puro (fundo escuro dá contraste de sobra)').toBe(true)
+
     const accents = [...css.matchAll(/\[data-accent="(\w+)"\]\s*\{([^}]*)\}/g)]
     expect(accents).toHaveLength(4)
 
-    const surfaces = { light: '#ffffff', dim: '#f3e8fc', dark: '#1c1c1e' }
     for (const [, nome, corpo] of accents) {
       const forte = corpo.match(/--accent-strong:\s*(#[0-9a-f]{6})/)?.[1]
+      const puro = corpo.match(/--accent:\s*(#[0-9a-f]{6})/)?.[1]
       const suave = corpo.match(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*0\.15\s*\)/)
       expect(forte, `--accent-strong ausente em ${nome}`).toBeTruthy()
+      expect(puro, `--accent ausente em ${nome}`).toBeTruthy()
       expect(suave, `--accent-soft ausente em ${nome}`).toBeTruthy()
 
-      // tile = accent a 15% sobre a superfície do cartão do tema
+      // tile = accent a 15% sobre a superfície do CARTÃO DE MÓDULO do tema
       const [r, g, b] = suave!.slice(1).map(Number)
-      for (const [tema, fundo] of Object.entries(surfaces)) {
-        const tile = blend(fundo, [r, g, b], 0.15)
+      for (const [tema, { modulo }] of Object.entries(surfaces)) {
+        // No Escuro vale o accent puro (regra .dark), nos claros o escurecido.
+        const glifo = tema === 'dark' ? puro! : forte!
+        const tile = blend(modulo, [r, g, b], 0.15)
         expect(
-          contrastRatio(forte!, tile),
-          `${nome}/${tema}: ${forte} sobre ${tile}`,
+          contrastRatio(glifo, tile),
+          `${nome}/${tema}: ${glifo} sobre ${tile}`,
         ).toBeGreaterThanOrEqual(3)
       }
     }
