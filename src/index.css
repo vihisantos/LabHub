@@ -30,9 +30,9 @@
        cor de identidade, para o bloco se destacar do cartão branco sem virar
        outra cor. 13.4 de distância do branco — presente, não gritante. */
     --bg-module-card: #f8f4fc;
-    /* Ações Rápidas: fora do Sutil o cartão segue o padrão. O token existe
-       para o Sutil poder apontar para a mesma superfície do Resumo. */
-    --bg-quick-card: var(--bg-card);
+    /* Ações Rápidas usa a mesma superfície do Resumo por Módulo nos três
+       temas, para os dois blocos lerem como um par. */
+    --bg-quick-card: var(--bg-module-card);
     --bg-input: #f5f5f7;
     --border: rgba(0, 0, 0, 0.05);
     --border-focus: #3b82f6;
@@ -54,7 +54,7 @@
     /* Mesma ideia do Claro, invertida: um passo acima do cartão, na direção
        da cor de identidade. 16.2 de distância de #1c1c1e. */
     --bg-module-card: #221b2d;
-    --bg-quick-card: var(--bg-card);
+    --bg-quick-card: var(--bg-module-card);
     --bg-input: #2c2c2e;
     --border: rgba(255, 255, 255, 0.06);
     --border-focus: var(--accent);
@@ -89,9 +89,8 @@
        Texto sobre ele: 12.9:1 primário, 7.8:1 secundário, 8.1:1 muted. */
     --bg-module-card: #ecdefa;
     /* Ações Rápidas usa a MESMA superfície do Resumo por Módulo, para os dois
-       blocos lerem como um par. Só aqui: nos outros temas o cartão é o de
-       sempre. As cores dos ícones NÃO são unificadas — elas são o que
-       distingue cada ação, e continuam as mesmas de antes. */
+       blocos lerem como um par. As cores dos ícones NÃO são unificadas —
+       elas são o que distingue cada ação, e continuam as mesmas de antes. */
     --bg-quick-card: var(--bg-module-card);
     --bg-input: #dcc6f2;
     --border: #a179c4;
