@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 interface StarsProps {
   value: number
   onChange?: (value: number) => void
@@ -10,7 +12,7 @@ const STAR_PATH =
 
 export function Stars({ value, onChange, size = 22, disabled }: StarsProps) {
   const interactive = Boolean(onChange) && !disabled
-  const groupName = 'labhub-feedback-rating'
+  const groupName = `labhub-feedback-rating-${useId().replace(/:/g, '')}`
 
   return (
     <fieldset
@@ -20,7 +22,7 @@ export function Stars({ value, onChange, size = 22, disabled }: StarsProps) {
     >
       <legend className="sr-only">Avaliação de 1 a 5 estrelas</legend>
       {[1, 2, 3, 4, 5].map((n) => {
-        const id = `labhub-star-${n}`
+        const id = `${groupName}-star-${n}`
         return (
           <div key={n} className="labhub-rating__item">
             <input
