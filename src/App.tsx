@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Analytics } from '@vercel/analytics/react'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
 import { MarkNotificationsReadOnVisit } from './core/notifications/MarkNotificationsReadOnVisit'
@@ -157,6 +158,7 @@ export default function App() {
           </WorkspaceProvider>
         </ThemeProvider>
       </AuthProvider>
+      <Analytics />
     </BrowserRouter>
   )
 }
