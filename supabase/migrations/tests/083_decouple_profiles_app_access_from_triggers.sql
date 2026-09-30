@@ -1,5 +1,5 @@
 -- =============================================================================
--- tests/080_decouple_profiles_app_access_from_triggers.sql
+-- tests/083_decouple_profiles_app_access_from_triggers.sql
 -- =============================================================================
 -- F2-D-I — os 2 triggers vivos de `public.profiles` deixa de depender de
 -- `profiles.app_access`, SEM perder nenhum comportamento restante.
@@ -43,9 +43,9 @@
 --  19. escrita que muda SÓ `app_access` => passa sem erro de runtime e não
 --      gera auditoria (comportamento documentado no F2-D-I).
 --
--- How to run: paste into the Supabase SQL Editor (or psql) AFTER 080 is applied.
+-- How to run: paste into the Supabase SQL Editor (or psql) AFTER 083 is applied.
 -- Every check raises an exception on drift; a clean run ends with
--- "OK: 080 decouple profiles.app_access from triggers checks passed".
+-- "OK: 083 decouple profiles.app_access from triggers checks passed".
 -- =============================================================================
 
 DO $$
@@ -338,7 +338,7 @@ PERFORM set_config('request.jwt.claim.sub', v_uid2::text, true);
 -- 17. campo neutro => permitido
 UPDATE public.profiles SET name = '080 Comum' WHERE id = v_uid2;
 
--- 12/13/14. autoelevação de privilégio => NEGADA (o que a 067 protegia e a 080 preserva)
+-- 12/13/14. autoelevação de privilégio => NEGADA (o que a 067 protegia e a 083 preserva)
 BEGIN
   UPDATE public.profiles SET role = 'admin' WHERE id = v_uid2;
   RAISE EXCEPTION 'FAIL [12]: usuario comum nao deveria trocar o proprio role';

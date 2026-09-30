@@ -5,7 +5,7 @@
 -- dependência estrutural, nenhuma autoridade e nenhuma referência no
 -- código de produção.
 --
--- ESTADO ESPERADO: a coluna NÃO EXISTE (migration 081 aplicada).
+-- ESTADO ESPERADO: a coluna NÃO EXISTE (migration 084 aplicada).
 --     · 8.0  -> 0 linhas ...................... PASS (a coluna saiu)
 --                1 linha ...................... FAIL (a coluna voltou / 081
 --                                                 não foi aplicada)
@@ -15,10 +15,10 @@
 --     · 8.5/8.6 -> 0 linhas .................. PASS
 --     · 8.7  -> `coluna_inexistente` = 1 e todos os outros = 0
 --
--- Se a coluna AINDA existir (8.0 com 1 linha, e a 081 ainda não foi
+-- Se a coluna AINDA existir (8.0 com 1 linha, e a 084 ainda não foi
 -- aplicada), os demais blocos continuam válidos: eles dizem se é seguro
 -- removê-la. É o estado intermediário de um ambiente que ainda não recebeu
--- a 081.
+-- a 084.
 --
 -- READ-ONLY. Este arquivo contém SOMENTE SELECT de catálogo do
 -- PostgreSQL. Não altera, cria, remove nem bloqueia nada.
@@ -44,7 +44,7 @@
 -- 8.0 — A coluna JÁ FOI REMOVIDA?
 -- ============================================================
 -- Critério pós-081. Esperado: 0 linhas (a coluna não existe mais).
--- Se voltar 1 linha, a 081 não foi aplicada neste ambiente.
+-- Se voltar 1 linha, a 084 não foi aplicada neste ambiente.
 -- ============================================================
 
 SELECT
@@ -63,7 +63,7 @@ WHERE c.table_schema = 'public'
 -- ============================================================
 -- 8.1 — Dependências registradas em pg_depend
 -- ============================================================
--- BLOQUEADOR: qualquer linha aqui impede a 081.
+-- BLOQUEADOR: qualquer linha aqui impede a 084.
 --
 -- ATENÇÃO — esta consulta NÃO cobre tudo de propósito:
 --   · índices entram com deptype='i' e são filtrados fora pelo ='n'
@@ -95,8 +95,8 @@ ORDER BY 1, 2, 3;
 -- 8.2 — Triggers de public.profiles
 -- ============================================================
 -- ESPERADO: exatamente 2 linhas.
---     1) trg_app_audit_profiles        (AFTER UPDATE  — migration 080)
---     2) trg_profiles_guard_privileged (BEFORE UPDATE — migration 080)
+--     1) trg_app_audit_profiles        (AFTER UPDATE  — migration 083)
+--     2) trg_profiles_guard_privileged (BEFORE UPDATE — migration 083)
 --
 -- Qualquer TERCEIRO trigger em public.profiles é BLOQUEADOR.
 --
@@ -249,13 +249,13 @@ ORDER BY n.nspname, c.relname;
 -- 8.7 — Resumo: contagem de bloqueadores
 -- ============================================================
 -- Uma linha por tipo de bloqueador, com o total ao lado.
--- Se TODO total for 0 nos dois ambientes, a 081 está liberada.
+-- Se TODO total for 0 nos dois ambientes, a 084 está liberada.
 -- `triggers_de_profiles_inesperados` considera que o esperado é 2.
 -- ============================================================
 
 SELECT
-  -- 1 quando a coluna NÃO existe, que é o estado esperado APÓS a 081.
-  -- (0 significa que ela ainda existe: a 081 não foi aplicada aqui.)
+  -- 1 quando a coluna NÃO existe, que é o estado esperado APÓS a 084.
+  -- (0 significa que ela ainda existe: a 084 não foi aplicada aqui.)
   'coluna_removida' AS verificacao,
   CASE WHEN count(*) = 0 THEN 1 ELSE 0 END::int AS total
 FROM information_schema.columns

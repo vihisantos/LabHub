@@ -1,9 +1,9 @@
-"""Revisão estática da migration 079 (F2-D-G — checklist/SLA por Action RBAC 2.0).
+"""Revisão estática da migration 082 (F2-D-G — checklist/SLA por Action RBAC 2.0).
 
 O que é verificado aqui (mesmo padrão de `api/tests`: leitura estática do DDL —
 a suíte backend roda sem Postgres ao vivo):
 
-  1. a migration 079 existe e é sequencial (imediatamente após a 078);
+  1. a migration 082 existe e é sequencial (imediatamente após a 078);
   2. as 4 Actions são criadas no escopo `workspace` e semeadas APENAS nos
      cargos que tinham o nível legado correspondente — `pcare.checklist.*`
      só em `tec` (único com `pc-care: full`), `chamados.settings.manage` em
@@ -31,7 +31,7 @@ CI no PR-4A): `role_permissions` e `rp.role_id` contêm a substring `p.role`.
 Por isso os testes usam REGEX COM FRONTEIRA e nunca um `in`/`LIKE` ingênuo.
 
 LIMITAÇÃO (comportamental): a prova de INSERT/UPDATE/DELETE DIRETO no banco
-com `auth.uid()` real roda em `supabase/migrations/tests/079_*.sql` (Migrations
+com `auth.uid()` real roda em `supabase/migrations/tests/082_*.sql` (Migrations
 CI, PostgreSQL efêmero). Aqui fica a verificação estrutural do que é executado.
 """
 
@@ -42,8 +42,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = ROOT / "supabase" / "migrations"
-MIGRATION = MIGRATIONS_DIR / "079_rbac2_checklist_sla_actions.sql"
-TEST_079 = MIGRATIONS_DIR / "tests" / "079_rbac2_checklist_sla_actions.sql"
+MIGRATION = MIGRATIONS_DIR / "082_rbac2_checklist_sla_actions.sql"
+TEST_082 = MIGRATIONS_DIR / "tests" / "082_rbac2_checklist_sla_actions.sql"
 
 HELPER = "user_has_action"
 
@@ -63,7 +63,7 @@ EXPECTED_GRANTS = {
     SLA_ACTION: {"tec", "lider", "coordinator"},
 }
 
-# Actions de fluxo MORTO/fora de escopo — a 079 não pode semeá-las.
+# Actions de fluxo MORTO/fora de escopo — a 082 não pode semeá-las.
 FORBIDDEN_ACTIONS = (
     "pcare.part.usage",
     "chamados.room.manage",
@@ -79,7 +79,7 @@ FORBIDDEN_ACTIONS = (
 # `can_manage_workspace_apps` NÃO entram nesta lista: elas são citadas
 # legitimamente no COMMENT ON FUNCTION da nova helper, que registra o formato
 # canônico que ela generaliza. O que não pode é REDEFINI-LAS — isso é verificado
-# em TestEscopoNaoAlterado::test_079_e_a_unica_que_cria_a_helper e abaixo.
+# em TestEscopoNaoAlterado::test_082_e_a_unica_que_cria_a_helper e abaixo.
 FORBIDDEN_IN_MIGRATION = [
     "CREATE TABLE",
     "DROP TABLE",
@@ -131,29 +131,29 @@ def helper() -> str:
         _strip_sql_comments(_read(MIGRATION)),
         re.S,
     )
-    assert match, f"a migration 079 deve criar a helper {HELPER}"
+    assert match, f"a migration 082 deve criar a helper {HELPER}"
     return match.group(0)
 
 
 class TestExistenciaEOrdenacao:
-    def test_migration_079_existe(self):
-        assert MIGRATION.is_file(), "a migration 079 deve existir"
+    def test_migration_082_existe(self):
+        assert MIGRATION.is_file(), "a migration 082 deve existir"
 
-    def test_079_esta_sequenciada_apos_a_078(self):
+    def test_082_esta_sequenciada_apos_a_079(self):
         nums = sorted(
             int(m.group(1))
             for m in (re.match(r"^(\d+)_", p.name) for p in MIGRATIONS_DIR.glob("*.sql"))
             if m
         )
-        assert 78 in nums, f"a 078 deveria existir na sequência (numeros: {nums})"
         assert 79 in nums, f"a 079 deveria existir na sequência (numeros: {nums})"
-        assert nums.index(79) > nums.index(78), "a 079 precisa vir depois da 078"
-        assert nums.count(79) == 1, f"a 079 aparece {nums.count(79)}x na sequência"
+        assert 82 in nums, f"a 082 deveria existir na sequência (numeros: {nums})"
+        assert nums.index(82) > nums.index(79), "a 082 precisa vir depois da 079"
+        assert nums.count(82) == 1, f"a 082 aparece {nums.count(82)}x na sequência"
 
     def test_078_presente(self):
         assert (MIGRATIONS_DIR / "078_rbac2_tablet_cancel.sql").is_file()
 
-    def test_079_e_a_unica_que_cria_estas_actions(self):
+    def test_082_e_a_unica_que_cria_estas_actions(self):
         for action in ALL_ACTIONS:
             criadores = [
                 p.name
@@ -162,7 +162,7 @@ class TestExistenciaEOrdenacao:
                 and f"'{action}'" in _read(p)
             ]
             assert criadores == [MIGRATION.name], (
-                f"apenas a 079 semeia {action}: {criadores}"
+                f"apenas a 082 semeia {action}: {criadores}"
             )
 
 
@@ -179,7 +179,7 @@ class TestActionsCriadas:
     def test_nao_cria_actions_de_fluxo_morto(self, body):
         for action in FORBIDDEN_ACTIONS:
             assert f"'{action}'" not in body, (
-                f"a 079 nao deve semear {action} (fluxo morto / acao de leitura)"
+                f"a 082 nao deve semear {action} (fluxo morto / acao de leitura)"
             )
 
     def test_exatamente_quatro_actions_novas(self, body):
@@ -187,7 +187,7 @@ class TestActionsCriadas:
         assert block, "deve existir o INSERT de role_permissions"
         encontradas = sorted(set(re.findall(r"'([a-z]+\.[A-Za-z.]+)'", block.group(0))))
         assert encontradas == sorted(ALL_ACTIONS), (
-            f"a 079 deve semear exatamente {sorted(ALL_ACTIONS)}; achou {encontradas}"
+            f"a 082 deve semear exatamente {sorted(ALL_ACTIONS)}; achou {encontradas}"
         )
 
     @pytest.mark.parametrize("action", ALL_ACTIONS)
@@ -223,17 +223,17 @@ class TestTravasAntiMassGrant:
         assert re.search(
             r"r\.slug\s*<>\s*'tec'",
             body,
-        ), "a 079 deve abortar se pcare.checklist.* existir fora da role tec"
+        ), "a 082 deve abortar se pcare.checklist.* existir fora da role tec"
 
     def test_sla_limitado_as_tres_roles(self, body):
         assert re.search(
             r"r\.slug\s+NOT\s+IN\s*\(\s*'tec'\s*,\s*'lider'\s*,\s*'coordinator'\s*\)",
             body,
-        ), "a 079 deve abortar se chamados.settings.manage vazar para outra role"
+        ), "a 082 deve abortar se chamados.settings.manage vazar para outra role"
 
     def test_trava_de_escopo(self, body):
         assert re.search(r"scope\s*<>\s*'workspace'", body), (
-            "a 079 deve abortar se alguma Action nova aparecer fora do escopo workspace"
+            "a 082 deve abortar se alguma Action nova aparecer fora do escopo workspace"
         )
 
     def test_travas_sao_raise_exception(self, body):
@@ -395,7 +395,7 @@ class TestSuperAdminPermaneceNasPolicies:
         match = re.search(
             rf'CREATE POLICY "{policy}".*?;', body, re.S
         )
-        assert match, f"a policy {policy} deve ser criada pela 079"
+        assert match, f"a policy {policy} deve ser criada pela 082"
         bloco = match.group(0)
         assert "is_super_admin()" in bloco, f"{policy} precisa preservar o bypass do super admin"
         assert f"public.{HELPER}(workspace_id, '{action}')" in bloco, (
@@ -423,7 +423,7 @@ class TestLeituraNaoVirouAction:
                 f"{policy} nao deve ser recriada: leitura segue implicita pelo App Access"
             )
             assert f'DROP POLICY IF EXISTS "{policy}"' not in body, (
-                f"{policy} nao deve ser derrubada pela 079"
+                f"{policy} nao deve ser derrubada pela 082"
             )
 
     def test_nenhuma_policy_usa_action_de_checklist_no_select(self, body):
@@ -436,7 +436,7 @@ class TestLeituraNaoVirouAction:
 class TestEscopoNaoAlterado:
     @pytest.mark.parametrize("token", FORBIDDEN_IN_MIGRATION)
     def test_token_proibido_ausente(self, body, token):
-        assert token not in body, f"a 079 nao deveria conter {token!r}"
+        assert token not in body, f"a 082 nao deveria conter {token!r}"
 
     def test_nao_cria_backend_de_sla(self, body):
         """SLA e colecao LOCAL: nao ha tabela/rota/RLS para inventar."""
@@ -459,7 +459,7 @@ class TestEscopoNaoAlterado:
             ("pc_checklists_delete", "pcare.pc_checklists"),
         }
         assert set(drops) == esperados, (
-            f"a 079 deve recriar apenas as 6 policies de escrita de checklist; achou {set(drops)}"
+            f"a 082 deve recriar apenas as 6 policies de escrita de checklist; achou {set(drops)}"
         )
 
     def test_nao_toca_outras_actions(self, body):
@@ -476,7 +476,7 @@ class TestEscopoNaoAlterado:
             "reservelab.tablet.cancel",
         ):
             assert f"'{action}'" not in body, (
-                f"a 079 nao deve mexer na Action existente {action}"
+                f"a 082 nao deve mexer na Action existente {action}"
             )
 
     def test_sem_sql_dinamico(self, body):
@@ -484,17 +484,17 @@ class TestEscopoNaoAlterado:
         assert "EXECUTE FORMAT" not in body.upper()
         assert "EXECUTE IMMEDIATE" not in body.upper()
 
-    def test_079_e_a_unica_que_cria_a_helper(self):
+    def test_082_e_a_unica_que_cria_a_helper(self):
         definers = [
             p.name
             for p in MIGRATIONS_DIR.glob("*.sql")
             if re.search(rf"CREATE OR REPLACE FUNCTION public\.{HELPER}\s*\(", _read(p), re.I)
         ]
         assert definers == [MIGRATION.name], (
-            f"apenas a 079 define {HELPER}; achou {definers}"
+            f"apenas a 082 define {HELPER}; achou {definers}"
         )
 
-    def test_079_nao_redefine_as_helpers_por_dominio(self):
+    def test_082_nao_redefine_as_helpers_por_dominio(self):
         """As helpers por dominio do repo seguem intactas — a nova helper é
         acréscimo, não substituição."""
         body = _strip_sql_comments(_read(MIGRATION))
@@ -505,16 +505,16 @@ class TestEscopoNaoAlterado:
         ):
             assert (
                 f"CREATE OR REPLACE FUNCTION public.{helper}" not in body
-            ), f"a 079 nao deve recriar {helper}"
+            ), f"a 082 nao deve recriar {helper}"
             assert f"CREATE OR REPLACE FUNCTION public.{helper}(" not in body
 
 
 class TestTravaDeRegressaoSql:
     def test_existe_teste_estrutural_da_079(self):
-        assert TEST_079.is_file()
+        assert TEST_082.is_file()
 
-    def test_teste_079_cobre_os_cenarios_chave(self):
-        test = _read(TEST_079)
+    def test_teste_082_cobre_os_cenarios_chave(self):
+        test = _read(TEST_082)
         for cenario in (
             "INSERT direto sem Action gravou a linha",
             "UPDATE direto sem Action foi aplicado",
@@ -526,20 +526,20 @@ class TestTravaDeRegressaoSql:
             "usuario sem membership deve ser NEGADO",
             "NULL workspace deve ser NEGADO",
         ):
-            assert cenario in test, f"o harness da 079 deveria cobrir: {cenario}"
+            assert cenario in test, f"o harness da 082 deveria cobrir: {cenario}"
 
-    def test_teste_079_trava_o_mass_grant(self):
-        test = _read(TEST_079)
+    def test_teste_082_trava_o_mass_grant(self):
+        test = _read(TEST_082)
         assert "must exist ONLY on tec" in test
         assert "must not leak to other roles" in test
         assert "must only exist at scope workspace" in test
 
-    def test_teste_079_usa_o_harness_do_ci(self):
+    def test_teste_082_usa_o_harness_do_ci(self):
         """auth.uid() no stub do CI le request.jwt.claim.sub."""
-        test = _read(TEST_079)
+        test = _read(TEST_082)
         assert "request.jwt.claim.sub" in test
 
-    def test_teste_079_checa_a_acl(self):
-        test = _read(TEST_079)
+    def test_teste_082_checa_a_acl(self):
+        test = _read(TEST_082)
         assert "anon must NOT execute user_has_action" in test
         assert "authenticated must hold EXECUTE on user_has_action" in test

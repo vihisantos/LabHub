@@ -25,12 +25,12 @@ Asserts cobrem:
   G  integridade RBAC 2.0 (is_coordinator_of e memberships intactos);
   X  integridade final (colunas de privilegio do comum intactas).
 
-`app_access` NAO aparece mais neste validador (F2-D-N3). A migration 080 removeu
+`app_access` NAO aparece mais neste validador (F2-D-N3). A migration 083 removeu
 o campo da lista de protegidos de `guard_profile_privileged_columns()` porque a
 coluna nao concede autoridade de autorizacao (auditoria F2-D-H). Os asserts A6,
 C5 e C6 testavam exatamente essa proteicao que deixou de existir, e o snapshot
 `_snap` lia a coluna — que sera removida pela migration de DROP. A cobertura do
-trust boundary nao diminuiu: os campos que a 080 MANTEM protegidos
+trust boundary nao diminuiu: os campos que a 083 MANTEM protegidos
 (`is_super_admin`, `role`, `status`) e os imutaveis (`id`, `workspace_ids`)
 continuao todos exercitados, no DENY e no caminho de bypass.
 
@@ -216,7 +216,7 @@ SELECT pg_temp._expect_deny(
   $q$UPDATE public.profiles SET status = 'suspended' WHERE id = '__COMMON__'$q$,
   'alteracao de campo privilegiado do proprio perfil nao e permitida%');
 -- A6 (REMOVIDO no F2-D-N3): "common nao altera app_access" testava uma
--- proteicao que a migration 080 eliminou de proposito — `app_access` saiu da
+-- proteicao que a migration 083 eliminou de proposito — `app_access` saiu da
 -- lista de campos privilegiados de `guard_profile_privileged_columns()` porque
 -- a coluna nao concede autoridade de autorizacao (auditoria F2-D-H: nenhuma
 -- policy, funcao, RPC ou rota a consultava). Manter o DENY aqui afirmaria uma
@@ -269,9 +269,9 @@ SELECT pg_temp._expect_deny(
   'profiles.workspace_ids is immutable in normal UPDATE%');
 
 -- C5/C6 (REMOVIDOS no F2-D-N3): "super admin altera app_access" e "persistiu"
--- cobriam um campo que saiu do trust boundary na 080 pelo mesmo motivo acima.
+-- cobriam um campo que saiu do trust boundary na 083 pelo mesmo motivo acima.
 -- O bypass do super admin continua coberto por C1/C2, que editam `role`,
--- `status` e `is_super_admin` de um terceiro — os campos que a 080 mantem
+-- `status` e `is_super_admin` de um terceiro — os campos que a 083 mantem
 -- sob edicao administrativa. A coluna `app_access` deixa de existir na
 -- migration de DROP, entao o UPDATE nem executaria.
 -- Nenhuma coluna substituta foi usada: nao ha campo fantasma nem fallback.

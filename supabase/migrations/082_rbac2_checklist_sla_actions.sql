@@ -1,5 +1,5 @@
 -- =============================================================================
--- 079_rbac2_checklist_sla_actions.sql
+-- 082_rbac2_checklist_sla_actions.sql
 -- =============================================================================
 -- F2-D-G — CHECKLIST TEMPLATES e SLA PASSAM A SER AUTORIZADOS POR ACTION.
 --
@@ -106,7 +106,7 @@
 -- pelo frontend com a chave ANON (`pcareDb` — src/lib/sync.ts:132-140,
 -- REMOTE_DB), quem executa o INSERT/UPDATE/DELETE é o próprio usuário, e o
 -- RLS é a autoridade real: chamar a operation direto no banco, sem a Action,
--- é NEGADO (coberto por supabase/migrations/tests/079_*.sql).
+-- é NEGADO (coberto por supabase/migrations/tests/082_*.sql).
 --
 -- SELECT NÃO é tocado: leitura continua implícita pelo App Access
 -- (`is_super_admin() OR user_belongs_to_workspace(...)`), conforme a regra do
@@ -163,7 +163,7 @@ BEGIN
   SELECT id INTO v_coordinator FROM public.roles WHERE slug = 'coordinator';
 
   -- `tec` vem da 036; `lider` da 045; `coordinator` da 040. Todas são
-  -- anteriores a 079 na sequência — se faltarem, os seeds do RBAC 2.0 não
+  -- anteriores a 082 na sequência — se faltarem, os seeds do RBAC 2.0 não
   -- foram aplicados e a semântica legada não é reproduzível.
   IF v_tec IS NULL OR v_lider IS NULL OR v_coordinator IS NULL THEN
     RAISE EXCEPTION 'FAIL: roles tec/lider/coordinator ausentes — seeds do RBAC 2.0 (036/040/045) nao aplicados?';
@@ -214,7 +214,7 @@ BEGIN
     AND scope <> 'workspace';
 
   IF v_offended > 0 THEN
-    RAISE EXCEPTION 'FAIL: as Actions da 079 devem existir somente em scope workspace (encontradas % fora)', v_offended;
+    RAISE EXCEPTION 'FAIL: as Actions da 082 devem existir somente em scope workspace (encontradas % fora)', v_offended;
   END IF;
 
   RAISE NOTICE 'rbac2 079: pcare.checklist.create/edit/delete@workspace -> tec; chamados.settings.manage@workspace -> tec, lider, coordinator';

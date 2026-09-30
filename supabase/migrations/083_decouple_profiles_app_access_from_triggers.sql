@@ -1,5 +1,5 @@
 -- =============================================================================
--- 080_decouple_profiles_app_access_from_triggers.sql
+-- 083_decouple_profiles_app_access_from_triggers.sql
 -- =============================================================================
 -- F2-D-I — DESACOPLA MECANICAMENTE `profiles.app_access` DOS 2 TRIGGERS VIVOS.
 --

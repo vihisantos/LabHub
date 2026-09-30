@@ -1,5 +1,5 @@
 -- =============================================================================
--- tests/079_rbac2_checklist_sla_actions.sql
+-- tests/082_rbac2_checklist_sla_actions.sql
 -- =============================================================================
 -- F2-D-G — `pcare.checklist.create|edit|delete` e `chamados.settings.manage`
 -- (escopo `workspace`) são aplicadas pelo RLS das tabelas de checklist do PC
@@ -42,9 +42,9 @@
 --      dependência funcional de `Role.appAccess`/`profiles.app_access`);
 --  16. super admin => ALLOW (bypass preservado).
 --
--- How to run: paste into the Supabase SQL Editor (or psql) AFTER 079 is applied.
+-- How to run: paste into the Supabase SQL Editor (or psql) AFTER 082 is applied.
 -- Every check raises an exception on drift; a clean run ends with
--- "OK: 079 checklist/sla RBAC 2.0 checks passed".
+-- "OK: 082 checklist/sla RBAC 2.0 checks passed".
 -- =============================================================================
 
 DO $$
@@ -216,13 +216,13 @@ IF v_count > 0 THEN
   RAISE EXCEPTION 'FAIL: chamados.settings.manage must not leak to other roles (found %)', v_count;
 END IF;
 
--- Nenhuma Action da 079 fora do escopo `workspace`.
+-- Nenhuma Action da 082 fora do escopo `workspace`.
 SELECT count(*) INTO v_count FROM public.role_permissions
 WHERE action IN ('pcare.checklist.create', 'pcare.checklist.edit',
                  'pcare.checklist.delete', 'chamados.settings.manage')
   AND scope <> 'workspace';
 IF v_count > 0 THEN
-  RAISE EXCEPTION 'FAIL: actions of 079 must only exist at scope workspace (found %)', v_count;
+  RAISE EXCEPTION 'FAIL: actions of 082 must only exist at scope workspace (found %)', v_count;
 END IF;
 
 -- 9. Policies de escrita exigem a Action DA OPERAÇÃO
@@ -505,5 +505,5 @@ WHERE id IN ('99999999-0000-0000-0000-000000000001',
 -- Restaura o contexto do GUC para não vazar para os testes seguintes do STEP 6.
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
 
-RAISE NOTICE 'OK: 079 checklist/sla RBAC 2.0 checks passed';
+RAISE NOTICE 'OK: 082 checklist/sla RBAC 2.0 checks passed';
 END $$;

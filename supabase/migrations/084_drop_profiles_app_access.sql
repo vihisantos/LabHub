@@ -1,5 +1,5 @@
 -- =============================================================================
--- 081_drop_profiles_app_access.sql
+-- 084_drop_profiles_app_access.sql
 -- =============================================================================
 -- F2-D-N3 — REMOÇÃO DEFINITIVA DE `public.profiles.app_access`.
 --
@@ -17,7 +17,7 @@
 --       acesso por app.
 --     · F2-D-N2 (`65181b2`) — o validador do trust boundary 067 deixou de
 --       referenciar a coluna (a proteção que ele testava foi desfeita de
---       propósito pela 080, já que a coluna não concede autoridade).
+--       propósito pela 083, já que a coluna não concede autoridade).
 --
 --   As migrations 077/078 tiraram a coluna da autoridade de escrita no
 --   servidor (`user_can_manage_tv`, `user_can_cancel_tablet_reservation`) e a
@@ -25,7 +25,7 @@
 --
 --   AUDITORIA LIVE (executada em DEV e PROD, antes desta migration):
 --     · `pg_depend` de `public.profiles.app_access` ........ 0 dependências
---     · triggers de `public.profiles` ...................... 2, ambos da 080,
+--     · triggers de `public.profiles` ...................... 2, ambos da 083,
 --       nenhum mencionando `app_access`
 --     · funções (todos os schemas) ......................... 0 com referência
 --       EXECUTÁVEL a `app_access` (a única menção é comentário em
@@ -72,7 +72,7 @@
 -- IDEMPOTÊNCIA: `DROP COLUMN IF EXISTS` é no-op quando a coluna não existe,
 -- então replay não quebra.
 --
--- CONDIÇÃO DE USO: exige 080 aplicada. Aplicar a 081 sem a 080 FALHA — e é o
+-- CONDIÇÃO DE USO: exige 080 aplicada. Aplicar a 084 sem a 083 FALHA — e é o
 -- comportamento correto, porque nesse estado os triggers ainda leriam a
 -- coluna e o `DROP` deixaria `record "new" has no field "app_access"` em todo
 -- `UPDATE` de `public.profiles`.

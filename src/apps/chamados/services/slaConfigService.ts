@@ -9,7 +9,7 @@ const service = createSyncService<SlaConfig>('sla_configs')
 
 /**
  * Action RBAC 2.0 que autoriza a ADMINISTRAÇÃO das configurações de Chamados
- * (hoje: SLA). Semeada em `tec`/`lider`/`coordinator` na migration 079 —
+ * (hoje: SLA). Semeada em `tec`/`lider`/`coordinator` na migration 082 —
  * exatamente os cargos que tinham `chamados = full` em `DEFAULT_ROLES`
  * (types.ts), que é o que o `requireWrite('chamados')` legado consultava.
  */

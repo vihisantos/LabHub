@@ -1,4 +1,4 @@
-"""Revisão estática da migration 080 (F2-D-I — desacoplar `profiles.app_access`).
+"""Revisão estática da migration 083 (F2-D-I — desacoplar `profiles.app_access`).
 
 Contexto: a auditoria read-only F2-D-H comprovou que `profiles.app_access` não
 possui mais autoridade funcional (0 policy, 0 RPC, 0 função viva, 0 rota Python,
@@ -10,7 +10,7 @@ o resto.
 
 O que é verificado aqui (mesmo padrão de `api/tests`: leitura estática do DDL):
 
-  1. a migration 080 existe e é sequencial (imediatamente após a 079);
+  1. a migration 083 existe e é sequencial (imediatamente após a 082);
   2. `audit_profiles_change()` (054) é recriada SEM `app_access` e preservando
      `role_changed`/`status_changed`/`super_admin_toggled` (com os `meta`), a
      resolução do workspace por membership ativa, o INSERT em `app_audit_logs`,
@@ -29,10 +29,10 @@ O que é verificado aqui (mesmo padrão de `api/tests`: leitura estática do DDL
   7. ANTI-REGRESSÃO: a ÚLTIMA definição de cada uma das duas funções, em toda a
      sequência de migrations, não pode conter `app_access` — é isto que
      impede uma migration futura de reintroduzir a dependência;
-  8. o harness SQL da 080 existe e cobre auditoria + guard.
+  8. o harness SQL da 083 existe e cobre auditoria + guard.
 
 LIMITAÇÃO (comportamental): a prova de ALLOW/DENY com `auth.uid()` real roda em
-`supabase/migrations/tests/080_*.sql` (Migrations CI, PostgreSQL efêmero). Aqui
+`supabase/migrations/tests/083_*.sql` (Migrations CI, PostgreSQL efêmero). Aqui
 fica a verificação estrutural do que é executado.
 """
 
@@ -43,8 +43,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = ROOT / "supabase" / "migrations"
-MIGRATION = MIGRATIONS_DIR / "080_decouple_profiles_app_access_from_triggers.sql"
-TEST_080 = MIGRATIONS_DIR / "tests" / "080_decouple_profiles_app_access_from_triggers.sql"
+MIGRATION = MIGRATIONS_DIR / "083_decouple_profiles_app_access_from_triggers.sql"
+TEST_083 = MIGRATIONS_DIR / "tests" / "083_decouple_profiles_app_access_from_triggers.sql"
 
 ORIG_054 = MIGRATIONS_DIR / "054_app_audit_logs.sql"
 ORIG_067 = MIGRATIONS_DIR / "067_rbac2_trust_boundary_profiles.sql"
@@ -111,7 +111,7 @@ def body() -> str:
 
 def _function_block(fn: str) -> str:
     corpo = _extract_function(fn, _read(MIGRATION))
-    assert corpo, f"a migration 080 deve recriar a função {fn}"
+    assert corpo, f"a migration 083 deve recriar a função {fn}"
     return corpo
 
 
@@ -145,25 +145,25 @@ def guard() -> str:
 
 
 class TestExistenciaEOrdenacao:
-    def test_migration_080_existe(self):
-        assert MIGRATION.is_file(), "a migration 080 deve existir"
+    def test_migration_083_existe(self):
+        assert MIGRATION.is_file(), "a migration 083 deve existir"
 
-    def test_080_esta_sequenciada_apos_a_079(self):
+    def test_083_esta_sequenciada_apos_a_082(self):
         nums = sorted(n for n, _ in _numbered_migrations())
-        assert 79 in nums, f"a 079 deveria existir na sequência (numeros: {nums})"
-        assert 80 in nums, f"a 080 deveria existir na sequência (numeros: {nums})"
-        assert nums.index(80) > nums.index(79), "a 080 precisa vir depois da 079"
-        assert nums.count(80) == 1, f"a 080 aparece {nums.count(80)}x na sequência"
+        assert 82 in nums, f"a 082 deveria existir na sequência (numeros: {nums})"
+        assert 83 in nums, f"a 083 deveria existir na sequência (numeros: {nums})"
+        assert nums.index(83) > nums.index(82), "a 083 precisa vir depois da 082"
+        assert nums.count(83) == 1, f"a 083 aparece {nums.count(83)}x na sequência"
 
     def test_origem_das_duas_funcoes_existe(self):
         assert ORIG_054.is_file()
         assert ORIG_067.is_file()
 
-    def test_080_recria_as_duas_funcoes(self, body):
+    def test_083_recria_as_duas_funcoes(self, body):
         assert f"CREATE OR REPLACE FUNCTION public.{AUDIT_FN}()" in body
         assert f"CREATE OR REPLACE FUNCTION public.{GUARD_FN}()" in body
 
-    def test_080_recria_as_duas_triggers(self, body):
+    def test_083_recria_as_duas_triggers(self, body):
         # Nomes sem aspas, como em 054/067.
         assert f"DROP TRIGGER IF EXISTS {AUDIT_TRIGGER} ON public.profiles" in body
         assert f"CREATE TRIGGER {AUDIT_TRIGGER}" in body
@@ -289,18 +289,18 @@ class TestEquivalenciaComAsOriginais:
         raise AssertionError(f"nao encontrei a definicao original de {fn}")
 
     def test_auditoria_perde_exatamente_um_ramo(self, audit):
-        """A 054 tem 4 ramos; a 080 deve ter os mesmos 3, menos o de app_access."""
+        """A 054 tem 4 ramos; a 083 deve ter os mesmos 3, menos o de app_access."""
         original = self._originais(AUDIT_FN)
         orig_eventos = set(re.findall(r"v_action\s*:=\s*'([a-z_]+)'", original))
         novos_eventos = set(re.findall(r"v_action\s*:=\s*'([a-z_]+)'", audit))
         assert orig_eventos == {"role_changed", "status_changed", "super_admin_toggled", "app_access_changed"}
         assert novos_eventos == orig_eventos - {"app_access_changed"}, (
-            f"a 080 deveria remover SOMENTE app_access_changed; restou {novos_eventos}"
+            f"a 083 deveria remover SOMENTE app_access_changed; restou {novos_eventos}"
         )
 
     def test_guarda_perde_exatamente_um_item(self, guard):
         """A 067 compara 6 colunas (id, workspace_ids e a lista de 4 privilegiados);
-        a 080 deve comparar as mesmas 6 MENOS `app_access`."""
+        a 083 deve comparar as mesmas 6 MENOS `app_access`."""
         original = self._originais(GUARD_FN)
         padrao = r"NEW\.([a-z_]+)\s+IS DISTINCT FROM OLD\.\1"
         orig_campos = set(re.findall(padrao, original))
@@ -310,7 +310,7 @@ class TestEquivalenciaComAsOriginais:
             f"a 067 original protege {sorted(orig_campos)}; o teste precisa refletir isso"
         )
         assert novos_campos == esperados - {"app_access"}, (
-            f"a 080 deveria remover SOMENTE app_access; restou {sorted(novos_campos)}"
+            f"a 083 deveria remover SOMENTE app_access; restou {sorted(novos_campos)}"
         )
 
     def test_lista_de_privilegiados_perde_somente_app_access(self, guard):
@@ -386,7 +386,7 @@ class TestAntiRegressao:
         de cada uma não pode mencionar `app_access`.
 
         Só o último `CREATE TRIGGER` conta: as definições históricas (054/067)
-        mentionam a coluna por desenho — foram exatamente elas que a 080
+        mentionam a coluna por desenho — foram exatamente elas que a 083
         substituiu. A trigger de sync de memberships (041) foi DROPada na 053.
         """
         ultima: dict[str, str] = {}
@@ -435,7 +435,7 @@ class TestEscopoNaoAlterado:
         ],
     )
     def test_token_proibido_ausente(self, body, token):
-        assert token not in body, f"a 080 nao deveria conter {token!r}"
+        assert token not in body, f"a 083 nao deveria conter {token!r}"
 
     def test_nao_altera_app_audit_logs_schema(self, body):
         """A tabela de auditoria e a policy dela (append-only) ficam como estao."""
@@ -474,20 +474,20 @@ class TestEscopoNaoAlterado:
 
 class TestTravaDeRegressaoSql:
     def test_existe_teste_estrutural_da_080(self):
-        assert TEST_080.is_file()
+        assert TEST_083.is_file()
 
     def test_harness_cobre_auditoria(self):
-        test = _read(TEST_080)
+        test = _read(TEST_083)
         for cenario in (
             "auditoria de role não foi gravada com o meta esperado",
             "auditoria de status não foi gravada com o meta esperado",
             "auditoria de is_super_admin não foi gravada com o meta esperado",
             "UPDATE neutro não deveria gerar auditoria",
         ):
-            assert cenario in test, f"o harness da 080 deveria cobrir: {cenario}"
+            assert cenario in test, f"o harness da 083 deveria cobrir: {cenario}"
 
     def test_harness_cobre_guarda(self):
-        test = _read(TEST_080)
+        test = _read(TEST_083)
         for cenario in (
             "usuario comum nao deveria trocar o proprio role",
             "usuario comum nao deveria trocar o proprio status",
@@ -495,14 +495,14 @@ class TestTravaDeRegressaoSql:
             "profiles.id deve continuar imutavel",
             "profiles.workspace_ids deve continuar imutavel",
         ):
-            assert cenario in test, f"o harness da 080 deveria cobrir: {cenario}"
+            assert cenario in test, f"o harness da 083 deveria cobrir: {cenario}"
 
     def test_harness_cobre_a_decouplagem(self):
-        test = _read(TEST_080)
+        test = _read(TEST_083)
         assert "ainda referencia app_access" in test
         assert "o WHEN de trg_app_audit_profiles ainda menciona app_access" in test
         assert "o DROP futuro seria inseguro" in test
 
     def test_harness_usa_o_harness_do_ci(self):
-        test = _read(TEST_080)
+        test = _read(TEST_083)
         assert "request.jwt.claim.sub" in test

@@ -1,11 +1,11 @@
-"""Revisão estática da migration 081 (F2-D-N3 — remover `profiles.app_access`).
+"""Revisão estática da migration 084 (F2-D-N3 — remover `profiles.app_access`).
 
 Contexto: a auditoria live (F2-D-N3) rodou em DEV e PROD e provou, contra o
 catálogo do PostgreSQL e não contra o texto das migrations, que a coluna já
 não tem dependência estrutural nem poder de decisão:
 
     · pg_depend de public.profiles.app_access ...... 0 dependências
-    · triggers de public.profiles .................. 2, ambos da 080
+    · triggers de public.profiles .................. 2, ambos da 083
     · funções (todos os schemas) ................... 0 com referência
       EXECUTÁVEL a app_access
     · views / índices / policies ................... 0 referências
@@ -13,7 +13,7 @@ não tem dependência estrutural nem poder de decisão:
 
 O comportamento pós-DROP (UPDATE em `profiles` continua funcionando, triggers
 seguem gravando auditoria) roda no harness comportamental
-`supabase/migrations/tests/081_drop_profiles_app_access.sql` (Migrations CI,
+`supabase/migrations/tests/084_drop_profiles_app_access.sql` (Migrations CI,
 PostgreSQL efêmero). Aqui fica a verificação estrutural do que é executado.
 
 REGRA CENTRAL DESTA MIGRATION: ela contém UM statement e só um. A revisão
@@ -29,11 +29,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = ROOT / "supabase" / "migrations"
-MIGRATION = MIGRATIONS_DIR / "081_drop_profiles_app_access.sql"
-TEST_081 = MIGRATIONS_DIR / "tests" / "081_drop_profiles_app_access.sql"
+MIGRATION = MIGRATIONS_DIR / "084_drop_profiles_app_access.sql"
+TEST_084 = MIGRATIONS_DIR / "tests" / "084_drop_profiles_app_access.sql"
 
 ORIG_013 = MIGRATIONS_DIR / "013_add_app_access.sql"
-ORIG_080 = MIGRATIONS_DIR / "080_decouple_profiles_app_access_from_triggers.sql"
+ORIG_083 = MIGRATIONS_DIR / "083_decouple_profiles_app_access_from_triggers.sql"
 
 
 def _read(path: Path) -> str:
@@ -43,7 +43,7 @@ def _read(path: Path) -> str:
 def _corpo(sql: str) -> str:
     """Remove comentários de linha e de bloco.
 
-    O cabeçalho da 081 documenta o contexto (inclusive os termos que ela NÃO
+    O cabeçalho da 084 documenta o contexto (inclusive os termos que ela NÃO
     deve tocar). Sem esta separação, os testes dariam falso positivo.
     """
     sem_bloco = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
@@ -63,17 +63,17 @@ def corpo(migration: str) -> str:
 # ── 1. a migration existe ────────────────────────────────────────────────────
 def test_migration_existe():
     assert MIGRATION.is_file(), f"081 ausente: {MIGRATION}"
-    assert MIGRATION.name == "081_drop_profiles_app_access.sql"
-    assert TEST_081.is_file(), f"harness comportamental ausente: {TEST_081}"
+    assert MIGRATION.name == "084_drop_profiles_app_access.sql"
+    assert TEST_084.is_file(), f"harness comportamental ausente: {TEST_084}"
 
 
 # ── 2/3/4/5. alvo, DROP e idempotência ──────────────────────────────────────
 def test_drop_da_coluna_app_access_de_profiles(corpo: str):
     assert re.search(r"ALTER\s+TABLE\s+public\.profiles\b", corpo, re.I), (
-        "a 081 precisa alterar public.profiles"
+        "a 084 precisa alterar public.profiles"
     )
     assert re.search(r"DROP\s+COLUMN\s+IF\s+EXISTS\s+app_access", corpo, re.I), (
-        "a 081 precisa remover app_access com DROP COLUMN IF EXISTS"
+        "a 084 precisa remover app_access com DROP COLUMN IF EXISTS"
     )
 
 
@@ -81,14 +81,14 @@ def test_e_um_unico_statement(corpo: str):
     # Uma migration, um statement. Qualquer DDL/DML extra violaria o escopo.
     declaracoes = [d for d in corpo.split(";") if d.strip()]
     assert len(declaracoes) == 1, (
-        f"a 081 deve conter exatamente 1 statement; encontrou {len(declaracoes)}: {declaracoes}"
+        f"a 084 deve conter exatamente 1 statement; encontrou {len(declaracoes)}: {declaracoes}"
     )
 
 
 # ── 6. sem CASCADE ──────────────────────────────────────────────────────────
 def test_nao_usa_cascade(corpo: str):
     assert not re.search(r"\bCASCADE\b", corpo, re.I), (
-        "a 081 NÃO pode usar CASCADE: uma dependência inesperada deve FALHAR a "
+        "a 084 NÃO pode usar CASCADE: uma dependência inesperada deve FALHAR a "
         "migration, não ser removida em cascata"
     )
 
@@ -101,7 +101,7 @@ def test_nao_toca_outras_colunas_de_profiles(corpo: str):
         # não deve ser sinalizado, por isso checamos a palavra isolada).
         if re.search(rf"\b{re.escape(col)}\b", corpo, re.I):
             raise AssertionError(
-                f"a 081 não pode mencionar a coluna `{col}` de public.profiles"
+                f"a 084 não pode mencionar a coluna `{col}` de public.profiles"
             )
 
 
@@ -116,7 +116,7 @@ def test_nao_altera_rls_rbac_nem_faz_dml(corpo: str):
     for padrao in proibidos:
         achou = re.search(padrao, corpo, re.I)
         assert achou is None, (
-            f"a 081 não pode conter {padrao!r} (encontrado: {achou.group(0)!r})"
+            f"a 084 não pode conter {padrao!r} (encontrado: {achou.group(0)!r})"
         )
 
 
@@ -129,12 +129,12 @@ def test_nao_contem_segredos(migration: str):
     ]
     baixo = migration.lower()
     for token in proibidos:
-        assert token.lower() not in baixo, f"a 081 não pode conter {token!r}"
+        assert token.lower() not in baixo, f"a 084 não pode conter {token!r}"
 
 
 # ── 10. pré-requisito: 080 aplicada, 013 é quem criou a coluna ───────────────
-def test_prerequisito_080_e_a_origem_013():
-    assert ORIG_080.is_file()
+def test_prerequisito_083_e_a_origem_013():
+    assert ORIG_083.is_file()
     assert ORIG_013.is_file()
     corpo_013 = _corpo(_read(ORIG_013))
     assert re.search(r"ADD\s+COLUMN", corpo_013, re.I), "013 deveria ter criado a coluna"
@@ -146,4 +146,4 @@ def test_header_documenta_o_porque():
     é impossível de revisar depois."""
     migration = _read(MIGRATION)
     for termo in ("F2-D-N3", "pg_depend", "077", "078", "080", "CASCADE"):
-        assert termo in migration, f"o cabeçalho da 081 deveria mencionar {termo!r}"
+        assert termo in migration, f"o cabeçalho da 084 deveria mencionar {termo!r}"

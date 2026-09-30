@@ -10,7 +10,7 @@ function serialize<T>(data: T) {
 
 /**
  * RBAC 2.0 (F2-D-G) — escrita de TEMPLATE de checklist autorizada pela Action
- * `pcare.checklist.create|edit|delete` (migration 079).
+ * `pcare.checklist.create|edit|delete` (migration 082).
  *
  * A autorização saiu do service e foi para os dois lugares que realmente
  * mandam, seguindo o padrão dos demais módulos migrados (partService,
@@ -58,6 +58,6 @@ export const checklistTemplateService = {
 // o que manter.
 //
 // A feature de checklist por PC continua DEPRECATED no catálogo, e a tabela
-// remota `pcare.pc_checklists` segue endurecida no RLS pela 079 (defesa em
+// remota `pcare.pc_checklists` segue endurecida no RLS pela 082 (defesa em
 // profundidade do dado) — nada disso foi tocado aqui. Nenhuma Action fictícia
 // foi criada para "salvar" o código morto.
