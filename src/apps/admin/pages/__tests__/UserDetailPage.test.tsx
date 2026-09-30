@@ -349,8 +349,14 @@ describe('UserDetailPage', () => {
     // Mooca = Técnico, São José = Líder (cargos diferentes por unidade)
     const moocaRole = await screen.findByRole('combobox', { name: 'Cargo em Campus Mooca' })
     const sjcRole = await screen.findByRole('combobox', { name: 'Cargo em Campus São José' })
-    expect(moocaRole).toHaveDisplayValue('Técnico')
-    expect(sjcRole).toHaveDisplayValue('Líder')
+    // O nome/slug do cargo vem de roleInfo, que é assíncrono: até resolver, o
+    // select mostra o placeholder "…". findByRole só garante que o <select>
+    // existe, então a espera é pelo VALOR — sem isso a asserção roda antes do
+    // resolveRoleInfo e falha com ["…"].
+    await waitFor(() => {
+      expect(moocaRole).toHaveDisplayValue('Técnico')
+      expect(sjcRole).toHaveDisplayValue('Líder')
+    })
 
     fireEvent.change(sjcRole, { target: { value: 'role-technician' } })
 
