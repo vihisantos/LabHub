@@ -367,7 +367,7 @@ export function QRGenerator() {
                 key={item.id}
                 type="button"
                 onClick={() => toggleItem(item.id)}
-                className={`relative flex flex-col items-center rounded-xl border bg-white p-3 text-center transition-all ${
+                className={`relative flex flex-col items-center rounded-xl border bg-card p-3 text-center transition-all ${
                   selected.has(item.id)
                     ? 'border-cyan-400 ring-1 ring-cyan-400/50'
                     : 'border-line opacity-50'
@@ -384,12 +384,12 @@ export function QRGenerator() {
                   className="mb-1.5"
                   style={{ maxWidth: '100%', width: options.size }}
                 />
-                <p className="text-[10px] font-medium text-slate-800 leading-tight">
+                <p className="text-[10px] font-medium text-fg leading-tight">
                   {options.labelFormat === 'name' ? item.label
                     : options.labelFormat === 'code' ? item.code
                     : `${item.label} (${item.code})`}
                 </p>
-                <p className="mt-0.5 text-[9px] text-slate-500">{item.sublabel}</p>
+                <p className="mt-0.5 text-[9px] text-fg-muted">{item.sublabel}</p>
               </button>
             ))}
           </div>

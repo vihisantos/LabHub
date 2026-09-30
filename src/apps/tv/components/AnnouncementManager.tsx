@@ -84,9 +84,9 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
       {/* Header */}
       <div className="mb-4 flex items-center gap-2">
         <Megaphone size={16} className="text-amber-500" />
-        <h3 className="text-base font-semibold text-slate-800">Avisos</h3>
+        <h3 className="text-base font-semibold text-fg">Avisos</h3>
         {announcements.length > 0 && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{announcements.length}</span>
+          <span className="rounded-full bg-input px-2 py-0.5 text-[11px] text-fg-muted">{announcements.length}</span>
         )}
       </div>
 
@@ -98,7 +98,7 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
             onChange={(e) => setNewText(e.target.value)}
             onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && handleAdd()}
             placeholder="Texto do aviso..."
-            className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-amber-500 focus:bg-white"
+            className="flex-1 rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:border-amber-500 focus:bg-card"
           />
           <button
             onClick={handleAdd}
@@ -112,10 +112,10 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
 
       {/* List */}
       {announcements.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
-          <Megaphone size={28} className="text-slate-300" />
-          <p className="text-sm text-slate-500">Nenhum aviso</p>
-          <p className="text-xs text-slate-400">Os avisos aparecem como ticker no display da TV</p>
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-card py-10 text-center">
+          <Megaphone size={28} className="text-fg-muted" />
+          <p className="text-sm text-fg-muted">Nenhum aviso</p>
+          <p className="text-xs text-fg-dim">Os avisos aparecem como ticker no display da TV</p>
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -125,7 +125,7 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.03 }}
-              className="group flex items-center gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2 transition-all hover:bg-slate-50 hover:border-slate-200"
+              className="group flex items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 transition-all hover:bg-input hover:border-line"
             >
               {/* Reorder */}
               {!readOnly && (
@@ -133,14 +133,14 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
                   <button
                     onClick={() => onMoveUp(idx)}
                     disabled={idx === 0}
-                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                    className="flex h-4 w-4 items-center justify-center rounded text-fg-dim hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                   >
                     <ChevronUp size={12} />
                   </button>
                   <button
                     onClick={() => onMoveDown(idx)}
                     disabled={idx === announcements.length - 1}
-                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                    className="flex h-4 w-4 items-center justify-center rounded text-fg-dim hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                   >
                     <ChevronDown size={12} />
                   </button>
@@ -152,7 +152,7 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
                 <button
                   onClick={() => toggleActive(a)}
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${
-                    a.is_active ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-300'
+                    a.is_active ? 'bg-green-100 text-green-600' : 'bg-input text-fg-muted'
                   }`}
                   title={a.is_active ? 'Ativo' : 'Inativo'}
                 >
@@ -169,7 +169,7 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
                       onChange={(e) => setEditText(e.target.value)}
                       onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && saveEdit(a.id)}
                       autoFocus
-                      className="flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 outline-none focus:border-amber-500"
+                      className="flex-1 rounded-md border border-line bg-input px-2 py-1 text-sm text-fg outline-none focus:border-amber-500"
                     />
                     <button
                       onClick={() => saveEdit(a.id)}
@@ -179,13 +179,13 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
                     </button>
                     <button
                       onClick={cancelEdit}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-fg-dim hover:bg-input"
                     >
                       <X size={13} />
                     </button>
                   </div>
                 ) : (
-                  <span className={`block truncate text-sm ${a.is_active ? 'text-slate-800' : 'text-slate-400'}`}>
+                  <span className={`block truncate text-sm ${a.is_active ? 'text-fg' : 'text-fg-dim'}`}>
                     {a.text}
                   </span>
                 )}
@@ -198,7 +198,7 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => startEdit(a)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-amber-600"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim hover:bg-input hover:text-amber-600"
                       >
                         <Pencil size={13} />
                       </button>
@@ -209,7 +209,7 @@ export function AnnouncementManager({ announcements, onAdd, onEdit, onRemove, on
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setDeleteTarget(a)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-500"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim hover:bg-input hover:text-red-500"
                       >
                         <Trash2 size={13} />
                       </button>

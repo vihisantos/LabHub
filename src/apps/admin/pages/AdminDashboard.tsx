@@ -50,7 +50,7 @@ const ACTION_COLORS: Record<string, { bg: string; fg: string }> = {
   updated: { bg: 'bg-blue-500/10', fg: 'text-blue-500' },
   deleted: { bg: 'bg-red-500/10', fg: 'text-red-500' },
   status_changed: { bg: 'bg-amber-500/10', fg: 'text-amber-500' },
-  viewed: { bg: 'bg-slate-500/10', fg: 'text-slate-500' },
+  viewed: { bg: 'bg-slate-500/10', fg: 'text-fg-muted' },
   exported: { bg: 'bg-violet-500/10', fg: 'text-violet-500' },
 }
 

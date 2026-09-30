@@ -19,7 +19,7 @@ const sectionColors: Record<StockSection, string> = {
   adaptadores: 'text-cyan-600 dark:text-cyan-400',
   equipamentos: 'text-rose-600 dark:text-rose-400',
   cabos: 'text-orange-600 dark:text-orange-400',
-  outros: 'text-slate-600 dark:text-slate-400',
+      outros: 'text-fg-dim',
 }
 
 const sectionIcons: Record<StockSection, React.ComponentType<{ size?: number; className?: string }>> = {

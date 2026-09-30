@@ -103,7 +103,7 @@ const AUDIT_ACTION_STYLE: Record<
     label: 'Alterou acesso de',
     cls: 'bg-amber-500/10 text-amber-500',
   },
-  viewed: { icon: 'search', label: 'Visualizou', cls: 'bg-slate-500/10 text-slate-500' },
+  viewed: { icon: 'search', label: 'Visualizou', cls: 'bg-slate-500/10 text-fg-muted' },
   exported: { icon: 'download', label: 'Exportou', cls: 'bg-violet-500/10 text-violet-500' },
 }
 
