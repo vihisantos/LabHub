@@ -42,7 +42,7 @@ const sectionColors: Record<StockSection, { bg: string; text: string; icon: stri
   adaptadores: { bg: 'bg-teal-50 dark:bg-teal-950/30', text: 'text-teal-700 dark:text-teal-400', icon: 'text-teal-500' },
   equipamentos: { bg: 'bg-pink-50 dark:bg-pink-950/30', text: 'text-pink-700 dark:text-pink-400', icon: 'text-pink-500' },
   cabos: { bg: 'bg-purple-50 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-400', icon: 'text-purple-500' },
-  outros: { bg: 'bg-slate-50 dark:bg-slate-800/30', text: 'text-slate-700 dark:text-slate-400', icon: 'text-slate-500' },
+      outros: { bg: 'bg-input', text: 'text-fg-dim', icon: 'text-fg-muted' },
 }
 
 export function StockDashboard() {

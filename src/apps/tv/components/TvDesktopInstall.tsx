@@ -97,24 +97,24 @@ export function TvDesktopInstall() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-xl border border-slate-200 bg-white p-5"
+        className="rounded-xl border border-line bg-card p-5"
       >
         <div className="mb-4 flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 text-red-500">
             <Download size={15} />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-slate-800">Baixar o app da TV</h3>
-            <p className="text-[11px] text-slate-400">Lab Hub TV Desktop · Windows</p>
+            <h3 className="text-base font-semibold text-fg">Baixar o app da TV</h3>
+            <p className="text-[11px] text-fg-dim">Lab Hub TV Desktop · Windows</p>
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
-          <div className="mb-2 flex items-center gap-2 text-slate-600">
+        <div className="rounded-lg border border-line bg-input p-4">
+          <div className="mb-2 flex items-center gap-2 text-fg-dim">
             <Monitor size={15} className="text-red-500" />
             <p className="text-sm font-medium">Instale em qualquer PC conectado à TV do campus</p>
           </div>
-          <ol className="mb-4 space-y-1 text-xs text-slate-500">
+          <ol className="mb-4 space-y-1 text-xs text-fg-muted">
             <li>1. Baixe o instalador abaixo no computador da TV</li>
             <li>2. Instale e abra o app — ele roda em tela cheia (kiosk)</li>
             <li>3. Use um código de ativação (ao lado) ou o login do usuário da TV</li>
@@ -128,7 +128,7 @@ export function TvDesktopInstall() {
             <Download size={15} />
             Baixar instalador (88 MB)
           </a>
-          <p className="mt-2 text-center text-[11px] text-slate-400">
+          <p className="mt-2 text-center text-[11px] text-fg-dim">
             Feito para a TV do campus — use esta página em um computador.
           </p>
         </div>
@@ -139,26 +139,26 @@ export function TvDesktopInstall() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.08 }}
-        className="rounded-xl border border-slate-200 bg-white p-5"
+        className="rounded-xl border border-line bg-card p-5"
       >
         <div className="mb-4 flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
             <KeyRound size={15} />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-slate-800">Código de ativação</h3>
-            <p className="text-[11px] text-slate-400">Validade de 24h · uso único</p>
+            <h3 className="text-base font-semibold text-fg">Código de ativação</h3>
+            <p className="text-[11px] text-fg-dim">Validade de 24h · uso único</p>
           </div>
         </div>
 
         <form onSubmit={generate} className="space-y-3">
           {isSuperAdmin ? (
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">Workspace da TV</label>
+              <label className="mb-1 block text-xs font-medium text-fg-dim">Workspace da TV</label>
               <select
                 value={workspaceId}
                 onChange={(e) => setWorkspaceId(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:bg-white"
+                className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none focus:border-emerald-500 focus:bg-card"
               >
                 {workspaces.map((w) => (
                   <option key={w.id} value={w.id}>{w.name}</option>
@@ -166,13 +166,13 @@ export function TvDesktopInstall() {
               </select>
             </div>
           ) : (
-            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              O código será vinculado ao workspace <strong className="text-slate-700">{targetWorkspace?.name ?? 'padrão'}</strong>.
+            <div className="rounded-lg border border-line bg-input px-3 py-2 text-xs text-fg-muted">
+              O código será vinculado ao workspace <strong className="text-fg-dim">{targetWorkspace?.name ?? 'padrão'}</strong>.
             </div>
           )}
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
+            <label className="mb-1 block text-xs font-medium text-fg-dim">
               Nome da TV (opcional)
             </label>
             <input
@@ -180,7 +180,7 @@ export function TvDesktopInstall() {
               onChange={(e) => setDeviceName(e.target.value)}
               placeholder="Ex: TV Recepção, TV Lab 2..."
               maxLength={60}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:bg-white"
+              className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none focus:border-emerald-500 focus:bg-card"
             />
           </div>
 
@@ -202,10 +202,10 @@ export function TvDesktopInstall() {
               <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-600">
                 Digite este código no app da TV
               </p>
-              <p className="my-2 font-mono text-3xl font-extrabold tracking-[0.35em] text-slate-900">
+              <p className="my-2 font-mono text-3xl font-extrabold tracking-[0.35em] text-fg">
                 {result.code}
               </p>
-              <div className="flex items-center justify-center gap-3 text-[11px] text-slate-500">
+              <div className="flex items-center justify-center gap-3 text-[11px] text-fg-muted">
                 <span className="flex items-center gap-1">
                   <Clock size={11} /> expira em {formatExpiry(result.expires_at)}
                 </span>
@@ -225,7 +225,7 @@ export function TvDesktopInstall() {
                 <button
                   type="button"
                   onClick={() => { setResult(null); setDeviceName('') }}
-                  className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-xs font-medium text-fg-dim hover:bg-input"
                 >
                   Gerar outro
                 </button>
@@ -240,7 +240,7 @@ export function TvDesktopInstall() {
           href={INSTALLER_URL}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
+          className="inline-flex items-center gap-1 text-xs text-fg-dim hover:text-fg-dim"
         >
           <ExternalLink size={12} />
           Abrir a página de download em nova aba

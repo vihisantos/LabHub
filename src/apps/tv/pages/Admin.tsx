@@ -211,12 +211,12 @@ export function AdminView() {
 
   if (noTvAccess) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-input p-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-input text-fg-dim">
           <Tv size={24} />
         </div>
-        <h1 className="mt-4 text-base font-semibold text-slate-800">Acesso restrito</h1>
-        <p className="mt-1 max-w-sm text-xs leading-relaxed text-slate-500">
+        <h1 className="mt-4 text-base font-semibold text-fg">Acesso restrito</h1>
+        <p className="mt-1 max-w-sm text-xs leading-relaxed text-fg-muted">
           Seu usuário não tem acesso ao módulo de TV. Entre em contato com um administrador para liberar o acesso.
         </p>
       </div>
@@ -225,14 +225,14 @@ export function AdminView() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <div className="min-h-screen bg-input text-fg font-sans">
         {/* ── Header ── */}
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur-xl">
+        <header className="sticky top-0 z-30 border-b border-line bg-card/80 backdrop-blur-xl">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate('/')}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg-dim"
               >
                 <ArrowLeft size={18} />
               </button>
@@ -241,8 +241,8 @@ export function AdminView() {
                   <Tv size={14} className="text-white" />
                 </div>
                 <div>
-                  <h1 className="text-sm font-semibold leading-tight text-slate-800">Lab Hub TV</h1>
-                  <p className="text-[10px] leading-tight text-slate-400">Painel Administrativo</p>
+                  <h1 className="text-sm font-semibold leading-tight text-fg">Lab Hub TV</h1>
+                  <p className="text-[10px] leading-tight text-fg-dim">Painel Administrativo</p>
                 </div>
               </div>
             </div>
@@ -264,16 +264,16 @@ export function AdminView() {
                   </TooltipContent>
                 </TooltipRoot>
               ) : (
-                <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5">
-                  <div className="size-2 rounded-full bg-slate-300" />
-                  <span className="text-[11px] text-slate-400">Sem música</span>
+                <div className="flex items-center gap-1.5 rounded-xl border border-line bg-input px-3 py-1.5">
+                  <div className="size-2 rounded-full bg-segmented" />
+                  <span className="text-[11px] text-fg-dim">Sem música</span>
                 </div>
               )}
               {isFullAccess && (
                 <button
                   onClick={handlePrevious}
                   disabled={previousing}
-                  className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-xl border border-line bg-input px-3 py-1.5 text-xs font-semibold text-fg-dim transition-colors hover:bg-input disabled:opacity-50"
                   title="Faixa anterior"
                 >
                   <SkipBack size={14} className="fill-current" />
@@ -306,7 +306,7 @@ export function AdminView() {
                 <button
                   onClick={handleNext}
                   disabled={nexting}
-                  className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-xl border border-line bg-input px-3 py-1.5 text-xs font-semibold text-fg-dim transition-colors hover:bg-input disabled:opacity-50"
                   title="Próxima faixa"
                 >
                   <SkipForward size={14} className="fill-current" />
@@ -314,20 +314,20 @@ export function AdminView() {
                 </button>
               )}
               {isFullAccess && (
-                <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/50 py-1 pl-2 pr-1">
+                <div className="flex items-center gap-1 rounded-xl border border-line bg-input py-1 pl-2 pr-1">
                   <input
                     value={seekSeconds}
                     onChange={(e) => setSeekSeconds(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !seeking && handleSeek()}
                     placeholder="seg"
                     inputMode="decimal"
-                    className="w-12 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+                    className="w-12 bg-transparent text-xs text-fg-dim outline-none placeholder:text-fg-dim"
                     aria-label="Posição em segundos"
                   />
                   <button
                     onClick={handleSeek}
                     disabled={seeking}
-                    className="flex items-center gap-1 rounded-lg bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-300 disabled:opacity-50"
+                    className="flex items-center gap-1 rounded-lg bg-segmented px-2 py-1 text-xs font-semibold text-fg-dim transition-colors hover:bg-segmented disabled:opacity-50"
                     title="Buscar uma posição (segundos)"
                   >
                     {seeking ? '…' : 'Ir'}
@@ -370,18 +370,18 @@ export function AdminView() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+                className="w-full max-w-md rounded-2xl border border-line bg-card p-5 shadow-2xl"
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
                       <AlertTriangle size={18} />
                     </div>
-                    <h3 className="font-semibold text-slate-800">Aviso de Urgência / Alerta</h3>
+                    <h3 className="font-semibold text-fg">Aviso de Urgência / Alerta</h3>
                   </div>
                   <button
                     onClick={() => setShowUrgentModal(false)}
-                    className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                    className="text-fg-dim hover:text-fg-dim text-sm font-bold"
                   >
                     ✕
                   </button>
@@ -398,7 +398,7 @@ export function AdminView() {
                         Encerrar aviso
                       </button>
                     </div>
-                    <p className="text-slate-700">{activeAnnouncement.message}</p>
+                    <p className="text-fg-dim">{activeAnnouncement.message}</p>
                   </div>
                 )}
 
@@ -413,23 +413,23 @@ export function AdminView() {
                   className="space-y-3"
                 >
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Mensagem do Alerta</label>
+                    <label className="block text-xs font-medium text-fg-dim mb-1">Mensagem do Alerta</label>
                     <input
                       placeholder="Ex: Elevador em manutenção / Lab 2 indisponível"
                       value={urgentText}
                       onChange={(e) => setUrgentText(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-500 focus:bg-white"
+                      className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none focus:border-amber-500 focus:bg-card"
                       maxLength={120}
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Severidade</label>
+                      <label className="block text-xs font-medium text-fg-dim mb-1">Severidade</label>
                       <select
                         value={urgentSeverity}
                         onChange={(e) => setUrgentSeverity(e.target.value as any)}
-                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none"
+                        className="w-full rounded-lg border border-line bg-input px-3 py-2 text-xs text-fg outline-none"
                       >
                         <option value="info">🔵 Informação</option>
                         <option value="warning">🟡 Atenção</option>
@@ -438,11 +438,11 @@ export function AdminView() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Duração</label>
+                      <label className="block text-xs font-medium text-fg-dim mb-1">Duração</label>
                       <select
                         value={urgentDuration}
                         onChange={(e) => setUrgentDuration(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none"
+                        className="w-full rounded-lg border border-line bg-input px-3 py-2 text-xs text-fg outline-none"
                       >
                         <option value="30">30 Minutos</option>
                         <option value="60">1 Hora</option>
@@ -457,7 +457,7 @@ export function AdminView() {
                     <button
                       type="button"
                       onClick={() => setShowUrgentModal(false)}
-                      className="flex-1 rounded-lg border border-slate-200 bg-slate-100 py-2 text-xs font-medium text-slate-600 hover:bg-slate-200"
+                      className="flex-1 rounded-lg border border-line bg-input py-2 text-xs font-medium text-fg-dim hover:bg-segmented"
                     >
                       Cancelar
                     </button>
@@ -485,31 +485,36 @@ export function AdminView() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.08, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-                className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-4 transition-all hover:bg-slate-50"
+                className="group relative overflow-hidden rounded-xl border border-line bg-card p-4 transition-all hover:bg-input"
               >
                 <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${stat.color} opacity-60`} />
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{stat.label}</span>
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-fg-dim">{stat.label}</span>
                   <div className={`flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ${stat.color} shadow-lg`}>
                     <stat.icon size={13} className="text-white" />
                   </div>
                 </div>
-                <span className="text-2xl font-bold tracking-tight text-slate-800">{stat.value}</span>
+                <span className="text-2xl font-bold tracking-tight text-fg">{stat.value}</span>
               </motion.div>
             ))}
           </div>
 
           {/* ── Tabs ── */}
-          <div className="mb-6 overflow-x-auto rounded-xl border border-slate-200 bg-slate-100 p-1 [&::-webkit-scrollbar]:hidden">
+          <div className="mb-6 overflow-x-auto rounded-xl border border-line bg-input p-1 [&::-webkit-scrollbar]:hidden">
             <div className="flex min-w-max gap-1">
               {visibleTabs.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
+                  // Qual aba está ativa é uma INFORMAÇÃO, não uma cor. O sweep de
+                  // navegação descobria a aba ativa procurando `button.bg-card`,
+                  // então trocar o branco do tema quebrou o teste sem que nada
+                  // tivesse mudado de comportamento. O estado agora é declarado.
+                  aria-current={activeTab === id ? 'true' : undefined}
                   className={`relative flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium whitespace-nowrap transition-all sm:text-sm ${
                     activeTab === id
-                      ? 'bg-white text-slate-800 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
+                      ? 'bg-card text-fg shadow-sm'
+                      : 'text-fg-muted hover:text-fg-dim'
                   }`}
                 >
                   <Icon size={14} />
@@ -529,24 +534,24 @@ export function AdminView() {
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             >
               {activeTab === 'help' ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-6">
-                  <h3 className="mb-4 text-base font-semibold text-slate-800">Como usar o Lab Hub TV</h3>
-                  <ol className="space-y-3 text-sm text-slate-500">
+                <div className="rounded-xl border border-line bg-card p-6">
+                  <h3 className="mb-4 text-base font-semibold text-fg">Como usar o Lab Hub TV</h3>
+                  <ol className="space-y-3 text-sm text-fg-muted">
                     <li className="flex items-start gap-3">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-600">1</span>
-                      <span><strong className="text-slate-700">Crie eventos</strong> com título, descrição e imagem (opcional) para exibir no display da TV</span>
+                      <span><strong className="text-fg-dim">Crie eventos</strong> com título, descrição e imagem (opcional) para exibir no display da TV</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-600">2</span>
-                      <span><strong className="text-slate-700">Adicione playlists de vídeo</strong> do YouTube para reprodução automática no display</span>
+                      <span><strong className="text-fg-dim">Adicione playlists de vídeo</strong> do YouTube para reprodução automática no display</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-600">3</span>
-                      <span><strong className="text-slate-700">Crie filas de música</strong> com links do YouTube — as músicas tocam em sequência durante os intervalos</span>
+                      <span><strong className="text-fg-dim">Crie filas de música</strong> com links do YouTube — as músicas tocam em sequência durante os intervalos</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-600">4</span>
-                      <span>Instale o <strong className="text-slate-700">Lab Hub TV Desktop</strong> no PC conectado à TV e faça o login com o usuário da TV</span>
+                      <span>Instale o <strong className="text-fg-dim">Lab Hub TV Desktop</strong> no PC conectado à TV e faça o login com o usuário da TV</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-semibold text-rose-600">5</span>
@@ -557,7 +562,7 @@ export function AdminView() {
               ) : isLoading ? (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-16 animate-pulse rounded-xl bg-slate-200" />
+                    <div key={i} className="h-16 animate-pulse rounded-xl bg-segmented" />
                   ))}
                 </div>
               ) : (
@@ -612,7 +617,7 @@ export function AdminView() {
                     devicesLoading ? (
                       <div className="space-y-3">
                         {[1, 2, 3].map((i) => (
-                          <div key={i} className="h-14 animate-pulse rounded-xl bg-slate-200" />
+                          <div key={i} className="h-14 animate-pulse rounded-xl bg-segmented" />
                         ))}
                       </div>
                     ) : (

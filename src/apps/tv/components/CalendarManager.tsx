@@ -35,8 +35,8 @@ export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
             <CalendarIcon size={20} />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-bold text-slate-800">Calendário Acadêmico Institucional</h3>
-            <p className="mt-1 text-xs text-slate-600 leading-relaxed">
+            <h3 className="text-base font-bold text-fg">Calendário Acadêmico Institucional</h3>
+            <p className="mt-1 text-xs text-fg-dim leading-relaxed">
               O sistema lê o PDF do calendário uma única vez por semestre, armazena no cache e exibe os eventos automaticamente na TV.
               Os dados <strong>expiram e são limpos automaticamente</strong> à meia-noite da data final do semestre (ex: 18/12 para o semestre 26/2).
             </p>
@@ -46,49 +46,49 @@ export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
 
       {/* Form Extraction */}
       {!readOnly && (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h4 className="mb-4 text-sm font-bold text-slate-800 flex items-center gap-2">
+      <div className="rounded-2xl border border-line bg-card p-5 shadow-sm">
+        <h4 className="mb-4 text-sm font-bold text-fg flex items-center gap-2">
           <Sparkles size={16} className="text-violet-600" />
           {calendarCache ? 'Atualizar ou Trocar Calendário' : 'Importar Calendário Acadêmico'}
         </h4>
 
         <form onSubmit={handleExtract} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-fg-dim mb-1">
               Link do PDF do Calendário
             </label>
             <div className="relative">
-              <LinkIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <LinkIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-dim" />
               <input
                 type="url"
                 required
                 placeholder="https://estaticos.animaeducacao.com.br/medias/..."
                 value={pdfUrl}
                 onChange={e => setPdfUrl(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-xs text-slate-900 outline-none transition-colors focus:border-violet-500 focus:bg-white"
+                className="w-full rounded-xl border border-line bg-input py-2.5 pl-9 pr-3 text-xs text-fg outline-none transition-colors focus:border-violet-500 focus:bg-card"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Código do Semestre</label>
+              <label className="block text-xs font-semibold text-fg-dim mb-1">Código do Semestre</label>
               <input
                 type="text"
                 placeholder="Ex: 26/2 ou 27/1"
                 value={semesterCode}
                 onChange={e => setSemesterCode(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none focus:border-violet-500 focus:bg-white"
+                className="w-full rounded-xl border border-line bg-input px-3 py-2 text-xs text-fg outline-none focus:border-violet-500 focus:bg-card"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Término do Semestre (Expiração)</label>
+              <label className="block text-xs font-semibold text-fg-dim mb-1">Término do Semestre (Expiração)</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={e => setEndDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none focus:border-violet-500 focus:bg-white [color-scheme:light]"
+                className="w-full rounded-xl border border-line bg-input px-3 py-2 text-xs text-fg outline-none focus:border-violet-500 focus:bg-card [color-scheme:light]"
               />
             </div>
           </div>
@@ -121,20 +121,20 @@ export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
 
       {/* Active Cache Status */}
       {loading ? (
-        <div className="h-32 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="h-32 animate-pulse rounded-2xl bg-input" />
       ) : calendarCache ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+        <div className="rounded-2xl border border-line bg-card p-5 shadow-sm space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
                 <CheckCircle2 size={18} />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-bold text-slate-800">Semestre {calendarCache.semester_code} Ativo</h4>
+                  <h4 className="text-sm font-bold text-fg">Semestre {calendarCache.semester_code} Ativo</h4>
                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">EM CACHE</span>
                 </div>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-fg-muted">
                   Expira em: <strong>{new Date(calendarCache.expires_at).toLocaleString('pt-BR')}</strong> (Limpeza Automática)
                 </p>
               </div>
@@ -152,7 +152,7 @@ export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
 
           {/* Events Count & Search */}
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-600">
+            <span className="text-xs font-medium text-fg-dim">
               {calendarTvEvents.length} eventos extraídos do calendário
             </span>
             <input
@@ -160,14 +160,14 @@ export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
               placeholder="Buscar no calendário..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-800 outline-none focus:border-violet-500"
+              className="rounded-lg border border-line bg-input px-3 py-1 text-xs text-fg outline-none focus:border-violet-500"
             />
           </div>
 
           {/* Events List Preview */}
           <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
             {filteredEvents.length === 0 ? (
-              <p className="py-6 text-center text-xs text-slate-400">Nenhum evento encontrado para a busca</p>
+              <p className="py-6 text-center text-xs text-fg-dim">Nenhum evento encontrado para a busca</p>
             ) : (
               filteredEvents.map((ev, idx) => (
                 <motion.div
@@ -175,12 +175,12 @@ export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(idx * 0.02, 0.3) }}
-                  className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-2.5 hover:bg-slate-100/70"
+                  className="flex items-center gap-3 rounded-xl border border-line bg-input p-2.5 hover:bg-input"
                 >
                   <img src={ev.image_url!} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
                   <div className="flex-1 min-w-0">
-                    <p className="truncate text-xs font-semibold text-slate-800">{ev.title}</p>
-                    <p className="truncate text-[11px] text-slate-500">{ev.description}</p>
+                    <p className="truncate text-xs font-semibold text-fg">{ev.title}</p>
+                    <p className="truncate text-[11px] text-fg-muted">{ev.description}</p>
                   </div>
                 </motion.div>
               ))
@@ -188,7 +188,7 @@ export function CalendarManager({ readOnly = false }: { readOnly?: boolean }) {
           </div>
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-xs text-slate-400">
+        <div className="rounded-2xl border border-dashed border-line bg-input py-8 text-center text-xs text-fg-dim">
           Nenhum calendário acadêmico salvo no cache para este semestre.
         </div>
       )}

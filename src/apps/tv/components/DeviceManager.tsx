@@ -82,18 +82,18 @@ export function DeviceManager({ devices, workspaces, onRename, onMoveWorkspace, 
       {/* Header */}
       <div className="mb-4 flex items-center gap-2">
         <Monitor size={16} className="text-red-500" />
-        <h3 className="text-base font-semibold text-slate-800">Dispositivos (TVs)</h3>
+        <h3 className="text-base font-semibold text-fg">Dispositivos (TVs)</h3>
         {devices.length > 0 && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{devices.length}</span>
+          <span className="rounded-full bg-input px-2 py-0.5 text-[11px] text-fg-muted">{devices.length}</span>
         )}
       </div>
 
       {/* List */}
       {devices.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
-          <Monitor size={28} className="text-slate-300" />
-          <p className="text-sm text-slate-500">Nenhuma TV registrada</p>
-          <p className="max-w-sm text-xs text-slate-400">
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-card py-10 text-center">
+          <Monitor size={28} className="text-fg-muted" />
+          <p className="text-sm text-fg-muted">Nenhuma TV registrada</p>
+          <p className="max-w-sm text-xs text-fg-dim">
             Instale o app Lab Hub TV Desktop em um PC conectado à TV e faça o primeiro login para registrar o dispositivo.
           </p>
         </div>
@@ -105,7 +105,7 @@ export function DeviceManager({ devices, workspaces, onRename, onMoveWorkspace, 
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.03 }}
-              className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 transition-all hover:bg-slate-50 hover:border-slate-200"
+              className="group flex items-center gap-3 rounded-xl border border-line bg-card px-3 py-2.5 transition-all hover:bg-input hover:border-line"
             >
               {/* Status */}
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500">
@@ -121,7 +121,7 @@ export function DeviceManager({ devices, workspaces, onRename, onMoveWorkspace, 
                       onChange={(e) => setEditName(e.target.value)}
                       onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && saveEdit(d.id)}
                       autoFocus
-                      className="flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-900 outline-none focus:border-red-500"
+                      className="flex-1 rounded-md border border-line bg-input px-2 py-1 text-sm text-fg outline-none focus:border-red-500"
                     />
                     <button
                       onClick={() => saveEdit(d.id)}
@@ -131,24 +131,24 @@ export function DeviceManager({ devices, workspaces, onRename, onMoveWorkspace, 
                     </button>
                     <button
                       onClick={() => setEditing(null)}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-fg-dim hover:bg-input"
                     >
                       <X size={13} />
                     </button>
                   </div>
                 ) : (
-                  <p className="truncate text-sm font-medium text-slate-800">{d.name}</p>
+                  <p className="truncate text-sm font-medium text-fg">{d.name}</p>
                 )}
-                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-dim">
                   <span className="flex items-center gap-1">
-                    <Power size={10} className={online(d) ? 'text-emerald-500' : 'text-slate-300'} />
+                    <Power size={10} className={online(d) ? 'text-emerald-500' : 'text-fg-muted'} />
                     {online(d) ? 'online' : `offline · ${timeAgo(d.last_seen)}`}
                   </span>
                   <span className="flex items-center gap-1">
                     <select
                       value={d.workspace_id ?? ''}
                       onChange={(e) => onMoveWorkspace(d.id, e.target.value || null)}
-                      className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600 outline-none focus:border-red-500"
+                      className="rounded-md border border-line bg-input px-1.5 py-0.5 text-[11px] text-fg-dim outline-none focus:border-red-500"
                       title="Workspace da TV"
                     >
                       {workspaces.map((w) => (
@@ -163,14 +163,14 @@ export function DeviceManager({ devices, workspaces, onRename, onMoveWorkspace, 
               <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                 <button
                   onClick={() => startEdit(d)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim hover:bg-input hover:text-red-600"
                   title="Renomear"
                 >
                   <Pencil size={13} />
                 </button>
                 <button
                   onClick={() => setDeleteTarget(d)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-red-500"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim hover:bg-input hover:text-red-500"
                   title="Remover"
                 >
                   <Trash2 size={13} />

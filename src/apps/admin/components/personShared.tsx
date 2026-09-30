@@ -50,8 +50,8 @@ export function statusStyle(status: string): { dot: string; label: string; text:
       return {
         dot: 'bg-slate-500',
         label: 'Rejeitada',
-        text: 'text-slate-600 dark:text-slate-300',
-        chip: 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
+        text: 'text-fg-dim text-fg-muted',
+        chip: 'bg-slate-500/10 text-fg-dim text-fg-muted',
       }
     case 'blocked':
     case 'inactive':
@@ -63,7 +63,7 @@ export function statusStyle(status: string): { dot: string; label: string; text:
       }
     default:
       return {
-        dot: 'bg-slate-400',
+        dot: 'bg-segmented',
         label: status,
         text: 'text-fg-muted',
         chip: 'bg-input text-fg-muted',

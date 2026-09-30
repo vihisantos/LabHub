@@ -84,8 +84,8 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-12 text-slate-400">
-        <Loader2 size={24} className="animate-spin text-slate-400" />
+      <div className="flex flex-col items-center justify-center gap-3 py-12 text-fg-dim">
+        <Loader2 size={24} className="animate-spin text-fg-dim" />
         <p className="text-sm">Carregando filas...</p>
       </div>
     )
@@ -101,7 +101,7 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
               Excluir {deleteTarget?.type === 'queue' ? 'fila' : 'track'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir <strong className="text-slate-700">{deleteTarget?.name}</strong>?
+              Tem certeza que deseja excluir <strong className="text-fg-dim">{deleteTarget?.name}</strong>?
               Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -128,9 +128,9 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
       {/* Header */}
       <div className="mb-4 flex items-center gap-2">
         <Music size={16} className="text-blue-500" />
-        <h3 className="text-base font-semibold text-slate-800">Filas de Música</h3>
+        <h3 className="text-base font-semibold text-fg">Filas de Música</h3>
         {queues.length > 0 && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{queues.length}</span>
+          <span className="rounded-full bg-input px-2 py-0.5 text-[11px] text-fg-muted">{queues.length}</span>
         )}
       </div>
 
@@ -142,7 +142,7 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             placeholder="Nome da nova fila..."
-            className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:bg-white"
+            className="flex-1 rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:border-blue-500 focus:bg-card"
           />
           <button
             onClick={handleCreate}
@@ -156,10 +156,10 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
 
       {/* Queue list */}
       {queues.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
-          <Music size={28} className="text-slate-300" />
-          <p className="text-sm text-slate-500">Nenhuma fila criada</p>
-          <p className="text-xs text-slate-400">Crie uma fila e adicione tracks do YouTube</p>
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-card py-10 text-center">
+          <Music size={28} className="text-fg-muted" />
+          <p className="text-sm text-fg-muted">Nenhuma fila criada</p>
+          <p className="text-xs text-fg-dim">Crie uma fila e adicione tracks do YouTube</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -170,21 +170,21 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                 key={q.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="overflow-hidden rounded-xl border border-slate-100 bg-white"
+                className="overflow-hidden rounded-xl border border-line bg-card"
               >
                 {/* Queue header */}
                 <button
                   onClick={() => setExpanded(isOpen ? null : q.id)}
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-input"
                 >
                   {isOpen ? (
-                    <ChevronDown size={14} className="shrink-0 text-slate-400" />
+                    <ChevronDown size={14} className="shrink-0 text-fg-dim" />
                   ) : (
-                    <ChevronRight size={14} className="shrink-0 text-slate-400" />
+                    <ChevronRight size={14} className="shrink-0 text-fg-dim" />
                   )}
                   <Music size={14} className="shrink-0 text-blue-500" />
-                  <span className="flex-1 text-sm font-medium text-slate-800">{q.name}</span>
-                  <span className="text-xs text-slate-400">
+                  <span className="flex-1 text-sm font-medium text-fg">{q.name}</span>
+                  <span className="text-xs text-fg-dim">
                     {q.tracks.length} track{q.tracks.length !== 1 ? 's' : ''}
                   </span>
 
@@ -197,7 +197,7 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
                             q.shuffle
                               ? 'bg-blue-100 text-blue-600'
-                              : 'text-slate-400 hover:text-slate-600'
+                              : 'text-fg-dim hover:text-fg-dim'
                           }`}
                         >
                           <Shuffle size={14} />
@@ -215,7 +215,7 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                       <TooltipTrigger asChild>
                         <button
                           onClick={(e) => { e.stopPropagation(); confirmDeleteQueue(q) }}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                          className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-red-500"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -233,20 +233,20 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                      className="border-t border-slate-100"
+                      className="border-t border-line"
                     >
                       <div className="p-3">
                         {/* Add tracks from URL */}
                         {!readOnly && (
                           <div className="mb-3 flex gap-2">
                             <div className="relative flex-1">
-                              <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-dim" />
                               <input
                                 value={urlInput}
                                 onChange={(e) => setUrlInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !fetching && handleAddTracks(q.id)}
                                 placeholder="URL do YouTube (vídeo ou playlist)..."
-                                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:bg-white"
+                                className="w-full rounded-lg border border-line bg-input py-2 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:border-blue-500 focus:bg-card"
                               />
                             </div>
                             <button
@@ -266,7 +266,7 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
 
                         {/* Track list */}
                         {q.tracks.length === 0 ? (
-                          <p className="py-4 text-center text-xs text-slate-400">
+                          <p className="py-4 text-center text-xs text-fg-dim">
                             Nenhum track. Adicione uma URL do YouTube.
                           </p>
                         ) : (
@@ -274,15 +274,15 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                             {q.tracks.map((track, idx) => (
                               <div
                                 key={track.id}
-                                className="group/track flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-slate-50"
+                                className="group/track flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-input"
                               >
-                                <span className="w-5 text-right text-[11px] text-slate-400">
+                                <span className="w-5 text-right text-[11px] text-fg-dim">
                                   {idx + 1}
                                 </span>
-                                <span className="flex-1 truncate text-slate-600">
+                                <span className="flex-1 truncate text-fg-dim">
                                   {track.title}
                                 </span>
-                                <span className="shrink-0 text-[11px] text-slate-400">
+                                <span className="shrink-0 text-[11px] text-fg-dim">
                                   {track.duration_seconds > 0
                                     ? `${Math.floor(track.duration_seconds / 60)}:${String(track.duration_seconds % 60).padStart(2, '0')}`
                                     : ''}
@@ -291,7 +291,7 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                                   href={`https://youtube.com/watch?v=${track.youtube_video_id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600"
+                                  className="flex h-6 w-6 items-center justify-center rounded text-fg-dim transition-colors hover:text-fg-dim"
                                   title="Abrir no YouTube"
                                 >
                                   <ExternalLink size={12} />
@@ -299,7 +299,7 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                                 {!readOnly && (
                                   <button
                                     onClick={() => handlePlayNow(track)}
-                                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-amber-500"
+                                    className="flex h-6 w-6 items-center justify-center rounded text-fg-dim transition-colors hover:text-amber-500"
                                     title="Tocar agora"
                                     aria-label="Tocar agora"
                                   >
@@ -311,20 +311,20 @@ export function QueueManager({ readOnly = false }: { readOnly?: boolean }) {
                                     <button
                                       onClick={() => handleMoveUp(q.id, idx)}
                                       disabled={idx === 0}
-                                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                                      className="flex h-6 w-6 items-center justify-center rounded text-fg-dim transition-colors hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                                     >
                                       <ArrowUp size={12} />
                                     </button>
                                     <button
                                       onClick={() => handleMoveDown(q.id, idx)}
                                       disabled={idx >= q.tracks.length - 1}
-                                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                                      className="flex h-6 w-6 items-center justify-center rounded text-fg-dim transition-colors hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                                     >
                                       <ArrowDown size={12} />
                                     </button>
                                     <button
                                       onClick={() => confirmDeleteTrack(track.id)}
-                                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 opacity-0 transition-all hover:text-red-500 group-hover/track:opacity-100"
+                                      className="flex h-6 w-6 items-center justify-center rounded text-fg-dim opacity-0 transition-all hover:text-red-500 group-hover/track:opacity-100"
                                       title="Remover"
                                     >
                                       <Trash2 size={12} />

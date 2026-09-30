@@ -62,7 +62,7 @@ export function WorkspacesPage() {
         <button
           type="button"
           onClick={() => { setShowForm(!showForm); setEditingId(null); setName(''); setLocation(''); setSpreadsheetUrl(''); setLabCount(2) }}
-          className="flex items-center gap-1.5 rounded-lg bg-slate-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-400"
+          className="flex items-center gap-1.5 rounded-lg bg-slate-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-segmented"
         >
           <icons.ui.plus size={14} />
           Novo

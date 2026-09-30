@@ -110,7 +110,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir playlist</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir <strong className="text-slate-700">{deleteTarget?.name}</strong>?
+              Tem certeza que deseja excluir <strong className="text-fg-dim">{deleteTarget?.name}</strong>?
               Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -133,9 +133,9 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Monitor size={16} className="text-emerald-500" />
-          <h3 className="text-base font-semibold text-slate-800">Playlists de Vídeo</h3>
+          <h3 className="text-base font-semibold text-fg">Playlists de Vídeo</h3>
           {playlists.length > 0 && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{playlists.length}</span>
+            <span className="rounded-full bg-input px-2 py-0.5 text-[11px] text-fg-muted">{playlists.length}</span>
           )}
         </div>
         {!readOnly && (
@@ -157,12 +157,12 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             onSubmit={handleSubmit}
-            className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white"
+            className="mb-4 overflow-hidden rounded-xl border border-line bg-card"
           >
             <div className="space-y-3 p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-800">{editing ? 'Editar' : 'Nova'} Playlist de Vídeo</span>
-                <button type="button" onClick={() => setShowForm(false)} className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                <span className="text-sm font-medium text-fg">{editing ? 'Editar' : 'Nova'} Playlist de Vídeo</span>
+                <button type="button" onClick={() => setShowForm(false)} className="flex h-6 w-6 items-center justify-center rounded-md text-fg-dim transition-colors hover:bg-input hover:text-fg-dim">
                   <X size={14} />
                 </button>
               </div>
@@ -172,11 +172,11 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                 value={name}
                 onChange={e => setName(e.target.value)}
                 required
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-emerald-500 focus:bg-white"
+                className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:border-emerald-500 focus:bg-card"
               />
 
               {/* Source selector */}
-              <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+              <div className="flex gap-1 rounded-lg border border-line bg-input p-0.5">
                 {sources.map(({ value, label, icon: Icon }) => (
                   <button
                     key={value}
@@ -184,8 +184,8 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                     onClick={() => { setSource(value); setUrl(''); setUrlError('') }}
                     className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all ${
                       source === value
-                        ? 'bg-white text-slate-800 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
+                        ? 'bg-card text-fg shadow-sm'
+                        : 'text-fg-muted hover:text-fg-dim'
                     }`}
                   >
                     <Icon size={13} />
@@ -201,7 +201,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                     placeholder="URL do vídeo (ou faça upload)"
                     value={url}
                     onChange={e => { setUrl(e.target.value); setUrlError('') }}
-                    className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-emerald-500 focus:bg-white"
+                    className="flex-1 rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:border-emerald-500 focus:bg-card"
                   />
                   <CloudinaryUpload
                     resourceType="video"
@@ -210,21 +210,21 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                 </div>
               ) : (
                 <div className="relative">
-                  <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Film size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-dim" />
                   <input
                     placeholder={source === 'youtube' ? 'URL do YouTube (vídeo ou playlist)' : 'URL do Google Drive'}
                     value={url}
                     onChange={e => { setUrl(e.target.value); setUrlError('') }}
                     required
-                    className={`w-full rounded-lg border bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:bg-white ${
-                      urlError ? 'border-red-500' : 'border-slate-200 focus:border-emerald-500'
+                    className={`w-full rounded-lg border bg-input py-2 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:bg-card ${
+                      urlError ? 'border-red-500' : 'border-line focus:border-emerald-500'
                     }`}
                   />
                 </div>
               )}
               {urlError && <p className="text-xs text-red-500">{urlError}</p>}
             </div>
-            <div className="border-t border-slate-100 px-4 py-3">
+            <div className="border-t border-line px-4 py-3">
               <button
                 type="submit"
                 className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:from-emerald-500 hover:to-green-500 active:scale-[0.98]"
@@ -239,13 +239,13 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
       {/* Playlist List */}
       <div className="space-y-2">
         {playlists.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
-            <Monitor size={28} className="text-slate-300" />
-            <p className="text-sm text-slate-500">Nenhuma playlist cadastrada</p>
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-card py-10 text-center">
+            <Monitor size={28} className="text-fg-muted" />
+            <p className="text-sm text-fg-muted">Nenhuma playlist cadastrada</p>
             {!readOnly && (
               <button
                 onClick={openNew}
-                className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                className="mt-1 flex items-center gap-1.5 rounded-lg bg-input px-3 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-segmented hover:text-fg-dim"
               >
                 <Plus size={12} /> Criar primeira playlist
               </button>
@@ -258,7 +258,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.03 }}
-              className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 transition-all hover:bg-slate-50 hover:border-slate-200"
+              className="group flex items-center gap-3 rounded-xl border border-line bg-card px-3 py-2.5 transition-all hover:bg-input hover:border-line"
             >
               {/* Reorder */}
               {!readOnly && (
@@ -266,14 +266,14 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                   <button
                     onClick={() => moveUp(idx)}
                     disabled={idx === 0}
-                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                    className="flex h-4 w-4 items-center justify-center rounded text-fg-dim transition-colors hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                   >
                     <ChevronUp size={12} />
                   </button>
                   <button
                     onClick={() => moveDown(idx)}
                     disabled={idx === playlists.length - 1}
-                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                    className="flex h-4 w-4 items-center justify-center rounded text-fg-dim transition-colors hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                   >
                     <ChevronDown size={12} />
                   </button>
@@ -286,8 +286,8 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                   {sourceIcon(p.source)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-slate-800">{p.name}</span>
-                  <span className="block text-xs text-slate-400">
+                  <span className="block truncate text-sm font-medium text-fg">{p.name}</span>
+                  <span className="block text-xs text-fg-dim">
                     {sourceLabel(p.source)}
                   </span>
                 </div>
@@ -300,7 +300,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => openEdit(p)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-600"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-emerald-600"
                       >
                         <Pencil size={14} />
                       </button>
@@ -311,7 +311,7 @@ export function PlaylistManager({ playlists, onAdd, onEdit, onDelete, readOnly =
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setDeleteTarget(p)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-red-500"
                       >
                         <Trash2 size={14} />
                       </button>

@@ -22,7 +22,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       <DialogContent className="max-h-[85vh] overflow-y-auto modal-content-enhanced" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
         <DialogHeader className="flex-row items-center justify-between sm:flex-row">
           <DialogTitle>{title}</DialogTitle>
-          <DialogClose className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-white" aria-label="Fechar">
+          <DialogClose className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-slate-800 hover:text-white" aria-label="Fechar">
             <CloseIcon size={16} />
           </DialogClose>
         </DialogHeader>
@@ -49,9 +49,9 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, message, confir
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <p className="mb-4 text-sm text-slate-400">{message}</p>
+        <p className="mb-4 text-sm text-fg-dim">{message}</p>
         <div className="flex gap-2">
-          <DialogClose className="flex-1 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-400 transition-colors hover:bg-slate-800">
+          <DialogClose className="flex-1 rounded-lg border border-slate-700 px-4 py-2 text-sm text-fg-dim transition-colors hover:bg-slate-800">
             Cancelar
           </DialogClose>
           <button

@@ -129,12 +129,14 @@ function activeReservaLabTabTexts(): string[] {
   return texts
 }
 
-/** Aba ativa no painel da TV (aba com fundo branco na barra de abas). */
+/** Aba ativa no painel da TV (a que se declara com `aria-current`). */
 function activeTvTabTexts(): string[] {
   const tabs = document.querySelector('div.overflow-x-auto')
   if (!tabs) return []
   const texts: string[] = []
-  tabs.querySelectorAll('button.bg-white').forEach((btn) => {
+  // `aria-current`, e não uma classe de cor: a aba ativa é estado, e a cor do
+  // cartão pode mudar com o tema sem que o estado mude.
+  tabs.querySelectorAll('button[aria-current="true"]').forEach((btn) => {
     texts.push((btn.textContent || '').trim())
   })
   return texts

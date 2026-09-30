@@ -1280,7 +1280,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${notebook.batteryStatus === 'ok' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : notebook.batteryStatus === 'ruim' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
                     🔋 {notebook.batteryStatus === 'ok' ? 'Bateria OK' : notebook.batteryStatus === 'ruim' ? 'Bateria ruim' : 'Sem bateria'}
                   </span>
-                  <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${notebook.autologon ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400' : 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'}`}>
+                  <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${notebook.autologon ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400' : 'bg-input text-fg-dim dark:bg-gray-900/30 dark:text-gray-400'}`}>
                     {notebook.autologon ? '✓ Autologon' : '✗ Sem autologon'}
                   </span>
                   {notebook.visualDamage && (

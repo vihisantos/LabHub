@@ -229,7 +229,7 @@ describe('ModuleStats — números em destaque (o que se quer ver primeiro)', ()
     ])
     renderStats()
 
-    const card = cardByName('Inventário')
+    const card = cardByName('PC Care')
     // 3 PCs: o número vem antes e em destaque, não "PCs 3".
     expect(card.textContent).toMatch(/3\s*PCs/)
     // O secundário vai para a coluna da direita: "1 Com problemas".
@@ -259,7 +259,7 @@ describe('ModuleStats — números em destaque (o que se quer ver primeiro)', ()
       { id: '4', cleaningStatus: 'done' },
     ])
     renderStats()
-    expect(cardByName('Inventário').textContent).toMatch(/2\s*Com problemas/)
+    expect(cardByName('PC Care').textContent).toMatch(/2\s*Com problemas/)
   })
 
   it('estoque: só status "emprestado" conta como em uso', () => {
@@ -325,13 +325,13 @@ describe('ModuleStats — o filtro de acesso não mudou', () => {
     renderStats()
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
     expect(cardByName('Estoque')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Inventário/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /PC Care/ })).not.toBeInTheDocument()
   })
 
   it('app desativado no workspace esconde o módulo', () => {
     mockDisabledApps.mockReturnValue(['pc-care'])
     renderStats()
-    expect(screen.queryByRole('button', { name: /Inventário/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /PC Care/ })).not.toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(4)
   })
 

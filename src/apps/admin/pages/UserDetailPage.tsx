@@ -28,7 +28,7 @@ const ACTION_META: Record<string, { icon: keyof typeof icons.ui; color: string; 
   super_admin_toggled: { icon: 'shield', color: 'text-purple-500 bg-purple-500/10', label: 'Super admin alterado' },
   app_access_changed: { icon: 'alertCircle', color: 'text-amber-500 bg-amber-500/10', label: 'Acesso por app alterado' },
   status_changed: { icon: 'dot', color: 'text-amber-500 bg-amber-500/10', label: 'Alterou status de' },
-  viewed: { icon: 'dot', color: 'text-slate-500 bg-slate-500/10', label: 'Visualizou' },
+  viewed: { icon: 'dot', color: 'text-fg-muted bg-slate-500/10', label: 'Visualizou' },
   exported: { icon: 'download', color: 'text-violet-500 bg-violet-500/10', label: 'Exportou' },
 }
 
@@ -330,7 +330,7 @@ export function UserDetailPage() {
       {isRejected && (
         <div className="rounded-xl bg-slate-500/10 p-4 ring-1 ring-slate-500/20">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-500/15 text-slate-500">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-500/15 text-fg-muted">
               <icons.ui.shield size={16} />
             </div>
             <div>

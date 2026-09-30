@@ -155,7 +155,7 @@ export function StockConsolidado() {
           </h3>
           <div className="flex flex-col gap-2">
             {filteredParts.filter((p) => p.quantity <= p.minQuantity).map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-lg bg-white/50 dark:bg-black/20 px-3 py-2">
+              <div key={p.id} className="flex items-center justify-between rounded-lg bg-card/50 px-3 py-2">
                 <div>
                   <p className="text-sm font-medium text-fg">{p.name}</p>
                   <p className="text-xs text-fg-muted">{categoryLabels[p.category] || p.category}</p>

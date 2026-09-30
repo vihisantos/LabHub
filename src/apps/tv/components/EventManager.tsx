@@ -136,7 +136,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir evento</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir <strong className="text-slate-700">{deleteTarget?.title}</strong>?
+              Tem certeza que deseja excluir <strong className="text-fg-dim">{deleteTarget?.title}</strong>?
               Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -159,9 +159,9 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar size={16} className="text-violet-500" />
-          <h3 className="text-base font-semibold text-slate-800">Eventos</h3>
+          <h3 className="text-base font-semibold text-fg">Eventos</h3>
           {events.length > 0 && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{events.length}</span>
+            <span className="rounded-full bg-input px-2 py-0.5 text-[11px] text-fg-muted">{events.length}</span>
           )}
         </div>
         {!readOnly && (
@@ -183,27 +183,27 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             onSubmit={handleSubmit}
-            className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-white"
+            className="mb-4 overflow-hidden rounded-xl border border-line bg-card"
           >
             <div className="space-y-3 p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-800">{editing ? 'Editar' : 'Novo'} Evento</span>
-                <button type="button" onClick={() => setShowForm(false)} className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                <span className="text-sm font-medium text-fg">{editing ? 'Editar' : 'Novo'} Evento</span>
+                <button type="button" onClick={() => setShowForm(false)} className="flex h-6 w-6 items-center justify-center rounded-md text-fg-dim transition-colors hover:bg-input hover:text-fg-dim">
                   <X size={14} />
                 </button>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
+                <label className="mb-1 block text-xs font-medium text-fg-dim">
                   Título <span className="text-red-500">*</span>
                 </label>
                 <input
                   placeholder="Ex: Simpósio de Engenharia"
                   value={title}
                   onChange={e => { setTitle(e.target.value); setTitleError(false) }}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:bg-white ${
+                  className={`w-full rounded-lg border px-3 py-2 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:bg-card ${
                     titleError
                       ? 'border-red-400 bg-red-50 focus:border-red-500'
-                      : 'border-slate-200 bg-slate-50 focus:border-violet-500'
+                      : 'border-line bg-input focus:border-violet-500'
                   }`}
                 />
                 {titleError && (
@@ -215,24 +215,24 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 rows={3}
-                className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-violet-500 focus:bg-white"
+                className="w-full resize-none rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:border-violet-500 focus:bg-card"
               />
               <div className="flex gap-2">
                 <div className="relative flex-1">
-                  <Image size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Image size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-dim" />
                   <input
                     placeholder="URL da imagem (opcional)"
                     value={imageUrl}
                     onChange={e => setImageUrl(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-violet-500 focus:bg-white"
+                    className="w-full rounded-lg border border-line bg-input py-2 pl-9 pr-3 text-sm text-fg placeholder:text-fg-dim outline-none transition-colors focus:border-violet-500 focus:bg-card"
                   />
                 </div>
                 <CloudinaryUpload onUpload={(url) => setImageUrl(url)} />
                 <CloudinaryUpload resourceType="pdf" onUpload={(url) => setPdfUrl(url)} />
               </div>
               <div className="flex items-center gap-2">
-                <FileText size={14} className="text-slate-400" />
-                <span className="text-xs text-slate-400">
+                <FileText size={14} className="text-fg-dim" />
+                <span className="text-xs text-fg-dim">
                   {pdfUrl ? 'PDF anexado' : 'Nenhum PDF anexado'}
                 </span>
                 {pdfUrl && (
@@ -246,39 +246,39 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
                   type="datetime-local"
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-violet-500 focus:bg-white [color-scheme:light]"
+                  className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:bg-card [color-scheme:light]"
                 />
                 <input
                   type="datetime-local"
                   value={endDate}
                   onChange={e => setEndDate(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-violet-500 focus:bg-white [color-scheme:light]"
+                  className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-violet-500 focus:bg-card [color-scheme:light]"
                 />
               </div>
 
               {/* Toggles */}
               <div className="flex flex-wrap gap-4 pt-1">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs font-medium text-fg-dim cursor-pointer">
                   <input
                     type="checkbox"
                     checked={showCountdown}
                     onChange={e => setShowCountdown(e.target.checked)}
-                    className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                    className="rounded border-line text-violet-600 focus:ring-violet-500"
                   />
                   Exibir Contador Regressivo (Countdown)
                 </label>
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs font-medium text-fg-dim cursor-pointer">
                   <input
                     type="checkbox"
                     checked={hasWelcome}
                     onChange={e => setHasWelcome(e.target.checked)}
-                    className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                    className="rounded border-line text-violet-600 focus:ring-violet-500"
                   />
                   Exibir Slide de Boas-Vindas
                 </label>
               </div>
             </div>
-            <div className="border-t border-slate-100 px-4 py-3">
+            <div className="border-t border-line px-4 py-3">
               <button
                 type="submit"
                 className="w-full rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition-all hover:from-violet-500 hover:to-purple-500 active:scale-[0.98]"
@@ -293,13 +293,13 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
       {/* Event List */}
       <div className="space-y-2">
         {events.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
-            <Calendar size={28} className="text-slate-300" />
-            <p className="text-sm text-slate-500">Nenhum evento cadastrado</p>
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-card py-10 text-center">
+            <Calendar size={28} className="text-fg-muted" />
+            <p className="text-sm text-fg-muted">Nenhum evento cadastrado</p>
             {!readOnly && (
               <button
                 onClick={openNew}
-                className="mt-1 flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                className="mt-1 flex items-center gap-1.5 rounded-lg bg-input px-3 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-segmented hover:text-fg-dim"
               >
                 <Plus size={12} /> Criar primeiro evento
               </button>
@@ -312,7 +312,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.03 }}
-              className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 transition-all hover:bg-slate-50 hover:border-slate-200"
+              className="group flex items-center gap-3 rounded-xl border border-line bg-card px-3 py-2.5 transition-all hover:bg-input hover:border-line"
             >
               {/* Reorder */}
               {!readOnly && (
@@ -320,14 +320,14 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
                   <button
                     onClick={() => moveUp(idx)}
                     disabled={idx === 0}
-                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                    className="flex h-4 w-4 items-center justify-center rounded text-fg-dim transition-colors hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                   >
                     <ChevronUp size={12} />
                   </button>
                   <button
                     onClick={() => moveDown(idx)}
                     disabled={idx === events.length - 1}
-                    className="flex h-4 w-4 items-center justify-center rounded text-slate-400 transition-colors hover:text-slate-600 disabled:cursor-default disabled:opacity-30"
+                    className="flex h-4 w-4 items-center justify-center rounded text-fg-dim transition-colors hover:text-fg-dim disabled:cursor-default disabled:opacity-30"
                   >
                     <ChevronDown size={12} />
                   </button>
@@ -342,21 +342,21 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-slate-800">{e.title}</span>
+                  <span className="block truncate text-sm font-medium text-fg">{e.title}</span>
                   {e.description && (
-                    <span className="block truncate text-xs text-slate-500">{e.description}</span>
+                    <span className="block truncate text-xs text-fg-muted">{e.description}</span>
                   )}
                 </div>
                 <span
                   className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium sm:block ${
-                    e.device_id ? 'bg-violet-50 text-violet-600' : 'bg-slate-100 text-slate-400'
+                    e.device_id ? 'bg-violet-50 text-violet-600' : 'bg-input text-fg-dim'
                   }`}
                   title={e.device_id ? 'Evento direcionado a uma TV' : 'Evento exibido em todas as TVs do campus'}
                 >
                   {eventDeviceLabel(e)}
                 </span>
                 {e.start_date && (
-                  <span className="hidden shrink-0 text-[11px] text-slate-400 sm:block">
+                  <span className="hidden shrink-0 text-[11px] text-fg-dim sm:block">
                     {new Date(e.start_date).toLocaleDateString('pt-BR')}
                   </span>
                 )}
@@ -369,7 +369,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => openEdit(e)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-violet-600"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-violet-600"
                       >
                         <Pencil size={14} />
                       </button>
@@ -380,7 +380,7 @@ export function EventManager({ events, onAdd, onEdit, onDelete, initialValues, d
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setDeleteTarget(e)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-red-500"
                       >
                         <Trash2 size={14} />
                       </button>

@@ -16,8 +16,8 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-12 text-slate-400">
-        <Loader2 size={24} className="animate-spin text-slate-400" />
+      <div className="flex flex-col items-center justify-center gap-3 py-12 text-fg-dim">
+        <Loader2 size={24} className="animate-spin text-fg-dim" />
         <p className="text-sm">Carregando pedidos...</p>
       </div>
     )
@@ -63,7 +63,7 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
       {/* Header */}
       <div className="mb-4 flex items-center gap-2">
         <Music size={16} className="text-blue-500" />
-        <h3 className="text-base font-semibold text-slate-800">Pedidos de Música</h3>
+        <h3 className="text-base font-semibold text-fg">Pedidos de Música</h3>
         {pending.length > 0 && (
           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-600">
             {pending.length} pendente{pending.length !== 1 ? 's' : ''}
@@ -72,10 +72,10 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
       </div>
 
       {requests.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
-          <Music size={28} className="text-slate-300" />
-          <p className="text-sm text-slate-500">Nenhum pedido de música</p>
-          <p className="text-xs text-slate-400">Os pedidos feitos no hub aparecem aqui para verificação</p>
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-card py-10 text-center">
+          <Music size={28} className="text-fg-muted" />
+          <p className="text-sm text-fg-muted">Nenhum pedido de música</p>
+          <p className="text-xs text-fg-dim">Os pedidos feitos no hub aparecem aqui para verificação</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -87,7 +87,7 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
                 key={req.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3"
+                className="flex items-center gap-3 rounded-xl border border-line bg-card p-3"
               >
                 {req.youtube_video_id ? (
                   <img
@@ -97,14 +97,14 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
                     onError={(e) => { e.currentTarget.style.display = 'none' }}
                   />
                 ) : (
-                  <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+                  <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg bg-input text-fg-muted">
                     <Music size={18} />
                   </div>
                 )}
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-800">{req.title || 'Música'}</p>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+                  <p className="truncate text-sm font-medium text-fg">{req.title || 'Música'}</p>
+                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-dim">
                     {req.requested_by_name && (
                       <span className="flex items-center gap-1">
                         <User size={10} /> {req.requested_by_name}
@@ -122,7 +122,7 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
                   href={req.youtube_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-dim transition-colors hover:bg-input hover:text-fg-dim"
                   title="Abrir no YouTube"
                 >
                   <ExternalLink size={14} />
