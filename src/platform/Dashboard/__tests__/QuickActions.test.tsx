@@ -20,6 +20,17 @@ vi.mock('../../../core/permissions/usePermissions', () => ({
   useAppAccess: () => ({ canAccessApp: mockCanAccessApp }),
 }))
 
+// RBAC 2.0 (F2-D-L): o componente passou a ler a visibilidade da fonte nova
+// (`useModuleVisibilities`). O mock reproduz a mesma semântica dos mocks
+// antigos abaixo, para que os testes de filtro continuem medindo a mesma coisa.
+vi.mock('../../../core/permissions/useModuleVisibility', () => ({
+  useModuleVisibilities: () => ({
+    isVisible: (appId: string | undefined) =>
+      !!appId && !mockDisabledApps().includes(appId) && mockCanAccessApp(appId),
+  }),
+  useModuleLevel: () => ({ visible: true, allowed: true, loading: false }),
+}))
+
 vi.mock('../../../core/workspaces/apps', () => ({
   isAppDisabled: (appId: string) => mockDisabledApps().includes(appId),
   isModuleAvailable: (appId: string, _ws: unknown, canAccessApp: (id: string) => boolean) =>

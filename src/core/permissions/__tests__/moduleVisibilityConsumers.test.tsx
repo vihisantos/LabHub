@@ -188,7 +188,7 @@ describe('AppGuard — nova fonte (F2-D-L)', () => {
   })
 })
 
-describe('HomePage — Dashboard vs Launcher (F2-D-L)', () => {
+describe('HomePage — a Home não decide mais Dashboard vs Launcher (F2-D-L)', () => {
   function renderHome() {
     return render(
       <MemoryRouter>
@@ -197,20 +197,23 @@ describe('HomePage — Dashboard vs Launcher (F2-D-L)', () => {
     )
   }
 
-  it('nenhum cargo vê o Dashboard (só super admin) ⇒ Launcher', () => {
-    for (const slug of ['tec', 'vis', 'lider', 'coordinator'] as const) {
+  /* A Home virou composição única (PR #316): ela renderiza `HomeView` para
+     qualquer cargo, e as métricas do Dashboard saíram de `/` para a rota
+     `/dashboard`, atrás do `AppGuard appId="dashboard"` — que é onde a fonte
+     nova é exercitada de verdade (bloco "AppGuard - nova fonte" acima).
+     O teste original deste arquivo ainda exigia o split antigo
+     (Dashboard para super admin, Launcher para os demais) e passou a esperar um
+     componente que a Home não monta mais. Aqui o que se prova é o que vale
+     hoje: a Home não vaza métrica de módulo para nenhum cargo. */
+
+  it('nenhum cargo, nem super admin, recebe os painéis na Home', () => {
+    for (const slug of ['tec', 'vis', 'lider', 'coordinator', 'super'] as const) {
       primeSource(slug)
       const { unmount } = renderHome()
+      expect(screen.getByText('Que bom te ver por aqui!')).toBeInTheDocument()
       expect(screen.queryByText('PAINEIS')).not.toBeInTheDocument()
       unmount()
     }
-  })
-
-  it('super admin ⇒ Dashboard', () => {
-    slugAtual = 'super'
-    primeSource('super')
-    renderHome()
-    expect(screen.getByText('PAINEIS')).toBeInTheDocument()
   })
 })
 
