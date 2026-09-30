@@ -597,3 +597,151 @@
 .celebration-burst {
   animation: celebration-sparkle 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* ── Rating de estrelas do feedback (issue #311) ────────────────────────────
+   Referência da issue adaptada ao tema do LabHub:
+   - o traço vem de `--text-secondary` (o `--stroke: #666` fixo da referência
+     destoaria do Escuro e do Sutil);
+   - o preenchimento mantém o âmbar que o componente já usava
+     (`fill-amber-500`), porque âmbar é a convenção de "nota" e é o que a tela
+     de feedback já mostra hoje.
+
+   O estado de cada estrela chega por `data-filled` / `data-active` /
+   `data-hover`, calculados no componente a partir de `value` — e não por
+   `input:checked ~ label` como na referência. O seletor de irmão da referência
+   acende o lado errado do rating quando o DOM vai de 1 a 5 com `row-reverse`
+   (4 selecionadas apareceriam como 2, e o hover sobre 4 destacaria 5). Aqui a
+   ordem do DOM é a ordem visual, então 4 selecionadas são 4 estrelas e o hover
+   sobre 4 acende 1, 2, 3 e 4. */
+.stars-rating {
+  --stars-stroke: var(--text-secondary);
+  --stars-fill: #f59e0b;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.stars-rating__item {
+  position: relative;
+  display: inline-flex;
+}
+
+/* O radio fica por cima da estrela, invisível mas clicável e focável: quem
+   aponta o dedo (celular) acerta o input direto, e o teclado continua
+   entrando no grupo. `opacity: 0` em vez de `display: none`, que tiraria o
+   radio da navegação por teclado. */
+.stars-rating__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+}
+
+.stars-rating__label {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.stars-rating[disabled] .stars-rating__label {
+  cursor: default;
+}
+
+/* Traço tracejado em movimento (idle). `pathLength={360}` no path normaliza o
+   comprimento do desenho, então o mesmo `stroke-dasharray` serve para 16px e
+   para 28px. */
+.stars-rating__label svg {
+  display: block;
+  overflow: visible;
+  fill: transparent;
+  stroke: var(--stars-stroke);
+  stroke-width: 1.2px;
+  stroke-linejoin: bevel;
+  stroke-dasharray: 12;
+  animation: stars-rating-idle 4s linear infinite;
+  transition: stroke 0.2s, fill 0.5s;
+}
+
+.stars-rating__label[data-hover='true'] svg {
+  stroke: var(--stars-fill);
+}
+
+/* Selecionada: preenchida, sem tracejado. A estrela é distinguível do resto
+   pelo formato (sólida x tracejada), não só pela cor. */
+.stars-rating__label[data-filled='true'] svg {
+  fill: var(--stars-fill);
+  stroke: var(--stars-fill);
+  stroke-opacity: 0;
+  stroke-dasharray: 0;
+  stroke-linejoin: miter;
+  stroke-width: 8px;
+  transition: 0s;
+}
+
+/* Só a estrela recém-selecionada anima: nas outras a animação já terminou e o
+   estado final é o de cima. */
+.stars-rating__label[data-active='true'] svg {
+  animation: stars-rating-idle 4s linear infinite, stars-rating-yippee 0.75s backwards;
+}
+
+/* O input é transparente, então o foco aparece no label vizinho. */
+.stars-rating__input:focus-visible + .stars-rating__label {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@keyframes stars-rating-idle {
+  from { stroke-dashoffset: 24; }
+}
+
+@keyframes stars-rating-yippee {
+  0% {
+    transform: scale(1);
+    fill: var(--stars-fill);
+    fill-opacity: 0;
+    stroke-opacity: 1;
+    stroke: var(--stars-stroke);
+    stroke-dasharray: 10;
+    stroke-width: 1px;
+    stroke-linejoin: bevel;
+  }
+  30% {
+    transform: scale(0);
+    fill: var(--stars-fill);
+    fill-opacity: 0;
+    stroke-opacity: 1;
+    stroke: var(--stars-stroke);
+    stroke-dasharray: 10;
+    stroke-width: 1px;
+    stroke-linejoin: bevel;
+  }
+  30.1% {
+    stroke: var(--stars-fill);
+    stroke-dasharray: 0;
+    stroke-linejoin: miter;
+    stroke-width: 8px;
+  }
+  60% {
+    transform: scale(1.2);
+    fill: var(--stars-fill);
+  }
+}
+
+/* Sem movimento continua legível: a estrela selecionada segue preenchida, só
+   perde a animação. Os três seletores são necessários porque o de
+   `data-active` tem especificidade maior que o da estrela "comum" e ganharia
+   a disputa — sem ele, a estrela recém-selecionada continuaria animando. */
+@media (prefers-reduced-motion: reduce) {
+  .stars-rating__label svg,
+  .stars-rating__label[data-filled='true'] svg,
+  .stars-rating__label[data-active='true'] svg {
+    animation: none;
+    transition: none;
+  }
+}
