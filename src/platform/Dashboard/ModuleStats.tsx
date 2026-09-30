@@ -62,7 +62,7 @@ export function ModuleStats() {
     return [
       {
         id: 'pcare',
-        name: 'Inventário',
+        name: 'PC Care',
         icon: icons.nav.pcs,
         route: '/pc-care',
         stats: [

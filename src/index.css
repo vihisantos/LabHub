@@ -124,6 +124,22 @@
      [data-accent] tem a MESMA especificidade e viria antes. */
   .dark { --accent-strong: var(--accent); }
 
+  /* --on-accent é a cor de TEXTO que vai SOBRE um botão sólido de accent.
+     Ela precisa vir pareada com --accent-strong, porque as duas mudam de
+     lado conforme o tema:
+
+       Claro/Sutil  --accent-strong é escuro  -> texto branco  (4.70 a 5.30:1)
+       Escuro       --accent-strong é claro  -> texto escuro  (4.50 a 7.35:1)
+
+     Sem este token, um botão branco-sobre-accent reprova no Escuro em três
+     dos quatro accents: ciano 2.43:1, esmeralda 2.54:1, roxo 3.97:1. Com ele,
+     o botão é legível nos três temas e nos quatro accents. */
+  :root,
+  .light,
+  .dim { --on-accent: #ffffff; }
+  .dark { --on-accent: #0b1220; }
+
+
   body {
     background-color: var(--bg-primary);
     color: var(--text-primary);

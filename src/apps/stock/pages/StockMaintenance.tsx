@@ -133,7 +133,11 @@ export function StockMaintenance() {
           <button
             type="button"
             onClick={() => setShowForm(!showForm)}
-            className="rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 px-4 py-2 text-sm font-medium text-fg shadow-sm shadow-amber-500/20 transition-all hover:shadow-md"
+            className="rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-all hover:shadow-md"
+            // Era um gradiente fixo from-amber-600 to-orange-600: laranja em
+            // qualquer tema e com qualquer accent. Agora segue o accent, e o
+            // par --accent-strong/--on-accent fecha em 4.70:1 nos 3 temas.
+            style={{ backgroundColor: 'var(--accent-strong)', color: 'var(--on-accent)' }}
           >
             {showForm ? 'Cancelar' : '+ Agendar'}
           </button>
@@ -233,12 +237,13 @@ export function StockMaintenance() {
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Descrição do serviço, peças necessárias, etc."
                 rows={2}
-                className="w-full resize-none rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-amber-500"
+                className="w-full resize-none rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-[var(--accent)]"
               />
             </div>
             <button
               type="submit"
-              className="rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 py-2 text-sm font-medium text-fg shadow-sm shadow-amber-500/20 transition-all hover:shadow-md"
+              className="w-full rounded-lg py-2 text-sm font-medium shadow-sm transition-all hover:shadow-md"
+              style={{ backgroundColor: 'var(--accent-strong)', color: 'var(--on-accent)' }}
             >
               Agendar
             </button>

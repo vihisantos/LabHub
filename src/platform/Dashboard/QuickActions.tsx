@@ -20,7 +20,7 @@ const actions = [
     appId: 'reservalab',
   },
   {
-    label: 'Inventário',
+    label: 'PC Care',
     icon: <icons.nav.pcs size={18} />,
     route: '/pc-care',
     color: '#8b5cf6',
