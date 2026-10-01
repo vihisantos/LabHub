@@ -398,7 +398,7 @@ EXCEPTION WHEN insufficient_privilege THEN NULL;
 END;
 
 BEGIN
-  UPDATE public.profiles SET workspace_ids = ARRAY['outro-ws']::uuid[] WHERE id = v_uid2;
+  UPDATE public.profiles SET workspace_ids = ARRAY['00000000-0000-0000-0000-0000000000ff']::uuid[] WHERE id = v_uid2;
   RAISE EXCEPTION 'FAIL [16]: profiles.workspace_ids deve continuar imutavel em UPDATE normal';
 EXCEPTION WHEN insufficient_privilege THEN NULL;
 END;
