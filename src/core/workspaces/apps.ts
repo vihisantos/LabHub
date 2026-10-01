@@ -21,11 +21,8 @@ export function filterAppsByWorkspace<T extends { id: string }>(
   return apps.filter((app) => !disabled.has(app.id))
 }
 
-/** Módulo disponível = workspace permite E usuário tem acesso. */
-export function isModuleAvailable(
-  appId: string,
-  workspace: Workspace | null | undefined,
-  canAccessApp: (id: string) => boolean,
-): boolean {
-  return !isAppDisabled(appId, workspace) && canAccessApp(appId)
-}
+// F2-D-N2: `isModuleAvailable(appId, workspace, canAccessApp)` foi REMOVIDO.
+// Ele existia só para combinar o eixo `disabled_apps` com o getter legado
+// `canAccessApp`; a fonte nova de visibilidade (`useModuleVisibility`) já
+// aplica os dois eixos juntos, então a função não tinha mais consumidor de
+// produção. `filterAppsByWorkspace` permanece: o Launcher ainda filtra por ele.

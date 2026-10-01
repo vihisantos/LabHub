@@ -8,14 +8,13 @@ import { PullToRefresh } from '../../pcare/components/PullToRefresh'
 import { Modal } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockSections } from '../types'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 export function InventoryList() {
   const navigate = useNavigate()
   const { cycles, loading, createCycle, reload } = useInventory()
   const { items } = useStock()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canWrite } = useCanAccessAction('stock.inventory.run')
   const [showNew, setShowNew] = useState(false)
   const [name, setName] = useState('')
   const [section, setSection] = useState('')

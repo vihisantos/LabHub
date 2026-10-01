@@ -39,7 +39,6 @@ from auth import (
 )
 from rbac import (
     require_action as require_action_rbac,
-    rbac_enabled as rbac_two_enabled,
     rbac_can as rbac_two_can,
     record_rbac_audit as rbac_record_audit,
 )
@@ -79,13 +78,11 @@ def _require_action_in_handler(action, scope='workspace', resource_type=None, re
 
     O contratante DEVE resolver o workspace real do recurso e setar `g.workspace_id`
     ANTES de chamar (para scope != 'global'). Nunca confiar em workspace fornecido
-    pelo cliente. Respeita RBAC_2_ENABLED (OFF ⇒ no-op, legado preservado);
-    fail-closed; NUNCA transforma erro em allow. Retorna None se permitido ou
-    uma resposta Flask (403) se negado.
+    pelo cliente. RBAC 2.0 é a autoridade única (ON-only); fail-closed; NUNCA
+    transforma erro em allow. Retorna None se permitido ou uma resposta Flask (403)
+    se negado.
     """
     user = getattr(g, 'user', None)
-    if not rbac_two_enabled():
-        return None
     if not user:
         return _forbidden('Permissão insuficiente')
     scope_normalized = str(scope or 'workspace').strip()
@@ -107,21 +104,20 @@ def _require_action_in_handler(action, scope='workspace', resource_type=None, re
     return None
 
 
-# ── Ownership de atendimento (independente do RBAC_2_ENABLED) ────────────────
+# ── Ownership de atendimento (regra de negócio, válida sempre) ───────────────
 #
 # Estas regras implementam o fluxo operacional definitivo de Chamados e valem
-# SEMPRE, com RBAC_2_ENABLED=0 OU =1 (a flag controla a granularidade das Actions
-# RBAC 2.0; a regra de ownership é de negócio e nunca é desativada):
+# SEMPRE (a regra de ownership é de negócio e nunca é desativada):
 #
 #   - Técnico comum NÃO pode atribuir/reatribuir responsável (nem escolher outro).
 #   - Técnico comum só pode COMEÇAR ATENDIMENTO em chamado SEM responsável.
 #   - Depois de atribuído a X, os demais técnicos não podem operar (comentar,
-#     mudar status, editar, assumir); apenas o responsável, o líder/assigner e o
+#     mudar status, editar, assumir); apenas o responsável, o assigner e o
 #     super admin podem.
 #
-# "Quem é o líder/assigner" depende do modo:
-#   - RBAC ON : quem tem a Action `ticket.assign` no workspace (role/override).
-#   - RBAC OFF: profile.role legado == 'admin' OU is_super_admin.
+# "Quem é o assigner" é decidido pela RBAC 2.0 (autoridade única):
+#   - quem tem a Action `ticket.assign` no workspace (role/override) ou é
+#     super admin (bypass global).
 # O "tech comum" é qualquer membro que não seja assigner nem super admin.
 
 
@@ -129,16 +125,14 @@ def _require_action_in_handler(action, scope='workspace', resource_type=None, re
 def _is_assigner(user, workspace_id):
     """Pode atribuir/reatribuir responsável de chamados no workspace?
 
-    RBAC ON  → Action `ticket.assign` (scope workspace).
-    RBAC OFF → profile.role == 'admin' (legado) ou is_super_admin.
+    RBAC 2.0 ON-only: super admin ⇒ bypass; senão requer a Action
+    `ticket.assign` (scope workspace) na membership ativa.
     """
     if not user:
         return False
     if user.get('is_super_admin'):
         return True
-    if rbac_two_enabled():
-        return bool(rbac_two_can(user, workspace_id, 'ticket.assign', 'workspace'))
-    return str(user.get('role') or '') == 'admin'
+    return bool(rbac_two_can(user, workspace_id, 'ticket.assign', 'workspace'))
 
 
 def _ticket_owner(ticket):
@@ -2695,7 +2689,7 @@ def chamados_manage(ticket_id):
         # Atribuição/reatribuição/remoção de responsável = privilégio de assigner.
         # O técnico comum NÃO pode escolher outro técnico, nem remover responsável,
         # nem (por esta rota) auto-atribuir-se — a auto-atribuição (claim) tem rota
-        # dedicada e atômica. Bloqueamos inclusive com RBAC_2_ENABLED=0.
+        # dedicada e atômica. Bloqueamos sempre, independente da regra de negócio.
         if 'assignedTo' in updates or 'assignedToUserId' in updates:
             if not _is_assigner(user, ticket_ws):
                 return _forbidden('Permissão insuficiente para atribuir responsável')
@@ -3355,10 +3349,9 @@ def admin_wipe():
 # acontece (backup + deletes + audit) ou nada acontece.
 #
 # Autorização: @require_auth + @require_workspace validam identidade e
-# membership; o gate de gerência espelha can_manage_workspace_apps (migration
-# 031): super admin OU membro com profile.role='admin'. O decorator existente
-# require_admin é super-admin-only (plataforma) e não pode ser aplicado sem
-# quebrar o requisito "admin do workspace pode purgar".
+# membership; o gate de gerência resolve a Action 'admin.app.purge' (escopo
+# workspace) no RBAC 2.0 (memberships/role_permissions) — super admin ⇒ allow;
+# default deny. Não há fallback por profile.role (F2-C: RBAC 2.0 ON-only).
 #
 # Workspace NUNCA vem do corpo como autoridade: g.workspace_id é resolvido e
 # validado pelo require_workspace (membership contra o JWT); o valor é apenas
@@ -3373,27 +3366,17 @@ SUPPORTED_PURGE_APPS = ('tv',)
 def _require_workspace_app_manager():
     """403 a menos que o usuário tenha permissão de gerência do app do workspace.
 
-    Alinhado à autoridade atual do RBAC 2.0 (Etapa 3):
-    - RBAC ativo ⇒ resolve 'admin.app.purge' no workspace via rbac_can
-      (super admin ⇒ allow; permissões/overrides das tabelas RBAC; default deny).
-    - Legacy (flag off) ⇒ espelho de can_manage_workspace_apps (migration 031):
-      super admin OU membro com profile.role='admin' (compat preservada apenas
-      durante a migração; profile.role NÃO é autoridade do RBAC 2.0).
+    Autoridade única do RBAC 2.0 (ON-only): resolve 'admin.app.purge' no
+    workspace via rbac_can — super admin ⇒ allow (bypass); permissões/overrides
+    das tabelas RBAC; default deny. Nenhum fallback por profile.role.
 
     Retorna Response de erro ou None.
     """
     user = getattr(g, 'user', None) or {}
-    if rbac_two_enabled():
-        result = rbac_two_can(user, getattr(g, 'workspace_id', None), 'admin.app.purge', scope='workspace')
-        if result:
-            return None
-        return _forbidden('Permissão insuficiente')
-    if user.get('is_super_admin'):
+    result = rbac_two_can(user, getattr(g, 'workspace_id', None), 'admin.app.purge', scope='workspace')
+    if result:
         return None
-    role = str(user.get('role') or '').strip().lower()
-    if role != 'admin':
-        return _forbidden('Workspace admin access required')
-    return None
+    return _forbidden('Permissão insuficiente')
 
 
 def _validate_purge_app_id():

@@ -1,16 +1,7 @@
 import type { AppNotification } from './types'
 import type { User } from '../auth/types'
 import { workspaceStore } from '../workspaces/store'
-import { permissionService } from '../permissions/service'
 import { appRegistry } from '../../appRegistry'
-
-function hasAppAccess(user: User, appId: string): boolean {
-  if (user.is_super_admin) return true
-  permissionService.initDefaults()
-  permissionService.migrate()
-  const role = permissionService.getRoleForUser(user.roleId)
-  return permissionService.resolveAppAccess(role, user, appId) !== null
-}
 
 /**
  * Decide se uma notificação deve aparecer para o usuário atual.
@@ -20,8 +11,20 @@ function hasAppAccess(user: User, appId: string): boolean {
  * - Automática: a notificação de um app (módulo do appRegistry) só aparece
  *   para quem tem acesso ao app e pertence ao workspace-alvo.
  * - Manual: notify_settings do perfil (mudo global / canal in-app por app).
+ *
+ * RBAC 2.0 (F2-D-L) — a visibilidade do módulo é RESOLVIDA FORA e injetada:
+ * esta função é pura e síncrona (filtra a lista inteira de notificações a cada
+ * render), e a fonte nova (`membership → roles.slug → matriz`) é assíncrona.
+ * O chamador resolve UMA vez por render e passa o acessor
+ * (`useModuleVisibilities`); o parâmetro é OBRIGATÓRIO de propósito — sem
+ * fallback legado, para que `Role.appAccess`/`profiles.app_access` não
+ * sobrevivam como fonte de decisão por engano.
  */
-export function notificationAppliesTo(n: AppNotification, user: User | null): boolean {
+export function notificationAppliesTo(
+  n: AppNotification,
+  user: User | null,
+  hasModuleAccess: (appId: string) => boolean,
+): boolean {
   if (!user) return true
 
   const settings = user.notify_settings
@@ -33,7 +36,7 @@ export function notificationAppliesTo(n: AppNotification, user: User | null): bo
   const isAppModule = !!n.module && appRegistry.some((app) => app.id === n.module)
   const isExplicitTarget = n.audience === 'user' || n.audience === 'role'
   if (isAppModule && !isExplicitTarget) {
-    if (!hasAppAccess(user, n.module)) return false
+    if (!hasModuleAccess(n.module!)) return false
   }
 
   // Preferência de canal in-app por módulo vale para todos os públicos (mudo pontual)

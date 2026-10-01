@@ -9,7 +9,7 @@ import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import type { PartFormData } from '../types'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 const emptyPartForm: PartFormData = {
   name: '',
@@ -28,8 +28,9 @@ const categories = [
 export function PartsList() {
   const { parts, loading, create, update, remove, reload } = useParts()
   const { pcs } = usePCs()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  const { allowed: canCreate } = useCanAccessAction('pcare.part.create')
+  const { allowed: canEdit } = useCanAccessAction('pcare.part.edit')
+  const { allowed: canDelete } = useCanAccessAction('pcare.part.delete')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<PartFormData>(emptyPartForm)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -78,7 +79,7 @@ export function PartsList() {
     <PullToRefresh onRefresh={reload}>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Estoque de Peças</h2>
-        {canWrite && (
+        {canCreate && (
           <button
             type="button"
             onClick={() => setShowForm(!showForm)}
@@ -182,7 +183,7 @@ export function PartsList() {
           icon={icons.nav.parts}
           title="Estoque vazio"
           description="Adicione peças para controlar o inventário."
-          action={canWrite ? { label: 'Nova Peça', onClick: () => setShowForm(true) } : undefined}
+          action={canCreate ? { label: 'Nova Peça', onClick: () => setShowForm(true) } : undefined}
         />
       ) : (
         <div className="flex flex-col gap-2">
@@ -206,7 +207,7 @@ export function PartsList() {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    {canWrite && (
+                    {canEdit && (
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -227,7 +228,7 @@ export function PartsList() {
                         </button>
                       </div>
                     )}
-                    {canWrite && (
+                    {canEdit && (
                       <button
                         type="button"
                         onClick={() => startEdit(part)}
@@ -243,7 +244,7 @@ export function PartsList() {
                     >
                       {usagePartId === part.id ? 'Ocultar' : 'Uso'}
                     </button>
-                    {canWrite && (
+                    {canDelete && (
                       <button
                         type="button"
                         onClick={() => setConfirmRemove(part.id)}

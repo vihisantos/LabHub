@@ -8,7 +8,7 @@ import { SkeletonCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { ConfirmDialog } from '../components/Modal'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
@@ -32,8 +32,7 @@ export function Maintenance() {
   const navigate = useNavigate()
   const { pcs } = usePCs()
   const { all, upcoming, loading, create, complete, remove, reload } = useMaintenance()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  const { allowed: canWrite } = useCanAccessAction('pcare.maintenance.manage')
   const [showForm, setShowForm] = useState(false)
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())

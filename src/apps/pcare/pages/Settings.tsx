@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
+import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
 import { exportCSV, exportXLSX, pcToRows, partToRows } from '../utils/export'
 import { pcService } from '../services/pcService'
 import { partService } from '../services/partService'
@@ -185,8 +186,26 @@ export function Settings() {
   const [importResult, setImportResult] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmClearFinal, setConfirmClearFinal] = useState(false)
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  const { allowed: canImport } = useCanAccessAction('pcare.import')
+  // RBAC 2.0 (F2-D-K): `pcare.data.clear` é uma operação DESTRUTIVA local
+  // (apaga todas as chaves `labhub_*`), portanto NÃO é "visibilidade" — não
+  // pode ser derivada de Action como `pcare.import` (que é escrita em massa,
+  // não deleção de dados).
+  //
+  // Não existe Action para ela: no catálogo ela é `INTERNAL`/destrutiva e nunca
+  // foi semeada. Criar `pcare.data.clear` exigiria uma MIGRATION (seed em
+  // `role_permissions`), o que está fora do escopo do F2-D-K (§19) — então a
+  // lacuna fica DOCUMENTADA, não improvisada.
+  //
+  // A POLÍTICA é preservada exatamente: a fonte nova resolve o nível de
+  // `pc-care` por `membership ativa → roles.slug`, e `full` em `pc-care` existe
+  // só para `tec` (único cargo com `pc-care = full` em `DEFAULT_ROLES`). Logo o
+  // botão continua restrito ao técnico — sem ampliar, sem estreitar.
+  //
+  // Pendência para a fase seguinte: semear `pcare.data.clear` e trocar este gate
+  // por `useCanAccessAction`.
+  const { level: pcCareLevel } = useModuleLevel('pc-care')
+  const canClear = pcCareLevel === 'full'
 
   function handleExportAll() {
     const all = {
@@ -338,7 +357,7 @@ export function Settings() {
         </button>
       </section>
 
-      {canWrite && (
+      {canImport && (
         <section className="rounded-xl border border-line bg-card/50 p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">Importar Dados</h3>
           <p className="mb-2 text-xs text-fg-muted">O nome do arquivo deve conter "PC" (para PCs) ou "peca" (para peças) para identificar automaticamente o tipo.</p>
@@ -364,7 +383,7 @@ export function Settings() {
 
       <section className="rounded-xl border border-red-900/30 bg-red-950/20 p-4">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">Zona de Perigo</h3>
-        {canWrite && (
+        {canClear && (
           <button
             type="button"
             onClick={() => setConfirmClear(true)}

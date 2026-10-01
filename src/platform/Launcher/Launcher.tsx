@@ -5,7 +5,7 @@ import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { filterAppsByWorkspace } from '../../core/workspaces/apps'
-import { useAppAccess } from '../../core/permissions/usePermissions'
+import { useModuleVisibilities } from '../../core/permissions/useModuleVisibility'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { useFastSync } from '../../lib/useFastSync'
 import { useOnlineSync } from '../../lib/useOnlineSync'
@@ -34,9 +34,12 @@ export function Launcher() {
   const navigate = useNavigate()
   const { unreadCount } = useNotifications()
   const { user, signOut } = useAuth()
-  const { canAccessApp } = useAppAccess()
   const { isCoordinator } = useCoordinator()
   const { workspace } = useWorkspace()
+  // RBAC 2.0 (F2-D-L): cards dos apps vêm da nova fonte. O eixo
+  // `disabled_apps` continua aplicado aqui (o legado usava
+  // `filterAppsByWorkspace`), então o default do hook é o correto.
+  const { isVisible } = useModuleVisibilities(appRegistry.map((app) => app.id))
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(false)
@@ -47,7 +50,7 @@ export function Launcher() {
 
   const userName = user?.name?.split(' ')[0] || ''
   const accessibleApps = filterAppsByWorkspace(
-    appRegistry.filter((app) => canAccessApp(app.id)),
+    appRegistry.filter((app) => isVisible(app.id)),
     workspace,
   )
 

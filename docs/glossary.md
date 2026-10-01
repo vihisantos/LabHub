@@ -36,7 +36,7 @@ Termos técnicos que também são identificadores no código (como *workspace*, 
 | **Escopo (*scope*)** | Abrangência de uma Action: `workspace` (válida dentro de um campus) ou `global` (plataforma inteira). |
 | **Deny-by-default** | Regra do RBAC 2.0: na ausência de permissão explícita, o acesso é negado. |
 | **Fail-closed** | Regra de segurança do backend: qualquer erro no motor de autorização resulta em negação, nunca em liberação. |
-| **`RBAC_2_ENABLED`** | Feature flag que liga o enforcement do RBAC 2.0. Desligada, o decorator é *no-op* e apenas as regras legadas valem. |
+| **ON-only** | Estado do RBAC 2.0 pós-F2-C: o enforcement é incondicional; a antiga feature flag `RBAC_2_ENABLED` foi removida do runtime. |
 | **Auditoria de RBAC** | Registro append-only das decisões de autorização em `rbac_audit_logs`. |
 | **RLS** | *Row Level Security* — política do PostgreSQL que restringe quais linhas um usuário pode acessar, com base nos workspaces de que participa. |
 | **`user_belongs_to_workspace()`** | Função auxiliar de RLS que verifica a participação do usuário em um workspace. |

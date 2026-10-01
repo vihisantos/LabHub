@@ -13,9 +13,9 @@ Cenario:
 
 Asserts cobrem:
   A  autoelevacao negada para usuario comum (is_super_admin, role admin/
-     coordinator/lider, status, app_access) e imutabilidade de id/workspace_ids;
+     coordinator/lider, status) e imutabilidade de id/workspace_ids;
   B  edicao legitima de perfil pelo proprio usuario segue permitida;
-  C  super admin edita is_super_admin/role/status/app_access de terceiros, mas
+  C  super admin edita is_super_admin/role/status de terceiros, mas
      NAO altera id nem workspace_ids em UPDATE normal;
   D  primitivo legado `sync_user_memberships`/`trg_sync_user_memberships`
      ausente do catalogo e trigger legado inexistente;
@@ -25,7 +25,16 @@ Asserts cobrem:
   G  integridade RBAC 2.0 (is_coordinator_of e memberships intactos);
   X  integridade final (colunas de privilegio do comum intactas).
 
-Requer migrations 019, 028, 041..053 e 067 aplicadas no alvo.
+`app_access` NAO aparece mais neste validador (F2-D-N3). A migration 083 removeu
+o campo da lista de protegidos de `guard_profile_privileged_columns()` porque a
+coluna nao concede autoridade de autorizacao (auditoria F2-D-H). Os asserts A6,
+C5 e C6 testavam exatamente essa proteicao que deixou de existir, e o snapshot
+`_snap` lia a coluna — que sera removida pela migration de DROP. A cobertura do
+trust boundary nao diminuiu: os campos que a 083 MANTEM protegidos
+(`is_super_admin`, `role`, `status`) e os imutaveis (`id`, `workspace_ids`)
+continuao todos exercitados, no DENY e no caminho de bypass.
+
+Requer migrations 019, 028, 041..053, 067 e 080 aplicadas no alvo.
 
 Uso:
     SUPABASE_PROJECT_REF=... SUPABASE_ACCESS_TOKEN=... \
@@ -157,9 +166,6 @@ $f$ LANGUAGE sql STABLE;
 CREATE FUNCTION pg_temp._is_super(p_pid uuid) RETURNS boolean AS $f$
   SELECT is_super_admin FROM public.profiles WHERE id = p_pid;
 $f$ LANGUAGE sql STABLE;
-CREATE FUNCTION pg_temp._app_access(p_pid uuid) RETURNS jsonb AS $f$
-  SELECT app_access FROM public.profiles WHERE id = p_pid;
-$f$ LANGUAGE sql STABLE;
 CREATE FUNCTION pg_temp._ws_ids(p_pid uuid) RETURNS uuid[] AS $f$
   SELECT workspace_ids FROM public.profiles WHERE id = p_pid;
 $f$ LANGUAGE sql STABLE;
@@ -181,7 +187,7 @@ JOIN public.roles r ON r.slug = v.role_slug;
 __ROLE_UPDATES__
 
 CREATE TEMP TABLE _snap AS
-SELECT id, is_super_admin, role, status, app_access, workspace_ids
+SELECT id, is_super_admin, role, status, workspace_ids
 FROM public.profiles WHERE id::text LIKE '__PFX__%';
 
 CREATE TEMP TABLE _m0 AS
@@ -209,10 +215,13 @@ SELECT pg_temp._expect_deny(
   'A5 common nao altera status (autoaprovacao)',
   $q$UPDATE public.profiles SET status = 'suspended' WHERE id = '__COMMON__'$q$,
   'alteracao de campo privilegiado do proprio perfil nao e permitida%');
-SELECT pg_temp._expect_deny(
-  'A6 common nao altera app_access',
-  $q$UPDATE public.profiles SET app_access = '{"tv":"full"}'::jsonb WHERE id = '__COMMON__'$q$,
-  'alteracao de campo privilegiado do proprio perfil nao e permitida%');
+-- A6 (REMOVIDO no F2-D-N3): "common nao altera app_access" testava uma
+-- proteicao que a migration 083 eliminou de proposito — `app_access` saiu da
+-- lista de campos privilegiados de `guard_profile_privileged_columns()` porque
+-- a coluna nao concede autoridade de autorizacao (auditoria F2-D-H: nenhuma
+-- policy, funcao, RPC ou rota a consultava). Manter o DENY aqui afirmaria uma
+-- regra que nao existe. A coluna tambem deixa de existir na migration de DROP,
+-- entao o UPDATE nem executaria.
 SELECT pg_temp._expect_deny(
   'A7 common nao altera workspace_ids',
   $q$UPDATE public.profiles SET workspace_ids = ARRAY['__WS_A__']::uuid[] WHERE id = '__COMMON__'$q$,
@@ -259,14 +268,13 @@ SELECT pg_temp._expect_deny(
   $q$UPDATE public.profiles SET workspace_ids = ARRAY['__WS_A__']::uuid[] WHERE id = '__TARGET__'$q$,
   'profiles.workspace_ids is immutable in normal UPDATE%');
 
--- Super Admin continua alterando app_access.
-SELECT pg_temp._expect_ok(
-  'C5 super admin altera app_access',
-  $q$UPDATE public.profiles SET app_access = '{"tv":"full"}'::jsonb WHERE id = '__TARGET__'$q$);
-SELECT pg_temp._chk(
-  'C6 app_access do super admin persistiu',
-  pg_temp._app_access('__TARGET__'::uuid) = '{"tv":"full"}'::jsonb,
-  to_jsonb('{"tv":"full"}'::jsonb), to_jsonb(pg_temp._app_access('__TARGET__'::uuid)), 1, 1);
+-- C5/C6 (REMOVIDOS no F2-D-N3): "super admin altera app_access" e "persistiu"
+-- cobriam um campo que saiu do trust boundary na 083 pelo mesmo motivo acima.
+-- O bypass do super admin continua coberto por C1/C2, que editam `role`,
+-- `status` e `is_super_admin` de um terceiro — os campos que a 083 mantem
+-- sob edicao administrativa. A coluna `app_access` deixa de existir na
+-- migration de DROP, entao o UPDATE nem executaria.
+-- Nenhuma coluna substituta foi usada: nao ha campo fantasma nem fallback.
 
 -- ================= D: primitivo legado removido =================
 SELECT pg_temp._chk(
@@ -332,17 +340,15 @@ SELECT pg_temp._chk(
 
 -- ================= X: integridade final =================
 SELECT pg_temp._chk(
-  'X1 common sem privilegio algum (is_super/role/status/app_access intactos)',
+  'X1 common sem privilegio algum (is_super/role/status intactos)',
   pg_temp._is_super('__COMMON__'::uuid) = false
     AND pg_temp._profile_role('__COMMON__'::uuid) = 'technician'
-    AND pg_temp._profile_status('__COMMON__'::uuid) = 'active'
-    AND pg_temp._app_access('__COMMON__'::uuid) = '{}'::jsonb,
-  to_jsonb('false/technician/active/{}'::text),
+    AND pg_temp._profile_status('__COMMON__'::uuid) = 'active',
+  to_jsonb('false/technician/active'::text),
   to_jsonb(concat_ws('/',
     pg_temp._is_super('__COMMON__'::uuid)::text,
     pg_temp._profile_role('__COMMON__'::uuid),
-    pg_temp._profile_status('__COMMON__'::uuid),
-    pg_temp._app_access('__COMMON__'::uuid)::text)), 1, 1);
+    pg_temp._profile_status('__COMMON__'::uuid))), 1, 1);
 
 SELECT coalesce(bool_and(ok), false) AS all_ok,
        count(*) FILTER (WHERE NOT ok) AS fails,

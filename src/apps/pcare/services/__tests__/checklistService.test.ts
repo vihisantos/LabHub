@@ -1,5 +1,6 @@
-import { checklistTemplateService, pcChecklistService } from '../checklistService'
+import { checklistTemplateService } from '../checklistService'
 import type { ChecklistTemplateForm } from '../../types/checklist'
+import { authService } from '../../../../core/auth/service'
 
 function validTemplateForm(): ChecklistTemplateForm {
   return {
@@ -56,38 +57,45 @@ describe('checklistTemplateService', () => {
   })
 })
 
-describe('pcChecklistService', () => {
-  it('create adiciona checklist para PC', () => {
-    const cl = pcChecklistService.create({
-      pcId: 'pc-1',
-      templateId: 'template-1',
-      templateName: 'Checklist Padrão',
-      labName: 'Lab A',
-      items: [{ itemId: 'item-1', label: 'Limpar', category: 'cleaning', done: false, doneAt: null }],
-      completedAt: null,
-    })
-    expect(cl.id).toBeDefined()
-    expect(cl.pcId).toBe('pc-1')
-    expect(cl.items).toHaveLength(1)
+/**
+ * F2-D-G / F2-D-N2 — o gate legado saiu do service de TEMPLATE e não voltou.
+ *
+ * A autorização por Action vive na UI (`useCanAccessAction`) e no RLS de
+ * `pcare.checklist_templates` (migration 079). A cadeia legada
+ * (`requireWrite` → `canWriteApp` → `resolveAppAccess` →
+ * `Role.appAccess`/`profiles.app_access`) foi REMOVIDA no F2-D-N2, junto com
+ * `pcChecklistService` — o fluxo morto que era o único detentor dela.
+ */
+describe('checklistTemplateService — sem dependência do gate legado (RBAC 2.0)', () => {
+  it('funciona com um usuário sem acesso a pc-care (quem nega é a Action/RLS)', () => {
+    const spy = vi.spyOn(authService, 'getCurrentUser').mockReturnValue({
+      id: 'u-viewer',
+      roleId: 'role-viewer',
+      status: 'active',
+      is_super_admin: false,
+      membershipsLoaded: true,
+      memberships: [{ workspace_id: 'ws-a', role_id: 'r-vis', status: 'active' }],
+      workspace_ids: ['ws-a'],
+    } as never)
+
+    // O service legado lançaria aqui. Não lança: a decisão é do servidor.
+    const t = checklistTemplateService.create(validTemplateForm())
+    expect(t.id).toBeDefined()
+    expect(checklistTemplateService.getAll()).toHaveLength(1)
+
+    spy.mockRestore()
   })
 
-  it('getByPC retorna checklists de um PC', () => {
-    pcChecklistService.create({ pcId: 'pc-1', templateId: 't1', templateName: 'T1', labName: 'Lab A', items: [], completedAt: null })
-    pcChecklistService.create({ pcId: 'pc-1', templateId: 't2', templateName: 'T2', labName: 'Lab A', items: [], completedAt: null })
-    pcChecklistService.create({ pcId: 'pc-2', templateId: 't3', templateName: 'T3', labName: 'Lab A', items: [], completedAt: null })
-    const result = pcChecklistService.getByPC('pc-1')
-    expect(result).toHaveLength(2)
-  })
+  it('o módulo não referencia nenhuma API legada de autorização', () => {
+    // Trava estrutural: se alguém reintroduzir a cadeia, isto quebra.
+    const fonte = require('fs')
+      .readFileSync(require('path').resolve(__dirname, '../checklistService.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
 
-  it('update modifica itens do checklist', () => {
-    const cl = pcChecklistService.create({
-      pcId: 'pc-1', templateId: 't1', templateName: 'T1', labName: 'Lab A',
-      items: [{ itemId: 'i1', label: 'Limpar', category: 'cleaning', done: false, doneAt: null }],
-      completedAt: null,
-    })
-    const updated = pcChecklistService.update(cl.id, {
-      items: [{ itemId: 'i1', label: 'Limpar', category: 'cleaning', done: true, doneAt: { seconds: Date.now() / 1000, nanoseconds: 0 } as any }],
-    })
-    expect(updated?.items[0].done).toBe(true)
+    expect(fonte).not.toMatch(/permissions\/service/)
+    expect(fonte).not.toMatch(/requireWrite|canWriteApp|resolveAppAccess/)
+    expect(fonte).not.toMatch(/appAccess|app_access/)
   })
 })
+

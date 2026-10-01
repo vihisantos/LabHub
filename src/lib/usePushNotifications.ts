@@ -13,9 +13,13 @@ export interface PushUserInfo {
   is_super_admin?: boolean
   /** Workspaces do usuário — usado para filtrar por workspace no backend */
   workspace_ids?: string[]
-  /** Acesso resolvido por aplicativo (cargo + override) — usado para segmentar por módulo.
-   * Valor = nível efetivo ('dash' | 'read' | 'full') ou `false` quando sem acesso.
-   * Inscrições legadas enviadas antes desta mudança podem conter booleano `true`/`false`. */
+  /** Acceso por aplicativo. VAZIO por decisão de arquitetura (F2-D-N1): a
+   * visibilidade não é mais transportada no payload de push, porque a matriz
+   * RBAC2 é por workspace e este snapshot é global — não há representação fiel.
+   * O campo permanece no contrato (e na tela de diagnóstico) por compatibilidade;
+   * o targeting é resolvido no servidor (membership + role_permissions), nunca
+   * aqui. Inscrições legadas no Redis ainda podem trazer os níveis antigos
+   * ('full'/'read'/booleano) e eles NÃO concedem nada. Ver `buildPushUser`. */
   apps?: Record<string, boolean | string>
   /** Preferências manuais (mudo / canais por app) — respeitadas no envio */
   notify_settings?: {

@@ -13,7 +13,7 @@ import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockPath } from '../utils/stockPath'
 import { activateItemAsPC } from '../utils/activateAsPC'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import type { StockItemFormData } from '../types'
 
 export function StockDetail() {
@@ -22,8 +22,9 @@ export function StockDetail() {
   const location = useLocation()
   const { items, create, update, remove } = useStock()
   const { movements } = useMovements()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canCreate } = useCanAccessAction('stock.item.create')
+  const { allowed: canEdit } = useCanAccessAction('stock.item.edit')
+  const { allowed: canDelete } = useCanAccessAction('stock.item.delete')
   const [showEdit, setShowEdit] = useState(false)
   const [showDuplicate, setShowDuplicate] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
@@ -94,7 +95,7 @@ export function StockDetail() {
     <div>
       <div className="mb-5 flex items-center gap-2">
         <h2 className="text-2xl font-bold tracking-tight flex-1">{item.name}</h2>
-        {canWrite && (
+        {canEdit && (
           <button
             type="button"
             onClick={() => setShowEdit(true)}
@@ -104,7 +105,7 @@ export function StockDetail() {
             <icons.ui.edit size={18} />
           </button>
         )}
-        {canWrite && (
+        {canCreate && (
           <button
             type="button"
             onClick={() => setShowDuplicate(true)}
@@ -115,7 +116,7 @@ export function StockDetail() {
             <icons.ui.copy size={18} />
           </button>
         )}
-        {canWrite && (
+        {canDelete && (
           <button
             type="button"
             onClick={() => setShowDelete(true)}
@@ -279,7 +280,7 @@ export function StockDetail() {
             <div className="space-y-2">
               {item.pcParts.map((part) => (
                 <div key={part.partName} className="flex items-center gap-2">
-                  {canWrite ? (
+                  {canEdit ? (
                     <button
                       type="button"
                       onClick={() => togglePart(part.partName)}
@@ -307,7 +308,7 @@ export function StockDetail() {
               <span className="text-xs text-fg-muted">
                 {item.pcParts.filter(p => p.present).length} de {item.pcParts.length} peças
               </span>
-              {canWrite && item.pcParts.every(p => p.present) ? (
+              {canEdit && item.pcParts.every(p => p.present) ? (
                 <button
                   type="button"
                   onClick={handleActivate}
@@ -317,7 +318,7 @@ export function StockDetail() {
                   Ativar e enviar para PC Care
                 </button>
               ) : (
-                !canWrite && item.pcParts.every(p => p.present) ? null : (
+                !canEdit && item.pcParts.every(p => p.present) ? null : (
                   <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
                     Faltam {item.pcParts.filter(p => !p.present).length} peça(s)
                   </span>

@@ -4,12 +4,12 @@ import { CoordinatorReservaLabTab } from '../CoordinatorReservaLabTab'
 import type { CoordinatedUnit } from '../../../../core/permissions/coordinatorService'
 import type { Workspace } from '../../../../core/workspaces/types'
 
-const mockUseAppAccess = vi.hoisted(() => vi.fn())
+const mockUseModuleLevel = vi.hoisted(() => vi.fn())
 const mockFetchReservas = vi.hoisted(() => vi.fn())
 const mockFetchTabletReservas = vi.hoisted(() => vi.fn())
 
-vi.mock('../../../../core/permissions/usePermissions', () => ({
-  useAppAccess: () => mockUseAppAccess(),
+vi.mock('../../../../core/permissions/useModuleVisibility', () => ({
+  useModuleLevel: (...args: unknown[]) => mockUseModuleLevel(...args),
 }))
 
 vi.mock('../../../../apps/reservalab/services/api', () => ({
@@ -94,7 +94,7 @@ describe('CoordinatorReservaLabTab (PR E — visão consolidada em leitura)', ()
     // dependem de timers reais — mesmo padrão do CoordinatorHome.test.tsx.
     vi.useRealTimers()
     vi.clearAllMocks()
-    mockUseAppAccess.mockReturnValue({ canAccessApp: () => true, canWriteApp: () => false })
+    mockUseModuleLevel.mockReturnValue({ visible: true, loading: false })
     mockFetchReservas.mockResolvedValue(labsResponse())
     mockFetchTabletReservas.mockResolvedValue([])
   })
@@ -279,7 +279,7 @@ describe('CoordinatorReservaLabTab (PR E — visão consolidada em leitura)', ()
   })
 
   it('papel sem acesso ao ReservaLab: "acesso restrito" e nada é buscado', async () => {
-    mockUseAppAccess.mockReturnValue({ canAccessApp: () => false, canWriteApp: () => false })
+    mockUseModuleLevel.mockReturnValue({ visible: false, loading: false })
 
     renderTab([unit('ws1', 'Campus A')], [workspace('ws1', 'campus-a')])
     await waitFor(() => expect(screen.getByTestId('reservalab-restricted')).toBeInTheDocument())

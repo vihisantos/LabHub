@@ -27,7 +27,7 @@
 - **Taxa de entrega** — painel do Upstash Redis
 - **Número de inscrições** — chaves `push_subscribers:*` no Redis
 
-### RBAC 2.0 (quando `RBAC_2_ENABLED=1`)
+### RBAC 2.0 (sempre ativo — ON-only)
 
 | Métrica | Onde observar | O que vigiar |
 |---------|---------------|--------------|

@@ -8,7 +8,7 @@ import { partService } from '../services/partService'
 import { SkeletonStatCard } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../../../lib/components/ui'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 type DataType = 'pcs' | 'parts'
 type Format = 'csv' | 'xlsx' | 'pdf'
@@ -30,8 +30,7 @@ export function Reports() {
   const [importing, setImporting] = useState(false)
   const [importSuccess, setImportSuccess] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  const { allowed: canWrite } = useCanAccessAction('pcare.import')
 
   const labs = useMemo(() => {
     const unique = new Set(pcs.map((p) => p.labName))

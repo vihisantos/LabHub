@@ -14,7 +14,7 @@ import { getPriority, getSlaInfo } from '../services/sla'
 import { ticketService } from '../services/ticketService'
 import { Stars } from '../components/Stars'
 import { icons } from '../../../lib/icons'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { useLeadership } from '../../../core/permissions/useLeadership'
 import { getWorkspaceAssignees, type WorkspaceAssignee } from '../../../core/permissions/workspaceAssigneesService'
 import { useAuth } from '../../../core/auth/useAuth'
@@ -43,9 +43,18 @@ export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { tickets, update, updateStatus, create, claim } = useTicketsContext()
-  const { isFullAccess } = useAppAccess()
   const { user } = useAuth()
-  const canWrite = isFullAccess('chamados')
+  // RBAC 2.0: cada operação de escrita é autorizada pela Action correspondente
+  // (backend é a autoridade final — RLS/API). O dono do chamado (claimedByMe)
+  // e o líder (isLeader) continuam com as regras de ownership abaixo.
+  const { allowed: canEdit } = useCanAccessAction('ticket.edit')
+  const { allowed: canStatus } = useCanAccessAction('ticket.status')
+  const { allowed: canAssign } = useCanAccessAction('ticket.assign')
+  const { allowed: canComment } = useCanAccessAction('ticket.comment')
+  const { allowed: canClose } = useCanAccessAction('ticket.close')
+  const { allowed: canReopen } = useCanAccessAction('ticket.reopen')
+  const { allowed: canCreate } = useCanAccessAction('ticket.create')
+  const { allowed: canClaimAction } = useCanAccessAction('ticket.claim')
   // Líder/assigner: quem pode atribuir/reatribuir responsável. Inclui o admin
   // absoluto e os cargos de liderança RBAC 2.0 (lider/coordinator). O backend
   // é a autoridade final (Action `ticket.assign`, RBAC ON/OFF).
@@ -170,15 +179,15 @@ export function TicketDetail() {
   // Quem pode operar (comentar, mudar status, prioridade...):
   //   - o responsável do chamado;
   //   - o líder/assigner (isLeader);
-  //   - qualquer usuário com nível full quando o chamado AINDA NÃO TEM
-  //     responsável (mesma regra do backend `_can_operate_ticket`: sem dono,
+  //   - qualquer usuário com a Action `ticket.edit` quando o chamado AINDA NÃO
+  //     TEM responsável (mesma regra do backend `_can_operate_ticket`: sem dono,
   //     qualquer técnico do workspace pode operar/assumir).
   // Isolamento: técnico comum não opera chamado atribuído a outro.
   const unassigned = !ticket.assignedToUserId
-  const canOperate = isLeader || claimedByMe || (canWrite && unassigned)
+  const canOperate = isLeader || claimedByMe || (canEdit && unassigned)
   const inOpenFlow = ticket.status === 'aberto' || ticket.status === 'a_caminho' || ticket.status === 'em_atendimento'
   // Chamado assumido por outro técnico — quem não é responsável nem líder vê só leitura.
-  const lockedByOther = canWrite && !isLeader && !claimedByMe && !!ticket.assignedToUserId && inOpenFlow
+  const lockedByOther = canEdit && !isLeader && !claimedByMe && !!ticket.assignedToUserId && inOpenFlow
 
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket || !canOperate) return
@@ -355,7 +364,7 @@ export function TicketDetail() {
           </div>
         )}
 
-      {isLeader && (
+      {isLeader && canAssign && (
         <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
           <h3 className="mb-2 text-xs font-semibold text-fg-muted">Responsável</h3>
           <div className="flex gap-2">
@@ -395,21 +404,25 @@ export function TicketDetail() {
           </div>
           {canOperate && (
             <div className="mt-3 space-y-2">
-              <button
-                type="button"
-                onClick={handleReopen}
-                className="w-full rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-fg transition-colors hover:border-amber-500 hover:text-amber-500"
-              >
-                Reabrir chamado
-              </button>
-              <button
-                type="button"
-                onClick={handleReopenNew}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
-              >
-                <icons.ui.plus size={16} />
-                Abrir novo chamado (mesma sala/problema)
-              </button>
+              {canReopen && (
+                <button
+                  type="button"
+                  onClick={handleReopen}
+                  className="w-full rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-fg transition-colors hover:border-amber-500 hover:text-amber-500"
+                >
+                  Reabrir chamado
+                </button>
+              )}
+              {canCreate && (
+                <button
+                  type="button"
+                  onClick={handleReopenNew}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
+                >
+                  <icons.ui.plus size={16} />
+                  Abrir novo chamado (mesma sala/problema)
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -569,7 +582,7 @@ export function TicketDetail() {
 
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h3 className="mb-3 text-xs font-semibold text-fg-muted">Histórico</h3>
-        {canOperate && (
+        {canOperate && canComment && (
           <div className="mb-4 rounded-xl border border-line bg-surface p-3">
             <textarea
               value={comment}
@@ -697,7 +710,7 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canWrite && canClaim && unassigned && inOpenFlow && (
+      {canClaimAction && canClaim && unassigned && inOpenFlow && (
         <div className="space-y-2">
           <button
             type="button"
@@ -712,7 +725,8 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canOperate && nextStatus && !lockedByOther && (nextStatus !== 'a_caminho' || claimedByMe) && (
+      {canOperate && nextStatus && !lockedByOther && (nextStatus !== 'a_caminho' || claimedByMe) &&
+        (nextStatus === 'fechado' ? canClose : canStatus) && (
         <button
           type="button"
           onClick={handleAdvanceStatus}

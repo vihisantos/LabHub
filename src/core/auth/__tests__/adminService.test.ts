@@ -278,37 +278,21 @@ describe('adminService — aprovação GLOBAL de contas', () => {
   })
 
   describe('updateUserProfile', () => {
-    it('converte roleId → role e mantém os demais campos (sem workspace_ids: 9.3-B)', async () => {
+    it('persiste notify_settings (uso corrente do NotificationRulesTab)', async () => {
       const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
 
       const ok = await adminService.updateUserProfile('u-1', {
-        roleId: 'role-admin',
-        name: 'Novo Nome',
+        notify_settings: { muted: true, apps: {} },
       })
 
       expect(ok).toBe(true)
       const [payload] = chain.update.mock.calls[0]
-      expect(payload).toMatchObject({
-        role: 'admin',
-        name: 'Novo Nome',
-      })
+      expect(payload).toMatchObject({ notify_settings: { muted: true, apps: {} } })
+      expect(payload).not.toHaveProperty('roleId')
+      expect(payload).not.toHaveProperty('role')
+      expect(payload).not.toHaveProperty('app_access')
       expect(payload).not.toHaveProperty('workspace_ids')
       expect(payload).not.toHaveProperty('is_super_admin')
-      expect(payload.roleId).toBeUndefined()
-    })
-
-    it('persiste o coordenador multiunidade como role canonical "coordinator"', async () => {
-      const chain = makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
-
-      const ok = await adminService.updateUserProfile('u-1', {
-        roleId: 'role-coordinator',
-      })
-
-      expect(ok).toBe(true)
-      const [payload] = chain.update.mock.calls[0]
-      expect(payload.role).toBe('coordinator')
-      expect(payload.roleId).toBeUndefined()
-      expect(payload).not.toHaveProperty('workspace_ids')
     })
   })
 })

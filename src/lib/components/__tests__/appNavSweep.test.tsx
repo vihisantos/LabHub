@@ -42,6 +42,17 @@ vi.mock('../../../core/workspaces/WorkspaceContext', () => ({
 vi.mock('../../../core/notifications/useNotifications', () => ({
   useNotifications: () => ({ unreadCount: 0 }),
 }))
+// A varredura exercita a navegação entre abas, não a visibilidade. O usuário
+// fictício é super admin, que na fonte nova (membership -> matriz) é `full` em
+// todos os módulos; sem memberships no ambiente de teste, o nível viraria
+// `none` e o Admin da TV cairia na tela de acesso restrito.
+vi.mock('../../../core/permissions/useModuleVisibility', () => {
+  const nivel = { level: 'full' as const, visible: true, loading: false }
+  return {
+    useModuleLevel: () => nivel,
+    useModuleVisibilities: () => ({ levelOf: () => nivel, isVisible: () => true, loading: false }),
+  }
+})
 vi.mock('../../../lib/useFastSync', () => ({
   useFastSync: () => {},
 }))

@@ -1,21 +1,27 @@
 import { useEffect, useState } from 'react'
 import { icons } from '../../../lib/icons'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { slaConfigService } from '../services/slaConfigService'
 import { TICKET_PRIORITIES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_COLORS } from '../types'
 import type { TicketPriority } from '../types'
 
 export function Settings() {
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('chamados')
+  // RBAC 2.0 (F2-D-G): a edição do SLA é decidida pela Action
+  // `chamados.settings.manage` (migration 079) — a mesma que o
+  // `slaConfigService.update` exige no service. Antes era `isFullAccess
+  // ('chamados')`, derivado de `Role.appAccess`/`profiles.app_access`.
+  // Fail-closed: enquanto a consulta não responde, `allowed` é false.
+  const { allowed: canWrite } = useCanAccessAction('chamados.settings.manage')
   const { workspace } = useWorkspace()
 
   const [slaHours, setSlaHours] = useState<Record<TicketPriority, number> | null>(null)
   const [slaSaved, setSlaSaved] = useState(false)
+  const [slaError, setSlaError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!workspace?.id) return
+    // Leitura pura: devolve o SLA salvo ou o padrão efêmero (nunca cria).
     setSlaHours(slaConfigService.getFor(workspace.id).hours)
   }, [workspace?.id])
 
@@ -25,11 +31,17 @@ export function Settings() {
     setSlaHours({ ...slaHours, [priority]: Number.isFinite(num) ? Math.max(1, num) : 1 })
   }
 
-  function saveSla() {
-    if (!workspace?.id || !slaHours) return
-    slaConfigService.update(workspace.id, slaHours)
-    setSlaSaved(true)
-    setTimeout(() => setSlaSaved(false), 2000)
+  async function saveSla() {
+    if (!workspace?.id || !slaHours || !canWrite) return
+    setSlaError(null)
+    try {
+      await slaConfigService.update(workspace.id, slaHours)
+      setSlaSaved(true)
+      setTimeout(() => setSlaSaved(false), 2000)
+    } catch (err) {
+      setSlaSaved(false)
+      setSlaError(err instanceof Error ? err.message : 'Não foi possível salvar os prazos.')
+    }
   }
 
   return (
@@ -55,6 +67,12 @@ export function Settings() {
             </button>
           )}
         </div>
+
+        {slaError && (
+          <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+            {slaError}
+          </p>
+        )}
 
         {slaHours && (
           <div className="space-y-2">

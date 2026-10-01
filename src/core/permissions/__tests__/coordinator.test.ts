@@ -1,51 +1,35 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { DEFAULT_ROLES, resolveRoleId } from '../types'
 import { permissionService } from '../service'
-import { authService } from '../../auth/service'
+import { moduleLevelForSlug } from '../moduleVisibility'
 
+/**
+ * F2-D-N2 — o cargo Coordenador Multiunidade.
+ *
+ * Antes, este arquivo comparava `DEFAULT_ROLES[].appAccess` (a matriz legada
+ * local) e chamava `resolveAppAccess`/`canWriteApp`. Essas APIs foram removidas,
+ * então a verificação passou a ser feita na FONTE DE VERDADE do RBAC 2.0
+ * (`moduleLevelForSlug`, alimentada por `membership → roles.slug`), e a parte de
+ * identidade do cargo (key/default/nome) continua testada aqui.
+ *
+ * Não se recriou nenhuma asserção equivalente sobre `appAccess`: o oráculo
+ * passou a ser a matriz RBAC2, não uma cópia da matriz antiga.
+ */
 function coordinatorRole() {
   return DEFAULT_ROLES.find((r) => r.id === 'role-coordinator')!
 }
 
-function viewerRole() {
-  return DEFAULT_ROLES.find((r) => r.id === 'role-viewer')!
-}
-
-function plainUser(): { is_super_admin?: boolean; app_access?: undefined } {
-  return { is_super_admin: false }
-}
-
 describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
-  let spy: ReturnType<typeof vi.spyOn> | undefined
-
   beforeEach(() => {
     localStorage.clear()
-    vi.clearAllMocks()
   })
 
-  afterEach(() => {
-    spy?.mockRestore()
-  })
-
-  function as(user: { roleId: string; is_super_admin: boolean }) {
-    spy = vi.spyOn(authService, 'getCurrentUser').mockReturnValue(user as never)
-  }
-
-  it('existe nos DEFAULT_ROLES com appAccess coerente e não é default', () => {
+  it('existe nos DEFAULT_ROLES com identidade coerente e não é default', () => {
     const role = coordinatorRole()
     expect(role).toBeDefined()
     expect(role.key).toBe('coordinator')
     expect(role.isDefault).toBe(false)
-    expect(role.appAccess).toMatchObject({
-      chamados: 'full',
-      stock: 'read',
-      'pc-care': 'read',
-      tv: 'read',
-    })
-    // PR E — ReservaLab entra em modo leitura (sem escrita). Sem dashboard, sem admin.
-    expect(role.appAccess.reservalab).toBe('read')
-    expect(role.appAccess.dashboard).toBeUndefined()
-    expect(role.appAccess.admin).toBeUndefined()
+    expect(role.name).toBe('Coordenador Multiunidade')
     // O default de registro continua sendo o Visualizador (regressão).
     expect(DEFAULT_ROLES.find((r) => r.isDefault)?.id).toBe('role-viewer')
   })
@@ -75,61 +59,33 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(permissionService.getAll()).toHaveLength(4)
   })
 
-  it('resolveAppAccess: coordenador lê/apps de operação e full em chamados', () => {
-    const role = coordinatorRole()
-    const user = plainUser()
-    expect(permissionService.resolveAppAccess(role, user, 'chamados')).toBe('full')
-    expect(permissionService.resolveAppAccess(role, user, 'stock')).toBe('read')
-    expect(permissionService.resolveAppAccess(role, user, 'pc-care')).toBe('read')
-    expect(permissionService.resolveAppAccess(role, user, 'tv')).toBe('read')
-    // PR E — ReservaLab em leitura para o coordenador (fail-closed mantido p/ admin).
-    expect(permissionService.resolveAppAccess(role, user, 'reservalab')).toBe('read')
-    expect(permissionService.resolveAppAccess(role, user, 'admin')).toBeNull()
+  it('a matriz RBAC2 dá full em chamados e read nos demais módulos do coordenador', () => {
+    // Autorização/vizibilidade do coordenador é a MATRIZ RBAC2, resolvida do
+    // slug da membership ativa — não mais uma propriedade do cargo local.
+    expect(moduleLevelForSlug('coordinator', 'chamados')).toBe('full')
+    expect(moduleLevelForSlug('coordinator', 'stock')).toBe('read')
+    expect(moduleLevelForSlug('coordinator', 'pc-care')).toBe('read')
+    expect(moduleLevelForSlug('coordinator', 'tv')).toBe('read')
+    expect(moduleLevelForSlug('coordinator', 'reservalab')).toBe('read')
+    // Fail-closed: nada fora da matriz.
+    expect(moduleLevelForSlug('coordinator', 'admin')).toBe('none')
+    expect(moduleLevelForSlug('coordinator', 'dashboard')).toBe('none')
   })
 
-  it('override app_access=none vence (fail-closed) e read vence o full do cargo', () => {
-    const role = coordinatorRole()
-    // Bloqueio individual explícito sobrepõe o cargo.
-    expect(
-      permissionService.resolveAppAccess(role, { app_access: { chamados: 'none' } }, 'chamados'),
-    ).toBeNull()
-    expect(permissionService.canAccessApp(role, { app_access: { chamados: 'none' } }, 'chamados')).toBe(false)
-    // Override read limita o full do cargo.
-    expect(
-      permissionService.resolveAppAccess(role, { app_access: { chamados: 'read' } }, 'chamados'),
-    ).toBe('read')
+  it('regressão: técnico (full) e visualizador (read) inalterados na matriz', () => {
+    expect(moduleLevelForSlug('tec', 'chamados')).toBe('full')
+    expect(moduleLevelForSlug('tec', 'stock')).toBe('full')
+    expect(moduleLevelForSlug('tec', 'pc-care')).toBe('full')
+    expect(moduleLevelForSlug('vis', 'chamados')).toBe('read')
+    expect(moduleLevelForSlug('vis', 'stock')).toBe('read')
+    expect(moduleLevelForSlug('vis', 'reservalab')).toBe('dash')
   })
 
-  it('canWriteApp: separa Super Admin (bypass) do coordenador', () => {
-    as({ roleId: 'role-viewer', is_super_admin: true })
-    permissionService.initDefaults()
-    // Super admin escreve mesmo sendo viewer.
-    expect(permissionService.canWriteApp('chamados')).toBe(true)
-    expect(permissionService.canWriteApp('stock')).toBe(true)
-
-    as({ roleId: 'role-coordinator', is_super_admin: false })
-    // Coordenador: full em chamados, read (sem escrita) em stock/pc-care/tv/reservalab.
-    expect(permissionService.canWriteApp('chamados')).toBe(true)
-    expect(permissionService.canWriteApp('stock')).toBe(false)
-    expect(permissionService.canWriteApp('pc-care')).toBe(false)
-    expect(permissionService.canWriteApp('tv')).toBe(false)
-    // PR E — leitura do ReservaLab não concede escrita.
-    expect(permissionService.canWriteApp('reservalab')).toBe(false)
-  })
-
-  it('regressão: técnico (full) e visualizador (read) inalterados', () => {
-    const tech = DEFAULT_ROLES.find((r) => r.key === 'technician')!
-    const view = viewerRole()
-    const user = plainUser()
-    expect(permissionService.resolveAppAccess(tech, user, 'chamados')).toBe('full')
-    expect(permissionService.resolveAppAccess(tech, user, 'stock')).toBe('full')
-    expect(permissionService.resolveAppAccess(view, user, 'chamados')).toBe('read')
-    expect(permissionService.resolveAppAccess(view, user, 'stock')).toBe('read')
-
-    permissionService.initDefaults()
-    as({ roleId: 'role-technician', is_super_admin: false })
-    expect(permissionService.canWriteApp('chamados')).toBe(true)
-    as({ roleId: 'role-viewer', is_super_admin: false })
-    expect(permissionService.canWriteApp('chamados')).toBe(false)
+  it('a cadeia legada de autorização não existe mais no serviço', () => {
+    // Trava explícita: os nomes foram removidos, não renomeados.
+    const svc = permissionService as unknown as Record<string, unknown>
+    for (const api of ['resolveAppAccess', 'canAccessApp', 'canWriteApp', 'requireWrite']) {
+      expect(svc[api]).toBeUndefined()
+    }
   })
 })

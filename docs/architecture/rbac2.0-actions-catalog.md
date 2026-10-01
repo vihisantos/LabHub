@@ -112,11 +112,14 @@ Classificação: `ACTION` (capacidade controlável) · `RULE` (regra de negócio
 | `ticket.qr` | Gerar QR da unidade | `UnitQR.tsx`; `canManageQr()` (`permissions/usePermissions.ts:76-78`) | unit_qr | workspace | gera poster/link | `ACTION` (proxy atual `manageQr`) |
 | `ticket.report` | Relatório agregado | `ticketService.getReports` `services/ticketService.ts:222-230`; `GET /api/chamados/reports` | unidade/dashboard | workspace | leitura | `ACTION` (leitura/reporting) |
 | `ticket.weeklyEmail` | Relatório semanal por e-mail | `Reports.tsx:225` (emailTo) → `POST /api/chamados/reports/weekly-email` | e-mail | workspace | envia Resend | `ADMIN` |
+| `chamados.settings.manage` | Administrar as configurações do app de Chamados (hoje: prazos de SLA) | `slaConfigService.update` (gate `membershipService.can`, **079**); `Settings.tsx` (gate `useCanAccessAction`) | `sla_configs` (**coleção LOCAL do dispositivo** — sem tabela/rota/RLS) | workspace | grava prazos de SLA | `ACTION` — **limitação conhecida**: a persistência é local, então a Action governa a operação do app, não o storage do navegador; correção de raiz exige backend de configurações |
+| `chamados.room.manage` | Criar/editar/exexcluir salas | `roomService.create/update/remove` | rooms (**local**, sem tabela) | workspace | — | `CANDIDATA` — **NÃO criada**: F2-D-F comprovou zero consumidor de produção, zero rota e zero tabela; candidata a remoção |
 
 **Notas Chamados**
 - **Regra pública garantida**: o formulário público **sempre** pode criar chamado (`TicketForm.tsx`/`RoomTicketForm.tsx` em rota sem AppGuard — `src/App.tsx:125`). **Não colocar `ticket.create` atrás de App Access de modo a quebrar o formulário público.** (Decisão já tomada.)
 - **Usuário logado identificado**: `RoomTicketForm.tsx:94-97` pré-preenche `reportedBy` com `user.name`; formulário público coleta `reportedByEmail` (`TicketForm.tsx:66`). Isso suporta a regra "usuário logado pode abrir chamado identificado por usuário/e-mail sem acesso ao app completo".
 - **Backend** cria chamado com rate-limit + `require_module('chamados')`; gestão (PATCH/DELETE/events) usa `@require_auth` + escopo workspace, **mas não valida nível `full` no servidor** (autorização app-level é frontend) — ver §13.
+- **SLA é configuração LOCAL** (`sla_configs` está em `LOCAL_ONLY_COLLECTIONS`, `lib/sync.ts:120-128`): não existe tabela, rota Flask nem RLS. Por isso a Action `chamados.settings.manage` é aplicada no service (gate assíncrono) e na UI, e não em policy. Leitura nunca cria configuração (F2-D-G §8 — o antigo `ensureConfig` materializava um default a cada leitura; agora só a escrita autorizada cria, e o cálculo de prazo continua igual porque `getSlaHours` cai em `DEFAULT_SLA_HOURS`).
 
 ### 4.2 TV
 
@@ -175,7 +178,10 @@ Classificação: `ACTION` (capacidade controlável) · `RULE` (regra de negócio
 | `pcare.part.delete` | Excluir peça | `partService.remove` `:36-39` (`requireWrite` `:37`) | pcare_parts | workspace | remove | `ACTION` |
 | `pcare.part.usage` | Usar / reembolsar peça | `partUsageService.log` `services/partUsageService.ts:16-25` (`requireWrite` `:17`); `remove` `:27-30` | pcare_part_usage | workspace | **morto hoje** (nenhum UI chama `log`) | `ACTION` (futuro; hoje `DEPRECATED`/morto) |
 | `pcare.maintenance.manage` | Agendar/editar/completar/excluir manutenção | `maintenanceService` `services/maintenanceService.ts:30-47` | pcare_maintenance | workspace | cria/atualiza; alimenta push `check-pcare` | `ACTION` |
-| `pcare.checklist.*` | Template / execução de checklist | `checklistService` `services/checklistService.ts:16-53`; `ChecklistExecute.tsx:195-206` (**não persiste**) | pcare_checklist_templates / pcare_pc_checklists | workspace | templates CRUD; execução em memória | `DEPRECATED` (Checklist será removido) |
+| `pcare.checklist.create` | Criar template de checklist | `checklistTemplateService.create` `services/checklistService.ts`; `ChecklistTemplates.tsx` (gate `useCanAccessAction`); RLS `pcare.checklist_templates` INSERT via `user_has_action` (**079**) | pcare.checklist_templates | workspace | cria template | `ACTION` — **temporária**: a feature é `DEPRECATED`, mas ainda tem consumidor de produção |
+| `pcare.checklist.edit` | Editar template de checklist | `checklistTemplateService.update`; gate `useCanAccessAction('pcare.checklist.edit')`; RLS UPDATE (**079**) | pcare.checklist_templates | workspace | altera template | `ACTION` — temporária (feature deprecated) |
+| `pcare.checklist.delete` | Excluir template de checklist | `checklistTemplateService.remove`; gate `useCanAccessAction('pcare.checklist.delete')`; RLS DELETE (**079**) | pcare.checklist_templates | workspace | remove template | `ACTION` — temporária (feature deprecated) |
+| `pcare.checklist.*` (execução) | Execução de checklist por PC | `ChecklistExecute.tsx:195-206` (**não persiste**); `pcChecklistService` sem consumidor de produção | pcare_pc_checklists | workspace | — | `DEPRECATED` (Checklist será removido) — **NÃO** recebeu Action própria: o RLS de `pcare.pc_checklists` reusa as 3 Actions acima (defesa em profundidade do dado remoto), e o service segue com o guard legado até a remoção |
 | `pcare.export` | Exportar relatórios (CSV/XLSX/PDF/JSON) | `Reports.tsx:91-107`; `utils/export.ts` | relatório | workspace | download | `ACTION` (leitura) |
 | `pcare.qr.gen` | Gerar QR do PC | `QRGenerator.tsx:14` → `navigate('/stock/qr')` | pcare_pcs | workspace | redireciona p/ Estoque | `RULE` (proxy `manageQr`) |
 | `pcare.data.clear` | Limpar dados locais | `Settings.tsx:301-307` (`handleClearAll`), gated `isFullAccess` `:190-191,411` | localStorage local | dispositivo | apaga chaves `labhub_*` (não toca remoto) | `INTERNAL`/destrutivo |
@@ -374,7 +380,7 @@ Três camadas distintas (não criar " líder" como cargo global mágico):
 - **Capabilities (escopo `workspace`, exact-match):** `ticket.view`, `ticket.edit`, `ticket.status`, `ticket.assign`, `ticket.comment`, `ticket.close`, `ticket.reopen`, `ticket.report`, `ticket.qr`, `stock.export`, `pcare.export`. Leitura de estoque/PC Care/TV é implícita ao App Access.
 - **Linhas vermelhas (não recebe, garantido por seed + teste estático):** `ticket.delete`, `ticket.weeklyEmail`, **nenhuma** `admin.*`, `tv.purge`/`tv.device.manage`/`tv.settings.manage`, nenhuma escrita/gestão de estoque ou PC Care (`stock.item.*`, `stock.movement.*`, `pcare.asset.*`, `pcare.part.*`, `pcare.import`, …), `reservelab.push.manage`. **Nenhum wildcard.**
 - **Fronteira com Super Admin:** Super Admin NÃO é cargo (é `is_super_admin`, capacidade global, bypass na 1ª regra do motor). O coordenador jamais alcança scope `global`.
-- **Backend:** motor `rbac.py` + seed 040 consomem estas Actions quando `RBAC_2_ENABLED=on` (flag de rollout; enforcement ativo hoje só em endpoints marcados). UI `canAccessApp` NÃO é mecanismo de segurança.
+- **Backend:** o motor `rbac.py` + seed 040 consomem estas Actions sempre, sem flag (RBAC 2.0 ON-only desde F2-C). UI `canAccessApp` NÃO é mecanismo de segurança.
 - **Backfill:** profiles com `role IN ('coordinator','role-coordinator')` geram memberships p/ cada `workspace_ids` (idempotente).
 
 ---
@@ -491,7 +497,10 @@ Procurar operações onde duas pessoas agem sobre a mesma entidade.
 | PC Care | `pcare.part.delete` | ACTION | Não | full | workspace | Sim |
 | PC Care | `pcare.part.usage` | ACTION (morto hoje) | Não | full | workspace | Sim |
 | PC Care | `pcare.maintenance.manage` | ACTION | Não | full | workspace | Sim |
-| PC Care | `pcare.checklist.*` | DEPRECATED | Não | full | workspace | — |
+| PC Care | `pcare.checklist.create` | ACTION (temporária — feature deprecated) | Não | full → Action `079` | workspace | Sim (semeada em `tec`) |
+| PC Care | `pcare.checklist.edit` | ACTION (temporária — feature deprecated) | Não | full → Action `079` | workspace | Sim (semeada em `tec`) |
+| PC Care | `pcare.checklist.delete` | ACTION (temporária — feature deprecated) | Não | full → Action `079` | workspace | Sim (semeada em `tec`) |
+| PC Care | `pcare.checklist.*` (execução) | DEPRECATED | Não | full | workspace | — (sem Action própria; RLS de `pcare.pc_checklists` reusa as 3 acima) |
 | PC Care | `pcare.export` | ACTION/leitura | Não | read | workspace | Sim |
 | PC Care | `pcare.import` | ACTION | Não | full | workspace | Sim |
 | PC Care | `pcare.data.clear` | INTERNAL | Não | full (device) | dispositivo | Não |
@@ -500,6 +509,8 @@ Procurar operações onde duas pessoas agem sobre a mesma entidade.
 | ReservaLab | `reservelab.tablet.reserve` | ACTION | Sim | full (A DEFINIR) | workspace | Sim |
 | ReservaLab | `reservelab.tablet.cancel` | ACTION | Não | full (UI) — Action `078` | workspace | Sim |
 | ReservaLab | `reservelab.push.manage` | ADMIN | Não | admin | workspace/global | Não |
+| Chamados | `chamados.settings.manage` | ACTION | Não | full → Action `079` | workspace | Sim (semeada em `tec`, `lider`, `coordinator` — os 3 com `chamados: full`) |
+| Chamados | `chamados.room.manage` | CANDIDATA | Não | — | workspace | **Não** (fluxo morto: sem consumidor de produção, sem rota, sem tabela) |
 | Admin | `admin.user.approve` | ADMIN | Não | super admin | global | Não |
 | Admin | `admin.user.reject` | ADMIN | Não | super admin | global | Não |
 | Admin | `admin.user.edit` | ADMIN | Não | super admin | global | Não |

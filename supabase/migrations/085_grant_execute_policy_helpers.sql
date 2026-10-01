@@ -1,0 +1,79 @@
+-- =============================================================================
+-- 085_grant_execute_policy_helpers.sql
+-- =============================================================================
+-- CORREÇÃO DE AUTORIZAÇÃO — `EXECUTE` para `authenticated` em dois helpers
+-- `SECURITY DEFINER` que as policies de RLS chamam e que estavam INACESSÍVEIS
+-- ao papel que efetivamente avalia essas policies.
+--
+-- ── O DEFEITO ───────────────────────────────────────────────────────────────
+-- A 028 revogou `EXECUTE` de `anon` e de `PUBLIC` nestas funções:
+--
+--     028_authorization_consolidation.sql:65  REVOKE ... is_super_admin() FROM anon
+--     028_authorization_consolidation.sql:66  REVOKE ... is_super_admin() FROM PUBLIC
+--     031_workspace_app_settings_and_backups.sql:59-60  ... can_manage_workspace_apps(uuid)
+--     076_rbac2_can_manage_workspace_apps.sql:111-112  ... can_manage_workspace_apps(uuid)
+--
+-- e NENHUMA migration posterior concede `EXECUTE` de volta a ninguém. O
+-- resultado é que `authenticated` — o único papel com privilégio de tabela
+-- nessas tabelas, já que `anon` foi revogado de `pcare`/`stock` na 026:131-138
+-- — não consegue nem EVALUAR as policies que chamam as duas funções: o erro
+-- `permission denied for function ...` acontece ANTES de a policy decidir.
+--
+-- Consequência: um técnico autenticado COM a Action correta não consegue
+-- escrever um checklist, nem uma configuração de workspace, nem um backup.
+-- A escrita falha por falta de privilégio de função, não por decisão de RLS.
+--
+-- ── POR QUE ESTE DEFEITO ESTAVA INVISÍVEL ────────────────────────────────────
+-- O Migrations CI conecta como `postgres`, que é superusuário e dono de todas
+-- as tabelas (nenhuma migration faz `ALTER ... OWNER TO`). Superusuário ignora
+-- RLS e ignora ACL de função. Só ao exercitar as escritas sob o papel
+-- `authenticated` — como faz o harness 082, em janelas de papel — a falha
+-- aparece. Está documentado em scripts/ci/supabase_stub_bootstrap.sql:11-13.
+--
+-- ── POR QUE O GRANT É NECESSÁRIO E NÃO É UMA BRECHA ─────────────────────────
+-- `SECURITY DEFINER` não dispensa o privilégio de `EXECUTE` para quem chama:
+-- o privilégio é sobre a chamada, e o corpo roda como dono. Sem ele, a policy
+-- não roda. E o corpo das duas funções NÃO decide autorização — ele apenas
+-- consulta estado já protegido:
+--
+--   · `is_super_admin()` lê `public.profiles.is_super_admin` do próprio
+--     chamador (`WHERE p.id = auth.uid()`). Não concede nada; é um atalho de
+--     leitura, e as policies o usam só como bypass de quem JÁ é super admin.
+--   · `can_manage_workspace_apps(uuid)` é o helper RBAC 2.0 do módulo de
+--     apps, já endurecido pela 076.
+--
+-- O bypass de super admin continua morando na POLICY, não dentro do helper —
+-- invariante que o harness 082 já verifica para `user_has_action`.
+--
+-- ── ESCOPO DELIBERADAMENTE estreito ──────────────────────────────────────────
+-- Concede-se `EXECUTE` a `authenticated`, e a mais ninguém:
+--   · NÃO a `PUBLIC` — a revogação da 028/031/076 foi deliberada.
+--   · NÃO a `anon`    — idem, e `anon` não tem privilégio nessas tabelas.
+--   · NÃO a `service_role` — em produção ele tem `BYPASSRLS`, logo policies não
+--     são avaliadas para ele; o grant é desnecessário aí. (No stub do CI ele
+--     não tem `BYPASSRLS`, mas o harness 082 exercita `authenticated`.)
+--   · Nenhum outro helper foi tocado: a varredura por nome em todas as policies
+--     encontrou apenas estas duas funções com revoke de `PUBLIC` sem grant
+--     compensatório. `user_has_action`, `user_belongs_to_workspace`,
+--     `user_can_manage_tv` e `user_can_cancel_tablet_reservation` já têm o
+--     padrão completo `revoke=[anon,public] / grant=[authenticated,service_role]`.
+--
+-- ── NÃO ALTERADO aqui ────────────────────────────────────────────────────────
+-- Definição das funções, `SECURITY DEFINER`, `search_path`, policies, RLS,
+-- `memberships`, `role_permissions`, e as migrations 028/076/084. Esta
+-- migration só restaura o privilégio de chamada que as policies exigem.
+--
+-- ── IDEMPOTÊNCIA ─────────────────────────────────────────────────────────────
+-- `GRANT EXECUTE` é idempotente por natureza (reexecutar não muda o estado),
+-- então esta migration é segura em replay e vale tanto para banco novo
+-- quanto para banco já existente — inclusive os que já rodaram a 028/076.
+-- =============================================================================
+
+-- Helper de bypass das policies. Sem EXECUTE, nenhuma policy que o chame pode
+-- ser avaliada por `authenticated`.
+GRANT EXECUTE ON FUNCTION public.is_super_admin() TO authenticated;
+
+-- Helper RBAC 2.0 dos apps, usado pelas policies de escrita de
+-- public.workspace_app_settings (INSERT/UPDATE/DELETE) e
+-- public.app_data_backups (INSERT).
+GRANT EXECUTE ON FUNCTION public.can_manage_workspace_apps(uuid) TO authenticated;

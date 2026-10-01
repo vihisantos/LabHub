@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DEFAULT_ROLES, LeadershipLevel, resolveRoleId, type Role } from '../types'
 import { permissionService } from '../service'
+import { moduleLevelForSlug } from '../moduleVisibility'
 import {
   isLeadershipRole,
   leadershipLevelOf,
@@ -30,16 +31,19 @@ describe('Cargo Líder (role-lider) e classificação de liderança (Fase 4/5 RB
     expect(lider.isDefault).toBe(false)
     expect(lider.isLeadership).toBe(true)
     expect(lider.leadershipLevel).toBe(LeadershipLevel.Leader)
-    expect(lider.appAccess).toMatchObject({
-      chamados: 'full',
-      stock: 'read',
-      'pc-care': 'read',
-    })
+  })
+
+  it('a matriz RBAC2 do líder é full em chamados e read em estoque/pc-care', () => {
+    // F2-D-N2: a visibilidade do líder vem da matriz RBAC2 (slug da membership
+    // ativa), não de `Role.appAccess` — que deixou de existir.
+    expect(moduleLevelForSlug('lider', 'chamados')).toBe('full')
+    expect(moduleLevelForSlug('lider', 'stock')).toBe('read')
+    expect(moduleLevelForSlug('lider', 'pc-care')).toBe('read')
     // Escopo de unidade: sem tv (mult. unidades), sem dashboard/admin/reservalab.
-    expect(lider.appAccess.tv).toBeUndefined()
-    expect(lider.appAccess.dashboard).toBeUndefined()
-    expect(lider.appAccess.admin).toBeUndefined()
-    expect(lider.appAccess.reservalab).toBeUndefined()
+    expect(moduleLevelForSlug('lider', 'tv')).toBe('none')
+    expect(moduleLevelForSlug('lider', 'dashboard')).toBe('none')
+    expect(moduleLevelForSlug('lider', 'admin')).toBe('none')
+    expect(moduleLevelForSlug('lider', 'reservalab')).toBe('none')
   })
 
   it('classifica cada cargo canônico (técnico/visualizador executantes; líder/coordenador lideranças)', () => {
@@ -126,7 +130,6 @@ describe('Cargo Líder (role-lider) e classificação de liderança (Fase 4/5 RB
     const custom = permissionService.create({
       name: 'Estagiário',
       description: 'Cargo personalizado',
-      appAccess: { chamados: 'read' },
       isDefault: false,
     })
     permissionService.migrate()

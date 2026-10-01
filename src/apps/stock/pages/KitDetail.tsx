@@ -6,7 +6,7 @@ import { EmptyState } from '../../pcare/components/EmptyState'
 import { Modal, ConfirmDialog } from '../../pcare/components/Modal'
 import { icons } from '../../../lib/icons'
 import { stockPath } from '../utils/stockPath'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import type { KitItem, KitStatus } from '../types'
 
 function formatDate(iso: string) {
@@ -24,8 +24,7 @@ export function KitDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const { kits, update, remove } = useKits()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canWrite } = useCanAccessAction('stock.kit.audit')
   const [checking, setChecking] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)

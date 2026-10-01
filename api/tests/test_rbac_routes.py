@@ -9,9 +9,10 @@ the FASE 5B/5F/5G rollout guarantees:
   2. Scope matching is exact: a `global` role_permission grant does NOT satisfy
      a `workspace`-scoped check (and vice-versa); no permission-by-accident.
   3. scope normalization (strip + default 'workspace') + global ⇒ non-super DENY.
-  4. Flag OFF ⇒ require_action is a no-op (legacy path preserved).
-  5. Flag ON ⇒ fail-closed; audit failure never converts DENY into ALLOW.
-  6. Public-by-design endpoints (B) remain reachable with NO RBAC and no auth.
+  4. Enforcement is always on (RBAC 2.0 is the only authority; no flag, no
+     legacy no-op path) and is fail-closed; audit failure never converts DENY
+     into ALLOW.
+  5. Public-by-design endpoints (B) remain reachable with NO RBAC and no auth.
 """
 
 import importlib.util
@@ -289,7 +290,7 @@ class TestAuditNeverFailsOpen:
         assert True
 
 
-# ── 5B: public-by-design endpoints need no RBAC nor auth ─────────────────────
+# ── 5B/5G: enforcement always on + public-by-design endpoints ───────────────
 class TestPublicByDesignReachable:
     def test_public_chamados_workspaces_no_auth(
         self, root_api_module, fake_requests, monkeypatch
@@ -297,7 +298,6 @@ class TestPublicByDesignReachable:
         """GET /api/chamados/workspaces is a public campus list (B) — must stay
         reachable with NO auth and no RBAC."""
         _suppress_server_state(root_api_module, monkeypatch, fake_requests)
-        monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
         fake_requests.route(
             "GET",
             "/rest/v1/workspaces",
@@ -307,11 +307,11 @@ class TestPublicByDesignReachable:
         assert resp.status_code == 200
         assert resp.get_json()["workspaces"]
 
-    def test_flag_on_does_not_gate_public_route(
+    def test_public_route_reachable_with_rbac_enforcement_active(
         self, root_api_module, fake_requests, monkeypatch
     ):
+        """Public-by-design segue aberta mesmo com enforcement sempre ativo."""
         _suppress_server_state(root_api_module, monkeypatch, fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
         fake_requests.route(
             "GET",
             "/rest/v1/workspaces",

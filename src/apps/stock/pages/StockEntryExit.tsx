@@ -7,7 +7,7 @@ import { icons } from '../../../lib/icons'
 import { Tabs, TabsList, TabsTrigger } from '../../../lib/components/ui'
 import { stockPath } from '../utils/stockPath'
 import { applyMovementEffects } from '../utils/movementEffects'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 
 export function StockEntryExit() {
@@ -15,8 +15,7 @@ export function StockEntryExit() {
   const location = useLocation()
   const { items, loading, update } = useStock()
   const { create: createMovement } = useMovements()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canWrite } = useCanAccessAction('stock.movement.create')
   const [mode, setMode] = useState<'entrada' | 'saida'>('entrada')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())

@@ -1,12 +1,17 @@
-"""Hardening de `_resolve_batch_memberships`: ids não-UUID não podem
-envenenar o lote de memberships (PostgREST 400/22P02) e derrubar TODA a
-seleção de destinatários de push.
+"""Hardening do targeting RBAC2 do push: ids não-UUID não podem envenenar o
+lote de memberships (PostgREST 400/22P02) e derrubar TODA a seleção de
+destinatários.
 
 Incidente real: inscrições de teste com `user.id = 'user-1'` faziam a query
 `profile_id=in.("user-1", "<uuid>")` ser rejeitada com
 `22P02 invalid input syntax for type uuid`; o batch retornava {} (fail-closed)
 e TODOS os não-super-admin deixavam de receber Chamados (o super admin passa
 por bypass, então só ele recebia).
+
+O batch RBAC2 consulta três tabelas via service_role: memberships, em seguida
+role_permissions (role_id) e membership_overrides (membership_id). O guard de
+UUID vale para os ids vindos da inscrição (profile_id); os demais derivam de
+colunas uuid do servidor e não são revalidados.
 
 O fake PostgREST abaixo replica o comportamento real: se qualquer id não-UUID
 entrar no `in.(...)`, responde 400/22P02 — qualquer regressão faz os asserts
@@ -41,6 +46,26 @@ MEMBERSHIPS = {
     FULL_A['id']: [WS_A],
     FULL_B['id']: [WS_B],
     READ_A['id']: [WS_A],
+}
+
+# Papel por usuário + Actions por papel (targeting RBAC2 do _target_subs).
+# 'role-tec' concede o conjunto operacional do chamados (min_level='full'); o
+# 'role-vis' só leitura (ticket.view/report) — fora do tier full.
+ROLES = {
+    FULL_A['id']: 'role-tec',
+    FULL_B['id']: 'role-tec',
+    READ_A['id']: 'role-vis',
+    DASH_A['id']: 'role-vis',
+    NO_WS['id']: 'role-tec',
+    USER1['id']: 'role-tec',
+    USER2['id']: 'role-tec',
+}
+ROLE_ACTIONS = {
+    'role-tec': {
+        'ticket.edit', 'ticket.status', 'ticket.assign', 'ticket.comment',
+        'ticket.close', 'ticket.reopen', 'ticket.delete', 'ticket.qr',
+    },
+    'role-vis': {'ticket.view', 'ticket.report'},
 }
 
 
@@ -79,8 +104,8 @@ class FakeRedis:
         return [json.dumps(s) for s in self.subs]
 
 
-def _ids_in_url(url):
-    m = re.search(r'profile_id=in\.\(([^)]*)\)', url)
+def _ids_in_url(url, param='profile_id'):
+    m = re.search(re.escape(f'{param}=in.(') + r'([^)]*)\)', url)
     if not m:
         return []
     raw = unquote(m.group(1))
@@ -105,10 +130,18 @@ class _Resp:
 
 
 class FakePostgRest:
-    """Replica o PostgREST: 400/22P02 se algum id não-UUID entrar no in.(...)."""
+    """Replica o PostgREST: 400/22P02 se algum id não-UUID entrar no in.(...).
 
-    def __init__(self, by_user, *, ok=True):
+    Atende as três tabelas do targeting RBAC2: memberships (com id/role_id),
+    role_permissions e membership_overrides. O guard de UUID vale para os IDs
+    vindos da inscrição (profile_id); role_id/membership_id têm origem no
+    servidor (colunas uuid) e não são validados aqui.
+    """
+
+    def __init__(self, by_user, *, ok=True, roles=None, role_actions=None):
         self.by_user = by_user
+        self.roles = roles or {}
+        self.role_actions = role_actions or {}
         self._ok = ok
         self.calls = 0
         self.urls = []
@@ -118,23 +151,39 @@ class FakePostgRest:
         self.urls.append(url)
         if not self._ok:
             return _Resp(False, {'message': 'efeito de falha real (ex.: rede/upstream)'})
-        for i in _ids_in_url(url):
-            if not _is_uuid(i):
-                return _Resp(False, {
-                    'code': '22P02',
-                    'message': f'invalid input syntax for type uuid: "{i}"',
-                })
-        ids = _ids_in_url(url)
-        rows = []
-        for uid, ws_ids in self.by_user.items():
-            if uid in ids:
-                for ws in ws_ids:
-                    rows.append({'profile_id': uid, 'workspace_id': ws, 'status': 'active'})
-        return _Resp(True, rows)
+        if '/rest/v1/memberships' in url:
+            for i in _ids_in_url(url):
+                if not _is_uuid(i):
+                    return _Resp(False, {
+                        'code': '22P02',
+                        'message': f'invalid input syntax for type uuid: "{i}"',
+                    })
+            ids = _ids_in_url(url)
+            rows = []
+            for uid, ws_ids in self.by_user.items():
+                if uid in ids:
+                    for ws in ws_ids:
+                        rows.append({
+                            'profile_id': uid,
+                            'workspace_id': ws,
+                            'status': 'active',
+                            'id': f'mem-{uid}-{ws}',
+                            'role_id': self.roles.get(uid, 'role-tec'),
+                        })
+            return _Resp(True, rows)
+        if '/rest/v1/role_permissions' in url:
+            rows = []
+            for rid, actions in self.role_actions.items():
+                for a in actions:
+                    rows.append({'role_id': rid, 'action': a, 'scope': 'workspace'})
+            return _Resp(True, rows)
+        if '/rest/v1/membership_overrides' in url:
+            return _Resp(True, [])
+        raise AssertionError(f'URL inesperada: {url}')
 
 
 def _env(push_module, monkeypatch, subs, *, ok=True):
-    fake_http = FakePostgRest(MEMBERSHIPS, ok=ok)
+    fake_http = FakePostgRest(MEMBERSHIPS, ok=ok, roles=ROLES, role_actions=ROLE_ACTIONS)
     monkeypatch.setattr(push_module, 'redis', FakeRedis(subs))
     monkeypatch.setattr(push_module, '_SUPABASE_URL', 'https://test.supabase.co')
     monkeypatch.setattr(push_module, '_SUPABASE_SERVICE_KEY', 'test-service-key')
@@ -153,8 +202,11 @@ def test_apenas_uuids_validos_preserva_selecao(push_module, monkeypatch):
     fake_http = _env(push_module, monkeypatch, [_sub(FULL_A), _sub(READ_A), _sub(FULL_B)])
     ids = _select(push_module, WS_A)
     assert ids == [FULL_A['id']]
-    for url in fake_http.urls:
-        assert all(_is_uuid(i) for i in _ids_in_url(url))
+    # O guard de UUID vale para os ids vindo da inscrição (memberships); os
+    # batches de role/override derivam de colunas uuid do próprio servidor.
+    for u in fake_http.urls:
+        if 'profile_id=in.' in u:
+            assert all(_is_uuid(i) for i in _ids_in_url(u))
 
 
 def test_incidente_equivalente_user1_validos_preservados(push_module, monkeypatch, caplog):
@@ -166,11 +218,13 @@ def test_incidente_equivalente_user1_validos_preservados(push_module, monkeypatc
     with caplog.at_level('WARNING', logger='reservalab_api_uuid_hardening'):
         ids = _select(push_module, WS_A)
     assert ids == [FULL_A['id']]  # sob o bug o lote 400ava e ninguém não-super era selecionado
-    assert fake_http.calls == 1
-    assert all(_is_uuid(i) for i in _ids_in_url(fake_http.urls[-1]))
+    assert fake_http.calls == 3  # memberships + role_permissions + membership_overrides
+    membership_url = [u for u in fake_http.urls if 'profile_id=in.' in u]
+    assert len(membership_url) == 1
+    assert all(_is_uuid(i) for i in _ids_in_url(membership_url[-1]))
     warned = [r.getMessage() for r in caplog.records
               if r.name == 'reservalab_api_uuid_hardening' and r.levelno >= logging.WARNING]
-    assert warned == ['push: 1 user_id(s) não-UUID ignorados no batch de memberships']
+    assert warned == ['push: 1 user_id(s) não-UUID ignorados no batch de RBAC']
 
 
 def test_varios_validos_e_varios_invalidos(push_module, monkeypatch, caplog):
@@ -186,7 +240,7 @@ def test_varios_validos_e_varios_invalidos(push_module, monkeypatch, caplog):
     assert queried == {FULL_A['id'], READ_A['id'], FULL_B['id']}
     warned = [r.getMessage() for r in caplog.records
               if r.name == 'reservalab_api_uuid_hardening' and r.levelno >= logging.WARNING]
-    assert warned == ['push: 2 user_id(s) não-UUID ignorados no batch de memberships']
+    assert warned == ['push: 2 user_id(s) não-UUID ignorados no batch de RBAC']
 
 
 def test_apenas_ids_invalidos_sem_query_e_sem_22p02(push_module, monkeypatch):
@@ -210,7 +264,7 @@ def test_super_admin_comportamento_preservado(push_module, monkeypatch):
     fake_http = _env(push_module, monkeypatch, [_sub(SUPER), _sub(FULL_A)])
     ids = _select(push_module, WS_A)
     assert ids == sorted([SUPER['id'], FULL_A['id']])
-    assert fake_http.calls == 1
+    assert fake_http.calls == 3  # memberships + role_permissions + membership_overrides
 
 
 def test_usuario_sem_membership_excluido(push_module, monkeypatch):

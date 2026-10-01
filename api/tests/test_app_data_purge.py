@@ -187,6 +187,12 @@ def purge_env(root_api_module, monkeypatch):
         monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
 
+    rbac_mod = sys.modules.get("rbac")
+    if rbac_mod is not None:
+        monkeypatch.setattr(rbac_mod, "requests", fake)
+        monkeypatch.setattr(rbac_mod, "_SUPABASE_URL", SUPABASE_URL)
+        monkeypatch.setattr(rbac_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
+
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     root_api_module._rate_limit_store.clear()
     return fake
@@ -240,9 +246,14 @@ ALL_WORKSPACES = [
 ]
 
 
-def install_profile(fake, *, user_id=ADMIN_U1, workspaces, role="admin", is_super_admin=False):
+def install_profile(fake, *, user_id=ADMIN_U1, workspaces, role="admin", is_super_admin=False, actions=()):
     """Perfil com as memberships informadas; workspaces resolvidos por
-    id/slug conforme a query real do auth layer."""
+    id/slug conforme a query real do auth layer.
+
+    RBAC 2.0 ON-only: ``actions`` concede as Actions (role_permissions,
+    escopo workspace) às memberships ativas. Sem ``actions`` o cargo não
+    carrega permissão alguma e o gate nega.
+    """
 
     def ws_lookup(url, kw):
         params = kw.get("params") or {}
@@ -262,15 +273,33 @@ def install_profile(fake, *, user_id=ADMIN_U1, workspaces, role="admin", is_supe
         "workspace_ids": workspaces,
     }]))
     fake.route("GET", "/rest/v1/memberships", FakeResponse([
-        {"profile_id": user_id, "workspace_id": w, "status": "active"}
+        {
+            "profile_id": user_id,
+            "workspace_id": w,
+            "id": f"mem-{w}",
+            "role_id": "r-granted" if actions else None,
+            "status": "active",
+        }
         for w in workspaces
     ]))
+    if actions:
+        fake.route("GET", "/rest/v1/role_permissions", FakeResponse([
+            {
+                "id": f"rp-{w}-{a}",
+                "role_id": "r-granted",
+                "action": a,
+                "scope": "workspace",
+            }
+            for w in workspaces
+            for a in actions
+        ]))
     fake.route_fn("GET", lambda url, kw: ws_lookup(url, kw) if "/rest/v1/workspaces" in url else None)
 
 
 def install_admin_world(fake):
-    """Admin comum do workspace A; rpcs felizes."""
-    install_profile(fake, workspaces=[WS_A_ID])
+    """Admin comum do workspace A (membro com a Action admin.app.purge no
+    cargo — RBAC 2.0 ON-only); rpcs felizes."""
+    install_profile(fake, workspaces=[WS_A_ID], actions=("admin.app.purge",))
     fake.route("POST", "/rpc/describe_tv_app_data", FakeResponse(DESCRIBE_RESULT))
     fake.route("POST", "/rpc/purge_tv_app_data", FakeResponse(PURGE_RESULT))
     return fake

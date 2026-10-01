@@ -24,14 +24,17 @@ import { BatchCreateModal } from '../components/BatchCreateModal'
 import { DesktopSetupModal } from '../components/DesktopSetupModal'
 import { NotebookSetupModal } from '../components/NotebookSetupModal'
 import { NotebookBatchImport } from '../components/NotebookBatchImport'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 export function StockSectionPage() {
   const { items, loading, create, update, remove, reload } = useStock()
   const { create: createMovement } = useMovements()
   const selection = useStockSelection()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('stock')
+  const { allowed: canCreate } = useCanAccessAction('stock.item.create')
+  const { allowed: canEdit } = useCanAccessAction('stock.item.edit')
+  const { allowed: canDelete } = useCanAccessAction('stock.item.delete')
+  const { allowed: canMove } = useCanAccessAction('stock.movement.create')
+  const canBatch = canMove || canDelete
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<TabId>('all')
@@ -275,7 +278,7 @@ export function StockSectionPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold tracking-tight">{tabLabel}</h2>
           <div className="flex gap-1.5">
-            {canWrite && (selection.selectMode ? (
+            {canBatch && (selection.selectMode ? (
               <button
                 type="button"
                 onClick={selection.exit}
@@ -292,7 +295,7 @@ export function StockSectionPage() {
                 Selecionar
               </button>
             ))}
-            {canWrite && (
+            {canCreate && (
               <button
                 type="button"
                 onClick={() => { setEditing(null); setShowForm(true) }}
@@ -301,7 +304,7 @@ export function StockSectionPage() {
                 + Novo
               </button>
             )}
-            {canWrite && (
+            {canCreate && (
               <button
                 type="button"
                 onClick={() => setShowBatch(true)}
@@ -311,7 +314,7 @@ export function StockSectionPage() {
                 Lote
               </button>
             )}
-            {canWrite && (
+            {canCreate && (
               <button
                 type="button"
                 onClick={() => setShowDesktopSetup(true)}
@@ -321,7 +324,7 @@ export function StockSectionPage() {
                 Desktop
               </button>
             )}
-            {canWrite && (
+            {canCreate && (
               <button
                 type="button"
                 onClick={() => setShowNotebookSetup(true)}
@@ -331,7 +334,7 @@ export function StockSectionPage() {
                 Notebook
               </button>
             )}
-            {canWrite && (
+            {canCreate && (
               <button
                 type="button"
                 onClick={() => setShowNotebookBatchImport(true)}
@@ -443,7 +446,7 @@ export function StockSectionPage() {
 
         {/* ── Import / Export (compacto) ── */}
         <div className="flex justify-end gap-1.5 -mt-1">
-          {canWrite && (
+          {canCreate && (
             <button
               type="button"
               onClick={() => setImportMode(!importMode)}
@@ -603,7 +606,7 @@ export function StockSectionPage() {
             icon={icons.ui.package}
             title={items.length === 0 ? 'Estoque vazio' : 'Nenhum item encontrado'}
             description={items.length === 0 ? 'Adicione itens para controlar o estoque.' : 'Tente alterar os filtros ou busca.'}
-            action={items.length === 0 && canWrite ? { label: 'Adicionar Item', onClick: () => { setEditing(null); setShowForm(true) } } : undefined}
+            action={items.length === 0 && canCreate ? { label: 'Adicionar Item', onClick: () => { setEditing(null); setShowForm(true) } } : undefined}
             accentColor="emerald"
           />
         ) : (
@@ -636,7 +639,7 @@ export function StockSectionPage() {
                         onEdit={handleEdit} onMove={handleMove} onRepair={handleRepair}
                         onDiscard={handleDiscard} onLoan={handleLoan} onReturn={handleReturn}
                         selectable={selection.selectMode} selected={selection.selected.has(item.id)} onToggleSelect={selection.toggle}
-                        readOnly={!canWrite}
+                        readOnly={!canEdit && !canMove}
                       />
                     ))}
                   </div>
@@ -656,7 +659,7 @@ export function StockSectionPage() {
                         onEdit={handleEdit} onMove={handleMove} onRepair={handleRepair}
                         onDiscard={handleDiscard} onLoan={handleLoan} onReturn={handleReturn}
                         selectable={selection.selectMode} selected={selection.selected.has(item.id)} onToggleSelect={selection.toggle}
-                        readOnly={!canWrite}
+                        readOnly={!canEdit && !canMove}
                       />
                     ))}
                   </div>
@@ -765,6 +768,7 @@ export function StockSectionPage() {
         <StockBatchBar
           selected={selection.selected} items={items} onClear={selection.clear} onExit={selection.exit}
           onUpdate={handleBatchUpdate} onDelete={handleBatchDelete} onCreateMovement={createMovement}
+          canMove={canMove} canDelete={canDelete}
         />
       )}
     </PullToRefresh>

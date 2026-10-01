@@ -1,6 +1,5 @@
 import type { Kit, KitFormData } from '../types'
 import { createSyncService } from '../../../lib/sync'
-import { permissionService } from '../../../core/permissions/service'
 
 const service = createSyncService<Kit>('stock_kits')
 
@@ -15,17 +14,14 @@ export const kitService = {
   getById: (id: string) => service.getById(id),
 
   create: (data: KitFormData) => {
-    permissionService.requireWrite('stock')
     return service.create(serialize(data))
   },
 
   update: (id: string, data: Partial<Kit>) => {
-    permissionService.requireWrite('stock')
     return service.update(id, data)
   },
 
   remove: (id: string) => {
-    permissionService.requireWrite('stock')
     return service.remove(id)
   },
 

@@ -18,14 +18,12 @@ Resolution order (deterministic, from the RBAC 2.0 spec):
 Fail-closed: any resolve error, missing/unknown table, or missing
 workspace context ⇒ DENY. Authorization can never become fail-open.
 
-Rollout: feature flag ``RBAC_2_ENABLED``. When disabled (default), the
-``require_action`` decorator is a no-op and the legacy authorization path
-is preserved. When enabled, enforcement is active. This gives a safe,
-flip-of-a-switch rollout with legacy fallback.
+RBAC 2.0 is ON-only: the ``require_action`` decorator always evaluates the
+Action against memberships/role_permissions. There is no feature flag and no
+legacy authorization path in this engine.
 """
 
 import functools
-import os
 from datetime import datetime, timezone
 
 from flask import g, jsonify
@@ -38,12 +36,6 @@ from auth import (
     _SUPABASE_SERVICE_KEY,
     _SUPABASE_URL,
 )
-
-
-def rbac_enabled() -> bool:
-    """Return True when RBAC 2.0 backend enforcement is active."""
-    val = os.environ.get('RBAC_2_ENABLED', '0').strip().lower()
-    return val in ('1', 'true', 'yes', 'on')
 
 
 def _supabase_headers():
@@ -266,7 +258,7 @@ def require_action(action: str, scope: str = 'workspace'):
     """Decorator factory: enforce RBAC for ``action`` in ``scope``.
 
     Must be used together with (after) @require_auth so that g.user is set.
-    When ``RBAC_2_ENABLED`` is off, this is a no-op (legacy behavior).
+    Always enforces the Action (no feature flag, no legacy no-op path).
 
     - Sem autenticação → 401
     - Sem permissão → 403 ("Permissão insuficiente" — safe message)
@@ -275,9 +267,6 @@ def require_action(action: str, scope: str = 'workspace'):
     def decorator(f):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
-            if not rbac_enabled():
-                return f(*args, **kwargs)
-
             user = getattr(g, 'user', None)
             workspace_id = getattr(g, 'workspace_id', None)
 

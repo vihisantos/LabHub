@@ -1,6 +1,6 @@
 import { appRegistry, plannedApps, type AppModule } from '../../../appRegistry'
 import { isAppDisabled } from '../../../core/workspaces/apps'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useModuleVisibilities } from '../../../core/permissions/useModuleVisibility'
 import type { Workspace } from '../../../core/workspaces/types'
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
 
@@ -37,7 +37,12 @@ export function CoordinatorEcosystemTab({
   workspaces,
   onOpenApp,
 }: CoordinatorEcosystemTabProps) {
-  const { canAccessApp } = useAppAccess()
+  // RBAC 2.0 (F2-D-L): a Central não altera permissões; aqui só decide quais
+  // módulos aparecem. A área continua autorizada pelo LeadershipAreaGuard
+  // (membership + `get_coordinator_units`) — este hook só responde o módulo.
+  const { isVisible } = useModuleVisibilities(ECOSYSTEM_APP_IDS, {
+    ignoreDisabledApps: true,
+  })
   const modules = ECOSYSTEM_APP_IDS.map((id) => appRegistry.find((app) => app.id === id)).filter(
     (app): app is NonNullable<typeof app> => Boolean(app),
   )
@@ -75,7 +80,7 @@ export function CoordinatorEcosystemTab({
               {units.map((unit) => {
                 const workspaceEntry = workspaces.find((w) => w.id === unit.unitId)
                 const disabled = isAppDisabled(app.id, workspaceEntry)
-                const restricted = !canAccessApp(app.id)
+                const restricted = !isVisible(app.id)
                 const open = workspaceEntry && !disabled && !restricted
                   ? onOpenApp(unit.unitId, app.route)
                   : null

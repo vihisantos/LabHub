@@ -68,8 +68,8 @@ vi.mock('../../../../core/permissions/usePermissions', () => ({
   useRoles: () => ({
     loading: false,
     roles: [
-      { id: 'role-technician', key: 'technician', name: 'Técnico', appAccess: { reservalab: 'full' }, isDefault: false },
-      { id: 'role-viewer', key: 'viewer', name: 'Visualizador', appAccess: { reservalab: 'read' }, isDefault: true },
+      { id: 'role-technician', key: 'technician', name: 'Técnico', isDefault: false },
+      { id: 'role-viewer', key: 'viewer', name: 'Visualizador', isDefault: true },
     ],
   }),
 }))

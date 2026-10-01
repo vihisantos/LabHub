@@ -25,7 +25,10 @@ import type { BreakpointState } from '../../../responsive/useBreakpoint'
 const mockUseCoordinator = vi.hoisted(() => vi.fn())
 const mockGetRoleForUser = vi.hoisted(() => vi.fn())
 const mockUseBreakpoint = vi.hoisted(() => vi.fn())
-const mockUseAppAccess = vi.hoisted(() => vi.fn())
+const mockUseModuleVisibilities = vi.hoisted(() => vi.fn())
+const mockUseModuleLevel = vi.hoisted(() =>
+  vi.fn((_appId: string, _options?: unknown) => ({ level: 'full', visible: true, loading: false })),
+)
 const mockSetCoordinatorManager = vi.hoisted(() => vi.fn())
 const mockGetLastCoordinatorServiceError = vi.hoisted(() => vi.fn())
 const mockGetCoordinatorRequests = vi.hoisted(() => vi.fn())
@@ -84,8 +87,10 @@ vi.mock('../../../core/permissions/service', () => ({
   permissionService: { getRoleForUser: () => mockGetRoleForUser() },
 }))
 
-vi.mock('../../../core/permissions/usePermissions', () => ({
-  useAppAccess: () => mockUseAppAccess(),
+vi.mock('../../../core/permissions/useModuleVisibility', () => ({
+  useModuleVisibilities: (appIds: readonly string[], options?: unknown) =>
+    mockUseModuleVisibilities(appIds, options),
+  useModuleLevel: (appId: string) => mockUseModuleLevel(appId),
 }))
 
 vi.mock('../../../responsive/useBreakpoint', () => ({
@@ -320,10 +325,10 @@ beforeEach(() => {
   setBp('compact')
   // PR D: por padrão o usuário tem acesso a todos os módulos do ecossistema,
   // preservando o comportamento pré-PR D dos testes existentes.
-  mockUseAppAccess.mockReturnValue({
-    canAccessApp: () => true,
-    getLevel: () => 'full',
-    isFullAccess: () => true,
+  mockUseModuleVisibilities.mockReturnValue({
+    isVisible: () => true,
+    levelOf: () => 'full' as const,
+    loading: false,
   })
 })
 
@@ -2281,15 +2286,15 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
   function renderEcosystem(
     entry: string,
     units: CoordinatedUnit[],
-    access: Partial<ReturnType<typeof mockUseAppAccess>> = {},
+    access: { isVisible?: (id: string) => boolean } = {},
     workspaces: Array<{ id: string; name: string; slug: string; disabled_apps?: string[] }> = [],
   ) {
     setupOverrides({ units })
     workspaceContextMock.workspaces = workspaces
-    mockUseAppAccess.mockReturnValue({
-      canAccessApp: () => true,
-      getLevel: () => 'full',
-      isFullAccess: () => true,
+    mockUseModuleVisibilities.mockReturnValue({
+      isVisible: () => true,
+      levelOf: () => 'full' as const,
+      loading: false,
       ...access,
     })
     render(
@@ -2343,7 +2348,7 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
     renderEcosystem(
       '/coordenador?tab=ecosystem',
       [unitWithData()],
-      { canAccessApp: (id: string) => id !== 'reservalab' },
+      { isVisible: (id: string) => id !== 'reservalab' },
       [{ id: 'ws1', name: 'Campus A', slug: 'campus-a' }],
     )
     await act(async () => {})
@@ -2360,7 +2365,7 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
     renderEcosystem(
       '/coordenador?tab=ecosystem',
       [unitWithData()],
-      { canAccessApp: () => false },
+      { isVisible: () => false },
       [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] }],
     )
     await act(async () => {})
@@ -2463,10 +2468,10 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
     expect(screen.getByTestId('ecosystem-open-reservalab-ws1')).toBeInTheDocument()
 
     // re-render com papel sem acesso ao reservalab (troca de aba recompõe a aba)
-    mockUseAppAccess.mockReturnValue({
-      canAccessApp: (id: string) => id !== 'reservalab',
-      getLevel: () => 'full',
-      isFullAccess: () => true,
+    mockUseModuleVisibilities.mockReturnValue({
+      isVisible: (id: string) => id !== 'reservalab',
+      levelOf: () => 'full' as const,
+      loading: false,
     })
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Chamados' }), { button: 0 })
     await act(async () => {})

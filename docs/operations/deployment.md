@@ -43,7 +43,6 @@ Todas as variáveis de produção ficam em **Vercel → Settings → Environment
 |----------|----------|
 | `SUPABASE_URL` | Produção |
 | `SUPABASE_SERVICE_KEY` | Produção |
-| `RBAC_2_ENABLED` | Produção (feature flag do RBAC 2.0) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Produção |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Produção |
 | `CRON_SECRET` | Produção e secrets do GitHub |
@@ -83,9 +82,11 @@ A Vercel mantém o histórico de deploys:
 
 O rollback não afeta dados: o banco Supabase é independente do deploy do frontend.
 
-### Rollback do RBAC 2.0
+### Estado do RBAC 2.0
 
-Definir `RBAC_2_ENABLED=0` desativa imediatamente o enforcement, sem alteração de código e sem novo deploy. Veja [Autorização](../platform/security/authorization.md).
+O RBAC 2.0 é ON-only (F2-C): não existe feature flag e não há rollback para o
+legado — autorização é sempre por Action. A variável residual `RBAC_2_ENABLED`
+nas env vars da Vercel é inócua; removê-la é passo operacional de limpeza.
 
 ## Monitoramento do deploy
 

@@ -24,7 +24,6 @@
 |----------|-------------|-----------|
 | `SUPABASE_URL` | Sim | URL do projeto Supabase |
 | `SUPABASE_SERVICE_KEY` | Sim | Chave de serviço (ignora RLS) |
-| `RBAC_2_ENABLED` | Não | Liga o RBAC 2.0 (`1` = ligado; padrão desligado) |
 | `UPSTASH_REDIS_REST_URL` | Não | URL do Redis para push e cache |
 | `UPSTASH_REDIS_REST_TOKEN` | Não | Token do Redis |
 | `VAPID_PUBLIC_KEY` | Não | Chave pública de Web Push |

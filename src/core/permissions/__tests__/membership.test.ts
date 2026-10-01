@@ -16,7 +16,6 @@ const liderRole = {
   key: 'lider',
   name: 'Líder',
   description: '',
-  appAccess: {},
   isDefault: false,
   isLeadership: true,
   leadershipLevel: 1,
@@ -27,7 +26,6 @@ const coordinatorRole = {
   key: 'coordinator',
   name: 'Coordenador',
   description: '',
-  appAccess: {},
   isDefault: false,
   isLeadership: true,
   leadershipLevel: 2,
@@ -38,7 +36,6 @@ const technicianRole = {
   key: 'technician',
   name: 'Técnico',
   description: '',
-  appAccess: {},
   isDefault: true,
 } as Role
 

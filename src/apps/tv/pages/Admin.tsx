@@ -10,7 +10,8 @@ import { useGalleries } from '../hooks/useGallery'
 import { useUrgentAnnouncements } from '../hooks/useUrgentAnnouncements'
 import { useDevices } from '../hooks/useDevices'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { useAppAccess, useCanAccessAction } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
+import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
 import { useToast } from '../../../lib/ToastContext'
 import { useMusicPlayerCommand } from '../contexts/MusicPlayerCommandContext'
 import { StationError } from '../services/stationService'
@@ -69,8 +70,11 @@ export function AdminView() {
   // VISIBILIDADE/LEITURA da TV: mecanismo próprio (nível do app). Não é
   // autorização de escrita — o RLS de leitura é `can_access_tv_workspace`
   // (membership), independente deste nível.
-  const { getLevel } = useAppAccess()
-  const tvLevel = getLevel('tv')
+  // VISIBILIDADE/LEITURA da TV (módulo `tv`): a nova fonte decide quem tem
+  // qualquer nível de leitura. Não é autorização de escrita — a escrita é o
+  // `tv.manage` logo abaixo (077) e o RLS `user_can_manage_tv`.
+  // `ignoreDisabledApps` porque o `AppGuard` do módulo já trata app desabilitado.
+  const { level: tvLevel } = useModuleLevel('tv', { ignoreDisabledApps: true })
   const noTvAccess = tvLevel !== 'full' && tvLevel !== 'read'
 
   // RBAC 2.0 (#296 PR-4C): ESCRITA/ADMINISTRAÇÃO da TV passa a usar a Action
@@ -80,7 +84,6 @@ export function AdminView() {
   // Fail-closed: enquanto a consulta não responde, `allowed` é false.
   const { allowed: canManageTv, loading: canManageTvLoading } =
     useCanAccessAction('tv.manage')
-  const isFullAccess = canManageTv
   // Escrita bloqueada = NÃO tem `tv.manage`, que é o que o RLS exige. Cobre
   // tanto o nível `read` do app quanto o caso `full` sem permissão RBAC 2.0 —
   // antes esses dois casos divergiam do banco.
@@ -158,7 +161,7 @@ export function AdminView() {
     }
   }
 
-  const visibleTabs = isFullAccess
+  const visibleTabs = canManageTv
     ? tabs
     : tabs.filter(t => t.id !== 'devices' && t.id !== 'install')
 
@@ -269,7 +272,7 @@ export function AdminView() {
                   <span className="text-[11px] text-fg-dim">Sem música</span>
                 </div>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handlePrevious}
                   disabled={previousing}
@@ -280,7 +283,7 @@ export function AdminView() {
                   Anterior
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handlePause}
                   disabled={pausing}
@@ -291,7 +294,7 @@ export function AdminView() {
                   {pausing ? 'Pausando…' : 'Pausar'}
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handleResume}
                   disabled={resuming}
@@ -302,7 +305,7 @@ export function AdminView() {
                   {resuming ? 'Retomando…' : 'Retomar'}
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handleNext}
                   disabled={nexting}
@@ -313,7 +316,7 @@ export function AdminView() {
                   Próxima
                 </button>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <div className="flex items-center gap-1 rounded-xl border border-line bg-input py-1 pl-2 pr-1">
                   <input
                     value={seekSeconds}
@@ -334,7 +337,7 @@ export function AdminView() {
                   </button>
                 </div>
               )}
-              {isFullAccess && (
+              {canManageTv && (
                 <button
                   onClick={handleStop}
                   disabled={stopping}

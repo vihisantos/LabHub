@@ -136,11 +136,15 @@ def fake_requests():
     return FakeRequests()
 
 
-def _patch_supabase_profile(fake_requests, profile):
+def _patch_supabase_profile(fake_requests, profile, role_id=None, actions=()):
     """Set up fake_requests to return a user profile when queried.
 
     Deriva memberships ativas de profile["workspace_ids"] (espelha o trigger
     041): o gate agora lê memberships, e os fixtures legados seguem válidos.
+
+    RBAC 2.0 ON-only: ``role_id`` + ``actions`` concedem permissões via
+    role_permissions (escopo workspace) para as memberships ativas. Sem
+    ``actions`` o cargo não carrega permissão alguma e o gate nega.
     """
     fake_requests.route(
         "GET",
@@ -151,10 +155,25 @@ def _patch_supabase_profile(fake_requests, profile):
         "GET",
         "/rest/v1/memberships",
         FakeResponse([
-            {"profile_id": profile.get("id"), "workspace_id": w, "status": "active"}
+            {
+                "profile_id": profile.get("id"),
+                "workspace_id": w,
+                "id": f"mem-{w}",
+                "role_id": role_id,
+                "status": "active",
+            }
             for w in (profile.get("workspace_ids") or [])
         ]),
     )
+    if actions:
+        fake_requests.route(
+            "GET",
+            "/rest/v1/role_permissions",
+            FakeResponse([
+                {"id": f"rp-{a}", "role_id": role_id, "action": a, "scope": "workspace"}
+                for a in actions
+            ]),
+        )
 
 
 def _patch_workspace(fake_requests, ws=None):
@@ -195,6 +214,11 @@ def root_client(root_api_module, fake_requests, monkeypatch):
         monkeypatch.setattr(auth_mod, "requests", fake_requests)
         monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
+    rbac_mod = sys.modules.get("rbac")
+    if rbac_mod is not None:
+        monkeypatch.setattr(rbac_mod, "requests", fake_requests)
+        monkeypatch.setattr(rbac_mod, "_SUPABASE_URL", SUPABASE_URL)
+        monkeypatch.setattr(rbac_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
     root_api_module._rate_limit_store.clear()
@@ -559,7 +583,7 @@ def _make_jwt_no_aud() -> str:
 class TestCrossWorkspaceIsolation:
     """Users cannot access tickets/workspaces they don't belong to."""
 
-    def _user_a_headers(self, fake_requests):
+    def _user_a_headers(self, fake_requests, role_id=None, actions=()):
         profile = {
             "id": "user-a",
             "email": "a@test.com",
@@ -569,7 +593,7 @@ class TestCrossWorkspaceIsolation:
             "workspace_ids": ["ws-a"],
             "status": "active",
         }
-        _patch_supabase_profile(fake_requests, profile)
+        _patch_supabase_profile(fake_requests, profile, role_id=role_id, actions=actions)
         token = _make_jwt({"sub": "user-a"})
         return {"Authorization": f"Bearer {token}"}
 
@@ -694,9 +718,15 @@ class TestCrossWorkspaceIsolation:
         assert resp.status_code == 403
 
     def test_user_a_can_view_own_ticket(self, root_client, fake_requests, monkeypatch):
-        """User A (ws-a) can GET a ticket belonging to their own workspace."""
+        """User A (ws-a) can GET a ticket belonging to their own workspace.
+
+        RBAC 2.0 ON-only: a membership ativa de A carrega cargo com a Action
+        ``ticket.view`` (workspace) — sem ela o gate nega mesmo no próprio
+        workspace."""
         monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
-        headers = self._user_a_headers(fake_requests)
+        headers = self._user_a_headers(
+            fake_requests, role_id="r-tech", actions=("ticket.view",)
+        )
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
             {"id": "t1", "workspace_id": "ws-a"}
         ]))

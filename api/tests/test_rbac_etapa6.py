@@ -167,7 +167,6 @@ def client(root_api_module, fake_requests, monkeypatch):
         monkeypatch.setattr(rbac_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
-    monkeypatch.delenv("RBAC_2_ENABLED", raising=False)
     root_api_module._rate_limit_store.clear()
     return root_api_module.app.test_client()
 
@@ -206,7 +205,7 @@ class TestChamadosGet:
     def test_get_allowed(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.view": True})
         resp = client.get(_ticket_url("t-1"), headers=_auth_headers())
         assert resp.status_code == 200
@@ -216,24 +215,25 @@ class TestChamadosGet:
     def test_get_denied(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         _capture_can(monkeypatch, rbac_module, {"ticket.view": False})
         resp = client.get(_ticket_url("t-1"), headers=_auth_headers())
         assert resp.status_code == 403
         assert resp.get_json()["error"] == "Permissão insuficiente"
 
-    def test_get_off_preserves_legacy(self, client, fake_requests, monkeypatch, rbac_module):
+    def test_get_action_absent_deny(self, client, fake_requests, monkeypatch, rbac_module):
+        """Action ausente ⇒ 403 mesmo sem env var (RBAC 2.0 sempre ativo)."""
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.view": False})
         resp = client.get(_ticket_url("t-1"), headers=_auth_headers())
-        assert resp.status_code == 200
-        assert calls == []
+        assert resp.status_code == 403
+        assert calls and calls[-1]["action"] == "ticket.view"
 
     def test_get_workspace_derived_from_resource(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile(ws=["ws-real"]))
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row(ws="ws-real")]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.view": True})
         resp = client.get(_ticket_url("t-1"), headers=_auth_headers())
         assert resp.status_code == 200
@@ -247,7 +247,7 @@ class TestChamadosDelete:
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([{"workspace_id": "ws-test", "photos": ""}]))
         fake_requests.route("DELETE", "/rest/v1/chamados_tickets", FakeResponse([], status_code=204))
         fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.delete": True})
         resp = client.delete(_ticket_url("t-1"), headers=_auth_headers())
         assert resp.status_code == 200
@@ -256,7 +256,7 @@ class TestChamadosDelete:
     def test_delete_denied_before_side_effect(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([{"workspace_id": "ws-test", "photos": ""}]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         _capture_can(monkeypatch, rbac_module, {"ticket.delete": False})
         resp = client.delete(_ticket_url("t-1"), headers=_auth_headers())
         assert resp.status_code == 403
@@ -271,7 +271,7 @@ class TestChamadosPatch:
         fake_requests.route("PATCH", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
         fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([]))
         fake_requests.route("POST", "/rest/v1/ticket_events", FakeResponse([{"id": "e1"}], status_code=201))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, decisions)
         resp = client.patch(_ticket_url("t-1"), json=body, headers=_auth_headers())
         return resp, calls
@@ -306,7 +306,7 @@ class TestChamadosPatch:
     ):
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         _capture_can(monkeypatch, rbac_module,
                      {"ticket.status": True, "ticket.assign": False})
         resp = client.patch(_ticket_url("t-1"),
@@ -315,15 +315,19 @@ class TestChamadosPatch:
         assert resp.status_code == 403
         assert not fake_requests.calls_for("PATCH", "/rest/v1/chamados_tickets")
 
-    def test_patch_off_preserves_legacy(self, client, fake_requests, monkeypatch, rbac_module):
+    def test_patch_off_migrated_to_action_gate(
+        self, client, fake_requests, monkeypatch, rbac_module
+    ):
+        """O antigo path 'OFF preserva legado' deixou de existir: status exige
+        ticket.status sempre (ON-only)."""
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
         fake_requests.route("PATCH", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
         fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([]))
-        calls = _capture_can(monkeypatch, rbac_module, {}, default=True)
+        calls = _capture_can(monkeypatch, rbac_module, {"ticket.status": True})
         resp = client.patch(_ticket_url("t-1"), json={"status": "em_atendimento"}, headers=_auth_headers())
         assert resp.status_code == 200
-        assert calls == []
+        assert {"ticket.status"} == {c["action"] for c in calls}
 
 
 # ── Chamados events ───────────────────────────────────────────────────────────
@@ -336,7 +340,7 @@ class TestChamadosEvents:
     def test_get_events_allowed(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile())
         self._route(fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.view": True})
         resp = client.get(f"/api/chamados/t-1/events", headers=_auth_headers())
         assert resp.status_code == 200
@@ -345,7 +349,7 @@ class TestChamadosEvents:
     def test_get_events_denied(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile())
         self._route(fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         _capture_can(monkeypatch, rbac_module, {"ticket.view": False})
         resp = client.get(f"/api/chamados/t-1/events", headers=_auth_headers())
         assert resp.status_code == 403
@@ -353,7 +357,7 @@ class TestChamadosEvents:
     def test_post_events_allowed(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile())
         self._route(fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.comment": True})
         resp = client.post(f"/api/chamados/t-1/events",
                            json={"content": "comentario"}, headers=_auth_headers())
@@ -363,7 +367,7 @@ class TestChamadosEvents:
     def test_post_events_denied_no_event(self, client, fake_requests, monkeypatch, rbac_module):
         _patch_supabase_profile(fake_requests, _profile())
         self._route(fake_requests)
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         _capture_can(monkeypatch, rbac_module, {"ticket.comment": False})
         resp = client.post(f"/api/chamados/t-1/events",
                            json={"content": "comentario"}, headers=_auth_headers())
@@ -380,7 +384,7 @@ class TestProtectedGlobal:
         # (passa no require_admin) e mockamos rbac_can→False p/ provar que a rota
         # é gated por `reservelab.push.manage` scope=global.
         _patch_supabase_profile(fake_requests, _profile(is_super=True))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {}, default=False)
         resp = client.post("/api/push/send", json={"title": "x", "body": "y"}, headers=_auth_headers())
         assert resp.status_code == 403
@@ -388,10 +392,12 @@ class TestProtectedGlobal:
         assert calls and calls[0]["action"] == "reservelab.push.manage"
         assert calls[0]["scope"] == "global"
 
-    def test_push_send_off_preserves_legacy_nonsuper_gate(
+    def test_push_send_nonsuper_denied_by_require_admin(
         self, client, fake_requests, monkeypatch, rbac_module
     ):
-        # OFF ⇒ require_action é no-op; require_admin (legado, super-only) governa.
+        # require_admin precede require_action (outer→inner): não-super é negado
+        # antes mesmo de avaliar a Action `reservelab.push.manage` (RBAC 2.0
+        # sempre ativo; o gate é preservado como defesa em profundidade).
         _patch_supabase_profile(fake_requests, _profile(is_super=False))
         calls = _capture_can(monkeypatch, rbac_module, {})
         resp = client.post("/api/push/send", json={"title": "x", "body": "y"}, headers=_auth_headers())
@@ -406,7 +412,7 @@ class TestProtectedGlobal:
         # RBAC NÃO bloqueia (handler pode seguir; redis não configurado no teste
         # geraria 500 fora do escopo RBAC — aqui só provamos a permissão).
         _patch_supabase_profile(fake_requests, _profile(is_super=True))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         _capture_can(monkeypatch, rbac_module, {"reservelab.push.manage": True})
         resp = client.post("/api/push/send", json={"title": "x", "body": "y"}, headers=_auth_headers())
         assert resp.status_code != 403
@@ -416,7 +422,7 @@ class TestProtectedGlobal:
     ):
         _patch_supabase_profile(fake_requests, _profile(is_super=True))
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.weeklyEmail": False})
         resp = client.post("/api/chamados/reports/weekly-email",
                            json={"workspace_id": "ws-test"}, headers=_auth_headers())
@@ -429,7 +435,7 @@ class TestProtectedGlobal:
         _patch_supabase_profile(fake_requests, _profile(is_super=True))
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([]))
         fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         monkeypatch.setattr(sys.modules["root_api"], "_send_email_via_resend", lambda *a, **k: (True, ""))
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.weeklyEmail": True})
         resp = client.post("/api/chamados/reports/weekly-email",
@@ -445,7 +451,7 @@ class TestSecurity:
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
         fake_requests.route("POST", "/rest/v1/rbac_audit_logs",
                             FakeResponse(None, status_code=500, ok=False))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         _capture_can(monkeypatch, rbac_module, {"ticket.view": False})
         resp = client.get(_ticket_url("t-1"), headers=_auth_headers())
         # audit falhou, mas a decisão DENY permanece 403.
@@ -457,7 +463,7 @@ class TestSecurity:
         # O cliente envia workspace_id, mas o workspace DERIVADO é o do recurso (ws-real).
         _patch_supabase_profile(fake_requests, _profile(ws=["ws-real"]))
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row(ws="ws-real")]))
-        monkeypatch.setenv("RBAC_2_ENABLED", "1")
+
         calls = _capture_can(monkeypatch, rbac_module, {"ticket.view": True})
         resp = client.get(_ticket_url("t-1"),
                           query_string={"workspace_id": "ws-fake-other"}, headers=_auth_headers())

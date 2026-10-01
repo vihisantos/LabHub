@@ -8,7 +8,7 @@ import { actionLogService } from '../services/actionLogService'
 import { SkeletonStatCard, SkeletonTimeline } from '../components/Skeletons'
 import { icons } from '../../../lib/icons'
 import { ChartCard, DonutChart, BarChart } from '../../../lib/charts'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR')
@@ -54,8 +54,7 @@ export function Dashboard() {
   const { parts, loading: partsLoading } = useParts()
   const { all: allMaint, upcoming, loading: maintLoading } = useMaintenance()
   const { activeLab } = useActiveLab()
-  const { isFullAccess } = useAppAccess()
-  const canWrite = isFullAccess('pc-care')
+  const { allowed: canWrite } = useCanAccessAction('pcare.asset.create')
 
   const pcs = useMemo(() => {
     if (!activeLab) return allPcs

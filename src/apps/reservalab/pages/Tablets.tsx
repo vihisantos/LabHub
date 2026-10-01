@@ -6,7 +6,7 @@ import { CancelReservationModal } from '../components/CancelReservationModal'
 import { TabletModal } from '../components/TabletModal'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../../../core/auth/AuthContext'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import {
   fetchTabletReservas,
@@ -67,9 +67,13 @@ export function TabletsView() {
   const [mostrarTodas, setMostrarTodas] = useState(false)
   const [formError, setFormError] = useState('')
   const { user } = useAuth()
-  const { getLevel } = useAppAccess()
+  // RBAC 2.0: nova reserva → `reservelab.tablet.reserve`; editar/cancelar →
+  // `reservelab.tablet.cancel` (backend 078: UPDATE exige `cancel`; INSERT é
+  // só membership — gating com `reserve` no UI é MAIS restritivo que o backend,
+  // divergência documentada).
+  const { allowed: canReserve } = useCanAccessAction('reservelab.tablet.reserve')
+  const { allowed: canCancel } = useCanAccessAction('reservelab.tablet.cancel')
   const { workspace } = useWorkspace()
-  const canEdit = getLevel('reservalab') === 'full'
 
   const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
@@ -372,7 +376,7 @@ export function TabletsView() {
               {mostrarTodas ? 'Só hoje' : 'Todas'}
             </button>
           )}
-          {canEdit && (
+          {canReserve && (
             <button
               onClick={() => { if (showForm) closeForm(); else { setEditing(null); setShowForm(true); setFormError('') } }}
               style={{
@@ -541,13 +545,13 @@ export function TabletsView() {
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {items.map((r) => (
-                    <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} onEdit={() => openEditModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} canEdit={canEdit} />
+                    <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} onEdit={() => openEditModal(r)} formatTime={formatTimeDisplay} canCancel={canCancel} canEdit={canCancel} />
                   ))}
                 </div>
               </div>
             ))
           : reservasHoje.map((r) => (
-              <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} onEdit={() => openEditModal(r)} formatTime={formatTimeDisplay} canCancel={canEdit} canEdit={canEdit} />
+              <ReservationRow key={r.id} reservation={r} onCancel={() => openCancelModal(r)} onEdit={() => openEditModal(r)} formatTime={formatTimeDisplay} canCancel={canCancel} canEdit={canCancel} />
             ))}
         {reservas.length === 0 && (
           <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>

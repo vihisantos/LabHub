@@ -3,7 +3,6 @@ import { emptyNetworkInfo, emptyTechnicalInfo, emptyWarrantyInfo } from '../type
 import type { PC } from '../types/pc'
 import { getCol, setCol } from '../../../lib/db'
 import { createSyncService } from '../../../lib/sync'
-import { permissionService } from '../../../core/permissions/service'
 
 const service = createSyncService<Asset>('assets')
 
@@ -39,11 +38,9 @@ export const assetService = {
   getAll: () => { migrateLegacyPCs(); return service.getAll() },
   getById: (id: string) => { migrateLegacyPCs(); return service.getById(id) },
   create: (data: Omit<Asset, 'id'>) => {
-    permissionService.requireWrite('pc-care')
     return service.create(data)
   },
   update: (id: string, data: Partial<Asset>) => {
-    permissionService.requireWrite('pc-care')
     return service.update(id, data)
   },
   query: (predicate: (asset: Asset) => boolean) => { migrateLegacyPCs(); return service.query(predicate) },

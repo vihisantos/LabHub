@@ -1,18 +1,28 @@
 import type { ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { useAppAccess } from '../permissions/usePermissions'
+import { useModuleLevel } from '../permissions/useModuleVisibility'
 import { useWorkspace } from '../workspaces/WorkspaceContext'
 import { isAppDisabled } from '../workspaces/apps'
 import { appRegistry } from '../../appRegistry'
 
 export function AppGuard({ appId, children }: { appId: string; children: ReactNode }) {
   const { user, loading } = useAuth()
-  const { canAccessApp } = useAppAccess()
   const { workspace } = useWorkspace()
   const navigate = useNavigate()
+  // RBAC 2.0 (F2-D-L): a visibilidade do módulo vem da nova fonte
+  // (`membership ativa → roles.slug → matriz`), não mais de `canAccessApp`
+  // (`Role.appAccess` + `profiles.app_access`).
+  //
+  // `ignoreDisabledApps` é deliberado: este guard trata "módulo desabilitado
+  // na unidade" em TELA PRÓPRIA (abaixo), distinta de "sem acesso". Se o eixo
+  // fosse aplicado aqui, um app desabilitado cairia na tela de acesso restrito
+  // e a mensagem antiga se perderia.
+  const { visible, loading: visibilityLoading } = useModuleLevel(appId, {
+    ignoreDisabledApps: true,
+  })
 
-  if (loading) {
+  if (loading || visibilityLoading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-surface">
         <div className="flex flex-col items-center gap-3">
@@ -27,7 +37,7 @@ export function AppGuard({ appId, children }: { appId: string; children: ReactNo
     return <Navigate to="/login" replace />
   }
 
-  if (!canAccessApp(appId)) {
+  if (!visible) {
     const app = appRegistry.find((a) => a.id === appId)
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-surface px-6 text-center">

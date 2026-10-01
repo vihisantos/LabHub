@@ -1,11 +1,15 @@
 # LabHub — RBAC 2.0 · ETAPA 6: Enforcement definitivo · Chamados + Push
 
+> **Atualização pós-F2-C:** a flag `RBAC_2_ENABLED` foi **removida do runtime**
+> (RBAC 2.0 ON-only) e `_require_action_in_handler` passou a **sempre** enforçar.
+> Menções à "flag OFF / no-op legado" abaixo são **históricas**.
+
 > Documento da **ETAPA 6**: materialização do enforcement RBAC 2.0 onde a Action do catálogo é
 > **literal** e semanticamente comprovável — Chamados por operação, eventos, weekly-email e push.
 > Regra deste documento: nenhuma ambiguidade é resolvida por suposição; só se aplica Action **literal** do
 > catálogo (`docs/architecture/rbac2.0-actions-catalog.md`); o que não é determinável vira
-> `NEEDS_DECISION`; **nunca** permission-by-accident; não se remove gatos legados; flag OFF
-> preserva 100% do comportamento legado.
+> `NEEDS_DECISION`; **nunca** permission-by-accident; não se remove gates legados; o enforcement
+> é ON-only desde o F2-C.
 
 ---
 

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useAppAccess } from '../../../core/permissions/usePermissions'
+import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
 import { icons } from '../../../lib/icons'
 
 interface NavbarProps {
@@ -22,10 +22,10 @@ export function Navbar({ statusAPI = 'online' }: NavbarProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const tabPositionsRef = useRef<{ left: number, width: number }[]>([])
   const [hoveredTab, setHoveredTab] = useState<string | null>(null)
-  const { getLevel } = useAppAccess()
+  const { level } = useModuleLevel('reservalab', { ignoreDisabledApps: true })
 
   // Cargo com acesso 'dash' vê somente o dashboard
-  const visibleTabs = getLevel('reservalab') === 'dash'
+  const visibleTabs = level === 'dash'
     ? tabs.filter((t) => t.id === 'dashboard')
     : tabs
 

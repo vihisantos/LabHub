@@ -1,3 +1,17 @@
+
+// RBAC 2.0 (F2-D-L): a visibilidade de módulo na_notificação vem da nova
+// fonte (membership -> roles.slug -> matriz), resolvida em
+// `useNotifications`. Sem membership no ambiente de teste, o nível é `none`
+// e tudo seria filtrado — então aqui concedemos visibilidade explicitamente.
+vi.mock('../../../core/permissions/useModuleVisibility', () => ({
+  useModuleVisibilities: () => ({
+    levelOf: () => 'read' as const,
+    isVisible: () => true,
+    loading: false,
+  }),
+  useModuleLevel: () => ({ level: 'read' as const, visible: true, loading: false }),
+}))
+
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 

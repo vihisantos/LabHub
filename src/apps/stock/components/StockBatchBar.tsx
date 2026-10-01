@@ -13,9 +13,11 @@ interface StockBatchBarProps {
   onUpdate: (ids: string[], data: Partial<StockItem>) => void
   onDelete: (ids: string[]) => void
   onCreateMovement: (data: StockMovementFormData) => void
+  canMove?: boolean
+  canDelete?: boolean
 }
 
-export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDelete, onCreateMovement }: StockBatchBarProps) {
+export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDelete, onCreateMovement, canMove = true, canDelete = true }: StockBatchBarProps) {
   const [showMoveModal, setShowMoveModal] = useState(false)
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -139,14 +141,17 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setShowLoanModal(true)}
-              className="flex items-center gap-1 rounded-lg bg-violet-50 dark:bg-violet-950/30 px-2.5 py-1.5 text-[11px] font-medium text-violet-700 dark:text-violet-400 transition-colors btn-interactive"
-            >
-              <icons.ui.user size={12} />
-              Emprestar
-            </button>
+            {canMove && (
+              <button
+                type="button"
+                onClick={() => setShowLoanModal(true)}
+                className="flex items-center gap-1 rounded-lg bg-violet-50 dark:bg-violet-950/30 px-2.5 py-1.5 text-[11px] font-medium text-violet-700 dark:text-violet-400 transition-colors btn-interactive"
+              >
+                <icons.ui.user size={12} />
+                Emprestar
+              </button>
+            )}
+            {canMove && (
             <button
               type="button"
               onClick={() => setShowMoveModal(true)}
@@ -155,6 +160,8 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
               <icons.ui.refresh size={12} />
               Mover
             </button>
+            )}
+            {canMove && (
             <button
               type="button"
               onClick={handleRepair}
@@ -163,6 +170,8 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
               <icons.nav.parts size={12} />
               Consertar
             </button>
+            )}
+            {canMove && (
             <button
               type="button"
               onClick={() => setShowDiscardConfirm(true)}
@@ -171,6 +180,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
               <icons.ui.trash size={12} />
               Descartar
             </button>
+            )}
             <button
               type="button"
               onClick={handleExport}
@@ -179,6 +189,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
               <icons.ui.fileBarChart size={12} />
               CSV
             </button>
+            {canDelete && (
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
@@ -187,6 +198,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
               <icons.ui.close size={12} />
               Deletar
             </button>
+            )}
           </div>
         </div>
       </div>

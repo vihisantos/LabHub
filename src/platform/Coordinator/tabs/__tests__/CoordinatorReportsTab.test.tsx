@@ -8,12 +8,12 @@ import type { Workspace } from '../../../../core/workspaces/types'
 import type { ChamadosReport } from '../../../../apps/chamados/types/report'
 import type { Ticket } from '../../../../apps/chamados/types'
 
-const mockUseAppAccess = vi.hoisted(() => vi.fn())
+const mockUseModuleLevel = vi.hoisted(() => vi.fn())
 const mockGetReports = vi.hoisted(() => vi.fn())
 const mockExportCSV = vi.hoisted(() => vi.fn())
 
-vi.mock('../../../../core/permissions/usePermissions', () => ({
-  useAppAccess: () => mockUseAppAccess(),
+vi.mock('../../../../core/permissions/useModuleVisibility', () => ({
+  useModuleLevel: (...args: unknown[]) => mockUseModuleLevel(...args),
 }))
 
 vi.mock('../../../../apps/chamados/services/ticketService', () => ({
@@ -93,7 +93,7 @@ function ticket(overrides: Partial<Ticket>): Ticket {
 }
 
 function allowed(over: Record<string, unknown> = {}) {
-  return { canAccessApp: () => true, canWriteApp: () => false, ...over }
+  return { visible: true, loading: false, ...over }
 }
 
 function renderTab(units: CoordinatedUnit[], workspaces: Workspace[]) {
@@ -104,11 +104,11 @@ describe('CoordinatorReportsTab (F.1 — leitura honesta por unidade)', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
-    mockUseAppAccess.mockReturnValue(allowed())
+    mockUseModuleLevel.mockReturnValue(allowed())
   })
 
   it('acesso restrito: papel sem leitura de Chamados não busca nada e mostra reports-restricted', async () => {
-    mockUseAppAccess.mockReturnValue(allowed({ canAccessApp: () => false }))
+    mockUseModuleLevel.mockReturnValue(allowed({ visible: false }))
 
     renderTab([unit('ws1', 'Campus A')], [workspace('ws1', 'campus-a')])
     await act(async () => {})

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
-const mockIsFullAccess = vi.hoisted(() => vi.fn())
+const mockCanAccessAction = vi.hoisted(() => vi.fn())
 const mockUpdateSla = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../../core/auth/useAuth', () => ({
@@ -22,8 +22,12 @@ vi.mock('../../../../core/auth/useAuth', () => ({
   }),
 }))
 
+// RBAC 2.0 (F2-D-G): o gate do SLA é a Action `chamados.settings.manage`
+// (migration 079) — não mais `isFullAccess('chamados')`, que vinha de
+// `Role.appAccess`/`profiles.app_access`.
 vi.mock('../../../../core/permissions/usePermissions', () => ({
-  useAppAccess: () => ({ isFullAccess: mockIsFullAccess }),
+  useCanAccessAction: (...args: unknown[]) => mockCanAccessAction(...args),
+  useAppAccess: () => ({ isFullAccess: () => true }),
 }))
 
 vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
@@ -43,6 +47,7 @@ vi.mock('../../../../lib/usePushNotifications', () => ({
 
 vi.mock('../../services/slaConfigService', () => ({
   slaConfigService: {
+    // Leitura pura (F2-D-G §8): devolve o salvo ou o padrão, nunca cria.
     getFor: () => ({ hours: { baixa: 72, normal: 24, alta: 8, urgente: 2 } }),
     update: mockUpdateSla,
   },
@@ -52,7 +57,8 @@ import { Settings } from '../Settings'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockIsFullAccess.mockReturnValue(true)
+  mockCanAccessAction.mockReturnValue({ allowed: true, loading: false })
+  mockUpdateSla.mockResolvedValue(undefined)
   vi.useFakeTimers()
 })
 
@@ -97,11 +103,51 @@ describe('Settings — SLA de atendimento', () => {
   })
 
   it('desabilita os campos de SLA quando o usuário não pode escrever', async () => {
-    mockIsFullAccess.mockReturnValue(false)
+    mockCanAccessAction.mockReturnValue({ allowed: false, loading: false })
     render(<Settings />)
     await act(async () => {})
 
     expect(screen.getByDisplayValue('72')).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Salvar prazos' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Settings — SLA gateado por Action (RBAC 2.0 / F2-D-G)', () => {
+  it('consulta a Action chamados.settings.manage', async () => {
+    render(<Settings />)
+    await act(async () => {})
+
+    expect(mockCanAccessAction).toHaveBeenCalledWith('chamados.settings.manage')
+  })
+
+  it('fail-closed enquanto a Action não responde (loading=true esconde a escrita)', async () => {
+    mockCanAccessAction.mockReturnValue({ allowed: false, loading: true })
+    render(<Settings />)
+    await act(async () => {})
+
+    expect(screen.queryByRole('button', { name: 'Salvar prazos' })).not.toBeInTheDocument()
+    expect(screen.getByDisplayValue('72')).toBeDisabled()
+  })
+
+  it('sem a Action, clicar em salvar é impossível (o service rejeitaria de qualquer forma)', async () => {
+    mockCanAccessAction.mockReturnValue({ allowed: false, loading: false })
+    render(<Settings />)
+    await act(async () => {})
+
+    expect(mockUpdateSla).not.toHaveBeenCalled()
+  })
+
+  it('falha do service (Action revogada entre o clique e a escrita) aparece como erro', async () => {
+    mockUpdateSla.mockRejectedValue(new Error('Permissão insuficiente: seu acesso não permite gerenciar as configurações de Chamados.'))
+    render(<Settings />)
+    await act(async () => {})
+
+    fireEvent.change(screen.getByDisplayValue('24'), { target: { value: '12' } })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar prazos' }))
+    await act(async () => {})
+
+    expect(screen.getByText(/Permissão insuficiente/)).toBeInTheDocument()
+    expect(screen.queryByText('Salvo')).not.toBeInTheDocument()
   })
 })

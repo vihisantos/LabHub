@@ -19,14 +19,14 @@ flowchart TD
     G -->|Não| E
 ```
 
-1. **RBAC 2.0** (backend, quando `RBAC_2_ENABLED=1`) — autorização granular por Action
+1. **RBAC 2.0** (backend, sempre ativo) — autorização granular por Action
 2. **Gate de aplicação** — verificação de `disabled_apps` no workspace
 3. **Cargo legado** — `profiles.role` combinado com `AppAccessLevel` (`dash`/`read`/`full`)
 4. **RLS** — segurança em nível de linha para isolamento de workspace (sempre ativa)
 
 ## RBAC 2.0
 
-O RBAC 2.0 é a camada **autoritativa** de autorização no backend. Quando habilitado (`RBAC_2_ENABLED=1`), cada endpoint protegido avalia uma **Action** contra a **membership** do usuário no workspace em questão.
+O RBAC 2.0 é a camada **autoritativa** de autorização no backend e está **sempre ativo** (ON-only, sem feature flag). Cada endpoint protegido avalia uma **Action** contra a **membership** do usuário no workspace em questão. Não existe mais caminho legacy autorizado por `profiles.role`.
 
 ### Motor de decisão
 
@@ -86,22 +86,19 @@ Algumas rotas resolvem o workspace **depois** de buscar o recurso (por exemplo, 
 | `GET /api/chamados/<id>/events` | `ticket.view` |
 | `POST /api/chamados/<id>/events` | `ticket.comment` |
 
-### Feature flag
+### Estado ON-only (F2-C)
 
-```bash
-RBAC_2_ENABLED=1   # liga o RBAC; o legado continua ativo como fallback
-RBAC_2_ENABLED=0   # RBAC vira no-op; valem apenas os gates legados
-```
-
-Com a flag desligada, todos os decorators e helpers são *no-op* e o comportamento existente é preservado.
-
-### Rollback
-
-Definir `RBAC_2_ENABLED=0` desativa imediatamente o enforcement. Não exige alteração de código nem deploy.
+O RBAC 2.0 é **ON-only**: o enforcement é incondicional, não existe feature flag
+no código e rotas protegidas **não** possuem caminho legacy por `profiles.role`.
+A variável `RBAC_2_ENABLED` foi removida do runtime (o valor residual em variáveis
+de ambiente da Vercel é inócuo e deve ser limpo como passo operacional).
 
 ## Hierarquia de cargos legada
 
-O modelo legado é preservado como **fallback** quando o RBAC está desligado:
+O modelo legado ainda existe (coluna `profiles.role` / `Role.appAccess`) e continua
+sendo consumido por partes do frontend, mas **não autoriza nada no backend**: com o
+RBAC 2.0 ON-only, autorização é exclusivamente por Action via membership/role_permissions
+(F2-C). A remoção definitiva do modelo legado é tratada em F2-D.
 
 | Cargo | Descrição |
 |-------|-----------|

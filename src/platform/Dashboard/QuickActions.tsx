@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
-import { useAppAccess } from '../../core/permissions/usePermissions'
-import { isAppDisabled, isModuleAvailable } from '../../core/workspaces/apps'
+import { useModuleVisibilities } from '../../core/permissions/useModuleVisibility'
+import { isAppDisabled } from '../../core/workspaces/apps'
 import { icons } from '../../lib/icons'
 
 const actions = [
@@ -40,14 +40,24 @@ const actions = [
 export function QuickActions() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
-  const { canAccessApp } = useAppAccess()
+  // RBAC 2.0 (F2-D-L): visibilidade pela nova fonte, com o eixo
+  // `disabled_apps` incluído (o legado usava `isModuleAvailable`, que já
+  // combinava os dois eixos).
+  const { isVisible } = useModuleVisibilities([
+    'chamados',
+    'reservalab',
+    'pc-care',
+    'stock',
+  ])
 
+  // `appId: null` (link público de novo chamado) continua visível para todos,
+  // desde que o app não esteja desabilitado — como antes.
   const visible = actions.filter(
     (action) =>
       !action.appId ||
       (action.appId === 'chamados'
         ? !isAppDisabled(action.appId, workspace)
-        : isModuleAvailable(action.appId, workspace, canAccessApp)),
+        : isVisible(action.appId)),
   )
 
   return (

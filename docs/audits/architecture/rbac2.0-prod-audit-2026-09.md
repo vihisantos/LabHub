@@ -1,5 +1,9 @@
 # LabHub — Auditoria pós-produção RBAC 2.0 (2026-09-07)
 
+> **Atualização (F2-C, 2026-09):** a flag `RBAC_2_ENABLED` foi **removida do runtime**
+> (RBAC 2.0 ON-only). As citações à flag neste relatório são **históricas**; o record residual
+> `RBAC_2_ENABLED=1` na Vercel é inócuo e pode ser removido como limpeza operacional.
+
 > Auditoria **read-only** (2026-09-07). Nenhum código, migration, banco ou Vercel foi alterado.
 > Escopo: verificação pós-ativação do RBAC 2.0 em produção (`RBAC_2_ENABLED=1`).
 
@@ -57,14 +61,18 @@ Resultado: 34/34 checagens comportamentais corretas (2 "falhas" iniciais eram ex
 
 - Runtime logs do deployment não estão disponíveis via API Vercel (HTTP 404 — limitação de plano). O monitoramento desta auditoria usou deployment events + requests HTTP reais.
 
-## Rollback conceitual (não executado)
+## Rollback conceitual (histórico, não executado; inválido após F2-C)
+
+> A reversão via `RBAC_2_ENABLED=0` **deixou de existir no F2-C**: a flag foi removida
+> do runtime e o enforcement é incondicional (ON-only). Mantido abaixo apenas como registro
+> histórico do cenário à época da auditoria.
 
 Reversão em 2 passos, sem tocar dados:
 
 1. `RBAC_2_ENABLED=0` (ou remover o record) em Production no Vercel.
 2. Novo deployment a partir de `main`.
 
-Com a flag OFF, decorators/helpers retornam ao caminho legado (gates existentes). Nenhuma migration envolvida.
+Com a flag OFF, decorators/helpers retornariam ao caminho legado (gates existentes). Nenhuma migration envolvida.
 
 ## Referências
 

@@ -66,7 +66,7 @@ beforeEach(() => {
   mockUseLeadership.mockReturnValue({
     isLeadership: true,
     area: 'team',
-    role: { id: 'role-lider', key: 'lider', name: 'Líder', appAccess: {} },
+    role: { id: 'role-lider', key: 'lider', name: 'Líder' },
   })
   mockUseWorkspace.mockReturnValue({ workspace: ws1 })
   mockGetRoleForUser.mockReturnValue({ name: 'Técnico' })
