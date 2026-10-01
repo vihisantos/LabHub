@@ -316,19 +316,36 @@ IF v_count <> 0 THEN
 END IF;
 
 -- 19. escrita que muda SÓ app_access: passa (sem erro de runtime) e não audita.
-BEGIN
-  UPDATE public.profiles SET app_access = '{"pc-care":"full"}'::jsonb WHERE id = v_uid;
-EXCEPTION
-  WHEN undefined_column THEN
-    RAISE EXCEPTION 'FAIL [19]: UPDATE de app_access quebrou por dependencia de trigger — o DROP futuro seria inseguro';
-  WHEN OTHERS THEN
-    RAISE EXCEPTION 'FAIL [19b]: UPDATE de app_access falhou: %', SQLERRM;
-END;
-SELECT count(*) INTO v_count FROM public.app_audit_logs WHERE entity_id = v_uid::text;
-IF v_count <> 0 THEN
-  RAISE EXCEPTION 'FAIL [19c]: UPDATE de app_access nao deveria gerar auditoria (found % linhas)', v_count;
+--
+-- O STEP 6 roda TODOS os harnesses DEPOIS da cadeia completa 000→085, então a
+-- 084 já removeu `public.profiles.app_access` neste ponto. A prova só é válida
+-- enquanto a coluna existe (é ela que demonstra que os triggers não dependem
+-- mais do campo); com a coluna ausente, a ausência JÁ é o estado definitivo —
+-- coberto por tests/084. Aqui a prova é omitida em vez de estourar com
+-- 'column "app_access" does not exist'. Mesma abordagem de tests/077 e 078.
+IF EXISTS (
+  SELECT 1
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'profiles'
+    AND column_name = 'app_access'
+) THEN
+  BEGIN
+    UPDATE public.profiles SET app_access = '{"pc-care":"full"}'::jsonb WHERE id = v_uid;
+  EXCEPTION
+    WHEN undefined_column THEN
+      RAISE EXCEPTION 'FAIL [19]: UPDATE de app_access quebrou por dependencia de trigger — o DROP futuro seria inseguro';
+    WHEN OTHERS THEN
+      RAISE EXCEPTION 'FAIL [19b]: UPDATE de app_access falhou: %', SQLERRM;
+  END;
+  SELECT count(*) INTO v_count FROM public.app_audit_logs WHERE entity_id = v_uid::text;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FAIL [19c]: UPDATE de app_access nao deveria gerar auditoria (found % linhas)', v_count;
+  END IF;
+  UPDATE public.profiles SET app_access = '{}'::jsonb WHERE id = v_uid;
+ELSE
+  RAISE NOTICE '083: public.profiles.app_access nao existe (084 aplicada) - caso [19] omitido';
 END IF;
-UPDATE public.profiles SET app_access = '{}'::jsonb WHERE id = v_uid;
 
 -- ── Autoridade: usuário comum ───────────────────────────────────────────────
 INSERT INTO auth.users (id, instance_id, aud, role, email,
