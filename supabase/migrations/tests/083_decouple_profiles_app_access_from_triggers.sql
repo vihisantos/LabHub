@@ -164,6 +164,12 @@ SELECT pg_get_functiondef(p.oid) INTO v_guard
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public' AND p.proname = 'guard_profile_privileged_columns';
 
+-- Comentários não são código: a função documenta no corpo que `app_access`
+-- saiu da lista de campos privilegiados, e o `pg_get_functiondef` reproduz
+-- esse texto. Neutraliza os comentários ANTES da busca para que a exigência
+-- continue valendo para qualquer referência EXECUTÁVEL a `app_access`.
+v_guard := regexp_replace(v_guard, '--[^\n]*', '', 'g');
+
 IF v_guard LIKE '%app_access%' THEN
   RAISE EXCEPTION 'FAIL: guard_profile_privileged_columns() ainda referencia app_access (F2-D-I)';
 END IF;

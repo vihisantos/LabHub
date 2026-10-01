@@ -42,6 +42,50 @@
 --      dependência funcional de `Role.appAccess`/`profiles.app_access`);
 --  16. super admin => ALLOW (bypass preservado).
 --
+-- ── POR QUE EXISTEM JANELAS DE PAPOL (RLS DE VERDADE) ─────────────────────────
+-- O runner do Migrations CI conecta como `postgres`, que é SUPERUSUÁRIO e dono
+-- de todas as tabelas (nenhuma migration faz `ALTER ... OWNER TO`). Um
+-- superusuário/dono ignora RLS por completo, então uma escrita feita nessa
+-- sessão NUNCA prova negação: ela passaria mesmo com a policy ausente, e um
+-- INSERT seria aceito mesmo sem Action. Isso está documentado em
+-- scripts/ci/supabase_stub_bootstrap.sql:11-13.
+--
+-- `set_config('request.jwt.claim.sub', ...)` só muda `auth.uid()`; NÃO troca o
+-- papel do PostgreSQL, logo não basta para exercitar RLS.
+--
+-- Por isso as 7 asserções que dependem de RLS (10a, 10b, 10c, 11d, 11e, 12b,
+-- 14b) rodam sob o papel `authenticated`, que JÁ EXISTE no banco efêmero
+-- (supabase_stub_bootstrap.sql:25) e que, comprovadamente:
+--   · não é dono das tabelas (nenhum ALTER ... OWNER TO no projeto);
+--   · tem rolsuper = false e rolbypassrls = false (criado sem BYPASSRLS, e
+--     nenhuma migration usa ALTER ROLE);
+--   · JÁ possui o mínimo de privilégios — `USAGE` no schema pcare (000:641) e
+--     `SELECT, INSERT, UPDATE, DELETE` nas duas tabelas (000:646-647, reafirmado
+--     em 026:105-106). Nenhum GRANT novo é concedido aqui.
+-- `anon` não serve (026:136-138 revoga até USAGE no schema) e `service_role`
+-- representa o backend confiável (000:662-664), não um usuário comum.
+--
+-- As janelas NÃO são contíguas: entre elas o harness precisa alterar
+-- `public.memberships`, e `authenticated` não tem privilégio de escrita nessa
+-- tabela (só EXECUTE em duas functions — 041:161-162; RLS em 036:190). Por isso
+-- o papel alterna: `SET LOCAL ROLE authenticated` só nas janelas de RLS, e
+-- `RESET ROLE` antes de qualquer escrita em memberships.
+--
+-- VERIFICAÇÃO: as tentativas de escrita rodam sob `authenticated`, mas a
+-- conferência do resultado roda como `postgres`, DEPOIS do `RESET ROLE`. Isso é
+-- deliberado — sob `authenticated` sem membership as linhas de `v_wsa` ficariam
+-- invisíveis pela policy de SELECT, e um `count(*)` zerado não provaria nada.
+-- Como `postgres` enxerga tudo, "a linha não foi criada / não foi alterada" é
+-- inequívoco. Em UPDATE/DELETE o RLS não levanta erro: a policy USING apenas
+-- filtra a linha, e o statement afeta 0 linhas.
+--
+-- ISOLAMENTO: fixtures e todas as alterações ficam dentro de um único
+-- `BEGIN ... COMMIT`. Um `RAISE EXCEPTION` aborta a transação inteira, então as
+-- fixtures não vazam para 083/084. Nenhum role é criado e nenhum GRANT é
+-- concedido, logo nada persiste em ACL. `SET LOCAL ROLE` e as GUCs locais
+-- reverteem no COMMIT/ROLLBACK.
+--
+--
 -- How to run: paste into the Supabase SQL Editor (or psql) AFTER 082 is applied.
 -- Every check raises an exception on drift; a clean run ends with
 -- "OK: 082 checklist/sla RBAC 2.0 checks passed".
@@ -61,7 +105,6 @@ DECLARE
   v_row     uuid;
   v_out     boolean;
 BEGIN
-
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PARTE 1 — ESTRUTURAL / CATÁLOGO
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -287,12 +330,23 @@ WHERE schemaname = 'pcare'
 IF v_count > 0 THEN
   RAISE EXCEPTION 'FAIL: SELECT must stay membership-based (no read Action)';
 END IF;
+END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- PARTE 2 — COMPORTAMENTAL: escrita DIRETA no banco, sem Action => NEGADO
--- ─────────────────────────────────────────────────────────────────────────────
 
--- Fixtures: duas unidades e um usuário real (auth.users → profile).
+-- ═════════════════════════════════════════════════════════════════════════════
+-- BLOCO B — PARTE 2: COMPORTAMENTAL, com janelas de papel para exercitar RLS
+-- Tudo dentro de UMA transação: um RAISE reverte fixtures e alterações.
+-- ═════════════════════════════════════════════════════════════════════════════
+BEGIN;
+
+-- ── B1: FIXTURES (postgres) ──────────────────────────────────────────────────
+DO $$
+DECLARE
+  v_wsa uuid;
+  v_wsb uuid;
+  v_uid uuid;
+  v_row uuid;
+BEGIN
 INSERT INTO public.workspaces (id, name, slug)
 VALUES ('88888888-8888-8888-8888-888888888881', '079 WS A', 'ws079-a')
 ON CONFLICT (slug) DO NOTHING;
@@ -326,7 +380,6 @@ END IF;
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
 UPDATE public.profiles SET status = 'active' WHERE id = v_uid;
 
--- ── 10. INSERT/UPDATE/DELETE DIRETO sem Action => o BANCO nega ─────────────
 -- Linha semeada em contexto CONFIÁVEL (auth.uid() nulo), para que UPDATE e
 -- DELETE tenham uma linha real sobre a qual provar a negação.
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
@@ -338,7 +391,24 @@ v_row := '99999999-0000-0000-0000-000000000001';
 -- Caller autenticado SEM membership e SEM Action.
 PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
 
--- (a) INSERT direto é negado: a linha nova não pode existir.
+-- IDs repassados às janelas `authenticated` via GUC: sob esse papel as tabelas
+-- public.workspaces / public.profiles podem estar invisíveis pela RLS, então
+-- recuperar por GUC é mais robusto do que re-consultar.
+PERFORM set_config('labhub.wsa', v_wsa::text, true);
+PERFORM set_config('labhub.wsb', v_wsb::text, true);
+PERFORM set_config('labhub.uid', v_uid::text, true);
+PERFORM set_config('labhub.row', v_row::text, true);
+END $$;
+
+-- ── B2: JANELA RLS — 10a/10b/10c sob `authenticated` ────────────────────────
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE
+  v_wsa uuid := current_setting('labhub.wsa')::uuid;
+  v_row uuid := current_setting('labhub.row')::uuid;
+BEGIN
+-- (a) INSERT sem Action: a policy de INSERT tem WITH CHECK, então a violação
+--     levanta 42501. Capturada aqui; a conferência é feita como `postgres`.
 BEGIN
   INSERT INTO pcare.checklist_templates (id, name, "labName", items, workspace_id)
   VALUES ('99999999-0000-0000-0000-000000000010', 'sem permissao', 'LAB-X', '[]'::jsonb, v_wsa);
@@ -347,6 +417,23 @@ EXCEPTION
   WHEN insufficient_privilege THEN NULL;
   WHEN check_violation THEN NULL;
 END;
+
+-- (b) UPDATE sem Action: a policy USING apenas filtra a linha — o RLS NÃO
+--     levanta erro aqui, o statement afeta 0 linhas.
+UPDATE pcare.checklist_templates SET name = 'HACK-UPDATE' WHERE id = v_row;
+
+-- (c) DELETE sem Action: idem — 0 linhas afetadas.
+DELETE FROM pcare.checklist_templates WHERE id = v_row;
+END $$;
+RESET ROLE;
+
+-- ── B3: CONFERÊNCIA de 10a/10b/10c como `postgres` (enxerga tudo) ───────────
+DO $$
+DECLARE
+  v_count integer;
+  v_row   uuid := '99999999-0000-0000-0000-000000000001';
+BEGIN
+-- 10a: a linha NÃO pode existir.
 SELECT count(*) INTO v_count
 FROM pcare.checklist_templates
 WHERE id = '99999999-0000-0000-0000-000000000010';
@@ -354,24 +441,36 @@ IF v_count <> 0 THEN
   RAISE EXCEPTION 'FAIL [10a]: INSERT direto sem Action gravou a linha (RLS nao bloqueou)';
 END IF;
 
--- (b) UPDATE direto é negado: a linha existente fica intacta.
-UPDATE pcare.checklist_templates SET name = 'HACK-UPDATE' WHERE id = v_row;
-IF EXISTS (SELECT 1 FROM pcare.checklist_templates WHERE id = v_row AND name = 'HACK-UPDATE') THEN
+-- 10b: a linha existente precisa ficar intacta.
+IF EXISTS (SELECT 1 FROM pcare.checklist_templates
+            WHERE id = v_row AND name = 'HACK-UPDATE') THEN
   RAISE EXCEPTION 'FAIL [10b]: UPDATE direto sem Action foi aplicado (RLS nao bloqueou)';
 END IF;
 
--- (c) DELETE direto é negado: a linha continua existindo.
-DELETE FROM pcare.checklist_templates WHERE id = v_row;
+-- 10c: a linha precisa continuar existindo.
 IF NOT EXISTS (SELECT 1 FROM pcare.checklist_templates WHERE id = v_row) THEN
   RAISE EXCEPTION 'FAIL [10c]: DELETE direto sem Action foi aplicado (RLS nao bloqueou)';
 END IF;
+END $$;
 
--- ── 11. membership ATIVA em `tec` (tem as 3 Actions) => ALLOW nas 3 ops ──────
+-- ── B4: membership ATIVA em `tec` + asserts da helper (postgres) ─────────────
+DO $$
+DECLARE
+  v_out boolean;
+  v_uid uuid;
+  v_wsa uuid;
+  v_tec uuid;
+BEGIN
+SELECT id INTO v_uid FROM public.profiles WHERE email = '079-checklist@labhub.test';
+SELECT id INTO v_wsa FROM public.workspaces WHERE slug = 'ws079-a';
+SELECT id INTO v_tec FROM public.roles WHERE slug = 'tec';
+
 INSERT INTO public.memberships (profile_id, workspace_id, role_id, status)
 VALUES (v_uid, v_wsa, v_tec, 'active')
 ON CONFLICT (profile_id, workspace_id) DO UPDATE
   SET role_id = EXCLUDED.role_id, status = 'active', managed_by = NULL;
 
+-- ── 11. membership ATIVA em `tec` (tem as 3 Actions) => ALLOW nas 3 ops ──────
 SELECT public.user_has_action(v_wsa, 'pcare.checklist.create') INTO v_out;
 IF NOT v_out THEN
   RAISE EXCEPTION 'FAIL [11a]: membership ativa com a Action deve permitir create';
@@ -384,8 +483,15 @@ SELECT public.user_has_action(v_wsa, 'pcare.checklist.delete') INTO v_out;
 IF NOT v_out THEN
   RAISE EXCEPTION 'FAIL [11c]: membership ativa com a Action deve permitir delete';
 END IF;
+END $$;
 
--- A escrita agora é aceita de fato (INSERT/UPDATE/DELETE diretos).
+-- ── B5: JANELA RLS — 11d/11e sob `authenticated` (a escrita é REALMENTE aceita) ─
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE
+  v_wsa uuid := current_setting('labhub.wsa')::uuid;
+BEGIN
+-- A escrita agora é aceita de fato (INSERT/UPDATE diretos).
 INSERT INTO pcare.checklist_templates (id, name, "labName", items, workspace_id)
 VALUES ('99999999-0000-0000-0000-000000000002', 'com permissao', 'LAB-Y', '[]'::jsonb, v_wsa);
 IF NOT FOUND THEN
@@ -396,13 +502,29 @@ UPDATE pcare.checklist_templates SET name = 'editado' WHERE id = '99999999-0000-
 IF NOT FOUND THEN
   RAISE EXCEPTION 'FAIL [11e]: UPDATE com a Action deve ser aceito pelo RLS';
 END IF;
+END $$;
+RESET ROLE;
 
--- ── 12. ISOLAMENTO — a MESMA membership não autoriza outra unidade ──────────
+-- ── B6: 12. ISOLAMENTO — a MESMA membership não autoriza outra unidade ─────
+DO $$
+DECLARE
+  v_out boolean;
+  v_wsb uuid;
+BEGIN
+SELECT id INTO v_wsb FROM public.workspaces WHERE slug = 'ws079-b';
+
 SELECT public.user_has_action(v_wsb, 'pcare.checklist.create') INTO v_out;
 IF v_out THEN
   RAISE EXCEPTION 'FAIL [12]: membership na unidade A nao pode autorizar a unidade B';
 END IF;
+END $$;
 
+-- ── B7: JANELA RLS — 12b sob `authenticated` ────────────────────────────────
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE
+  v_wsb uuid := current_setting('labhub.wsb')::uuid;
+BEGIN
 -- INSERT apontando para a OUTRA unidade também é negado.
 BEGIN
   INSERT INTO pcare.checklist_templates (id, name, "labName", items, workspace_id)
@@ -411,12 +533,33 @@ EXCEPTION
   WHEN insufficient_privilege THEN NULL;
   WHEN check_violation THEN NULL;
 END;
+END $$;
+RESET ROLE;
+
+-- ── B8: CONFERÊNCIA de 12b como `postgres` ──────────────────────────────────
+DO $$
+DECLARE
+  v_count integer;
+BEGIN
 SELECT count(*) INTO v_count
 FROM pcare.checklist_templates
 WHERE id = '99999999-0000-0000-0000-000000000003';
 IF v_count <> 0 THEN
   RAISE EXCEPTION 'FAIL [12b]: INSERT em outra unidade deve ser NEGADO pelo RLS';
 END IF;
+END $$;
+
+-- ── B9: 13. suspensa => DENY e 14. role SEM a Action => DENY (postgres) ─────
+DO $$
+DECLARE
+  v_out boolean;
+  v_uid uuid;
+  v_wsa uuid;
+  v_vis uuid;
+BEGIN
+SELECT id INTO v_uid FROM public.profiles WHERE email = '079-checklist@labhub.test';
+SELECT id INTO v_wsa FROM public.workspaces WHERE slug = 'ws079-a';
+SELECT id INTO v_vis FROM public.roles WHERE slug = 'vis';
 
 -- ── 13. membership suspensa => DENY (fail-closed) ──────────────────────────
 UPDATE public.memberships SET status = 'suspended'
@@ -435,12 +578,39 @@ SELECT public.user_has_action(v_wsa, 'pcare.checklist.create') INTO v_out;
 IF v_out THEN
   RAISE EXCEPTION 'FAIL [14]: role sem a Action deve ser NEGADA';
 END IF;
+END $$;
 
--- O dado da outra unidade também não pode ser editado por quem não tem a Action.
+-- ── B10: JANELA RLS — 14b sob `authenticated` ───────────────────────────────
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE
+  v_wsa uuid := current_setting('labhub.wsa')::uuid;
+BEGIN
+-- O dado da unidade também não pode ser editado por quem não tem a Action.
 UPDATE pcare.checklist_templates SET name = 'HACK-VIS' WHERE workspace_id = v_wsa;
+END $$;
+RESET ROLE;
+
+-- ── B11: CONFERÊNCIA de 14b como `postgres` ─────────────────────────────────
+DO $$
+BEGIN
 IF EXISTS (SELECT 1 FROM pcare.checklist_templates WHERE name = 'HACK-VIS') THEN
   RAISE EXCEPTION 'FAIL [14b]: UPDATE sem a Action foi aplicado pelo role sem permissão';
 END IF;
+END $$;
+
+-- ── B12: 15/16/17/18/19 + limpeza (postgres) ────────────────────────────────
+DO $$
+DECLARE
+  v_out  boolean;
+  v_uid  uuid;
+  v_uid2 uuid;
+  v_wsa  uuid;
+  v_tec  uuid;
+BEGIN
+SELECT id INTO v_uid FROM public.profiles WHERE email = '079-checklist@labhub.test';
+SELECT id INTO v_wsa FROM public.workspaces WHERE slug = 'ws079-a';
+SELECT id INTO v_tec FROM public.roles WHERE slug = 'tec';
 
 -- ── 15. app_access legado `pc-care = full` SEM a Action => DENY ─────────────
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
@@ -503,10 +673,16 @@ PERFORM set_config('request.jwt.claim.sub', NULL, true);
 DELETE FROM pcare.checklist_templates
 WHERE id IN ('99999999-0000-0000-0000-000000000001',
              '99999999-0000-0000-0000-000000000002',
+             '99999999-0000-0000-0000-000000000003',
              '99999999-0000-0000-0000-000000000010');
 
 -- Restaura o contexto do GUC para não vazar para os testes seguintes do STEP 6.
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
+END $$;
 
+COMMIT;
+
+DO $$
+BEGIN
 RAISE NOTICE 'OK: 082 checklist/sla RBAC 2.0 checks passed';
 END $$;
