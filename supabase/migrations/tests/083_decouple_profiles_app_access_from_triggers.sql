@@ -87,7 +87,8 @@ END IF;
 IF v_audit NOT LIKE '%SECURITY DEFINER%' THEN
   RAISE EXCEPTION 'FAIL: audit_profiles_change() deve manter SECURITY DEFINER';
 END IF;
-IF v_audit NOT LIKE '%SET search_path = public%' THEN
+IF v_audit NOT LIKE '%SET search_path = public%'
+   AND v_audit NOT LIKE '%SET search_path TO %public%' THEN
   RAISE EXCEPTION 'FAIL: audit_profiles_change() deve manter SET search_path = public';
 END IF;
 
@@ -169,7 +170,8 @@ END IF;
 IF v_guard NOT LIKE '%SECURITY DEFINER%' THEN
   RAISE EXCEPTION 'FAIL: guard_profile_privileged_columns() deve manter SECURITY DEFINER';
 END IF;
-IF v_guard NOT LIKE '%SET search_path = public%' THEN
+IF v_guard NOT LIKE '%SET search_path = public%'
+   AND v_guard NOT LIKE '%SET search_path TO %public%' THEN
   RAISE EXCEPTION 'FAIL: guard_profile_privileged_columns() deve manter SET search_path = public';
 END IF;
 

@@ -225,13 +225,14 @@ IF v_count > 0 THEN
   RAISE EXCEPTION 'FAIL: actions of 082 must only exist at scope workspace (found %)', v_count;
 END IF;
 
--- 9. Policies de escrita exigem a Action DA OPERAÇÃO
+-- 9. Policies de escrita exigem a Action DA OPERACAO
 SELECT count(*) INTO v_count
 FROM pg_policies
 WHERE schemaname = 'pcare' AND tablename = 'checklist_templates'
   AND policyname = 'checklist_templates_insert'
-  AND qual LIKE '%user_has_action%'
-  AND qual LIKE '%pcare.checklist.create%';
+  AND (qual LIKE '%pcare.checklist.create%'
+       OR with_check LIKE '%pcare.checklist.create%')
+  AND (qual LIKE '%user_has_action%' OR with_check LIKE '%user_has_action%');
 IF v_count <> 1 THEN
   RAISE EXCEPTION 'FAIL: checklist_templates_insert must require pcare.checklist.create';
 END IF;
@@ -240,8 +241,9 @@ SELECT count(*) INTO v_count
 FROM pg_policies
 WHERE schemaname = 'pcare' AND tablename = 'checklist_templates'
   AND policyname = 'checklist_templates_update'
-  AND qual LIKE '%pcare.checklist.edit%'
-  AND qual LIKE '%user_has_action%';
+  AND (qual LIKE '%pcare.checklist.edit%'
+       OR with_check LIKE '%pcare.checklist.edit%')
+  AND (qual LIKE '%user_has_action%' OR with_check LIKE '%user_has_action%');
 IF v_count <> 1 THEN
   RAISE EXCEPTION 'FAIL: checklist_templates_update must require pcare.checklist.edit';
 END IF;
@@ -250,8 +252,9 @@ SELECT count(*) INTO v_count
 FROM pg_policies
 WHERE schemaname = 'pcare' AND tablename = 'checklist_templates'
   AND policyname = 'checklist_templates_delete'
-  AND qual LIKE '%pcare.checklist.delete%'
-  AND qual LIKE '%user_has_action%';
+  AND (qual LIKE '%pcare.checklist.delete%'
+       OR with_check LIKE '%pcare.checklist.delete%')
+  AND (qual LIKE '%user_has_action%' OR with_check LIKE '%user_has_action%');
 IF v_count <> 1 THEN
   RAISE EXCEPTION 'FAIL: checklist_templates_delete must require pcare.checklist.delete';
 END IF;

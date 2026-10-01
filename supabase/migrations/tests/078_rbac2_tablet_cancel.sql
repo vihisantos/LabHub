@@ -307,24 +307,42 @@ IF v_out THEN
   RAISE EXCEPTION 'FAIL [e]: membership whose role lacks reservelab.tablet.cancel must be DENIED';
 END IF;
 
--- (f) app_access->>'reservalab' = 'full' SEM a Action => DENY (encerra a dependência)
-PERFORM set_config('request.jwt.claim.sub', NULL, true);
-UPDATE public.profiles
-   SET app_access = jsonb_build_object('reservalab', 'full')
- WHERE id = v_uid;
-PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+-- (f)/(g) app_access legado: validos ENQUANTO a coluna existir. A migration 084
+-- remove a coluna (estado definitivo, coberto por tests/084), e o STEP 6 roda
+-- todos os harnesses DEPOIS da cadeia completa - entao aqui a prova e omitida
+-- em vez de estourar com 'column app_access does not exist'.
+IF EXISTS (
+  SELECT 1
+  FROM pg_attribute a
+  JOIN pg_class c ON c.oid = a.attrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relname = 'profiles'
+    AND a.attname = 'app_access'
+    AND a.attnum > 0
+    AND NOT a.attisdropped
+) THEN
+  -- (f) app_access->>'reservalab' = 'full' SEM a Action => DENY (encerra a dependência)
+  PERFORM set_config('request.jwt.claim.sub', NULL, true);
+  UPDATE public.profiles
+     SET app_access = jsonb_build_object('reservalab', 'full')
+   WHERE id = v_uid;
+  PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
 
-SELECT public.user_can_cancel_tablet_reservation(v_wsa) INTO v_out;
-IF v_out THEN
-  RAISE EXCEPTION 'FAIL [f]: app_access->>''reservalab''=''full'' alone must NOT grant tablet cancellation (PR-4D-A)';
-END IF;
+  SELECT public.user_can_cancel_tablet_reservation(v_wsa) INTO v_out;
+  IF v_out THEN
+    RAISE EXCEPTION 'FAIL [f]: app_access->>''reservalab''=''full'' alone must NOT grant tablet cancellation (PR-4D-A)';
+  END IF;
 
--- (g) app_access 'full' COM a Action => ALLOW (é o RBAC 2.0 que decide)
-UPDATE public.memberships SET role_id = v_tec
-WHERE profile_id = v_uid AND workspace_id = v_wsa;
-SELECT public.user_can_cancel_tablet_reservation(v_wsa) INTO v_out;
-IF NOT v_out THEN
-  RAISE EXCEPTION 'FAIL [g]: active membership with reservelab.tablet.cancel must be ALLOWED even with app_access set';
+  -- (g) app_access 'full' COM a Action => ALLOW (é o RBAC 2.0 que decide)
+  UPDATE public.memberships SET role_id = v_tec
+  WHERE profile_id = v_uid AND workspace_id = v_wsa;
+  SELECT public.user_can_cancel_tablet_reservation(v_wsa) INTO v_out;
+  IF NOT v_out THEN
+    RAISE EXCEPTION 'FAIL [g]: active membership with reservelab.tablet.cancel must be ALLOWED even with app_access set';
+  END IF;
+ELSE
+  RAISE NOTICE '078: public.profiles.app_access nao existe (084 aplicada) - casos (f)/(g) do override legado omitidos; a prova definitiva do estado final esta em tests/084';
 END IF;
 
 -- (h) NULL workspace => fail-closed
