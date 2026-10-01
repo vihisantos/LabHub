@@ -614,9 +614,27 @@ SELECT id INTO v_tec FROM public.roles WHERE slug = 'tec';
 
 -- ── 15. app_access legado `pc-care = full` SEM a Action => DENY ─────────────
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
-UPDATE public.profiles
-   SET app_access = jsonb_build_object('pc-care', 'full')
- WHERE id = v_uid;
+
+-- Só a ESCRITA depende da coluna: o STEP 6 roda todos os harnesses depois da
+-- cadeia completa 000→085, então a 084 já removeu `public.profiles.app_access`
+-- neste ponto. Com a coluna ausente, a própria ausência é o estado definitivo
+-- (coberto por tests/084). Guarda apenas a escrita — as validações de
+-- `user_has_action` do [15] e do [15b] continuam rodando sempre, porque não
+-- dependem fisicamente de `app_access`. Mesma abordagem de tests/077, 078 e 083.
+IF EXISTS (
+  SELECT 1
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'profiles'
+    AND column_name = 'app_access'
+) THEN
+  UPDATE public.profiles
+     SET app_access = jsonb_build_object('pc-care', 'full')
+   WHERE id = v_uid;
+ELSE
+  RAISE NOTICE '082: public.profiles.app_access nao existe (084 aplicada) - escrita de app_access omitida';
+END IF;
+
 PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
 
 SELECT public.user_has_action(v_wsa, 'pcare.checklist.create') INTO v_out;
