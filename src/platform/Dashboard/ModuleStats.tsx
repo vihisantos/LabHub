@@ -1,4 +1,4 @@
-﻿import { useMemo } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { pcService } from '../../apps/pcare/services/pcService'
 import { stockService } from '../../apps/stock/services/stockService'

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { icons } from '../../../lib/icons'
 import { fetchReservas } from '../../../apps/reservalab/services/api'
 import { fetchTabletReservas } from '../../../apps/reservalab/services/supabase'

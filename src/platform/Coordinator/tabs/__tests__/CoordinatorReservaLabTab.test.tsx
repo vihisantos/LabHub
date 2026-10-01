@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import { CoordinatorReservaLabTab } from '../CoordinatorReservaLabTab'
 import type { CoordinatedUnit } from '../../../../core/permissions/coordinatorService'

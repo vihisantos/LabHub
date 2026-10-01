@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ChecklistTemplate, ChecklistTemplateForm } from '../types/checklist'
 import { checklistTemplateService } from '../services/checklistService'
 

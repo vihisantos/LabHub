@@ -1,4 +1,4 @@
-﻿import { checklistTemplateService } from '../checklistService'
+import { checklistTemplateService } from '../checklistService'
 import type { ChecklistTemplateForm } from '../../types/checklist'
 import { authService } from '../../../../core/auth/service'
 

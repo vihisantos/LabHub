@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Role } from './types'
 import { permissionService } from './service'
 import { useAuth } from '../auth/AuthContext'

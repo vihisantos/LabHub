@@ -1,4 +1,4 @@
-﻿import type { Role } from './types'
+import type { Role } from './types'
 import { DEFAULT_ROLES, LeadershipLevel, resolveRoleId } from './types'
 import { createSyncService } from '../../lib/sync'
 

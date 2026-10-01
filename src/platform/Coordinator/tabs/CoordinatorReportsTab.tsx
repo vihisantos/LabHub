@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { icons } from '../../../lib/icons'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
 import { analyzeSla, analyzeSlaByWorkspace } from '../../../apps/chamados/services/sla'

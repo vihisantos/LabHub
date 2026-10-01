@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSearch } from '../../core/search/useSearch'
 import { useModuleVisibilities } from '../../core/permissions/useModuleVisibility'
