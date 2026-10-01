@@ -146,9 +146,9 @@ END IF;
 IF v_def LIKE '%app_access%' THEN
   RAISE EXCEPTION 'FAIL: o WHEN de trg_app_audit_profiles ainda menciona app_access (F2-D-I)';
 END IF;
-IF v_def NOT LIKE '%role IS DISTINCT FROM OLD.role%'
-   OR v_def NOT LIKE '%status IS DISTINCT FROM OLD.status%'
-   OR v_def NOT LIKE '%is_super_admin IS DISTINCT FROM OLD.is_super_admin%' THEN
+IF v_def NOT ILIKE '%role IS DISTINCT FROM OLD.role%'
+   OR v_def NOT ILIKE '%status IS DISTINCT FROM OLD.status%'
+   OR v_def NOT ILIKE '%is_super_admin IS DISTINCT FROM OLD.is_super_admin%' THEN
   RAISE EXCEPTION 'FAIL: o WHEN de trg_app_audit_profiles perdeu um dos 3 campos sensiveis';
 END IF;
 

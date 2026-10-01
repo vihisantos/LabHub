@@ -264,7 +264,7 @@ SELECT count(*) INTO v_count
 FROM pg_policies
 WHERE schemaname = 'pcare' AND tablename = 'pc_checklists'
   AND policyname IN ('pc_checklists_insert', 'pc_checklists_update', 'pc_checklists_delete')
-  AND qual LIKE '%user_has_action%';
+  AND (qual LIKE '%user_has_action%' OR with_check LIKE '%user_has_action%');
 IF v_count <> 3 THEN
   RAISE EXCEPTION 'FAIL: the 3 pc_checklists write policies must require a checklist Action (found %)', v_count;
 END IF;
