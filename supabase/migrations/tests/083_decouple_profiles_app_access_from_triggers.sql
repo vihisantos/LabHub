@@ -259,8 +259,16 @@ END IF;
 
 -- Conta ativa + membership ativa (contexto confiável: auth.uid() nulo, aceito
 -- pela guarda da 067).
+--
+-- `role` é semeado explicitamente em 'technician': a coluna tem DEFAULT 'viewer'
+-- (001), então um profile recém-criado NASCE 'viewer' e o `UPDATE ... SET role =
+-- 'viewer'` do teste [8] seria um no-op — `NEW.role IS DISTINCT FROM OLD.role`
+-- seria falso, o trigger de auditoria não dispararia e a contagem daria 0 sem
+-- que houvesse qualquer regressão. Fixando o ponto de partida, o [8] volta a
+-- medir o que pretende: uma mudança real de role, technician -> viewer.
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
 UPDATE public.profiles SET status = 'active' WHERE id = v_uid;
+UPDATE public.profiles SET role = 'technician' WHERE id = v_uid;
 INSERT INTO public.memberships (profile_id, workspace_id, role_id, status)
 VALUES (v_uid, v_ws, v_role, 'active')
 ON CONFLICT (profile_id, workspace_id) DO UPDATE
