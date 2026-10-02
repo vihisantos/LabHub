@@ -2235,6 +2235,17 @@ def _notify_new_ticket(ticket):
         logger.error("[chamados] push error: %s", e)
 
 
+def _is_true(value) -> bool:
+    """Parse explícito de flag booleana de query string.
+
+    Só aceita os literais positivos usuais. Qualquer outra coisa — inclusive
+    `?mine=0`, `?mine=false`, `?mine=` — é `False`. Preferimos o literal
+    VERDADEIRO a "qualquer valor não-vazio": `?mine` solto não pode virar uma
+    segunda forma de ativar um escopo.
+    """
+    return str(value or '').strip().lower() in ('1', 'true', 'yes')
+
+
 def _ensure_chamados_schema():
     """Cria a tabela de chamados se não existir (mesmo padrão do _ensure_stock_schema)."""
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
@@ -2447,7 +2458,37 @@ def chamados_create():
 @app.route('/api/chamados', methods=['GET'])
 @require_auth
 def chamados_list():
-    """Lista chamados (filtros opcionais: workspace_id, status, reportedBy). Requer autenticação."""
+    """Lista chamados. Filtros opcionais: `workspace_id`, `status`, `reportedBy`, `mine`.
+
+    DOIS ESCOPOS no mesmo endpoint e no mesmo formato de resposta:
+
+    · ``GET /api/chamados`` — lista OPERACIONAL. Autorizada pela Action
+      ``ticket.view`` por workspace (RBAC 2.0). Sem `mine`, o comportamento é o
+      de sempre, inalterado.
+
+    · ``GET /api/chamados?mine=true`` — Meus Chamados. Escopo PESSOAL do
+      solicitante: ``reportedByUserId`` = identidade autenticada, SEM exigir
+      ``ticket.view``. É consulta HISTÓRICA: resolvidos, fechados e arquivados
+      entram; não há filtro de ``archived``.
+
+    Autorização do escopo pessoal:
+
+      · o UUID vem SEMPRE da sessão — ``g.user_id``, que é o ``sub`` do JWT já
+        validado por ``@require_auth`` (``profiles.id`` referencia
+        ``auth.users.id``, então ``g.user['id']`` é o mesmo valor);
+      · ``?reportedByUserId=`` do cliente NÃO é lido, em nenhum ramo: não é
+        entrada de autorização. Quem manda é a sessão;
+      · ``reportedBy``/``reportedByEmail`` são texto livre digitado pelo
+        solicitante e nunca são identidade;
+      · o filtro de workspace, quando presente, é valido como MEMBERSHIP e
+        apenas ESTREITA — nunca amplia o escopo pessoal;
+      · sem sessão não há identidade, e o resultado é lista vazia (fail-closed).
+
+    Isto NÃO é RBAC: não cria Action, não altera `role_permissions`, `roles`,
+    `memberships`, `membership_overrides` nem RLS, e não mexe no comportamento
+    de `ticket.view`. É uma regra de acesso ao recurso baseada na identidade
+    autenticada, como qualquer "minha conta".
+    """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
@@ -2455,6 +2496,10 @@ def chamados_list():
         user = g.user
         user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
         is_super_admin = bool(user.get('is_super_admin'))
+        mine = _is_true(request.args.get('mine'))
+        # Identidade autenticada. `g.user_id` é o `sub` do JWT validado acima —
+        # a fonte que o cliente não tem como influenciar.
+        user_id = g.user_id or user.get('id')
 
         workspace_id = request.args.get('workspace_id')
         if workspace_id:
@@ -2462,7 +2507,30 @@ def chamados_list():
                 return jsonify({'error': 'Acesso negado a este workspace'}), 403
 
         url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?select=*&order=createdAt.desc'
-        if workspace_id:
+
+        if mine:
+            # ── Meus Chamados ──────────────────────────────────────────────────
+            # O filtro de DONO é obrigatório e vem da sessão. Sem ele, este ramo
+            # viraria exatamente a lista geral que queremos evitar.
+            if not user_id:
+                return jsonify({'tickets': []})
+            url += f'&reportedByUserId=eq.{quote(user_id)}'
+            if workspace_id:
+                url += f'&workspace_id=eq.{quote(workspace_id)}'
+            elif user_ws_ids:
+                # Só estreita: mantém o solicitante dentro das unidades onde tem
+                # membership ativa, sem virar autorização para nada de terceiro.
+                if len(user_ws_ids) == 1:
+                    url += f'&workspace_id=eq.{quote(user_ws_ids[0])}'
+                else:
+                    ws_filter = ','.join(f'"{w}"' for w in user_ws_ids)
+                    url += f'&workspace_id=in.({quote(ws_filter)})'
+            elif not is_super_admin:
+                # Sem membership ativa em nenhuma unidade: não há o que listar.
+                # (Super admin é capacidade de plataforma, não cargo — pode não
+                # ter membership; para ele o filtro de dono já é a fronteira.)
+                return jsonify({'tickets': []})
+        elif workspace_id:
             # Filtro explícito: o workspace do request (já validado como membro)
             # é o escopo real, e `ticket.view` é a autoridade.
             if not is_super_admin:

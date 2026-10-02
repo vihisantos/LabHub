@@ -10,6 +10,7 @@ import {
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
 import { getPriority, getSlaState, isSlaOverdue } from '../services/sla'
+import { useMyTickets } from '../hooks/useMyTickets'
 import { useAuth } from '../../../core/auth/useAuth'
 import { icons } from '../../../lib/icons'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
@@ -64,7 +65,7 @@ export type TicketListScope = 'atendimentos' | 'chamados'
 export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } = {}) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { tickets, syncing, reload } = useTicketsContext()
+  const { tickets: filaTickets, syncing, reload } = useTicketsContext()
   const { user } = useAuth()
   // Fase 2.1 — os query params da Central INICIALIZAM os filtros existentes:
   // o useState abaixo continua sendo a única fonte de verdade após o mount.
@@ -96,6 +97,18 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'recente' | 'prioridade' | 'sla' | 'sala' | 'numero'>('recente')
   const [visibleCount, setVisibleCount] = useState(20)
+
+  // ── Meus Chamados: os dados vêm do endpoint com escopo de servidor ─────────
+  // `GET /api/chamados?mine=true` já devolve SÓ os chamados cujo
+  // `reportedByUserId` é a identidade do JWT, sem exigir `ticket.view`. Não
+  // filtramos a fila em cima: quando o filtro de solicitante está ligado, a
+  // fonte dos dados é esta chamada, e o filtro abaixo é só apresentação
+  // (status/ordem/busca) sobre um conjunto já autorizado.
+  const meusAtivos = requesterFilter
+  const meus = useMyTickets(meusAtivos)
+  const tickets = meusAtivos ? meus.tickets : filaTickets
+  const syncingList = meusAtivos ? meus.loading : syncing
+  const reloadList = meusAtivos ? meus.reload : reload
 
   useEffect(() => { setVisibleCount(20) }, [statusFilter, assignedFilter, requesterFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, sortBy])
 
@@ -202,9 +215,15 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
 
   return (
     <div className="space-y-4">
-      {syncing && (
+      {syncingList && (
         <div className="h-0.5 -mt-2 -mx-4 overflow-hidden">
           <div className="h-full w-1/3 animate-[shimmer_1.5s_infinite] rounded-full bg-amber-500" />
+        </div>
+      )}
+      {meusAtivos && meus.error && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+          <icons.ui.alertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+          <p className="text-xs text-red-600 dark:text-red-400">{meus.error}</p>
         </div>
       )}
       <div className="flex gap-2">
@@ -220,13 +239,13 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
         </div>
         <button
           type="button"
-          onClick={() => reload()}
-          disabled={syncing}
+          onClick={() => void reloadList()}
+          disabled={syncingList}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg disabled:opacity-50"
           aria-label="Atualizar lista"
           title="Atualizar lista"
         >
-          <icons.ui.refresh size={16} className={syncing ? 'animate-spin' : ''} />
+          <icons.ui.refresh size={16} className={syncingList ? 'animate-spin' : ''} />
         </button>
       </div>
 
@@ -392,13 +411,15 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
         <div className="flex flex-col items-center py-12">
           <icons.ui.inbox size={40} className="text-fg-muted" />
           <p className="mt-3 text-sm text-fg-muted">
-            {requesterFilter
-              ? 'Você ainda não abriu nenhum chamado nesta unidade'
-              : tickets.length === 0
-                ? 'Nenhum chamado registrado'
-                : statusFilter === 'arquivados'
-                  ? 'Nenhum chamado arquivado'
-                  : 'Nenhum resultado encontrado'}
+            {meus.error
+              ? 'Nada a exibir por enquanto.'
+              : requesterFilter
+                ? 'Você ainda não abriu nenhum chamado nesta unidade'
+                : tickets.length === 0
+                  ? 'Nenhum chamado registrado'
+                  : statusFilter === 'arquivados'
+                    ? 'Nenhum chamado arquivado'
+                    : 'Nenhum resultado encontrado'}
           </p>
         </div>
       ) : (

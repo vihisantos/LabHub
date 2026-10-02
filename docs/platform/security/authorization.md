@@ -74,6 +74,32 @@ Super Admin **não é uma role**: é a capacidade de plataforma `profiles.is_sup
 | `POST /api/admin/workspaces/<id>/delete` | `admin.workspace.delete` | global |
 | `POST /api/push/send` | `reservelab.push.manage` | global |
 
+### Escopo pessoal de recurso (`GET /api/chamados?mine=true`)
+
+Nem toda autorização é por Action. `mine=true` é uma regra de **acesso ao
+recurso baseada na identidade autenticada** — o equivalente backend de "minha
+conta" — e por isso **não** aparece na tabela de Actions acima.
+
+| Rota | Autorização | Observações |
+|------|--------------|-------------|
+| `GET /api/chamados` | `ticket.view` por workspace | Lista operacional. Inalterada. |
+| `GET /api/chamados?mine=true` | `reportedByUserId = g.user_id` | **Não exige `ticket.view`** |
+
+Regras que sustentam a separação:
+
+- o UUID vem **sempre** de `g.user_id` (`sub` do JWT validado por
+  `@require_auth`); `?reportedByUserId=` do cliente não é lido;
+- `reportedBy` / `reportedByEmail` são texto livre e **não** são identidade;
+- `workspace_id` só estreita — validado como membership ativa;
+- é consulta histórica (resolvidos, fechados e arquivados entram);
+- **não** cria Action, **não** altera `role_permissions`, `roles`,
+  `memberships`, `membership_overrides` nem RLS, e **não** dá à solicitante
+  qualquer acesso à fila interna.
+
+> O frontend pode filtrar a apresentação, mas nunca define a identidade do
+> solicitante usada para autorização. `ticketService.listMine()` consome este
+> endpoint e seu retorno não é mesclado na coleção local da fila.
+
 ### Enforcement no handler
 
 Algumas rotas resolvem o workspace **depois** de buscar o recurso (por exemplo, os chamados por `<id>`). Nessas, usa-se `_require_action_in_handler()`:

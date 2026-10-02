@@ -237,6 +237,29 @@ export const ticketService = {
     mergeRemote(tickets || [])
   },
 
+  /**
+   * Meus Chamados — consulta de escopo PESSOAL, resolvida NO SERVIDOR.
+   *
+   * `mine=true` faz o backend aplicar `reportedByUserId = <identidade do JWT>`
+   * e NÃO exigir `ticket.view`. É esta chamada — e não um filtro no React —
+   * que autoriza o conjunto de dados da tela "Meus Chamados".
+   *
+   * O resultado NÃO é mesclado no cache local (`mergeRemote`): aquela coleção
+   * é a fila de trabalho e é compartilhada com a lista geral; misturar os dois
+   * escopos faria o filtro do cliente virar a única garantia de isolamento.
+   *
+   * `workspace_id` é opcional e apenas ESTREITA o resultado — o servidor o
+   * valida como membership. O UUID do solicitante nunca vem daqui: é sempre o
+   * da sessão.
+   */
+  listMine: async (params: { workspace_id?: string } = {}): Promise<Ticket[]> => {
+    const qs = new URLSearchParams()
+    qs.set('mine', 'true')
+    if (params.workspace_id) qs.set('workspace_id', params.workspace_id)
+    const { tickets } = await request<{ tickets: Ticket[] }>(`${API_BASE}?${qs.toString()}`)
+    return tickets || []
+  },
+
   /** Relatório agregado no servidor (período opcional em ISO: from/to). */
   getReports: async (params: { from?: string; to?: string; workspace_id?: string } = {}): Promise<ChamadosReport> => {
     const qs = new URLSearchParams()
