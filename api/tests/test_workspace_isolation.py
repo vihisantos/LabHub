@@ -84,11 +84,21 @@ def _make_jwt(payload, secret=SUPABASE_JWT_SECRET):
 
 
 def _patch_supabase_profile(fake_requests, profile):
+    # A listagem de chamados exige a Action `ticket.view` (RBAC 2.0 é a
+    # autoridade). Concedê-la aqui mantém estes testes focados no ISOLAMENTO de
+    # workspace — as demais rotas deste arquivo usam Actions distintas
+    # (admin.backup.*, admin.audit.view, admin.workspace.delete), portanto
+    # este grant não interfere nelas.
     fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
     fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
-        {"profile_id": profile.get("id"), "workspace_id": w, "status": "active"}
+        {"profile_id": profile.get("id"), "workspace_id": w, "role_id": "r-tech",
+         "status": "active"}
         for w in (profile.get("workspace_ids") or [])
     ]))
+    fake_requests.route("GET", "/rest/v1/role_permissions", FakeResponse([
+        {"role_id": "r-tech", "action": "ticket.view", "scope": "workspace"},
+    ]))
+    fake_requests.route("GET", "/rest/v1/membership_overrides", FakeResponse([]))
 
 
 @pytest.fixture(scope="session")
@@ -122,6 +132,13 @@ def root_client(root_api_module, fake_requests, monkeypatch):
         monkeypatch.setattr(auth_mod, "requests", fake_requests)
         monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
+    # rbac_can consulta memberships/role_permissions; sem este patch a listagem
+    # (que exige `ticket.view`) resolveria via requests real e negaria.
+    rbac_mod = sys.modules.get("rbac")
+    if rbac_mod:
+        monkeypatch.setattr(rbac_mod, "requests", fake_requests)
+        monkeypatch.setattr(rbac_mod, "_SUPABASE_URL", SUPABASE_URL)
+        monkeypatch.setattr(rbac_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
     root_api_module._rate_limit_store.clear()
