@@ -407,3 +407,66 @@ describe('TicketDetail — reabrir com novo número (líder)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/chamados/tickets/ticket-novo')
   })
 })
+
+
+/**
+ * A avaliação do professor é consumida na tela interna. Antes these fields não
+ * tinham cobertura nenhuma (todos os fixtures pins `feedbackRating: null`), e o
+ * caminho público estava quebrado — o backend não devolvia `feedbackComment`/
+ * `feedbackAt` na projeção pública. Aqui travamos que o bloco renderiza quando o
+ * dado existe e some quando não.
+ */
+describe('TicketDetail — avaliação do professor', () => {
+  // O fixture e um literal hoisted cujo `feedbackRating` foi inferido como
+  // `null`; Object.assign evita o narrowing sem mentiroso.
+  const avaliar = (nota: number, comentario: string, quando: string) =>
+    Object.assign(TICKET, {
+      feedbackRating: nota,
+      feedbackComment: comentario,
+      feedbackAt: quando,
+    })
+
+  beforeEach(() => {
+    TICKET.assignedToUserId = 'test-admin'
+    TICKET.assignedTo = 'Admin Teste'
+    TICKET.status = 'resolvido'
+    TICKET.feedbackRating = null
+    TICKET.feedbackComment = ''
+    TICKET.feedbackAt = null
+  })
+
+  afterEach(() => {
+    TICKET.feedbackRating = null
+    TICKET.feedbackComment = ''
+    TICKET.feedbackAt = null
+    TICKET.status = 'em_atendimento'
+  })
+
+  it('renderiza nota, comentário e data quando o professor avaliou', async () => {
+    avaliar(5, 'Atendimento excelente', '2026-06-25T12:00:00Z')
+
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.getByText('Feedback do professor')).toBeInTheDocument()
+    expect(screen.getByText('Atendimento excelente')).toBeInTheDocument()
+  })
+
+  it('não renderiza o bloco quando ainda não há avaliação', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.queryByText('Feedback do professor')).not.toBeInTheDocument()
+  })
+
+  it('avaliação continua visível para quem não é o responsável (é dado do solicitante)', async () => {
+    TICKET.assignedToUserId = 'user-2'
+    TICKET.assignedTo = 'Técnico 2'
+    avaliar(3, '', '')
+
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.getByText('Feedback do professor')).toBeInTheDocument()
+  })
+})
