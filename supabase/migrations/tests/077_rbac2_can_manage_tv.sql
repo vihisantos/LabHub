@@ -136,14 +136,21 @@ IF v_helper LIKE '%rp.role_id%'
   RAISE EXCEPTION 'FAIL: boundary regex matches rp.role_id (false positive)';
 END IF;
 
--- â”€â”€ 6. Action semeada: opv + adm, nunca tec, nunca outra role â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── 6. Action semeada: opv + adm (077) + tec (086); nunca outro cargo ────────
+-- SUPERSESSAO: a 077 semeava `tv.manage` so em `opv`/`adm` e ABORTAVA se `tec`
+-- a recebesse (decisao da 059:19-26, mass-grant de escrita de TV a tecnicos). A
+-- migration 086 inverteu essa decisao como PRODUTO (o tecnico precisa operar a
+-- TV que a matriz de visibilidade agora abre em `full`) e semeia `tv.manage`
+-- tambem em `tec`. A trava anti-mass-grant NAO foi afrouxada para nenhum outro
+-- cargo: `vis` e `coordinator` continuam bloqueados, e o escopo segue
+-- `workspace`. O estado final e provado em tests/086_rbac2_module_permissions.sql.
 SELECT id INTO v_tec FROM public.roles WHERE slug = 'tec';
 SELECT id INTO v_opv FROM public.roles WHERE slug = 'opv';
 SELECT id INTO v_adm FROM public.roles WHERE slug = 'adm';
 SELECT id INTO v_vis FROM public.roles WHERE slug = 'vis';
 
 IF v_opv IS NULL OR v_adm IS NULL THEN
-  RAISE EXCEPTION 'FAIL: roles opv/adm ausentes (seeds da 036 nÃ£o aplicados?)';
+  RAISE EXCEPTION 'FAIL: roles opv/adm ausentes (seeds da 036 não aplicados?)';
 END IF;
 
 SELECT count(*) INTO v_count
@@ -160,21 +167,19 @@ IF v_count <> 1 THEN
   RAISE EXCEPTION 'FAIL: adm must hold exactly one tv.manage@workspace (found %)', v_count;
 END IF;
 
-IF v_tec IS NOT NULL THEN
-  SELECT count(*) INTO v_count
-  FROM public.role_permissions
-  WHERE role_id = v_tec AND action = 'tv.manage';
-  IF v_count > 0 THEN
-    RAISE EXCEPTION 'FAIL: tec must NOT hold tv.manage (mass-grant de escrita de TV â€” decisÃ£o da 059:19-26)';
-  END IF;
+SELECT count(*) INTO v_count
+FROM public.role_permissions
+WHERE role_id = v_tec AND action = 'tv.manage' AND scope = 'workspace';
+IF v_count <> 1 THEN
+  RAISE EXCEPTION 'FAIL: tec must hold exactly one tv.manage@workspace after 086 (found %)', v_count;
 END IF;
 
 SELECT count(*) INTO v_count
 FROM public.role_permissions rp
 JOIN public.roles r ON r.id = rp.role_id
-WHERE rp.action = 'tv.manage' AND r.slug NOT IN ('opv', 'adm');
+WHERE rp.action = 'tv.manage' AND r.slug NOT IN ('opv', 'adm', 'tec');
 IF v_count > 0 THEN
-  RAISE EXCEPTION 'FAIL: tv.manage granted to roles outside opv/adm (found %)', v_count;
+  RAISE EXCEPTION 'FAIL: tv.manage granted to roles outside opv/adm/tec (found %)', v_count;
 END IF;
 
 -- `tv.manage` nÃ£o pode colidir com nenhuma action granular jÃ¡ existente.

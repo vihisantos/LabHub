@@ -33,6 +33,13 @@ import {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
+/**
+ * Os cinco módulos que o produto declara disponíveis ao workspace. É o recorte
+ * da regra "todos os módulos disponíveis para o workspace" que a tarefa de
+ * permissões fixa: técnico `full`, visualizador/coordenador `read`.
+ */
+const MODULOS_DO_WS = ['pc-care', 'stock', 'reservalab', 'tv', 'chamados'] as const
+
 const WS_A = 'ws-a'
 const WS_B = 'ws-b'
 const ROLE_ID: Record<string, string> = {
@@ -133,21 +140,25 @@ describe('a matriz RBAC2 é a fonte de verdade (fonte legada removida no F2-D-N2
     )
   })
 
-  // Matriz esperada, escrita à mão a partir do F2-D-J §D (role x app). É o
-  // oráculo permanente: com a matriz legada removida, este é o teste que trava
-  // contra alguém "melhorar" a política sem querer.
+  // Matriz esperada, escrita à mão a partir da REGRA DE PRODUTO da tarefa
+  // RBAC 2.0: técnico `full` nos 5 módulos; visualizador e coordenador `read`
+  // nos 5; líder intocado (escopo de unidade). É o oráculo permanente: com a
+  // matriz legada removida, este é o teste que trava contra alguém "melhorar" a
+  // política sem querer.
   const ESPERADO: Record<string, Partial<Record<ModuleId, ModuleLevel>>> = {
-    tec: { 'pc-care': 'full', stock: 'full', reservalab: 'read', chamados: 'full' },
-    vis: { 'pc-care': 'read', stock: 'read', reservalab: 'dash', chamados: 'read' },
+    tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', tv: 'full', chamados: 'full' },
+    vis: { 'pc-care': 'read', stock: 'read', reservalab: 'read', tv: 'read', chamados: 'read' },
     lider: { 'pc-care': 'read', stock: 'read', chamados: 'full' },
     coordinator: {
       'pc-care': 'read',
       stock: 'read',
-      tv: 'read',
-      chamados: 'full',
       reservalab: 'read',
+      tv: 'read',
+      chamados: 'read',
     },
   }
+
+  // Os cinco módulos que o produto declara disponíveis ao workspace.
 
   for (const [slug, esperado] of Object.entries(ESPERADO)) {
     it(`${slug}: matriz nova = matriz do F2-D-J, célula a célula`, () => {
@@ -397,31 +408,67 @@ describe('escopo por unidade (multiunidade)', () => {
 })
 
 describe('níveis (semântica dash/read/full preservada)', () => {
-  it('viewer tem reservalab em dash — que NÃO é read nem full', async () => {
-    const res = await resolveModuleVisibility({
-      user: memberOf('vis'),
-      workspaceId: WS_A,
-      appId: 'reservalab',
-    })
-    expect(res.level).toBe('dash')
-    // Consumidores reais: Layout redireciona p/ dashboard, Navbar filtra abas,
-    // UpcomingPopup exige 'full'.
-    expect(res.level === 'full').toBe(false)
+  it("'dash' continua no tipo e é distinto de 'read' e 'full'", () => {
+    // `dash` = "vê só o painel". Nenhum cargo o declara hoje (vis e coordinator
+    // subiram para `read` em reservalab), mas o valor continua vivo no tipo e
+    // nos consumidores (ReservaLabLayout redireciona, Navbar filtra abas).
+    expect(moduleLevelForSlug('vis', 'reservalab')).toBe('read')
+    expect(moduleLevelForSlug('coordinator', 'reservalab')).toBe('read')
+    // Achatar em booleano quebraria o UpcomingReservationPopup, que só consulta
+    // reservas com 'full'.
+    expect(moduleLevelForSlug('tec', 'reservalab')).toBe('full')
   })
 
-  it('técnico tem reservalab em read (acima de dash, abaixo de full)', async () => {
+  it('técnico tem reservalab em full — autorizado por tablet.reserve/cancel', async () => {
     const res = await resolveModuleVisibility({
       user: memberOf('tec'),
       workspaceId: WS_A,
       appId: 'reservalab',
     })
-    expect(res.level).toBe('read')
+    expect(res.level).toBe('full')
   })
 
-  it('ninguém além de super admin tem reservalab em full', async () => {
-    // Fato do F2-D-J: `full` em reservalab não existe em DEFAULT_ROLES.
-    for (const slug of ['tec', 'vis', 'lider', 'coordinator']) {
+  it('reservalab em full é exclusivo do técnico (e do bypass de super admin)', () => {
+    for (const slug of ['vis', 'lider', 'coordinator']) {
       expect(moduleLevelForSlug(slug, 'reservalab')).not.toBe('full')
+    }
+  })
+})
+
+describe('regra de produto: full no técnico, read no visualizador e no coordenador', () => {
+  it('técnico enxerga os cinco módulos do workspace em full', () => {
+    for (const appId of MODULOS_DO_WS) {
+      expect(moduleLevelForSlug('tec', appId), `tec/${appId}`).toBe('full')
+    }
+  })
+
+  it('visualizador enxerga os cinco módulos do workspace em read', () => {
+    for (const appId of MODULOS_DO_WS) {
+      expect(moduleLevelForSlug('vis', appId), `vis/${appId}`).toBe('read')
+    }
+  })
+
+  it('coordenador enxerga os cinco módulos do workspace em read', () => {
+    for (const appId of MODULOS_DO_WS) {
+      expect(moduleLevelForSlug('coordinator', appId), `coordinator/${appId}`).toBe('read')
+    }
+  })
+
+  it('nenhum desses três papéis ganha dashboard ou admin', () => {
+    for (const slug of ['tec', 'vis', 'coordinator']) {
+      expect(moduleLevelForSlug(slug, 'dashboard')).toBe('none')
+      expect(moduleLevelForSlug(slug, 'admin')).toBe('none')
+    }
+  })
+
+  it("read é visibilidade, não autorização: 'read' ≠ 'full' em nenhum desses cargos", () => {
+    // A trava conceitual da tarefa: abrir o módulo não pode implicar escrita.
+    // A autorização é por Action (`useCanAccessAction`) — provado em
+    // moduleVisibilitySecurity.test.ts e na migration 086.
+    for (const slug of ['vis', 'coordinator']) {
+      for (const appId of MODULOS_DO_WS) {
+        expect(moduleLevelForSlug(slug, appId)).not.toBe('full')
+      }
     }
   })
 })
@@ -447,8 +494,32 @@ describe('resolução em lote', () => {
       workspace: workspace({ disabled_apps: ['stock'] }),
     })
     expect(res['pc-care']).toEqual({ visible: true, level: 'full' })
+    // disabled_apps tem precedência sobre a matriz do papel, mesmo em 'full'.
     expect(res['stock']).toEqual({ visible: false, level: 'none' })
-    expect(res['tv']).toEqual({ visible: false, level: 'none' })
+    expect(res['tv']).toEqual({ visible: true, level: 'full' })
+  })
+
+  it('disabled_apps esconde o módulo do técnico mesmo com full na matriz', async () => {
+    // A configuração da unidade manda na matriz do papel — vale para `full`.
+    for (const appId of ['pc-care', 'stock', 'reservalab', 'tv', 'chamados']) {
+      const res = await resolveModuleVisibility({
+        user: memberOf('tec'),
+        workspaceId: WS_A,
+        appId,
+        workspace: workspace({ disabled_apps: [appId] }),
+      })
+      expect(res, `tec/${appId} desabilitado`).toEqual({ visible: false, level: 'none' })
+    }
+  })
+
+  it('disabled_apps também esconde do super admin (bypass não vence a unidade)', async () => {
+    const res = await resolveModuleVisibility({
+      user: memberOf('super'),
+      workspaceId: WS_A,
+      appId: 'tv',
+      workspace: workspace({ disabled_apps: ['tv'] }),
+    })
+    expect(res).toEqual({ visible: false, level: 'none' })
   })
 })
 

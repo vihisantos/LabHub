@@ -117,6 +117,27 @@ def helper() -> str:
     return match.group(0)
 
 
+def _semeadas(path: Path) -> set[str]:
+    """Actions REALMENTE semeadas por uma migration.
+
+    Lê apenas dentro de `INSERT INTO public.role_permissions ... ON CONFLICT`
+    (comentários fora). Sem isso, uma migration que CITA a Action num guard de
+    segurança — como a 086 faz com `reservelab.tablet.cancel` — seria contada
+    como semeadora, e a trava "só a 078 semeia" passaria a ser um teste de
+    substring em vez de um teste de autorização.
+    """
+    acoes: set[str] = set()
+    for bloco in re.findall(
+        r"INSERT\s+INTO\s+public\.role_permissions.*?(?:ON\s+CONFLICT[^;]*;|\$\$;)",
+        _strip_sql_comments(path.read_text(encoding="utf-8")),
+        re.S | re.I,
+    ):
+        acoes.update(
+            re.findall(r"'([a-z]+\.[A-Za-z.]+)'\s*,\s*'(?:workspace|global|self)'", bloco)
+        )
+    return acoes
+
+
 class TestExistenciaEOrdenacao:
     def test_migration_078_existe(self):
         assert MIGRATION.is_file(), "a migration 078 deve existir"
@@ -133,12 +154,10 @@ class TestExistenciaEOrdenacao:
         assert nums.count(78) == 1, f"a 078 aparece {nums.count(78)}x na sequência"
 
     def test_078_e_a_unica_que_seedeia_o_cancel(self):
-        criadores = [
-            p.name
-            for p in MIGRATIONS_DIR.glob("*.sql")
-            if re.search(r"INSERT INTO public\.role_permissions", _read(p), re.I)
-            and re.search(rf"'{re.escape(ACTION)}'", _read(p))
-        ]
+        # Detecta o que é REALMENTE semeado (dentro de um INSERT em
+        # role_permissions), e não o que é apenas citado. A 086 menciona
+        # `reservelab.tablet.cancel` nas travas anti-escalada sem semeá-lo.
+        criadores = [p.name for p in MIGRATIONS_DIR.glob("*.sql") if ACTION in _semeadas(p)]
         assert criadores == [MIGRATION.name], f"apenas a 078 semeia {ACTION}: {criadores}"
 
 
