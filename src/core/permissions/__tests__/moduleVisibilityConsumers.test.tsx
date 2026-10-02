@@ -35,6 +35,38 @@ vi.mock('../../../apps/reservalab/components/PushNotificationButton', () => ({
   PushNotificationButton: () => null,
 }))
 
+/**
+ * `useCoordinator` NÃO pode rodar de verdade aqui.
+ *
+ * `Launcher` chama `useCoordinator()` (`Launcher.tsx:37`) para o CTA de
+ * coordenação. O hook dispara `getCoordinatorScope()` — um `db.rpc` REAL — e
+ * resolve em `setFailed`/`setUnits` (`useCoordinator.ts:46-47`). Sem este mock,
+ * cada `render(<Launcher/>)` deixa uma promise pendente que resolve DEPOIS do
+ * fim do arquivo, quando o jsdom já foi destruído: o `dispatchSetState` do React
+ * estoura `ReferenceError: window is not defined` como *unhandled rejection*, e
+ * o processo sai com código 1 apesar de todos os testes passarem.
+ *
+ * Localmente isso quase não aparece porque `src/test/setup.ts` usa timers
+ * falsos e, sem `VITE_SUPABASE_URL`, `defaultDb` é `null` e `getCoordinatorScope`
+ * resolve em um microtask. No CI as credenciais Supabase são reais
+ * (`.github/workflows/ci-web.yml`), então a ida à rede é lenta e sempre aterrissa
+ * depois do teardown — daí 4 erros para os 4 renders do Launcher.
+ *
+ * Este arquivo só prova VISIBILIDADE de módulo; o escopo de coordenação tem
+ * cobertura própria (`useCoordinator.test.tsx`) e o CTA, em
+ * `Launcher.coordinator.test.tsx`. Aqui ele é sempre `false`.
+ */
+vi.mock('../useCoordinator', () => ({
+  useCoordinator: () => ({
+    units: [],
+    loading: false,
+    failed: false,
+    refresh: vi.fn(),
+    isCoordinator: false,
+    isCoordinatorMultiUnit: false,
+  }),
+}))
+
 // ── Matriz espelhada da regra de produto (célula a célula) ────────────────────
 const MATRIX: Record<string, Partial<Record<string, string>>> = {
   tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', tv: 'full', chamados: 'full' },
