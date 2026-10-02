@@ -131,8 +131,21 @@ describe('notificationAppliesTo', () => {
   })
 
   it('sem acesso ao app (módulo do appRegistry) → não vê', () => {
-    const n = makeNotification({ module: 'tv' })
-    expect(appliesTo(n, makeUser({ roleId: 'role-viewer' }))).toBe(false)
+    // `dashboard` e `admin` são os módulos que NENHUM cargo da matriz declara
+    // (só o bypass de super admin entra) — é o que segue provando que a
+    // segmentação por app não foi removida junto com a matriz.
+    for (const modulo of ['dashboard', 'admin']) {
+      const n = makeNotification({ module: modulo })
+      expect(appliesTo(n, makeUser({ roleId: 'role-viewer' })), modulo).toBe(false)
+      expect(appliesTo(n, makeUser({ roleId: 'role-technician' })), modulo).toBe(false)
+    }
+  })
+
+  it('viewer vê os cinco módulos do workspace (incluindo tv e reservalab)', () => {
+    for (const modulo of ['pc-care', 'stock', 'reservalab', 'tv', 'chamados']) {
+      const n = makeNotification({ module: modulo })
+      expect(appliesTo(n, makeUser({ roleId: 'role-viewer' })), modulo).toBe(true)
+    }
   })
 
   it('com acesso ao app (módulo do appRegistry) → vê', () => {

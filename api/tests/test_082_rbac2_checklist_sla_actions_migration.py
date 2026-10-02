@@ -112,6 +112,28 @@ def _strip_sql_comments(sql: str) -> str:
     return re.sub(r"--[^\n]*", " ", sql)
 
 
+def _semeadas(path: Path) -> set[str]:
+    """Actions REALMENTE semeadas por uma migration.
+
+    Lê apenas dentro de `INSERT INTO public.role_permissions ... ON CONFLICT`
+    (comentários fora). Sem isso, uma migration que CITA a Action num guard de
+    segurança — como a 086 faz com `pcare.checklist.*` e
+    `chamados.settings.manage` — seria contada como semeadora, e a trava "só a
+    082 semeia" passaria a ser um teste de substring em vez de um teste de
+    autorização.
+    """
+    acoes: set[str] = set()
+    for bloco in re.findall(
+        r"INSERT\s+INTO\s+public\.role_permissions.*?(?:ON\s+CONFLICT[^;]*;|\$\$;)",
+        _strip_sql_comments(_read(path)),
+        re.S | re.I,
+    ):
+        acoes.update(
+            re.findall(r"'([a-z]+\.[A-Za-z.]+)'\s*,\s*'(?:workspace|global|self)'", bloco)
+        )
+    return acoes
+
+
 @pytest.fixture(scope="module")
 def sql() -> str:
     return _read(MIGRATION)
@@ -155,12 +177,10 @@ class TestExistenciaEOrdenacao:
 
     def test_082_e_a_unica_que_cria_estas_actions(self):
         for action in ALL_ACTIONS:
-            criadores = [
-                p.name
-                for p in MIGRATIONS_DIR.glob("*.sql")
-                if re.search(r"INSERT INTO public\.role_permissions", _read(p), re.I)
-                and f"'{action}'" in _read(p)
-            ]
+            # Detecta o que é REALMENTE semeado (dentro de um INSERT em
+            # role_permissions), e não o que é apenas citado. A 086 lista
+            # `pcare.checklist.*` nas travas anti-escalada sem semeá-los.
+            criadores = [p.name for p in MIGRATIONS_DIR.glob("*.sql") if action in _semeadas(p)]
             assert criadores == [MIGRATION.name], (
                 f"apenas a 082 semeia {action}: {criadores}"
             )

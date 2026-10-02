@@ -3,9 +3,15 @@
 O que é verificado aqui (mesmo padrão de `api/tests`: leitura estática):
 
   1. a migration 077 existe e é sequencial (imediatamente após a 076);
-  2. a Action `tv.manage` é criada no escopo `workspace` e semeada apenas em
-     `opv` e `adm` — NUNCA em `tec` (trava contra o mass-grant documentado na
-     059:19-26) nem em qualquer outra role;
+  2. a Action `tv.manage` é criada no escopo `workspace` e, no arquivo da 077,
+     semeada apenas em `opv` e `adm` — nunca em `tec` (trava contra o mass-grant
+     documentado na 059:19-26) nem em qualquer outra role;
+     SUPERSESSÃO (migration 086): a 077 continua sendo a ÚNICA que DEFINE a
+     Action e a helper, mas a semeação em `tec` passou a ocorrer na 086, como
+     decisão de PRODUTO. Os testes abaixo travam o arquivo da 077 (que não pode
+     ser reescrito) e o contrato de "só opv/adm/tec" passa a ser provado em
+     `api/tests/test_086_rbac2_module_permissions_migration.py` e no harness SQL
+     `supabase/migrations/tests/086_rbac2_module_permissions.sql`;
   3. a helper `user_can_manage_tv` mantém a assinatura `(ws_id uuid)`,
      `SECURITY DEFINER` e `SET search_path = public` — as ~20 policies e os 4
      gates RPC que passam por ela não podem quebrar;
@@ -45,10 +51,14 @@ TEST_077 = MIGRATIONS_DIR / "tests" / "077_rbac2_can_manage_tv.sql"
 HELPER = "user_can_manage_tv"
 ACTION = "tv.manage"
 
-# Roles que DEVEM receber `tv.manage`.
-EXPECTED_GRANT_ROLES = {"opv", "adm"}
-# Roles que NUNCA podem receber (mass-grant de TV aos técnicos — 059:19-26).
-FORBIDDEN_GRANT_ROLES = {"tec", "vis", "est", "coordinator", "lider"}
+# Papéis que DEVEM receber `tv.manage`. `tec` entrou aqui por decisão de PRODUTO
+# na migration 086 (a matriz abre a TV em `full` para o técnico, e `full` sem
+# autoridade de escrita seria uma tela inerte).
+EXPECTED_GRANT_ROLES = {"opv", "adm", "tec"}
+# Papéis que NUNCA podem receber `tv.manage`. A trava da 077 cobria `tec` também
+# (059:19-26); a 086 afrouxou apenas isso, e apenas porque a semeação saiu da 077.
+# `vis` e `coordinator` estão visíveis na TV com `read` e continuam bloqueados.
+FORBIDDEN_GRANT_ROLES = {"vis", "est", "coordinator", "lider"}
 
 # Nada disto pode aparecer no corpo EXECUTADO da migration.
 FORBIDDEN_IN_MIGRATION = [
@@ -147,14 +157,40 @@ class TestExistenciaEOrdenacao:
     def test_077_vem_apos_a_076(self):
         assert (MIGRATIONS_DIR / "076_rbac2_can_manage_workspace_apps.sql").is_file()
 
-    def test_077_e_a_unica_que_cria_tv_manage(self):
-        criadores = [
+    def test_077_e_a_unica_que_define_tv_manage(self):
+        """A 077 é a ÚNICA que DEFINE a Action e a helper.
+
+        A semeação em `tec` é feita pela 086 (decisão de produto posterior), então
+        quem semeia `tv.manage` não pode mais ser exclusivamente a 077. O que NÃO
+        pode mudar é a DEFINIÇÃO: nenhuma migration posterior pode recriar
+        `user_can_manage_tv` nem criar outra Action de escrita de TV.
+        """
+        definidores = [
             p.name
             for p in MIGRATIONS_DIR.glob("*.sql")
-            if re.search(r"INSERT INTO public\.role_permissions", _read(p), re.I)
-            and re.search(rf"'{re.escape(ACTION)}'", _read(p))
+            if re.search(rf"'{re.escape(ACTION)}'", _read(p))
+            and re.search(
+                rf"CREATE OR REPLACE FUNCTION public\.{HELPER}\b", _strip_sql_comments(_read(p))
+            )
         ]
-        assert criadores == [MIGRATION.name], f"apenas a 077 semeia {ACTION}: {criadores}"
+        assert definidores == [MIGRATION.name], (
+            f"apenas a 077 define {HELPER}/{ACTION}: {definidores}"
+        )
+
+    def test_nenhuma_migration_redefine_a_helper_apos_a_077(self):
+        """Trava de blast radius: a 086 dá a Action ao `tec`, mas não pode tocar
+        na helper — ~20 policies RLS e os gates RPC dependem dela."""
+        posteriores = [
+            p.name
+            for p in MIGRATIONS_DIR.glob("*.sql")
+            if int(p.name[:3]) > 77
+            and re.search(
+                rf"CREATE OR REPLACE FUNCTION public\.{HELPER}\b", _strip_sql_comments(_read(p))
+            )
+        ]
+        assert posteriores == [], (
+            f"nenhuma migration posterior a 077 pode redefinir {HELPER}: {posteriores}"
+        )
 
 
 class TestActionTvManage:
@@ -392,8 +428,16 @@ class TestTravaDeRegressaoSql:
         assert "active membership with tv.manage must be ALLOWED" in test
 
     def test_teste_077_trava_o_mass_grant(self):
+        """A trava da 077 no harness estrutural: `tv.manage` só em opv/adm/tec.
+
+        A 077 proibia `tec` (decisão da 059:19-26) e a 086 inverteu isso como
+        produto. O que a trava precisa garantir agora é mais forte, não mais
+        frouxo: nenhum cargo fora de opv/adm/tec recebe a Action — `vis` e
+        `coordinator` seguem bloqueados mesmo estando visíveis na TV.
+        """
         test = _read(TEST_077)
-        assert "tec must NOT hold tv.manage" in test
+        assert "tv.manage granted to roles outside opv/adm/tec" in test
+        assert "tec must hold exactly one tv.manage@workspace after 086" in test
 
     def test_teste_077_usa_o_harness_do_ci(self):
         """auth.uid() no stub do CI le request.jwt.claim.sub."""

@@ -59,10 +59,14 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(permissionService.getAll()).toHaveLength(4)
   })
 
-  it('a matriz RBAC2 dá full em chamados e read nos demais módulos do coordenador', () => {
+  it('a matriz RBAC2 dá read nos cinco módulos do workspace do coordenador', () => {
     // Autorização/vizibilidade do coordenador é a MATRIZ RBAC2, resolvida do
     // slug da membership ativa — não mais uma propriedade do cargo local.
-    expect(moduleLevelForSlug('coordinator', 'chamados')).toBe('full')
+    // `chamados` BAIXOU de `full` para `read`: o coordenador acompanha as
+    // unidades, e a operação de chamados continua decidida por Action
+    // (`ticket.*` da 040/082), não pela matriz. O escopo por unidade — uma
+    // membership por workspace — é o que o limita, e a matriz não o altera.
+    expect(moduleLevelForSlug('coordinator', 'chamados')).toBe('read')
     expect(moduleLevelForSlug('coordinator', 'stock')).toBe('read')
     expect(moduleLevelForSlug('coordinator', 'pc-care')).toBe('read')
     expect(moduleLevelForSlug('coordinator', 'tv')).toBe('read')
@@ -72,13 +76,11 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(moduleLevelForSlug('coordinator', 'dashboard')).toBe('none')
   })
 
-  it('regressão: técnico (full) e visualizador (read) inalterados na matriz', () => {
-    expect(moduleLevelForSlug('tec', 'chamados')).toBe('full')
-    expect(moduleLevelForSlug('tec', 'stock')).toBe('full')
-    expect(moduleLevelForSlug('tec', 'pc-care')).toBe('full')
-    expect(moduleLevelForSlug('vis', 'chamados')).toBe('read')
-    expect(moduleLevelForSlug('vis', 'stock')).toBe('read')
-    expect(moduleLevelForSlug('vis', 'reservalab')).toBe('dash')
+  it('regressão: técnico (full) e visualizador (read) nos cinco módulos', () => {
+    for (const appId of ['chamados', 'stock', 'pc-care', 'reservalab', 'tv'] as const) {
+      expect(moduleLevelForSlug('tec', appId), `tec/${appId}`).toBe('full')
+      expect(moduleLevelForSlug('vis', appId), `vis/${appId}`).toBe('read')
+    }
   })
 
   it('a cadeia legada de autorização não existe mais no serviço', () => {

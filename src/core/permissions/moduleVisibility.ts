@@ -81,40 +81,74 @@ export const MODULE_IDS = [
 export type ModuleId = (typeof MODULE_IDS)[number]
 
 /**
- * MATRIZ DE VISIBILIDADE — cópia literal de `DEFAULT_ROLES[].appAccess`
- * (`core/permissions/types.ts`), com o `key` legado trocado pelo `slug`
- * canônico de `public.roles` (036/040/045) e resolvido pela MEMBERSHIP ATIVA.
+ * MATRIZ DE VISIBILIDADE — política de PRODUTO do RBAC 2.0, indexada pelo `slug`
+ * canônico de `public.roles` (036/040/045) e resolvida pela MEMBERSHIP ATIVA.
  *
  * ── ESTA MATRIZ É DADO, NÃO AUTORIZAÇÃO ──────────────────────────────────────
- * Ela reproduz a política de produto que o App Access legado expressava. Trocá-la
- * é decisão de PRODUTO (o F2-D-K proíbe redesenho), por isso:
+ * Ela decide SÓ se o módulo aparece (AppGuard, Launcher, CommandPalette,
+ * QuickActions, ModuleStats, NotificationRulesTab, abas do Coordinator).
+ * Quem pode EXECUTAR cada operação é o `role_permissions` → Action, consultado
+ * por `useCanAccessAction` na UI e por RLS/`@require_action` no servidor. Os dois
+ * eixos são independentes por construção: `full` aqui NÃO abre nenhuma escrita
+ * que a Action correspondente não permita, e nenhuma Action é concedida só para
+ * que o módulo apareça. Regra estrutural mantida nesta matriz:
  *   · `dashboard` e `admin` não aparecem em nenhum cargo → só super admin entra
  *     (é o comportamento atual: nenhum `DEFAULT_ROLE` declara essas chaves);
- *   · `opv`, `est` e `adm` NÃO aparecem — ver `UNMAPPED_SLUGS` abaixo.
+ *   · `opv`, `est` e `adm` NÃO aparecem — ver `UNMAPPED_SLUGS` abaixo;
+ *   · `lider` é o único cargo fora da regra "5 módulos": escopo de unidade, sem
+ *     TV nem ReservaLab. Não é alvo desta tarefa e segue inalterado.
+ *
+ * ── REGRAS DE PRODUTO QUE ESTA MATRIZ EXPRESSA ───────────────────────────────
+ *   · Técnico  → `full` nos 5 módulos disponíveis ao workspace.
+ *   · Visualizador e Coordenador → `read` nos 5 módulos. `read` é VISIBILIDADE:
+ *     quem tem `read` não ganha escrita. As Actions do papel são decididas em
+ *     `role_permissions` e podem ser (e no caso do coordenador, são) mais
+ *     amplas que `read` sem que a matriz deixe de ser `read`.
  *
  * ── `dash` NÃO É DECORATIVO ──────────────────────────────────────────────────
- * `reservalab: 'dash'` (vis) é consumido como "vê só o dashboard": redirect em
- * `ReservaLabLayout` (L15-20) e filtro de abas no `Navbar` (L28-30). `'read'` e
- * `'full'` também são distintos: `UpcomingReservationPopup` só consulta reservas
- * com `full` (L22). Achatar em booleano quebraria essas três telas.
+ * `'dash'` continua no tipo e nos consumidores (redirect em `ReservaLabLayout`
+ * L15-20, filtro de abas no `Navbar` L28-30) porque é o valor que "vê só o
+ * dashboard" significa, mas NENHUM cargo da matriz o declara hoje — `vis` e
+ * `coordinator` passaram de `'dash'` para `'read'` em reservalab. `'read'` e
+ * `'full'` também são distintos e ambos em uso: `UpcomingReservationPopup` só
+ * consulta reservas com `full` (L22). Achatar em booleano quebraria essas telas.
  */
 export const MODULE_VISIBILITY_BY_SLUG: Readonly<
   Record<string, Readonly<Partial<Record<ModuleId, ModuleLevel>>>>
 > = {
-  // Technician (DEFAULT_ROLES.technician): operation em tudo, ReservaLab só leitura.
-  tec: { 'pc-care': 'full', stock: 'full', reservalab: 'read', chamados: 'full' },
-  // Viewer (DEFAULT_ROLES.viewer): leitura em tudo, ReservaLab em 'dash'.
-  vis: { 'pc-care': 'read', stock: 'read', reservalab: 'dash', chamados: 'read' },
-  // Líder (DEFAULT_ROLES.lider): sem TV nem ReservaLab; Chamados operacional.
+  // Técnico: operação nos cinco módulos. `tv` e `reservalab` subiram para `full`.
+  // A autorização correspondente é `tv.manage` (migration 086) e
+  // `reservelab.tablet.reserve` + `reservelab.tablet.cancel` (036/078).
+  tec: {
+    'pc-care': 'full',
+    stock: 'full',
+    reservalab: 'full',
+    tv: 'full',
+    chamados: 'full',
+  },
+  // Visualizador: leitura nos cinco módulos. Nenhuma Action de mutação é
+  // concedida a `vis` (036 + trava anti-escalada da 086).
+  vis: {
+    'pc-care': 'read',
+    stock: 'read',
+    reservalab: 'read',
+    tv: 'read',
+    chamados: 'read',
+  },
+  // Líder: sem TV nem ReservaLab; Chamados operacional. Inalterado.
   lider: { 'pc-care': 'read', stock: 'read', chamados: 'full' },
-  // Coordenador (DEFAULT_ROLES.coordinator): lê TV (TV só existe pra opv/adm/tec
-  // em Actions, mas o legado dava 'read' ao coordenador) e opera Chamados.
+  // Coordenador: leitura nos cinco módulos. `chamados` BAIXOU de `full` para
+  // `read` na visibilidade; as Actions de ticket do cargo (040/082) foram
+  // PRESERVADAS — a matriz é visibilidade, não autorização, e remover
+  // capacidade operacional do coordenador multiunidade é decisão de produto
+  // própria. O escopo por unidade (uma membership por workspace) é o que
+  // limita o coordenador, e ele não é tocado por esta matriz.
   coordinator: {
     'pc-care': 'read',
     stock: 'read',
-    tv: 'read',
-    chamados: 'full',
     reservalab: 'read',
+    tv: 'read',
+    chamados: 'read',
   },
 }
 

@@ -35,12 +35,44 @@ vi.mock('../../../apps/reservalab/components/PushNotificationButton', () => ({
   PushNotificationButton: () => null,
 }))
 
-// ── Matriz espelhada do F2-D-K (célula a célula) ────────────────────────────
+/**
+ * `useCoordinator` NÃO pode rodar de verdade aqui.
+ *
+ * `Launcher` chama `useCoordinator()` (`Launcher.tsx:37`) para o CTA de
+ * coordenação. O hook dispara `getCoordinatorScope()` — um `db.rpc` REAL — e
+ * resolve em `setFailed`/`setUnits` (`useCoordinator.ts:46-47`). Sem este mock,
+ * cada `render(<Launcher/>)` deixa uma promise pendente que resolve DEPOIS do
+ * fim do arquivo, quando o jsdom já foi destruído: o `dispatchSetState` do React
+ * estoura `ReferenceError: window is not defined` como *unhandled rejection*, e
+ * o processo sai com código 1 apesar de todos os testes passarem.
+ *
+ * Localmente isso quase não aparece porque `src/test/setup.ts` usa timers
+ * falsos e, sem `VITE_SUPABASE_URL`, `defaultDb` é `null` e `getCoordinatorScope`
+ * resolve em um microtask. No CI as credenciais Supabase são reais
+ * (`.github/workflows/ci-web.yml`), então a ida à rede é lenta e sempre aterrissa
+ * depois do teardown — daí 4 erros para os 4 renders do Launcher.
+ *
+ * Este arquivo só prova VISIBILIDADE de módulo; o escopo de coordenação tem
+ * cobertura própria (`useCoordinator.test.tsx`) e o CTA, em
+ * `Launcher.coordinator.test.tsx`. Aqui ele é sempre `false`.
+ */
+vi.mock('../useCoordinator', () => ({
+  useCoordinator: () => ({
+    units: [],
+    loading: false,
+    failed: false,
+    refresh: vi.fn(),
+    isCoordinator: false,
+    isCoordinatorMultiUnit: false,
+  }),
+}))
+
+// ── Matriz espelhada da regra de produto (célula a célula) ────────────────────
 const MATRIX: Record<string, Partial<Record<string, string>>> = {
-  tec: { 'pc-care': 'full', stock: 'full', reservalab: 'read', chamados: 'full' },
-  vis: { 'pc-care': 'read', stock: 'read', reservalab: 'dash', chamados: 'read' },
+  tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', tv: 'full', chamados: 'full' },
+  vis: { 'pc-care': 'read', stock: 'read', reservalab: 'read', tv: 'read', chamados: 'read' },
   lider: { 'pc-care': 'read', stock: 'read', chamados: 'full' },
-  coordinator: { 'pc-care': 'read', stock: 'read', tv: 'read', chamados: 'full', reservalab: 'read' },
+  coordinator: { 'pc-care': 'read', stock: 'read', reservalab: 'read', tv: 'read', chamados: 'read' },
 }
 const MODULES = ['dashboard', 'pc-care', 'stock', 'reservalab', 'tv', 'chamados', 'admin']
 
@@ -226,27 +258,38 @@ describe('Launcher — cards pela nova fonte (F2-D-L)', () => {
     )
   }
 
-  it('técnico vê PC Care, Estoque e Chamados (e não TV/Admin/Dashboard)', () => {
+  it('técnico vê os cinco módulos do workspace no Launcher', () => {
     primeSource('tec')
     renderLauncher()
     expect(screen.getAllByText('PC Care').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Estoque').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Chamados').length).toBeGreaterThan(0)
-    expect(screen.queryByText('TV')).not.toBeInTheDocument()
+    expect(screen.getAllByText('TV').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('ReservaLab').length).toBeGreaterThan(0)
     expect(screen.queryByText('Administração')).not.toBeInTheDocument()
+    expect(screen.queryByText('Painel')).not.toBeInTheDocument()
   })
 
-  it('viewer vê PC Care/Estoque/Chamados, mas o Launcher não mostra nível', () => {
+  it('viewer vê os cinco módulos do workspace, mas o Launcher não mostra nível', () => {
     primeSource('vis')
     renderLauncher()
     expect(screen.getAllByText('PC Care').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Estoque').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Chamados').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('TV').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('ReservaLab').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Administração')).not.toBeInTheDocument()
   })
 
-  it('coordenador vê TV (read) — caso em que Action e visibilidade divergem', () => {
+  it('coordenador vê os cinco módulos do workspace (TV e ReservaLab em read)', () => {
     primeSource('coordinator')
     renderLauncher()
+    expect(screen.getAllByText('PC Care').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Estoque').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Chamados').length).toBeGreaterThan(0)
     expect(screen.getAllByText('TV').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('ReservaLab').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Administração')).not.toBeInTheDocument()
   })
 
   it('lider NÃO vê TV nem ReservaLab', () => {
@@ -275,17 +318,27 @@ describe('ReservaLab — níveis preservados (F2-D-L)', () => {
     )
   }
 
-  it("viewer (dash) ⇒ a raiz REDIRECIONA para o painel (Layout preservado)", () => {
-    primeSource('vis')
-    expect(moduleLevelForSlug('vis', 'reservalab')).toBe('dash')
-    renderReservaLab('/reservalab')
-    expect(screen.getByText('PAINEL_RESERVAS')).toBeInTheDocument()
-    expect(screen.queryByText('RAIZ_RESERVAS')).not.toBeInTheDocument()
+  it("'dash' não é mais declarado por nenhum cargo — viewer e coordenador abrem a raiz", () => {
+    // `dash` continua no tipo e no Layout (redirect para o painel), mas nenhum
+    // cargo da matriz o declara: visualizador e coordenador subiram para `read`.
+    for (const slug of ['tec', 'vis', 'lider', 'coordinator']) {
+      expect(moduleLevelForSlug(slug, 'reservalab')).not.toBe('dash')
+    }
+    for (const slug of ['tec', 'vis', 'coordinator']) {
+      primeSource(slug)
+      expect(moduleLevelForSlug(slug, 'reservalab')).toBe(
+        slug === 'tec' ? 'full' : 'read',
+      )
+      const { unmount } = renderReservaLab('/reservalab')
+      expect(screen.getByText('RAIZ_RESERVAS')).toBeInTheDocument()
+      expect(screen.queryByText('PAINEL_RESERVAS')).not.toBeInTheDocument()
+      unmount()
+    }
   })
 
-  it('técnico (read) NÃO redireciona: a raiz é acessível', () => {
+  it('técnico (full) NÃO redireciona: a raiz é acessível', () => {
     primeSource('tec')
-    expect(moduleLevelForSlug('tec', 'reservalab')).toBe('read')
+    expect(moduleLevelForSlug('tec', 'reservalab')).toBe('full')
     renderReservaLab('/reservalab')
     expect(screen.getByText('RAIZ_RESERVAS')).toBeInTheDocument()
     expect(screen.queryByText('PAINEL_RESERVAS')).not.toBeInTheDocument()
@@ -297,12 +350,20 @@ describe('ReservaLab — níveis preservados (F2-D-L)', () => {
     expect(screen.getByText('RAIZ_RESERVAS')).toBeInTheDocument()
   })
 
-  it('nenhum cargo da matriz tem full em reservalab (só o bypass do super admin)', () => {
-    for (const slug of ['tec', 'vis', 'lider', 'coordinator']) {
+  it('lider (sem reservalab) nem chega ao Layout: o AppGuard barra antes', () => {
+    primeSource('lider')
+    expect(moduleLevelForSlug('lider', 'reservalab')).toBe('none')
+    renderGuard('reservalab')
+    expect(screen.queryByText('CONTEUDO')).not.toBeInTheDocument()
+    expect(screen.getByText(/Acesso restrito/)).toBeInTheDocument()
+  })
+
+  it('reservalab em full é exclusivo do técnico (o único com tablet.reserve/cancel)', () => {
+    for (const slug of ['vis', 'lider', 'coordinator']) {
       expect(moduleLevelForSlug(slug, 'reservalab')).not.toBe('full')
     }
-    // `full` abre o UpcomingReservationPopup (que consulta reservas) — segue
-    // restrito ao super admin, exatamente como antes.
+    // `full` abre o UpcomingReservationPopup (que consulta reservas) — para o
+    // técnico, que tem `reservelab.tablet.reserve`/`cancel`; e para o bypass.
     primeSource('super')
     expect(mockUseModuleLevel('reservalab', { ignoreDisabledApps: true }).level).toBe('full')
   })
@@ -419,16 +480,19 @@ describe('nenhum consumidor de produção ficou na fonte legada', () => {
   })
 })
 
-describe('a matriz do F2-D-K não foi alterada', () => {
-  it('segue idêntica à política do F2-D-J (e adm continua fora dela)', () => {
+describe('a matriz de produto (RBAC 2.0) não é alterada por '+"`"+`useCanAccessAction`+"`", () => {
+  it('segue idêntica à regra de produto (e opv/est/adm continuam fora dela)', () => {
     for (const [slug, esperado] of Object.entries(MATRIX)) {
       for (const appId of MODULES) {
         expect(moduleLevelForSlug(slug, appId)).toBe(esperado[appId] ?? 'none')
       }
     }
-    // Decisão F2-D-L (A1): `adm` não ganha linha na matriz.
-    for (const appId of MODULES) {
-      expect(moduleLevelForSlug('adm', appId)).toBe('none')
+    // `opv`/`est`/`adm` não ganham linha na matriz (dívida técnica registrada):
+    // `opv` e `adm` têm `tv.manage` e mesmo assim resolvem `none` na TV.
+    for (const slug of ['opv', 'est', 'adm']) {
+      for (const appId of MODULES) {
+        expect(moduleLevelForSlug(slug, appId)).toBe('none')
+      }
     }
     // F2-D-N2: o oráculo passou a ser a matriz RBAC2, e não mais
     // `DEFAULT_ROLES[].appAccess` (removido junto com a cadeia legada).
