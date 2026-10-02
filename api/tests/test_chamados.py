@@ -629,7 +629,12 @@ def test_patch_status_fechado_arquiva_automaticamente(client, fake_requests, mon
     assert "updatedAt" in patch_call["kwargs"]["json"]
 
 
-def test_patch_reabertura_limpa_arquivamento(client, fake_requests, monkeypatch):
+def test_patch_campos_derivados_nao_sao_escritos_pelo_cliente(client, fake_requests, monkeypatch):
+    """`archived`/`closedAt` no payload NÃO são encaminhados ao banco.
+
+    São campos DERIVADOS da transição de status: o estado de fechamento é
+    consequência de `status` sob a Action correspondente, nunca escrita direta.
+    """
     headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto"))
     _route_patch_ticket(fake_requests, _make_ticket(status="aberto", archived=False, closedAt=None))
@@ -644,9 +649,9 @@ def test_patch_reabertura_limpa_arquivamento(client, fake_requests, monkeypatch)
     ticket = resp.get_json()["ticket"]
     assert ticket["status"] == "aberto"
     assert ticket["archived"] is False
-    patch_call = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
-    assert patch_call["kwargs"]["json"]["archived"] is False
-    assert patch_call["kwargs"]["json"]["closedAt"] is None
+    sent = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert "archived" not in sent
+    assert "closedAt" not in sent
 
 
 def test_patch_reabertura_de_fechado_limpa_resolved_at(client, fake_requests, monkeypatch):

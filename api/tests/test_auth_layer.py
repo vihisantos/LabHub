@@ -628,7 +628,10 @@ class TestCrossWorkspaceIsolation:
     def test_user_a_cannot_list_user_b_workspace(self, root_client, fake_requests, monkeypatch):
         """User A (ws-a) cannot list tickets from workspace ws-b."""
         monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
-        headers = self._user_a_headers(fake_requests)
+        # `ticket.view` concedida em ws-a: o 403 tem de vir do ISOLAMENTO de
+        # workspace, e não da falta da Action.
+        headers = self._user_a_headers(fake_requests, role_id="r-tech",
+                                        actions=("ticket.view",))
         # FakeSupabase returns tickets from ws-b
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
             {"id": "t1", "workspace_id": "ws-b", "status": "aberto"}
@@ -639,7 +642,8 @@ class TestCrossWorkspaceIsolation:
     def test_user_a_can_list_own_workspace(self, root_client, fake_requests, monkeypatch):
         """User A (ws-a) can list tickets from their own workspace."""
         monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-a"})
-        headers = self._user_a_headers(fake_requests)
+        headers = self._user_a_headers(fake_requests, role_id="r-tech",
+                                        actions=("ticket.view",))
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
             {"id": "t1", "workspace_id": "ws-a", "status": "aberto"}
         ]))
@@ -745,14 +749,21 @@ class TestMembershipAuthority:
 
     def test_workspace_ids_ignorado_quando_memberships_divergem(self, root_client, fake_requests, monkeypatch):
         """Coluna legada diz ws-b, mas membership ativa é ws-a → ws-b nega, ws-a permite."""
-        headers = self._headers(monkeypatch)
+        # `ticket.view` é exigida pela listagem; concedê-la na membership ativa
+        # mantém o teste focado na autoridade da MEMBERSHIP sobre workspace_ids.
+        fake_requests.route("GET", "/rest/v1/membership_overrides", FakeResponse([]))
+        fake_requests.route("GET", "/rest/v1/role_permissions", FakeResponse([
+            {"role_id": "r-tech", "action": "ticket.view", "scope": "workspace"},
+        ]))
         fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([{
             "id": "user-1", "email": "a@test.com", "name": "A", "role": "technician",
             "is_super_admin": False, "workspace_ids": ["ws-b"], "status": "active",
         }]))
         fake_requests.route("GET", "/rest/v1/memberships", FakeResponse([
-            {"profile_id": "user-1", "workspace_id": "ws-a", "status": "active"},
+            {"profile_id": "user-1", "workspace_id": "ws-a", "role_id": "r-tech",
+             "status": "active"},
         ]))
+        headers = self._headers(monkeypatch)
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([
             {"id": "t1", "workspace_id": "ws-a", "status": "aberto"}
         ]))

@@ -2463,14 +2463,28 @@ def chamados_list():
 
         url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?select=*&order=createdAt.desc'
         if workspace_id:
+            # Filtro explícito: o workspace do request (já validado como membro)
+            # é o escopo real, e `ticket.view` é a autoridade.
+            if not is_super_admin:
+                g.workspace_id = workspace_id
+                err = _require_action_in_handler('ticket.view', scope='workspace',
+                                                 resource_type='ticket')
+                if err:
+                    return err
             url += f'&workspace_id=eq.{quote(workspace_id)}'
         elif not is_super_admin:
             if not user_ws_ids:
                 return jsonify({'tickets': []})
-            if len(user_ws_ids) == 1:
-                url += f'&workspace_id=eq.{quote(user_ws_ids[0])}'
+            # Sem filtro: só entram os workspaces onde o usuário tem `ticket.view`.
+            # Membership sozinho não autoriza leitura de chamados.
+            viewable = [w for w in user_ws_ids
+                        if rbac_two_can(user, w, 'ticket.view', 'workspace')]
+            if not viewable:
+                return _forbidden('Permissão insuficiente')
+            if len(viewable) == 1:
+                url += f'&workspace_id=eq.{quote(viewable[0])}'
             else:
-                ws_filter = ','.join(f'"{w}"' for w in user_ws_ids)
+                ws_filter = ','.join(f'"{w}"' for w in viewable)
                 url += f'&workspace_id=in.({quote(ws_filter)})'
 
         status = request.args.get('status')
@@ -2633,7 +2647,12 @@ def chamados_manage(ticket_id):
 
         body = request.get_json() or {}
         updates = {}
-        for key in ('status', 'assignedTo', 'assignedToUserId', 'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'statusNote', 'photos'):
+        # `archived`, `closedAt` e `closedBy` são DERIVADOS da transição de status
+        # e NÃO são campos de escrita do cliente: ficam de fora da allowlist para
+        # que o estado de fechamento só possa ser consequência de `status` sob a
+        # Action correspondente. A tentativa explícita é tratada abaixo (exige
+        # `ticket.close`) em vez de ser silenciosamente aceita.
+        for key in ('status', 'assignedTo', 'assignedToUserId', 'problemDescription', 'priority', 'statusNote', 'photos'):
             if key in body:
                 updates[key] = body[key]
         if 'priority' in updates and updates['priority'] not in CHAMADOS_PRIORITIES:
@@ -2667,19 +2686,60 @@ def chamados_manage(ticket_id):
                 _prev_photo = ''
             updates['photos'] = photos_val
 
+        # Estado atual ANTES de calcular as Actions: a Action exigida depende da
+        # TRANSIÇÃO (fechar ≠ mudar status; reabrir ≠ mudar status), então o
+        # status anterior precisa ser resolvido aqui — e não depois da
+        # autorização. Busca apenas leitura, sem side effect.
+        status_prev = None
+        status_row = None
+        if 'status' in updates:
+            if updates['status'] not in CHAMADOS_STATUSES:
+                return jsonify({'error': 'Status inválido'}), 400
+            fetch_status = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+                f'&select=status,statusNote,resolvedAt,closedAt,archived',
+                headers=_supabase_headers(),
+                timeout=10,
+            )
+            if not fetch_status.ok:
+                return jsonify({'error': 'Erro ao buscar chamado'}), 502
+            status_row = (fetch_status.json() or [{}])[0]
+            status_prev = status_row.get('status')
+
         # Etapa 6 — PATCH mixed-operation: determinar o conjunto MÍNIMO de Actions
         # exigido pelas operações efetivamente solicitadas e autorizar TODAS
         # ANTES de qualquer mutation (atomicidade). Se qualquer Action for negada,
         # NADA é alterado (403).
+        #
+        # A Action de status acompanha a TRANSIÇÃO (catálogo RBAC 2.0):
+        #   → fechado                       => ticket.close
+        #   resolvido/fechado → estado ativo => ticket.reopen
+        #   demais mudanças                 => ticket.status
+        # `ticket.status` NÃO implica `ticket.close` nem `ticket.reopen`.
         required_actions = set()
-        if 'status' in updates or 'statusNote' in updates:
+        if 'status' in updates:
+            new_status = updates['status']
+            if new_status == 'fechado':
+                required_actions.add('ticket.close')
+            elif status_prev in ('resolvido', 'fechado'):
+                required_actions.add('ticket.reopen')
+            else:
+                required_actions.add('ticket.status')
+        if 'statusNote' in updates:
             required_actions.add('ticket.status')
         if 'assignedTo' in updates or 'assignedToUserId' in updates:
             required_actions.add('ticket.assign')
         if any(k in updates for k in (
-            'problemDescription', 'priority', 'archived', 'closedAt', 'closedBy', 'photos'
+            'problemDescription', 'priority', 'photos'
         )):
             required_actions.add('ticket.edit')
+        # Fechamento/arquivamento por campo derivado: o estado de conclusão é
+        # sempre consequência de `status`. Se o cliente tentar escrevê-lo
+        # diretamente, exige a Action do fechamento — e mesmo assim o campo não é
+        # aplicado (fora da allowlist acima). Garante que `ticket.edit` não
+        # consiga arquivar/fechar por payload alternativo.
+        if any(k in body for k in ('archived', 'closedAt', 'closedBy')):
+            required_actions.add('ticket.close')
         for act in sorted(required_actions):
             err = _require_action_in_handler(act, scope='workspace',
                                              resource_type='ticket', resource_id=ticket_id)
@@ -2708,20 +2768,14 @@ def chamados_manage(ticket_id):
             prev = (fetch.json() or [{}])[0]
             assignment_changed = (prev.get('assignedToUserId') or '') != (updates.get('assignedToUserId') or '')
         if 'status' in updates:
-            status = updates['status']
-            if status not in CHAMADOS_STATUSES:
+            if updates['status'] not in CHAMADOS_STATUSES:
                 return jsonify({'error': 'Status inválido'}), 400
-
-            # Busca o estado atual para detectar reabertura (resolvido/fechado → fluxo ativo)
-            fetch = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=status,statusNote,resolvedAt,closedAt,archived',
-                headers=_supabase_headers(),
-                timeout=10,
-            )
-            if not fetch.ok:
-                return jsonify({'error': 'Erro ao buscar chamado'}), 502
-            prev = (fetch.json() or [{}])[0]
-            prev_status = prev.get('status')
+            # `status_prev`/`status_row` já foram resolvidos ANTES da autorização
+            # (a Action depende da transição). Reaproveitados aqui — sem segunda
+            # leitura — para aplicar as marcas de conclusão e detectar a reabertura.
+            prev = status_row
+            prev_status = status_prev
+            status = updates['status']
 
             if status == 'resolvido':
                 updates['resolvedAt'] = datetime.now(timezone.utc).isoformat()
@@ -2961,16 +3015,30 @@ def chamados_reports():
         if workspace_id:
             if not is_super_admin and workspace_id not in user_ws_ids:
                 return jsonify({'error': 'Acesso negado a este workspace'}), 403
+            # Filtro explícito: o workspace do request (já validado como membro)
+            # é o escopo real, e `ticket.report` é a autoridade.
+            if not is_super_admin:
+                g.workspace_id = workspace_id
+                err = _require_action_in_handler('ticket.report', scope='workspace',
+                                                 resource_type='ticket')
+                if err:
+                    return err
             url += f'&workspace_id=eq.{quote(workspace_id)}'
         elif not is_super_admin:
             if not user_ws_ids:
                 report = _aggregate_ticket_reports([])
                 report['period'] = {'from': from_iso, 'to': to_iso}
                 return jsonify({'report': report})
-            if len(user_ws_ids) == 1:
-                url += f'&workspace_id=eq.{quote(user_ws_ids[0])}'
+            # Sem filtro: só agregam os workspaces onde o usuário tem
+            # `ticket.report`. Membership sozinho não autoriza o relatório.
+            reportable = [w for w in user_ws_ids
+                          if rbac_two_can(user, w, 'ticket.report', 'workspace')]
+            if not reportable:
+                return _forbidden('Permissão insuficiente')
+            if len(reportable) == 1:
+                url += f'&workspace_id=eq.{quote(reportable[0])}'
             else:
-                ws_filter = ','.join(f'"{w}"' for w in user_ws_ids)
+                ws_filter = ','.join(f'"{w}"' for w in reportable)
                 url += f'&workspace_id=in.({quote(ws_filter)})'
 
         resp = requests.get(url, headers=_supabase_headers(), timeout=15)
