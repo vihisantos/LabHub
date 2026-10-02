@@ -18,9 +18,22 @@ vi.mock('../../../chamados/services/publicTicketService', () => ({
     submitFeedback: mockSubmitFeedback,
   },
   toTicket: (p: Ticket) => p,
+  // O mock precisa reexportar a classe de erro real: o FeedbackPage decide
+  // entre "avaliação já enviada" e "falha" por `instanceof` + status 409.
+  PublicTicketRequestError: class PublicTicketRequestError extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.name = 'PublicTicketRequestError'
+      this.status = status
+    }
+  },
 }))
 
 import { FeedbackPage } from '../FeedbackPage'
+// Importada do modulo MOCKADO: e a classe que o FeedbackPage usa no
+// `instanceof` para separar 409 (ja avaliado) de falha de rede.
+import { PublicTicketRequestError } from '../../../chamados/services/publicTicketService'
 
 function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   return {
@@ -152,5 +165,57 @@ describe('FeedbackPage', () => {
     await act(async () => {})
 
     expect(screen.getByText('Falha de rede')).toBeInTheDocument()
+  })
+  it('409 do backend vira o estado "avaliação enviada", nao erro genérico', async () => {
+    mockGetByToken.mockResolvedValue(makeTicket())
+    mockSubmitFeedback.mockRejectedValue(
+      new PublicTicketRequestError('Chamado já avaliado', 409),
+    )
+    renderFeedback()
+    await act(async () => {})
+
+    fireEvent.click(screen.getByLabelText('5 estrelas'))
+    fireEvent.click(screen.getByText('Enviar avaliação'))
+    await act(async () => {})
+
+    expect(screen.getByText('Avaliação enviada')).toBeInTheDocument()
+    expect(screen.queryByText('Chamado já avaliado')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Enviar avaliação' })).not.toBeInTheDocument()
+  })
+
+  it('409 recarrega o chamado para trazer a nota e o comentário já registrados', async () => {
+    mockGetByToken
+      .mockResolvedValueOnce(makeTicket())
+      .mockResolvedValueOnce(
+        makeTicket({
+          feedbackRating: 5,
+          feedbackComment: 'Atendimento excelente',
+          feedbackAt: '2026-06-25T12:00:00Z',
+        }),
+      )
+    mockSubmitFeedback.mockRejectedValue(new PublicTicketRequestError('Chamado já avaliado', 409))
+    renderFeedback()
+    await act(async () => {})
+
+    fireEvent.click(screen.getByLabelText('3 estrelas'))
+    fireEvent.click(screen.getByText('Enviar avaliação'))
+    await act(async () => {})
+
+    expect(screen.getByText('Avaliação enviada')).toBeInTheDocument()
+    expect(screen.getByText('Atendimento excelente')).toBeInTheDocument()
+  })
+
+  it('falha de rede continua sendo erro genérico (409 não é tratado como rede)', async () => {
+    mockGetByToken.mockResolvedValue(makeTicket())
+    mockSubmitFeedback.mockRejectedValue(new Error('Falha de rede'))
+    renderFeedback()
+    await act(async () => {})
+
+    fireEvent.click(screen.getByLabelText('5 estrelas'))
+    fireEvent.click(screen.getByText('Enviar avaliação'))
+    await act(async () => {})
+
+    expect(screen.getByText('Falha de rede')).toBeInTheDocument()
+    expect(screen.queryByText('Avaliação enviada')).not.toBeInTheDocument()
   })
 })

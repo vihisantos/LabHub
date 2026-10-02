@@ -4,6 +4,10 @@ import { icons } from '../../../lib/icons'
 const mainNav: LiquidNavItem[] = [
   { to: '/chamados', label: 'Dashboard', icon: icons.nav.dashboard },
   { to: '/chamados/tickets', label: 'Chamados', icon: icons.ui.inbox },
+  // Contexto de SOLICITANTE (chamados que o usuário abriu), distinto de
+  // "Chamados" (a fila de atendimento). "Meus Atendimentos" é um chip dentro da
+  // lista — não ganha item aqui para não duplicar navegação.
+  { to: '/chamados/meus', label: 'Meus Chamados', icon: icons.ui.user },
 ]
 
 const moreItems: LiquidNavItem[] = [

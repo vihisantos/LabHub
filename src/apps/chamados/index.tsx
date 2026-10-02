@@ -32,6 +32,11 @@ export function ChamadosApp() {
         <Route path="reports" element={<Reports />} />
         <Route path="ranking" element={<Ranking />} />
         <Route path="tickets" element={<TicketList />} />
+        {/* Meus Chamados = chamados que EU abri (reportedByUserId === user.id).
+            Mesma tela, mesmo filtro, mesma ordenação — a rota só define o
+            contexto inicial. NÃO é uma permissão nova: quem tem `ticket.view`
+            já carregou esses chamados. */}
+        <Route path="meus" element={<TicketList defaultScope="chamados" />} />
         <Route path="tickets/:id" element={<TicketDetail />} />
         <Route path="settings" element={<Settings />} />
         </Route>

@@ -394,6 +394,103 @@ def test_detail_nao_expoe_campos_internos(client, fake_requests):
         assert campo not in body, f"não deve expor {campo}"
 
 
+def test_projection_publica_tem_key_set_exato(client, fake_requests):
+    """A allowlist pública é FECHADA: nenhum campo a mais, nenhum a menos.
+
+    Antes o teste só olhava alguns campos AUSENTES — um campo novo adicionado à
+    `_project_public_ticket` passava silenciosamente. Este teste trava o
+    conjunto exato, para que a superfície pública não cresça por descuido.
+    """
+    _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A")
+    _route_ticket_full(
+        fake_requests,
+        _make_ticket(
+            tid="ticket-A",
+            reportedByEmail="int@x.com",
+            reportedByUserId="uuid-do-solicitante",
+            assignedTo="Tec",
+            assignedToUserId="uuid-do-tecnico",
+            feedbackRating=5,
+            feedbackComment="Atendimento excelente",
+            feedbackAt="2026-06-25T13:00:00Z",
+        ),
+    )
+
+    r = client.get("/api/public/chamados/segredo-token-A")
+    body = r.get_json()["ticket"]
+
+    assert set(body.keys()) == {
+        "id",
+        "ticketNumber",
+        "status",
+        "roomName",
+        "problemCategory",
+        "problemArea",
+        "problemDescription",
+        "reportedBy",
+        "photos",
+        "feedbackRating",
+        "feedbackComment",
+        "feedbackAt",
+        "createdAt",
+        "updatedAt",
+        "closedAt",
+    }
+
+
+def test_projection_publica_expoe_a_avaliacao_do_proprio_professor(client, fake_requests):
+    """A avaliação é DO professor: devolvê-la é o que permite à tela pública
+    mostrar o que ele mesmo escreveu depois de enviar."""
+    _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A")
+    _route_ticket_full(
+        fake_requests,
+        _make_ticket(
+            tid="ticket-A",
+            status="resolvido",
+            feedbackRating=4,
+            feedbackComment="Bom atendimento",
+            feedbackAt="2026-06-25T13:00:00Z",
+        ),
+    )
+
+    r = client.get("/api/public/chamados/segredo-token-A")
+    body = r.get_json()["ticket"]
+
+    assert body["feedbackRating"] == 4
+    assert body["feedbackComment"] == "Bom atendimento"
+    assert body["feedbackAt"] == "2026-06-25T13:00:00Z"
+
+
+def test_projection_publica_NAO_expoe_identidade_nem_segredo(client, fake_requests):
+    """Reforço explícito dos três campos mais sensíveis, agora que a allowlist
+    cresceu: segredo do token, e-mail e UUID de terceiros."""
+    _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A")
+    _route_ticket_full(
+        fake_requests,
+        _make_ticket(
+            tid="ticket-A",
+            reportedByEmail="int@x.com",
+            reportedByUserId="uuid-do-solicitante",
+            assignedToUserId="uuid-do-tecnico",
+            feedbackRating=5,
+        ),
+    )
+
+    r = client.get("/api/public/chamados/segredo-token-A")
+    body = r.get_json()["ticket"]
+
+    for campo in (
+        "tracking_token_hash",
+        "reportedByEmail",
+        "reportedByUserId",
+        "assignedTo",
+        "assignedToUserId",
+        "workspace_id",
+        "statusNote",
+    ):
+        assert campo not in body, f"não deve expor {campo}"
+
+
 # ── B1.6 — eventos ─────────────────────────────────────────────────────────
 
 def test_events_retornam_somente_ticket_a(client, fake_requests):

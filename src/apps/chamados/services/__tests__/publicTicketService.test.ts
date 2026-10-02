@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { publicTicketService } from '../publicTicketService'
+import { publicTicketService, toTicket, PublicTicketRequestError } from '../publicTicketService'
 
 const mockFetch = vi.hoisted(() => vi.fn())
 
@@ -97,5 +97,58 @@ describe('publicTicketService — transporte seguro do tracking token', () => {
     } as unknown as Response)
 
     await expect(publicTicketService.getByToken(TOKEN)).rejects.toThrow('Chamado não encontrado')
+  })
+})
+
+
+describe('publicTicketService — avaliação do professor (projection + 409)', () => {
+  it('toTicket leva feedbackComment e feedbackAt para a UI', () => {
+    // Antes estes campos eram devolvidos pelo backend mas nunca lidos: o card
+    // "Avaliação enviada" existia e não renderizava nada.
+    const t = toTicket({
+      id: 't-1',
+      ticketNumber: 7,
+      status: 'resolvido',
+      feedbackRating: 5,
+      feedbackComment: 'Atendimento excelente',
+      feedbackAt: '2026-06-25T12:00:00Z',
+    })
+    expect(t.feedbackRating).toBe(5)
+    expect(t.feedbackComment).toBe('Atendimento excelente')
+    expect(t.feedbackAt).toBe('2026-06-25T12:00:00Z')
+  })
+
+  it('toTicket nao inventa avaliação quando a API devolve null', () => {
+    const t = toTicket({ id: 't-1', feedbackRating: null, feedbackComment: null, feedbackAt: null })
+    expect(t.feedbackRating).toBeUndefined()
+    expect(t.feedbackComment).toBeUndefined()
+    expect(t.feedbackAt).toBeUndefined()
+  })
+
+  it('o erro preserva o status HTTP (409 = já avaliado)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'Chamado já avaliado' }),
+    } as unknown as Response)
+
+    await expect(publicTicketService.submitFeedback(TOKEN, 4, 'x')).rejects.toMatchObject({
+      status: 409,
+      message: 'Chamado já avaliado',
+    })
+  })
+
+  it('o erro de tracking inválido continua 403 (não é confundido com 409)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'Tracking token inválido' }),
+    } as unknown as Response)
+
+    const err = await publicTicketService
+      .getByToken(TOKEN)
+      .catch((e: unknown) => e as PublicTicketRequestError)
+    expect(err).toBeInstanceOf(PublicTicketRequestError)
+    expect((err as PublicTicketRequestError).status).toBe(403)
   })
 })

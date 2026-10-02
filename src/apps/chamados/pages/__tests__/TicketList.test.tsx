@@ -205,8 +205,13 @@ vi.mock('react-router-dom', () => ({
 vi.mock('../../contexts/TicketsContext', () => ({
   useTicketsContext: () => ({ tickets: mockTickets, loading: false, syncing: false, reload: mockReload }),
 }))
+// Usuário da sessão. Configurável para provar o caso "sem sessão" sem desmontar
+// os outros describes.
+const mockUser = vi.hoisted(() => ({
+  current: { id: 'test-admin', name: 'Admin Teste' } as { id: string; name: string } | null,
+}))
 vi.mock('../../../../core/auth/useAuth', () => ({
-  useAuth: () => ({ user: { id: 'test-admin', name: 'Admin Teste' } }),
+  useAuth: () => ({ user: mockUser.current }),
 }))
 
 import { TicketList } from '../TicketList'
@@ -219,7 +224,7 @@ describe('TicketList — fila do técnico', () => {
     mockTickets.push(...TICKETS)
   })
 
-  it('mostra apenas os chamados abertos atribuídos a mim em "Minha fila"', async () => {
+  it('mostra apenas os chamados abertos atribuídos a mim em "Meus Atendimentos"', async () => {
     render(<TicketList />)
     await act(async () => {})
 
@@ -227,7 +232,7 @@ describe('TicketList — fila do técnico', () => {
     expect(screen.getByText('#2')).toBeInTheDocument()
     expect(screen.queryByText('#3')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Minha fila' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
 
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.queryByText('#2')).not.toBeInTheDocument()
@@ -248,13 +253,13 @@ describe('TicketList — fila do técnico', () => {
     render(<TicketList />)
     await act(async () => {})
 
-    fireEvent.click(screen.getByRole('button', { name: 'Minha fila' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
     expect(screen.getByText('#1')).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Atualizar lista'))
     await act(async () => {})
 
-    // Filtro "Minha fila" ainda ativo
+    // Filtro "Meus Atendimentos" ainda ativo
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.queryByText('#2')).not.toBeInTheDocument()
   })
@@ -349,7 +354,7 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.getByText('#5')).toBeInTheDocument()
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Minha fila' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
 
@@ -455,5 +460,217 @@ describe('TicketList — Fase 2.2: deep link ?sla= da Central (álertas de SLA)'
     expect(screen.getByText('#8')).toBeInTheDocument()
     expect(screen.getByText('#9')).toBeInTheDocument()
     expect(screen.getByText('#10')).toBeInTheDocument()
+  })
+})
+
+/**
+ * Meus Chamados (solicitante) e Meus Atendimentos (responsável) são conceitos
+ * DISTINTOS que o mesmo técnico pode ter ao mesmo tempo. Estes testes travam que:
+ *   · a identidade do solicitante é o UUID da sessão (`reportedByUserId`), nunca
+ *     nome/e-mail;
+ *   · ser responsável NÃO faz o chamado ser "meu chamado", e vice-versa;
+ *   · chamado anônimo (sem `reportedByUserId`) nunca é meu;
+ *   · arquivados meus continuam alcançáveis em Meus Chamados — a exclusão de
+ *     arquivados de "Meus Atendimentos" NÃO é copiada, porque ali é fila de
+ *     trabalho em aberto e aqui é histórico de pedidos.
+ */
+describe('TicketList — Meus Chamados (solicitante) x Meus Atendimentos (responsavel)', () => {
+  const MEU = 'test-admin'
+
+  const meu = (over: Record<string, unknown> = {}) => ({
+    id: 'a',
+    ticketNumber: 1,
+    workspace_id: 'ws-a',
+    roomId: '',
+    roomName: 'Sala 101',
+    assetName: '',
+    problemCategory: 'Internet',
+    problemArea: 'academica',
+    problemDescription: 'Sem conexao',
+    status: 'aberto',
+    priority: 'normal',
+    reportedBy: 'Prof. Maria',
+    reportedByEmail: 'maria@x.com',
+    reportedByUserId: MEU,
+    assignedTo: '',
+    assignedToUserId: '',
+    feedbackRating: null,
+    feedbackComment: '',
+    feedbackAt: null,
+    archived: false,
+    closedAt: null,
+    closedBy: '',
+    statusNote: '',
+    createdAt: '2026-06-20T12:00:00Z',
+    updatedAt: '2026-06-20T12:00:00Z',
+    resolvedAt: null,
+    ...over,
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSearchParams.value = ''
+    mockUser.current = { id: MEU, name: 'Admin Teste' }
+    mockTickets.length = 0
+    mockTickets.push(
+      // 1) EU abri e EU sou o responsavel -> nos DOIS contextos
+      meu({ id: 'a', ticketNumber: 1, reportedByUserId: MEU, assignedToUserId: MEU, assignedTo: 'Admin Teste' }),
+      // 2) EU abri, responsavel e outro -> so Meus Chamados
+      meu({ id: 'b', ticketNumber: 2, reportedByUserId: MEU, assignedToUserId: 'user-2', assignedTo: 'Tecnico 2' }),
+      // 3) outro abriu, EU sou o responsavel -> so Meus Atendimentos
+      meu({ id: 'c', ticketNumber: 3, reportedByUserId: 'user-3', assignedToUserId: MEU, assignedTo: 'Admin Teste' }),
+      // 4) anonimo (sem reportedByUserId), EU sou o responsavel -> NUNCA e meu
+      meu({ id: 'd', ticketNumber: 4, reportedByUserId: null, assignedToUserId: MEU, assignedTo: 'Admin Teste' }),
+      // 5) meu, resolvido -> aparece em Meus Chamados no padrao (Ativos)
+      meu({ id: 'e', ticketNumber: 5, reportedByUserId: MEU, status: 'resolvido', resolvedAt: '2026-06-21T12:00:00Z' }),
+      // 6) meu, fechado/arquivado -> so via chip Arquivados
+      meu({ id: 'f', ticketNumber: 6, reportedByUserId: MEU, status: 'fechado', archived: true, closedAt: '2026-06-22T12:00:00Z' }),
+      // 7) nem meu nem atribuido a mim -> nunca
+      meu({ id: 'g', ticketNumber: 7, reportedByUserId: 'user-9', assignedToUserId: 'user-9' }),
+    )
+  })
+
+  it('Meus Chamados lista so os chamados abertos por mim (reportedByUserId)', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    // abertos por mim
+    expect(screen.getByText('#1')).toBeInTheDocument()
+    expect(screen.getByText('#2')).toBeInTheDocument()
+    // resolvido por mim tambem (nao arquivado)
+    expect(screen.getByText('#5')).toBeInTheDocument()
+    //-responsavel meu, mas abertos por outro
+    expect(screen.queryByText('#3')).not.toBeInTheDocument()
+    // anonimo
+    expect(screen.queryByText('#4')).not.toBeInTheDocument()
+    // nem meu nem meu
+    expect(screen.queryByText('#7')).not.toBeInTheDocument()
+  })
+
+  it('Meus Atendimentos lista so os chamados atribuidos a mim, e apenas abertos', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
+
+    expect(screen.getByText('#1')).toBeInTheDocument()
+    expect(screen.getByText('#3')).toBeInTheDocument()
+    // atribuido a mim, mas anonimo
+    expect(screen.getByText('#4')).toBeInTheDocument()
+    // abertos por mim, mas de outro tecnico
+    expect(screen.queryByText('#2')).not.toBeInTheDocument()
+    // resolvido sai da fila de trabalho
+    expect(screen.queryByText('#5')).not.toBeInTheDocument()
+    expect(screen.queryByText('#6')).not.toBeInTheDocument()
+  })
+
+  it('um tecnico pode estar nos dois contextos ao mesmo tempo, sem conflito', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    // #1:abri por mim E atribuido a mim -> visivel nos dois
+    expect(screen.getByText('#1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
+
+    expect(screen.getByText('#1')).toBeInTheDocument()
+    // #3 so aparece como atendimento (outra pessoa abriu)
+    expect(screen.getByText('#3')).toBeInTheDocument()
+    // #2 (abri eu) nao e atendimento meu
+    expect(screen.queryByText('#2')).not.toBeInTheDocument()
+  })
+
+  it('ser responsavel NAO torna o chamado um "Meus Chamados" (e vice-versa)', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    // atribuido a mim, mas aberto por outro => fora de Meus Chamados
+    expect(screen.queryByText('#3')).not.toBeInTheDocument()
+    // aberto por mim, atribuido a outro => nao entra em Meus Chamados? SIM entra
+    expect(screen.getByText('#2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
+    expect(screen.queryByText('#2')).not.toBeInTheDocument()
+  })
+
+  it('chamado anonimo (sem reportedByUserId) nunca pertence a Meus Chamados', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    expect(screen.queryByText('#4')).not.toBeInTheDocument()
+  })
+
+  it('arquivados meus continuam alcancaveis em Meus Chamados (regra diferente da fila)', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    // fechado nao entra no padrao (Ativos)
+    expect(screen.queryByText('#6')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Arquivados/ }))
+
+    expect(screen.getByText('#6')).toBeInTheDocument()
+    // e o escopo de solicitante SOBREVIVE ao chip de status
+    expect(screen.queryByText('#1')).not.toBeInTheDocument()
+    expect(screen.queryByText('#3')).not.toBeInTheDocument()
+  })
+
+  it('em Meus Chamados, o chip de status refina sem trocar o escopo', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: /^Resolvido/ }))
+
+    // so o resolvido que EU abri
+    expect(screen.getByText('#5')).toBeInTheDocument()
+    expect(screen.queryByText('#1')).not.toBeInTheDocument()
+    // o resolvido de outra pessoa continua fora
+    expect(screen.queryByText('#3')).not.toBeInTheDocument()
+
+    const chipMeus = screen.getByRole('button', { name: 'Meus Chamados' }) as HTMLButtonElement
+    expect(chipMeus.className).toContain('bg-amber-500')
+  })
+
+  it('a rota /chamados/meus abre ja no contexto de solicitante', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    const chipMeus = screen.getByRole('button', { name: 'Meus Chamados' }) as HTMLButtonElement
+    const chipAtendimentos = screen.getByRole('button', { name: 'Meus Atendimentos' }) as HTMLButtonElement
+    const chipAtivos = screen.getByRole('button', { name: /^Ativos/ }) as HTMLButtonElement
+    expect(chipMeus.className).toContain('bg-amber-500')
+    expect(chipAtendimentos.className).not.toContain('bg-amber-500')
+    expect(chipAtivos.className).not.toContain('bg-amber-500')
+  })
+
+  it('sem sessao autenticada a lista fica vazia em vez de expor a fila', async () => {
+    mockUser.current = null
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    expect(screen.queryByText('#1')).not.toBeInTheDocument()
+    expect(screen.queryByText('#3')).not.toBeInTheDocument()
+    expect(screen.queryByText('#7')).not.toBeInTheDocument()
+    expect(screen.getByText('Você ainda não abriu nenhum chamado nesta unidade')).toBeInTheDocument()
+  })
+
+  it('a lista nao vazia de Meus Chamados usa o texto de estado proprio', async () => {
+    mockTickets.length = 0
+    mockTickets.push(meu({ id: 'z', ticketNumber: 9, reportedByUserId: 'outro' }))
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    expect(screen.getByText('Você ainda não abriu nenhum chamado nesta unidade')).toBeInTheDocument()
+  })
+
+  it('os dois chips sao mutuamente exclusivos (fila x solicitante)', async () => {
+    render(<TicketList defaultScope="chamados" />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
+    const chipMeus = screen.getByRole('button', { name: 'Meus Chamados' }) as HTMLButtonElement
+    const chipAtendimentos = screen.getByRole('button', { name: 'Meus Atendimentos' }) as HTMLButtonElement
+    expect(chipAtendimentos.className).toContain('bg-amber-500')
+    expect(chipMeus.className).not.toContain('bg-amber-500')
   })
 })

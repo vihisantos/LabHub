@@ -3075,6 +3075,11 @@ def _project_public_ticket(t: dict) -> dict:
         'reportedBy': t.get('reportedBy'),
         'photos': t.get('photos'),
         'feedbackRating': t.get('feedbackRating'),
+        # A avaliação do professor é DELE: devolvê-la é o que permite à tela
+        # "Avaliação enviada" mostrar o comentário e a data que a própria pessoa
+        # escreveu. Sem estes dois campos o card existia mas nunca renderizava.
+        'feedbackComment': t.get('feedbackComment'),
+        'feedbackAt': t.get('feedbackAt'),
         'createdAt': t.get('createdAt'),
         'updatedAt': t.get('updatedAt'),
         'closedAt': t.get('closedAt'),

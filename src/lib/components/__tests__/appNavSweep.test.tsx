@@ -219,6 +219,7 @@ describe('varredura de rotas — aba ativa', () => {
       ['/chamados/reports', 'Relatórios'],
       ['/chamados/tickets', 'Chamados'],
       ['/chamados/tickets/t-1', 'Chamados'],
+      ['/chamados/meus', 'Meus Chamados'],
       ['/chamados/settings', 'Config'],
     ])
   })

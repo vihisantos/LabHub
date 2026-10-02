@@ -21,6 +21,20 @@ const PUBLIC_BASE = '/api/public/chamados'
  */
 const PATH_TOKEN = '_'
 
+/**
+ * Erro da API pública com o status HTTP preservado. O `FeedbackPage` precisa
+ * distinguir o 409 ("Chamado já avaliado") de uma falha de rede — sem isso o
+ * professor vê um erro genérico depois de ter avaliado com sucesso.
+ */
+export class PublicTicketRequestError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'PublicTicketRequestError'
+    this.status = status
+  }
+}
+
 async function publicRequest<T>(
   token: string,
   path: string,
@@ -37,8 +51,8 @@ async function publicRequest<T>(
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
     const msg = (body as { error?: string }).error
-    if (res.status === 404 && !msg) throw new Error('Chamado não encontrado')
-    throw new Error(msg || `Erro na requisição (${res.status})`)
+    if (res.status === 404 && !msg) throw new PublicTicketRequestError('Chamado não encontrado', 404)
+    throw new PublicTicketRequestError(msg || `Erro na requisição (${res.status})`, res.status)
   }
   return body as T
 }
@@ -55,6 +69,9 @@ export interface PublicTicket {
   reportedBy?: string
   photos?: string
   feedbackRating?: number | null
+  /** Avaliação enviada pelo próprio professor — devolvida pela API pública. */
+  feedbackComment?: string | null
+  feedbackAt?: string | null
   createdAt?: string
   updatedAt?: string
   closedAt?: string | null
@@ -107,6 +124,8 @@ export function toTicket(p: PublicTicket): Ticket {
     reportedByEmail: '',
     assignedTo: '',
     feedbackRating: p.feedbackRating ?? undefined,
+    feedbackComment: p.feedbackComment ?? undefined,
+    feedbackAt: p.feedbackAt ?? undefined,
     photos: p.photos,
     createdAt: p.createdAt ?? new Date().toISOString(),
     updatedAt: p.updatedAt ?? new Date().toISOString(),

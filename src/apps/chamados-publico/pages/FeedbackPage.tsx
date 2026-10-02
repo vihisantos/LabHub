@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ticketService } from '../../chamados/services/ticketService'
-import { publicTicketService, toTicket } from '../../chamados/services/publicTicketService'
+import { publicTicketService, toTicket, PublicTicketRequestError } from '../../chamados/services/publicTicketService'
 import { Stars } from '../../chamados/components/Stars'
 import { icons } from '../../../lib/icons'
 import { TICKET_STATUS_LABELS } from '../../chamados/types'
@@ -53,6 +53,10 @@ export function FeedbackPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  // 409 do backend = a avaliação JÁ estava registrada (outro device, ou o
+  // cache local estava defasado). Não é falha: é um estado válido, e mostrá-lo
+  // como erro vermelho faria o professor achar que perdeu a avaliação.
+  const [alreadyRated, setAlreadyRated] = useState(false)
 
   useEffect(() => {
     if (!ticketId || ticketId === 'undefined') return
@@ -99,6 +103,19 @@ export function FeedbackPage() {
       setTicket(toTicket(pub))
       setDone(true)
     } catch (err) {
+      if (err instanceof PublicTicketRequestError && err.status === 409) {
+        // Recarrega para trazer a nota real que já está no servidor; se falhar,
+        // o card abaixo ainda mostra "avaliação registrada" sem estrelas.
+        setAlreadyRated(true)
+        setSubmitting(false)
+        try {
+          const fresh = toTicket(await publicTicketService.getByToken(trackingToken))
+          if (fresh.feedbackRating) setTicket(fresh)
+        } catch {
+          /* mantém o estado "já avaliado" sem nota */
+        }
+        return
+      }
       setError(err instanceof Error ? err.message : 'Não foi possível enviar a avaliação. Tente novamente.')
       setSubmitting(false)
     }
@@ -162,12 +179,18 @@ export function FeedbackPage() {
           </p>
           <p className="mt-1 text-xs text-fg-dim">A avaliação fica disponível após a resolução do atendimento.</p>
         </div>
-      ) : ticket.feedbackRating ? (
+      ) : ticket.feedbackRating || alreadyRated ? (
         <div className="mx-auto max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
           <p className="mb-3 text-center text-xs font-medium text-fg-muted">Avaliação enviada</p>
-          <div className="mb-3 flex justify-center">
-            <Stars value={ticket.feedbackRating} disabled />
-          </div>
+          {ticket.feedbackRating ? (
+            <div className="mb-3 flex justify-center">
+              <Stars value={ticket.feedbackRating} disabled />
+            </div>
+          ) : (
+            <p className="mb-3 text-center text-xs text-fg-dim">
+              Este chamado já tinha sido avaliado.
+            </p>
+          )}
           {ticket.feedbackComment && (
             <p className="text-center text-sm text-fg">{ticket.feedbackComment}</p>
           )}

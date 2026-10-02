@@ -11,6 +11,8 @@ import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 
 function getPageTitle(pathname: string): string {
   if (pathname === '/chamados' || pathname.startsWith('/chamados/dashboard')) return 'Dashboard'
+  // Antes de /chamados/tickets: 'meus' é contexto de solicitante, não a fila.
+  if (pathname === '/chamados/meus') return 'Meus Chamados'
   if (pathname.startsWith('/chamados/tickets')) return 'Chamados'
   if (pathname.startsWith('/chamados/reports')) return 'Relatórios'
   if (pathname.startsWith('/chamados/ranking')) return 'Ranking de Salas'
