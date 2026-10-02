@@ -103,7 +103,66 @@ const TICKET_STATUS_COLORS: Record<TicketStatus, string> = {
 
 ### GET /api/chamados
 
-Parâmetros de consulta opcionais: `workspace_id`, `status`, `reportedBy`.
+Parâmetros de consulta opcionais: `workspace_id`, `status`, `reportedBy`, `mine`.
+
+Dois escopos no mesmo endpoint e no mesmo formato de resposta:
+
+| Consulta | Escopo | Autorização |
+|---|---|---|
+| `GET /api/chamados` | Lista **operacional** (a fila da unidade) | Action `ticket.view` por workspace (RBAC 2.0) |
+| `GET /api/chamados?mine=true` | **Meus Chamados** — só os chamados que o chamador abriu | `reportedByUserId` = identidade autenticada. **Não exige `ticket.view`** |
+
+#### `mine=true` — escopo pessoal do solicitante
+
+```text
+GET /api/chamados?mine=true
+GET /api/chamados?mine=true&workspace_id=<uuid>
+```
+
+O filtro de dono é aplicado **obrigatoriamente pelo servidor**, a partir de
+`g.user_id` — o `sub` do JWT já validado por `@require_auth`:
+
+```text
+reportedByUserId = g.user_id
+```
+
+Regras:
+
+- **A identidade vem sempre da sessão.** `?reportedByUserId=<uuid>` do cliente
+  **não é lido** em nenhum ramo: `?mine=true&reportedByUserId=<outro-uuid>`
+  devolve exatamente os chamados do chamador. Sem `mine`, o parâmetro enviado
+  pelo cliente também não autoriza nada.
+- **`reportedBy` / `reportedByEmail` nunca são identidade.** São texto livre
+  digitado pelo solicitante e não entram na autorização deste escopo. Um
+  chamado anônimo (`reportedByUserId = NULL`) nunca aparece, mesmo que o nome ou
+  o e-mail coincida com o do usuário autenticado.
+- **Não exige `ticket.view`.** É o que permite a um papel solicitante — hoje
+  `lider`, que tem `chamados` visível na matriz mas nenhuma Action `ticket.*` —
+  acompanhar o que abriu sem ganhar acesso à fila interna.
+- **A consulta geral não muda.** `GET /api/chamados` continua exigindo
+  `ticket.view`; `mine=true` é adicional e não enfraquece essa proteção.
+- **É histórica.** Resolvidos, fechados e arquivados entram: não há filtro de
+  `archived`, ao contrário da fila de "Meus Atendimentos". O filtro de status
+  (`?status=`) continua disponível.
+- **`workspace_id` só estreita.** É validado como membership ativa e nunca
+  amplia o escopo pessoal. Sem ele, o resultado é limitado às unidades onde o
+  chamador tem membership ativa; super admin não é cargo e pode não ter
+  membership — para ele o filtro de dono é a fronteira.
+- `mine` só liga com literal verdadeiro (`1`, `true`, `yes`). `?mine=0` e
+  `?mine=false` mantêm a lista operacional.
+
+> **O frontend filtra a apresentação, nunca define a identidade.** O recorte de
+> "Meus Chamados" é decidido no backend; o cliente apenas ordena, busca e
+> pagina sobre um conjunto já autorizado. `ticketService.listMine()` chama este
+> endpoint e seu retorno **não** é mesclado na coleção local da fila — se fosse,
+> o filtro do cliente voltaria a ser a única fronteira.
+
+Isto **não é RBAC**: nenhuma Action foi criada, `role_permissions`, `roles`,
+`memberships`, `membership_overrides` e RLS não foram alterados, e o
+comportamento de `ticket.view` é o de antes. É uma regra de acesso ao recurso
+baseada na identidade autenticada, como qualquer "minha conta".
+
+Cobertura: `api/tests/test_chamados_mine_scope.py` (Casos A–G).
 
 ### PATCH /api/chamados/:id
 

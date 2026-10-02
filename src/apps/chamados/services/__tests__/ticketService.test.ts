@@ -243,3 +243,49 @@ describe('ticketService — API', () => {
     await expect(ticketService.getByReporter('X')).rejects.toThrow('Sala inexistente')
   })
 })
+
+
+describe('ticketService — listMine (Meus Chamados, escopo de servidor)', () => {
+  function urlDaChamada(): string {
+    const spy = globalThis.fetch as unknown as { mock: { calls: unknown[][] } }
+    return String(spy.mock.calls[0][0])
+  }
+
+  it('chama GET /api/chamados?mine=true', async () => {
+    mockFetchOk({ tickets: [makeTicket()] })
+
+    await ticketService.listMine()
+
+    expect(urlDaChamada()).toBe('/api/chamados?mine=true')
+  })
+
+  it('NUNCA envia reportedByUserId no request (a identidade é da sessão)', async () => {
+    mockFetchOk({ tickets: [] })
+
+    await ticketService.listMine()
+
+    expect(urlDaChamada()).not.toContain('reportedByUserId')
+  })
+
+  it('workspace_id é opcional e só aparece quando informado', async () => {
+    mockFetchOk({ tickets: [] })
+
+    await ticketService.listMine({ workspace_id: 'ws-a' })
+
+    expect(urlDaChamada()).toContain('mine=true')
+    expect(urlDaChamada()).toContain('workspace_id=ws-a')
+  })
+
+  it('retorna a lista do servidor e NÃO mergeia no cache local da fila', async () => {
+    const meu = makeTicket({ id: 'meu-1', reportedByUserId: 'user-a' })
+    mockFetchOk({ tickets: [meu] })
+
+    const resultado = await ticketService.listMine()
+
+    expect(resultado).toHaveLength(1)
+    expect(resultado[0].id).toBe('meu-1')
+    // A coleção local é a fila de trabalho: o escopo pessoal não pode entrar
+    // nela, senão o filtro do cliente volta a ser a única fronteira.
+    expect(ticketService.getAll().map((t) => t.id)).not.toContain('meu-1')
+  })
+})
