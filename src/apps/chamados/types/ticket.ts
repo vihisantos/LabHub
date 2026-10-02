@@ -22,6 +22,18 @@ export interface Ticket {
   priority?: TicketPriority
   reportedBy: string
   reportedByEmail: string
+  /**
+   * UUID do solicitante autenticado — `auth.uid()` no momento da criação.
+   *
+   * ÚNICA identidade de solicitante confiável: o backend preenche a partir do
+   * JWT e ignora qualquer valor vindo do body (`api/app.py:2315-2320,2387`).
+   * `reportedBy`/`reportedByEmail` são TEXTO LIVRE digitado pelo solicitante e
+   * não podem ser usados para identificar ninguém.
+   *
+   * `null`/ausente = chamado anônimo (professor sem sessão), ou criado antes da
+   * migration 056 (que não tem backfill).
+   */
+  reportedByUserId?: string | null
   assignedTo: string
   assignedToUserId?: string
   feedbackRating?: number
@@ -37,7 +49,16 @@ export interface Ticket {
   resolvedAt: string | null
 }
 
-export type TicketFormData = Omit<Ticket, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt' | 'resolvedAt'>
+/**
+ * `reportedByUserId` fica DE FORA de propósito: a identidade do solicitante é
+ * sempre derivada do JWT pelo servidor, nunca escolhida pelo cliente. Excluir o
+ * campo do tipo de formulário faz essa regra verificável pelo compilador — não é
+ * possível montar um payload de criação que declare de quem é o chamado.
+ */
+export type TicketFormData = Omit<
+  Ticket,
+  'id' | 'ticketNumber' | 'createdAt' | 'updatedAt' | 'resolvedAt' | 'reportedByUserId'
+>
 
 export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
   aberto: 'Aberto',

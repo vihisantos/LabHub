@@ -37,7 +37,31 @@ const STATUS_CHIP_LABELS: Record<TicketStatus | 'em_andamento', string> = {
   em_andamento: 'Em andamento',
 }
 
-export function TicketList() {
+/**
+ * Escopo de "quem é o dono da relação" — dois conceitos DISTINTOS que um mesmo
+ * usuário pode ter ao mesmo tempo (um técnico também abre chamados):
+ *
+ *   · **Meus Atendimentos** (`assignedFilter`) — chamados atribuídos a mim para
+ *     atendimento técnico. É fila de TRABALHO: só os abertos, porque um chamado
+ *     encerrado já saiu da fila.
+ *   · **Meus Chamados** (`requesterFilter`) — chamados que EU abri. É histórico
+ *     de PEDIDOS: inclui resolvidos e fechados, porque o solicitante precisa
+ *     conferir o desfecho do que pediu.
+ *
+ * `requesterFilter` é ORTOGONAL à dimensão de status (Ativos / Arquivados / chips
+ * de status) — por isso ele NÃO é exclusivo como `assignedFilter`. Já
+ * `assignedFilter` e `unassignedFilter` são o mesmo eixo (a fila) e continuam
+ * mutuamente exclusivos.
+ *
+ * ⚠️ `requesterFilter` é APRESENTAÇÃO, não autorização. Ele filtra, no cliente,
+ * uma lista que o usuário JÁ TEM CARREGADO porque tem `ticket.view`. O cliente
+ * não escolhe o UUID: compara com `user.id` da sessão. O escopo server-side por
+ * solicitante (`reportedByUserId = auth.uid()`) para papéis sem `ticket.view` é
+ * trabalho separado — ver PR `fix(chamados): escopo proprio de solicitante`.
+ */
+export type TicketListScope = 'atendimentos' | 'chamados'
+
+export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } = {}) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { tickets, syncing, reload } = useTicketsContext()
@@ -51,7 +75,10 @@ export function TicketList() {
       ? (param as TicketStatus)
       : ''
   })
-  const [mineFilter, setMineFilter] = useState(false)
+  // `defaultScope` define o contexto INICIAL (rota /chamados/meus). Depois do
+  // mount os chips são a única fonte de verdade — mesmo contrato dos ?status=.
+  const [assignedFilter, setAssignedFilter] = useState(defaultScope === 'atendimentos')
+  const [requesterFilter, setRequesterFilter] = useState(defaultScope === 'chamados')
   const [unassignedFilter, setUnassignedFilter] = useState(
     () => searchParams.get('unassigned') === '1',
   )
@@ -70,7 +97,7 @@ export function TicketList() {
   const [sortBy, setSortBy] = useState<'recente' | 'prioridade' | 'sla' | 'sala' | 'numero'>('recente')
   const [visibleCount, setVisibleCount] = useState(20)
 
-  useEffect(() => { setVisibleCount(20) }, [statusFilter, mineFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, sortBy])
+  useEffect(() => { setVisibleCount(20) }, [statusFilter, assignedFilter, requesterFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, sortBy])
 
   const SORT_OPTIONS: { value: typeof sortBy; label: string }[] = [
     { value: 'recente', label: 'Mais recentes' },
@@ -80,11 +107,24 @@ export function TicketList() {
     { value: 'numero', label: 'Nº' },
   ]
 
+  /** Zera os filtros de FILA (atendimentos/sem responsável). Não mexe no de solicitante. */
+  function clearQueueScope() {
+    setAssignedFilter(false)
+    setUnassignedFilter(false)
+  }
+
   const filteredTickets = useMemo(() => {
     const slaByWorkspace = slaConfigService.getHoursForTickets()
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
-      if (mineFilter) {
+      // Meus Chamados: identidade pelo UUID da sessão. Sem sessão não há
+      // solicitante — a lista é vazia em vez de vazar a fila inteira. Chamados
+      // anônimos (reportedByUserId nulo) nunca aparecem: não são "meus".
+      if (requesterFilter) {
+        if (!user?.id) return false
+        if (!t.reportedByUserId || t.reportedByUserId !== user.id) return false
+      }
+      if (assignedFilter) {
         if (archived) return false
         if (t.assignedToUserId !== user?.id) return false
       } else if (unassignedFilter) {
@@ -116,7 +156,7 @@ export function TicketList() {
       }
       return true
     })
-  }, [tickets, statusFilter, mineFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, user?.id])
+  }, [tickets, statusFilter, assignedFilter, requesterFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, user?.id])
 
   const uniqueRooms = useMemo(() => {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
@@ -195,11 +235,12 @@ export function TicketList() {
           type="button"
           onClick={() => {
             setStatusFilter('')
-            setMineFilter(false)
+            setAssignedFilter(false)
+            setRequesterFilter(false)
             setUnassignedFilter(false)
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            statusFilter === '' && !mineFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            statusFilter === '' && !assignedFilter && !requesterFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
         >
           Ativos {statusCounts.ativos > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.ativos}</span>}
@@ -207,22 +248,49 @@ export function TicketList() {
         <button
           type="button"
           onClick={() => {
-            setMineFilter((v) => !v)
-            setStatusFilter('')
-            setUnassignedFilter(false)
+            // Lê o valor atual em vez de fazer efeitos dentro do updater:
+            // o updater pode ser reexecutado (StrictMode) e não deve ter
+            // efeitos colaterais.
+            if (!assignedFilter) {
+              setRequesterFilter(false)
+              setUnassignedFilter(false)
+              setStatusFilter('')
+            }
+            setAssignedFilter((v) => !v)
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            mineFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            assignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
+          title="Chamados atribuídos a você para atendimento"
         >
-          Minha fila
+          Meus Atendimentos
         </button>
         <button
           type="button"
           onClick={() => {
+            if (!requesterFilter) {
+              setAssignedFilter(false)
+              setUnassignedFilter(false)
+              setStatusFilter('')
+            }
+            setRequesterFilter((v) => !v)
+          }}
+          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            requesterFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+          }`}
+          title="Chamados que você abriu (por solicitante, não por responsável)"
+        >
+          Meus Chamados
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!unassignedFilter) {
+              setAssignedFilter(false)
+              setRequesterFilter(false)
+              setStatusFilter('')
+            }
             setUnassignedFilter((v) => !v)
-            setStatusFilter('')
-            setMineFilter(false)
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
@@ -236,8 +304,9 @@ export function TicketList() {
             type="button"
             onClick={() => {
               setStatusFilter(status)
-              setMineFilter(false)
-              setUnassignedFilter(false)
+              // Chips de status refinam a DIMENSÃO DE STATUS; o filtro de
+              // solicitante é ortogonal e sobrevive. Os de fila não.
+              clearQueueScope()
             }}
             className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               statusFilter === status ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
@@ -250,8 +319,7 @@ export function TicketList() {
           type="button"
           onClick={() => {
             setStatusFilter('arquivados')
-            setMineFilter(false)
-            setUnassignedFilter(false)
+            clearQueueScope()
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
             statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
@@ -260,6 +328,13 @@ export function TicketList() {
           Arquivados {statusCounts.arquivados > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.arquivados}</span>}
         </button>
       </div>
+
+      {requesterFilter && (
+        <p className="text-[11px] text-fg-muted">
+          Chamados que <span className="font-medium text-fg">você abriu</span>. Não confundir com
+          &quot;Meus Atendimentos&quot;, que são os chamados atribuídos a você.
+        </p>
+      )}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         <button
@@ -317,11 +392,13 @@ export function TicketList() {
         <div className="flex flex-col items-center py-12">
           <icons.ui.inbox size={40} className="text-fg-muted" />
           <p className="mt-3 text-sm text-fg-muted">
-            {tickets.length === 0
-              ? 'Nenhum chamado registrado'
-              : statusFilter === 'arquivados'
-                ? 'Nenhum chamado arquivado'
-                : 'Nenhum resultado encontrado'}
+            {requesterFilter
+              ? 'Você ainda não abriu nenhum chamado nesta unidade'
+              : tickets.length === 0
+                ? 'Nenhum chamado registrado'
+                : statusFilter === 'arquivados'
+                  ? 'Nenhum chamado arquivado'
+                  : 'Nenhum resultado encontrado'}
           </p>
         </div>
       ) : (

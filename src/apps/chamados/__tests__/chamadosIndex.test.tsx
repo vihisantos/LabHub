@@ -83,6 +83,28 @@ describe('ChamadosApp — raiz /chamados e deep links da Central do Coordenador 
     expect(screen.getByPlaceholderText(FILA_PLACEHOLDER)).toBeInTheDocument()
   })
 
+  it('/chamados/meus abre a lista no contexto de Meus Chamados (não o Dashboard)', () => {
+    renderApp('/chamados/meus')
+    expect(screen.getByPlaceholderText(FILA_PLACEHOLDER)).toBeInTheDocument()
+    expect(screen.queryByText('Relatórios')).not.toBeInTheDocument()
+    // O chip de contexto vem ativo — a rota define o filtro inicial.
+    const chip = screen.getByRole('button', { name: 'Meus Chamados' })
+    expect(chip.className).toContain('bg-amber-500')
+    // E os dois conceitos ficam visíveis e separados.
+    expect(screen.getByRole('button', { name: 'Meus Atendimentos' }).className).not.toContain(
+      'bg-amber-500',
+    )
+  })
+
+  it('/chamados/meus?status=resolvido refina o status sem trocar o contexto', () => {
+    renderApp('/chamados/meus?status=resolvido')
+    expect(screen.getByPlaceholderText(FILA_PLACEHOLDER)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Meus Chamados' }).className).toContain(
+      'bg-amber-500',
+    )
+    expect(screen.getByRole('button', { name: /^Resolvido/ }).className).toContain('bg-amber-500')
+  })
+
   it('filtro desconhecido mantém o Dashboard (nenhum default alterado)', () => {
     renderApp('/chamados?foo=bar')
     expect(screen.getByText('Relatórios')).toBeInTheDocument()

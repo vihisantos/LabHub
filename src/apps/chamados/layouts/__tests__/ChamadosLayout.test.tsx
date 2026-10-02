@@ -35,6 +35,7 @@ function renderLayout(path: string) {
       <Route element={<ChamadosLayout />}>
         <Route path="/chamados" element={<div>dashboard</div>} />
         <Route path="/chamados/tickets" element={<div>tickets</div>} />
+        <Route path="/chamados/meus" element={<div>meus</div>} />
         <Route path="/chamados/tickets/:id" element={<div>detalhe</div>} />
         <Route path="/chamados/reports" element={<div>reports</div>} />
         <Route path="/chamados/settings" element={<div>settings</div>} />
@@ -54,6 +55,23 @@ describe('ChamadosLayout', () => {
   it('usa título do dashboard na raiz /chamados', () => {
     renderLayout('/chamados')
     expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument()
+  })
+
+  it('usa o título "Meus Chamados" em /chamados/meus', () => {
+    const { unmount } = renderLayout('/chamados/meus')
+    expect(screen.getByRole('heading', { level: 1, name: 'Meus Chamados' })).toBeInTheDocument()
+    unmount()
+    // Sem query string o contexto de solicitante continua na rota.
+    renderLayout('/chamados/meus?status=resolvido')
+    expect(screen.getByRole('heading', { level: 1, name: 'Meus Chamados' })).toBeInTheDocument()
+  })
+
+  it('"meus" NÃO é confundido com a rota da fila', () => {
+    const { unmount } = renderLayout('/chamados/meus')
+    expect(screen.queryByRole('heading', { level: 1, name: 'Chamados' })).not.toBeInTheDocument()
+    unmount()
+    renderLayout('/chamados/tickets')
+    expect(screen.getByRole('heading', { level: 1, name: 'Chamados' })).toBeInTheDocument()
   })
 
   it('usa título de relatórios e configurações', () => {
