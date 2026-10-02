@@ -306,6 +306,123 @@ def test_claim_concorrencia_so_um_consegue(client, fake_requests, monkeypatch):
     assert resp_b.status_code == 409 or resp_b.status_code == 403
 
 
+# ── CLAIM COM REABERTURA (PR #327) ───────────────────────────────────────────
+#
+# Assumir um chamado `resolvido`/`fechado` é uma REABERTURA: o claim o traz
+# de volta ao fluxo ativo. Desde o hardening de autorização, `ticket.reopen` é
+# exigida além de `ticket.claim`, e a checagem acontece ANTES de qualquer
+# mutação. A rota de claim continua sendo a única forma de assumir.
+
+_CLAIM_GUARD = "or=(assignedToUserId.is.null,assignedToUserId.eq.)"
+
+
+def test_claim_chamado_ativo_nao_exige_reopen(client, fake_requests, monkeypatch):
+    """Chamado ATIVO: só `ticket.claim` basta — comportamento inalterado."""
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A, actions={"ticket.claim"})
+    ticket = _make_ticket(status="aberto", assignedTo="", assignedToUserId="")
+    _route_ticket(fake_requests, ticket)
+    _route_claim_update(fake_requests, [dict(ticket, status="a_caminho",
+                                            assignedToUserId="user-a")])
+    _route_events(fake_requests)
+
+    resp = client.post("/api/chamados/t-1/claim", headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ticket"]["status"] == "a_caminho"
+    sent = fake_requests.calls_for("PATCH", _CLAIM_GUARD)[0]["kwargs"]["json"]
+    # Sem reabertura, o claim NÃO mexe nas marcas de conclusão.
+    assert "archived" not in sent
+    assert "closedAt" not in sent
+
+
+@pytest.mark.parametrize("status_atual", ["resolvido", "fechado"])
+def test_claim_reabertura_sem_ticket_reopen_negado(client, fake_requests,
+                                                    monkeypatch, status_atual):
+    """`ticket.claim` sem `ticket.reopen` NÃO reabre: 403 e zero mutações."""
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A, actions={"ticket.claim"})
+    ticket = _make_ticket(status=status_atual, assignedTo="", assignedToUserId="",
+                          archived=status_atual == "fechado")
+    _route_ticket(fake_requests, ticket)
+    _route_claim_update(fake_requests, [dict(ticket, status="a_caminho")])
+    _route_events(fake_requests)
+
+    resp = client.post("/api/chamados/t-1/claim", headers=headers)
+
+    assert resp.status_code == 403
+    # Atomicidade: nenhuma escrita — nem responsável, nem status, nem limpeza.
+    assert fake_requests.calls_for("PATCH", _CLAIM_GUARD) == []
+    assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
+    assert fake_requests.calls_for("POST", "ticket_events") == []
+
+
+@pytest.mark.parametrize("status_atual", ["resolvido", "fechado"])
+def test_claim_reabertura_sem_ticket_claim_negado(client, fake_requests,
+                                                  monkeypatch, status_atual):
+    """`ticket.reopen` sem `ticket.claim` também nega: 403 e zero mutações."""
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A, actions={"ticket.reopen"})
+    ticket = _make_ticket(status=status_atual, assignedTo="", assignedToUserId="")
+    _route_ticket(fake_requests, ticket)
+    _route_claim_update(fake_requests, [dict(ticket, status="a_caminho")])
+    _route_events(fake_requests)
+
+    resp = client.post("/api/chamados/t-1/claim", headers=headers)
+
+    assert resp.status_code == 403
+    assert fake_requests.calls_for("PATCH", _CLAIM_GUARD) == []
+
+
+@pytest.mark.parametrize("status_atual", ["resolvido", "fechado"])
+def test_claim_reabertura_com_ambas_as_actions(client, fake_requests,
+                                               monkeypatch, status_atual):
+    """Com `ticket.claim` + `ticket.reopen`: reaba, assume e limpa as marcas."""
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_A,
+                        actions={"ticket.claim", "ticket.reopen"})
+    ticket = _make_ticket(
+        status=status_atual, assignedTo="", assignedToUserId="",
+        archived=True, closedAt="2026-01-01T00:00:00Z", closedBy="Alguem",
+        resolvedAt="2026-01-01T00:00:00Z",
+    )
+    _route_ticket(fake_requests, ticket)
+    claimed = dict(ticket, status="a_caminho", assignedToUserId="user-a",
+                   archived=False, closedAt=None, closedBy="", resolvedAt=None)
+    _route_claim_update(fake_requests, [claimed])
+    _route_events(fake_requests)
+
+    resp = client.post("/api/chamados/t-1/claim", headers=headers)
+
+    assert resp.status_code == 200
+    body = resp.get_json()["ticket"]
+    assert body["status"] == "a_caminho"
+    assert body["assignedToUserId"] == "user-a"
+    # O chamado não pode ficar 'a_caminho' com marcas de conclusão.
+    assert body["archived"] is False
+    assert body["closedAt"] is None
+    assert body["closedBy"] == ""
+
+    sent = fake_requests.calls_for("PATCH", _CLAIM_GUARD)[0]["kwargs"]["json"]
+    assert sent["status"] == "a_caminho"
+    assert sent["archived"] is False
+    assert sent["closedAt"] is None
+    assert sent["closedBy"] == ""
+    assert sent["resolvedAt"] is None
+
+
+def test_claim_reabertura_respeita_ownership(client, fake_requests, monkeypatch):
+    """Reabertura não contorna ownership: chamado de outro técnico é 403."""
+    headers = _setup_as(client, fake_requests, monkeypatch, TEC_B,
+                        actions={"ticket.claim", "ticket.reopen"})
+    ticket = _make_ticket(status="fechado", assignedTo="User user-a",
+                          assignedToUserId="user-a", archived=True)
+    _route_ticket(fake_requests, ticket)
+    _route_claim_update(fake_requests, [])
+    _route_events(fake_requests)
+
+    resp = client.post("/api/chamados/t-1/claim", headers=headers)
+
+    assert resp.status_code == 403
+    assert fake_requests.calls_for("PATCH", _CLAIM_GUARD) == []
+
+
 # ── OWNERSHIP (técnico comum não opera chamado de outro) ─────────────────────
 
 def test_ownership_tecnico_b_nao_comenta_chamado_de_a(client, fake_requests, monkeypatch):

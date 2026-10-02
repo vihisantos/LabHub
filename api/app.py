@@ -3760,8 +3760,12 @@ def chamados_claim(ticket_id):
 
     Autorização:
       - Precisa ser membro do workspace do chamado.
-      - RBAC ON  → exige Action `ticket.claim` (técnico tem; líder passa).
+      - RBAC ON → exige Action `ticket.claim` (técnico tem; líder passa).
       - RBAC OFF → qualquer membro autenticado do workspace pode claim (legado).
+      - Se o chamado estiver `resolvido` ou `fechado`, o claim é uma
+        REABERTURA e exige também `ticket.reopen` (RBAC 2.0, PR #327).
+        `ticket.claim` NÃO implica `ticket.reopen`. A checagem extra acontece
+        ANTES de qualquer mutação.
       - Apenas o responsável ou o líder/assigner podem (re)assumir um chamado
         já atribuído (geralmente desnecessário, mas a rota rejeita se não).
     """
@@ -3795,6 +3799,19 @@ def chamados_claim(ticket_id):
         if err:
             return err
 
+        # Reabertura sob demanda: assumir um chamado `resolvido`/`fechado` é uma
+        # REABERTURA — o claim o traz de volta para o fluxo ativo. Desde a PR #327
+        # a reabertura exige `ticket.reopen`, e `ticket.claim` NÃO a implica.
+        # Checagem feita ANTES de qualquer mutação (o PATCH atômico vem abaixo),
+        # para que uma Action negada não deixe ticket parcialmente assumido.
+        prev_status = str(ticket.get('status') or '').strip()
+        is_reopening = prev_status in ('resolvido', 'fechado')
+        if is_reopening:
+            err = _require_action_in_handler('ticket.reopen', scope='workspace',
+                                             resource_type='ticket', resource_id=ticket_id)
+            if err:
+                return err
+
         # Ownership: se já tem responsável, só o próprio responsável, o
         # líder/assigner ou o super admin podem (re)assumir.
         err = _enforce_ownership(user, ticket, ticket_ws, ticket_id)
@@ -3812,17 +3829,28 @@ def chamados_claim(ticket_id):
         # formulário público grava ''), não NULL — logo o guard cobre '' e NULL
         # para não devolver 409 em chamado recém-aberto.
         now = datetime.now(timezone.utc).isoformat()
+        claim_payload = {
+            'assignedToUserId': claimer_id,
+            'assignedTo': claimer_name,
+            'status': 'a_caminho',
+            'updatedAt': now,
+        }
+        if is_reopening:
+            # Reabertura: limpa as marcas de conclusão para o chamado não ficar
+            # 'a_caminho' com archived=true / closedAt preenchido. Mesmo conjunto
+            # de campos que o PATCH (<id>) limpa na reabertura.
+            claim_payload.update({
+                'archived': False,
+                'closedAt': None,
+                'closedBy': '',
+                'resolvedAt': None,
+            })
         upd_resp = requests.patch(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
             f'?id=eq.{quote(ticket_id)}'
             f'&or=(assignedToUserId.is.null,assignedToUserId.eq.)',
             headers={**_supabase_headers(), 'Prefer': 'return=representation'},
-            json={
-                'assignedToUserId': claimer_id,
-                'assignedTo': claimer_name,
-                'status': 'a_caminho',
-                'updatedAt': now,
-            },
+            json=claim_payload,
             timeout=10,
         )
         if not upd_resp.ok:
