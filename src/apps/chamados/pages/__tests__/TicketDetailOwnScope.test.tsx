@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 
 /**
  * TicketDetail — detalhe resolvido por `GET /api/chamados/:id` quando o registro
@@ -20,6 +20,7 @@ import { render, screen, act } from '@testing-library/react'
  */
 
 const mockGetByIdRemote = vi.hoisted(() => vi.fn())
+const mockPatchRemote = vi.hoisted(() => vi.fn())
 const mockGetEvents = vi.hoisted(() => vi.fn())
 const mockAddEvent = vi.hoisted(() => vi.fn())
 const mockGetAssignees = vi.hoisted(() => vi.fn())
@@ -99,7 +100,12 @@ vi.mock('../../services/ticketService', async () => {
     '../../services/ticketService',
   )
   return {
-    ticketService: { getByIdRemote: mockGetByIdRemote, getEvents: mockGetEvents, addEvent: mockAddEvent },
+    ticketService: {
+      getByIdRemote: mockGetByIdRemote,
+      patchRemote: mockPatchRemote,
+      getEvents: mockGetEvents,
+      addEvent: mockAddEvent,
+    },
     errorStatus: actual.errorStatus,
   }
 })
@@ -139,6 +145,7 @@ beforeEach(() => {
   mockGetEvents.mockResolvedValue([])
   mockGetAssignees.mockResolvedValue([])
   mockGetByIdRemote.mockResolvedValue(ticket())
+  mockPatchRemote.mockResolvedValue(ticket())
 })
 
 // O solicitante não tem Action `ticket.*` nenhuma.
@@ -311,24 +318,68 @@ describe('TicketDetail — resposta do servidor é respeitada', () => {
 
 // ── Escrita em registro vindo do endpoint ──────────────────────────────────
 
-describe('TicketDetail — escrita com registro fora da fila', () => {
-  it('revalida o endpoint depois de uma escrita, para a tela não ficar desatualizada', async () => {
-    // Simula um usuário operacional com `ticket.edit` cujo chamado ainda não
-    // chegou à fila local (deep link / primeiro carregamento).
+describe('TicketDetail — escrita com registro fora da fila (#342)', () => {
+  it('fora da fila, a escrita vai por PATCH no recurso, não pela cache da fila', async () => {
+    // Usuário operacional por deep link: o chamado não está na fila. Como
+    // `getByIdRemote` não grava mais na coleção (#342), `update` do contexto
+    // não alcançaria a API — a escrita precisa ir direto ao recurso.
     queue.tickets = []
     state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: true }
     perms.allow = true
     mockGetByIdRemote.mockResolvedValue(ticket({ assignedToUserId: 'test-admin' }))
+    mockPatchRemote.mockResolvedValue(ticket({ assignedToUserId: 'test-admin' }))
 
     await renderDetail()
     expect(mockGetByIdRemote).toHaveBeenCalledTimes(1)
 
-    // `revalidateRemote` só dispara quando o registro NÃO está na fila.
-    queue.tickets = [ticket({ status: 'resolvido', assignedToUserId: 'test-admin' })]
-    await act(async () => {})
+    fireEvent.change(screen.getByPlaceholderText('Mensagem personalizada...'), {
+      target: { value: 'Sem conexao' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Definir' }))
+    })
 
-    // Com a fila passando a ter o registro, ele passa a ser a fonte (sem refetch).
-    expect(mockGetByIdRemote).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Notebook Dell')).toBeInTheDocument()
+    // `update` do contexto NÃO pode ser o caminho: ele só PATCHa registros que
+    // já estão na cache local.
+    expect(mockPatchRemote).toHaveBeenCalledWith('t-meu', { statusNote: 'Sem conexao' })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('com o registro na fila, a escrita continua pelo contexto (caminho operacional)', async () => {
+    queue.tickets = [ticket({ assignedToUserId: 'test-admin', assignedTo: 'Admin Teste' })]
+    state.user = { id: 'test-admin', name: 'Admin Teste', is_super_admin: false }
+    perms.allow = true
+
+    await renderDetail()
+
+    fireEvent.change(screen.getByPlaceholderText('Mensagem personalizada...'), {
+      target: { value: 'Testei a sala' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Definir' }))
+    })
+
+    expect(mockUpdate).toHaveBeenCalledWith('t-meu', { statusNote: 'Testei a sala' })
+    expect(mockPatchRemote).not.toHaveBeenCalled()
+    expect(mockGetByIdRemote).not.toHaveBeenCalled()
+  })
+
+  it('falha na escrita fora da fila é exibida, não engolida', async () => {
+    queue.tickets = []
+    state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: true }
+    perms.allow = true
+    mockGetByIdRemote.mockResolvedValue(ticket({ assignedToUserId: 'test-admin' }))
+    mockPatchRemote.mockRejectedValue(httpError(403, 'Permissão insuficiente'))
+
+    await renderDetail()
+
+    fireEvent.change(screen.getByPlaceholderText('Mensagem personalizada...'), {
+      target: { value: 'Tentativa' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Definir' }))
+    })
+
+    expect(screen.getByText('Permissão insuficiente')).toBeInTheDocument()
   })
 })
