@@ -1,33 +1,118 @@
 name: Migrations
 
-# Aplica migrations SQL pendentes (supabase/migrations/*.sql) no banco de
-# produção via Supabase Management API, automaticamente após merge em main.
+# Cadeia ÚNICA de migrations (Issue #285).
 #
-# Segredos necessários (Settings -> Secrets and variables -> Actions):
-#   SUPABASE_PROJECT_REF   -> ex: ypkulvbllxgkjzhpzemf
-#   SUPABASE_ACCESS_TOKEN  -> PAT da Supabase (escopo de Management API)
-#   BASELINE_VERSION       -> (opcional) versão a partir da qual as migrations
-#                             pendentes passam a ser aplicadas automaticamente.
-#                             Para o banco de produção, use "035" (todas as
-#                             migrations 000-035 já foram aplicadas manualmente).
+#   PR   -> validate  (PostgreSQL 16 efêmero, NUNCA toca em DEV/PROD)
+#   main -> validate  -> migrate (produção, via Supabase Management API)
+#
+# A aplicação em produção depende (`needs: validate`) da validação efêmera
+# ter passado: se a cadeia de migrations não aplica em um banco descartável,
+# ela não é submetida ao banco real.
+#
+# Segredos e variáveis (Settings -> Secrets and variables -> Actions):
+#   secrets.SUPABASE_PROJECT_REF   -> project ref de produção
+#   secrets.SUPABASE_ACCESS_TOKEN  -> PAT da Supabase (escopo de Management API)
+#   secrets.BASELINE_VERSION       -> versão cuja aplicação JÁ está garantida no
+#                                     banco. Obrigatória em produção: sem ela o
+#                                     runner aborta em vez de cair no baseline
+#                                     implícito (que seria um no-op reportando
+#                                     sucesso e congelaria o schema em silêncio).
+#   vars.SUPABASE_ALLOWED_PROJECT_REFS -> allowlist de destinos, separada por
+#                                     vírgula. variável de REPOSITÓRIO, não
+#                                     secret: um project ref não é credencial.
+#                                     Sem ela o runner aborta em produção —
+#                                     é o que impede aplicar em projeto errado.
 
 on:
   push:
     branches: [main]
     paths:
       - "supabase/migrations/**"
-      - ".github/workflows/migrations.yml"
       - "scripts/migrate.py"
       - "scripts/migrate/**"
+      - "scripts/ci/**"
+      - "scripts/tests/**"
+      - ".github/workflows/migrations.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/migrate.py"
+      - "scripts/migrate/**"
+      - "scripts/ci/**"
+      - "scripts/tests/**"
+      - ".github/workflows/migrations.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # 1) validate — sempre, em PR e em main. Banco descartável, zero DEV/PROD.
+  # ─────────────────────────────────────────────────────────────────────────
+  validate:
+    name: Validate migrations against ephemeral PostgreSQL
+    runs-on: ubuntu-latest
+    # Cancela execuções antigas do MESMO ref: uma validação nova torna obsoleta
+    # a anterior. Só aqui cancelamos; produção nunca cancela (ver migrate).
+    concurrency:
+      group: migrations-validate-${{ github.ref }}
+      cancel-in-progress: true
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Python deps
+        run: pip install requests python-dotenv pytest "psycopg[binary]"
+      - name: Unit tests do runner (mocks, sem banco)
+        working-directory: scripts
+        run: python -m pytest tests/test_migrations.py -q
+      - name: Static TV station migration test (039)
+        run: python -m pytest api/tests/test_tv_station_migration.py -q
+      - name: Runner CLI --dry-run é read-only (migrations de exemplo)
+        working-directory: scripts
+        run: python ci/ci_dry_run_smoke.py
+      - name: Suite de migrations em PostgreSQL efêmero
+        working-directory: scripts
+        run: python ci/ci_migration_suite.py
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2) migrate — só após validate verde, e só fora de PR.
+  # ─────────────────────────────────────────────────────────────────────────
   migrate:
     name: Apply pending migrations
+    needs: validate
+    # Em PR não há como (e não deve) tocar em produção.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # Habilita as protection rules do GitHub Environment (revisão/aprovação
+    # manual opcional) e registra a aplicação no log do environment.
+    environment: production
+    # Serializa as aplicações. `cancel-in-progress: false` é obrigatório: duas
+    # aplicações concorrentes em produção competem pelo advisory lock e a que for
+    # cancelada no meio deixa o estado sem registro.
+    concurrency:
+      group: migrations-apply-production
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
@@ -39,9 +124,18 @@ jobs:
       - name: Install minimal dependencies
         run: pip install requests python-dotenv
 
+      - name: Dry-run em produção (read-only, fail-closed)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
+          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
+        run: python scripts/migrate.py --target production --dry-run
+
       - name: Apply pending migrations
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
-        run: python scripts/migrate.py
+          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
+        run: python scripts/migrate.py --target production
