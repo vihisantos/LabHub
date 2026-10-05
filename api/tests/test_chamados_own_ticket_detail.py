@@ -669,7 +669,7 @@ def test_lista_operacional_continua_exigindo_ticket_view(api_module, client,
     """#331: `mine=true` abre a lista pessoal; sem ele, a fila é da equipe de TI."""
     headers = _auth_as(api_module, fake_requests, monkeypatch,
                        _perfil(USER_A, [WS_A]), actions=[])
-    fake_requests.route("GET", "chamados_tickets?select=*", FakeResponse([]))
+    fake_requests.route("GET", "chamados_tickets?select=", FakeResponse([]))
 
     r = client.get("/api/chamados", headers=headers)
 

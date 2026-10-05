@@ -231,7 +231,11 @@ def _ticket(**overrides):
     return t
 
 
-LISTAGEM = "chamados_tickets?select=*"
+# A lista pede uma ALLOWLIST explícita de colunas (não `select=*`): o
+# `tracking_token_hash` e o `reportedByUserId` não saem do banco. O harness casa
+# pela raiz do `select`, que é o que interessa aqui — os filtros de dono e de
+# unidade, que ficam no final da URL.
+LISTAGEM = "chamados_tickets?select="
 
 
 def _route_listagem(fake_requests, tickets):

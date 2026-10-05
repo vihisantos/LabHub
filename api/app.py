@@ -1970,6 +1970,56 @@ REVOKE ALL ON public.ticket_events FROM anon, authenticated, PUBLIC;
 CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
 CHAMADOS_STATUSES = ('aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado')
 
+# ── Projeção de leitura de chamado (allowlist explícita) ─────────────────────
+# Havia `select=*` na lista e no detalhe, o que devolvia a linha INTEIRA. Dois
+# campos dessa linha não são de apresentação e não têm consumidor em lugar
+# nenhum do produto:
+#
+#   · `tracking_token_hash` — SHA-256 da credencial de acompanhamento do
+#     professor. É segredo de autenticação, usado só para validar o token. A
+#     criação e a consulta por token já o tratavam corretamente; a leitura
+#     interna é que o vazava.
+#   · `reportedByUserId` — UUID do solicitante autenticado. É identidade
+#     INTERNA: o backend a usa para o escopo pessoal de `mine=true` (#331) e
+#     para a via pessoal do detalhe (#339). O frontend não lê o campo em
+#     runtime em lugar nenhum — as ocorrências em `src/` são comentários.
+#
+# Os demais campos têm consumidor comprovado (fila OU detalhe), e é por isso que
+# a MESMA allowlist serve aos dois: a lista alimenta o cache local, de onde o
+# `TicketDetail` também lê. Uma projeção mais estreita na lista faria a tela de
+# detalhe abrir incompleta quando o chamado vier do cache.
+CHAMADOS_TICKET_READ_COLS = (
+    'id', 'workspace_id', 'roomId', 'roomName', 'assetId', 'assetSource',
+    'assetName', 'assetPatrimony', 'problemCategory', 'problemArea',
+    'problemDescription', 'status', 'priority', 'reportedBy', 'reportedByEmail',
+    'assignedTo', 'assignedToUserId', 'ticketNumber', 'createdAt', 'updatedAt',
+    'resolvedAt', 'archived', 'closedAt', 'closedBy', 'statusNote', 'photos',
+    'feedbackRating', 'feedbackComment', 'feedbackAt',
+)
+CHAMADOS_TICKET_READ_SELECT = ','.join(CHAMADOS_TICKET_READ_COLS)
+_CHAMADOS_TICKET_READ_SET = frozenset(CHAMADOS_TICKET_READ_COLS)
+
+# Colunas que nunca podem sair de uma resposta, por nenhum caminho interno.
+CHAMADOS_TICKET_INTERNAL_ONLY = ('tracking_token_hash', 'reportedByUserId')
+
+# Projeção da timeline. Espelha a do endpoint público: o frontend declara
+# `ticket_id`/`workspace_id` no tipo `TicketEvent` mas não os lê em runtime, e
+# `workspace_id` é dado de escopo interno.
+CHAMADOS_EVENT_READ_SELECT = 'id,type,content,author,photo_urls,createdAt'
+
+
+def _project_internal_ticket(row):
+    """Aplica a allowlist de leitura a uma linha vinda do banco.
+
+    Usado nos caminhos que PEDEM a representação completa ao Postgres
+    (`Prefer: return=representation`): criação, PATCH e claim. Nesses casos o
+    `select=` não se aplica, então o filtro acontece aqui — a linha crua nunca é
+    devolvida ao cliente.
+    """
+    if not isinstance(row, dict):
+        return row
+    return {k: v for k, v in row.items() if k in _CHAMADOS_TICKET_READ_SET}
+
 CHAMADOS_STATUS_LABELS = {
     'aberto': 'Aguardando técnico',
     'a_caminho': 'Técnico a caminho',
@@ -2445,9 +2495,11 @@ def chamados_create():
 
         # O token cru NUNCA entra na resposta persistida (ticket); vai apenas no
         # campo tracking_token desta única resposta, para o professor guardar.
-        # O tracking_token_hash (SHA-256) também não é devolvido ao cliente:
-        # é segredo interno usado apenas na autenticação por token.
-        ticket.pop('tracking_token_hash', None)
+        # A linha que volta do INSERT é a representação COMPLETA (Prefer:
+        # return=representation), então passa pela allowlist interna: nem o
+        # `tracking_token_hash` (SHA-256, segredo de autenticação) nem o
+        # `reportedByUserId` (identidade interna) saem daqui.
+        ticket = _project_internal_ticket(ticket)
         return jsonify({'ticket': ticket, 'tracking_token': tracking_token})
 
     except Exception as e:
@@ -2506,7 +2558,7 @@ def chamados_list():
             if not is_super_admin and workspace_id not in user_ws_ids:
                 return jsonify({'error': 'Acesso negado a este workspace'}), 403
 
-        url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?select=*&order=createdAt.desc'
+        url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?select={CHAMADOS_TICKET_READ_SELECT}&order=createdAt.desc'
 
         if mine:
             # ── Meus Chamados ──────────────────────────────────────────────────
@@ -2564,7 +2616,11 @@ def chamados_list():
         resp = requests.get(url, headers=_supabase_headers(), timeout=15)
         if not resp.ok:
             return jsonify({'error': 'Erro ao listar chamados'}), 502
-        return jsonify({'tickets': resp.json() or []})
+        # `select=` já pede a allowlist ao banco, mas a garantia não pode depender
+        # de um serviço remoto honrar isso: a resposta é filtrada de novo aqui.
+        # É a mesma defesa do fluxo público (`_project_public_ticket`).
+        tickets = [_project_internal_ticket(t) for t in (resp.json() or [])]
+        return jsonify({'tickets': tickets})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
@@ -2620,7 +2676,8 @@ def chamados_manage(ticket_id):
 
         if request.method == 'GET':
             resp = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=*',
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+                f'&select={CHAMADOS_TICKET_READ_SELECT}',
                 headers=_supabase_headers(),
                 timeout=10,
             )
@@ -2657,7 +2714,9 @@ def chamados_manage(ticket_id):
                 # pessoa ou anônimo — devolve o 403 original de `err`; chamado de
                 # outra unidade nem chega aqui, barrado no check de workspace
                 # acima.
-            return jsonify({'ticket': rows[0]})
+            # Filtro de resposta também aqui: o `select=` pede a allowlist ao
+            # banco, mas a garantia não depende de o serviço remoto honrá-la.
+            return jsonify({'ticket': _project_internal_ticket(rows[0])})
 
         if request.method == 'DELETE':
             # Verify workspace ownership before delete
@@ -3000,7 +3059,10 @@ def chamados_manage(ticket_id):
                     content=content,
                     author=author,
                 )
-        return jsonify({'ticket': ticket})
+        # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
+        # (Prefer: return=representation). Filtra pela allowlist interna antes
+        # de responder — a linha crua não atravessa a API.
+        return jsonify({'ticket': _project_internal_ticket(ticket)})
 
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
@@ -3762,7 +3824,8 @@ def chamados_events_list(ticket_id):
             return err
 
         resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}&order=createdAt.desc',
+            f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}'
+            f'&order=createdAt.desc&select={CHAMADOS_EVENT_READ_SELECT}',
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -3774,8 +3837,18 @@ def chamados_events_list(ticket_id):
                 urls = json.loads(ev.get('photo_urls') or '[]')
             except (TypeError, ValueError):
                 urls = []
-            ev['photos'] = urls if isinstance(urls, list) else []
-            events.append(ev)
+            # Projeção explícita, espelhando o endpoint público: só o que o
+            # consumidor lê. `ticket_id` e `workspace_id` não saem — o segundo
+            # é dado de escopo interno, e ambos são redundantes numa timeline que
+            # já é de um chamado só.
+            events.append({
+                'id': ev.get('id'),
+                'type': ev.get('type'),
+                'content': ev.get('content'),
+                'author': ev.get('author'),
+                'photos': urls if isinstance(urls, list) else [],
+                'createdAt': ev.get('createdAt'),
+            })
         return jsonify({'events': events})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
@@ -4028,7 +4101,9 @@ def chamados_claim(ticket_id):
         # Notifica quem assumiu e os demais técnicos do workspace.
         _notify_ticket_claimed(updated, claimer_name)
 
-        return jsonify({'ticket': updated})
+        # Mesma.allowlist interna da criação e do PATCH: `updated` é a
+        # representação completa do PATCH no Supabase.
+        return jsonify({'ticket': _project_internal_ticket(updated)})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
