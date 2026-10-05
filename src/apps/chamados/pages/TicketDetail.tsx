@@ -39,6 +39,12 @@ function slaConfigFor(ticket: Ticket) {
   return slaConfigService.getHoursForTickets()[ticket.workspace_id ?? ''] ?? null
 }
 
+/**
+ * Estado da timeline. `ready` cobre o caso de lista vazia — a distinção entre
+ * "carregou e não tem nada" e "não deu para carregar" é o ponto inteiro.
+ */
+type TimelineStatus = 'idle' | 'loading' | 'ready' | 'denied' | 'error'
+
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -167,19 +173,49 @@ export function TicketDetail() {
   const [claimError, setClaimError] = useState('')
   const [claiming, setClaiming] = useState(false)
 
+  // ── Timeline: quatro estados distintos ─────────────────────────────────────
+  // Antes disto era `.catch(() => {})`: qualquer falha (403 de autorização,
+  // 502 de rede, timeout) deixava `events` vazio e a tela mostrava "Nenhum
+  // registro ainda" — o usuário não conseguia distinguir "não há eventos" de
+  // "você não pode ver estes eventos". Agora o estado é explícito.
+  //
+  // O frontend NÃO decide quem é dono do chamado nem filtra por tipo: quem
+  // autoriza e o que é seguro exibir é o backend. Aqui só traduzimos o
+  // resultado (403 → negado, resto → erro, 200 → lista) para o usuário.
+  //
+  // "carregando" é DERIVADO, não guardado: o estado só é gravado quando a
+  // requisição termina, e o `key` diz para qual carregamento ele vale. Assim
+  // trocar de chamado ou apertar "Tentar novamente" já nasce em carregando, sem
+  // `setState` síncrono dentro do efeito.
+  const [timelineRetry, setTimelineRetry] = useState(0)
+  const [timeline, setTimeline] = useState<{ key: string; status: Exclude<TimelineStatus, 'idle'> } | null>(null)
+  const timelineKey = `${id ?? ''}:${timelineRetry}`
+  const timelineStatus: TimelineStatus = !id ? 'idle'
+    : timeline?.key === timelineKey ? timeline.status
+    : 'loading'
+
   useEffect(() => {
     if (!id) return
     let alive = true
+    const key = `${id}:${timelineRetry}`
     ticketService
       .getEvents(id)
       .then((evs) => {
-        if (alive) setEvents(evs)
+        if (!alive) return
+        setEvents(evs)
+        setTimeline({ key, status: 'ready' })
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (!alive) return
+        // 401/403 = autorização (ou sessão). Não é "sem registros": dizer isso
+        // seria mentir sobre o que o servidor respondeu.
+        const status = errorStatus(err)
+        setTimeline({ key, status: status === 401 || status === 403 ? 'denied' : 'error' })
+      })
     return () => {
       alive = false
     }
-  }, [id])
+  }, [id, timelineRetry])
 
   // ── Realtime: novos comentários de outros técnicos aparecem na hora ──
   type TicketEventRow = {
@@ -784,7 +820,25 @@ export function TicketDetail() {
             </div>
           </div>
         )}
-        {events.length === 0 ? (
+        {timelineStatus === 'loading' || timelineStatus === 'idle' ? (
+          <p className="text-xs text-fg-dim">Carregando histórico…</p>
+        ) : timelineStatus === 'denied' ? (
+          <p className="text-xs text-fg-dim">
+            Você não tem permissão para ver o histórico deste chamado.
+          </p>
+        ) : timelineStatus === 'error' ? (
+          // Falha de comunicação: se oferece retry, em vez de fingir que está vazio.
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-fg-dim">Não foi possível carregar o histórico.</p>
+            <button
+              type="button"
+              onClick={() => setTimelineRetry((n) => n + 1)}
+              className="rounded-lg border border-line px-2 py-1 text-[11px] font-semibold text-fg-muted transition-colors hover:bg-fg-muted/10"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        ) : events.length === 0 ? (
           <p className="text-xs text-fg-dim">Nenhum registro ainda</p>
         ) : (
           <div className="space-y-3">
