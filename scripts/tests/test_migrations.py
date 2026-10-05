@@ -449,3 +449,335 @@ def test_postgres_executor_returns_rows():
     executor = PostgresExecutor(dsn="postgresql://u:p@localhost/db")
     executor._psycopg = fake_psycopg
     assert executor.query("SELECT 1") == [{"version": "001"}]
+
+# ===========================================================================
+# Issue #285 — hardening do migration runner
+# ===========================================================================
+
+from migrate.environment import (  # noqa: E402
+    ENV_ALLOWED_REFS,
+    LOCAL,
+    PRODUCTION,
+    TargetEnvironmentError,
+    resolve_policy,
+    validate_project_ref,
+)
+from migrate.runner import _resolve_baseline  # noqa: E402
+
+_REF = "abcdefghijklmnopqrst"
+_OTHER_REF = "zyxwvutsrqponmlkjihg"
+
+
+# ---------------------------------------------------------------------------
+# #285 D1 — BASELINE_VERSION fail-closed em produção
+# ---------------------------------------------------------------------------
+
+def test_production_without_baseline_fails_closed(migrations_dir, monkeypatch):
+    """Sem BASELINE_VERSION em produção o runner ABORTA em vez de no-op silencioso."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    with pytest.raises(core.BaselineConfigurationError) as exc:
+        run(migrations_dir, api, require_baseline=True)
+    msg = str(exc.value)
+    assert "BASELINE_VERSION" in msg
+    # Nenhuma migration pode ter sido aplicada no caminho do erro.
+    assert not any("CREATE TABLE IF NOT EXISTS a" in q for q in api.queries)
+
+
+def test_production_with_baseline_env_applies_only_above(migrations_dir, monkeypatch):
+    """Regressão: produção COM baseline explícito continua aplicando o que está acima."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.applied == ["002"]
+    assert "__baseline__" in " ".join(api.queries)
+
+
+def test_local_keeps_implicit_baseline_fallback(migrations_dir, monkeypatch):
+    """Regressão: local sem baseline mantém o fallback implícito (uso de dev)."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, require_baseline=False)
+    assert result.baseline == "002"
+    assert result.applied == []
+
+
+def test_existing_rows_resolve_baseline_without_env(migrations_dir, monkeypatch):
+    """Com histórico no banco, o baseline vem do próprio banco (fail-closed não se aplica)."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(
+        applied_rows=[
+            {"version": "001", "filename": "__baseline__"},
+            {"version": "000", "filename": "000_boot.sql"},
+        ],
+        table_exists=True,
+    )
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.applied == ["002"]
+
+
+def test_db_baseline_higher_than_repo_skips_everything(migrations_dir, monkeypatch):
+    """Baseline do banco acima do repo: nada é pendente (estado já reconciliado)."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(
+        applied_rows=[{"version": "080", "filename": "__baseline__"}],
+        table_exists=True,
+    )
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "080"
+    assert result.applied == []
+
+
+def test_resolve_baseline_requires_env_when_strict(migrations_dir):
+    ms = core.discover_migrations(migrations_dir)
+    with pytest.raises(core.BaselineConfigurationError):
+        _resolve_baseline(
+            applied_versions=set(),
+            db_baseline=None,
+            env_baseline=None,
+            from_scratch=False,
+            migrations=ms,
+            require_baseline=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# #285 D2 — SQL: filename nunca é interpolado cru
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", ["086", "086_x.sql", "__baseline__", "000_initial.sql"])
+def test_sql_string_literal_accepts_known_safe_values(value):
+    assert core.sql_string_literal(value) == f"'{value}'"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "086_x';DROP TABLE users;--.sql",
+        "086_x --.sql",
+        "086_x.sql;",
+        "' OR 1=1 --",
+        "086 x.sql",
+        "../086_x.sql",
+        "086_x.SQL",
+        "086_x.sql'",
+        "",
+    ],
+)
+def test_sql_string_literal_rejects_injection(value):
+    with pytest.raises(core.MigrationFilenameError):
+        core.sql_string_literal(value)
+
+
+def test_apply_migration_quotes_filename_as_literal(migrations_dir):
+    """Regressão: o INSERT emitted usa literal simples, não o filename cru."""
+    make_migration(migrations_dir, "003_add_c.sql", "CREATE TABLE IF NOT EXISTS c (id int);\n")
+    m = next(x for x in core.discover_migrations(migrations_dir) if x.version == "003")
+    api = FakeAPI()
+    apply_migration(api, m)
+    sql = "\n".join(api.queries)
+    assert "'003_add_c.sql'" in sql
+    assert "'003'" in sql
+
+
+def test_baseline_stamp_uses_safe_literals(migrations_dir, monkeypatch):
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    run(migrations_dir, api, require_baseline=True)
+    stamps = [q for q in api.queries if "INSERT INTO public.schema_migrations" in q]
+    assert stamps, "esperava o INSERT de baseline"
+    assert "'001'" in stamps[0] and "'__baseline__'" in stamps[0]
+
+
+# ---------------------------------------------------------------------------
+# #285 D3 — filenames estritos (descoberta rejeita antes de qualquer rede)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "086_x.sql;",
+        "086_x';DROP TABLE users;--.sql",
+        "086_x --.sql",
+        "086_x--.sql",
+        "86_x.sql",
+        "086_X.sql",
+    ],
+)
+def test_validate_migration_filename_rejects_bad_names(filename):
+    with pytest.raises(core.MigrationFilenameError):
+        core.validate_migration_filename(filename)
+
+
+def test_discover_rejects_malformed_migration_filename(migrations_dir):
+    make_migration(migrations_dir, "086_bad-name.sql")
+    with pytest.raises(core.MigrationFilenameError):
+        core.discover_migrations(migrations_dir)
+
+
+def test_discover_accepts_repo_real_filenames():
+    """Os 84 filenames reais do repositório continuam válidos (gaps inclusos)."""
+    repo_dir = Path(core.__file__).resolve().parents[2] / "supabase" / "migrations"
+    ms = core.discover_migrations(repo_dir)
+    assert len(ms) >= 84
+    for m in ms:
+        core.validate_migration_filename(m.filename)
+
+
+def test_real_repo_filenames_are_safe_sql_literals():
+    """Cada filename/version real precisa sobreviver à interpolação no SQL.
+
+    É o que quebraria a cadeia efêmera do CI em runtime se algum arquivo tivesse
+    caractere fora da allowlist de `sql_string_literal`.
+    """
+    repo_dir = Path(core.__file__).resolve().parents[2] / "supabase" / "migrations"
+    for m in core.discover_migrations(repo_dir):
+        assert core.sql_string_literal(m.version) == f"'{m.version}'"
+        assert core.sql_string_literal(m.filename) == f"'{m.filename}'"
+
+
+# ---------------------------------------------------------------------------
+# #285 D4 — auditoria de identidade / renumeração
+# ---------------------------------------------------------------------------
+
+def _m(version, filename):
+    return core.Migration(
+        version=version, number=int(version), name=filename, path=Path(filename), filename=filename
+    )
+
+
+_MIGS = [_m("001", "001_a.sql"), _m("002", "002_b.sql"), _m("003", "003_c.sql")]
+
+
+def test_identity_audit_allows_legitimate_gaps():
+    """Gaps de numeração são legítimos e não podem ser reportados (#285)."""
+    rows = [{"version": "001", "filename": "001_a.sql"}, {"version": "003", "filename": "003_c.sql"}]
+    assert core.audit_applied_identities(rows, _MIGS) == []
+
+
+def test_identity_audit_ignores_baseline_row():
+    rows = [{"version": "080", "filename": "__baseline__"}]
+    assert core.audit_applied_identities(rows, _MIGS) == []
+
+
+def test_identity_audit_flags_renumbered_in_place():
+    """Mesmo número, filename diferente = renumeração que o runner não absorve."""
+    rows = [{"version": "003", "filename": "003_antigo.sql"}]
+    div = core.audit_applied_identities(rows, _MIGS)
+    assert len(div) == 1
+    assert div[0].reason == "renumbered"
+    assert div[0].repository_filename == "003_c.sql"
+
+
+def test_identity_audit_flags_missing_file():
+    rows = [{"version": "009", "filename": "009_sumiu.sql"}]
+    div = core.audit_applied_identities(rows, _MIGS)
+    assert len(div) == 1
+    assert div[0].reason == "missing_file"
+
+
+def test_identity_audit_flags_renumbered_away():
+    """Arquivo aplicado existe no repo, mas sob outro número."""
+    rows = [{"version": "007", "filename": "002_b.sql"}]
+    div = core.audit_applied_identities(rows, _MIGS)
+    assert len(div) == 1
+    assert div[0].reason == "renumbered_away"
+
+
+def test_run_aborts_on_renumbered_before_any_ddl(migrations_dir):
+    """Integração: renumeração aborta ANTES de aplicar qualquer migration."""
+    api = FakeAPI(
+        applied_rows=[{"version": "002", "filename": "002_nome_antigo.sql"}], table_exists=True
+    )
+    with pytest.raises(core.AppliedIdentityError):
+        run(migrations_dir, api)
+    # Nenhum DDL de migration pode ter sido emitido.
+    assert not any("CREATE TABLE IF NOT EXISTS b" in q for q in api.queries)
+
+
+def test_run_aborts_on_renumbered_before_bootstrap_ddl(migrations_dir):
+    """A auditoria precede QUALQUER escrita — nem o bootstrap da tabela roda antes."""
+    api = FakeAPI(
+        applied_rows=[{"version": "002", "filename": "002_nome_antigo.sql"}], table_exists=True
+    )
+    with pytest.raises(core.AppliedIdentityError):
+        run(migrations_dir, api)
+    assert not api.mutating_queries()
+
+
+def test_dry_run_also_aborts_on_renumbered(migrations_dir):
+    """O plano do dry-run também precisa acusar a renumeração (e sem escrever)."""
+    api = FakeAPI(
+        applied_rows=[{"version": "002", "filename": "002_nome_antigo.sql"}], table_exists=True
+    )
+    with pytest.raises(core.AppliedIdentityError):
+        run(migrations_dir, api, dry_run=True)
+    assert not api.mutating_queries()
+
+
+# ---------------------------------------------------------------------------
+# #285 D5 — política de ambiente / destino fail-closed
+# ---------------------------------------------------------------------------
+
+def test_resolve_policy_rejects_unknown_target():
+    with pytest.raises(TargetEnvironmentError) as exc:
+        resolve_policy(target="staging")
+    assert "staging" in str(exc.value)
+
+
+def test_resolve_policy_defaults_to_local():
+    assert resolve_policy().target == LOCAL
+
+
+def test_resolve_policy_production_requires_baseline():
+    policy = resolve_policy(target=PRODUCTION, allowed_refs=_REF)
+    assert policy.require_baseline is True
+    assert policy.enforce_allowlist is True
+
+
+def test_resolve_policy_production_requires_allowlist():
+    """Sem allowlist o destino de produção não é verificável => aborta."""
+    with pytest.raises(TargetEnvironmentError) as exc:
+        resolve_policy(target=PRODUCTION)
+    assert ENV_ALLOWED_REFS in str(exc.value)
+
+
+def test_resolve_policy_production_reads_allowlist_from_env(monkeypatch):
+    monkeypatch.setenv(ENV_ALLOWED_REFS, _REF)
+    policy = resolve_policy(target=PRODUCTION)
+    assert policy.allowed_project_refs == (_REF,)
+
+
+def test_validate_project_ref_rejects_empty():
+    with pytest.raises(TargetEnvironmentError):
+        validate_project_ref("", resolve_policy())
+
+
+@pytest.mark.parametrize("bad", ["abcdefghijk", "ABCDEFGHIJKLMNOPQRST", "abc-def-ghij-klmnopqrs", _REF + "x"])
+def test_validate_project_ref_rejects_bad_format(bad):
+    with pytest.raises(TargetEnvironmentError):
+        validate_project_ref(bad, resolve_policy())
+
+
+def test_validate_project_ref_accepts_allowed_ref():
+    policy = resolve_policy(target=PRODUCTION, allowed_refs=f"{_REF},{_OTHER_REF}")
+    validate_project_ref(_REF, policy)
+
+
+def test_validate_project_ref_rejects_ref_outside_allowlist():
+    """Secret trocado apontando para outro projeto aborta antes de qualquer HTTP."""
+    policy = resolve_policy(target=PRODUCTION, allowed_refs=_OTHER_REF)
+    with pytest.raises(TargetEnvironmentError) as exc:
+        validate_project_ref(_REF, policy)
+    # A mensagem não pode ecoar o ref (pode ser o valor disparado por engano).
+    assert _REF not in str(exc.value)
+
+
+def test_error_messages_never_leak_token_values():
+    policy = resolve_policy(target=PRODUCTION, allowed_refs=_OTHER_REF)
+    with pytest.raises(TargetEnvironmentError) as exc:
+        validate_project_ref(_REF, policy)
+    assert _REF not in str(exc.value)
+    assert _OTHER_REF not in str(exc.value)
