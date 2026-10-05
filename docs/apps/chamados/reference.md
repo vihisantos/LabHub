@@ -110,6 +110,42 @@ const TICKET_STATUS_COLORS: Record<TicketStatus, string> = {
 - `403` — aplicação desabilitada no workspace (`MODULE_DISABLED`); nenhum chamado é criado e nenhum push é disparado
 - `503` — backend não configurado
 
+## Projeção dos dados devolvidos
+
+**Estar autorizado a ver um chamado não é estar autorizado a receber todos os
+campos armazenados nele.** A leitura interna nunca usa `select=*`: a coluna não
+é pedida ao banco e a resposta é filtrada de novo antes de sair, para a garantia
+não depender de um serviço remoto honrar o `select`.
+
+Duas colunas **nunca** atravessam a API interna:
+
+| Coluna | Por quê |
+|---|---|
+| `tracking_token_hash` | SHA-256 da credencial de acompanhamento do professor. É segredo de autenticação, usado só por `@require_tracking_token`. |
+| `reportedByUserId` | Identidade **interna** do solicitante. O backend a usa para o escopo pessoal de `mine=true` e para a via pessoal do detalhe. O frontend não a lê em runtime. |
+
+`reportedByUserId` sai da **resposta** e continua inteiro no **filtro** do banco:
+é por lá que o escopo pessoal é decidido, a partir de `g.user_id`. Nenhum
+parâmetro do cliente entra nessa decisão.
+
+Todo o resto tem consumidor comprovado na fila ou no detalhe, e é por isso que
+fila e detalhe compartilham a mesma allowlist: a lista alimenta o cache local, de
+onde o `TicketDetail` também lê — uma projeção mais estreita na lista abriria a
+tela de detalhe incompleta.
+
+A timeline (`/events`) tem projeção própria, espelhando a do endpoint público: só
+o que o consumidor lê. `ticket_id` e `workspace_id` não saem — o segundo é dado
+de escopo interno.
+
+A projeção **pública** (`_project_public_ticket`) continua separada e mais
+estreita, como antes. Nenhum caminho interno reaproveita a projeção pública, nem
+o contrário.
+
+Implementação: `CHAMADOS_TICKET_READ_COLS`, `CHAMADOS_EVENT_READ_SELECT` e
+`_project_internal_ticket`, em `api/app.py`.
+
+Cobertura: `api/tests/test_chamados_data_minimization.py`.
+
 ### GET /api/chamados
 
 Parâmetros de consulta opcionais: `workspace_id`, `status`, `reportedBy`, `mine`.
