@@ -368,6 +368,59 @@ def _ext_fetch_source_bytes(url, max_bytes=EXT_SOURCE_MAX_BYTES,
     Retorna `(bytes | None, erro | None)`. O erro é uma mensagem CURTA e já
     sanitizada: nada de URL resolvida, DNS, header ou exceção original. Quem
     chama registra o detalhe técnico no log; a resposta HTTP continua genérica.
+
+    ── DNS rebinding / TOCTOU: limitação CONHECIDA e AVALIADA (#193) ───────────
+
+    A sequência real é:
+
+        getaddrinfo(host)  →  valida TODOS os IPs  →  requests.get(hostname)
+                                                          ↓
+                                            urllib3 chama create_connection
+                                            → getaddrinfo DE NOVO
+
+    A validação e a conexão usam **resoluções diferentes**. Um autoritativo DNS
+    sob controle do atacante pode responder IP público na primeira e `127.0.0.1`
+    na segunda. A janela existe e NÃO é fechada por este código. Dizê-lo de outro
+    jeito seria afirmar uma garantia que não existe.
+
+    **Por que a Opção B (pinning) não foi implementada aqui:** ela não é uma
+    troca de parâmetro, é uma troca de transporte. Verificado nesta base
+    (requests 2.32.3 / urllib3 2.7.0):
+
+      · `urllib3.HTTPSConnectionPool` NÃO aceita `server_hostname` — só
+        `host`, `assert_hostname` e `assert_fingerprint`;
+      · `HTTPSConnection.connect()` usa `server_hostname = self.host`, e o pool
+        vem construído com `host = <IP pinado>`;
+      · logo, via `requests` daria verificação de certificado CORRETA
+        (`assert_hostname`) com **SNI errado** (o IP, não o hostname), e um CDN ou
+        SharePoint rejeita ou roteia para o vhost errado;
+      · pinning correto exige construir a `HTTPSConnection` com
+        `server_hostname` — ou seja, usar `urllib3` direto e reimplementar
+        aqui o streaming com teto, os timeouts por fase e o manual de redirect.
+
+    Isso reescreveria o transporte de um helper compartilhado com a TV, cujos 42
+    testes montam o `requests` falso. Fazer isso só para marcar a caixa seria
+    trocar um risco estreito e bem compreendido por um risco largo de regressão,
+    sem fechar o problema.
+
+    **Por que o risco residual é aceitável NESTE modelo de ameaça:**
+
+    1. A URL é resolvida da configuração do workspace (ou do env global), não de
+       entrada do request. Chegar a este ponto exige já controlar a
+       configuração — ou controlar o DNS do host legitimamente configurado.
+    2. Quem controla o DNS desse host já controla os BYTES que o servidor vai
+       receber e parsear. O pinning não muda isso: não acrescenta capacidade
+       nenhuma a quem já escolhe o conteúdo.
+    3. O corpo baixado **nunca é devolvido a quem chamou**: vai para `openpyxl` e
+       vira linhas de reserva ou é descartado. Não há primitiva de leitura — o
+       atacante do DNS não obtém a resposta da rede interna, nem por timing, porque
+       o endpoint devolve as reservas, não o corpo.
+
+    O item 3 é a premissa que sustenta tudo, e a que mais facilmente se corrói
+    sem ninguém perceber. Se um dia algum caminho devolver ou
+    ecoar o corpo baixado, o SSRF vira primitiva de leitura e ESTA avaliação
+    deixa de valer. `test_sem_primitiva_de_leitura_na_planilha` fixa essa
+    invariável para que a premissa não se perca em silêncio.
     """
     current = url
     for _hop in range(max_redirects + 1):
@@ -422,16 +475,74 @@ SPREADSHEET_TIMEOUT = EXT_SOURCE_TIMEOUT  # (10, 30)
 SPREADSHEET_MAX_REDIRECTS = EXT_SOURCE_MAX_REDIRECTS
 
 
+# ── Log sem segredo (#193) ───────────────────────────────────────────────────
+#
+# A URL da planilha é, com frequência, uma URL ASSINADA: o link de
+# compartilhamento do SharePoint/OneDrive/Drive carrega o token em `?share=…`,
+# `?sig=…` ou no próprio path (`/d/<id>/view`). Escrever a URL inteira no log
+# deposita a credencial num sistema que costuma ter retenção longa, backup e
+# acesso mais amplo que a aplicação — e o log passa a ser um destino de vazamento
+# com vida útil maior que o do bug.
+#
+# O que o diagnóstico realmente precisa saber é *qual* host recusou, se é o
+# esperado, e se o erro foi de DNS, redirect ou tamanho. Nada disso exige query
+# string, fragmento, userinfo ou path.
+#
+# Por que o PATH também é descartado, e não só query/fragment: em link de
+# compartilhamento o identificador opaco frequently vai no path
+# (`…/download.aspx?share=` é comum, mas `…/d/<id>` e `/_layouts/15/Doc.aspx?s=`
+# também existem). Preservar o path seria guardar o segredo comProbability alta.
+# Host + porta sozinhos bastam para diagnosticar, e não são segredo.
+
+# Teto do host no log: um hostname patológico não deve poder inchar o log.
+_LOG_HOST_MAX = 120
+
+
+def _safe_url_for_log(url):
+    """Representação de uma URL segura para log: `scheme://host[:porta]`.
+
+    Descarta query string, fragment, userinfo, credenciais e path. `hostname` do
+    `urlparse` já vem sem userinfo e sem porta, o que evita ter de remontar a
+    string — e evita reintroduzir a senha de `https://user:pass@host/`.
+
+    Devolve um marcador quando a URL não é interpretável, para nunca ecoar
+    entrada crua como fallback.
+    """
+    if not isinstance(url, str) or not url:
+        return '<sem url>'
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return '<url invalida>'
+    scheme = (parsed.scheme or '').lower()
+    try:
+        # `.hostname` já exclui userinfo; `.port` pode levantar em porta inválida.
+        host = parsed.hostname or ''
+        port = parsed.port
+    except ValueError:
+        return '<url invalida>'
+    if not host:
+        return '<sem host>'
+    if len(host) > _LOG_HOST_MAX:
+        host = host[:_LOG_HOST_MAX] + '…'
+    if not scheme:
+        return host
+    return f'{scheme}://{host}' if not port else f'{scheme}://{host}:{port}'
+
+
 def _parse_spreadsheet(spreadsheet_url, lab_count=2):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
     reservas_hoje = []
     reservas_semana = []
     if not spreadsheet_url:
         return reservas_hoje, reservas_semana
+    # Só a representação segura: a URL original pode carregar token de
+    # compartilhamento, e este log é sobre a RECUSA, não sobre a credencial.
+    origem = _safe_url_for_log(spreadsheet_url)
     if not _ext_validate_source_url(spreadsheet_url, SPREADSHEET_MAX_URL_LEN):
-        logger.error("URL da planilha rejeitada (proteção SSRF): %s", spreadsheet_url)
+        logger.error("URL da planilha rejeitada (proteção SSRF): %s", origem)
         return reservas_hoje, reservas_semana
-    logger.info("Baixando planilha...")
+    logger.info("Baixando planilha de %s", origem)
     content, fetch_error = _ext_fetch_source_bytes(
         spreadsheet_url,
         max_bytes=SPREADSHEET_MAX_BYTES,
@@ -439,8 +550,9 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
         max_redirects=SPREADSHEET_MAX_REDIRECTS,
     )
     if fetch_error:
-        # O detalhe fica no log; o contrato de retorno é lista vazia, como antes.
-        logger.error("Falha ao baixar a planilha (%s): %s", fetch_error, spreadsheet_url)
+        # O detalhe técnico fica no log; o contrato de retorno é lista vazia, como
+        # antes. `origem` já é a forma sanitizada — a URL crua nunca entra aqui.
+        logger.error("Falha ao baixar a planilha de %s (%s)", origem, fetch_error)
         return reservas_hoje, reservas_semana
     # Daqui para baixo é o parser de antes, byte a byte: o `try` externo continua
     # sendo a rede de segurança do laço de linhas.

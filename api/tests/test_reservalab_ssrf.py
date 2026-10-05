@@ -205,6 +205,39 @@ def fake_get(monkeypatch):
     return factory
 
 
+@pytest.fixture()
+def logs_de(legacy_module, monkeypatch):
+    """Captura tudo que o módulo legado loga, para auditar o CONTEÚDO do log.
+
+    A pergunta "o token aparece no log?" não é respondida pelo código, e sim pelo
+    que chega ao handler de log. Este double acumula as mensagens já formatadas,
+    que é exatamente o que um agregador de log veria.
+    """
+    registros = []
+
+    class Captura:
+        def _registra(self, nivel, msg, *args):
+            try:
+                registros.append((nivel, str(msg) % args if args else str(msg)))
+            except Exception:
+                registros.append((nivel, str(msg)))
+
+        def error(self, msg, *a):
+            self._registra('error', msg, *a)
+
+        def warning(self, msg, *a):
+            self._registra('warning', msg, *a)
+
+        def info(self, msg, *a):
+            self._registra('info', msg, *a)
+
+        def debug(self, msg, *a):
+            self._registra('debug', msg, *a)
+
+    monkeypatch.setattr(legacy_module, 'logger', Captura())
+    return registros
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. Validação da URL
 # ═══════════════════════════════════════════════════════════════════════════
@@ -886,3 +919,194 @@ class TestSharedWithTv:
         extrair sem acoplar a TV ao número do ReservaLab."""
         assert legacy_module._ext_validate_source_url(VALID_URL, 2048) is True
         assert legacy_module._ext_validate_source_url(VALID_URL, 10) is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 8. Log sem segredo (revisão da #193)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Token fictício. Não é segredo real — é o padrão de um link de compartilhamento
+# de SharePoint/OneDrive/Drive, e é o que a revisão pediu para caçar no log.
+TOKEN = 'SEGREDO_COMPARTILHADO_NAO_USAR'
+ASSINADA = (
+    f'https://tenant.sharepoint.com/sites/lab/_layouts/15/download.aspx'
+    f'?share={TOKEN}&web=1#anchor'
+)
+
+
+class TestLogSemSegredo:
+    @pytest.mark.parametrize('url,esperado', [
+        ('https://exemplo.com/a/b.xlsx?x=1', 'https://exemplo.com'),
+        ('https://exemplo.com:8443/a?x=1', 'https://exemplo.com:8443'),
+        ('https://user:senha@exemplo.com/a', 'https://exemplo.com'),
+        ('https://exemplo.com', 'https://exemplo.com'),
+        ('https://[::1]:8443/x', 'https://::1:8443'),
+        ('http://exemplo.com/x', 'http://exemplo.com'),
+        ('', '<sem url>'),
+        (None, '<sem url>'),
+        ('nao-e-url', '<sem host>'),
+        ('https:///x', '<sem host>'),
+    ])
+    def test_representacao_segura(self, legacy_module, url, esperado):
+        assert legacy_module._safe_url_for_log(url) == esperado
+
+    def test_representacao_segura_nao_estoura_tamanho(self, legacy_module):
+        url = 'https://' + ('a' * 5000) + '.exemplo.com/x?sig=' + TOKEN
+        saida = legacy_module._safe_url_for_log(url)
+        assert len(saida) < 200
+        assert TOKEN not in saida
+
+    def test_url_rejeitada_nao_vaza_token_no_log(
+        self, legacy_module, dns_allows, fake_get, logs_de,
+    ):
+        """Rejeição por SSRF: o log precisa dizer QUAL host recusou, sem o token.
+
+        O host é interno para que a RECUSA aconteça de fato — é este o caminho que
+        a revisão apontou.
+        """
+        rejeitada = f'https://169.254.169.254/latest/meta-data/?sig={TOKEN}'
+
+        legacy_module._parse_spreadsheet(rejeitada)
+
+        assert logs_de, 'a rejeição deveria ser logada'
+        texto = ' '.join(m for _, m in logs_de)
+        assert TOKEN not in texto
+        assert 'sig=' not in texto
+        # E o contexto útil sobreviveu: qual host recusou, e por quê.
+        assert '169.254.169.254' in texto
+        assert 'SSRF' in texto
+
+    def test_falha_no_download_nao_vaza_token_no_log(
+        self, legacy_module, dns_allows, fake_get, logs_de,
+    ):
+        """Falha de rede: mesmo caminho, mesma exigência."""
+        fake_get(error=requests_lib.exceptions.ConnectionError(
+            f'Max retries exceeded with url: /download.aspx?share={TOKEN}'))
+
+        legacy_module._parse_spreadsheet(ASSINADA)
+
+        texto = ' '.join(m for _, m in logs_de)
+        assert TOKEN not in texto
+        assert 'share=' not in texto
+        assert 'Max retries' not in texto
+        assert 'tenant.sharepoint.com' in texto
+
+    def test_sucesso_nao_vaza_token_no_log(
+        self, legacy_module, dns_allows, fake_get, logs_de, hoje,
+    ):
+        """O caminho feliz também loga a origem — e também não pode vazar."""
+        corpo = _planilha([
+            ['Prof. A', 'Resp', 'a@test.com', hoje + timedelta(days=1), '08:00-09:00',
+             10, '', '', 'Lab 01'],
+        ])
+        fake_get(response=FakeResponse(content=corpo))
+
+        legacy_module._parse_spreadsheet(ASSINADA)
+
+        texto = ' '.join(m for _, m in logs_de)
+        assert TOKEN not in texto
+        assert 'share=' not in texto
+        assert 'tenant.sharepoint.com' in texto
+
+    def test_erro_do_parser_nao_carrega_o_corpo(
+        self, legacy_module, dns_allows, fake_get, logs_de,
+    ):
+        """O erro do openpyxl vai para o log. Precisa continuar sem o corpo.
+
+        O corpo é o conteúdo de uma planilha possivelmentesigilosa — e o log não
+        pode virar o segundo lugar onde ele mora.
+        """
+        fake_get(response=FakeResponse(content=b'NAO E XLSX ' + TOKEN.encode()))
+
+        legacy_module._parse_spreadsheet(ASSINADA)
+
+        texto = ' '.join(m for _, m in logs_de)
+        assert TOKEN not in texto
+
+    def test_nenhum_log_da_planilha_carrega_a_query_string(
+        self, legacy_module, dns_allows, fake_get, logs_de, hoje,
+    ):
+        """Varredura ampla: com uma URL assinada, NENHUMA mensagem logada pode
+        conter `?`, `share=`, `sig=` ou o token."""
+        fake_get(error=requests_lib.exceptions.Timeout())
+        legacy_module._parse_spreadsheet(ASSINADA)
+
+        # E agora um sucesso, para varrer o caminho que loga "carregada".
+        fake_get(response=FakeResponse(content=_planilha([
+            ['Prof. A', 'Resp', 'a@test.com', hoje + timedelta(days=1), '08:00-09:00',
+             10, '', '', 'Lab 01'],
+        ])))
+        legacy_module._parse_spreadsheet(ASSINADA)
+
+        assert logs_de
+        for nivel, msg in logs_de:
+            assert TOKEN not in msg, msg
+            assert 'share=' not in msg, msg
+            assert 'sig=' not in msg, msg
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 9. Invariável da avaliação de DNS rebinding
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestNoReadPrimitive:
+    """A avaliação de rebinding em `_ext_fetch_source_bytes` se apoia num item:
+    o corpo baixado NUNCA volta para quem chamou.
+
+    Se essa invariável cair, o resíduo de rebinding deixa de ser "estreito" e vira
+    primitiva de leitura — e a avaliação documentada no código deixa de valer. O
+    teste existe para a premissa não se corroer em silêncio.
+    """
+
+    def test_sem_primitiva_de_leitura_na_planilha(
+        self, legacy_module, dns_allows, fake_get, hoje,
+    ):
+        # Uma resposta que NÃO é planilha — o caso em que o corpo tem mais chance
+        # de escapar para um log ou para a resposta HTTP.
+        fake_get(response=FakeResponse(content=b'CONTEUDO SENSIVEL INTERNO'))
+
+        resultado = legacy_module._parse_spreadsheet(VALID_URL)
+
+        # Só as duas listas de reservas, com a forma de sempre.
+        assert isinstance(resultado, tuple) and len(resultado) == 2
+        assert resultado[0] == [] and resultado[1] == []
+
+        # E uma planilha que PARSEIA: o que volta são linhas de reserva, não bytes.
+        fake_get(response=FakeResponse(content=_planilha([
+            ['Prof. A', 'Resp', 'a@test.com', hoje + timedelta(days=1), '08:00-09:00',
+             10, '', '', 'Lab 01'],
+        ])))
+        hoje_r, semana = legacy_module._parse_spreadsheet(VALID_URL)
+        assert len(semana) == 1
+        # Nenhum item da reserva carrega o corpo bruto do download.
+        assert 'CONTEUDO' not in repr(semana)
+
+    def test_o_helper_nao_devolve_bytes_para_o_caller_da_planilha(
+        self, legacy_module,
+    ):
+        """O helper devolve bytes — é o contrato dele, e a TV depende disso. O que
+        não pode é haver caminho entre esses bytes e a resposta HTTP de reservas."""
+        import inspect
+        src = inspect.getsource(legacy_module._parse_spreadsheet)
+        # `_parse_spreadsheet` não pode devolver `content`.
+        assert 'return content' not in src
+        assert 'return reservas_hoje, reservas_semana' in src
+        # E o corpo só alimenta o openpyxl.
+        assert 'load_workbook(BytesIO(content)' in src
+
+    def test_erro_do_fetch_nao_carrega_o_corpo(
+        self, legacy_module, dns_allows, fake_get, logs_de,
+    ):
+        """Um corpo enorme que estoura o teto: o erro é sobre o TAMANHO, nunca
+        sobre o conteúdo."""
+        limite = legacy_module.SPREADSHEET_MAX_BYTES
+        chunk = b'x' * (64 * 1024)
+        fake_get(response=FakeResponse(
+            chunks=[chunk] * ((limite // len(chunk)) + 2),
+        ))
+
+        assert legacy_module._parse_spreadsheet(VALID_URL) == ([], [])
+
+        texto = ' '.join(m for _, m in logs_de)
+        assert 'limite' in texto
+        assert 'xxxx' not in texto
