@@ -53,7 +53,7 @@ Os gates de autenticação, workspace e módulo valem sempre. O gate de Action (
 |--------|------|-----------|----------------|
 | POST | `/api/chamados` | Abrir chamado (formulário público) | — |
 | GET | `/api/chamados` | Listar chamados com filtros | — (legado) |
-| GET | `/api/chamados/:id` | Detalhe do chamado | `ticket.view` |
+| GET | `/api/chamados/:id` | Detalhe do chamado | `ticket.view` ou escopo pessoal (`reportedByUserId = g.user_id`) |
 | PATCH | `/api/chamados/:id` | Atualizar chamado | `ticket.status` / `ticket.assign` / `ticket.edit` |
 | DELETE | `/api/chamados/:id` | Excluir chamado | `ticket.delete` |
 | GET | `/api/chamados/:id/events` | Histórico do chamado | `ticket.view` |

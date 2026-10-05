@@ -198,12 +198,60 @@ Regras da tela pessoal:
   "Tentar novamente"; os chamados da equipe nunca aparecem no lugar.
 - **"Meus Atendimentos" continua sendo um chip da fila** — é recorte de trabalho
   atribuído (só abertos), não histórico pessoal.
-- **O detalhe não muda nesta tela.** `GET /api/chamados/:id` continua exigindo
-  `ticket.view`; abrir um chamado a partir de Meus Chamados segue o mesmo
-  caminho. Autorizar o detalhe para o solicitante é etapa separada.
+- **O detalhe pessoal é liberado pelo servidor.** Abrir um chamado a partir de
+  Meus Chamados chama `GET /api/chamados/:id`, que aceita o solicitante do
+  próprio chamado sem `ticket.view` (ver a seção do endpoint abaixo). Nenhuma
+  regra de autorização vive no frontend.
 
 Implementação da apresentação: `utils/myTickets.ts` (`groupTicketsByUpdateDate`,
 `filterTicketsByQuery`, `formatUpdatedLabel`, `dateGroupLabel`).
+
+### GET /api/chamados/:id
+
+Detalhe de um chamado. Exige autenticação e tem **duas vias**, avaliadas nesta
+ordem:
+
+1. **Isolamento de unidade.** O `workspace_id` do recurso precisa estar entre as
+   memberships ativas do chamador (super admin não é cargo e tem bypass). Fora
+   disso: `403 Acesso negado a este chamado`.
+2. **Via operacional.** `ticket.view` no workspace do recurso, via
+   `_require_action_in_handler` — o mecanismo RBAC 2.0 já existente, inalterado.
+3. **Via pessoal.** Se, e somente se, a via operacional negar, o solicitante do
+   **próprio** chamado lê o detalhe: `reportedByUserId == g.user_id`.
+
+Regras da via pessoal:
+
+- a identidade vem **sempre** de `g.user_id` (o `sub` do JWT validado por
+  `@require_auth`) e é comparada com o `reportedByUserId` que o servidor gravou
+  na criação. Nenhum dos dois lados vem de query string, body ou header — não há
+  como assumir a identidade de outro usuário;
+- só é alcançada **depois** do check de unidade, então não atravessa workspace;
+- **não depende de status**: aberto, a caminho, em atendimento, resolvido, fechado
+  e arquivado respondem igual, desde que a propriedade seja satisfeita;
+- é **somente leitura**. `PATCH` continua exigindo `ticket.status` /
+  `ticket.assign` / `ticket.edit`, `DELETE` exige `ticket.delete` e
+  `/events` exige `ticket.view` — ser dono do chamado não habilita nenhum deles;
+- chamado anônimo (`reportedByUserId` NULL, inclusive registros anteriores à
+  migration 056) nunca satisfaz a regra: os dois lados precisam ser não-vazios.
+
+Respostas, na convenção que já existia e que não foi alterada:
+
+| Situação | Resposta |
+|---|---|
+| Não autenticado | `401` |
+| Chamado inexistente | `404 Chamado não encontrado` |
+| Existe, mas em outra unidade | `403 Acesso negado a este chamado` |
+| Existe, na unidade, sem `ticket.view` e não é o dono | `403 Permissão insuficiente` |
+| Existe, na unidade, `ticket.view` **ou** é o próprio solicitante | `200 { ticket }` |
+
+> Ser solicitante de um chamado permite consultar o próprio detalhe, mas **não**
+> concede acesso à fila operacional: `GET /api/chamados` continua exigindo
+> `ticket.view`.
+
+Isto **não é RBAC**: nenhuma Action foi criada, `ticket.view`, `role_permissions`,
+`roles`, `memberships`, `membership_overrides` e RLS não foram alterados.
+
+Cobertura: `api/tests/test_chamados_own_ticket_detail.py` (Casos A–H).
 
 ### PATCH /api/chamados/:id
 
