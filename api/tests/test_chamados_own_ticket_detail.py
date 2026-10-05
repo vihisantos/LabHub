@@ -652,16 +652,29 @@ def test_delete_permanece_exigindo_ticket_delete(api_module, client, fake_reques
     assert r.status_code == 403
 
 
-def test_eventos_do_chamado_permanecem_com_ticket_view(api_module, client,
-                                                       fake_requests, monkeypatch):
+def test_eventos_do_chamado_agora_abrem_para_o_proprio_solicitante(api_module, client,
+                                                                   fake_requests, monkeypatch):
+    """#345: este teste JÁ afirmava `403` aqui, e a PR inverte a afirmação.
+
+    A #339 abriu o DETALHE do próprio chamado mas deixou a timeline atrás, e este
+    teste era o guardião dessa lacuna — a timeline exigia `ticket.view` mesmo para
+    o dono. A #345 fecha a lacuna, então o 403 vira 200.
+
+    O que NÃO muda, e o que a nova suíte (`test_chamados_own_timeline.py`)
+    continua travando: chamado de terceiro, usuário sem relação e chamado de
+    outra unidade seguem 403, e `ticket.view` continua sendo o que autoriza a
+    via operacional. Aqui só se registra a mudança de contrato do dono, com o
+    mesmo `select=workspace_id,reportedByUserId` que o handler monta.
+    """
     headers = _auth_as(api_module, fake_requests, monkeypatch,
                        _perfil(USER_A, [WS_A]), actions=[])
     _route_detalhe(fake_requests, _ticket(id="meu-1", reportedByUserId=USER_A))
+    fake_requests.route("GET", "rest/v1/ticket_events", FakeResponse([]))
 
     r = client.get("/api/chamados/meu-1/events", headers=headers)
 
-    assert r.status_code == 403
-    assert "ticket" not in r.get_json()
+    assert r.status_code == 200
+    assert r.get_json() == {"events": []}
 
 
 def test_lista_operacional_continua_exigindo_ticket_view(api_module, client,

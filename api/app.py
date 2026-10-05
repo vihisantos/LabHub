@@ -2007,6 +2007,34 @@ CHAMADOS_TICKET_INTERNAL_ONLY = ('tracking_token_hash', 'reportedByUserId')
 # `workspace_id` é dado de escopo interno.
 CHAMADOS_EVENT_READ_SELECT = 'id,type,content,author,photo_urls,createdAt'
 
+# ── Tipos de evento visíveis ao SOLICITANTE do próprio chamado ───────────────
+# `ticket_events.type` é `TEXT NOT NULL DEFAULT 'comentario'`, sem CHECK e sem
+# enum (migration 000) — ou seja, a coluna aceita qualquer valor. Só três tipos
+# são gravados hoje (todos via `_record_ticket_event`):
+#
+#   · `status`     — PATCH: `statusNote` do técnico ou o rótulo do status.
+#   · `atribuicao` — claim: "{técnico} assumiu o chamado e está a caminho".
+#   · `comentario` — POST /events: conversa, até 2 fotos.
+#
+# Os três são seguros para o solicitante porque não acrescentam nada ao que ele
+# JÁ enxerga no detalhe: `status`/`statusNote`/`resolvedAt` e `assignedTo` estão
+# na allowlist de leitura do #346, e o comentário é conversa — a docstring do
+# próprio POST é "solicitante ou técnico".
+#
+# A allowlist é controle FAIL-CLOSED, não decoração: como `type` é texto livre,
+# uma linha legada ou um tipo novo (ex.: um diagnóstico interno gravado no
+# futuro) NÃO pode vazar só porque o `select=` pediu a linha. Unknown = não sai.
+#
+# tightened aqui se a decisão de produto mudar: é esta tupla, um lugar só.
+CHAMADOS_REQUESTER_EVENT_TYPES = ('comentario', 'status', 'atribuicao')
+_CHAMADOS_REQUESTER_EVENT_TYPE_SET = frozenset(CHAMADOS_REQUESTER_EVENT_TYPES)
+
+# Filtro PostgREST equivalente, para a Via pessoal não BUSCAR no banco o que
+# não vai devolver. Camada 2 é o `if` na montagem do evento.
+_CHAMADOS_REQUESTER_EVENT_TYPE_FILTER = (
+    'in.(' + ','.join(CHAMADOS_REQUESTER_EVENT_TYPES) + ')'
+)
+
 
 def _project_internal_ticket(row):
     """Aplica a allowlist de leitura a uma linha vinda do banco.
@@ -3793,7 +3821,19 @@ def admin_app_data_purge():
 @app.route('/api/chamados/<ticket_id>/events', methods=['GET'])
 @require_auth
 def chamados_events_list(ticket_id):
-    """Histórico (timeline) de um chamado, do mais novo para o mais antigo."""
+    """Histórico (timeline) de um chamado, do mais novo para o mais antigo.
+
+    Duas vias, nesta ordem (mesma gramática do detalhe do #339):
+
+    · **Via A — operacional:** `ticket.view` no workspace do recurso, pelo
+      mecanismo RBAC 2.0 já existente. Inalterada: quem tem a Action continua
+      vendo a timeline COMPLETA, sem filtro de tipo nenhum.
+
+    · **Via B — pessoal:** se, e somente se, a Via A negar, o solicitante do
+      PRÓPRIO chamado (`reportedByUserId == g.user_id`). O dono acompanha a
+      evolução do que abriu; a timeline que ele recebe é a de tipo allowlisted,
+      que é a menor possível.
+    """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
@@ -3802,9 +3842,13 @@ def chamados_events_list(ticket_id):
         is_super_admin = bool(user.get('is_super_admin'))
         user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
 
-        # Verify ticket belongs to user's workspace
+        # `reportedByUserId` entra no `select=` porque é o dado da Via B. Ele é
+        # lido do BANCO e nunca de um parâmetro do request — é a mesma coluna que
+        # a #339 já usa para abrir o detalhe, então a Via B não inventa uma
+        # fonte de identidade, reaproveita a que o servidor gravou na criação.
         fetch_ticket = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=workspace_id',
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+            f'&select=workspace_id,reportedByUserId',
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -3820,12 +3864,37 @@ def chamados_events_list(ticket_id):
         g.workspace_id = ticket_ws
         err = _require_action_in_handler('ticket.view', scope='workspace',
                                          resource_type='ticket', resource_id=ticket_id)
+        via_pessoal = False
         if err:
-            return err
+            # ── Via B — pessoal ─────────────────────────────────────────────────
+            # Só entra quando a Via A (operacional) JÁ negou, e é alcançada
+            # DEPOIS do check de workspace acima, que continua barrando antes:
+            # chamado de outra unidade não chega aqui, então a Via B nunca vira
+            # atalho de workspace nem oráculo de existência.
+            #
+            # A identidade é o `g.user_id`, o `sub` do JWT validado por
+            # `@require_auth`. NENHUM dos dois lados vem do request: não há
+            # query string, body, header, `mine=true` ou `owner` que mova esta
+            # comparação — os testes de IDOR travam exatamente isso.
+            #
+            # Guardas explícitas porque `str(None or '')` e `str('' or '')`
+            # colidem em `''`: sem elas, um chamado anônimo (`reportedByUserId`
+            # NULL) casaria com um `g.user_id` vazio.
+            actor_id = str(getattr(g, 'user_id', None) or '').strip()
+            owner_id = str(t_rows[0].get('reportedByUserId') or '').strip()
+            if not (actor_id and owner_id and actor_id == owner_id):
+                return err
+            via_pessoal = True
+
+        url = (
+            f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}'
+            f'&order=createdAt.desc&select={CHAMADOS_EVENT_READ_SELECT}'
+        )
+        if via_pessoal:
+            url += f'&type={_CHAMADOS_REQUESTER_EVENT_TYPE_FILTER}'
 
         resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket_id)}'
-            f'&order=createdAt.desc&select={CHAMADOS_EVENT_READ_SELECT}',
+            url,
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -3833,6 +3902,12 @@ def chamados_events_list(ticket_id):
             return jsonify({'error': 'Erro ao buscar o histórico'}), 502
         events = []
         for ev in (resp.json() or []):
+            # Segunda camada da allowlist de tipo (a primeira é o `type=in.(...)`
+            # acima, que evita buscar o que não será devolvido). Um `type`
+            # desconhecido, ausente ou fora da allowlist nunca vira resposta —
+            # `ticket_events.type` é texto livre, sem CHECK no banco.
+            if via_pessoal and ev.get('type') not in _CHAMADOS_REQUESTER_EVENT_TYPE_SET:
+                continue
             try:
                 urls = json.loads(ev.get('photo_urls') or '[]')
             except (TypeError, ValueError):
