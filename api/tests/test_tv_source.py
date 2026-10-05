@@ -198,6 +198,14 @@ def tv_env(root_api_module, safe_dns, monkeypatch, tmp_path):
         monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
 
+    # Desde a #193 o fetch externo endurecido mora no módulo legado do ReservaLab
+    # (`app` no sys.path), que este arquivo importa no topo. O `requests` do
+    # módulo legado é uma referência separada da de `root_api`, então o fake
+    # precisa ser injetado nos dois — senão o teste exercita a rede real.
+    legacy = sys.modules.get("app")
+    assert legacy is not None, "módulo legado do ReservaLab não foi importado"
+    monkeypatch.setattr(legacy, "requests", fake)
+
     monkeypatch.setenv("SUPABASE_JWT_SECRET", SUPABASE_JWT_SECRET)
     root_api_module._rate_limit_store.clear()
     return fake

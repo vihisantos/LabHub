@@ -15,9 +15,24 @@ class FakeDownloadResponse:
 
     def __init__(self, content: bytes):
         self.content = content
+        self.status_code = 200
+        self.ok = True
+        self.headers = {}
 
     def raise_for_status(self):
         return None
+
+    def iter_content(self, chunk_size=64 * 1024):
+        yield self.content
+
+    def close(self):
+        return None
+
+
+def _dns_publico(host, *args, **kwargs):
+    """Qualquer hostname de exemplo resolve para um IP público (#193)."""
+    import socket as _socket
+    return [(_socket.AF_INET, _socket.SOCK_STREAM, 6, '', ('93.184.216.34', 0))]
 
 
 def _make_workbook(today: date) -> bytes:
@@ -55,9 +70,22 @@ def cache_isolado(spread_module, monkeypatch, tmp_path):
 
 
 def _route_download(spread_module, monkeypatch, workbook_bytes):
-    def fake_get(url, timeout=30):
+    """Monta o download falso da planilha.
+
+    Desde a #193 o fetch externo resolve DNS e valida TODOS os IPs antes de
+    qualquer request, então o host de exemplo (`sharepoint`, `x`) precisa
+    resolver para um IP público. `getaddrinfo` é substituído aqui — num lugar só,
+    para todos os testes deste arquivo — porque resolver de verdade exigiria
+    internet, e teste que depende de internet não é hermético.
+
+    O `fake_get` aceita os kwargs que o download endurecido usa (`stream`,
+    `allow_redirects`, `timeout` como tupla); os antigos `timeout=30` seguiam
+    valendo para quem chamar com a assinatura anterior.
+    """
+    def fake_get(url, timeout=30, allow_redirects=True, stream=False):
         return FakeDownloadResponse(workbook_bytes)
     monkeypatch.setattr(spread_module, 'requests', type('FakeRequests', (), {'get': staticmethod(fake_get)})())
+    monkeypatch.setattr(spread_module.socket, 'getaddrinfo', _dns_publico)
 
 
 # ── Parser da planilha ──
@@ -243,9 +271,10 @@ def test_parse_spreadsheet_respeita_lab_count(spread_module, monkeypatch):
         wb.save(buf)
         return buf.getvalue()
 
-    def fake_get(url, timeout=30):
+    def fake_get(url, timeout=30, allow_redirects=True, stream=False):
         return FakeDownloadResponse(make_workbook_with_lab03())
     monkeypatch.setattr(spread_module, 'requests', type('FakeRequests', (), {'get': staticmethod(fake_get)})())
+    monkeypatch.setattr(spread_module.socket, 'getaddrinfo', _dns_publico)
 
     # Campus com 2 labs: "Lab 03" fica sem bucket (labs []) e "Lab 01 e 03" vira só LAB01
     hoje2, _ = spread_module._parse_spreadsheet('https://x/fake.xlsx', lab_count=2)
@@ -325,9 +354,11 @@ def test_parse_spreadsheet_emite_horario_inicio_fim_e_reservation_id(spread_modu
         wb.save(buf)
         return buf.getvalue()
 
+    def fake_get_intervalo(url, timeout=30, allow_redirects=True, stream=False):
+        return FakeDownloadResponse(make_workbook_intervalo())
     monkeypatch.setattr(spread_module, 'requests',
-                        type('FakeRequests', (), {'get': staticmethod(
-                            lambda url, timeout=30: FakeDownloadResponse(make_workbook_intervalo()))})())
+                        type('FakeRequests', (), {'get': staticmethod(fake_get_intervalo)})())
+    monkeypatch.setattr(spread_module.socket, 'getaddrinfo', _dns_publico)
 
     hoje, _ = spread_module._parse_spreadsheet('https://x/fake.xlsx')
     por_prof = {r['responsavel']: r for r in hoje}
