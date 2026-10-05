@@ -48,11 +48,11 @@ Um chamado também pode ser **arquivado** (retirado da visão ativa) sem alterar
 4. **Acompanhamento público** (`/chamados-publico/track`) — professores consultam o status pelo nome
 5. **Avaliação** (`/chamados-publico/feedback/:id`) — professores avaliam o atendimento após a resolução
 
-> Abrir um chamado pela área pessoal leva a `/chamados/tickets/:id`, que hoje
-> ainda resolve o registro na coleção local da fila e **não** consome
-> `GET /api/chamados/:id`. O backend já autoriza o detalhe do próprio solicitante;
-> a conexão da tela de detalhe é pendência de frontend documentada em
-> [Chamados — Referência](../../apps/chamados/reference.md).
+> Ao abrir um chamado pela área pessoal, `TicketDetail` resolve o registro na
+> coleção local da fila quando ela o tem e, quando não tem, em
+> `GET /api/chamados/:id` — que aceita o solicitante do próprio chamado sem
+> `ticket.view`. Ele vê o detalhe, mas a **linha do tempo fica vazia**: `/events`
+> exige `ticket.view`, e essa autorização de eventos é uma decisão à parte.
 
 ## Eventos do chamado
 
