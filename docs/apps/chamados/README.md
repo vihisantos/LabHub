@@ -2,7 +2,7 @@
 
 > Chamados técnicos e ordens de serviço para os laboratórios de informática.
 
-**Rota:** `/chamados` (painel de TI) e `/chamados-publico` (formulário público)
+**Rota:** `/chamados` (painel de TI), `/chamados/meus` (área pessoal do solicitante) e `/chamados-publico` (formulário público)
 **Cor:** `#f59e0b` (âmbar)
 **Código:** `src/apps/chamados`, `src/apps/chamados-publico`, `src/apps/chamados-dashboard`
 
@@ -21,6 +21,7 @@ O Chamados centraliza as solicitações de suporte e ordens de serviço de TI. E
 ## Principais funcionalidades
 
 - **Abertura pública** — professores enviam chamados por QR Code ou link, sem autenticação
+- **Meus Chamados** — área pessoal do solicitante autenticado: os chamados que ele abriu, agrupados por data, com pesquisa simples. Não é um filtro da fila de atendimento
 - **Painel de TI** — filtro, atribuição, atualização e resolução de chamados
 - **Controle de SLA** — prazos de resposta e resolução por prioridade
 - **Atualizações em tempo real** — mudanças de status chegam ao professor na hora
@@ -35,8 +36,13 @@ O Chamados centraliza as solicitações de suporte e ordens de serviço de TI. E
 | Ator | Nível de acesso | O que pode fazer |
 |------|-----------------|------------------|
 | Professor (público) | Não autenticado | Abrir chamado, acompanhar status e avaliar o atendimento |
+| Solicitante (autenticado, sem Action `ticket.*`) | Autenticado, com membership ativa | Listar os próprios chamados (`/chamados/meus`) e ler o detalhe dos próprios. Sem acesso à fila operacional nem a qualquer Action de gestão |
 | Técnico | `technician` ou `admin` | Ver e atualizar chamados, comentar, resolver |
 | Admin | `admin` ou `super_admin` | Tudo acima, mais atribuir técnicos e gerenciar SLA |
+
+O escopo pessoal do solicitante é decidido no servidor, a partir da identidade do
+JWT — nunca por parâmetro do cliente. Ele **não** é RBAC: nenhuma Action é criada
+para ele. Regras por endpoint em [Referência](reference.md).
 
 ## Telas
 

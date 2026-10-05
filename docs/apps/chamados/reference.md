@@ -21,6 +21,15 @@ interface Ticket {
   priority: TicketPriority
   reportedBy: string
   reportedByEmail: string
+  /**
+   * UUID do solicitante autenticado (`auth.uid()` na criação). É a ÚNICA
+   * identidade de solicitante confiável — `reportedBy`/`reportedByEmail` são
+   * texto livre. `null`/ausente = chamado anônimo ou anterior à migration 056.
+   * É o campo que a listagem `?mine=true` e a via pessoal do detalhe comparam
+   * com `g.user_id`. Fica de fora de `TicketFormData`, então nenhum payload de
+   * criação pode declarar de quem é o chamado.
+   */
+  reportedByUserId?: string | null
   assignedTo: string
   assignedToUserId: string
   ticketNumber: number
@@ -198,13 +207,19 @@ Regras da tela pessoal:
   "Tentar novamente"; os chamados da equipe nunca aparecem no lugar.
 - **"Meus Atendimentos" continua sendo um chip da fila** — é recorte de trabalho
   atribuído (só abertos), não histórico pessoal.
-- **O detalhe pessoal é liberado pelo servidor.** Abrir um chamado a partir de
-  Meus Chamados chama `GET /api/chamados/:id`, que aceita o solicitante do
-  próprio chamado sem `ticket.view` (ver a seção do endpoint abaixo). Nenhuma
-  regra de autorização vive no frontend.
+- **Abrir um chamado é um fluxo ainda incompleto no frontend.** O item navega para
+  `/chamados/tickets/:id`, mas `pages/TicketDetail.tsx` resolve o registro na
+  coleção local da fila (`useTicketsContext()` → `ticketService.getById`), não em
+  `GET /api/chamados/:id` — `getByIdRemote` não é chamado por nenhuma página.
+  Sem `ticket.view` a fila não é populada para o solicitante, e a tela cai no
+  "Chamado não encontrado" (`TicketDetail.tsx:164`). O mesmo vale para o
+  histórico: `/events` exige `ticket.view` e o erro é absorvido
+  (`.catch(() => {})`). Conectar `TicketDetail` a `getByIdRemote`, sem cair na
+  fila, é **próximo passo de frontend** — não uma regra de autorização, que
+  continua exclusivamente no servidor. Ver "GET /api/chamados/:id" abaixo.
 
 Implementação da apresentação: `utils/myTickets.ts` (`groupTicketsByUpdateDate`,
-`filterTicketsByQuery`, `formatUpdatedLabel`, `dateGroupLabel`).
+`filterTicketsByQuery`, `formatUpdatedLabel`, `dateGroupLabel`)。
 
 ### GET /api/chamados/:id
 

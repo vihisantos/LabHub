@@ -43,9 +43,16 @@ Um chamado também pode ser **arquivado** (retirado da visão ativa) sem alterar
 ## Pontos de acesso
 
 1. **Formulário público** (`/chamados-publico`) — professores abrem chamados por QR Code ou link, sem login
-2. **Painel de TI** (`/chamados`) — técnicos gerenciam, atribuem e resolvem chamados
-3. **Acompanhamento público** (`/chamados-publico/track`) — professores consultam o status pelo nome
-4. **Avaliação** (`/chamados-publico/feedback/:id`) — professores avaliam o atendimento após a resolução
+2. **Meus Chamados** (`/chamados/meus`) — área pessoal do solicitante autenticado: os chamados que ele abriu, com pesquisa simples e agrupamento por data. O escopo é decidido no servidor, a partir da identidade do JWT; não é a fila de atendimento nem depende de Action
+3. **Painel de TI** (`/chamados/tickets`) — técnicos gerenciam, atribuem e resolvem chamados
+4. **Acompanhamento público** (`/chamados-publico/track`) — professores consultam o status pelo nome
+5. **Avaliação** (`/chamados-publico/feedback/:id`) — professores avaliam o atendimento após a resolução
+
+> Abrir um chamado pela área pessoal leva a `/chamados/tickets/:id`, que hoje
+> ainda resolve o registro na coleção local da fila e **não** consome
+> `GET /api/chamados/:id`. O backend já autoriza o detalhe do próprio solicitante;
+> a conexão da tela de detalhe é pendência de frontend documentada em
+> [Chamados — Referência](../../apps/chamados/reference.md).
 
 ## Eventos do chamado
 

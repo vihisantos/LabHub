@@ -125,8 +125,13 @@ Ordem das duas vias no detalhe, e por que importa:
 > fila operacional `/chamados/tickets`: uma única pesquisa de apresentação sobre
 > o conjunto já autorizado, sem filtros operacionais e **sem fallback** para
 > `GET /api/chamados` — se a consulta pessoal falhar, a tela mostra o erro.
-> Ao abrir um chamado dessa tela, o `GET /api/chamados/:id` resolve pela via
-> pessoal acima. Nenhuma regra de autorização vive no frontend.
+>
+> **Pendência de frontend:** a tela pessoal navega para `/chamados/tickets/:id`,
+> mas `pages/TicketDetail.tsx` ainda resolve o chamado na coleção local da fila e
+> não chama `GET /api/chamados/:id` — logo, a via pessoal acima ainda não é
+> exercida pela interface. Conectar `TicketDetail` a `ticketService.getByIdRemote`
+> é próximo passo de frontend; a regra do servidor já está correta e testada.
+> Nenhuma regra de autorização vive no frontend.
 
 ### Enforcement no handler
 
