@@ -14,6 +14,11 @@ from app import (
     redis,
     logger,
     _is_safe_url,
+    # #193: helpers genéricos de fetch externo endurecido (SSRF), compartilhados
+    # com o módulo legado deste arquivo. A dependência fica na direção que já
+    # existia (api → reservalab); o inverso criaria import circular.
+    _ext_validate_source_url,
+    _ext_fetch_source_bytes,
     _cache_path,
     _REJECTABLE_STATUS,
     _REJECTED_STATUS,
@@ -645,32 +650,17 @@ TV_REFRESH_MIN, TV_REFRESH_MAX = 60, 3600
 def _tv_validate_source_url(url):
     """Valida a URL da fonte com proteção SSRF em profundidade.
 
-    Camadas: string/tamanho → HTTPS only → _is_safe_url (herdada do ReservaLab:
+    Camadas: string/tamanho → HTTPS only → `_is_safe_url` (herdada do ReservaLab:
     bloqueia localhost, IPs literais privados/loopback/link-local/reservados e
     esquemas não-HTTP) → resolução DNS validando TODOS os IPs retornados.
+
+    A implementação mora em `_ext_validate_source_url` (módulo legado do
+    ReservaLab, que este arquivo já importa) desde a #193: uma proteção SSRF
+    duplicada diverge, e a que diverge é a que esquece um hop de redirect. Esta
+    função continua existindo com o mesmo nome e a mesma semântica — só delega,
+    e o limite continua sendo o da TV.
     """
-    if not isinstance(url, str) or not url or len(url) > TV_SOURCE_MAX_URL_LEN:
-        return False
-    parsed = urlparse(url)
-    if parsed.scheme != 'https':
-        return False
-    if not _is_safe_url(url):
-        return False
-    host = (parsed.hostname or '').lower()
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except Exception:
-        return False
-    for info in infos:
-        addr = info[4][0]
-        try:
-            ip = ipaddress.ip_address(addr.split('%')[0])
-        except ValueError:
-            return False
-        if ip.is_private or ip.is_loopback or ip.is_link_local \
-                or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            return False
-    return True
+    return _ext_validate_source_url(url, TV_SOURCE_MAX_URL_LEN)
 
 
 def _tv_fetch_source_bytes(url):
@@ -679,40 +669,16 @@ def _tv_fetch_source_bytes(url):
     Retorna (bytes | None, erro | None). Redirects são seguidos manualmente
     (limite TV_SOURCE_MAX_REDIRECTS) para impedir redirecionamento para hosts
     internos. O download é streamado com teto de tamanho.
+
+    Delega para `_ext_fetch_source_bytes` (ver `_tv_validate_source_url`) com os
+    limites da TV.
     """
-    current = url
-    for _hop in range(TV_SOURCE_MAX_REDIRECTS + 1):
-        if not _tv_validate_source_url(current):
-            return None, 'URL inválida ou não permitida (proteção SSRF)'
-        try:
-            resp = requests.get(
-                current, timeout=TV_SOURCE_TIMEOUT, allow_redirects=False, stream=True,
-            )
-        except requests.exceptions.Timeout:
-            return None, 'Tempo esgotado ao contatar a fonte'
-        except requests.exceptions.RequestException as exc:
-            return None, f'Falha de rede ({exc.__class__.__name__})'
-        if resp.status_code in (301, 302, 303, 307, 308):
-            loc = resp.headers.get('Location', '')
-            resp.close()
-            if not loc:
-                return None, 'Redirect sem destino'
-            current = urljoin(current, loc)
-            continue
-        if not resp.ok:
-            resp.close()
-            return None, f'A fonte respondeu HTTP {resp.status_code}'
-        chunks, total = [], 0
-        try:
-            for chunk in resp.iter_content(64 * 1024):
-                total += len(chunk)
-                if total > TV_SOURCE_MAX_BYTES:
-                    return None, 'Arquivo maior que o limite permitido'
-                chunks.append(chunk)
-        finally:
-            resp.close()
-        return b''.join(chunks), None
-    return None, 'Excesso de redirects'
+    return _ext_fetch_source_bytes(
+        url,
+        max_bytes=TV_SOURCE_MAX_BYTES,
+        timeout=TV_SOURCE_TIMEOUT,
+        max_redirects=TV_SOURCE_MAX_REDIRECTS,
+    )
 
 
 _TV_FIELD_ALIASES = {

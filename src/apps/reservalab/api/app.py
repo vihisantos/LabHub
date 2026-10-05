@@ -13,8 +13,9 @@ import re
 import hashlib
 import uuid
 import ipaddress
+import socket
 from zoneinfo import ZoneInfo
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urljoin
 from io import BytesIO
 from dotenv import load_dotenv
 from upstash_redis import Redis
@@ -288,22 +289,165 @@ def _is_safe_url(url):
     return True
 
 
+# ── Fetch externo endurecido (#193) ────────────────────────────────────────────
+#
+# Havia aqui um `requests.get(spreadsheet_url, timeout=30)` que confiava em
+# `_is_safe_url` sozinho. Três furos, todos reais:
+#
+#   1. `_is_safe_url` valida o HOSTNAME LITERAL, não o IP resolvido. Um domínio
+#      público apontado para 10.x/127.0.0.1 passava inteiro — o bypass clássico
+#      de SSRF por DNS.
+#   2. `requests.get` segue redirects sozinho. `https://dominio-ok/...` podia
+#      responder `302 → http://127.0.0.1/...` e o `requests` obedeceria, sem
+#      revalidar nada.
+#   3. `response.content` lia o corpo inteiro em memória, sem teto. A URL vem da
+#      configuração do workspace, então um servidor apontado por ela podia
+#      alocar o processo.
+#
+# As helpers abaixo são o padrão endurecido, e é o MESMO código que a TV já usa
+# (`api/app.py` delega para cá — o módulo legado é importado por aquele, então a
+# dependência fica na direção que já existe e não nasce circular). Cada chamador
+# passa seus próprios limites.
+#
+# Por que genérico e não uma cópia local: duas implementações de proteção SSRF
+# divergem, e a que diverge é a que esquece de um hop de redirect. Uma só
+# implementação significa que o que a TV prova vale para o ReservaLab por
+# construção, não por semelhança de texto.
+
+EXT_SOURCE_MAX_URL_LEN = 2048
+EXT_SOURCE_MAX_BYTES = 8 * 1024 * 1024  # 8 MB
+EXT_SOURCE_TIMEOUT = (10, 30)  # (conexão, leitura)
+EXT_SOURCE_MAX_REDIRECTS = 3
+
+
+def _ext_validate_source_url(url, max_url_len=EXT_SOURCE_MAX_URL_LEN):
+    """Valida URL de fonte externa com proteção SSRF em profundidade.
+
+    Camadas: string/tamanho → HTTPS only → `_is_safe_url` (bloqueia localhost,
+    IPs literais privados/loopback/link-local/reservados e esquemas não-HTTP) →
+    resolução DNS validando **TODOS** os IPs retornados.
+
+    Validar todos, e não só o primeiro, é o ponto: `getaddrinfo` pode devolver
+    uma resposta com um endereço público e outro privado, e o `requests` pode
+    escolher qualquer um dos dois na hora de conectar.
+    """
+    if not isinstance(url, str) or not url or len(url) > max_url_len:
+        return False
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme != 'https':
+        return False
+    if not _is_safe_url(url):
+        return False
+    host = (parsed.hostname or '').lower()
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr.split('%')[0])
+        except ValueError:
+            return False
+        if ip.is_private or ip.is_loopback or ip.is_link_local \
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            return False
+    return True
+
+
+def _ext_fetch_source_bytes(url, max_bytes=EXT_SOURCE_MAX_BYTES,
+                            timeout=EXT_SOURCE_TIMEOUT,
+                            max_redirects=EXT_SOURCE_MAX_REDIRECTS):
+    """Baixa bytes de fonte externa revalidando a SSRF a cada hop de redirect.
+
+    Retorna `(bytes | None, erro | None)`. O erro é uma mensagem CURTA e já
+    sanitizada: nada de URL resolvida, DNS, header ou exceção original. Quem
+    chama registra o detalhe técnico no log; a resposta HTTP continua genérica.
+    """
+    current = url
+    for _hop in range(max_redirects + 1):
+        if not _ext_validate_source_url(current):
+            return None, 'URL inválida ou não permitida (proteção SSRF)'
+        try:
+            resp = requests.get(
+                current, timeout=timeout, allow_redirects=False, stream=True,
+            )
+        except requests.exceptions.Timeout:
+            return None, 'Tempo esgotado ao contatar a fonte'
+        except requests.exceptions.RequestException as exc:
+            # Só o NOME da classe: a mensagem original carrega host, porta e
+            # às vezes credencial na query string.
+            return None, f'Falha de rede ({exc.__class__.__name__})'
+        if resp.status_code in (301, 302, 303, 307, 308):
+            loc = resp.headers.get('Location', '')
+            resp.close()
+            if not loc:
+                return None, 'Redirect sem destino'
+            try:
+                current = urljoin(current, loc)
+            except Exception:
+                return None, 'Redirect inválido'
+            continue
+        if not resp.ok:
+            resp.close()
+            return None, f'A fonte respondeu HTTP {resp.status_code}'
+        chunks, total = [], 0
+        try:
+            for chunk in resp.iter_content(64 * 1024):
+                total += len(chunk)
+                if total > max_bytes:
+                    return None, 'Arquivo maior que o limite permitido'
+                chunks.append(chunk)
+        except requests.exceptions.Timeout:
+            return None, 'Tempo esgotado ao ler a fonte'
+        except requests.exceptions.RequestException as exc:
+            return None, f'Falha de rede ({exc.__class__.__name__})'
+        finally:
+            resp.close()
+        return b''.join(chunks), None
+    return None, 'Excesso de redirects'
+
+
+# Limites da planilha de reservas. Mesmos valores da TV porque a fonte é do
+# mesmo tipo (uma planilha XLSX); ficam nomeados aqui para que divergir, se
+# algum dia, seja uma decisão visível e não um número trocado em silêncio.
+SPREADSHEET_MAX_URL_LEN = EXT_SOURCE_MAX_URL_LEN
+SPREADSHEET_MAX_BYTES = EXT_SOURCE_MAX_BYTES  # 8 MB
+SPREADSHEET_TIMEOUT = EXT_SOURCE_TIMEOUT  # (10, 30)
+SPREADSHEET_MAX_REDIRECTS = EXT_SOURCE_MAX_REDIRECTS
+
+
 def _parse_spreadsheet(spreadsheet_url, lab_count=2):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
     reservas_hoje = []
     reservas_semana = []
     if not spreadsheet_url:
         return reservas_hoje, reservas_semana
-    if not _is_safe_url(spreadsheet_url):
+    if not _ext_validate_source_url(spreadsheet_url, SPREADSHEET_MAX_URL_LEN):
         logger.error("URL da planilha rejeitada (proteção SSRF): %s", spreadsheet_url)
         return reservas_hoje, reservas_semana
+    logger.info("Baixando planilha...")
+    content, fetch_error = _ext_fetch_source_bytes(
+        spreadsheet_url,
+        max_bytes=SPREADSHEET_MAX_BYTES,
+        timeout=SPREADSHEET_TIMEOUT,
+        max_redirects=SPREADSHEET_MAX_REDIRECTS,
+    )
+    if fetch_error:
+        # O detalhe fica no log; o contrato de retorno é lista vazia, como antes.
+        logger.error("Falha ao baixar a planilha (%s): %s", fetch_error, spreadsheet_url)
+        return reservas_hoje, reservas_semana
+    # Daqui para baixo é o parser de antes, byte a byte: o `try` externo continua
+    # sendo a rede de segurança do laço de linhas.
     try:
-        logger.info(f"Baixando planilha...")
-        response = requests.get(spreadsheet_url, timeout=30)
-        response.raise_for_status()
         try:
             # read_only + data_only: lê só os valores (sem fórmulas/render), bem mais rápido
-            wb = load_workbook(BytesIO(response.content), read_only=True, data_only=True)
+            wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
             logger.info("Planilha carregada!")
         except Exception as e:
             logger.error(f"Erro ao carregar planilha: {e}")
