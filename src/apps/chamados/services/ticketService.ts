@@ -2,10 +2,45 @@ import type { Ticket, TicketFormData, ChamadosReport } from '../types'
 import type { TicketEvent, TicketEventInput } from '../types'
 import { createSyncService } from '../../../lib/sync'
 import { getCol, setCol } from '../../../lib/db'
+import { currentUserCollectionKey } from '../../../lib/cacheNamespace'
 import { logService } from '../../../core/logs/service'
 import { defaultDb } from '../../../lib/supabase'
 
-const local = createSyncService<Ticket>('chamados')
+/**
+ * Fila operacional de Chamados — cache namespaced por usuário (#344).
+ *
+ * A coleção física é `chamados:<userId>`, resolvida do `sub` do JWT a cada
+ * operação. Consequência que fecha a issue: **não existe caminho de leitura que
+ * atravesse usuários.** B resolve `chamados:B`, que não contém nada de A — nem
+ * quando o `pullRemote` de B falha, nem quando B é de outra unidade, nem
+ * quando A e B dividem o workspace (por isso `workspace_id` não serviria: é
+ * fronteira de tenant, não de pessoa).
+ *
+ * Offline legítimo intacto: o cache de A continua em `chamados:A` depois do
+ * logout, do F5 e de semanas sem rede, e A o reencontra ao logar de novo.
+ * `signOut` não apaga nada, e não precisa.
+ *
+ * A chave legada `chamados` (sem dono) NÃO é adotada: não há como provar de quem
+ * ela era. Ela fica inerte no IndexedDB — ver `cacheNamespace.ts`.
+ *
+ * `resolveKey` é o gancho que faz isso acontecer num lugar só. Nenhum consumidor
+ * concatena string, e a identidade não é parâmetro de nenhum método.
+ */
+const local = createSyncService<Ticket>(
+  'chamados',
+  true,
+  () => currentUserCollectionKey('chamados'),
+)
+
+/**
+ * Chave física do cache da fila do usuário da sessão.
+ *
+ * `null` sem sessão. Chamado pelo hook e pelos alertas, que leem a coleção
+ * direto — o mesmo resolvedor, e não uma concatenação própria.
+ */
+export function chamadosCacheKey(): string | null {
+  return currentUserCollectionKey('chamados')
+}
 
 const API_BASE = '/api/chamados'
 
@@ -73,22 +108,56 @@ function normalizeTicket<T extends Ticket>(ticket: T): T {
   return ticket
 }
 
+/**
+ * Coleção bruta do cache da fila, do usuário da sessão.
+ *
+ * `[]` sem sessão — fail-closed. Antes era `getCol('chamados')`, que lia a
+ * chave compartilhada e por isso expunha a fila do usuário anterior.
+ *
+ * Usada por `useTickets` (Realtime e saneamento), `ticketAlerts` e
+ * `CoordinatorHome`. É o mesmo resolvedor do `local` acima: um lugar só decide de
+ * quem é o cache.
+ */
+export function cachedTickets(): Ticket[] {
+  const key = chamadosCacheKey()
+  return key ? getCol<Ticket>(key) : []
+}
+
+/**
+ * Grava a fila inteira no namespace do usuário da sessão.
+ *
+ * Sem sessão, um `Set` vazio: o registro foi autorizado para um usuário que já
+ * não está na sessão, e gravá-lo sob `null` o tornaria compartilhado de novo.
+ */
+function persistTickets(tickets: Ticket[]) {
+  const key = chamadosCacheKey()
+  if (!key) return
+  tickets.forEach(normalizeTicket)
+  setCol(key, tickets)
+}
+
+/** Cache do usuário da sessão: INSERT e o caminho pessoal. */
 function persistLocal(ticket: Ticket) {
+  const key = chamadosCacheKey()
+  if (!key) return
   normalizeTicket(ticket)
-  const items = getCol<Ticket>('chamados')
+  const items = getCol<Ticket>(key)
   const idx = items.findIndex((t) => t.id === ticket.id)
   if (idx === -1) items.push(ticket)
   else items[idx] = ticket
-  setCol('chamados', items)
+  setCol(key, items)
 }
 
-function persistTickets(tickets: Ticket[]) {
-  tickets.forEach(normalizeTicket)
-  setCol('chamados', tickets)
-}
-
+/**
+ * Mescla a fila remota no cache do usuário da sessão.
+ *
+ * Só grava quando o `pullRemote` foi autorizado — isto é, quando o backend
+ * respondeu 200. É a mesma condição de antes da #344; o que muda é a chave.
+ */
 function mergeRemote(remote: Ticket[]) {
-  const items = getCol<Ticket>('chamados')
+  const key = chamadosCacheKey()
+  if (!key) return
+  const items = getCol<Ticket>(key)
   const map = new Map(items.map((t) => [t.id, t]))
   for (const t of remote) {
     const existing = map.get(t.id)
@@ -96,7 +165,7 @@ function mergeRemote(remote: Ticket[]) {
       map.set(t.id, t)
     }
   }
-  setCol('chamados', [...map.values()])
+  setCol(key, [...map.values()])
 }
 
 export const ticketService = {
@@ -106,7 +175,18 @@ export const ticketService = {
 
   getById: (id: string) => local.getById(id),
 
-  getByIdNoFilter: (id: string) => getCol<Ticket>('chamados').find((t) => t.id === id),
+  /**
+   * Busca por id no cache BRUTO, sem o filtro de workspace.
+   *
+   * Só o usuário da sessão enxerga a fila dele: `getCol` recebe
+   * `chamados:<userId>`, então o id de A simplesmente não existe aqui. Era um
+   * bypass explícito do filtro — agora é um bypass do namespace, e o namespace
+   * não tem exce��ão.
+   */
+  getByIdNoFilter: (id: string) => {
+    const key = chamadosCacheKey()
+    return key ? getCol<Ticket>(key).find((t) => t.id === id) : undefined
+  },
 
   isArchived: (ticket: Ticket) => ticket.archived === true || ticket.status === 'fechado',
 

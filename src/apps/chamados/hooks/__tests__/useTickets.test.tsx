@@ -16,6 +16,7 @@ vi.mock('../../../../lib/supabase', () => ({
 }))
 
 const mockGetAll = vi.hoisted(() => vi.fn())
+const mockCachedTickets = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
 const mockPullRemote = vi.hoisted(() => vi.fn())
 const mockCreate = vi.hoisted(() => vi.fn())
 const mockUpdate = vi.hoisted(() => vi.fn())
@@ -32,6 +33,9 @@ vi.mock('../../services/ticketService', () => ({
     update: mockUpdate,
     remove: mockRemove,
   },
+  // #344: o Realtime e o saneamento leem `cachedTickets()` — a fila do usuário da
+  // sessão (`chamados:<userId>`), não a chave literal compartilhada.
+  cachedTickets: mockCachedTickets,
 }))
 vi.mock('../../services/ticketAlerts', () => ({
   syncNewTicketAlerts: mockSyncAlerts,

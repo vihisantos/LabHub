@@ -17,7 +17,14 @@ vi.mock('../../../core/auth/useAuth', () => ({
 }))
 
 vi.mock('../../../core/auth/service', () => ({
-  authService: { refreshProfile: vi.fn() },
+  // `getCurrentUser` é consultado pela #344: é de onde sai o `userId` que resolve
+  // a chave do cache (`chamados:<userId>`). Sem ele, `cachedTickets()` do
+  // CoordinatorHome não tem namespace e a rota falha por um motivo que não tem
+  // relação com o que este arquivo testa.
+  authService: {
+    refreshProfile: vi.fn(),
+    getCurrentUser: () => ({ id: 'test-admin' }),
+  },
 }))
 
 vi.mock('../../../core/permissions/useLeadership', () => ({

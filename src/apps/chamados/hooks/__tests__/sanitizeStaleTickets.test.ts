@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Ticket } from '../../types'
 
-const mockGetCol = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
+const mockCachedTickets = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
 const mockPersistTickets = vi.hoisted(() => vi.fn())
 
 vi.mock('../../services/ticketService', () => ({
   ticketService: {
     persistTickets: mockPersistTickets,
   },
-}))
-
-vi.mock('../../../../lib/db', () => ({
-  getCol: mockGetCol,
+  // Desde a #344 o saneamento lê `cachedTickets()`, que é a coleção do usuário da
+  // sessão (`chamados:<userId>`). O mock reflete esse contrato: o que o hook lê é
+  // a fila do usuário, não a chave literal compartilhada.
+  cachedTickets: mockCachedTickets,
 }))
 
 import { sanitizeStaleTickets } from '../useTickets'
@@ -47,7 +47,7 @@ beforeEach(() => {
 describe('sanitizeStaleTickets', () => {
   it('não altera tickets com dados válidos', () => {
     const ticket = makeTicket()
-    mockGetCol.mockReturnValue([ticket])
+    mockCachedTickets.mockReturnValue([ticket])
 
     sanitizeStaleTickets()
 
@@ -58,7 +58,7 @@ describe('sanitizeStaleTickets', () => {
 
   it('corrige ticket com createdAt inválido (Invalid Date)', () => {
     const ticket = makeTicket({ createdAt: 'invalid-date' })
-    mockGetCol.mockReturnValue([ticket])
+    mockCachedTickets.mockReturnValue([ticket])
 
     sanitizeStaleTickets()
 
@@ -70,7 +70,7 @@ describe('sanitizeStaleTickets', () => {
 
   it('corrige ticket com createdAt vazio', () => {
     const ticket = makeTicket({ createdAt: '' })
-    mockGetCol.mockReturnValue([ticket])
+    mockCachedTickets.mockReturnValue([ticket])
 
     sanitizeStaleTickets()
 
@@ -81,7 +81,7 @@ describe('sanitizeStaleTickets', () => {
 
   it('corrige ticket com createdAt undefined', () => {
     const ticket = makeTicket({ createdAt: undefined as any })
-    mockGetCol.mockReturnValue([ticket])
+    mockCachedTickets.mockReturnValue([ticket])
 
     sanitizeStaleTickets()
 
@@ -92,7 +92,7 @@ describe('sanitizeStaleTickets', () => {
 
   it('corrige ticket com ticketNumber null', () => {
     const ticket = makeTicket({ ticketNumber: null as any })
-    mockGetCol.mockReturnValue([ticket])
+    mockCachedTickets.mockReturnValue([ticket])
 
     sanitizeStaleTickets()
 
@@ -103,7 +103,7 @@ describe('sanitizeStaleTickets', () => {
 
   it('corrige ticket com ticketNumber undefined', () => {
     const ticket = makeTicket({ ticketNumber: undefined as any })
-    mockGetCol.mockReturnValue([ticket])
+    mockCachedTickets.mockReturnValue([ticket])
 
     sanitizeStaleTickets()
 
@@ -118,7 +118,7 @@ describe('sanitizeStaleTickets', () => {
     const missingNumber = makeTicket({ id: 't-missing-num', ticketNumber: null as any, createdAt: '2026-06-25T10:00:00Z' })
     const both = makeTicket({ id: 't-both', ticketNumber: undefined as any, createdAt: '' })
 
-    mockGetCol.mockReturnValue([valid, invalidDate, missingNumber, both])
+    mockCachedTickets.mockReturnValue([valid, invalidDate, missingNumber, both])
 
     sanitizeStaleTickets()
 
@@ -142,7 +142,7 @@ describe('sanitizeStaleTickets', () => {
   })
 
   it('não grava no IndexedDB quando não há tickets para corrigir', () => {
-    mockGetCol.mockReturnValue([])
+    mockCachedTickets.mockReturnValue([])
 
     sanitizeStaleTickets()
 
@@ -152,7 +152,7 @@ describe('sanitizeStaleTickets', () => {
   it('usa timestamp atual para tickets com data inválida', () => {
     const before = Date.now()
     const ticket = makeTicket({ createdAt: 'not-a-date' })
-    mockGetCol.mockReturnValue([ticket])
+    mockCachedTickets.mockReturnValue([ticket])
 
     sanitizeStaleTickets()
 

@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Ticket, TicketFormData, TicketStatus } from '../types'
-import { ticketService } from '../services/ticketService'
+import { ticketService, cachedTickets } from '../services/ticketService'
 import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket, syncSlaAlerts } from '../services/ticketAlerts'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
-import { getCol } from '../../../lib/db'
 
 /**
  * Corrige tickets antigos no IndexedDB que estejam sem createdAt ou ticketNumber.
- * Roda apenas na primeira carga para não impactar performance.
+ * Roda apenas na primeira carga para não impacting performance.
+ *
+ * `cachedTickets()` é o cache do USUÁRIO DA SESSÃO (`chamados:<userId>`), pelo
+ * mesmo resolvedor do serviço — não pela chave literal, que era compartilhada
+ * entre usuários (#344).
  */
 export function sanitizeStaleTickets(): void {
-  const items = getCol<Ticket>('chamados')
+  const items = cachedTickets()
   const now = new Date().toISOString()
   let dirty = false
   for (const t of items) {
@@ -92,11 +95,13 @@ export function useTickets() {
           syncSlaAlerts()
           return [newTicket, ...prev].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
         })
-        // Persiste no IndexedDB para sobreviver a refresh/reabertura.
+        // Persiste no IndexedDB para sobreviver a refresh/reabertura, no
+        // namespace do usuário da sessão (#344).
+        const atual = cachedTickets()
         ticketService.persistTickets(
-          getCol<Ticket>('chamados').some((t) => t.id === newTicket.id)
-            ? getCol<Ticket>('chamados')
-            : [...getCol<Ticket>('chamados'), newTicket].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+          atual.some((t) => t.id === newTicket.id)
+            ? atual
+            : [...atual, newTicket].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
         )
       } else if (payload.eventType === 'UPDATE') {
         const updated = payload.new as Ticket
@@ -106,7 +111,7 @@ export function useTickets() {
           prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)),
         )
         // Merge no IndexedDB: atualiza o ticket mantendo os dados locais mais recentes.
-        const items = getCol<Ticket>('chamados')
+        const items = cachedTickets()
         const idx = items.findIndex((t) => t.id === updated.id)
         if (idx !== -1) items[idx] = { ...items[idx], ...updated }
         ticketService.persistTickets(items)
@@ -114,7 +119,7 @@ export function useTickets() {
         const deleted = payload.old as Pick<Ticket, 'id'>
         setTickets((prev) => prev.filter((t) => t.id !== deleted.id))
         ticketService.persistTickets(
-          getCol<Ticket>('chamados').filter((t) => t.id !== deleted.id),
+          cachedTickets().filter((t) => t.id !== deleted.id),
         )
       }
     },

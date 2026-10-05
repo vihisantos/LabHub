@@ -26,6 +26,7 @@ const mockSyncAlerts = vi.hoisted(() => vi.fn())
 const mockAlertFor = vi.hoisted(() => vi.fn())
 const mockMarkLocal = vi.hoisted(() => vi.fn())
 const mockPersistTickets = vi.hoisted(() => vi.fn())
+const mockCachedTickets = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
 
 vi.mock('../../services/ticketService', () => ({
   ticketService: {
@@ -36,6 +37,10 @@ vi.mock('../../services/ticketService', () => ({
     remove: mockRemove,
     persistTickets: mockPersistTickets,
   },
+  // #344: o Realtime persiste lendo `cachedTickets()` — a fila do usuário da
+  // sessão (`chamados:<userId>`). Antes lia a chave literal `chamados`, que era
+  // compartilhada entre quem logasse no mesmo navegador.
+  cachedTickets: mockCachedTickets,
 }))
 
 vi.mock('../../services/ticketAlerts', () => ({
@@ -43,14 +48,6 @@ vi.mock('../../services/ticketAlerts', () => ({
   alertForNewTickets: mockAlertFor,
   markLocalTicket: mockMarkLocal,
   syncSlaAlerts: vi.fn(),
-}))
-
-const mockGetCol = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
-const mockSetCol = vi.hoisted(() => vi.fn())
-
-vi.mock('../../../../lib/db', () => ({
-  getCol: mockGetCol,
-  setCol: mockSetCol,
 }))
 
 import { useTickets } from '../useTickets'
@@ -237,7 +234,7 @@ describe('useTickets — Realtime persiste no IndexedDB', () => {
 
   it('UPDATE: persiste a mudança no cache local', async () => {
     mockGetAll.mockReturnValue([makeTicket()])
-    mockGetCol.mockReturnValue([makeTicket()])
+    mockCachedTickets.mockReturnValue([makeTicket()])
 
     renderHook(() => useTickets())
     await act(async () => {})
@@ -291,7 +288,7 @@ describe('useTickets — Realtime persiste no IndexedDB', () => {
 
   it('UPDATERealtime + reabura: ticket mantém valor atualizado', async () => {
     mockGetAll.mockReturnValue([makeTicket()])
-    mockGetCol.mockReturnValue([makeTicket()])
+    mockCachedTickets.mockReturnValue([makeTicket()])
 
     const { unmount } = renderHook(() => useTickets())
     await act(async () => {})

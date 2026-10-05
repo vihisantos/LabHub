@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { getCol, setCol, clearCache } from '../../../../lib/db'
+import { seedChamados } from '../../../../test/helpers'
 import { notificationService } from '../../../../core/notifications/service'
 import type { AppNotification } from '../../../../core/notifications/types'
 import { ticketService } from '../ticketService'
@@ -32,7 +33,7 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
 }
 
 function seed(...tickets: Ticket[]) {
-  setCol('chamados', tickets)
+  seedChamados(tickets)
 }
 
 describe('syncNewTicketAlerts', () => {

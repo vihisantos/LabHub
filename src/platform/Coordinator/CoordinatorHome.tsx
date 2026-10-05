@@ -24,7 +24,8 @@ import {
 import type { TeamMember } from '../../core/permissions/membership'
 import type { Ticket } from '../../apps/chamados/types'
 import { analyzeTickets } from '../../apps/chamados/services/ticketStats'
-import { getCol, onCollectionChange } from '../../lib/db'
+import { cachedTickets, chamadosCacheKey } from '../../apps/chamados/services/ticketService'
+import { onCollectionChange } from '../../lib/db'
 import { slaConfigService } from '../../apps/chamados/services/slaConfigService'
 import {
   analyzeSlaByWorkspace,
@@ -238,28 +239,40 @@ export function CoordinatorHome() {
    * Invalidação passiva, sem duplicar ciclo: o Central NÃO monta `useTickets`
    * (poll 15s + realtime + pullRemote + alertas) nem cria poll/subscription/
    * store próprio. Ele apenas assina a gravação do cache bruto via
-   * `onCollectionChange('chamados')` (emitido pelo `setCol` já existente) e
-   * recomputa o SLA na renderização seguinte, sempre lendo `getCol('chamados')`
+   * `onCollectionChange(chamadosCacheKey())` (emitido pelo `setCol` já existente)
+   * e recomputa o SLA na renderização seguinte, sempre lendo o cache bruto
    * multiunidade — nunca o estado workspace-filtrado.
+   *
+   * `chamadosCacheKey()` é o namespace do USUÁRIO DA SESSÃO (#344), e é
+   * recomputado a cada renderização: quando B entra no mesmo navegador, o
+   * effect reassina na chave de B e o Central passa a ler a fila de B. Sem isso,
+   * a assinatura ficaria presa à chave de A.
+   *
+   * A leitura multiunidade continua correta por construção: o cache de B só
+   * contém o que o backend autorizou para B, e o filtro por `visibleUnits`
+   * continua sendo o que limita a exibição.
    */
+  const cacheKey = chamadosCacheKey()
   const [, bumpTickets] = useState(0)
-  useEffect(() => onCollectionChange('chamados', () => bumpTickets((v) => v + 1)), [bumpTickets])
+  useEffect(
+    () => (cacheKey ? onCollectionChange(cacheKey, () => bumpTickets((v) => v + 1)) : undefined),
+    [cacheKey],
+  )
 
   const slaConfigs = slaConfigService.getHoursForTickets()
   const slaByWorkspace: Record<string, SlaWorkspaceSummary> = analyzeSlaByWorkspace(
-    getCol<Ticket>('chamados'),
+    cachedTickets(),
     slaConfigs,
   )
 
   /**
    * Visão geral (PR B): KPIs/recentes/SLA globais são lidos do MESMO cache
-   * bruto autorizado (`getCol('chamados')`, multiunidade) restringido ao escopo
-   * do coordenador — nunca o estado workspace-filtrado e nunca um segundo
-   * `useTickets`. Tudo recomputa na renderização disparada pelo sinal passivo
-   * (`onCollectionChange`) da PR A.
+   * bruto autorizado (multiunidade) restringido ao escopo do coordenador — nunca
+   * o estado workspace-filtrado e nunca um segundo `useTickets`. Tudo recomputa
+   * na renderização disparada pelo sinal passivo (`onCollectionChange`) da PR A.
    */
   const scopeUnitIds = useMemo(() => new Set(visibleUnits.map((u) => u.unitId)), [visibleUnits])
-  const scopeTickets = getCol<Ticket>('chamados').filter(
+  const scopeTickets = cachedTickets().filter(
     (t) => t.workspace_id && scopeUnitIds.has(t.workspace_id),
   )
   const isArchivedTicket = (t: Ticket) => t.archived === true || t.status === 'fechado'

@@ -1,11 +1,10 @@
 import type { AppNotification } from '../../../core/notifications/types'
 import { notificationService } from '../../../core/notifications/service'
 import { workspaceStore } from '../../../core/workspaces/store'
-import { ticketService } from './ticketService'
+import { ticketService, cachedTickets } from './ticketService'
 import { getCol } from '../../../lib/db'
 import { slaConfigService } from './slaConfigService'
 import { getSlaState } from './sla'
-import type { Ticket } from '../types'
 
 const LOCAL_IDS_KEY = 'labhub_chamados_local_ticket_ids'
 const MUTED_KEY = 'labhub_chamados_alerts_muted'
@@ -219,7 +218,10 @@ export function syncSlaAlerts(): AppNotification[] {
   const configs = slaConfigService.getHoursForTickets()
   const existing = chamadoActionUrls()
 
-  for (const t of getCol<Ticket>('chamados')) {
+  // Cache do USUÁRIO DA SESSÃO (`chamados:<userId>`), pelo mesmo resolvedor do
+  // serviço — a chave literal seria a fila de outro usuário (#344). Consequência
+  // boa de passagem: A não gera alerta de SLA para chamado que B sincronizou.
+  for (const t of cachedTickets()) {
     if (!t.workspace_id) continue
     const state = getSlaState(t.createdAt, t.priority, t.status, configs[t.workspace_id])
     if (state !== 'near' && state !== 'overdue') continue
