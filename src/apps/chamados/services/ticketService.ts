@@ -26,6 +26,16 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
+/**
+ * Erro de requisição ao backend, com o status HTTP preservado.
+ *
+ * O `status` é o que permite à tela distinguir `404` (chamado inexistente) de
+ * `403` (existe, mas não é do usuário) sem adivinhar pela mensagem — e, mais
+ * importante, sem tratar acesso negado como sucesso. A mensagem continua sendo a
+ * que o backend devolveu.
+ */
+export type TicketRequestError = Error & { status?: number }
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const authHeaders = await getAuthHeaders()
   const res = await fetch(url, {
@@ -34,9 +44,22 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error((body as { error?: string }).error || `Erro na requisição (${res.status})`)
+    const err = new Error(
+      (body as { error?: string }).error || `Erro na requisição (${res.status})`,
+    ) as TicketRequestError
+    err.status = res.status
+    throw err
   }
   return body as T
+}
+
+/** Lê o status HTTP de um erro do serviço, se houver. */
+export function errorStatus(err: unknown): number | null {
+  if (err && typeof err === 'object' && 'status' in err) {
+    const s = (err as { status?: unknown }).status
+    if (typeof s === 'number') return s
+  }
+  return null
 }
 
 /** Garante que campos obrigatórios estejam presentes no ticket. */

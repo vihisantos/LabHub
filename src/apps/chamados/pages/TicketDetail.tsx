@@ -11,7 +11,7 @@ import {
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
 import { getPriority, getSlaInfo } from '../services/sla'
-import { ticketService } from '../services/ticketService'
+import { ticketService, errorStatus } from '../services/ticketService'
 import { Stars } from '../components/Stars'
 import { icons } from '../../../lib/icons'
 import { useCanAccessAction } from '../../../core/permissions/usePermissions'
@@ -63,7 +63,73 @@ export function TicketDetail() {
   // Quem pode ASSUMIR para si (ticket.claim): técnico + super admin. Liderança
   // (lider/coordinator) gerencia via `ticket.assign`, não executa.
   const canClaim = user?.is_super_admin === true || !isLeadership
-  const ticket = tickets.find((t) => t.id === id)
+
+  // ── Resolução do chamado ──────────────────────────────────────────────────
+  // A coleção local (`TicketsContext`) é a FILA OPERACIONAL. Ela resolve o
+  // detalhe de quem tem `ticket.view`, mas nunca é garantie de que o chamado
+  // esteja lá: o solicitante que vem de "Meus Chamados" não tem fila populada
+  // (a lista pessoal vem de `listMine`, por outro caminho), e um deep link
+  // também pode cair antes da primeira sincronização.
+  //
+  // Por isso: usa a coleção local quando ela tem o registro — sem mudar nada
+  // para quem já funcionava — e, quando não tem, busca o registro pelo endpoint
+  // individual `GET /api/chamados/:id`. Esse endpoint tem DUAS vias no backend:
+  // `ticket.view` (operacional) ou o solicitante do próprio chamado
+  // (`reportedByUserId == g.user_id`, PR #339).
+  //
+  // Autorização é 100% do servidor. Aqui não há `reportedByUserId`, não há
+  // `mine=true`, não há comparação de identidade e não há regra de RBAC: o
+  // cliente pergunta "me mostre este id" e obedece. `403` nunca vira sucesso nem
+  // cai para outro registro.
+  const localTicket = tickets.find((t) => t.id === id) ?? null
+  const hasLocal = localTicket !== null
+  const [remoteTicket, setRemoteTicket] = useState<Ticket | null>(null)
+  const [detailError, setDetailError] = useState<{ status: number | null; message: string } | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  // Invalida a cópia remota após uma escrita. `useTickets.update` só faz
+  // `setTickets(prev => prev.map(...))`: para um registro que não está na fila,
+  // o map não o insere, então o contexto não mudaria e a tela ficaria
+  // mostrando o valor antigo depois de uma ação. Revalidar mantém a tela
+  // coerente sem reimplementar a escrita no cliente.
+  const [remoteNonce, setRemoteNonce] = useState(0)
+
+  const ticket = localTicket ?? remoteTicket
+
+  /** Revalida o detalhe vindo do endpoint individual após uma escrita. */
+  function revalidateRemote() {
+    if (!hasLocal) setRemoteNonce((n) => n + 1)
+  }
+
+  useEffect(() => {
+    // Já está na fila: nada a buscar. Preserva o caminho operacional intacto.
+    if (!id || hasLocal) return
+    let alive = true
+    setLoadingDetail(true)
+    setDetailError(null)
+    setRemoteTicket(null)
+    ticketService
+      .getByIdRemote(id)
+      .then((t) => {
+        if (alive) setRemoteTicket(t)
+      })
+      .catch((err: unknown) => {
+        if (!alive) return
+        setRemoteTicket(null)
+        setDetailError({
+          status: errorStatus(err),
+          message: err instanceof Error ? err.message : 'Não foi possível carregar o chamado.',
+        })
+      })
+      .finally(() => {
+        if (alive) setLoadingDetail(false)
+      })
+    return () => {
+      alive = false
+    }
+    // `hasLocal` entra como booleano: re-dispara só quando a presença na fila
+    // muda, não a cada sync da fila reescrevendo o mesmo registro.
+  }, [id, hasLocal, remoteNonce])
+
   const [noteInput, setNoteInput] = useState('')
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [events, setEvents] = useState<TicketEvent[]>([])
@@ -146,6 +212,7 @@ export function TicketDetail() {
     if (!ticket) return
     if ((ticket.assignedToUserId ?? '') === userId && ticket.assignedTo === name) return
     update(ticket.id, { assignedTo: name, assignedToUserId: userId })
+    revalidateRemote()
   }
 
   async function handleClaim() {
@@ -154,6 +221,7 @@ export function TicketDetail() {
     setClaimError('')
     try {
       await claim(ticket.id)
+      revalidateRemote()
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : 'Não foi possível assumir o chamado.')
     } finally {
@@ -162,6 +230,59 @@ export function TicketDetail() {
   }
 
   if (!ticket) {
+    // Carregando pelo endpoint individual. Não é tela branca: o esqueleto ocupa
+    // o mesmo espaço do card, então não há salto de layout.
+    if (loadingDetail) {
+      return (
+        <div className="space-y-3" aria-busy="true" aria-label="Carregando chamado">
+          <div className="skeleton-shimmer h-24 w-full rounded-xl" />
+          <div className="skeleton-shimmer h-32 w-full rounded-xl" />
+          <div className="skeleton-shimmer h-20 w-full rounded-xl" />
+        </div>
+      )
+    }
+
+    // `403` (e `401`) é resposta do servidor dizendo que este chamado não é
+    // seu. Não é "não encontrado" e não é erro de rede: dizer a diferença é o
+    // que impede que acesso negado pareça sucesso — ou que o usuário conclua
+    // que o chamado sumiu.
+    if (detailError) {
+      const status = detailError.status
+      if (status === 403 || status === 401) {
+        return (
+          <div className="flex flex-col items-center px-4 py-12 text-center">
+            <icons.ui.alertCircle size={40} className="text-amber-500" />
+            <p className="mt-3 text-sm font-medium text-fg">Você não tem acesso a este chamado</p>
+            <p className="mt-1 max-w-xs text-xs leading-relaxed text-fg-muted">
+              Só é possível abrir um chamado que você abriu ou um chamado da sua unidade.
+            </p>
+          </div>
+        )
+      }
+
+      // `404` é o backend dizendo que o registro não existe. Sem status HTTP
+      // (fetch quebrado, resposta sem JSON) é falha de comunicação — dizer
+      // "não encontrado" ali seria mentir sobre o que o servidor respondeu.
+      if (status === null) {
+        return (
+          <div className="flex flex-col items-center px-4 py-12 text-center">
+            <icons.ui.alertCircle size={40} className="text-red-500" />
+            <p className="mt-3 text-sm font-medium text-fg">Não foi possível carregar o chamado</p>
+            <p className="mt-1 max-w-xs text-xs leading-relaxed text-fg-muted">
+              Verifique sua conexão e tente novamente.
+            </p>
+          </div>
+        )
+      }
+
+      return (
+        <div className="flex flex-col items-center py-12">
+          <icons.ui.alertCircle size={40} className="text-fg-muted" />
+          <p className="mt-3 text-sm text-fg-muted">{detailError.message}</p>
+        </div>
+      )
+    }
+
     return (
       <div className="flex flex-col items-center py-12">
         <icons.ui.alertCircle size={40} className="text-fg-muted" />
@@ -201,6 +322,7 @@ export function TicketDetail() {
     } else {
       updateStatus(ticket.id, nextStatus)
     }
+    revalidateRemote()
   }
 
   function handleReopen() {
@@ -211,6 +333,7 @@ export function TicketDetail() {
       closedAt: null,
       closedBy: '',
     })
+    revalidateRemote()
   }
 
   // Reabrir com novo número: cria um chamado novo com a mesma sala,
@@ -243,6 +366,7 @@ export function TicketDetail() {
   function handlePriority(next: TicketPriority) {
     if (!ticket || next === getPriority(ticket.priority)) return
     update(ticket.id, { priority: next })
+    revalidateRemote()
   }
 
   async function handleCommentPhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -320,7 +444,10 @@ export function TicketDetail() {
                 <button
                   key={preset}
                   type="button"
-                  onClick={() => update(ticket.id, { statusNote: preset })}
+                  onClick={() => {
+                    update(ticket.id, { statusNote: preset })
+                    revalidateRemote()
+                  }}
                   className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                     ticket.statusNote === preset
                       ? 'border-blue-500 bg-blue-500 text-white'
@@ -345,6 +472,7 @@ export function TicketDetail() {
                   if (noteInput.trim()) {
                     update(ticket.id, { statusNote: noteInput.trim() })
                     setNoteInput('')
+                    revalidateRemote()
                   }
                 }}
                 className="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-400"
@@ -355,7 +483,10 @@ export function TicketDetail() {
             {ticket.statusNote && (
               <button
                 type="button"
-                onClick={() => update(ticket.id, { statusNote: '' })}
+                onClick={() => {
+                  update(ticket.id, { statusNote: '' })
+                  revalidateRemote()
+                }}
                 className="mt-2 text-[11px] font-medium text-fg-dim transition-colors hover:text-red-500"
               >
                 Remover mensagem
