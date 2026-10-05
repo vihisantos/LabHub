@@ -202,10 +202,10 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useSearchParams: () => [new URLSearchParams(mockSearchParams.value)],
 }))
-// Meus Chamados vem de `GET /api/chamados?mine=true`. Este mock representa o
-// RESPOSTA DO SERVIDOR: é a única fonte da tela quando o filtro de solicitante
-// está ligado. `mockTickets` (o contexto) é a fila de trabalho e, nesse modo,
-// não pode aparecer.
+// A fila operacional NÃO pode tocar no escopo pessoal do servidor
+// (`GET /api/chamados?mine=true`, PR #331): isso vive na área pessoal
+// (`MyTickets`, /chamados/meus). O mock existe para PROVAR que a fila nunca o
+// chama — nem como fonte, nem como fallback.
 const mockListMine = vi.hoisted(() => vi.fn())
 vi.mock('../../services/ticketService', () => ({
   ticketService: { listMine: mockListMine },
@@ -472,17 +472,15 @@ describe('TicketList — Fase 2.2: deep link ?sla= da Central (álertas de SLA)'
 })
 
 /**
- * Meus Chamados (solicitante) e Meus Atendimentos (responsável) são conceitos
- * DISTINTOS que o mesmo técnico pode ter ao mesmo tempo. Estes testes travam que:
- *   · a identidade do solicitante é o UUID da sessão (`reportedByUserId`), nunca
- *     nome/e-mail;
- *   · ser responsável NÃO faz o chamado ser "meu chamado", e vice-versa;
- *   · chamado anônimo (sem `reportedByUserId`) nunca é meu;
- *   · arquivados meus continuam alcançáveis em Meus Chamados — a exclusão de
- *     arquivados de "Meus Atendimentos" NÃO é copiada, porque ali é fila de
- *     trabalho em aberto e aqui é histórico de pedidos.
+ * Regressão da #337: a fila operacional perdeu NADA e não voltou a esconder o
+ * "Meus Chamados" como filtro.
+ *
+ * A tela `Chamados` é a fila de TRABALHO da equipe de TI. "Meus Chamados" virou
+ * área pessoal com rota e página próprias (`MyTickets`, dados de
+ * `GET /api/chamados?mine=true`) — não é mais um chip desta fila. Estes testes
+ * travam os dois lados: o que continua aqui e o que daqui some.
  */
-describe('TicketList — Meus Chamados (escopo de servidor) x Meus Atendimentos (fila)', () => {
+describe('TicketList — a fila operacional não é a área pessoal', () => {
   const MEU = 'test-admin'
 
   const ticket = (over: Record<string, unknown> = {}) => ({
@@ -519,169 +517,131 @@ describe('TicketList — Meus Chamados (escopo de servidor) x Meus Atendimentos 
     vi.clearAllMocks()
     mockSearchParams.value = ''
     mockUser.current = { id: MEU, name: 'Admin Teste' }
-    // Fila de trabalho: estes NÃO podem aparecer em Meus Chamados.
     mockTickets.length = 0
     mockTickets.push(
-      ticket({ id: 'fila-1', ticketNumber: 90, reportedByUserId: 'user-9', assignedToUserId: MEU }),
-      ticket({ id: 'fila-2', ticketNumber: 91, reportedByUserId: null, assignedToUserId: MEU }),
+      ticket({ id: 'fila-1', ticketNumber: 90, roomName: 'Sala 101', reportedByUserId: 'user-9', assignedToUserId: MEU }),
+      ticket({ id: 'fila-2', ticketNumber: 91, roomName: 'Lab 7', reportedByUserId: null, assignedToUserId: MEU }),
     )
-    // Resposta do servidor para mine=true: só o que EU abri.
-    mockListMine.mockResolvedValue([
-      ticket({ id: 'meu-1', ticketNumber: 1, reportedByUserId: MEU, assignedToUserId: MEU }),
-      ticket({ id: 'meu-2', ticketNumber: 2, reportedByUserId: MEU, assignedToUserId: 'user-2' }),
-      ticket({ id: 'meu-3', ticketNumber: 5, reportedByUserId: MEU, status: 'resolvido', resolvedAt: '2026-06-21T12:00:00Z' }),
-      ticket({ id: 'meu-4', ticketNumber: 6, reportedByUserId: MEU, status: 'fechado', archived: true, closedAt: '2026-06-22T12:00:00Z' }),
-    ])
   })
 
-  it('Meus Chamados consulta o servidor (mine=true) e usa SÓ o que ele devolveu', async () => {
-    render(<TicketList defaultScope="chamados" />)
+  it('NÃO existe controle de "Meus Chamados" na tela operacional', async () => {
+    render(<TicketList />)
     await act(async () => {})
 
-    expect(mockListMine).toHaveBeenCalledTimes(1)
-    // O que o servidor devolveu aparece...
-    expect(screen.getByText('#1')).toBeInTheDocument()
-    expect(screen.getByText('#2')).toBeInTheDocument()
-    // ...e a FILA não aparece — nem por filtro, nem por fallback.
-    expect(screen.queryByText('#90')).not.toBeInTheDocument()
-    expect(screen.queryByText('#91')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Meus Chamados' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Meus Chamados')).not.toBeInTheDocument()
   })
 
-  it('o filtro de solicitante NÃO é aplicado sobre a fila em nenhum momento', async () => {
-    render(<TicketList defaultScope="chamados" />)
+  it('nenhum filtro desta tela é rotulado como o escopo pessoal', async () => {
+    render(<TicketList />)
     await act(async () => {})
 
-    // Os dois chamados da fila TÊM requestedBy/solicitante de outra pessoa (ou
-    // nulo). Se o código filtrasse a fila no cliente, eles nunca apareceriam —
-    // mas também nunca apareceriam os que o servidor devolveu. A prova é que a
-    // fila não é consultada e listMine é.
-    expect(mockListMine).toHaveBeenCalled()
-    expect(screen.getByText('#1')).toBeInTheDocument()
+    // Se "Meus Chamados" tivesse voltado como filtro, ele apareceria aqui com
+    // alguma forma de rótulo/estado na fila.
+    expect(screen.queryByText(/você abriu/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/por solicitante/)).not.toBeInTheDocument()
   })
 
-  it('se a consulta do servidor falha, NÃO volta para a fila', async () => {
-    mockListMine.mockRejectedValue(new Error('Sem conexão'))
-    render(<TicketList defaultScope="chamados" />)
-    await act(async () => {})
-
-    expect(screen.getByText('Sem conexão')).toBeInTheDocument()
-    expect(screen.queryByText('#90')).not.toBeInTheDocument()
-    expect(screen.queryByText('#91')).not.toBeInTheDocument()
-    expect(screen.getByText('Nada a exibir por enquanto.')).toBeInTheDocument()
-  })
-
-  it('Meus Atendimentos usa a fila e NÃO chama mine=true', async () => {
+  it('a fila nunca consulta o escopo pessoal do servidor (mine=true)', async () => {
     render(<TicketList />)
     await act(async () => {})
 
     fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Arquivados/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Ativos/ }))
 
     expect(mockListMine).not.toHaveBeenCalled()
-    // Fila operacional: atribuição + só abertos
-    expect(screen.getByText('#90')).toBeInTheDocument()
-    expect(screen.getByText('#91')).toBeInTheDocument()
-    // e nada do escopo pessoal aparece por acidente
-    expect(screen.queryByText('#1')).not.toBeInTheDocument()
   })
 
-  it('voltar para Meus Chamados refaz a consulta do servidor', async () => {
+  it('"Meus Atendimentos" continua na fila (é recorte de trabalho, não pessoal)', async () => {
     render(<TicketList />)
     await act(async () => {})
 
-    fireEvent.click(screen.getByRole('button', { name: 'Meus Chamados' }))
-    await act(async () => {})
+    const chip = screen.getByRole('button', { name: 'Meus Atendimentos' })
+    fireEvent.click(chip)
 
-    expect(mockListMine).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('#1')).toBeInTheDocument()
-    expect(screen.queryByText('#90')).not.toBeInTheDocument()
+    expect(chip.className).toContain('bg-amber-500')
+    // Atribuídos a mim, em aberto: os dois chamados da fila.
+    expect(screen.getByText('#90')).toBeInTheDocument()
+    expect(screen.getByText('#91')).toBeInTheDocument()
+    expect(mockListMine).not.toHaveBeenCalled()
   })
 
-  it('meu resolvido aparece; meu fechado fica atrás do chip Arquivados', async () => {
-    render(<TicketList defaultScope="chamados" />)
+  it('"Meus Atendimentos" e "Sem responsável" seguem mutuamente exclusivos', async () => {
+    render(<TicketList />)
     await act(async () => {})
 
+    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sem responsável' }))
+
+    const atendimentos = screen.getByRole('button', { name: 'Meus Atendimentos' })
+    const semResp = screen.getByRole('button', { name: 'Sem responsável' })
+    expect(semResp.className).toContain('bg-amber-500')
+    expect(atendimentos.className).not.toContain('bg-amber-500')
+    // Sem responsável não traz nenhum dos dois, porque nenhum tem responsável.
+    expect(screen.queryByText('#90')).not.toBeInTheDocument()
+    expect(screen.queryByText('#91')).not.toBeInTheDocument()
+  })
+
+  it('os chips de status, prioridade, sala e ordenação continuam na tela', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: /^Ativos/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Arquivados/ })).toBeInTheDocument()
+    for (const status of ['Aberto', 'Em andamento', 'A caminho', 'Em atendimento', 'Resolvido']) {
+      expect(screen.getByRole('button', { name: new RegExp(`^${status}`) })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('button', { name: 'Prioridades' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mais recentes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'SLA' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+  })
+
+  it('a pesquisa operacional continua funcionando (nº, sala, ativo, problema)', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    const input = screen.getByPlaceholderText('Buscar por #, sala, ativo ou problema...')
+    fireEvent.change(input, { target: { value: 'Sala 101' } })
+
+    expect(screen.getByText('#90')).toBeInTheDocument()
+    expect(screen.queryByText('#91')).not.toBeInTheDocument()
+  })
+
+  it('resolvido continua na fila como antes; acompanhamento é outra tela', async () => {
+    mockTickets.push(ticket({ id: 'resolvido', ticketNumber: 5, status: 'resolvido' }))
+    render(<TicketList />)
+    await act(async () => {})
+
+    // Comportamento operacional pré-existente: resolvido aparece na fila (não é
+    // arquivo), e o chip Arquivados o remove. A #337 não mexe nisso.
     expect(screen.getByText('#5')).toBeInTheDocument()
-    expect(screen.queryByText('#6')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /^Arquivados/ }))
 
-    expect(screen.getByText('#6')).toBeInTheDocument()
-    expect(screen.queryByText('#1')).not.toBeInTheDocument()
+    expect(screen.queryByText('#5')).not.toBeInTheDocument()
+    expect(mockListMine).not.toHaveBeenCalled()
   })
 
-  it('o chip de status refina o conjunto do servidor sem trocar o escopo', async () => {
-    render(<TicketList defaultScope="chamados" />)
+  it('o estado vazio da fila aponta para a área pessoal em vez de fingir ser ela', async () => {
+    mockTickets.length = 0
+    render(<TicketList />)
     await act(async () => {})
 
-    fireEvent.click(screen.getByRole('button', { name: /^Resolvido/ }))
-
-    expect(screen.getByText('#5')).toBeInTheDocument()
-    expect(screen.queryByText('#1')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Meus Chamados' }).className).toContain('bg-amber-500')
-    expect(mockListMine).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Nenhum chamado registrado')).toBeInTheDocument()
+    expect(screen.getByText(/Meus Chamados/)).toBeInTheDocument()
   })
 
-  it('busca textual e ordenação continuam funcionando sobre o conjunto do servidor', async () => {
-    render(<TicketList defaultScope="chamados" />)
+  it('o botão de atualizar continua recarregando a FILA, não o escopo pessoal', async () => {
+    render(<TicketList />)
     await act(async () => {})
-
-    fireEvent.change(screen.getByPlaceholderText('Buscar por #, sala, ativo ou problema...'), {
-      target: { value: 'Lab 2' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Sala' }))
-    await act(async () => {})
-
-    expect(screen.queryByText('#1')).not.toBeInTheDocument()
-    expect(screen.queryByText('#2')).not.toBeInTheDocument()
-  })
-
-  it('o botão de atualizar refaz a consulta do servidor', async () => {
-    render(<TicketList defaultScope="chamados" />)
-    await act(async () => {})
-    expect(mockListMine).toHaveBeenCalledTimes(1)
+    expect(mockReload).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByLabelText('Atualizar lista'))
     await act(async () => {})
 
-    expect(mockListMine).toHaveBeenCalledTimes(2)
-  })
-
-  it('a rota /chamados/meus abre já no contexto de solicitante', async () => {
-    render(<TicketList defaultScope="chamados" />)
-    await act(async () => {})
-
-    const chipMeus = screen.getByRole('button', { name: 'Meus Chamados' }) as HTMLButtonElement
-    const chipAtendimentos = screen.getByRole('button', { name: 'Meus Atendimentos' }) as HTMLButtonElement
-    expect(chipMeus.className).toContain('bg-amber-500')
-    expect(chipAtendimentos.className).not.toContain('bg-amber-500')
-  })
-
-  it('defesa em profundidade: sem sessão, nem o que o servidor devolveu aparece', async () => {
-    mockUser.current = null
-    render(<TicketList defaultScope="chamados" />)
-    await act(async () => {})
-
-    expect(screen.queryByText('#1')).not.toBeInTheDocument()
-    expect(screen.getByText('Você ainda não abriu nenhum chamado nesta unidade')).toBeInTheDocument()
-  })
-
-  it('servidor devolveu vazio: estado vazio com mensagem própria', async () => {
-    mockListMine.mockResolvedValue([])
-    render(<TicketList defaultScope="chamados" />)
-    await act(async () => {})
-
-    expect(screen.getByText('Você ainda não abriu nenhum chamado nesta unidade')).toBeInTheDocument()
-    expect(screen.queryByText('#90')).not.toBeInTheDocument()
-  })
-
-  it('os dois chips são mutuamente exclusivos (fila x solicitante)', async () => {
-    render(<TicketList defaultScope="chamados" />)
-    await act(async () => {})
-
-    fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
-    const chipMeus = screen.getByRole('button', { name: 'Meus Chamados' }) as HTMLButtonElement
-    const chipAtendimentos = screen.getByRole('button', { name: 'Meus Atendimentos' }) as HTMLButtonElement
-    expect(chipAtendimentos.className).toContain('bg-amber-500')
-    expect(chipMeus.className).not.toContain('bg-amber-500')
+    expect(mockReload).toHaveBeenCalledTimes(1)
+    expect(mockListMine).not.toHaveBeenCalled()
   })
 })
