@@ -181,11 +181,52 @@ export const ticketService = {
     return ok
   },
 
-  /** Busca um chamado direto na API (professor/feedback — sem guarda de escrita). */
+  /**
+   * Lê UM chamado pelo endpoint individual `GET /api/chamados/:id`.
+   *
+   * ⚠️ NÃO grava na coleção local `chamados`, e isso é deliberado (#342).
+   *
+   * A coleção `chamados` é a cache da FILA OPERACIONAL: ela é alimentada por
+   * `pullRemote`, que só responde a quem tem `ticket.view`. Este método, ao
+   * contrário, também responde ao solicitante do próprio chamado
+   * (`reportedByUserId == g.user_id`, PR #339) — que não tem `ticket.view` e por
+   * isso nunca popula a fila.
+   *
+   * Quando este método gravava o resultado, um chamado lido no escopo pessoal
+   * entrava na cache da fila. Como a coleção não é namespaced por usuário e o
+   * `signOut` não limpa nada, esse registro sobrevivia à sessão: em navegador
+   * compartilhado, o usuário seguinte logava, o `pullRemote` dele voltava `403`
+   * e o `load()` ainda renderizava a cache local — enxergando o chamado de
+   * outra pessoa. Exposição de dados no cliente; o backend continuava correto.
+   *
+   * A regra é por VIA DE ACESSO, não por conteúdo: nenhuma comparação de
+   * identidade, `reportedByUserId` ou `mine=true` participa. Ler por id é leitura
+   * pura; a fila é escrita só pelos caminhos operacionais.
+   */
   getByIdRemote: async (id: string): Promise<Ticket> => {
     if (!id || id === 'undefined') throw new Error('ID do chamado inválido')
     const { ticket } = await request<{ ticket: Ticket }>(`${API_BASE}/${id}`)
-    persistLocal(ticket)
+    return ticket
+  },
+
+  /**
+   * PATCH em um chamado pelo endpoint individual, sem passar pela coleção local.
+   *
+   * `update()` só alcança a API quando o registro JÁ está na cache
+   * (`local.update` devolve `undefined` para um id ausente, e o PATCH fica dentro
+   * do `if (ticket)`). Como `getByIdRemote` não popula mais a cache, um chamado
+   * aberto por deep link — fora da fila do usuário — ficaria sem escrita: a tela
+   * mostraria o botão e a ação seria descartada em silêncio.
+   *
+   * Este método fecha esse buraco sem reintroduzir a escrita na cache da fila.
+   * Ele não decide autorização: o PATCH é autorizado no servidor pelas mesmas
+   * vias de sempre, e devolve o registro já atualizado.
+   */
+  patchRemote: async (id: string, data: Partial<Ticket>): Promise<Ticket> => {
+    const { ticket } = await request<{ ticket: Ticket }>(`${API_BASE}/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
     return ticket
   },
 

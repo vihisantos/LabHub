@@ -217,24 +217,34 @@ Regras da tela pessoal:
   `404` continua "não encontrado", e falha de rede não é apresentada como
   registro ausente.
 
-Pendências conhecidas no detalhe, deixadas fora do escopo da #341 de propósito:
+Pendências e regras de cache no detalhe:
 
 - **Linha do tempo vazia para o solicitante.** `TicketDetail` carrega o histórico
   por `GET /api/chamados/:id/events`, que exige `ticket.view`; para o solicitante a
   chamada volta `403` e o erro é absorvido. Ele vê o detalhe, mas não os eventos.
   Decidir quais eventos um solicitante pode ver é uma alteração de autorização
   própria — misturá-la aqui confundiria as duas regras.
-- **O detalhe pessoal é gravado na cache local da fila.** `getByIdRemote` chama
-  `persistLocal`, que escreve o registro na coleção `chamados` do IndexedDB — a
-  mesma que a fila usa. Essa coleção **não é namespaced por usuário** e nada é
-  apagado no `signOut`, então num navegador compartilhado o chamado do solicitante
-  fica no cache e aparece na lista operacional de quem logar em seguida (o
-  `pullRemote` desse usuário volta `403` e o `load()` ainda renderiza o cache
-  local). Não é uma falha de autorização — o backend continua recusando tudo —,
-  mas é exposição de dados no cliente. Antes da #341 só quem tinha `ticket.view`
-  escrevia nessa coleção, porque `pullRemote` é a outra única via de escrita.
-  Próximo hardening: não persistir o registro no escopo pessoal, e/ou limpar a
-  cache por usuário.
+- **O registro lido no escopo pessoal não entra na cache da fila.** A coleção
+  `chamados` do IndexedDB é a cache da FILA OPERACIONAL, alimentada por
+  `pullRemote` — que só responde a quem tem `ticket.view`. `getByIdRemote` faz
+  leitura pura e **não** grava nela (#342). A regra é por via de acesso, não por
+  conteúdo: nenhuma comparação de identidade, `reportedByUserId` ou `mine=true`
+  participa da decisão de onde gravar.
+- **Escrita fora da fila vai direto ao recurso.** `update` do contexto só
+  alcança a API para registros que já estão na cache local
+  (`local.update` devolve `undefined` para id ausente, e o PATCH fica dentro do
+  `if (ticket)`). Como a leitura por id não popula mais a cache, um chamado
+  aberto por deep link usaria `ticketService.patchRemote` — PATCH no recurso,
+  sem passar pela coleção. A autorização continua sendo do servidor; isso é
+  escolha de transporte, não de permissão.
+
+Pendência que resta no detalhe, fora do escopo de propósito:
+
+- **Linha do tempo vazia para o solicitante.** `TicketDetail` carrega o histórico
+  por `GET /api/chamados/:id/events`, que exige `ticket.view`; para o solicitante a
+  chamada volta `403` e o erro é absorvido. Ele vê o detalhe, mas não os eventos.
+  Decidir quais eventos um solicitante pode ver é uma alteração de autorização
+  própria — misturá-la aqui confundiria as duas regras.
 
 Implementação da apresentação: `utils/myTickets.ts` (`groupTicketsByUpdateDate`,
 `filterTicketsByQuery`, `formatUpdatedLabel`, `dateGroupLabel`).

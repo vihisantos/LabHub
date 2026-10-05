@@ -147,11 +147,46 @@ describe('ticketService — API', () => {
     })
   })
 
-  it('getByIdRemote: busca na API e persiste', async () => {
+  /**
+   * #342 — a leitura por id NÃO pode escrever na cache da fila.
+   *
+   * `getByIdRemote` responde tanto a quem tem `ticket.view` quanto ao
+   * solicitante do próprio chamado. Persistir aqui punha um registro de escopo
+   * pessoal na coleção `chamados` da fila, que não é namespaced por usuário e
+   * não é apagada no `signOut` — ou seja, sobrevivia à sessão.
+   */
+  it('getByIdRemote: busca na API e NÃO persiste na cache da fila', async () => {
+    setCol('chamados', [])
     mockFetchOk({ ticket: makeTicket({ id: 'remote-1' }) })
+
     const t = await ticketService.getByIdRemote('remote-1')
+
+    // Devolve o registro...
     expect(t.id).toBe('remote-1')
-    expect(ticketService.getByIdNoFilter('remote-1')).toBeDefined()
+    // ...mas ele não entra na coleção que a fila lê.
+    expect(ticketService.getByIdNoFilter('remote-1')).toBeUndefined()
+    expect(ticketService.getAll()).toHaveLength(0)
+  })
+
+  it('getByIdRemote: não apaga nem altera o que já está na cache', async () => {
+    // A fila legítima continua intacta: a correção não pode limpá-la.
+    const daFila = makeTicket({ id: 'da-fila', ticketNumber: 7 })
+    setCol('chamados', [daFila])
+    mockFetchOk({ ticket: makeTicket({ id: 'pessoal', ticketNumber: 99 }) })
+
+    await ticketService.getByIdRemote('pessoal')
+
+    const cache = ticketService.getAll()
+    expect(cache.map((x) => x.id)).toEqual(['da-fila'])
+  })
+
+  it('getByIdRemote: erro também não escreve nada na cache', async () => {
+    setCol('chamados', [])
+    mockFetchOk({ error: 'Permissão insuficiente' }, false, 403)
+
+    await ticketService.getByIdRemote('de-outro').catch(() => {})
+
+    expect(ticketService.getAll()).toHaveLength(0)
   })
 
   /**
@@ -175,6 +210,33 @@ describe('ticketService — API', () => {
 
   it('getByIdRemote: rejeita id inválido sem chegar à API', async () => {
     await expect(ticketService.getByIdRemote('undefined')).rejects.toThrow('ID do chamado inválido')
+  })
+
+  /**
+   * `patchRemote` fecha o buraco que a não-persistência abriu: `update()` só
+   * alcança a API para registros que já estão na cache local, então um chamado
+   * aberto por deep link (fora da fila) ficaria com escrita descartada.
+   */
+  it('patchRemote: PATCH por id sem passar pela cache da fila', async () => {
+    setCol('chamados', [])
+    mockFetchOk({ ticket: makeTicket({ id: 'pessoal', status: 'resolvido' }) })
+
+    const saved = await ticketService.patchRemote('pessoal', { status: 'resolvido' })
+
+    expect(saved.status).toBe('resolvido')
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/chamados/pessoal',
+      expect.objectContaining({ method: 'PATCH' }),
+    )
+    // O registro continua fora da coleção da fila.
+    expect(ticketService.getAll()).toHaveLength(0)
+  })
+
+  it('patchRemote: erro 403 propaga o status', async () => {
+    mockFetchOk({ error: 'Permissão insuficiente' }, false, 403)
+    await ticketService.patchRemote('x', { status: 'aberto' }).catch((err: unknown) => {
+      expect(errorStatus(err)).toBe(403)
+    })
   })
 
   it('errorStatus: null quando o erro não tem status', () => {

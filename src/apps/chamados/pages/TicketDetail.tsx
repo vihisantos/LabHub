@@ -81,23 +81,49 @@ export function TicketDetail() {
   // `mine=true`, não há comparação de identidade e não há regra de RBAC: o
   // cliente pergunta "me mostre este id" e obedece. `403` nunca vira sucesso nem
   // cai para outro registro.
+  //
+  // `getByIdRemote` NÃO grava na coleção da fila (#342): um chamado lido no
+  // escopo pessoal ficaria visível para quem logasse depois no mesmo navegador,
+  // porque a coleção não é namespaced por usuário e o `signOut` não a limpa. Por
+  // isso a escrita tem dois transportes — ver `applyUpdate`.
   const localTicket = tickets.find((t) => t.id === id) ?? null
   const hasLocal = localTicket !== null
   const [remoteTicket, setRemoteTicket] = useState<Ticket | null>(null)
   const [detailError, setDetailError] = useState<{ status: number | null; message: string } | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
-  // Invalida a cópia remota após uma escrita. `useTickets.update` só faz
-  // `setTickets(prev => prev.map(...))`: para um registro que não está na fila,
-  // o map não o insere, então o contexto não mudaria e a tela ficaria
-  // mostrando o valor antigo depois de uma ação. Revalidar mantém a tela
-  // coerente sem reimplementar a escrita no cliente.
-  const [remoteNonce, setRemoteNonce] = useState(0)
+  const [writeError, setWriteError] = useState('')
 
   const ticket = localTicket ?? remoteTicket
 
-  /** Revalida o detalhe vindo do endpoint individual após uma escrita. */
-  function revalidateRemote() {
-    if (!hasLocal) setRemoteNonce((n) => n + 1)
+  /**
+   * Escrita no chamado, com o transporte adequado à origem do registro.
+   *
+   * Não é decisão de autorização — quem pode escrever é o servidor que decide.
+   * É a escolha de onde a escrita mora:
+   *
+   *   · `hasLocal` — o registro está na fila. Usa `update` do contexto, que
+   *     atualiza a fila e sincroniza. Caminho operacional, intocado.
+   *   · `!hasLocal` — o registro NÃO é da fila (escopo pessoal, ou deep link
+   *     antes da primeira sincronização). Vai direto ao recurso por PATCH,
+   *     porque `update` do contexto só alcança a API para registros que já
+   *     estão na cache local — e, desde #342, eles não são gravados lá.
+   *
+   * Nos dois casos a tela reflete o que foi salvo: na fila, o contexto
+   * atualiza; fora dela, a resposta do PATCH substitui o registro exibido.
+   */
+  async function applyUpdate(data: Partial<Ticket>) {
+    if (!ticket) return
+    setWriteError('')
+    try {
+      if (hasLocal) {
+        update(ticket.id, data)
+        return
+      }
+      const saved = await ticketService.patchRemote(ticket.id, data)
+      setRemoteTicket(saved)
+    } catch (err) {
+      setWriteError(err instanceof Error ? err.message : 'Não foi possível salvar a alteração.')
+    }
   }
 
   useEffect(() => {
@@ -128,7 +154,7 @@ export function TicketDetail() {
     }
     // `hasLocal` entra como booleano: re-dispara só quando a presença na fila
     // muda, não a cada sync da fila reescrevendo o mesmo registro.
-  }, [id, hasLocal, remoteNonce])
+  }, [id, hasLocal])
 
   const [noteInput, setNoteInput] = useState('')
   const [lightbox, setLightbox] = useState<string | null>(null)
@@ -211,8 +237,7 @@ export function TicketDetail() {
   function handleAssign(userId: string, name: string) {
     if (!ticket) return
     if ((ticket.assignedToUserId ?? '') === userId && ticket.assignedTo === name) return
-    update(ticket.id, { assignedTo: name, assignedToUserId: userId })
-    revalidateRemote()
+    void applyUpdate({ assignedTo: name, assignedToUserId: userId })
   }
 
   async function handleClaim() {
@@ -221,7 +246,7 @@ export function TicketDetail() {
     setClaimError('')
     try {
       await claim(ticket.id)
-      revalidateRemote()
+      if (!hasLocal) setRemoteTicket(await ticketService.getByIdRemote(ticket.id))
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : 'Não foi possível assumir o chamado.')
     } finally {
@@ -313,27 +338,27 @@ export function TicketDetail() {
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket || !canOperate) return
     if (nextStatus === 'fechado') {
-      update(ticket.id, {
+      void applyUpdate({
         status: nextStatus,
         archived: true,
         closedAt: new Date().toISOString(),
         closedBy: user?.name,
       })
-    } else {
+    } else if (hasLocal) {
       updateStatus(ticket.id, nextStatus)
+    } else {
+      void applyUpdate({ status: nextStatus })
     }
-    revalidateRemote()
   }
 
   function handleReopen() {
     if (!ticket) return
-    update(ticket.id, {
+    void applyUpdate({
       status: 'aberto',
       archived: false,
       closedAt: null,
       closedBy: '',
     })
-    revalidateRemote()
   }
 
   // Reabrir com novo número: cria um chamado novo com a mesma sala,
@@ -365,8 +390,7 @@ export function TicketDetail() {
 
   function handlePriority(next: TicketPriority) {
     if (!ticket || next === getPriority(ticket.priority)) return
-    update(ticket.id, { priority: next })
-    revalidateRemote()
+    void applyUpdate({ priority: next })
   }
 
   async function handleCommentPhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -445,8 +469,7 @@ export function TicketDetail() {
                   key={preset}
                   type="button"
                   onClick={() => {
-                    update(ticket.id, { statusNote: preset })
-                    revalidateRemote()
+                    void applyUpdate({ statusNote: preset })
                   }}
                   className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                     ticket.statusNote === preset
@@ -470,9 +493,8 @@ export function TicketDetail() {
                 type="button"
                 onClick={() => {
                   if (noteInput.trim()) {
-                    update(ticket.id, { statusNote: noteInput.trim() })
+                    void applyUpdate({ statusNote: noteInput.trim() })
                     setNoteInput('')
-                    revalidateRemote()
                   }
                 }}
                 className="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-400"
@@ -484,8 +506,7 @@ export function TicketDetail() {
               <button
                 type="button"
                 onClick={() => {
-                  update(ticket.id, { statusNote: '' })
-                  revalidateRemote()
+                  void applyUpdate({ statusNote: '' })
                 }}
                 className="mt-2 text-[11px] font-medium text-fg-dim transition-colors hover:text-red-500"
               >
@@ -853,6 +874,14 @@ export function TicketDetail() {
             {claiming ? 'Assumindo...' : 'Começar Atendimento'}
           </button>
           {claimError && <p className="text-center text-[11px] text-red-500">{claimError}</p>}
+        </div>
+      )}
+
+      {writeError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-3">
+          <p className="text-[11px] leading-relaxed text-red-600 dark:text-red-400">
+            {writeError}
+          </p>
         </div>
       )}
 

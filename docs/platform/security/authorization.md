@@ -126,11 +126,18 @@ Ordem das duas vias no detalhe, e por que importa:
 > `GET /api/chamados/:id` — que aplica a via pessoal acima. Nenhuma regra de
 > autorização vive no frontend.
 >
-> Duas pendências conhecidas, que **não** são falhas desta regra:
+> **Escopo da cache:** a coleção local `chamados` é a cache da fila
+> operacional, alimentada por `pullRemote`, que só responde a quem tem
+> `ticket.view`. A leitura por id (`getByIdRemote`) é usada também pelo
+> solicitante e por isso **não grava nessa coleção** (#342) — a decisão é por via
+> de acesso, sem comparar identidade, `reportedByUserId` ou `mine=true`. Sem
+> isso, um registro de escopo pessoal sobreviveria à sessão, já que a coleção não
+> é namespaced por usuário e o `signOut` não a limpa, e apareceria na fila de
+> quem logasse depois no mesmo navegador.
+>
+> Pendência que resta, e **não** é falha desta regra:
 > `/api/chamados/<id>/events` continua exigindo `ticket.view`, então o solicitante
-> vê o detalhe com a linha do tempo vazia; e `getByIdRemote` grava o registro
-> pessoal na cache local da fila, que não é namespaced por usuário nem apagada no
-> `signOut`. Detalhes em
+> vê o detalhe com a linha do tempo vazia. Detalhes em
 > [Chamados — Referência](../../apps/chamados/reference.md).
 
 ### Enforcement no handler
