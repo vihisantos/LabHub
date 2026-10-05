@@ -74,16 +74,24 @@ Super Admin **não é uma role**: é a capacidade de plataforma `profiles.is_sup
 | `POST /api/admin/workspaces/<id>/delete` | `admin.workspace.delete` | global |
 | `POST /api/push/send` | `reservelab.push.manage` | global |
 
-### Escopo pessoal de recurso (`GET /api/chamados?mine=true`)
+### Escopo pessoal de recurso (`GET /api/chamados?mine=true`, `GET /api/chamados/<id>`)
 
-Nem toda autorização é por Action. `mine=true` é uma regra de **acesso ao
-recurso baseada na identidade autenticada** — o equivalente backend de "minha
-conta" — e por isso **não** aparece na tabela de Actions acima.
+Nem toda autorização é por Action. O escopo pessoal do solicitante é uma regra de
+**acesso ao recurso baseada na identidade autenticada** — o equivalente backend
+de "minha conta" — e por isso **não** aparece na tabela de Actions acima.
+
+**Listagem**
 
 | Rota | Autorização | Observações |
 |------|--------------|-------------|
 | `GET /api/chamados` | `ticket.view` por workspace | Lista operacional. Inalterada. |
 | `GET /api/chamados?mine=true` | `reportedByUserId = g.user_id` | **Não exige `ticket.view`** |
+
+**Detalhe**
+
+| Rota | Autorização | Observações |
+|------|--------------|-------------|
+| `GET /api/chamados/<id>` | `ticket.view` no workspace do recurso **OU** `reportedByUserId = g.user_id` | Duas vias; a pessoal só é alcançada se a operacional negar |
 
 Regras que sustentam a separação:
 
@@ -96,16 +104,29 @@ Regras que sustentam a separação:
   `memberships`, `membership_overrides` nem RLS, e **não** dá à solicitante
   qualquer acesso à fila interna.
 
+Ordem das duas vias no detalhe, e por que importa:
+
+1. o check de workspace vem primeiro — o acesso pessoal **não atravessa unidade**;
+2. `ticket.view` decide sozinho quando o usuário tem a Action (via operacional);
+3. só se a via operacional negar, o solicitante do **próprio** chamado é
+   atendido — `reportedByUserId == g.user_id`, comparado no servidor, sem
+   nenhum dos dois lados vindo do request.
+
+> **Ser solicitante de um chamado permite consultar o próprio detalhe, mas não
+> concede acesso à fila operacional.** `GET /api/chamados` continua exigindo
+> `ticket.view`, e a via pessoal é somente leitura: `PATCH`, `DELETE` e
+> `/events` seguem exigindo suas Actions.
+
 > O frontend pode filtrar a apresentação, mas nunca define a identidade do
-> solicitante usada para autorização. `ticketService.listMine()` consome este
-> endpoint e seu retorno não é mesclado na coleção local da fila.
+> solicitante usada para autorização. `ticketService.listMine()` consome a
+> listagem pessoal e seu retorno não é mesclado na coleção local da fila.
 >
 > O consumo é a tela pessoal `/chamados/meus` (`pages/MyTickets.tsx`), separada da
 > fila operacional `/chamados/tickets`: uma única pesquisa de apresentação sobre
 > o conjunto já autorizado, sem filtros operacionais e **sem fallback** para
 > `GET /api/chamados` — se a consulta pessoal falhar, a tela mostra o erro.
-> Detalhe (`GET /api/chamados/:id`) segue exigindo `ticket.view`; autorizá-lo para
-> o solicitante é etapa independente.
+> Ao abrir um chamado dessa tela, o `GET /api/chamados/:id` resolve pela via
+> pessoal acima. Nenhuma regra de autorização vive no frontend.
 
 ### Enforcement no handler
 
@@ -113,7 +134,7 @@ Algumas rotas resolvem o workspace **depois** de buscar o recurso (por exemplo, 
 
 | Rota | Action |
 |------|--------|
-| `GET /api/chamados/<id>` | `ticket.view` |
+| `GET /api/chamados/<id>` | `ticket.view` — com a via pessoal do solicitante como fallback (ver acima) |
 | `DELETE /api/chamados/<id>` | `ticket.delete` |
 | `PATCH /api/chamados/<id>` | `ticket.status` / `ticket.assign` / `ticket.edit` (atômico) |
 | `GET /api/chamados/<id>/events` | `ticket.view` |

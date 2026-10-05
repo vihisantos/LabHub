@@ -2573,7 +2573,43 @@ def chamados_list():
 @app.route('/api/chamados/<ticket_id>', methods=['GET', 'PATCH', 'DELETE'])
 @require_auth
 def chamados_manage(ticket_id):
-    """Consulta, atualiza status/responsável/prioridade de um chamado ou remove. Requer autenticação."""
+    """Consulta, atualiza status/responsável/prioridade de um chamado ou remove. Requer autenticação.
+
+    `GET` tem DUAS vias de autorização, nesta ordem:
+
+      · **Via A — operacional.** `ticket.view` no workspace do recurso, com o
+        mecanismo RBAC 2.0 já existente (`_require_action_in_handler`). É o
+        caminho da fila de trabalho da equipe de TI e é inalterado.
+
+      · **Via B — pessoal.** Se, e somente se, a Via A negar, o solicitante do
+        próprio chamado pode ler o detalhe: `reportedByUserId == g.user_id`.
+        Mesmo critério de identidade do `mine=true` (#331) — o dono vem
+        SEMPRE da sessão (`g.user_id`, o `sub` do JWT já validado por
+        `@require_auth`) e é comparado com o `reportedByUserId` que o próprio
+        servidor gravou na criação. Nada vem da query string, do body ou de
+        qualquer parâmetro do cliente.
+
+    Ordenação deliberada:
+
+      · a Via B só é alcançada **depois** do check de workspace acima, então o
+        acesso pessoal não atravessa unidade — um chamado de outra unidade é
+        barrado antes, com o mesmo 403 de sempre;
+      · a Via B só é alcançada **depois** do `ticket.view`, que continua sendo o
+        caminho operacional e decide sozinho quando o usuário tem a Action.
+
+    Isto **não é RBAC**: nenhuma Action é criada, `ticket.view`,
+    `role_permissions`, `roles`, `memberships`, `membership_overrides` e RLS
+    não mudam. É uma regra de acesso ao recurso baseada na identidade
+    autenticada — como `mine=true` e como qualquer "minha conta". Ser
+    solicitante de um chamado permite ler o próprio detalhe; **não** concede
+    acesso à fila operacional, que segue exigindo `ticket.view`.
+
+    Efeito colateral registrado, em vez de escondido: quando a Via B concede,
+    a RBAC 2.0 genuinamente negou `ticket.view`, então
+    `_require_action_in_handler` já gravou esse `deny` na auditoria. A leitura
+    pessoal não é uma concessão da RBAC e não aparece como tal — a auditoria
+    permanece fiel à decisão da RBAC.
+    """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
@@ -2601,7 +2637,26 @@ def chamados_manage(ticket_id):
             err = _require_action_in_handler('ticket.view', scope='workspace',
                                              resource_type='ticket', resource_id=ticket_id)
             if err:
-                return err
+                # ── Via B — acesso pessoal ao PRÓPRIO chamado ──────────────────
+                # Só entra quando a Via A (operacional) já negou. O dono do
+                # chamado é o `reportedByUserId` gravado pelo servidor na
+                # criação (migration 056); o ator é `g.user_id`, o `sub` do JWT
+                # validado por `@require_auth`. A comparação é feita aqui, no
+                # servidor, e NENHUM dos dois lados vem do request — não há como
+                # assumir a identidade de outro usuário.
+                #
+                # Guardas explícitas porque `str(None or '')` e `str('' or '')`
+                # colidem em `''`: sem elas, um chamado anônimo
+                # (`reportedByUserId` NULL) casaria com um `g.user_id` vazio.
+                actor_id = str(getattr(g, 'user_id', None) or '').strip()
+                owner_id = str(rows[0].get('reportedByUserId') or '').strip()
+                if not (actor_id and owner_id and actor_id == owner_id):
+                    return err
+                # Fora daqui: ou o usuário tem `ticket.view` (Via A), ou é o
+                # próprio solicitante (Via B). Qualquer outro chamado — de outra
+                # pessoa ou anônimo — devolve o 403 original de `err`; chamado de
+                # outra unidade nem chega aqui, barrado no check de workspace
+                # acima.
             return jsonify({'ticket': rows[0]})
 
         if request.method == 'DELETE':
