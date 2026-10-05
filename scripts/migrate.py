@@ -30,6 +30,15 @@ except Exception:  # pragma: no cover - dotenv é opcional
 
 from migrate import MigrationError
 from migrate.api import ApiError, ManagementAPI
+from migrate.environment import (
+    LOCAL,
+    PRODUCTION,
+    TargetEnvironmentError,
+    TargetPolicy,
+    resolve_policy,
+    validate_project_ref,
+    warn_unenforced_allowlist,
+)
 from migrate.runner import run
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -46,8 +55,13 @@ def _load_env() -> None:
             load_dotenv(path, override=False)
 
 
-def _build_executor(args: argparse.Namespace):
-    """Engenharia de execução: Management API (padrão) ou Postgres efêmero."""
+def _build_executor(args: argparse.Namespace, policy: TargetPolicy):
+    """Engenaria de execução: Management API (padrão) ou Postgres efêmero.
+
+    O DSN tem precedência sobre a Management API porque o CI de migrations usa
+    um PostgreSQL descartável e nunca deve exigir token de produção. A política de
+    ambiente (#285) só é aplicada no caminho da Management API.
+    """
     dsn = args.database_url or os.environ.get("DATABASE_URL", "").strip()
     if dsn or args.database_url is not None:
         from migrate.pg import PostgresExecutor, SqlExecutionError
@@ -58,7 +72,21 @@ def _build_executor(args: argparse.Namespace):
             print(f"[migrate] ERRO: {exc}", file=sys.stderr)
             sys.exit(2)
 
-    api = ManagementAPI(access_token=None, project_ref=None)
+    # Management API: valida o DESTINO antes de existir qualquer cliente HTTP.
+    # Uma configuração errada (secret trocado, .env apontando para outro
+    # projeto) aborta aqui, sem uma única requisição ao Supabase.
+    project_ref = os.environ.get("SUPABASE_PROJECT_REF", "")
+    try:
+        validate_project_ref(project_ref, policy)
+    except TargetEnvironmentError as exc:
+        print(f"[migrate] ERRO: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    warning = warn_unenforced_allowlist(policy)
+    if warning:
+        print(f"[migrate] AVISO: {warning}", file=sys.stderr)
+
+    api = ManagementAPI(access_token=None, project_ref=project_ref)
     # Valida configuração antes de qualquer chamada (falha cedo e clara).
     try:
         # acessa atributos para forçar a validação de variáveis ausentes
@@ -109,12 +137,52 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="DSN do PostgreSQL efêmero (CI). Alternativa à Management API.",
     )
+    parser.add_argument(
+        "--target",
+        choices=[LOCAL, PRODUCTION],
+        default=None,
+        help=(
+            "Ambiente de destino. 'production' e fail-closed: exige "
+            "SUPABASE_ALLOWED_PROJECT_REFS e BASELINE_VERSION. Default: "
+            "variavel MIGRATE_TARGET, ou 'local'."
+        ),
+    )
+    parser.add_argument(
+        "--allowed-project-refs",
+        default=None,
+        help=(
+            "Allowlist de SUPABASE_PROJECT_REF separada por virgula. Default: "
+            "variavel SUPABASE_ALLOWED_PROJECT_REFS."
+        ),
+    )
+    parser.add_argument(
+        "--require-baseline",
+        dest="require_baseline",
+        action="store_true",
+        default=None,
+        help=(
+            "Falha se BASELINE_VERSION nao resolver, em vez de cair no baseline "
+            "implicito (que seria um no-op reportando sucesso). Implicito em "
+            "--target production."
+        ),
+    )
     args = parser.parse_args(argv)
 
     _load_env()
+
+    try:
+        policy = resolve_policy(
+            target=args.target,
+            allowed_refs=args.allowed_project_refs,
+            require_baseline=args.require_baseline,
+        )
+    except TargetEnvironmentError as exc:
+        print(f"[migrate] ERRO: {exc}", file=sys.stderr)
+        return 2
+
     migrations_dir = Path(args.migrations_dir)
 
-    api = _build_executor(args)
+    api = _build_executor(args, policy)
 
     from_scratch = args.from_scratch or os.environ.get("MIGRATE_FROM_SCRATCH", "") == "1"
     try:
@@ -123,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
             api,
             dry_run=args.dry_run,
             from_scratch=from_scratch,
+            require_baseline=policy.require_baseline,
+            policy=policy,
         )
     except ApiError as exc:
         print(f"[migrate] ERRO na Management API: {exc}", file=sys.stderr)
@@ -142,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    print(f"[migrate] alvo: {policy.describe()}")
     print(f"[migrate] baseline: {result.baseline or '(nenhum)'}")
     if args.dry_run:
         print(f"[migrate] (dry-run) pendentes: {result.pending or 'nenhuma'}")
