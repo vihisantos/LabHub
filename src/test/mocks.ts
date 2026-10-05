@@ -54,12 +54,28 @@ if (!Element.prototype.scrollIntoView) {
 
 let authSpy: ReturnType<typeof vi.spyOn> | undefined
 
+/**
+ * Define o usuário da sessão para o teste.
+ *
+ * Precisa ser reexportado porque vários testes chamam `vi.restoreAllMocks()` no
+ * `beforeEach` — e isso derruba o spy de `getCurrentUser` instalado aqui. Sem
+ * sessão, a cache namespaced da #344 não tem chave, e todo teste de Chamados
+ * passa a ler `[]` (ou a lançar `NoCacheIdentityError`) por um motivo que não
+ * tem nada a ver com o que está sendo testado.
+ */
+export function setTestUser(over: Partial<User> | null = {}) {
+  authSpy = vi.spyOn(authService, 'getCurrentUser').mockReturnValue(
+    over === null ? null : ({ ...adminUser, ...over } as User),
+  )
+  return authSpy
+}
+
 beforeEach(() => {
   clearCache()
   localStorage.clear()
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-06-25T12:00:00Z'))
-  authSpy = vi.spyOn(authService, 'getCurrentUser').mockReturnValue(adminUser)
+  setTestUser()
 })
 
 afterEach(() => {

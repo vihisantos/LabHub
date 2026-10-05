@@ -6,6 +6,27 @@ let initPromise: Promise<void> | null = null
 const DB_NAME = 'labhub'
 const STORE = 'collections'
 
+/**
+ * Separador da chave namespaced por usuário (`chamados:<userId>`).
+ *
+ * `initDB` usa este prefixo para decidir o que é uma coleção namespaced e o que
+ * é uma chave legada sem dono conhecido. Precisa ser um caractere que não
+ * aparece em nome de coleção nem em uuid, e nunca no início da chave — assim
+ * `chamados` (legado) e `chamados:abc` (de A) nunca se confundem.
+ */
+export const NAMESPACE_SEPARATOR = ':'
+
+/**
+ * Chave namespaced? `chamados:abc` sim; `chamados` (legado) não.
+ *
+ * Usado por `initDB` para não transformar uma coleção namespaced em parte do
+ * cache em memória compartilhado.
+ */
+export function isNamespacedKey(key: string): boolean {
+  const i = key.indexOf(NAMESPACE_SEPARATOR)
+  return i > 0 && i < key.length - 1
+}
+
 function prom<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result)
@@ -44,6 +65,20 @@ export async function initDB(): Promise<void> {
     const store = tx.objectStore(STORE)
     const keys = await prom(store.getAllKeys())
 
+    // Cada chave do IndexedDB vira uma entrada PRÓPRIA no `CACHE`, e sempre foi
+    // assim — `chamados:A` e `chamados:B` não se misturam aqui, porque as duas
+    // entradas têm chaves distintas e nada as une.
+    //
+    // `getCol` só é acessível por nome exato de chave, e o único código que
+    // constrói esse nome é `currentUserCollectionKey`, que monta
+    // `chamados:<usuário da sessão>`. Não existe API de enumeração de coleções
+    // exportada, então não há caminho pelo qual B obtenha a chave de A a partir
+    // de uma entrada em memória de A.
+    //
+    // A chave legada `chamados` (sem dono conhecido) também entra no `CACHE`,
+    // e isso é deliberado: ela fica inerte. Nada a chama, porque `getAll` da fila
+    // resolve a chave namespaced. Ver `cacheNamespace.ts` para por que ela não
+    // pode ser adotada por inferência.
     for (const key of keys) {
       const data = await prom(store.get(key))
       if (data) CACHE.set(String(key), data)

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { ticketService, errorStatus } from '../ticketService'
 import { logService } from '../../../../core/logs/service'
-import { setCol } from '../../../../lib/db'
+import { seedChamados } from '../../../../test/helpers'
 import type { Ticket, TicketFormData, ChamadosReport } from '../../types'
 
 // Mock the Supabase client so request() can obtain the access token
@@ -53,12 +53,12 @@ beforeEach(() => {
 describe('ticketService — consultas locais', () => {
   it('começa vazio e reflete a base local', () => {
     expect(ticketService.getAll()).toHaveLength(0)
-    setCol('chamados', [makeTicket(), makeTicket({ id: 't2', status: 'fechado' })])
+    seedChamados([makeTicket(), makeTicket({ id: 't2', status: 'fechado' })])
     expect(ticketService.getAll()).toHaveLength(2)
   })
 
   it('isArchived / getActive / getArchived separam por estado', () => {
-    setCol('chamados', [
+    seedChamados([
       makeTicket({ id: 'a', status: 'aberto' }),
       makeTicket({ id: 'b', status: 'em_atendimento' }),
       makeTicket({ id: 'c', status: 'fechado' }),
@@ -71,14 +71,14 @@ describe('ticketService — consultas locais', () => {
   })
 
   it('getById e getByIdNoFilter', () => {
-    setCol('chamados', [makeTicket({ id: 'x' })])
+    seedChamados([makeTicket({ id: 'x' })])
     expect(ticketService.getById('x')?.id).toBe('x')
     expect(ticketService.getByIdNoFilter('x')?.id).toBe('x')
     expect(ticketService.getById('nao-existe')).toBeUndefined()
   })
 
   it('filtra por ativo e por sala com status em aberto', () => {
-    setCol('chamados', [
+    seedChamados([
       makeTicket({ id: 'a', roomId: 'r1', status: 'aberto' }),
       makeTicket({ id: 'b', roomId: 'r1', status: 'fechado' }),
       makeTicket({ id: 'c', roomId: 'r2', assetId: 'asset-2', status: 'em_atendimento' }),
@@ -135,7 +135,7 @@ describe('ticketService — API', () => {
   })
 
   it('update: atualiza local e envia PATCH', async () => {
-    setCol('chamados', [makeTicket({ id: 't1', status: 'aberto' })])
+    seedChamados([makeTicket({ id: 't1', status: 'aberto' })])
     mockFetchOk({ ticket: makeTicket({ id: 't1', status: 'em_atendimento' }) })
 
     ticketService.update('t1', { status: 'em_atendimento' })
@@ -156,7 +156,7 @@ describe('ticketService — API', () => {
    * não é apagada no `signOut` — ou seja, sobrevivia à sessão.
    */
   it('getByIdRemote: busca na API e NÃO persiste na cache da fila', async () => {
-    setCol('chamados', [])
+    seedChamados([])
     mockFetchOk({ ticket: makeTicket({ id: 'remote-1' }) })
 
     const t = await ticketService.getByIdRemote('remote-1')
@@ -171,7 +171,7 @@ describe('ticketService — API', () => {
   it('getByIdRemote: não apaga nem altera o que já está na cache', async () => {
     // A fila legítima continua intacta: a correção não pode limpá-la.
     const daFila = makeTicket({ id: 'da-fila', ticketNumber: 7 })
-    setCol('chamados', [daFila])
+    seedChamados([daFila])
     mockFetchOk({ ticket: makeTicket({ id: 'pessoal', ticketNumber: 99 }) })
 
     await ticketService.getByIdRemote('pessoal')
@@ -181,7 +181,7 @@ describe('ticketService — API', () => {
   })
 
   it('getByIdRemote: erro também não escreve nada na cache', async () => {
-    setCol('chamados', [])
+    seedChamados([])
     mockFetchOk({ error: 'Permissão insuficiente' }, false, 403)
 
     await ticketService.getByIdRemote('de-outro').catch(() => {})
@@ -218,7 +218,7 @@ describe('ticketService — API', () => {
    * aberto por deep link (fora da fila) ficaria com escrita descartada.
    */
   it('patchRemote: PATCH por id sem passar pela cache da fila', async () => {
-    setCol('chamados', [])
+    seedChamados([])
     mockFetchOk({ ticket: makeTicket({ id: 'pessoal', status: 'resolvido' }) })
 
     const saved = await ticketService.patchRemote('pessoal', { status: 'resolvido' })
@@ -320,7 +320,7 @@ describe('ticketService — API', () => {
   })
 
   it('pullRemote: mescla com updatedAt mais recente', async () => {
-    setCol('chamados', [makeTicket({ id: 'a', updatedAt: '2026-06-25T10:00:00Z', assignedTo: 'local' })])
+    seedChamados([makeTicket({ id: 'a', updatedAt: '2026-06-25T10:00:00Z', assignedTo: 'local' })])
     mockFetchOk({
       tickets: [
         makeTicket({ id: 'a', updatedAt: '2026-06-25T11:00:00Z', assignedTo: 'remoto' }),

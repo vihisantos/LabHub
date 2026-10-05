@@ -1,5 +1,5 @@
 import { defaultDb, pcareDb, stockDb } from './supabase'
-import { createLocalService } from './storage'
+import { createLocalService, type CollectionKeyResolver } from './storage'
 import { getCol, setCol } from './db'
 
 const DIRTY_KEY = 'labhub_dirty_collections'
@@ -289,8 +289,21 @@ export async function syncAll(onItem?: (collection: string, current: number, tot
   return { synced, failed }
 }
 
-export function createSyncService<T extends { id: string }>(collection: string, enableWorkspaceFilter = true) {
-  const local = createLocalService<T>(collection, enableWorkspaceFilter)
+/**
+ * Serviço de cache local para uma coleção.
+ *
+ * `resolveKey` (opcional) é o gancho da #344: quando presente, cada operação
+ * resolve a chave física no momento de executá-la, em vez de usar um nome fixo.
+ * É assim que `chamados` vira `chamados:<userId>` sem que nenhum consumidor
+ * precise concatenar string — e sem que um consumidor possa escolher a
+ * identidade. As demais coleções seguem com a chave literal, inalteradas.
+ */
+export function createSyncService<T extends { id: string }>(
+  collection: string,
+  enableWorkspaceFilter = true,
+  resolveKey?: CollectionKeyResolver,
+) {
+  const local = createLocalService<T>(collection, enableWorkspaceFilter, resolveKey)
 
   return {
     getAll: local.getAll,

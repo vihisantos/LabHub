@@ -7,6 +7,7 @@ import {
   type To,
 } from 'react-router-dom'
 import { clearCache, setCol } from '../../../lib/db'
+import { seedChamados } from '../../../test/helpers'
 import { ticketService } from '../../../apps/chamados/services/ticketService'
 import { isoToBrDate } from '../../../apps/reservalab/utils/tvEvent'
 import { CoordinatorHome } from '../CoordinatorHome'
@@ -1079,7 +1080,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
   })
 
   it('SLA aparece para cada unidade, isolado por workspace_id (1 leitura do cache)', async () => {
-    setCol('chamados', [
+    seedChamados([
       slaTicket('ok-ws1', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
       slaTicket('overdue-ws1', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString()),
       slaTicket('ok-ws2', 'ws2', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
@@ -1094,7 +1095,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
   })
 
   it('configuração customizada da unidade é respeitada (sla_configs)', async () => {
-    setCol('chamados', [
+    seedChamados([
       slaTicket('near-default', 'ws1', new Date(NOW.getTime() - 20 * HOUR).toISOString()),
     ])
     setCol('sla_configs', [
@@ -1115,7 +1116,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
   })
 
   it('unidade sem chamados com SLA aplicável → zeros honestos e taxa "—"', async () => {
-    setCol('chamados', [
+    seedChamados([
       {
         ...slaTicket('resolvido-ws1', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
         status: 'resolvido',
@@ -1133,7 +1134,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
     const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
     workspaceContextMock.workspaces = [target]
     workspaceContextMock.workspace = { id: 'ws9', name: 'Outra', slug: 'outra' }
-    setCol('chamados', [
+    seedChamados([
       slaTicket('ok-ws1', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
     ])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
@@ -1149,7 +1150,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
   })
 
   it('SLA reage a mudanças no cache bruto via sinal passivo (sem remontar o ciclo)', async () => {
-    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
+    seedChamados([slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
     renderHome([unitWithData()])
     await act(async () => {})
@@ -1160,7 +1161,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
     // qualquer gravação local) → onCollectionChange('chamados') — emitido pelo
     // setCol existente — faz o Central recomputar sem novo poll/subscription.
     act(() => {
-      setCol('chamados', [
+      seedChamados([
         slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 1 * HOUR).toISOString()),
       ])
     })
@@ -1172,7 +1173,7 @@ describe('CoordinatorHome (Área do Coordenador — gestão por RPC escopada)', 
   it('Central NÃO cria segundo ciclo de tickets: sem setInterval de polling e sem pullRemote', async () => {
     const intervalSpy = vi.spyOn(globalThis, 'setInterval')
     const pullSpy = vi.spyOn(ticketService, 'pullRemote')
-    setCol('chamados', [slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
+    seedChamados([slaTicket('t-at', 'ws1', new Date(NOW.getTime() - 30 * HOUR).toISOString())])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
     renderHome([unitWithData()])
     await act(async () => {})
@@ -1249,7 +1250,7 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
   })
 
   it('KPIs de chamados leem o cache do escopo e ignoram o resto (sem inventar números)', async () => {
-    setCol('chamados', [
+    seedChamados([
       cacheTicket('t-aberto', 'ws1', { status: 'aberto' }),
       cacheTicket('t-em-atendimento', 'ws1', { status: 'em_atendimento', assignedToUserId: '' }),
       cacheTicket('t-fora', 'ws2', { status: 'aberto' }),
@@ -1271,7 +1272,7 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
   })
 
   it('escopo multiunidade: KPIs somam as unidades do escopo e ficam somente-leitura', async () => {
-    setCol('chamados', [
+    seedChamados([
       cacheTicket('a', 'ws1', { status: 'aberto' }),
       cacheTicket('b', 'ws1', { status: 'aberto' }),
       cacheTicket('c', 'ws2', { status: 'aberto' }),
@@ -1293,7 +1294,7 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
   it('escopo de UMA unidade: cards globais navegam com os deep links da PR A', async () => {
     const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
     workspaceContextMock.workspaces = [target]
-    setCol('chamados', [
+    seedChamados([
       cacheTicket('t-near', 'ws1', { createdAt: new Date(NOW.getTime() - 20 * HOUR).toISOString() }),
       cacheTicket('t-overdue', 'ws1', {
         createdAt: new Date(NOW.getTime() - 30 * HOUR).toISOString(),
@@ -1321,7 +1322,7 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
     const target = { id: 'ws1', name: 'Campus A', slug: 'campus-a' }
     workspaceContextMock.workspaces = [target]
     workspaceContextMock.workspace = { id: 'ws9', name: 'Outra', slug: 'outra' }
-    setCol('chamados', [
+    seedChamados([
       cacheTicket('tk-1', 'ws1', { updatedAt: new Date(NOW.getTime() - 1000).toISOString() }),
       cacheTicket('tk-2', 'ws1', {
         problemCategory: 'Projetor',
@@ -1347,7 +1348,7 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
 
   it('recentes: unidade fora do contexto de workspaces → item sem ação (fail-safe)', async () => {
     workspaceContextMock.workspaces = [{ id: 'ws9', name: 'Outra', slug: 'outra' }]
-    setCol('chamados', [cacheTicket('tk-1', 'ws1')])
+    seedChamados([cacheTicket('tk-1', 'ws1')])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
     renderHome([unitWithData()])
     await act(async () => {})
@@ -1379,7 +1380,7 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
   })
 
   it('SLA global reage ao cache bruto pelo sinal passivo da PR A', async () => {
-    setCol('chamados', [cacheTicket('t-at', 'ws1', { createdAt: new Date(NOW.getTime() - 30 * HOUR).toISOString() })])
+    seedChamados([cacheTicket('t-at', 'ws1', { createdAt: new Date(NOW.getTime() - 30 * HOUR).toISOString() })])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
     renderHome([unitWithData()])
     await act(async () => {})
@@ -1388,7 +1389,7 @@ describe('Visão geral (PR B) — KPIs, recentes, SLA e solicitações globais',
     expect(screen.getByTestId('overview-sla-overdue')).toHaveTextContent('1')
 
     act(() => {
-      setCol('chamados', [
+      seedChamados([
         cacheTicket('t-at', 'ws1', { createdAt: new Date(NOW.getTime() - 1 * HOUR).toISOString() }),
       ])
     })
@@ -1568,7 +1569,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
   })
 
   it('Visão Geral CONSUME os painéis da #250 (KPIs, SLA no escopo e pendências) sem duplicação', async () => {
-    setCol('chamados', [tk('t1', 'ws1'), tk('t2', 'ws1', 'em_atendimento')])
+    seedChamados([tk('t1', 'ws1'), tk('t2', 'ws1', 'em_atendimento')])
     mockGetCoordinatorUnitOverview.mockResolvedValue(null)
     renderHomeAt('/coordenador')
     await act(async () => {})
@@ -1841,7 +1842,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
   })
 
   it('aba Chamados conta só o escopo coordenação (workspaces fora ficam de fora)', async () => {
-    setCol('chamados', [
+    seedChamados([
       tk('t-scope', 'ws1'),
       tk('t-out1', 'ws2'),
       tk('t-out2', 'ws99'),
@@ -1854,7 +1855,7 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
   })
 
   it('listagem da aba Chamados respeita o escopo (chamado fora não vira linha)', async () => {
-    setCol('chamados', [
+    seedChamados([
       tk('t-list-scope', 'ws1'),
       tk('t-list-out', 'ws2'),
     ])
@@ -2136,7 +2137,7 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
   })
 
   it('filtro é refletido na aba Chamados (?tab=tickets&unit=ws2) — só tickets da unidade', async () => {
-    setCol('chamados', [
+    seedChamados([
       tk('t-a', 'ws1'),
       tk('t-b', 'ws2'),
       tk('t-b2', 'ws2', 'em_atendimento'),
@@ -2149,7 +2150,7 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
   })
 
   it('listagem de chamados segue o ?unit= (só tickets da ws2)', async () => {
-    setCol('chamados', [
+    seedChamados([
       tk('t-a-list', 'ws1'),
       tk('t-b-list', 'ws2'),
     ])

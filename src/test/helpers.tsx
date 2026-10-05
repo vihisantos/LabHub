@@ -3,6 +3,7 @@ import { render, type RenderOptions } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider } from '../lib/ThemeContext'
 import { setCol } from '../lib/db'
+import { namespacedCollectionKey } from '../lib/cacheNamespace'
 import type { PC } from '../apps/pcare/types'
 import type { Part } from '../apps/pcare/types/part'
 import type { ScheduledMaintenance } from '../apps/pcare/types/maintenance'
@@ -31,6 +32,24 @@ const now = Math.floor(Date.now() / 1000)
 
 export function seedLocalStorage(key: string, data: unknown) {
   setCol(key, data as any[])
+}
+
+/**
+ * Semeia a cache da fila de Chamados do usuário de teste (#344).
+ *
+ * Desde a #344 a coleção física é `chamados:<userId>`, não `chamados`. O mock
+ * global de auth em `src/test/mocks.ts` devolve `id: 'test-admin'`, então a chave
+ * de qualquer teste é `chamados:test-admin`.
+ *
+ * Usar o helper em vez da string crua é deliberado: se o namespace mudar de novo,
+ * os testes passam a semear a chave certa por construção, em vez de quebrar em
+ * massa — que é o que aconteceu quando a chave passou a ser namespaced e 34
+ * testes seguiam usando `setCol('chamados', …)`.
+ */
+export const TEST_CHAMADOS_KEY = namespacedCollectionKey('chamados', 'test-admin')
+
+export function seedChamados(tickets: unknown[]) {
+  setCol(TEST_CHAMADOS_KEY, tickets as any[])
 }
 
 export function makePC(overrides: Partial<PC> = {}): PC {

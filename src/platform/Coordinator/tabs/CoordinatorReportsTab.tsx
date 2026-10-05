@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { icons } from '../../../lib/icons'
-import { ticketService } from '../../../apps/chamados/services/ticketService'
+import { ticketService, cachedTickets } from '../../../apps/chamados/services/ticketService'
 import { analyzeSla, analyzeSlaByWorkspace } from '../../../apps/chamados/services/sla'
 import type { SlaAnalysis, SlaWorkspaceSummary } from '../../../apps/chamados/services/sla'
 import { slaConfigService } from '../../../apps/chamados/services/slaConfigService'
 import { exportCSV } from '../../../apps/pcare/utils/export'
 import { useModuleLevel } from '../../../core/permissions/useModuleVisibility'
-import { getCol } from '../../../lib/db'
 import { ChartCard, DonutChart, BarChart } from '../../../lib/charts'
 import { cn } from '../../../lib/components/ui/utils'
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
@@ -156,7 +155,10 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
     setLoading(true)
 
     const { from, to } = periodRange(periodKey)
-    const cache = getCol<Ticket>('chamados')
+    // Cache bruto do USUÁRIO DA SESSÃO (`chamados:<userId>`, #344) — a chave
+    // literal `chamados` seria a fila de outro usuário. A leitura multiunidade
+    // abaixo continua igual: o filtro por unidade é o `unit.unitId`.
+    const cache = cachedTickets()
     const configs = slaConfigService.getHoursForTickets()
 
     async function loadUnit(unit: CoordinatedUnit): Promise<UnitReportsState> {

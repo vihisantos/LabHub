@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { setCol } from '../../../../lib/db'
+import { seedChamados } from '../../../../test/helpers'
+import { setTestUser } from '../../../../test/mocks'
 import { ticketService } from '../ticketService'
 
 /**
@@ -71,8 +72,12 @@ function ticket(id: string, over: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  // `restoreAllMocks` derruba o spy de `getCurrentUser` do setup global, e sem
+  // sessão a cache namespaced (#344) não tem chave. Reestabelece a sessão antes
+  // de semear: o teste precisa do namespace `test-admin` para falar da fila.
   vi.restoreAllMocks()
-  setCol('chamados', [])
+  setTestUser()
+  seedChamados([])
 })
 
 // ── 2) o caminho pessoal não escreve na cache da fila ──────────────────────
@@ -103,7 +108,7 @@ describe('#342 — getByIdRemote não persiste na cache da fila', () => {
       { status: 'aberto' },
       { priority: 'urgente' },
     ]) {
-      setCol('chamados', [])
+      seedChamados([])
       mockFetch({ ticket: ticket('t-x', over) })
       await ticketService.getByIdRemote('t-x')
       expect(ticketService.getAll()).toHaveLength(0)
@@ -188,7 +193,7 @@ describe('#342 — o fluxo operacional não regride', () => {
   })
 
   it('update() continua persistindo e chamando o PATCH', async () => {
-    setCol('chamados', [ticket('t-1')])
+    seedChamados([ticket('t-1')])
     mockFetch({ ticket: ticket('t-1', { status: 'em_atendimento' }) })
 
     ticketService.update('t-1', { status: 'em_atendimento' })
@@ -228,7 +233,7 @@ describe('#342 — o fluxo operacional não regride', () => {
 
   it('ler um chamado da fila NÃO a apaga nem a desloca', async () => {
     const original = [ticket('t-1'), ticket('t-2')]
-    setCol('chamados', [...original])
+    seedChamados([...original])
     mockFetch({ ticket: ticket('t-2', { updatedAt: '2026-10-05T09:00:00' }) })
 
     await ticketService.getByIdRemote('t-2')
@@ -240,7 +245,7 @@ describe('#342 — o fluxo operacional não regride', () => {
 
   it('cache legítima continua disponível quando o backend está indisponível', async () => {
     // Requisito 5: a fila não pode virar tela vazia por indisponibilidade.
-    setCol('chamados', [ticket('t-cache')])
+    seedChamados([ticket('t-cache')])
 
     mockFetch({ error: 'gateway' }, false, 502)
     await ticketService.pullRemote().catch(() => {})

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { CoordinatorReportsTab } from '../CoordinatorReportsTab'
-import { setCol } from '../../../../lib/db'
+import { seedChamados } from '../../../../test/helpers'
 import { slaConfigService } from '../../../../apps/chamados/services/slaConfigService'
 import type { CoordinatedUnit } from '../../../../core/permissions/coordinatorService'
 import type { Workspace } from '../../../../core/workspaces/types'
@@ -16,11 +16,22 @@ vi.mock('../../../../core/permissions/useModuleVisibility', () => ({
   useModuleLevel: (...args: unknown[]) => mockUseModuleLevel(...args),
 }))
 
-vi.mock('../../../../apps/chamados/services/ticketService', () => ({
-  ticketService: {
-    getReports: (...args: unknown[]) => mockGetReports(...args),
-  },
-}))
+vi.mock('../../../../apps/chamados/services/ticketService', async () => {
+  // #344: a aba lê `cachedTickets()` (fila do usuário da sessão) além de
+  // `ticketService.getReports`. `importOriginal` preserva `cachedTickets` real
+  // para que `seedChamados` — que semeia `chamados:<userId>` — seja o que o
+  // componente enxerga.
+  const actual = await vi.importActual<
+    typeof import('../../../../apps/chamados/services/ticketService')
+  >('../../../../apps/chamados/services/ticketService')
+  return {
+    ...actual,
+    ticketService: {
+      ...actual.ticketService,
+      getReports: (...args: unknown[]) => mockGetReports(...args),
+    },
+  }
+})
 
 vi.mock('../../../../apps/pcare/utils/export', () => ({
   exportCSV: (...args: unknown[]) => mockExportCSV(...args),
@@ -214,7 +225,7 @@ describe('CoordinatorReportsTab (F.1 — leitura honesta por unidade)', () => {
     const DAY = 24 * 60 * 60 * 1000
     const resolvedAt = new Date(now - 10 * DAY).toISOString()
     const createdAt = new Date(now - 11 * DAY).toISOString()
-    setCol('chamados', [
+    seedChamados([
       ticket({
         id: 'r-10d',
         workspace_id: 'ws1',
@@ -247,7 +258,7 @@ describe('CoordinatorReportsTab (F.1 — leitura honesta por unidade)', () => {
   it('SLA operacional (agora) vem do cache bruto e é separado do SLA do período', async () => {
     const now = Date.now()
     const HOUR = 60 * 60 * 1000
-    setCol('chamados', [
+    seedChamados([
       ticket({
         id: 'open-1',
         workspace_id: 'ws1',
