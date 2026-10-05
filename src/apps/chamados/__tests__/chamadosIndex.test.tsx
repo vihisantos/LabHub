@@ -83,26 +83,35 @@ describe('ChamadosApp — raiz /chamados e deep links da Central do Coordenador 
     expect(screen.getByPlaceholderText(FILA_PLACEHOLDER)).toBeInTheDocument()
   })
 
-  it('/chamados/meus abre a lista no contexto de Meus Chamados (não o Dashboard)', () => {
+  it('/chamados/meus abre a ÁREA PESSOAL, não a fila operacional', () => {
     renderApp('/chamados/meus')
-    expect(screen.getByPlaceholderText(FILA_PLACEHOLDER)).toBeInTheDocument()
+    // Página própria: pesquisa simples, sem nenhuma busca operacional.
+    expect(screen.getByPlaceholderText('Pesquisar chamado...')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(FILA_PLACEHOLDER)).not.toBeInTheDocument()
     expect(screen.queryByText('Relatórios')).not.toBeInTheDocument()
-    // O chip de contexto vem ativo — a rota define o filtro inicial.
-    const chip = screen.getByRole('button', { name: 'Meus Chamados' })
-    expect(chip.className).toContain('bg-amber-500')
-    // E os dois conceitos ficam visíveis e separados.
-    expect(screen.getByRole('button', { name: 'Meus Atendimentos' }).className).not.toContain(
-      'bg-amber-500',
-    )
+    // E nenhuma ferramenta da fila (filtros/ordenação) aparece aqui.
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Meus Atendimentos' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Ativos/ })).not.toBeInTheDocument()
+    // Não é a fila: os "Meus Atendimentos" da fila são outro conceito.
+    expect(screen.getByText(/Chamados que/)).toBeInTheDocument()
   })
 
-  it('/chamados/meus?status=resolvido refina o status sem trocar o contexto', () => {
+  it('/chamados/meus?status=resolvido NÃO injeta filtro operacional na área pessoal', () => {
     renderApp('/chamados/meus?status=resolvido')
+    // A área pessoal não tem filtro de status: a query param é ignorada.
+    expect(screen.getByPlaceholderText('Pesquisar chamado...')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Resolvido/ })).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(FILA_PLACEHOLDER)).not.toBeInTheDocument()
+  })
+
+  it('a rota da fila continua sendo a tela da TI', () => {
+    renderApp('/chamados/tickets')
     expect(screen.getByPlaceholderText(FILA_PLACEHOLDER)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Meus Chamados' }).className).toContain(
-      'bg-amber-500',
-    )
-    expect(screen.getByRole('button', { name: /^Resolvido/ }).className).toContain('bg-amber-500')
+    expect(screen.queryByPlaceholderText('Pesquisar chamado...')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Meus Atendimentos' })).toBeInTheDocument()
+    // E a fila não oferece a área pessoal como filtro.
+    expect(screen.queryByRole('button', { name: 'Meus Chamados' })).not.toBeInTheDocument()
   })
 
   it('filtro desconhecido mantém o Dashboard (nenhum default alterado)', () => {

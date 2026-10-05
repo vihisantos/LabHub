@@ -152,8 +152,8 @@ Regras:
   `?mine=false` mantêm a lista operacional.
 
 > **O frontend filtra a apresentação, nunca define a identidade.** O recorte de
-> "Meus Chamados" é decidido no backend; o cliente apenas ordena, busca e
-> pagina sobre um conjunto já autorizado. `ticketService.listMine()` chama este
+> "Meus Chamados" é decidido no backend; o cliente apenas filtra, agrupa e
+> formata um conjunto já autorizado. `ticketService.listMine()` chama este
 > endpoint e seu retorno **não** é mesclado na coleção local da fila — se fosse,
 > o filtro do cliente voltaria a ser a única fronteira.
 
@@ -163,6 +163,47 @@ comportamento de `ticket.view` é o de antes. É uma regra de acesso ao recurso
 baseada na identidade autenticada, como qualquer "minha conta".
 
 Cobertura: `api/tests/test_chamados_mine_scope.py` (Casos A–G).
+
+### `?status=` no escopo pessoal
+
+Continua disponível no endpoint, mas **a tela de Meus Chamados não o usa**:
+lá não existe filtro de status. O parâmetro permanece apenas para clientes que
+consumem a API diretamente.
+
+## Telas: duas experiências distintas
+
+"Chamados" e "Meus Chamados" são áreas diferentes do produto, com rota, tela e
+coleção próprias. Não há filtro que ligue uma à outra.
+
+| | Chamados (fila operacional) | Meus Chamados (área pessoal) |
+|---|---|---|
+| Rota | `/chamados/tickets` | `/chamados/meus` |
+| Componente | `pages/TicketList.tsx` | `pages/MyTickets.tsx` |
+| Dados | `useTickets` → `ticketService.getAll()` (IndexedDB + realtime + fila remota) | `useMyTickets` → `ticketService.listMine()` (`?mine=true`, leitura remota) |
+| Autorização | Action `ticket.view` por workspace | Identidade do JWT no servidor; não exige `ticket.view` |
+| Pesquisa | Operacional (nº, sala, ativo, problema) | Uma única pesquisa simples (nº, assunto, local) |
+| Filtros | Status, prioridade, responsável, sala, SLA, ordenação, arquivados | Nenhum |
+| Apresentação | Linha operacional com prioridade, responsável, SLA, nota de status | Card simples agrupado por data de atualização (`Hoje` / `Ontem` / `DD/MM/AAAA`) |
+| Estados | Fila local com sincronização em segundo plano | Loading (skeleton), vazio (com CTA para abrir chamado), erro (com retry) |
+
+Regras da tela pessoal:
+
+- **Um único conjunto.** A coleção vem inteira de `?mine=true`. Não há
+  `queueTickets + mineTickets`, nem fallback para `GET /api/chamados` quando a
+  consulta pessoal falha — nesse caso a tela mostra o erro.
+- **A pesquisa é apresentação, não autorização.** Ela filtra apenas o conjunto já
+  autorizado e nunca amplia o escopo. `reportedByUserId` não é lido no
+  frontend.
+- **Falha não vira fila.** Se `?mine=true` falhar, o estado é de erro com
+  "Tentar novamente"; os chamados da equipe nunca aparecem no lugar.
+- **"Meus Atendimentos" continua sendo um chip da fila** — é recorte de trabalho
+  atribuído (só abertos), não histórico pessoal.
+- **O detalhe não muda nesta tela.** `GET /api/chamados/:id` continua exigindo
+  `ticket.view`; abrir um chamado a partir de Meus Chamados segue o mesmo
+  caminho. Autorizar o detalhe para o solicitante é etapa separada.
+
+Implementação da apresentação: `utils/myTickets.ts` (`groupTicketsByUpdateDate`,
+`filterTicketsByQuery`, `formatUpdatedLabel`, `dateGroupLabel`).
 
 ### PATCH /api/chamados/:id
 
@@ -233,7 +274,8 @@ Os prazos são configuráveis na coleção `sla_configs`.
 
 | Hook | Propósito |
 |------|-----------|
-| `useTickets` | CRUD e estado dos chamados |
+| `useTickets` | CRUD e estado dos chamados (fila operacional) |
+| `useMyTickets` | Coleção pessoal de Meus Chamados (`?mine=true`), sem cache local e sem fallback |
 | `useTicket` | Dados de um chamado específico |
 | `useTicketForm` | Estado do formulário de chamado |
 | `useSLAConfig` | Configuração de prazos por prioridade |

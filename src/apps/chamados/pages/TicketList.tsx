@@ -10,7 +10,6 @@ import {
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
 import { getPriority, getSlaState, isSlaOverdue } from '../services/sla'
-import { useMyTickets } from '../hooks/useMyTickets'
 import { useAuth } from '../../../core/auth/useAuth'
 import { icons } from '../../../lib/icons'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
@@ -39,33 +38,22 @@ const STATUS_CHIP_LABELS: Record<TicketStatus | 'em_andamento', string> = {
 }
 
 /**
- * Escopo de "quem é o dono da relação" — dois conceitos DISTINTOS que um mesmo
- * usuário pode ter ao mesmo tempo (um técnico também abre chamados):
+ * Chamados — a FILA OPERACIONAL da equipe de TI.
  *
- *   · **Meus Atendimentos** (`assignedFilter`) — chamados atribuídos a mim para
- *     atendimento técnico. É fila de TRABALHO: só os abertos, porque um chamado
- *     encerrado já saiu da fila.
- *   · **Meus Chamados** (`requesterFilter`) — chamados que EU abri. É histórico
- *     de PEDIDOS: inclui resolvidos e fechados, porque o solicitante precisa
- *     conferir o desfecho do que pediu.
+ * Tudo nesta tela gira em torno do trabalho de atendimento: status, prioridade,
+ * responsável, sala, SLA, ordenação e a lista completa do que está em aberto.
  *
- * `requesterFilter` é ORTOGONAL à dimensão de status (Ativos / Arquivados / chips
- * de status) — por isso ele NÃO é exclusivo como `assignedFilter`. Já
- * `assignedFilter` e `unassignedFilter` são o mesmo eixo (a fila) e continuam
- * mutuamente exclusivos.
- *
- * ⚠️ `requesterFilter` é APRESENTAÇÃO, não autorização. Ele filtra, no cliente,
- * uma lista que o usuário JÁ TEM CARREGADO porque tem `ticket.view`. O cliente
- * não escolhe o UUID: compara com `user.id` da sessão. O escopo server-side por
- * solicitante (`reportedByUserId = auth.uid()`) para papéis sem `ticket.view` é
- * trabalho separado — ver PR `fix(chamados): escopo proprio de solicitante`.
+ * ⚠️ Esta tela NÃO é o lugar de "Meus Chamados". Chamar alguém é só histórico de
+ * pedido: é área pessoal, vive na rota `/chamados/meus` (página `MyTickets`, com
+ * dados de `GET /api/chamados?mine=true`) e não é uma segunda fila aqui dentro.
+ * Os dois conceitos que coexistem — "Meus Atendimentos" (`assignedFilter`, fila de
+ * TRABALHO: só abertos) e "Meus Chamados" (histórico de PEDIDOS, em página
+ * própria) — continuam sendo distintos, mas não dividem mais esta tela.
  */
-export type TicketListScope = 'atendimentos' | 'chamados'
-
-export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } = {}) {
+export function TicketList() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { tickets: filaTickets, syncing, reload } = useTicketsContext()
+  const { tickets, syncing, reload } = useTicketsContext()
   const { user } = useAuth()
   // Fase 2.1 — os query params da Central INICIALIZAM os filtros existentes:
   // o useState abaixo continua sendo a única fonte de verdade após o mount.
@@ -76,10 +64,7 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
       ? (param as TicketStatus)
       : ''
   })
-  // `defaultScope` define o contexto INICIAL (rota /chamados/meus). Depois do
-  // mount os chips são a única fonte de verdade — mesmo contrato dos ?status=.
-  const [assignedFilter, setAssignedFilter] = useState(defaultScope === 'atendimentos')
-  const [requesterFilter, setRequesterFilter] = useState(defaultScope === 'chamados')
+  const [assignedFilter, setAssignedFilter] = useState(false)
   const [unassignedFilter, setUnassignedFilter] = useState(
     () => searchParams.get('unassigned') === '1',
   )
@@ -98,19 +83,7 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
   const [sortBy, setSortBy] = useState<'recente' | 'prioridade' | 'sla' | 'sala' | 'numero'>('recente')
   const [visibleCount, setVisibleCount] = useState(20)
 
-  // ── Meus Chamados: os dados vêm do endpoint com escopo de servidor ─────────
-  // `GET /api/chamados?mine=true` já devolve SÓ os chamados cujo
-  // `reportedByUserId` é a identidade do JWT, sem exigir `ticket.view`. Não
-  // filtramos a fila em cima: quando o filtro de solicitante está ligado, a
-  // fonte dos dados é esta chamada, e o filtro abaixo é só apresentação
-  // (status/ordem/busca) sobre um conjunto já autorizado.
-  const meusAtivos = requesterFilter
-  const meus = useMyTickets(meusAtivos)
-  const tickets = meusAtivos ? meus.tickets : filaTickets
-  const syncingList = meusAtivos ? meus.loading : syncing
-  const reloadList = meusAtivos ? meus.reload : reload
-
-  useEffect(() => { setVisibleCount(20) }, [statusFilter, assignedFilter, requesterFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, sortBy])
+  useEffect(() => { setVisibleCount(20) }, [statusFilter, assignedFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, sortBy])
 
   const SORT_OPTIONS: { value: typeof sortBy; label: string }[] = [
     { value: 'recente', label: 'Mais recentes' },
@@ -120,7 +93,7 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
     { value: 'numero', label: 'Nº' },
   ]
 
-  /** Zera os filtros de FILA (atendimentos/sem responsável). Não mexe no de solicitante. */
+  /** Zera os filtros de FILA (atendimentos/sem responsável). */
   function clearQueueScope() {
     setAssignedFilter(false)
     setUnassignedFilter(false)
@@ -130,13 +103,6 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
     const slaByWorkspace = slaConfigService.getHoursForTickets()
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
-      // Meus Chamados: identidade pelo UUID da sessão. Sem sessão não há
-      // solicitante — a lista é vazia em vez de vazar a fila inteira. Chamados
-      // anônimos (reportedByUserId nulo) nunca aparecem: não são "meus".
-      if (requesterFilter) {
-        if (!user?.id) return false
-        if (!t.reportedByUserId || t.reportedByUserId !== user.id) return false
-      }
       if (assignedFilter) {
         if (archived) return false
         if (t.assignedToUserId !== user?.id) return false
@@ -169,7 +135,7 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
       }
       return true
     })
-  }, [tickets, statusFilter, assignedFilter, requesterFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, user?.id])
+  }, [tickets, statusFilter, assignedFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, user?.id])
 
   const uniqueRooms = useMemo(() => {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
@@ -215,15 +181,9 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
 
   return (
     <div className="space-y-4">
-      {syncingList && (
+      {syncing && (
         <div className="h-0.5 -mt-2 -mx-4 overflow-hidden">
           <div className="h-full w-1/3 animate-[shimmer_1.5s_infinite] rounded-full bg-amber-500" />
-        </div>
-      )}
-      {meusAtivos && meus.error && (
-        <div className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-          <icons.ui.alertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
-          <p className="text-xs text-red-600 dark:text-red-400">{meus.error}</p>
         </div>
       )}
       <div className="flex gap-2">
@@ -239,13 +199,13 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
         </div>
         <button
           type="button"
-          onClick={() => void reloadList()}
-          disabled={syncingList}
+          onClick={() => void reload()}
+          disabled={syncing}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg disabled:opacity-50"
           aria-label="Atualizar lista"
           title="Atualizar lista"
         >
-          <icons.ui.refresh size={16} className={syncingList ? 'animate-spin' : ''} />
+          <icons.ui.refresh size={16} className={syncing ? 'animate-spin' : ''} />
         </button>
       </div>
 
@@ -255,11 +215,10 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
           onClick={() => {
             setStatusFilter('')
             setAssignedFilter(false)
-            setRequesterFilter(false)
             setUnassignedFilter(false)
           }}
           className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            statusFilter === '' && !assignedFilter && !requesterFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            statusFilter === '' && !assignedFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
           }`}
         >
           Ativos {statusCounts.ativos > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.ativos}</span>}
@@ -271,7 +230,6 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
             // o updater pode ser reexecutado (StrictMode) e não deve ter
             // efeitos colaterais.
             if (!assignedFilter) {
-              setRequesterFilter(false)
               setUnassignedFilter(false)
               setStatusFilter('')
             }
@@ -287,26 +245,8 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
         <button
           type="button"
           onClick={() => {
-            if (!requesterFilter) {
-              setAssignedFilter(false)
-              setUnassignedFilter(false)
-              setStatusFilter('')
-            }
-            setRequesterFilter((v) => !v)
-          }}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            requesterFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-          }`}
-          title="Chamados que você abriu (por solicitante, não por responsável)"
-        >
-          Meus Chamados
-        </button>
-        <button
-          type="button"
-          onClick={() => {
             if (!unassignedFilter) {
               setAssignedFilter(false)
-              setRequesterFilter(false)
               setStatusFilter('')
             }
             setUnassignedFilter((v) => !v)
@@ -323,8 +263,8 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
             type="button"
             onClick={() => {
               setStatusFilter(status)
-              // Chips de status refinam a DIMENSÃO DE STATUS; o filtro de
-              // solicitante é ortogonal e sobrevive. Os de fila não.
+              // Chips de status refinam a DIMENSÃO DE STATUS; os filtros de
+              // fila (responsável) são o mesmo eixo e são zerados junto.
               clearQueueScope()
             }}
             className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -347,13 +287,6 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
           Arquivados {statusCounts.arquivados > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.arquivados}</span>}
         </button>
       </div>
-
-      {requesterFilter && (
-        <p className="text-[11px] text-fg-muted">
-          Chamados que <span className="font-medium text-fg">você abriu</span>. Não confundir com
-          &quot;Meus Atendimentos&quot;, que são os chamados atribuídos a você.
-        </p>
-      )}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         <button
@@ -411,15 +344,14 @@ export function TicketList({ defaultScope }: { defaultScope?: TicketListScope } 
         <div className="flex flex-col items-center py-12">
           <icons.ui.inbox size={40} className="text-fg-muted" />
           <p className="mt-3 text-sm text-fg-muted">
-            {meus.error
-              ? 'Nada a exibir por enquanto.'
-              : requesterFilter
-                ? 'Você ainda não abriu nenhum chamado nesta unidade'
-                : tickets.length === 0
-                  ? 'Nenhum chamado registrado'
-                  : statusFilter === 'arquivados'
-                    ? 'Nenhum chamado arquivado'
-                    : 'Nenhum resultado encontrado'}
+            {tickets.length === 0
+              ? 'Nenhum chamado registrado'
+              : statusFilter === 'arquivados'
+                ? 'Nenhum chamado arquivado'
+                : 'Nenhum resultado encontrado'}
+          </p>
+          <p className="mt-1 text-[11px] text-fg-dim">
+            Procurando os chamados que você abriu? Eles ficam em &quot;Meus Chamados&quot;.
           </p>
         </div>
       ) : (

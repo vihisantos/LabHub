@@ -3,10 +3,14 @@ import { icons } from '../../../lib/icons'
 
 const mainNav: LiquidNavItem[] = [
   { to: '/chamados', label: 'Dashboard', icon: icons.nav.dashboard },
+  // "Chamados" é a fila de TRABALHO da equipe de TI (filtros, responsável,
+  // SLA, ações de atendimento).
   { to: '/chamados/tickets', label: 'Chamados', icon: icons.ui.inbox },
-  // Contexto de SOLICITANTE (chamados que o usuário abriu), distinto de
-  // "Chamados" (a fila de atendimento). "Meus Atendimentos" é um chip dentro da
-  // lista — não ganha item aqui para não duplicar navegação.
+  // "Meus Chamados" é a ÁREA PESSOAL do solicitante: o que EU abri. São duas
+  // experiências distintas, por isso cada uma tem item e tela próprios — não é
+  // uma segunda fila nem um chip dentro da lista. Já "Meus Atendimentos"
+  // (atribuídos a mim) continua sendo um chip da fila, porque é recorte de
+  // trabalho, não histórico pessoal.
   { to: '/chamados/meus', label: 'Meus Chamados', icon: icons.ui.user },
 ]
 

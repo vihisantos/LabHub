@@ -99,6 +99,13 @@ Regras que sustentam a separação:
 > O frontend pode filtrar a apresentação, mas nunca define a identidade do
 > solicitante usada para autorização. `ticketService.listMine()` consome este
 > endpoint e seu retorno não é mesclado na coleção local da fila.
+>
+> O consumo é a tela pessoal `/chamados/meus` (`pages/MyTickets.tsx`), separada da
+> fila operacional `/chamados/tickets`: uma única pesquisa de apresentação sobre
+> o conjunto já autorizado, sem filtros operacionais e **sem fallback** para
+> `GET /api/chamados` — se a consulta pessoal falhar, a tela mostra o erro.
+> Detalhe (`GET /api/chamados/:id`) segue exigindo `ticket.view`; autorizá-lo para
+> o solicitante é etapa independente.
 
 ### Enforcement no handler
 

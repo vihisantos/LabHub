@@ -5,6 +5,7 @@ import { SlaDashboard } from './pages/SlaDashboard'
 import { Reports } from './pages/Reports'
 import { Ranking } from './pages/Ranking'
 import { TicketList } from './pages/TicketList'
+import { MyTickets } from './pages/MyTickets'
 import { TicketDetail } from './pages/TicketDetail'
 import { Settings } from './pages/Settings'
 
@@ -32,11 +33,11 @@ export function ChamadosApp() {
         <Route path="reports" element={<Reports />} />
         <Route path="ranking" element={<Ranking />} />
         <Route path="tickets" element={<TicketList />} />
-        {/* Meus Chamados = chamados que EU abri (reportedByUserId === user.id).
-            Mesma tela, mesmo filtro, mesma ordenação — a rota só define o
-            contexto inicial. NÃO é uma permissão nova: quem tem `ticket.view`
-            já carregou esses chamados. */}
-        <Route path="meus" element={<TicketList defaultScope="chamados" />} />
+        {/* Meus Chamados = ÁREA PESSOAL do solicitante (rota e tela próprias).
+            Os dados vêm de `GET /api/chamados?mine=true` (#331) e são agrupados
+            por data; não há filtro, ordenação ou ação da fila operacional aqui.
+            NÃO é uma permissão nova e NÃO é `ticket.view`. */}
+        <Route path="meus" element={<MyTickets />} />
         <Route path="tickets/:id" element={<TicketDetail />} />
         <Route path="settings" element={<Settings />} />
         </Route>
