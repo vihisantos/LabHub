@@ -58,3 +58,16 @@ playwright-report/
 # Orçamento do projeto: documento comercial com taxas e totais internos.
 # Não versionar. Mantido apenas localmente, fora do repositório.
 ORCAMENTO.md
+
+# Rascunhos locais de workflow (Issue #285). A cadeia de migrations que vale
+# é .github/workflows/migrations.yml; estes arquivos são experimentais e não
+# devem entrar no repositório por engano com um `git add -A`.
+.github/workflows/.c.py
+.github/workflows/.db.py
+.github/workflows/.w.py
+.github/workflows/.y.py
+.github/workflows/.yml-check.py
+.github/workflows/.zo.py
+.github/workflows/ci-api.yml
+.github/workflows/ci-db.yml
+.github/workflows/ci-web.yml
