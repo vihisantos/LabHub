@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { ticketService } from '../ticketService'
+import { ticketService, errorStatus } from '../ticketService'
 import { logService } from '../../../../core/logs/service'
 import { setCol } from '../../../../lib/db'
 import type { Ticket, TicketFormData, ChamadosReport } from '../../types'
@@ -152,6 +152,38 @@ describe('ticketService — API', () => {
     const t = await ticketService.getByIdRemote('remote-1')
     expect(t.id).toBe('remote-1')
     expect(ticketService.getByIdNoFilter('remote-1')).toBeDefined()
+  })
+
+  /**
+   * O status HTTP é o que permite à tela distinguir "não existe" de "existe,
+   * mas não é seu". Sem ele, um 403 seria apresentado como erro genérico — ou,
+   * pior, mascarado como sucesso.
+   */
+  it('getByIdRemote: propaga o status HTTP no erro (404 x 403)', async () => {
+    mockFetchOk({ error: 'Chamado não encontrado' }, false, 404)
+    await expect(ticketService.getByIdRemote('nao-existe')).rejects.toThrow('Chamado não encontrado')
+    await ticketService.getByIdRemote('nao-existe').catch((err: unknown) => {
+      expect(errorStatus(err)).toBe(404)
+    })
+
+    mockFetchOk({ error: 'Permissão insuficiente' }, false, 403)
+    await ticketService.getByIdRemote('de-outro').catch((err: unknown) => {
+      expect(errorStatus(err)).toBe(403)
+      expect((err as Error).message).toBe('Permissão insuficiente')
+    })
+  })
+
+  it('getByIdRemote: rejeita id inválido sem chegar à API', async () => {
+    await expect(ticketService.getByIdRemote('undefined')).rejects.toThrow('ID do chamado inválido')
+  })
+
+  it('errorStatus: null quando o erro não tem status', () => {
+    expect(errorStatus(new Error('boom'))).toBeNull()
+    expect(errorStatus('texto')).toBeNull()
+    expect(errorStatus(undefined)).toBeNull()
+    expect(errorStatus(null)).toBeNull()
+    // Status não numérico não vira número mágico.
+    expect(errorStatus(Object.assign(new Error('x'), { status: '403' }))).toBeNull()
   })
 
   it('getByReporter: codifica o nome na query', async () => {
