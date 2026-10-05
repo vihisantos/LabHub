@@ -7,7 +7,8 @@
 ```mermaid
 flowchart TD
     subgraph PAGES["Páginas"]
-        LIST["TicketList"]
+        LIST["TicketList\n(fila operacional)"]
+        MINE["MyTickets\n(área pessoal)"]
         DETAIL["TicketDetail"]
         DASH["Dashboard"]
     end
@@ -28,9 +29,14 @@ flowchart TD
 
     subgraph HOOKS["Hooks"]
         UT["useTickets"]
+        UM["useMyTickets"]
         UT2["useTicket"]
         UF["useTicketForm"]
         SC["useSLAConfig"]
+    end
+
+    subgraph UTILS["Utils"]
+        MYT["myTickets\n(agrupamento, pesquisa)"]
     end
 
     subgraph CONTEXT["Contexto"]
@@ -40,6 +46,9 @@ flowchart TD
     LIST & DETAIL & DASH --> TC
     TC --> UT
     UT --> TS
+    MINE --> UM
+    UM -->|listMine| TS
+    MINE --> MYT
     TS -->|fetch| API["API Flask\n/api/chamados*"]
     API --> DB["Supabase\nchamados_tickets"]
 
@@ -48,6 +57,11 @@ flowchart TD
     SUCCESS --> RT["Realtime\nWebSocket"]
     RT --> DB
 ```
+
+> `MyTickets` **não** passa pelo `TicketsContext`: a coleção pessoal vem só de
+> `useMyTickets` → `ticketService.listMine()` (`?mine=true`) e nunca é misturada
+> com a fila. `useMyTickets` não grava em cache local nem assina realtime, para
+> que o filtro do cliente não volte a ser fronteira de autorização.
 
 ## Gerenciamento de estado
 
@@ -115,13 +129,20 @@ useRealtimeSubscription('chamados_tickets', '*', callback)
 ```text
 src/apps/chamados/
 ├── index.tsx                    # Definição de rotas
-├── contexts/TicketsContext.tsx  # Estado compartilhado dos chamados
-├── hooks/useTickets.ts          # Operações de CRUD
+├── contexts/TicketsContext.tsx  # Estado compartilhado dos chamados (fila)
+├── hooks/
+│   ├── useTickets.ts            # Operações de CRUD sobre a fila
+│   └── useMyTickets.ts          # Coleção pessoal (?mine=true), sem cache local
 ├── layouts/ChamadosLayout.tsx   # Layout principal com navegação
 ├── pages/
 │   ├── Dashboard.tsx            # Estatísticas e visão de SLA
-│   ├── TicketList.tsx           # Lista filtrada de chamados
-│   └── TicketDetail.tsx         # Visão completa do chamado
+│   ├── TicketList.tsx           # Fila operacional: filtros e ordenação
+│   ├── MyTickets.tsx            # Área pessoal do solicitante (/chamados/meus)
+│   ├── TicketDetail.tsx         # Visão completa do chamado
+│   ├── Ranking.tsx              # Ranking de salas
+│   ├── SlaDashboard.tsx
+│   ├── Reports.tsx
+│   └── Settings.tsx
 ├── services/
 │   ├── ticketService.ts         # Comunicação com a API
 │   ├── sla.ts                   # Cálculos de SLA
@@ -129,6 +150,9 @@ src/apps/chamados/
 │   ├── problemTemplateService.ts
 │   ├── roomService.ts
 │   └── ticketAlerts.ts          # Avisos de chamado novo no sino
+├── utils/
+│   ├── myTickets.ts             # Agrupamento por data, pesquisa e rótulos
+│   └── photo.ts
 ├── types/
 │   ├── ticket.ts                # Tipos de chamado
 │   ├── events.ts                # Tipos de evento

@@ -60,11 +60,24 @@ Abre um chamado (público, sem autenticação).
 
 Lista chamados.
 
-**Parâmetros:** `workspace_id`, `status`, `reportedBy`.
+**Parâmetros:** `workspace_id`, `status`, `reportedBy`, `mine`.
+
+Dois escopos no mesmo endpoint:
+
+| Consulta | Autorização |
+|---|---|
+| sem `mine` | `ticket.view` por workspace — visão operacional da unidade |
+| `?mine=true` | escopo pessoal: `reportedByUserId = g.user_id`, definido no servidor. Não exige `ticket.view` |
+
+`?reportedByUserId=` enviado pelo cliente **não é lido** em nenhum ramo. Regras
+completas em [Chamados — Referência](../apps/chamados/reference.md).
 
 ### GET /api/chamados/:id
 
-Busca um chamado pelo identificador.
+Busca um chamado pelo identificador. Exige autenticação e tem duas vias:
+`ticket.view` no workspace do recurso **ou** escopo pessoal
+(`reportedByUserId = g.user_id`). Regras em
+[Chamados — Referência](../apps/chamados/reference.md).
 
 ### PATCH /api/chamados/:id
 

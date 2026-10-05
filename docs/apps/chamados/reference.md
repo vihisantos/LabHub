@@ -21,6 +21,15 @@ interface Ticket {
   priority: TicketPriority
   reportedBy: string
   reportedByEmail: string
+  /**
+   * UUID do solicitante autenticado (`auth.uid()` na criação). É a ÚNICA
+   * identidade de solicitante confiável — `reportedBy`/`reportedByEmail` são
+   * texto livre. `null`/ausente = chamado anônimo ou anterior à migration 056.
+   * É o campo que a listagem `?mine=true` e a via pessoal do detalhe comparam
+   * com `g.user_id`. Fica de fora de `TicketFormData`, então nenhum payload de
+   * criação pode declarar de quem é o chamado.
+   */
+  reportedByUserId?: string | null
   assignedTo: string
   assignedToUserId: string
   ticketNumber: number
@@ -198,10 +207,34 @@ Regras da tela pessoal:
   "Tentar novamente"; os chamados da equipe nunca aparecem no lugar.
 - **"Meus Atendimentos" continua sendo um chip da fila** — é recorte de trabalho
   atribuído (só abertos), não histórico pessoal.
-- **O detalhe pessoal é liberado pelo servidor.** Abrir um chamado a partir de
-  Meus Chamados chama `GET /api/chamados/:id`, que aceita o solicitante do
-  próprio chamado sem `ticket.view` (ver a seção do endpoint abaixo). Nenhuma
-  regra de autorização vive no frontend.
+- **Abrir um chamado usa o endpoint individual.** O item navega para
+  `/chamados/tickets/:id`, e `pages/TicketDetail.tsx` resolve o registro em duas
+  etapas: usa a coleção local da fila quando ela tem o chamado (caminho
+  operacional, sem chamada extra) e, quando não tem — que é o caso do
+  solicitante, cuja lista pessoal vem de `listMine()`, por outro caminho — busca
+  em `GET /api/chamados/:id` via `ticketService.getByIdRemote`. A autorização é a
+  do servidor, pelas duas vias descritas abaixo. `403` vira "você não tem acesso",
+  `404` continua "não encontrado", e falha de rede não é apresentada como
+  registro ausente.
+
+Pendências conhecidas no detalhe, deixadas fora do escopo da #341 de propósito:
+
+- **Linha do tempo vazia para o solicitante.** `TicketDetail` carrega o histórico
+  por `GET /api/chamados/:id/events`, que exige `ticket.view`; para o solicitante a
+  chamada volta `403` e o erro é absorvido. Ele vê o detalhe, mas não os eventos.
+  Decidir quais eventos um solicitante pode ver é uma alteração de autorização
+  própria — misturá-la aqui confundiria as duas regras.
+- **O detalhe pessoal é gravado na cache local da fila.** `getByIdRemote` chama
+  `persistLocal`, que escreve o registro na coleção `chamados` do IndexedDB — a
+  mesma que a fila usa. Essa coleção **não é namespaced por usuário** e nada é
+  apagado no `signOut`, então num navegador compartilhado o chamado do solicitante
+  fica no cache e aparece na lista operacional de quem logar em seguida (o
+  `pullRemote` desse usuário volta `403` e o `load()` ainda renderiza o cache
+  local). Não é uma falha de autorização — o backend continua recusando tudo —,
+  mas é exposição de dados no cliente. Antes da #341 só quem tinha `ticket.view`
+  escrevia nessa coleção, porque `pullRemote` é a outra única via de escrita.
+  Próximo hardening: não persistir o registro no escopo pessoal, e/ou limpar a
+  cache por usuário.
 
 Implementação da apresentação: `utils/myTickets.ts` (`groupTicketsByUpdateDate`,
 `filterTicketsByQuery`, `formatUpdatedLabel`, `dateGroupLabel`).

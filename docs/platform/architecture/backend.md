@@ -52,7 +52,7 @@ Os gates de autenticação, workspace e módulo valem sempre. O gate de Action (
 | Método | Rota | Propósito | Action de RBAC |
 |--------|------|-----------|----------------|
 | POST | `/api/chamados` | Abrir chamado (formulário público) | — |
-| GET | `/api/chamados` | Listar chamados com filtros | — (legado) |
+| GET | `/api/chamados` | Listar chamados com filtros | `ticket.view` por workspace |
 | GET | `/api/chamados/:id` | Detalhe do chamado | `ticket.view` ou escopo pessoal (`reportedByUserId = g.user_id`) |
 | PATCH | `/api/chamados/:id` | Atualizar chamado | `ticket.status` / `ticket.assign` / `ticket.edit` |
 | DELETE | `/api/chamados/:id` | Excluir chamado | `ticket.delete` |
@@ -151,6 +151,13 @@ err = _require_action_in_handler('ticket.view', scope='workspace',
 if err:
     return err
 ```
+
+`GET /api/chamados/<id>` usa esse caminho e, **só quando ele nega**, tem um
+fallback de escopo pessoal para o solicitante do próprio chamado
+(`reportedByUserId == g.user_id`). O `deny` da RBAC já foi auditado antes do
+fallback — a leitura pessoal não é uma concessão da RBAC. O restante das rotas
+da tabela acima retorna `err` diretamente. A regra completa, por rota, está em
+[Chamados — Referência](../../apps/chamados/reference.md).
 
 ### Fail-closed
 

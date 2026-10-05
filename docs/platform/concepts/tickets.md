@@ -43,9 +43,16 @@ Um chamado também pode ser **arquivado** (retirado da visão ativa) sem alterar
 ## Pontos de acesso
 
 1. **Formulário público** (`/chamados-publico`) — professores abrem chamados por QR Code ou link, sem login
-2. **Painel de TI** (`/chamados`) — técnicos gerenciam, atribuem e resolvem chamados
-3. **Acompanhamento público** (`/chamados-publico/track`) — professores consultam o status pelo nome
-4. **Avaliação** (`/chamados-publico/feedback/:id`) — professores avaliam o atendimento após a resolução
+2. **Meus Chamados** (`/chamados/meus`) — área pessoal do solicitante autenticado: os chamados que ele abriu, com pesquisa simples e agrupamento por data. O escopo é decidido no servidor, a partir da identidade do JWT; não é a fila de atendimento nem depende de Action
+3. **Painel de TI** (`/chamados/tickets`) — técnicos gerenciam, atribuem e resolvem chamados
+4. **Acompanhamento público** (`/chamados-publico/track`) — professores consultam o status pelo nome
+5. **Avaliação** (`/chamados-publico/feedback/:id`) — professores avaliam o atendimento após a resolução
+
+> Ao abrir um chamado pela área pessoal, `TicketDetail` resolve o registro na
+> coleção local da fila quando ela o tem e, quando não tem, em
+> `GET /api/chamados/:id` — que aceita o solicitante do próprio chamado sem
+> `ticket.view`. Ele vê o detalhe, mas a **linha do tempo fica vazia**: `/events`
+> exige `ticket.view`, e essa autorização de eventos é uma decisão à parte.
 
 ## Eventos do chamado
 

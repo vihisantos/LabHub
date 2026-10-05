@@ -117,16 +117,21 @@ Ordem das duas vias no detalhe, e por que importa:
 > `ticket.view`, e a via pessoal é somente leitura: `PATCH`, `DELETE` e
 > `/events` seguem exigindo suas Actions.
 
-> O frontend pode filtrar a apresentação, mas nunca define a identidade do
-> solicitante usada para autorização. `ticketService.listMine()` consome a
-> listagem pessoal e seu retorno não é mesclado na coleção local da fila.
+> **Consumo no frontend:** a tela pessoal `/chamados/meus` (`pages/MyTickets.tsx`),
+> separada da fila operacional `/chamados/tickets`, usa uma única pesquisa de
+> apresentação sobre o conjunto já autorizado, sem filtros operacionais e **sem
+> fallback** para `GET /api/chamados` — se a consulta pessoal falhar, a tela mostra
+> o erro. Ao abrir um chamado, `pages/TicketDetail.tsx` resolve o registro na
+> coleção local da fila quando ela o tem e, quando não tem, em
+> `GET /api/chamados/:id` — que aplica a via pessoal acima. Nenhuma regra de
+> autorização vive no frontend.
 >
-> O consumo é a tela pessoal `/chamados/meus` (`pages/MyTickets.tsx`), separada da
-> fila operacional `/chamados/tickets`: uma única pesquisa de apresentação sobre
-> o conjunto já autorizado, sem filtros operacionais e **sem fallback** para
-> `GET /api/chamados` — se a consulta pessoal falhar, a tela mostra o erro.
-> Ao abrir um chamado dessa tela, o `GET /api/chamados/:id` resolve pela via
-> pessoal acima. Nenhuma regra de autorização vive no frontend.
+> Duas pendências conhecidas, que **não** são falhas desta regra:
+> `/api/chamados/<id>/events` continua exigindo `ticket.view`, então o solicitante
+> vê o detalhe com a linha do tempo vazia; e `getByIdRemote` grava o registro
+> pessoal na cache local da fila, que não é namespaced por usuário nem apagada no
+> `signOut`. Detalhes em
+> [Chamados — Referência](../../apps/chamados/reference.md).
 
 ### Enforcement no handler
 

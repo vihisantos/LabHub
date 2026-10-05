@@ -70,7 +70,8 @@ Para o modelo completo com diagrama entidade-relacionamento, consulte o snapshot
 | `ticketNumber` | int | Sequencial por workspace |
 | `status` | text | `aberto`, `a_caminho`, `em_atendimento`, `resolvido`, `fechado` |
 | `priority` | text | `baixa`, `normal`, `alta`, `urgente` |
-| `reportedBy` | text | Nome de quem relatou |
+| `reportedBy` | text | Nome de quem relatou (texto livre, **não** é identidade) |
+| `reportedByUserId` | uuid | Solicitante autenticado (`auth.uid()` na criação). Identidade usada pelo escopo pessoal `?mine=true` e pela via pessoal do detalhe. **Anulável e sem backfill**: `NULL` = chamado anônimo ou anterior à migration 056 |
 | `assignedTo` | text | Técnico responsável |
 | `problemCategory` | text | Categoria do problema |
 | `problemDescription` | text | Descrição |
