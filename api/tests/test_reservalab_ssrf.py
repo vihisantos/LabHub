@@ -973,7 +973,10 @@ class TestLogSemSegredo:
         assert TOKEN not in texto
         assert 'sig=' not in texto
         # E o contexto útil sobreviveu: qual host recusou, e por quê.
-        assert '169.254.169.254' in texto
+        # O esperado vem do PRÓPRIO helper, e não de um literal repetido aqui —
+        # assim o teste verifica que o log carrega a representação sanitizada de
+        # verdade, e não uma segunda cópia que alguém esquece de atualizar.
+        assert legacy_module._safe_url_for_log(rejeitada) in texto
         assert 'SSRF' in texto
 
     def test_falha_no_download_nao_vaza_token_no_log(
@@ -989,7 +992,7 @@ class TestLogSemSegredo:
         assert TOKEN not in texto
         assert 'share=' not in texto
         assert 'Max retries' not in texto
-        assert 'tenant.sharepoint.com' in texto
+        assert legacy_module._safe_url_for_log(ASSINADA) in texto
 
     def test_sucesso_nao_vaza_token_no_log(
         self, legacy_module, dns_allows, fake_get, logs_de, hoje,
@@ -1006,7 +1009,7 @@ class TestLogSemSegredo:
         texto = ' '.join(m for _, m in logs_de)
         assert TOKEN not in texto
         assert 'share=' not in texto
-        assert 'tenant.sharepoint.com' in texto
+        assert legacy_module._safe_url_for_log(ASSINADA) in texto
 
     def test_erro_do_parser_nao_carrega_o_corpo(
         self, legacy_module, dns_allows, fake_get, logs_de,
