@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
 /**
@@ -343,7 +343,7 @@ describe('MyTickets — pesquisa simples', () => {
 
     fireEvent.change(input(), { target: { value: 'inexistente' } })
 
-    expect(screen.getByText('Nenhum chamado encontrado')).toBeInTheDocument()
+    expect(screen.getByText('Você ainda não abriu nenhum chamado.')).toBeInTheDocument()
     expect(screen.queryByText('Você ainda não abriu nenhum chamado')).not.toBeInTheDocument()
   })
 
@@ -354,7 +354,7 @@ describe('MyTickets — pesquisa simples', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Limpar pesquisa' }))
 
     expect(screen.getByText('#1042')).toBeInTheDocument()
-    expect(screen.queryByText('Nenhum chamado encontrado')).not.toBeInTheDocument()
+    expect(screen.queryByText('Você ainda não abriu nenhum chamado.')).not.toBeInTheDocument()
   })
 
   it('a pesquisa não refaz a chamada ao servidor (é apresentação)', async () => {
