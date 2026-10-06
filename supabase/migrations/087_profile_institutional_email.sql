@@ -1,7 +1,18 @@
 -- =============================================================================
--- 079_profile_institutional_email.sql
+-- 087_profile_institutional_email.sql
 -- =============================================================================
 -- E-mail institucional do usuário, como campo PRÓPRIO.
+--
+-- NOTA DE NUMERAÇÃO (2026-10-06): este arquivo nasceu como
+-- 079_profile_institutional_email.sql (commit 5d1b41a, 2026-09-29), reusing o
+-- slot 079 que havia sido liberado pela renumeração de
+-- 079_rbac2_checklist_sla_actions.sql -> 082_rbac2_checklist_sla_actions.sql.
+-- A linha `079 -> 079_rbac2_checklist_sla_actions.sql` já existia em
+-- public.schema_migrations de produção, então o runner via a versão 079 como já
+-- aplicada e NUNCA aplicou esta migration: a coluna
+-- public.profiles.institutionalEmail não existia em produção.
+-- A auditoria de identidade (#350) detectou a divergência e abortou o dry-run.
+-- Renumerado para 087 (número livre) para resolver sem tocar no histórico.
 --
 -- Contexto:
 --   Hoje `public.profiles.email` é o e-mail da CONTA — aquele com que a pessoa
