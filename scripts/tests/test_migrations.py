@@ -484,6 +484,20 @@ def test_production_without_baseline_fails_closed(migrations_dir, monkeypatch):
     assert not any("CREATE TABLE IF NOT EXISTS a" in q for q in api.queries)
 
 
+def test_missing_baseline_production_writes_nothing_even_without_table(migrations_dir, monkeypatch):
+    """Produção sem BASELINE_VERSION e sem a tabela de histórico: ZERO escritas.
+
+    Este é o caso em que o bootstrap (`CREATE TABLE IF NOT EXISTS`) aconteceria
+    antes do fail-closed se a resolução do baseline viesse depois dele. O
+    fail-closed precisa anteceder qualquer escrita, inclusive essa.
+    """
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=False)
+    with pytest.raises(core.BaselineConfigurationError):
+        run(migrations_dir, api, require_baseline=True)
+    assert not api.mutating_queries()
+
+
 def test_production_with_baseline_env_applies_only_above(migrations_dir, monkeypatch):
     """Regressão: produção COM baseline explícito continua aplicando o que está acima."""
     monkeypatch.setenv("BASELINE_VERSION", "001")

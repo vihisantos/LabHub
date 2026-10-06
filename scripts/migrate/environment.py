@@ -22,13 +22,19 @@ Dois eixos, independentes:
     Allowlist separada, separada do valor efetivo. É ela que dá sentido à
     checagem: comparar o ref *com ele mesmo* não validaria nada.
 
-Por que a allowlist não é obrigatória em produção
-------------------------------------------------
-Porque esta PR não pode introduzir uma configuração operacional nova sem
-confirmá-la, e um allowlist errado faria a aplicação de produção falhar no
-momento em que o schema mais precisa evoluir. O formato do ref é sempre
-exigido; a allowlist passa a ser exigida assim que existir. Ligar é uma linha no
-workflow (ver ``.github/workflows/migrations.yml``) — nenhuma secret nova.
+A allowlist é obrigatória em produção
+------------------------------------
+Sem ela, o único guardio contra um secret trocado seria o formato do ref
+(20 caracteres minúsculos) — que um projeto válido e errado também satisfaz.
+Exigir a configuração explícita é a diferença entre detectar a configuração
+errada no primeiro request e descobrir que o DDL foi para o banco errado depois.
+O custo é a primeira execução de produção recusar até alguém declarar o destino;
+aceitamos esse custo, porque o modo anterior só empurrava a falha para mais
+tarde, já com escrita em andamento.
+
+A allowlist **não** é uma secret nova: é uma variável de repositório
+(``vars.SUPABASE_ALLOWED_PROJECT_REFS``), porque um project ref não é
+credencial. Faltando ela, a mensagem de erro diz exatamente o que criar.
 
 Este módulo não toca o executor genérico de propósito: o PostgreSQL efêmero do
 CI passa por ``PostgresExecutor``/``DATABASE_URL`` e nunca é afetado por uma

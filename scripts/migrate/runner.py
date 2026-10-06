@@ -2,12 +2,28 @@
 
 Fluxo (idempotente e seguro):
 
-1. Garante a existência de ``public.schema_migrations`` (CREATE TABLE IF NOT EXISTS).
-2. Lê as versões já aplicadas do banco via Management API.
-3. **Audita a identidade** de cada migration já aplicada: a entrada precisa
-   continuar existindo no repositório com a mesma versão E o mesmo filename
-   (#285). Renumeração aborta — antes, ela passava como migration nova.
-4. Resolve o baseline:
+1. Verifica, **sem escrever**, se ``public.schema_migrations`` existe
+   (``to_regclass``).
+2. Se existir, **audita a identidade** de cada migration já aplicada: a entrada
+   precisa continuar existindo no repositório com a mesma versão E o mesmo
+   filename (#285). Renumeração aborta — antes, ela passava como migration nova.
+3. Lê as versões já aplicadas do banco via Management API.
+4. Resolve o **baseline** (ver abaixo). Com ``require_baseline``, a falta de
+   ``BASELINE_VERSION`` aborta aqui — ainda sem nenhuma escrita no banco.
+5. Só então escreve: garante ``public.schema_migrations`` se faltava e, se
+   aplicável, grava a linha de baseline.
+6. Aplica cada migration pendente numa transação própria que embute um advisory
+   lock transacional (``pg_advisory_xact_lock``) para serializar execuções
+   concorrentes, o corpo do arquivo e o registro em ``schema_migrations``.
+   Só registra depois que o SQL roda sem erro (ON CONFLICT DO NOTHING evita
+   duplicar em corrida).
+7. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
+
+Os passos 1-4 são todos read-only e concentram as travas: nenhuma escrita
+(chefe de bootstrap ou DDL de migration) é emitida antes de a renumeração e a
+configuração de baseline terem sido verificadas.
+
+Regras de baseline:
    - ``require_baseline`` + nada resolvido -> aborta (fail-closed, produção);
    - tabela vazia + ``BASELINE_VERSION`` definido -> grava baseline e aplica
      apenas versões > baseline;
@@ -16,12 +32,6 @@ Fluxo (idempotente e seguro):
      depois). Mantido para banco legado e uso local; **desligado** em produção
      desde #285, onde o fallback silencioso era um no-op que reportava sucesso.
    - tabela com linhas -> baseline = maior versão de baseline registrada.
-5. Aplica cada migration pendente numa transação própria que embute um advisory
-   lock transacional (``pg_advisory_xact_lock``) para serializar execuções
-   concorrentes, o corpo do arquivo e o registro em ``schema_migrations``.
-   Só registra depois que o SQL roda sem erro (ON CONFLICT DO NOTHING evita
-   duplicar em corrida).
-6. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
 """
 from __future__ import annotations
 
@@ -347,20 +357,17 @@ def run(
         )
 
     # ── execução real ────────────────────────────────────────────────────────
-    # 1. verifica a existência da tabela de histórico — `to_regclass` é
-    #    READ-ONLY. Precisa vir antes de qualquer escrita para que a auditoria de
-    #    identidade (#285) ocorra ANTES de QUALQUER DDL: sem esta ordem, um
-    #    `CREATE TABLE IF NOT EXISTS` já teria sido emitido antes de descobrir
-    #    que o histórico está divergente.
+    # Todo o trabalho READ-ONLY vem primeiro — leitura da existência da tabela,
+    # auditoria de identidade e resolução do baseline. O fail-closed do
+    # `require_baseline` acontece na resolução do baseline, portanto ANTES de
+    # qualquer escrita: nem o `CREATE TABLE` do bootstrap é emitido quando a
+    # configuração falta. (#285)
+
+    # 1. existência da tabela de histórico — `to_regclass` é READ-ONLY
     table_exists = _schema_migrations_exists(api)
     api_call_count += 1
 
-    # 2. cria a tabela de histórico só quando ela realmente não existe
-    if not table_exists:
-        _bootstrap_schema_migrations(api)
-        api_call_count += 1
-
-    # 3. lê o estado atual e AUDITA a identidade antes de aplicar DDL (#285).
+    # 2. estado atual + AUDITA de identidade, ambos read-only (#285).
     #    Uma migration renumerada depois de aplicada apareceria como pendente e
     #    reexecutaria DDL sobre um banco que já a contém.
     applied_versions: set[str]
@@ -371,11 +378,11 @@ def run(
         applied_versions, db_baseline = _read_applied(api)
         api_call_count += 1
     else:
-        # Tabela recem-criada: histórico vazio, nada a auditar nem baselinar
-        # além do que _resolve_baseline decidir.
+        # Tabela ausente: histórico vazio, nada a auditar.
         applied_versions, db_baseline = set(), None
 
-    # 4. resolve o baseline e grava a linha quando aplicável
+    # 3. resolve o baseline. Com `require_baseline`, a falta de
+    #    `BASELINE_VERSION` aborta AQUI — ainda sem nenhuma escrita no banco.
     baseline, should_stamp = _resolve_baseline(
         applied_versions=applied_versions,
         db_baseline=db_baseline,
@@ -385,11 +392,20 @@ def run(
         require_baseline=require_baseline,
         policy=policy,
     )
+
+    # ── a partir daqui a execução escreve no banco ───────────────────────────
+
+    # 4. cria a tabela de histórico só quando ela realmente não existe
+    if not table_exists:
+        _bootstrap_schema_migrations(api)
+        api_call_count += 1
+
+    # 5. grava a linha de baseline quando aplicável
     if should_stamp and baseline is not None:
         _stamp_baseline(api, baseline, BASELINE_FILENAME)
         api_call_count += 1
 
-    # 4. calcula pendentes e aplica
+    # 6. calcula pendentes e aplica
     ordered = sorted(migrations, key=lambda m: m.number)
     pending = pending_migrations(migrations, applied_versions, baseline)
     baseline_num = int(baseline) if baseline is not None else -1
