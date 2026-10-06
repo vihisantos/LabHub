@@ -43,17 +43,37 @@ export function isActiveMember(
 }
 
 /**
- * Membership ATIVA do usuário numa unidade específica (RBAC 2.0).
+ * Linha mínima para resolver a membership ATIVA de um usuário numa unidade —
+ * inclui `profile_id` porque o DONO da linha participa da resolução.
+ */
+type OwnedActiveMembershipRow = Pick<
+  Membership,
+  'workspace_id' | 'status' | 'role_id' | 'profile_id'
+>
+
+/**
+ * Membership ATIVA do USUÁRIO (`profileId`) numa unidade específica (RBAC 2.0).
  * É o elo que liga `user → workspace → role_id`, usado tanto por `can()`
  * quanto pela resolução de cargo por unidade. `undefined` ⇒ nenhuma.
+ *
+ * `profileId` é OBRIGATÓRIO: a policy `memberships_select` é escopada por
+ * WORKSPACE (super admin OU `user_belongs_to_workspace`), então a coleção
+ * recebida pode conter memberships de OUTROS membros da mesma unidade. Um
+ * `.find()` só por workspace/status pegaria a primeira linha física — e o
+ * cargo/Action seria o de outra pessoa (ex.: técnico resolvido como `vis` e
+ * sem `ticket.claim`).
  */
 export function activeMembershipIn(
-  memberships: Pick<Membership, 'workspace_id' | 'status' | 'role_id'>[] | undefined,
+  memberships: OwnedActiveMembershipRow[] | undefined,
   workspaceId: string | null | undefined,
-): Pick<Membership, 'workspace_id' | 'status' | 'role_id'> | undefined {
-  if (!memberships || !workspaceId) return undefined
+  profileId: string | null | undefined,
+): OwnedActiveMembershipRow | undefined {
+  if (!memberships || !workspaceId || !profileId) return undefined
   return memberships.find(
-    (m) => m.workspace_id === workspaceId && m.status === ACTIVE,
+    (m) =>
+      m.profile_id === profileId &&
+      m.workspace_id === workspaceId &&
+      m.status === ACTIVE,
   )
 }
 
@@ -119,9 +139,12 @@ export function areMembershipsEqual(
 
 export const membershipService = {
   /**
-   * Memberships do usuário logado via client (policy `memberships_select` = super
-   * admin OU membro do workspace). A RLS decide o que é exposto: um membro comum
-   * recebe apenas as linhas dos workspaces a que pertence, nunca memberships alheias.
+   * Memberships EXPOSTAS pela RLS para a sessão atual (policy `memberships_select`
+   * = super admin OU membro do workspace). O escopo é o WORKSPACE, não a pessoa:
+   * para um membro comum a query devolve as linhas de TODOS os membros daquelas
+   * unidades — portanto NÃO é "as memberships do usuário logado" e NUNCA pode
+   * decidir cargo/Action/permissão. Quem precisa do dono da linha deve usar
+   * `getByUser(userId)` (filtro `profile_id`) — é o que `loadUser` faz.
    * Falha de query === erro propagado (o chamador trata como `membershipsLoaded=false`,
    * nunca como `[]`).
    */
@@ -132,17 +155,24 @@ export const membershipService = {
     return (data ?? []) as Membership[]
   },
 
-  /** Workspaces em que o usuário logado tem membership ATIVA (autorização efetiva). */
+  /**
+   * Workspaces em que a sessão tem membership ATIVA (autorização efetiva).
+   * Só o `workspace_id` importa aqui e ele é o mesmo para todas as linhas de
+   * uma unidade — nunca saem daqui cargo/Action (`getByUser`/`activeMembershipIn`).
+   */
   async getActiveWorkspaceIds(): Promise<string[]> {
     const rows = await membershipService.getMine()
     return rows.filter(isActive).map((m) => m.workspace_id)
   },
 
   /**
-   * Contexto EXCLUSIVAMENTE administrativo. A segurança nunca vem da confiança no
-   * `userId`: é a RLS `memberships_select` do token que executa a query (userId é só
-   * filtro). Token não-admin consultando por outrem recebe `[]` (coberto por teste
-   * de IDOR).
+   * Memberships de UM usuário específico (filtro `profile_id = userId`) — a
+   * única fonte que garante `profile_id` correto quando a RLS devolve vários
+   * membros do mesmo workspace. Usado pelo contexto administrativo (anti-IDOR
+   * por RLS) e pelo `loadUser` do usuário logado (com o próprio `userId`).
+   * A segurança nunca vem da confiança no `userId`: é a RLS `memberships_select`
+   * do token que executa a query (userId é só filtro). Token não-admin consultando
+   * por outrem recebe `[]` (coberto por teste de IDOR).
    */
   async getByUser(userId: string): Promise<Membership[]> {
     requireDb()
@@ -212,6 +242,9 @@ export const membershipService = {
    *  · membership em OUTRA unidade → false. O vínculo é sempre
    *    `m.workspace_id === workspaceId`; é isto que garante o isolamento
    *    multiunidade exigido pelo servidor.
+   *  · membership de OUTRO usuário → ignorada: o vínculo também exige
+   *    `m.profile_id === user.id`. Cargo e Action vêm SEMPRE da própria
+   *    linha, nunca da de um colega do mesmo workspace.
    *  · erro de rede/RLS/query → false. `error` NUNCA vira `true`.
    *
    * Leitura feita com a SESSÃO DO USUÁRIO (`defaultDb`, token do Supabase
@@ -234,7 +267,7 @@ export const membershipService = {
     if (!workspaceId) return false
     if (user.membershipsLoaded !== true) return false
 
-    const membership = activeMembershipIn(user.memberships, workspaceId)
+    const membership = activeMembershipIn(user.memberships, workspaceId, user.id)
     if (!membership?.role_id) return false
 
     try {

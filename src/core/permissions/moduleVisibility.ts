@@ -188,11 +188,16 @@ export function moduleLevelForSlug(
 }
 
 /**
- * Slug do cargo da MEMBERSHIP ATIVA na unidade (`memberships.role_id` já vem
- * pronto no `User`). Puro e síncrono — não consulta o banco.
+ * Slug do cargo da MEMBERSHIP ATIVA do PRÓPRIO usuário na unidade
+ * (`memberships.role_id` já vem pronto no `User`). Puro e síncrono — não
+ * consulta o banco.
  *
  * Deliberadamente NÃO usa `profiles.role`/`user.roleId` (dados legados) nem
  * `workspace_ids`: pertencimento é sempre membership ativa (design 9.2 §3.2).
+ * O dono da linha (`profile_id === user.id`) é obrigatório: a RLS
+ * `memberships_select` é escopada por WORKSPACE, então `user.memberships` pode
+ * trazer memberships de OUTROS membros da unidade — sem esse filtro a
+ * visibilidade do módulo seria decidida pelo cargo de outra pessoa.
  * `membershipsLoaded !== true` ⇒ sem cargo conhecido, e o guard deve tratar
  * como pendente, não como "sem acesso".
  */
@@ -203,7 +208,10 @@ export function activeMembershipRoleId(
   if (!user || !workspaceId) return null
   if (user.membershipsLoaded !== true) return null
   const active = user.memberships?.find(
-    (m) => m.workspace_id === workspaceId && m.status === 'active',
+    (m) =>
+      m.profile_id === user.id &&
+      m.workspace_id === workspaceId &&
+      m.status === 'active',
   )
   return active?.role_id ?? null
 }

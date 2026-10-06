@@ -52,8 +52,14 @@ export function useLeadership() {
     // Fica pendente (loading) para o guard exibir o loader em vez de
     // "acesso restrito". Nunca decide antes de carregar.
     if (user.membershipsLoaded !== true) return
+    // Só a membership do PRÓPRIO usuário conta: a RLS `memberships_select` é
+    // escopada por workspace e `user.memberships` pode conter linhas de outros
+    // membros da unidade (cargo de liderança seria o de um colega).
     const active = user.memberships?.find(
-      (m) => m.workspace_id === workspaceId && m.status === 'active',
+      (m) =>
+        m.profile_id === user.id &&
+        m.workspace_id === workspaceId &&
+        m.status === 'active',
     )
     if (!active?.role_id) {
       setSettled({ key, slug: null })

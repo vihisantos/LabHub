@@ -6,6 +6,7 @@ const { mockSignOut } = vi.hoisted(() => ({ mockSignOut: vi.fn() }))
 const { mockSignIn } = vi.hoisted(() => ({ mockSignIn: vi.fn() }))
 const { mockGetSession } = vi.hoisted(() => ({ mockGetSession: vi.fn() }))
 const { mockGetMine } = vi.hoisted(() => ({ mockGetMine: vi.fn() }))
+const { mockGetByUser } = vi.hoisted(() => ({ mockGetByUser: vi.fn() }))
 
 vi.mock('../../../lib/supabase', () => ({
   defaultDb: {
@@ -19,8 +20,10 @@ vi.mock('../../../lib/supabase', () => ({
   },
 }))
 
-// Preserva areMembershipsEqual (comparador puro) e isola getMine — o authService
-// carrega perfil + memberships em paralelo; getMine é a query de memberships.
+// Preserva areMembershipsEqual (comparador puro) e isola a query de memberships —
+// o authService carrega perfil + memberships em paralelo. `loadUser` deve usar
+// getByUser(userId) (filtra profile_id); getMine() fica espiolhado para provar
+// que NÃO é mais usado (a RLS é escopada por workspace, não por usuário).
 vi.mock('../../memberships/service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../memberships/service')>()
   return {
@@ -28,6 +31,7 @@ vi.mock('../../memberships/service', async (importOriginal) => {
     membershipService: {
       ...actual.membershipService,
       getMine: mockGetMine,
+      getByUser: mockGetByUser,
     },
   }
 })
@@ -81,6 +85,7 @@ describe('authService.signUp — criação de usuário', () => {
       expect.objectContaining({ email: 'prof@escola.edu.br' }),
     )
     // signUp NÃO consulta memberships (user ainda pendente, sem associação alguma)
+    expect(mockGetByUser).not.toHaveBeenCalled()
     expect(mockGetMine).not.toHaveBeenCalled()
   })
 
@@ -118,7 +123,7 @@ describe('authService.fetchUserProfile — perfil + memberships em paralelo', ()
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockResolvedValue([
+    mockGetByUser.mockResolvedValue([
       { id: 'm-1', profile_id: 'u-1', workspace_id: 'ws-1', role_id: 'r-a', status: 'active', managed_by: null, created_at: '', updated_at: '' },
     ])
 
@@ -127,6 +132,11 @@ describe('authService.fetchUserProfile — perfil + memberships em paralelo', ()
     expect(user?.membershipsLoaded).toBe(true)
     expect(user?.memberships).toHaveLength(1)
     expect(user?.memberships?.[0].workspace_id).toBe('ws-1')
+    // REGRESSÃO: as memberships vêm de getByUser(userId) — filtro profile_id.
+    // getMine() devolve também as linhas dos OUTROS membros do workspace e por
+    // isso não pode ser a fonte do usuário logado.
+    expect(mockGetByUser).toHaveBeenCalledWith('u-1')
+    expect(mockGetMine).not.toHaveBeenCalled()
   })
 
   it('falha na query de memberships ⇒ membershipsLoaded=false e NUNCA [] por falha', async () => {
@@ -136,7 +146,7 @@ describe('authService.fetchUserProfile — perfil + memberships em paralelo', ()
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockRejectedValue(new Error('RLS: denied'))
+    mockGetByUser.mockRejectedValue(new Error('RLS: denied'))
 
     const user = await authService.fetchUserProfile('u-1')
 
@@ -178,7 +188,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
     mockGetSession.mockReset()
     mockSignIn.mockReset()
     mockFrom.mockReset()
-    mockGetMine.mockReset()
+    mockGetByUser.mockReset()
   })
 
   it('notifica listeners quando membership muda (remove workspace)', async () => {
@@ -188,7 +198,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1', 'ws-2'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockResolvedValue([
+    mockGetByUser.mockResolvedValue([
       MEMBERSHIP({ workspace_id: 'ws-1' }),
       MEMBERSHIP({ workspace_id: 'ws-2' }),
     ])
@@ -203,7 +213,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1', 'ws-2'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
+    mockGetByUser.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
     await authService.refreshProfile()
 
     expect(seen.length).toBeGreaterThan(0)
@@ -219,14 +229,14 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       accent: 'blue', theme_variant: 'dark',
     }
     mockFetchProfile(row)
-    mockGetMine.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
+    mockGetByUser.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
     await runSignIn(authService)
 
     const listener = vi.fn()
     authService.onAuthChange(listener)
 
     mockFetchProfile({ ...row, workspace_ids: ['ws-1'] })
-    mockGetMine.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
+    mockGetByUser.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
     await authService.refreshProfile()
 
     expect(listener).not.toHaveBeenCalled()
@@ -240,7 +250,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       accent: 'blue', theme_variant: 'dark',
     }
     mockFetchProfile(row)
-    mockGetMine.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
+    mockGetByUser.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
     await runSignIn(authService)
 
     const listener = vi.fn()
@@ -248,7 +258,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
 
     // A coluna legada muda, mas memberships (fonte de autorização) não.
     mockFetchProfile({ ...row, workspace_ids: ['ws-1', 'ws-9'] })
-    mockGetMine.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
+    mockGetByUser.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
     await authService.refreshProfile()
 
     expect(listener).not.toHaveBeenCalled()
@@ -261,7 +271,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockRejectedValue(new Error('RLS: denied'))
+    mockGetByUser.mockRejectedValue(new Error('RLS: denied'))
     await runSignIn(authService)
 
     const listener = vi.fn()
@@ -273,7 +283,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1', 'ws-2'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockRejectedValue(new Error('RLS: denied'))
+    mockGetByUser.mockRejectedValue(new Error('RLS: denied'))
     await authService.refreshProfile()
 
     expect(listener).not.toHaveBeenCalled()
@@ -288,7 +298,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
+    mockGetByUser.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1' })])
     await runSignIn(authService)
 
     const listener = vi.fn()
@@ -299,7 +309,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       status: 'active', is_super_admin: false, workspace_ids: ['ws-1'],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1', status: 'suspended' })])
+    mockGetByUser.mockResolvedValue([MEMBERSHIP({ workspace_id: 'ws-1', status: 'suspended' })])
     await authService.refreshProfile()
 
     expect(listener).toHaveBeenCalled()
@@ -312,7 +322,7 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
       status: 'active', is_super_admin: false, workspace_ids: [],
       accent: 'blue', theme_variant: 'dark',
     })
-    mockGetMine.mockResolvedValue([])
+    mockGetByUser.mockResolvedValue([])
 
     await runSignIn(authService)
 
@@ -326,7 +336,7 @@ describe('authService.signIn — auto-heal de profile ausente (F1-B)', () => {
     mockSignIn.mockReset()
     mockGetSession.mockReset()
     mockFrom.mockReset()
-    mockGetMine.mockReset()
+    mockGetByUser.mockReset()
   })
 
   it('recria o profile como pending — NUNCA active — sem autorização implícita de workspace', async () => {
@@ -335,7 +345,7 @@ describe('authService.signIn — auto-heal de profile ausente (F1-B)', () => {
       data: { user: { id: 'u-orphan', email: 'orphan@labhub.com' } },
       error: null,
     })
-    mockGetMine.mockRejectedValue(new Error('RLS: denied'))
+    mockGetByUser.mockRejectedValue(new Error('RLS: denied'))
 
     let insertPayload: Record<string, unknown> | null = null
     // Chain dupla: SELECT (perfil ausente) e INSERT (auto-heal).
@@ -396,7 +406,7 @@ describe('authService.signIn — auto-heal de profile ausente (F1-B)', () => {
         return { select: () => ({ single: async () => ({ data: null, error: null }) }) }
       },
     }))
-    mockGetMine.mockRejectedValue(new Error('RLS: denied'))
+    mockGetByUser.mockRejectedValue(new Error('RLS: denied'))
 
     const authService = await loadAuthService()
     const user = await authService.signIn({ email: 'pend@labhub.com', password: 'secret' })

@@ -246,10 +246,68 @@ describe('a nova fonte NÃO consulta o legado', () => {
   it('activeMembershipRoleId ignora membership suspensa/pending/removed', () => {
     for (const status of ['suspended', 'pending', 'removed'] as const) {
       const u = user({
-        memberships: [{ workspace_id: WS_A, role_id: ROLE_ID.tec, status }],
+        memberships: [{ profile_id: 'u-1', workspace_id: WS_A, role_id: ROLE_ID.tec, status }],
       } as unknown as Partial<User>)
       expect(activeMembershipRoleId(u, WS_A)).toBeNull()
     }
+  })
+
+  // REGRESSão: a RLS de memberships é escopada por WORKSPACE, então a lista
+  // carregada traz as memberships de TODOS os membros da unidade. Sem o filtro
+  // por `profile_id` o `.find()` pegava a linha de outra pessoa e a visibilidade
+  // do módulo era decidida pelo cargo de um colega (ex.: vis lida como tec).
+  it('activeMembershipRoleId usa a membership do PRÓPRIO usuário, em qualquer ordem de linhas', () => {
+    const alheia = {
+      profile_id: 'u-colega',
+      workspace_id: WS_A,
+      role_id: ROLE_ID.vis,
+      status: 'active',
+    }
+    const propria = {
+      profile_id: 'u-1',
+      workspace_id: WS_A,
+      role_id: ROLE_ID.tec,
+      status: 'active',
+    }
+
+    expect(activeMembershipRoleId(user({ memberships: [alheia, propria] } as unknown as Partial<User>), WS_A)).toBe(
+      ROLE_ID.tec,
+    )
+    expect(activeMembershipRoleId(user({ memberships: [propria, alheia] } as unknown as Partial<User>), WS_A)).toBe(
+      ROLE_ID.tec,
+    )
+  })
+
+  it('activeMembershipRoleId é null quando só existem memberships de OUTROS usuários', () => {
+    const alheia = {
+      profile_id: 'u-colega',
+      workspace_id: WS_A,
+      role_id: ROLE_ID.tec,
+      status: 'active',
+    }
+    expect(activeMembershipRoleId(user({ memberships: [alheia] } as unknown as Partial<User>), WS_A)).toBeNull()
+  })
+
+  it('a visibilidade do módulo também vem da membership própria (vis não vira full por linha alheia)', async () => {
+    const alheia = {
+      profile_id: 'u-colega',
+      workspace_id: WS_A,
+      role_id: ROLE_ID.tec,
+      status: 'active',
+    }
+    const propria = {
+      profile_id: 'u-1',
+      workspace_id: WS_A,
+      role_id: ROLE_ID.vis,
+      status: 'active',
+    }
+    const u = user({ memberships: [alheia, propria] } as unknown as Partial<User>)
+
+    const res = await resolveModuleVisibility({ user: u, workspaceId: WS_A, appId: 'chamados' })
+
+    expect(res).toEqual({ visible: true, level: 'read' })
+    expect(mockResolveRoleSlug).toHaveBeenCalledWith(ROLE_ID.vis)
+    expect(mockResolveRoleSlug).not.toHaveBeenCalledWith(ROLE_ID.tec)
   })
 
   it('activeMembershipRoleId não usa profiles.workspace_ids nem user.roleId', () => {
@@ -371,8 +429,8 @@ describe('escopo por unidade (multiunidade)', () => {
   it('a visibilidade é da unidade pedida, não de "alguma membership"', async () => {
     const u = user({
       memberships: [
-        { workspace_id: WS_A, role_id: ROLE_ID.lider, status: 'active' },
-        { workspace_id: WS_B, role_id: ROLE_ID.vis, status: 'active' },
+        { profile_id: 'u-1', workspace_id: WS_A, role_id: ROLE_ID.lider, status: 'active' },
+        { profile_id: 'u-1', workspace_id: WS_B, role_id: ROLE_ID.vis, status: 'active' },
       ],
       workspace_ids: [WS_A, WS_B],
     } as unknown as User)

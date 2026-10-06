@@ -57,9 +57,14 @@ function requireDb() {
 async function loadUser(userId: string): Promise<User | null> {
   if (!defaultDb) return null
 
+  // `getByUser(userId)` filtra `profile_id = userId`. `getMine()` NÃO serve
+  // aqui: a RLS `memberships_select` é escopada por WORKSPACE, então ela
+  // devolve também as memberships dos OUTROS membros daquelas unidades — o que
+  // fazia um técnico ser resolvido pela role de outra pessoa (ex.: `vis`) e
+  // perder Actions como `ticket.claim`.
   const [profileRes, ownMemberships] = await Promise.all([
     defaultDb.from('profiles').select('*').eq('id', userId).maybeSingle(),
-    membershipService.getMine().catch(() => null),
+    membershipService.getByUser(userId).catch(() => null),
   ])
 
   const { data, error } = profileRes as {
