@@ -105,7 +105,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
     expect(screen.getByText('PC-01')).toBeInTheDocument()
@@ -154,7 +154,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
   })
 
@@ -167,7 +167,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
   })
 
@@ -180,7 +180,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.queryByText('Receber notificação deste chamado')).not.toBeInTheDocument()
     expect(screen.queryByText('Receba um aviso quando o status mudar')).not.toBeInTheDocument()
 
@@ -197,7 +197,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
   })
 
@@ -215,7 +215,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('Notificações bloqueadas no navegador. Libere o acesso para receber avisos do status.')).toBeInTheDocument()
 
     delete (window as unknown as Record<string, unknown>).PushManager
@@ -237,7 +237,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('Receber notificação deste chamado')).toBeInTheDocument()
 
     delete (window as unknown as Record<string, unknown>).PushManager
@@ -262,7 +262,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
 
     delete (window as unknown as Record<string, unknown>).PushManager
   })
@@ -286,7 +286,7 @@ describe('TicketSuccess', () => {
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Chamado Aberto!')).toBeInTheDocument()
+    expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.queryByText('Receber notificação deste chamado')).not.toBeInTheDocument()
 
     delete (window as unknown as Record<string, unknown>).PushManager

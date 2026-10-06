@@ -115,13 +115,13 @@ export function MyTickets() {
         isSearching ? (
           <EmptyState
             icon={<icons.ui.search size={20} className="text-fg-muted" />}
-            title="Nenhum chamado encontrado"
+            title="Você ainda não abriu nenhum chamado."
             description={`Nada corresponde a "${search.trim()}". A pesquisa só filtra os chamados que você já abriu.`}
           />
         ) : (
           <div className="space-y-3">
             <EmptyState
-              title="Você ainda não abriu nenhum chamado"
+              title="Você ainda não abriu nenhum chamado."
               description="Quando precisar de suporte, abra um chamado e ele aparecerá aqui."
             />
             {/* CTA para o fluxo de abertura JÁ EXISTENTE — nada novo é criado aqui. */}
@@ -199,3 +199,5 @@ function MyTicketItem({ ticket, onOpen }: { ticket: Ticket; onOpen: () => void }
     </button>
   )
 }
+
+

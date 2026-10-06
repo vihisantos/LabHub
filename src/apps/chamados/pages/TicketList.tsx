@@ -345,7 +345,7 @@ export function TicketList() {
           <icons.ui.inbox size={40} className="text-fg-muted" />
           <p className="mt-3 text-sm text-fg-muted">
             {tickets.length === 0
-              ? 'Nenhum chamado registrado'
+              ? 'Nenhum chamado encontrado na fila atual.'
               : statusFilter === 'arquivados'
                 ? 'Nenhum chamado arquivado'
                 : 'Nenhum resultado encontrado'}
