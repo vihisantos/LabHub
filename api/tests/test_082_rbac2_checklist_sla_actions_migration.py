@@ -161,15 +161,18 @@ class TestExistenciaEOrdenacao:
     def test_migration_082_existe(self):
         assert MIGRATION.is_file(), "a migration 082 deve existir"
 
-    def test_082_esta_sequenciada_apos_a_079(self):
+    def test_082_esta_sequenciada_apos_a_078(self):
+        # O slot 079 deixou de existir quando o institutional_email foi
+        # renumerado para 087 (PR #351) — a 082 segue imediatamente após a 078.
         nums = sorted(
             int(m.group(1))
             for m in (re.match(r"^(\d+)_", p.name) for p in MIGRATIONS_DIR.glob("*.sql"))
             if m
         )
-        assert 79 in nums, f"a 079 deveria existir na sequência (numeros: {nums})"
+        assert 78 in nums, f"a 078 deveria existir na sequência (numeros: {nums})"
         assert 82 in nums, f"a 082 deveria existir na sequência (numeros: {nums})"
-        assert nums.index(82) > nums.index(79), "a 082 precisa vir depois da 079"
+        assert nums.index(82) > nums.index(78), "a 082 precisa vir depois da 078"
+        assert nums[nums.index(82) - 1] == 78, "a 082 deve vir imediatamente após a 078"
         assert nums.count(82) == 1, f"a 082 aparece {nums.count(82)}x na sequência"
 
     def test_078_presente(self):
