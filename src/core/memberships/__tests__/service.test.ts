@@ -105,7 +105,7 @@ describe('isActive — única concessão de visibilidade/escopo', () => {
 })
 
 describe('membershipService.getMine', () => {
-  it('retorna as memberships do usuário logado (RLS decide o que é exposto)', async () => {
+  it('NÃO filtra por usuário: devolve o que a RLS escopada por WORKSPACE expõe', async () => {
     const service = await loadMembershipService()
     const rows = [makeMembership(), makeMembership({ id: 'm-2', workspace_id: 'ws-2' })]
     dbResult = { data: rows, error: null }
@@ -115,8 +115,10 @@ describe('membershipService.getMine', () => {
     expect(result).toEqual(rows)
     expect(lastQuery.table).toBe('memberships')
     expect(lastQuery.selection).toBe('*')
-    // getMine NÃO filtra por userId — a RLS memberships_select restringe a linha; forjar
-    // filtro aqui seria confiar no client, e o design manda ler com a política do token.
+    // getMine NÃO filtra por userId — a RLS memberships_select restringe por WORKSPACE,
+    // então as linhas de OUTROS membros das mesmas unidades também vêm aqui. Forjar o
+    // filtro no client seria confiar no client; quem precisa do dono da linha usa
+    // getByUser(profile_id) — é o caminho de loadUser para cargo/Action.
     expect(lastQuery.column).toBeUndefined()
   })
 
@@ -145,7 +147,7 @@ describe('membershipService.getActiveWorkspaceIds', () => {
   })
 })
 
-describe('membershipService.getByUser — só contexto administrativo (anti-IDOR por RLS)', () => {
+describe('membershipService.getByUser — fonte do dono da linha (admin e loadUser)', () => {
   it('filtra por profile_id e retorna o que a RLS permitir', async () => {
     const service = await loadMembershipService()
     const rows = [makeMembership({ profile_id: 'u-2', workspace_id: 'ws-1' })]

@@ -38,14 +38,20 @@ vi.mock('../../memberships/service', () => ({
 import { useLeadership } from '../useLeadership'
 import { membershipService } from '../../memberships/service'
 
-const membership = (workspace_id: string, role_id: string | null, status = 'active') => ({
+const membership = (
+  workspace_id: string,
+  role_id: string | null,
+  status = 'active',
+  profile_id = 'u-1',
+) => ({
   workspace_id,
   role_id,
   status,
+  profile_id,
 })
 
-const userWith = (memberships: unknown[], loaded = true) => ({
-  id: 'u-1',
+const userWith = (memberships: unknown[], loaded = true, id = 'u-1') => ({
+  id,
   memberships,
   membershipsLoaded: loaded,
 })
@@ -112,6 +118,27 @@ describe('useLeadership — cargo vem da membership ativa da unidade (PR-4C)', (
     expect(result.current.loading).toBe(false)
     expect(result.current.isLeadership).toBe(false)
     expect(membershipService.resolveRoleSlug).not.toHaveBeenCalled()
+  })
+
+  // REGRESSÃO ("Começar Atendimento" oculto): a RLS de memberships é escopada
+  // por WORKSPACE, então a lista traz as memberships de TODOS os membros da
+  // unidade. O cargo de liderança deve vir SEMPRE da linha do próprio usuário
+  // (profile_id === user.id), nunca da de um colega que aparece antes na lista.
+  it('cargo vem da membership PRÓPRIA, mesmo com linha de liderança de outra pessoa antes', async () => {
+    authState.user = userWith([
+      membership('ws-a', 'r-lider', 'active', 'u-colega'),
+      membership('ws-a', 'r-tec'),
+    ])
+    roleSlug.value = 'tec'
+
+    const { result } = renderHook(() => useLeadership(), { wrapper })
+    await act(async () => {})
+
+    expect(result.current.isLeadership).toBe(false)
+    expect(result.current.slug).toBe('tec')
+    // Consultou o cargo do próprio usuário, nunca o do colega.
+    expect(membershipService.resolveRoleSlug).toHaveBeenCalledWith('r-tec')
+    expect(membershipService.resolveRoleSlug).not.toHaveBeenCalledWith('r-lider')
   })
 
   it('membership suspensa não concede liderança', async () => {
@@ -221,7 +248,7 @@ describe('useLeadership — cargo vem da membership ativa da unidade (PR-4C)', (
     vi.mocked(membershipService.resolveRoleSlug).mockImplementationOnce(
       () => new Promise<string | null>((r) => { releaseNew = r }),
     )
-    authState.user = { ...userWith([membership('ws-a', 'r-tec')]), id: 'u-2' }
+    authState.user = userWith([membership('ws-a', 'r-tec')], true, 'u-2')
 
     rerender()
     expect(result.current.slug).toBeNull()

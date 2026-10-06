@@ -215,19 +215,159 @@ describe('activeMembershipIn', () => {
   it('devolve a membership ativa da unidade', async () => {
     const { activeMembershipIn } = await loadService()
     const rows = [membership({ workspace_id: WS_A }), membership({ workspace_id: WS_B })]
-    expect(activeMembershipIn(rows, WS_B)?.workspace_id).toBe(WS_B)
+    expect(activeMembershipIn(rows, WS_B, 'u-1')?.workspace_id).toBe(WS_B)
   })
 
   it('ignora membership inativa da unidade', async () => {
     const { activeMembershipIn } = await loadService()
     const rows = [membership({ workspace_id: WS_A, status: 'suspended' })]
-    expect(activeMembershipIn(rows, WS_A)).toBeUndefined()
+    expect(activeMembershipIn(rows, WS_A, 'u-1')).toBeUndefined()
   })
 
-  it('undefined/vazio sem unidade => undefined', async () => {
+  it('undefined/vazio sem unidade ou sem dono => undefined', async () => {
     const { activeMembershipIn } = await loadService()
-    expect(activeMembershipIn(undefined, WS_A)).toBeUndefined()
-    expect(activeMembershipIn([membership()], null)).toBeUndefined()
-    expect(activeMembershipIn([], WS_A)).toBeUndefined()
+    expect(activeMembershipIn(undefined, WS_A, 'u-1')).toBeUndefined()
+    expect(activeMembershipIn([membership()], null, 'u-1')).toBeUndefined()
+    expect(activeMembershipIn([], WS_A, 'u-1')).toBeUndefined()
+    // Sem profileId não há como garantir o dono ⇒ nada é resolvido.
+    expect(activeMembershipIn([membership()], WS_A, undefined)).toBeUndefined()
+    expect(activeMembershipIn([membership()], WS_A, null)).toBeUndefined()
+  })
+
+  it('NUNCA escolhe membership de outro usuário da mesma unidade (ordem irrelevante)', async () => {
+    const { activeMembershipIn } = await loadService()
+    const alheia = membership({ id: 'm-vis', profile_id: 'u-vis', role_id: 'role-vis' })
+    const propria = membership({ id: 'm-tec', profile_id: 'u-1', role_id: 'role-tec' })
+
+    const asOrdem = activeMembershipIn([alheia, propria], WS_A, 'u-1')
+    const desOrdem = activeMembershipIn([propria, alheia], WS_A, 'u-1')
+
+    expect(asOrdem?.profile_id).toBe('u-1')
+    expect(asOrdem?.role_id).toBe('role-tec')
+    expect(desOrdem?.profile_id).toBe('u-1')
+    expect(desOrdem?.role_id).toBe('role-tec')
+  })
+
+  it('só existe membership alheia na unidade => undefined (fail-closed)', async () => {
+    const { activeMembershipIn } = await loadService()
+    const alheia = membership({ id: 'm-vis', profile_id: 'u-vis', role_id: 'role-vis' })
+    expect(activeMembershipIn([alheia], WS_A, 'u-1')).toBeUndefined()
+  })
+})
+
+/**
+ * REGRESSÃO do bug "Começar Atendimento" invisível para o técnico.
+ *
+ * A RLS `memberships_select` é escopada por WORKSPACE: a coleção carregada
+ * traz as memberships de TODOS os membros da unidade. Sem o filtro por
+ * `profile_id`, o `.find()` pegava a primeira linha física e o usuário era
+ * autorizado (ou bloqueado) pela role de outra pessoa — no caso real o técnico
+ * `tec` foi resolvido como `vis` (0 Actions ⇒ `ticket.claim=false`).
+ */
+describe('regressão: cargo/Action vêm SEMPRE da membership do próprio usuário', () => {
+  const ROLE_TEC = 'role-uuid-tec'
+  const ROLE_VIS = 'role-uuid-vis'
+  const USER_A = 'u-1'
+  const USER_B = 'u-b-vis'
+  const USER_C = 'u-c-opv'
+
+  /** user-A é `tec`; as duas primeiras linhas são de outras pessoas (`vis`, `opv`). */
+  function membershipsComAlheiasPrimeiro(): Membership[] {
+    return [
+      membership({ id: 'm-b', profile_id: USER_B, role_id: ROLE_VIS }),
+      membership({ id: 'm-c', profile_id: USER_C, role_id: ROLE_ID }),
+      membership({ id: 'm-a', profile_id: USER_A, role_id: ROLE_TEC }),
+    ]
+  }
+
+  it("tec: can('ticket.claim') => true, consultando a PRÓPRIA role mesmo com membership vis de outro usuário antes", async () => {
+    dbResult = { data: [{ id: 'rp-ticket-claim' }], error: null }
+    const { membershipService } = await loadService()
+    const u = user({ memberships: membershipsComAlheiasPrimeiro() } as Partial<User>)
+
+    await expect(membershipService.can(u, 'ticket.claim', WS_A)).resolves.toBe(true)
+    // A consulta usou a role do user-A (tec), nunca a role vis/alheia.
+    expect(chain.filters.role_id).toBe(ROLE_TEC)
+  })
+
+  it('tec: o resultado é o mesmo qualquer que seja a ordem das linhas devolvidas', async () => {
+    dbResult = { data: [{ id: 'rp-ticket-claim' }], error: null }
+    const { membershipService } = await loadService()
+    const proprias = membership({ id: 'm-a', profile_id: USER_A, role_id: ROLE_TEC })
+    const alheia = membership({ id: 'm-b', profile_id: USER_B, role_id: ROLE_VIS })
+
+    await expect(
+      membershipService.can(user({ memberships: [alheia, proprias] } as Partial<User>), 'ticket.claim', WS_A),
+    ).resolves.toBe(true)
+    expect(chain.filters.role_id).toBe(ROLE_TEC)
+
+    await expect(
+      membershipService.can(user({ memberships: [proprias, alheia] } as Partial<User>), 'ticket.claim', WS_A),
+    ).resolves.toBe(true)
+    expect(chain.filters.role_id).toBe(ROLE_TEC)
+  })
+
+  it('vis: continua SEM ticket.claim mesmo existindo membership tec de outro usuário', async () => {
+    // role_permissions não devolve nada para a role vis.
+    dbResult = { data: [], error: null }
+    const { membershipService } = await loadService()
+    const u = user({
+      id: USER_B,
+      memberships: [
+        membership({ id: 'm-b', profile_id: USER_B, role_id: ROLE_VIS }),
+        membership({ id: 'm-a', profile_id: USER_A, role_id: ROLE_TEC }),
+      ],
+    } as Partial<User>)
+
+    await expect(membershipService.can(u, 'ticket.claim', WS_A)).resolves.toBe(false)
+    // Consultou a role vis (a do próprio usuário), não a tec alheia.
+    expect(chain.filters.role_id).toBe(ROLE_VIS)
+  })
+
+  it('vis: mesmo que role_permissions tenha a linha, o dela não tem — e a role consultada é a própria', async () => {
+    dbResult = { data: [{ id: 'rp-de-outra-role' }], error: null }
+    const { membershipService } = await loadService()
+    const u = user({
+      id: USER_B,
+      memberships: [
+        membership({ id: 'm-a', profile_id: USER_A, role_id: ROLE_TEC }),
+        membership({ id: 'm-b', profile_id: USER_B, role_id: ROLE_VIS }),
+      ],
+    } as Partial<User>)
+
+    // A checagem é por role_id da membership própria: vis ⇒ role vis.
+    await membershipService.can(u, 'ticket.claim', WS_A)
+    expect(chain.filters.role_id).toBe(ROLE_VIS)
+    expect(chain.filters.role_id).not.toBe(ROLE_TEC)
+  })
+
+  it('sem membership PRÓPRIA na unidade => false, sem sequer consultar role_permissions', async () => {
+    dbResult = { data: [{ id: 'rp-ticket-claim' }], error: null }
+    const { membershipService } = await loadService()
+    const u = user({
+      memberships: [membership({ id: 'm-a', profile_id: USER_A, role_id: ROLE_TEC })],
+    } as Partial<User>)
+    // Workspace consultado não é o da membership própria.
+    const uEmOutraUnidade = user({
+      memberships: [
+        membership({ id: 'm-b', profile_id: USER_B, role_id: ROLE_VIS, workspace_id: WS_B }),
+        membership({ id: 'm-a', profile_id: USER_A, role_id: ROLE_TEC, workspace_id: WS_B }),
+      ],
+    } as Partial<User>)
+
+    await expect(membershipService.can(u, 'ticket.claim', 'ws-inexistente')).resolves.toBe(false)
+    await expect(membershipService.can(uEmOutraUnidade, 'ticket.claim', WS_A)).resolves.toBe(false)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('super admin continua com bypass absoluto (nenhuma membership necessária)', async () => {
+    const { membershipService } = await loadService()
+    const admin = user({
+      id: USER_A,
+      is_super_admin: true,
+      memberships: [membership({ id: 'm-b', profile_id: USER_B, role_id: ROLE_VIS })],
+    } as Partial<User>)
+    await expect(membershipService.can(admin, 'ticket.claim', WS_A)).resolves.toBe(true)
+    expect(mockFrom).not.toHaveBeenCalled()
   })
 })
