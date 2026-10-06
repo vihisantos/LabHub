@@ -37,20 +37,27 @@ class FakeResponse:
             self.text = ""
         else:
             self.text = payload if isinstance(payload, str) else json.dumps(payload)
+        self.headers = {}
 
     def json(self):
         if isinstance(self._payload, (bytes, bytearray)):
             raise ValueError("not json")
         return self._payload
 
+    def iter_content(self, chunk_size=64 * 1024):
+        yield self._payload if isinstance(self._payload, bytes) else b""
+
+    def close(self):
+        pass
+
 
 class FakeDownload:
     """Resposta de download externo com streaming controlável."""
 
-    def __init__(self, content=b"", status_code=200, chunks=None):
+    def __init__(self, content=b"", status_code=200, chunks=None, headers=None):
         self.status_code = status_code
         self.ok = status_code == 200
-        self.headers = {}
+        self.headers = headers if headers is not None else {}
         self._chunks = chunks if chunks is not None else [content]
 
     def iter_content(self, chunk_size=64 * 1024):
@@ -59,6 +66,10 @@ class FakeDownload:
 
     def close(self):
         pass
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise requests_lib.exceptions.HTTPError(f"HTTP {self.status_code}")
 
 
 class FakeRequests:
@@ -69,6 +80,24 @@ class FakeRequests:
     """
 
     exceptions = requests_lib.exceptions
+
+    class _Session:
+        """Mock de requests.Session que preserva cookies entre requests."""
+
+        def __init__(self, parent):
+            self._parent = parent
+            self.cookies = {}
+
+        def get(self, url, **kwargs):
+            cookies = kwargs.pop('cookies', None)
+            if cookies:
+                self.cookies.update(cookies)
+            if self.cookies and 'cookies' not in kwargs:
+                kwargs['cookies'] = self.cookies.copy()
+            return self._parent.get(url, **kwargs)
+
+        def close(self):
+            pass
 
     def __init__(self):
         self.calls = []
@@ -121,6 +150,9 @@ class FakeRequests:
             c for c in self.calls
             if SUPABASE_URL not in c["url"]
         ]
+
+    def Session(self):
+        return self._Session(self)
 
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
@@ -422,27 +454,20 @@ class TestSsrf:
         assert ok is False
 
     def test_redirect_para_ip_privado_e_bloqueado(self, tv_env, root_api_module):
-        tv_env.route("GET", "redirector.example.com", FakeDownload(status_code=302))
-        tv_env.calls[-1:] = []
+        """O bypass clássico: host público que responde 302 para a rede interna."""
+        tv_env.route("GET", "redirector.example.com", FakeDownload(
+            status_code=302,
+            headers={"Location": "https://169.254.169.254/meta"}
+        ))
 
-        def redirect_response(*args, **kwargs):
-            resp = FakeDownload(status_code=302)
-            resp.headers = {"Location": "https://169.254.169.254/meta"}
-            tv_env.calls.append({"method": "GET", "url": args[0], "kwargs": kwargs})
-            return resp
+        content, err = root_api_module._tv_fetch_source_bytes(
+            "https://redirector.example.com/f"
+        )
 
-        monkey_target = root_api_module
-        original_get = monkey_target.requests.get
-        monkey_target.requests.get = redirect_response  # type: ignore[assignment]
-        try:
-            content, err = root_api_module._tv_fetch_source_bytes(
-                "https://redirector.example.com/f"
-            )
-        finally:
-            monkey_target.requests.get = original_get  # type: ignore[assignment]
         assert content is None
         assert "SSRF" in err
-        assert not any("169.254" in c["url"] for c in tv_env.calls[1:])
+        # O segundo hop NÃO chegou a ser requisitado.
+        assert len(tv_env.calls) == 1
 
     def test_timeout_vira_erro_controlado(self, tv_env, root_api_module):
         import requests as requests_lib

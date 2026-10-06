@@ -422,12 +422,13 @@ def _ext_fetch_source_bytes(url, max_bytes=EXT_SOURCE_MAX_BYTES,
     deixa de valer. `test_sem_primitiva_de_leitura_na_planilha` fixa essa
     invariável para que a premissa não se perca em silêncio.
     """
+    session = requests.Session()
     current = url
     for _hop in range(max_redirects + 1):
         if not _ext_validate_source_url(current):
             return None, 'URL inválida ou não permitida (proteção SSRF)'
         try:
-            resp = requests.get(
+            resp = session.get(
                 current, timeout=timeout, allow_redirects=False, stream=True,
             )
         except requests.exceptions.Timeout:
