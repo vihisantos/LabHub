@@ -2,38 +2,58 @@
 
 Fluxo (idempotente e seguro):
 
-1. Garante a existência de ``public.schema_migrations`` (CREATE TABLE IF NOT EXISTS).
-2. Lê as versões já aplicadas do banco via Management API.
-3. Resolve o baseline:
-   - tabela vazia + ``BASELINE_VERSION`` definido -> grava baseline e aplica
-     apenas versões > baseline;
-   - tabela vazia + sem ``BASELINE_VERSION`` -> usa a maior versão do repositório
-     como baseline implícito (NÃO reaplica histórico; aplica apenas o que vier
-     depois). Seguro para o banco de produção que já teve migrations aplicadas
-     manualmente sem tabela de histórico.
-   - tabela com linhas -> baseline = maior versão de baseline registrada.
-4. Aplica cada migration pendente numa transação própria que embute um advisory
+1. Verifica, **sem escrever**, se ``public.schema_migrations`` existe
+   (``to_regclass``).
+2. Se existir, **audita a identidade** de cada migration já aplicada: a entrada
+   precisa continuar existindo no repositório com a mesma versão E o mesmo
+   filename (#285). Renumeração aborta — antes, ela passava como migration nova.
+3. Lê as versões já aplicadas do banco via Management API.
+4. Resolve o **baseline** (ver abaixo). Com ``require_baseline``, a falta de
+   ``BASELINE_VERSION`` aborta aqui — ainda sem nenhuma escrita no banco.
+5. Só então escreve: garante ``public.schema_migrations`` se faltava e, se
+   aplicável, grava a linha de baseline.
+6. Aplica cada migration pendente numa transação própria que embute um advisory
    lock transacional (``pg_advisory_xact_lock``) para serializar execuções
    concorrentes, o corpo do arquivo e o registro em ``schema_migrations``.
    Só registra depois que o SQL roda sem erro (ON CONFLICT DO NOTHING evita
    duplicar em corrida).
-5. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
+7. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
+
+Os passos 1-4 são todos read-only e concentram as travas: nenhuma escrita
+(chefe de bootstrap ou DDL de migration) é emitida antes de a renumeração e a
+configuração de baseline terem sido verificadas.
+
+Regras de baseline:
+   - ``require_baseline`` + nada resolvido -> aborta (fail-closed, produção);
+   - tabela vazia + ``BASELINE_VERSION`` definido -> grava baseline e aplica
+     apenas versões > baseline;
+   - tabela vazia + sem ``BASELINE_VERSION`` -> usa a maior versão do repositório
+     como baseline implícito (NÃO reaplica histórico; aplica apenas o que vier
+     depois). Mantido para banco legado e uso local; **desligado** em produção
+     desde #285, onde o fallback silencioso era um no-op que reportava sucesso.
+   - tabela com linhas -> baseline = maior versão de baseline registrada.
 """
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from .api import ManagementAPI
 from .core import (
     BASELINE_FILENAME,
+    AppliedIdentityError,
+    BaselineConfigurationError,
     Migration,
     MigrationError,
+    audit_applied_identities,
     discover_migrations,
     latest_version,
     pending_migrations,
+    sql_string_literal,
     strip_inner_transaction,
 )
+from .environment import missing_baseline_message, resolve_policy
 
 # Chave do advisory lock: inteiro arbitrário, fixo, específico deste projeto.
 # Regras do Postgres exigem um bigint; usamos um valor dedicado ao LabHub.
@@ -56,9 +76,16 @@ _SELECT_TABLE_EXISTS = """
 SELECT to_regclass('public.schema_migrations');
 """
 
+# Templates parameterized por POSIÇÃO, preenchidos com literais já validados
+# por `core.sql_string_literal` (allowlist de charset [0-9a-z_] + sufixo `.sql`).
+# Antes estes templates usavam `.format(filename=...)` com o nome do arquivo
+# vindo cru do disco — um arquivo chamado `086_x'; DROP TABLE users; --.sql`
+# viraria SQL executável.
+# Não usamos bind variables porque o corpo é enviado como um único script
+# multi-statement (BEGIN/lock/corpo/INSERT/COMMIT); ver core.sql_string_literal.
 _BASELINE_INSERT = """
 INSERT INTO public.schema_migrations (version, filename, applied_at, duration_ms)
-VALUES ('{version}', '{filename}', now(), 0)
+VALUES ({version}, {filename}, now(), 0)
 ON CONFLICT (version) DO NOTHING;
 """
 
@@ -69,7 +96,7 @@ SELECT pg_advisory_xact_lock({key});
 
 _ADVISORY_LOCK_WRAP_END = """
 INSERT INTO public.schema_migrations (version, filename, applied_at, duration_ms)
-VALUES ('{version}', '{filename}', now(), 0)
+VALUES ({version}, {filename}, now(), 0)
 ON CONFLICT (version) DO NOTHING;
 COMMIT;
 """
@@ -89,26 +116,72 @@ class RunnerResult:
 # helpers
 # ---------------------------------------------------------------------------
 
+def _stamped_insert(version: str, filename: str) -> str:
+    """Monta o INSERT de schema_migrations com literais validados."""
+    return _BASELINE_INSERT.format(
+        version=sql_string_literal(version),
+        filename=sql_string_literal(filename),
+    )
+
+
 def _stamp_baseline(api: ManagementAPI, version: str, filename: str) -> None:
-    api.query(_BASELINE_INSERT.format(version=version, filename=filename))
+    api.query(_stamped_insert(version, filename))
+
+
+def _read_applied_rows(api: ManagementAPI) -> list[Mapping]:
+    """Lê as linhas brutas de ``schema_migrations`` (version + filename)."""
+    rows = api.query(_SELECT_APPLIED) or []
+    return rows if isinstance(rows, list) else []
+
+
+def _applied_index(rows: list[Mapping]) -> tuple[set[str], str | None]:
+    """Deriva (versões aplicadas, maior versão de baseline) das linhas brutas."""
+    applied: set[str] = set()
+    baseline: str | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        version = row.get("version")
+        filename = row.get("filename")
+        if version is None:
+            continue
+        applied.add(version)
+        if filename == BASELINE_FILENAME:
+            if baseline is None or int(version) > int(baseline):
+                baseline = version
+    return applied, baseline
 
 
 def _read_applied(api: ManagementAPI) -> tuple[set[str], str | None]:
     """Retorna (versões aplicadas, maior versão de baseline)."""
-    rows = api.query(_SELECT_APPLIED) or []
-    applied: set[str] = set()
-    baseline: str | None = None
-    if isinstance(rows, list):
-        for row in rows:
-            version = row.get("version")
-            filename = row.get("filename")
-            if version is None:
-                continue
-            applied.add(version)
-            if filename == BASELINE_FILENAME:
-                if baseline is None or int(version) > int(baseline):
-                    baseline = version
-    return applied, baseline
+    return _applied_index(_read_applied_rows(api))
+
+
+def _audit_identity(api: ManagementAPI, migrations: list[Migration]) -> None:
+    """Aborta se alguma migration já aplicada não bater com o repositório (#285).
+
+    Roda ANTES de calcular pendentes e ANTES de qualquer DDL. Sem esta checagem,
+    uma migration renumerada depois de aplicada entra na fila de pendentes e
+    reexecuta DDL sobre um banco que já a contém — falha opaca de PRIMARY KEY
+    ou, pior, um segundo efeito idempotente silencioso.
+
+    A linha de baseline (``filename = '__baseline__'``) é ignorada: ela
+    representa uma decisão do operador, não um arquivo, e por isso não tem
+    identidade a conferir.
+    """
+    rows = _read_applied_rows(api)
+    divergences = audit_applied_identities(rows, migrations)
+    if not divergences:
+        return
+    details = "\n".join(f"  - {d.describe()}" for d in divergences)
+    raise AppliedIdentityError(
+        "Migration renumbering detected: o banco tem migrations aplicadas que "
+        "o repositorio atual nao consegue explicar. Abortando SEM reaplicar.\n"
+        f"{details}\n"
+        "Se a renumeracao foi intencional, o operador precisa reconciliar o "
+        "historico (linha em public.schema_migrations) de forma explicita -- "
+        "esta PR nao altera migrations nem o historico do banco."
+    )
 
 
 def _bootstrap_schema_migrations(api: ManagementAPI) -> None:
@@ -147,16 +220,23 @@ def apply_migration(api: ManagementAPI, migration: Migration) -> None:
 
     D2: o corpo passa por ``strip_inner_transaction`` — remove um ``BEGIN;``
     top-level inicial e um ``COMMIT;`` final SE o arquivo tiver controle de
-    transação embutido (caso da 000, baselined em produção). O runner é o
+    transação embutido. São 12 migrations com esse par (000, 029, 030, 032, 034,
+    038, 039, 055, 056, 057, 058, 061), não só a 000; ver core.py. O runner é o
     dono da transação; sem isso o ``COMMIT;`` interno quebraria a atomicidade
     registro+migration e o ``COMMIT;`` final do wrapper falharia.
+
+    ``version``/``filename`` entram no SQL por literais validados
+    (``core.sql_string_literal``), nunca por interpolação crua do nome do arquivo.
     """
     body = migration.path.read_text(encoding="utf-8").strip()
     body = strip_inner_transaction(body)
     sql = (
         _ADVISORY_LOCK_WRAP_BEGIN.format(key=ADVISORY_LOCK_KEY)
         + "\n" + body + "\n"
-        + _ADVISORY_LOCK_WRAP_END.format(version=migration.version, filename=migration.filename)
+        + _ADVISORY_LOCK_WRAP_END.format(
+            version=sql_string_literal(migration.version),
+            filename=sql_string_literal(migration.filename),
+        )
     )
     api.query(sql)
 
@@ -168,12 +248,14 @@ def _resolve_baseline(
     env_baseline: str | None,
     from_scratch: bool,
     migrations: list[Migration],
+    require_baseline: bool = False,
+    policy=None,
 ) -> tuple[str | None, bool]:
     """Resolve o baseline e se ele precisa ser gravado (``__baseline__``).
 
     Retorna ``(baseline, precisa_gravar)``.
 
-    Regras (preservadas do comportamento histórico):
+    Regras (preservadas do comportamento histórico, com uma exceção fechada):
       - ``from_scratch`` + tabela vazia -> baseline ``None`` (aplica TUDO, da
         000 em diante) e NÃO grava linha de baseline. Aplica-se apenas a banco
         NOVO/efêmero — nunca a produção legada.
@@ -181,14 +263,28 @@ def _resolve_baseline(
       - tabela vazia + sem env -> maior versão do repositório (baseline
         implícito, seguro p/ produção legada), grava a linha.
       - tabela com linhas -> baseline do banco (ou a maior aplicada).
+
+    #285 — fail-closed: quando ``require_baseline`` é verdadeiro (target de
+    produção) e nada define o baseline, aborta em vez de cair no implícito. O
+    fallback sem baseline é um **no-op silencioso**: nada é aplicado e o processo
+    termina com 0, então um secret ausente some sem sinal. Em produção isso
+    significa schema congelado sem ninguém perceber.
     """
     if from_scratch and not applied_versions and db_baseline is None:
+        # Banco novo/efêmero não tem nada que baselinar; `require_baseline`
+        # não se aplica (não há histórico a reconciliar).
         return None, False
     if not applied_versions:
         if db_baseline is not None:
             return db_baseline, False
         if env_baseline is not None:
             return env_baseline, True
+        if require_baseline:
+            raise BaselineConfigurationError(
+                missing_baseline_message(
+                    policy if policy is not None else resolve_policy()
+                )
+            )
         implicit = latest_version(migrations)
         return implicit, implicit is not None
     return (db_baseline if db_baseline is not None else sorted(applied_versions, key=int)[-1]), False
@@ -200,6 +296,8 @@ def run(
     *,
     dry_run: bool = False,
     from_scratch: bool = False,
+    require_baseline: bool = False,
+    policy=None,
 ) -> RunnerResult:
     """Executa o fluxo completo de migrations. Idempotente e concurrency-safe.
 
@@ -208,6 +306,11 @@ def run(
     INSERT de baseline, nem aplicação). ``from_scratch``: banco NOVO/efêmero —
     tabela vazia => aplica TODAS as migrations (000 em diante), em vez do
     baseline implícito "maior versão" pensado para produção legada.
+    ``require_baseline``: fail-closed — sem baseline resolvido, aborta (#285).
+
+    A auditoria de identidade (#285) roda nos DOIS caminhos, inclusive no
+    dry-run: um plano que reaplicaria uma migration renumerada é exatamente o
+    que o operador precisa ver antes de confirmar a aplicação.
     """
     migrations = discover_migrations(migrations_dir)
     if not migrations:
@@ -223,6 +326,9 @@ def run(
         applied_versions: set[str]
         db_baseline: str | None
         if table_exists:
+            # Auditoria antes de planejar: aborta em renumeração, sem escrever.
+            _audit_identity(api, migrations)
+            api_call_count += 1
             applied_versions, db_baseline = _read_applied(api)
             api_call_count += 1
         else:
@@ -233,6 +339,8 @@ def run(
             env_baseline=env_baseline,
             from_scratch=from_scratch,
             migrations=migrations,
+            require_baseline=require_baseline,
+            policy=policy,
         )
         ordered = sorted(migrations, key=lambda m: m.number)
         baseline_num = int(baseline) if baseline is not None else -1
@@ -249,27 +357,55 @@ def run(
         )
 
     # ── execução real ────────────────────────────────────────────────────────
-    # 1. garante a tabela de histórico
-    _bootstrap_schema_migrations(api)
+    # Todo o trabalho READ-ONLY vem primeiro — leitura da existência da tabela,
+    # auditoria de identidade e resolução do baseline. O fail-closed do
+    # `require_baseline` acontece na resolução do baseline, portanto ANTES de
+    # qualquer escrita: nem o `CREATE TABLE` do bootstrap é emitido quando a
+    # configuração falta. (#285)
+
+    # 1. existência da tabela de histórico — `to_regclass` é READ-ONLY
+    table_exists = _schema_migrations_exists(api)
     api_call_count += 1
 
-    # 2. lê o estado atual
-    applied_versions, db_baseline = _read_applied(api)
-    api_call_count += 1
+    # 2. estado atual + AUDITA de identidade, ambos read-only (#285).
+    #    Uma migration renumerada depois de aplicada apareceria como pendente e
+    #    reexecutaria DDL sobre um banco que já a contém.
+    applied_versions: set[str]
+    db_baseline: str | None
+    if table_exists:
+        _audit_identity(api, migrations)
+        api_call_count += 1
+        applied_versions, db_baseline = _read_applied(api)
+        api_call_count += 1
+    else:
+        # Tabela ausente: histórico vazio, nada a auditar.
+        applied_versions, db_baseline = set(), None
 
-    # 3. resolve o baseline e grava a linha quando aplicável
+    # 3. resolve o baseline. Com `require_baseline`, a falta de
+    #    `BASELINE_VERSION` aborta AQUI — ainda sem nenhuma escrita no banco.
     baseline, should_stamp = _resolve_baseline(
         applied_versions=applied_versions,
         db_baseline=db_baseline,
         env_baseline=env_baseline,
         from_scratch=from_scratch,
         migrations=migrations,
+        require_baseline=require_baseline,
+        policy=policy,
     )
+
+    # ── a partir daqui a execução escreve no banco ───────────────────────────
+
+    # 4. cria a tabela de histórico só quando ela realmente não existe
+    if not table_exists:
+        _bootstrap_schema_migrations(api)
+        api_call_count += 1
+
+    # 5. grava a linha de baseline quando aplicável
     if should_stamp and baseline is not None:
         _stamp_baseline(api, baseline, BASELINE_FILENAME)
         api_call_count += 1
 
-    # 4. calcula pendentes e aplica
+    # 6. calcula pendentes e aplica
     ordered = sorted(migrations, key=lambda m: m.number)
     pending = pending_migrations(migrations, applied_versions, baseline)
     baseline_num = int(baseline) if baseline is not None else -1

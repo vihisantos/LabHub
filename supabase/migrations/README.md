@@ -5,61 +5,115 @@ como `NNN_nome.sql` (numeração sequencial, nunca reutilizar números).
 
 ## Como as migrations são aplicadas hoje (automatizado)
 
-Desde `migrations.yml`/`scripts/migrate.py`, as migrations **pendentes** são
-aplicadas **automaticamente após merge em `main`** via GitHub Actions →
-Supabase Management API → PostgreSQL. Não há mais aplicação manual via SQL Editor
-para migrations novas.
+`migrations.yml` é a **cadeia única**: em Pull Request roda só a validação
+efêmera; em `main` a mesma cadeia valida e **só então** aplica em produção via
+GitHub Actions → Supabase Management API → PostgreSQL. Não há mais aplicação
+manual via SQL Editor para migrations novas.
 
 Fluxo do runner (`scripts/migrate.py`):
 
-1. Garante a existência de `public.schema_migrations` (histórico de aplicação).
-2. Lê as versões já aplicadas.
-3. Resolve o **baseline** (ver abaixo).
-4. Aplica cada migration pendente em ordem numérica, dentro de uma transação com
+1. Verifica (read-only) se `public.schema_migrations` existe e a cria se preciso.
+2. **Audita a identidade** de tudo que já está aplicado: cada versão precisa
+   ainda existir no repositório com o **mesmo filename**. Renumeração aborta
+   (ver "Renumeração").
+3. Lê as versões já aplicadas.
+4. Resolve o **baseline** (ver abaixo) — fail-closed em produção.
+5. Aplica cada migration pendente em ordem numérica, dentro de uma transação com
    `pg_advisory_xact_lock` (serializa execuções concorrentes). Só registra em
    `schema_migrations` depois que o SQL roda sem erro.
 
 ### Baseline (por que o runner não reaplica o histórico)
 
-O banco de produção **já tem migrations 000-035 aplicadas manualmente, sem a
-tabela `schema_migrations`**. Se o runner assumisse "tabela vazia = banco vazio",
+O banco de produção **já teve migrations aplicadas manualmente, sem a tabela
+`schema_migrations`**. Se o runner assumisse "tabela vazia = banco vazio",
 tentaria reaplicar todo o histórico e quebraria produção. Por isso o baseline
 representa "**tudo até aqui já está no banco** por decisão do operador":
 
-- Configure `BASELINE_VERSION` (GitHub Secret) para **`035`** em produção —
-  significa que 000-035 já estão aplicadas e o runner passa a aplicar apenas
-  `036+`.
-- Sem `BASELINE_VERSION` e com a tabela vazia, o runner usa como baseline a
-  **maior versão do repositório** (não reaplica nada; só aplica o que vier
-  depois). Seguro, mas em um banco **novo** prefira definir o baseline explícito
-  e aplicar o histórico uma vez (ver "Ordem canônica").
+- `BASELINE_VERSION` (GitHub Secret) = versão cuja aplicação já está garantida no
+  banco; o runner aplica só o que está acima dela.
+- **Em produção ela é obrigatória.** Sem ela (e com a tabela vazia) o runner
+  **aborta** em vez de assumir a maior versão do repositório. O fallback seria um
+  no-op que reporta sucesso: nada é aplicado, o processo termina com 0, e o
+  schema congela sem ninguém perceber. Fail-closed é a escolha deliberada.
+- **Local/dev** mantém o fallback para a maior versão do repositório, para não
+  quebrar o fluxo de desenvolvimento. Banco novo/efêmero usa `--from-scratch`.
+
+> **Qual é o valor de `BASELINE_VERSION` da produção hoje: INDETERMINADO.**
+> Este repositório não tem como provar o conteúdo real de `schema_migrations` nem
+> qual versão está garantida no banco de produção, e as respostas divergem entre
+> "000-035 aplicadas manualmente" e a renumeração de 079/080/081 (commit
+> `5394940`). **Não assuma um valor e não rode a aplicação** para descobrir:
+> consulte `select version, filename from public.schema_migrations order by
+> version;` no banco, reconcilie o histórico, e então defina o secret. O runner
+> vai recusar a execução até isso ser feito — é o comportamento esperado.
 
 A linha de baseline fica gravada em `schema_migrations` com `filename =
 '__baseline__'`.
 
-### GitHub Secrets (Settings → Secrets and variables → Actions)
+### Renumeração é um erro, não uma migration nova
 
-| Secret | Obrigatório | Descrição |
-|--------|-------------|-----------|
-| `SUPABASE_PROJECT_REF` | sim | ex. `ypkulvbllxgkjzhpzemf` |
-| `SUPABASE_ACCESS_TOKEN` | sim | PAT da Supabase (Management API) — prefira a PAT a expor a service role key de longa duração no CI |
-| `BASELINE_VERSION` | não | `035` para produção (tudo até 035 já aplicado) |
+Se uma migration já aplicada for renumerada (o arquivo `080_x.sql` virar
+`083_x.sql`), a linha antiga em `schema_migrations` continuaria lá e a nova
+entraria na fila de pendentes — o runner reexecutaria DDL sobre um banco que já
+contém aquele schema. O resultado seria falha opaca de constraint ou, pior, um
+segundo efeito idempotente silencioso.
+
+Por isso o runner confere versão **e** filename de cada linha aplicada e aborta
+antes de qualquer escrita, indicando o que divergiu. **Gaps de numeração são
+legítimos** (o repositório não usa 037, 080, 081) e não são reportados.
+
+Se a renumeração foi intencional, a reconciliação é do operador e explícita
+(ajustar o histórico no banco). O runner não edita migrations nem reescreve
+histórico.
+
+### Destino da execução (fail-closed)
+
+`--target production` (implícito em `MIGRATE_TARGET=production`) exige
+configuração explícita do destino e é validado **antes de qualquer requisição
+HTTP**:
+
+- `SUPABASE_ALLOWED_PROJECT_REFS` (**variável de repositório**, não secret — um
+  project ref não é credencial) precisa estar configurada; sem ela a execução
+  aborta. É o que impede um secret trocado apontar para outro projeto.
+- `SUPABASE_PROJECT_REF` precisa ter formato válido **e** estar na allowlist.
+- Um `--target` desconhecido (ex.: `staging`) é rejeitado.
+
+As mensagens de erro dizem *que* regra quebrou, nunca o valor do ref nem token.
+
+### GitHub Secrets e variáveis (Settings → Secrets and variables → Actions)
+
+| Nome | Tipo | Obrigatório | Descrição |
+|------|------|-------------|-----------|
+| `SUPABASE_PROJECT_REF` | secret | sim | project ref de produção |
+| `SUPABASE_ACCESS_TOKEN` | secret | sim | PAT da Supabase (Management API) — prefira a PAT a expor a service role key de longa duração no CI |
+| `BASELINE_VERSION` | secret | **sim em produção** | versão já garantida no banco. Sem ela o runner aborta |
+| `SUPABASE_ALLOWED_PROJECT_REFS` | **variável** | **sim em produção** | allowlist de destinos permitidos, separada por vírgula |
 
 ### Rodar localmente
 
 ```sh
 python -m pip install requests python-dotenv
-SUPABASE_PROJECT_REF=... SUPABASE_ACCESS_TOKEN=... BASELINE_VERSION=035 python scripts/migrate.py
+
+# local (fallback de baseline preservado para desenvolvimento)
 python scripts/migrate.py --dry-run        # plan/print SÓ (leitura); nunca escreve
                                                            # CREATE TABLE, INSERT de
                                                            # baseline nem migrations
+
+# produção: exige os dois valores de configuração acima
+SUPABASE_PROJECT_REF=... SUPABASE_ACCESS_TOKEN=... \
+BASELINE_VERSION=<confirmado no banco> \
+SUPABASE_ALLOWED_PROJECT_REFS=<project ref de produção> \
+  python scripts/migrate.py --target production --dry-run
 ```
 
-### Banco novo vs produção (separação de conceitos, FASE 3)
+### Banco novo vs produção (separação de conceitos)
 
 O runner tem DUAS interpretações de "tabela vazia", e elas NÃO devem ser misturadas:
 
-- **Produção legada** (tabela vazia + sem `BASELINE_VERSION`): baseline implícito =
+- **Produção** (tabela vazia + sem `BASELINE_VERSION`): **aborta**. O baseline
+  implícito foi removido do caminho de produção justamente por ser um no-op que
+  reporta sucesso.
+- **Local/dev** (tabela vazia + sem `BASELINE_VERSION`): baseline implícito =
   **maior versão do repositório**. Nada é reaplicado; só o que vier depois.
 - **Banco novo/efêmero** (CI, staging zerado): use `--from-scratch` (ou env
   `MIGRATE_FROM_SCRATCH=1`) — aplica **TODAS** as migrations, `000` em diante,
@@ -73,25 +127,32 @@ A `000_bootstrap_baseline.sql` contém `BEGIN;`/`COMMIT;` de nível de arquivo
 transação (wrapper advisory lock + registro + commit), o corpo passou por
 `strip_inner_transaction` no momento de executar — remove UM `BEGIN;` top-level
 inicial e UM `COMMIT;` final, se existirem — o que torna a `000` aplicável numa
-cadeia `000→072` de banco novo sem quebrar a atomicidade do registro.
+cadeia completa de banco novo sem quebrar a atomicidade do registro.
+
+São 12 migrations com esse par (`000`, `029`, `030`, `032`, `034`, `038`, `039`,
+`055`, `056`, `057`, `058`, `061`), não só a `000`.
 
 ### Validação em CI (PR) — nunca toca DEV/PROD
 
-`.github/workflows/migrations-ci.yml` roda em Pull Request (path-filtered):
-cria um **PostgreSQL 16 descartável** (`services: postgres`) no próprio job e:
+`.github/workflows/migrations.yml` roda em Pull Request (path-filtered) e cria um
+**PostgreSQL 16 descartável** (`services: postgres`) no próprio job:
 
-1. prova que `scripts/migrate.py --dry-run` é **read-only** (nem a tabela
+1. roda a suíte unitária do runner (`scripts/tests/test_migrations.py`, mocks);
+2. roda o teste estático da migration 039 de TV;
+3. prova que `scripts/migrate.py --dry-run` é **read-only** (nem a tabela
    `schema_migrations` é criada — ver `scripts/ci/ci_dry_run_smoke.py`);
-2. aplica `000→072` via runner com `--from-scratch` (exercita a cadeia real);
-3. verifica idempotência (rerun não duplica) e consistência de
+4. aplica a cadeia **completa** via runner com `--from-scratch` (exercita a cadeia
+   real) e verifica idempotência (rerun não duplica) e consistência de
    `schema_migrations`;
-4. roda todos os `supabase/migrations/tests/*.sql` (estruturais + behavioral);
-5. roda o behavioral da **072** (`scripts/ci/behavioral_072.py`, 13 pontos);
-6. roda a suíte unitária do runner (`scripts/tests/test_migrations.py`).
+5. roda todos os `supabase/migrations/tests/*.sql` (estruturais + behavioral);
+6. roda o behavioral da **072** (`scripts/ci/behavioral_072.py`, 13 pontos).
 
-A **aplicação real** continua no `migrations.yml` (pós-merge em `main`, via
-Management API + `BASELINE_VERSION=035`). O workflow de PR não conhece nenhum
-secreto de DEV/PROD — só a `DATABASE_URL` do próprio banco efêmero.
+Em `main` o job `migrate` roda **apenas se `validate` passou** (`needs: validate`)
+e faz um dry-run read-only em produção antes de aplicar. Os jobs de produção
+usam `environment: production` e `concurrency` com `cancel-in-progress: false`
+(aplicações em produção não podem se cancelar no meio). O job de validação é o
+único com `cancel-in-progress: true`. O workflow de PR não conhece nenhum
+segredo de DEV/PROD — só a `DATABASE_URL` do próprio banco efêmero.
 
 Para executar o mesmo fluxo fora do Actions (precisa de um PostgreSQL local ou
 container): `DATABASE_URL=postgresql://... python scripts/ci/ci_migration_suite.py`.
@@ -118,8 +179,10 @@ local neste projeto):
 029_reconcile_legacy_policies.sql  -- remove policies permissivas legadas que 027 não cobriu
 ```
 
-Para produção com o runner ativo, **defina o baseline `035`**; o runner cuida de
-`036+` automaticamente.
+Para produção com o runner ativo, o baseline precisa ser **confirmado contra o
+banco** (ver "Baseline" — o valor atual é INDETERMINADO e o runner recusa a
+execução até ser definido). O runner cuida do `baseline+1` em diante
+automaticamente.
 
 Todas as novas migrations devem ser idempotentes (`IF NOT EXISTS`,
 `DROP ... IF EXISTS`, guards `duplicate_object`) para tolerar drift entre
@@ -208,5 +271,6 @@ com `NOTICE OK`. Rodar em staging antes de produção. O
 5. ~~Aplicar `032`/`033`/`034` em produção~~ **Concluída (2026-08-24/25)** —
    purga TV, endurecimento de isolamento e DROP das policies legadas aplicados.
 6. ~~Aplicar `035` em produção~~ **Concluída (2026-08-27)** — `tracking_token_hash`
-   + índice único; agora faz parte do baseline do runner (definir `BASELINE_VERSION=035`).
+   + índice único; agora faz parte do baseline do runner (confirmar o valor de
+     `BASELINE_VERSION` contra o banco antes de aplicar).
 7. Verificar se há outras policies permissivas fora do inventário (query da 029).
