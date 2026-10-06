@@ -10,6 +10,7 @@ flowchart LR
     CI --> LINT["oxlint"]
     CI --> TEST["testes (Vitest)"]
     CI --> MIG["testes de migration (pytest)"]
+    CI --> API["testes de API (pytest api/tests)"]
     LINT & TEST --> BUILD["npm run build"]
     BUILD --> VERCEL["Vercel (auto-deploy)"]
     VERCEL --> CDN["Arquivos estáticos\n(SPA React)"]
@@ -21,11 +22,11 @@ flowchart LR
 O deploy acontece **automaticamente** a cada push para `main`:
 
 1. **Lint** — `oxlint` verifica a qualidade do código
-2. **Testes** — `vitest` executa a suíte do frontend; `pytest` valida o runner de migrations e a migration 039
+2. **Testes** — `vitest` executa a suíte do frontend; `pytest` valida o runner de migrations, a migration 039 e a suíte de API (`python -m pytest api/tests -q`)
 3. **Build** — `npm run build` gera o pacote de produção quando lint e testes passam
 4. **Deploy** — a Vercel publica o build e as funções serverless
 
-A esteira completa está em `.github/workflows/ci.yml`.
+A esteira de frontend está em `.github/workflows/ci.yml`; a da suíte Python da API está em `.github/workflows/ci-api.yml`.
 
 ## Configuração da Vercel
 

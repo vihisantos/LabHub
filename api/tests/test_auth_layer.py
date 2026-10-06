@@ -75,6 +75,24 @@ class FakeRequests:
         return [c for c in self.calls if c["method"] == method and url_part in c["url"]]
 
 
+class FakeRedis:
+    """Stub em memória do Upstash Redis — os testes não dependem de `.env`."""
+
+    def __init__(self):
+        self._subs = set()
+
+    def sadd(self, _k, v):
+        self._subs.add(v)
+        return 1
+
+    def smembers(self, _k):
+        return set(self._subs)
+
+    def delete(self, _k):
+        self._subs.clear()
+        return 1
+
+
 def _make_jwt(payload: dict, secret: str = SUPABASE_JWT_SECRET) -> str:
     """Create a valid-looking JWT for testing."""
     header = {"alg": "HS256", "typ": "JWT"}
@@ -858,8 +876,9 @@ class TestPushSubscribeUntrusted:
         })
         assert resp.status_code == 401
 
-    def test_subscribe_calls_profile_lookup_not_trusting_body(self, reservalab_client, fake_requests, monkeypatch):
+    def test_subscribe_calls_profile_lookup_not_trusting_body(self, reservalab_module, reservalab_client, fake_requests, monkeypatch):
         """Server fetches role/is_super_admin/workspace_ids from Supabase, not client body."""
+        monkeypatch.setattr(reservalab_module, "redis", FakeRedis())
         monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
         # Profile lookup returns limited data — not what client sent
         fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([
@@ -881,8 +900,9 @@ class TestPushSubscribeUntrusted:
         profile_calls = [c for c in fake_requests.calls if "/rest/v1/profiles" in c["url"]]
         assert len(profile_calls) >= 1, "Server must fetch profile from Supabase, not trust client body"
 
-    def test_subscribe_sem_user_id_no_body_faz_lookup_via_jwt(self, reservalab_client, fake_requests, monkeypatch):
+    def test_subscribe_sem_user_id_no_body_faz_lookup_via_jwt(self, reservalab_module, reservalab_client, fake_requests, monkeypatch):
         """user.id vem do JWT (g.user), não do body — lookup acontece mesmo sem user no body."""
+        monkeypatch.setattr(reservalab_module, "redis", FakeRedis())
         monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": "user-1"})
         fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([
             {"id": "user-1", "role": "technician", "is_super_admin": False, "workspace_ids": ["ws-a"]}

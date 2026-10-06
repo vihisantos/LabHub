@@ -1,0 +1,60 @@
+name: CI API (Python / Flask)
+
+# Suíte backend `api/tests` (Flask, Chamados, ReservaLab, SSRF, RBAC e as
+# verificações ESTÁTICAS das migrations).
+#
+# Este workflow existia apenas como rascunho local e estava no `.gitignore`,
+# então o GitHub nunca executou a suíte: os checks podiam ficar verdes sem
+# nenhum teste Python de API rodar (foi assim que a falha do teste 082 passou
+# despercebida). É a versão oficial, versionada no repositório.
+#
+# Sem `paths`: a suíte lê `supabase/migrations/**` por análise estática
+# (ex.: `test_044_*`, `test_082_*`) — filtrar por caminho deixaria mudanças de
+# DDL sem cobertura. A execução leva ~40s.
+#
+# Sem secrets e sem acesso a ambientes reais: os únicos valores de env são
+# dummies (ver `env` do job). `requests` é substituído por mocks e os
+# hostnames usados nos testes não resolvem em DNS. Migrations reais não rodam
+# aqui — a cadeia é `migrations.yml`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-api-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api-test:
+    name: Python API tests (api/tests)
+    runs-on: ubuntu-latest
+    # Valores DUMMY, não secrets: a suíte é hermética e essas variáveis só
+    # precisam existir para os testes que verificam caminhos "configurado".
+    # Sem elas o cleanup de tablets e o push/subscribe retornam "skipped"/500
+    # e 7 testes falham. Nenhum destino real é acessado: `requests` é
+    # substituído por mocks e `test.supabase.co` não resolve em DNS.
+    env:
+      SUPABASE_URL: https://test.supabase.co
+      SUPABASE_SERVICE_KEY: test-service-key
+      VITE_CLOUDINARY_CLOUD_NAME: horytsxg
+      CLOUDINARY_API_KEY: test-key
+      CLOUDINARY_API_SECRET: test-secret
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Run api/tests
+        run: python -m pytest api/tests -q

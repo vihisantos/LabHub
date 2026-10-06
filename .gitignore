@@ -62,12 +62,13 @@ ORCAMENTO.md
 # Rascunhos locais de workflow (Issue #285). A cadeia de migrations que vale
 # é .github/workflows/migrations.yml; estes arquivos são experimentais e não
 # devem entrar no repositório por engano com um `git add -A`.
+# O `ci-api.yml` NÃO é rascunho: é o workflow oficial da suíte `api/tests`
+# (`.github/workflows/ci-api.yml`) e precisa ficar versionado.
 .github/workflows/.c.py
 .github/workflows/.db.py
 .github/workflows/.w.py
 .github/workflows/.y.py
 .github/workflows/.yml-check.py
 .github/workflows/.zo.py
-.github/workflows/ci-api.yml
 .github/workflows/ci-db.yml
 .github/workflows/ci-web.yml
