@@ -82,10 +82,40 @@ class FakeRequests:
     # quebraria o `except` silenciosamente, que é pior do que não ter.
     exceptions = requests_lib.exceptions
 
+    class _Session:
+        """Mock de `requests.Session` que preserva cookies entre requests.
+
+        Colhe o `Set-Cookie` da resposta (como a sessão real faz) e injeta os
+        cookies acumulados em cada chamada seguinte — é isso que o teste da
+        regressão #349 mede: o cookie do primeiro hop chegar ao segundo.
+        """
+
+        def __init__(self, parent):
+            self._parent = parent
+            self.cookies = {}
+
+        def get(self, url, **kwargs):
+            if self.cookies and 'cookies' not in kwargs:
+                kwargs['cookies'] = dict(self.cookies)
+            resp = self._parent.get(url, **kwargs)
+            set_cookie = getattr(resp, 'headers', {}).get('Set-Cookie')
+            if set_cookie:
+                pair = set_cookie.split(';', 1)[0]
+                if '=' in pair:
+                    name, _, value = pair.partition('=')
+                    self.cookies[name.strip()] = value.strip()
+            return resp
+
+        def close(self):
+            pass
+
     def __init__(self, response=None, error=None):
         self.response = response
         self.error = error
         self.calls = []
+
+    def Session(self):
+        return self._Session(self)
 
     def get(self, url, **kwargs):
         self.calls.append({"url": url, **kwargs})
@@ -497,6 +527,53 @@ class TestRedirects:
         legacy_module._ext_fetch_source_bytes(VALID_URL)
 
         assert primeira.closed is True
+
+    def test_redirect_sharepoint_com_cookie_fedauth_preservado(
+        self, legacy_module, dns_allows, fake_get,
+    ):
+        """Regressão #349: o sharing link do SharePoint (?download=1) responde
+        302 + Set-Cookie: FedAuth e o segundo hop SÓ responde 200 com esse
+        cookie.
+
+        O fetch faz o redirect manualmente (`allow_redirects=False`), então o
+        cookie só sobrevive se as chamadas compartilharem uma Session — era
+        exatamente isso que faltava quando a cadeia passou a dar 401.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'RESERVA LAB. INFORMÁTICA'
+        ws.append(['Responsável', 'Professor', 'Email', 'Data', 'Horário',
+                   'Alunos', 'Obs', 'x', 'Laboratório'])
+        ws.append(['Prof. A', 'Resp', 'a@test.com', '2026-10-10', '08:00-09:00',
+                   10, '', '', 'Lab 01'])
+        buf = io.BytesIO()
+        wb.save(buf)
+        xlsx_content = buf.getvalue()
+
+        primeiro_hop = FakeResponse(
+            status_code=302,
+            headers={
+                'Location': 'https://cdn.sharepoint.com/real/arquivo.xlsx',
+                'Set-Cookie': 'FedAuth=token123; Secure; HttpOnly; SameSite=None',
+            },
+        )
+        segundo_hop = FakeResponse(content=xlsx_content)
+        fake_get(response=[primeiro_hop, segundo_hop])
+
+        content, err = legacy_module._ext_fetch_source_bytes(
+            'https://tenant.sharepoint.com/:x:/g/personal/user/IQD5kZPM...?download=1'
+        )
+
+        assert err is None
+        assert content == xlsx_content
+
+        chamadas = fake_get().calls
+        assert len(chamadas) == 2
+        assert chamadas[0]['url'].startswith('https://tenant.sharepoint.com/')
+        assert 'real/arquivo.xlsx' in chamadas[1]['url']
+        # O ponto crítico: o cookie colhido do 302 viaja no segundo request.
+        assert chamadas[0].get('cookies') is None
+        assert chamadas[1].get('cookies') == {'FedAuth': 'token123'}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

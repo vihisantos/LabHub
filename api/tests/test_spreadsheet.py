@@ -78,13 +78,36 @@ def _route_download(spread_module, monkeypatch, workbook_bytes):
     para todos os testes deste arquivo — porque resolver de verdade exigiria
     internet, e teste que depende de internet não é hermético.
 
-    O `fake_get` aceita os kwargs que o download endurecido usa (`stream`,
-    `allow_redirects`, `timeout` como tupla); os antigos `timeout=30` seguiam
-    valendo para quem chamar com a assinatura anterior.
+    O mock expõe `Session()` porque o download endurecido abre uma sessão para
+    preservar cookies entre hops de redirect (regressão #349 do SharePoint);
+    `get` aceita os kwargs do fetch (`stream`, `allow_redirects`, `timeout` como
+    tupla).
     """
-    def fake_get(url, timeout=30, allow_redirects=True, stream=False):
-        return FakeDownloadResponse(workbook_bytes)
-    monkeypatch.setattr(spread_module, 'requests', type('FakeRequests', (), {'get': staticmethod(fake_get)})())
+    class FakeRequests:
+        """Mock de requests que inclui Session para suporte a cookies em redirects."""
+        exceptions = __import__('requests').exceptions
+
+        class _Session:
+            def __init__(self, parent):
+                self._parent = parent
+                self.cookies = {}
+
+            def get(self, url, **kwargs):
+                return FakeDownloadResponse(self._parent._content)
+
+            def close(self):
+                pass
+
+        def __init__(self, content):
+            self._content = content
+
+        def get(self, url, **kwargs):
+            return FakeDownloadResponse(self._content)
+
+        def Session(self):
+            return self._Session(self)
+
+    monkeypatch.setattr(spread_module, 'requests', FakeRequests(workbook_bytes))
     monkeypatch.setattr(spread_module.socket, 'getaddrinfo', _dns_publico)
 
 
@@ -116,9 +139,19 @@ def test_parse_spreadsheet_filtra_hoje_e_proximos_30_dias(spread_module, monkeyp
 
 
 def test_parse_spreadsheet_planilha_invalida_retorna_vazio(spread_module, monkeypatch):
-    def fake_get(url, timeout=30):
-        return FakeDownloadResponse(b'nao-e-um-xlsx')
-    monkeypatch.setattr(spread_module, 'requests', type('FakeRequests', (), {'get': staticmethod(fake_get)})())
+    class FakeRequests:
+        exceptions = __import__('requests').exceptions
+        class Session:
+            def __init__(self):
+                self.cookies = {}
+            def get(self, url, **kwargs):
+                return FakeDownloadResponse(b'nao-e-um-xlsx')
+            def close(self):
+                pass
+        def get(self, url, **kwargs):
+            return FakeDownloadResponse(b'nao-e-um-xlsx')
+    monkeypatch.setattr(spread_module, 'requests', FakeRequests())
+    monkeypatch.setattr(spread_module.socket, 'getaddrinfo', _dns_publico)
 
     reservas_hoje, reservas_semana = spread_module._parse_spreadsheet('https://sharepoint/fake.xlsx')
     assert reservas_hoje == []
@@ -271,9 +304,19 @@ def test_parse_spreadsheet_respeita_lab_count(spread_module, monkeypatch):
         wb.save(buf)
         return buf.getvalue()
 
-    def fake_get(url, timeout=30, allow_redirects=True, stream=False):
-        return FakeDownloadResponse(make_workbook_with_lab03())
-    monkeypatch.setattr(spread_module, 'requests', type('FakeRequests', (), {'get': staticmethod(fake_get)})())
+    class FakeRequests:
+        exceptions = __import__('requests').exceptions
+        class Session:
+            def __init__(self):
+                self.cookies = {}
+            def get(self, url, **kwargs):
+                return FakeDownloadResponse(make_workbook_with_lab03())
+            def close(self):
+                pass
+        def get(self, url, **kwargs):
+            return FakeDownloadResponse(make_workbook_with_lab03())
+
+    monkeypatch.setattr(spread_module, 'requests', FakeRequests())
     monkeypatch.setattr(spread_module.socket, 'getaddrinfo', _dns_publico)
 
     # Campus com 2 labs: "Lab 03" fica sem bucket (labs []) e "Lab 01 e 03" vira só LAB01
@@ -354,10 +397,23 @@ def test_parse_spreadsheet_emite_horario_inicio_fim_e_reservation_id(spread_modu
         wb.save(buf)
         return buf.getvalue()
 
-    def fake_get_intervalo(url, timeout=30, allow_redirects=True, stream=False):
-        return FakeDownloadResponse(make_workbook_intervalo())
-    monkeypatch.setattr(spread_module, 'requests',
-                        type('FakeRequests', (), {'get': staticmethod(fake_get_intervalo)})())
+    class FakeRequests:
+        exceptions = __import__('requests').exceptions
+
+        class Session:
+            def __init__(self):
+                self.cookies = {}
+
+            def get(self, url, **kwargs):
+                return FakeDownloadResponse(make_workbook_intervalo())
+
+            def close(self):
+                pass
+
+        def get(self, url, **kwargs):
+            return FakeDownloadResponse(make_workbook_intervalo())
+
+    monkeypatch.setattr(spread_module, 'requests', FakeRequests())
     monkeypatch.setattr(spread_module.socket, 'getaddrinfo', _dns_publico)
 
     hoje, _ = spread_module._parse_spreadsheet('https://x/fake.xlsx')
