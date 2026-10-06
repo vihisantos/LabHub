@@ -795,3 +795,131 @@ def test_error_messages_never_leak_token_values():
         validate_project_ref(_REF, policy)
     assert _REF not in str(exc.value)
     assert _OTHER_REF not in str(exc.value)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Carregamento de .env por alvo (regressão #285)
+#
+# O .env do repositório aponta para STAGING (ref obskpmnphevpaexooldg,
+# BASELINE_VERSION=000). Como load_dotenv roda com override=False, o primeiro
+# arquivo a definir a variável vence. Sem carregar .env.production antes de .env
+# em --target production, uma execução local de produção herdaria o ref e o
+# baseline do staging em silêncio.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PROD_REF = "ypkulvbllxgkjzhpzemf"
+_STAGING_REF = "obskpmnphevpaexooldg"
+_ENV_VARS = (
+    "SUPABASE_PROJECT_REF",
+    "BASELINE_VERSION",
+    "SUPABASE_ACCESS_TOKEN",
+    "SUPABASE_ALLOWED_PROJECT_REFS",
+    "MIGRATE_TARGET",
+)
+
+
+def _load_cli():
+    """Importa scripts/migrate.py apesar da colisão de nome com o pacote migrate/."""
+    import importlib.util
+
+    cli_path = Path(__file__).resolve().parents[1] / "migrate.py"
+    spec = importlib.util.spec_from_file_location("migrate_cli_under_test", cli_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def env_home(tmp_path, monkeypatch):
+    """Raiz isolada, com .env/.env.local de staging e .env.production de prod."""
+    (tmp_path / ".env").write_text(
+        f"SUPABASE_PROJECT_REF={_STAGING_REF}\nBASELINE_VERSION=000\n", encoding="utf-8"
+    )
+    (tmp_path / ".env.local").write_text(
+        "SUPABASE_ACCESS_TOKEN=sbp_token_de_dev\n", encoding="utf-8"
+    )
+    (tmp_path / ".env.production").write_text(
+        f"SUPABASE_PROJECT_REF={_PROD_REF}\nBASELINE_VERSION=035\n", encoding="utf-8"
+    )
+    for name in _ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
+    return cli
+
+
+def test_load_env_local_target_uses_staging_env(env_home):
+    env_home._load_env("local")
+    assert os.environ["SUPABASE_PROJECT_REF"] == _STAGING_REF
+    assert os.environ["BASELINE_VERSION"] == "000"
+
+
+def test_load_env_production_ignores_staging_baseline(env_home):
+    """Regressão: produção jamais pode herdar BASELINE_VERSION=000 do staging.
+
+    Um baseline 000 aceito em produção marcaria 000..034 como aplicadas sem
+    nunca terem rodado — um no-op silencioso reportando sucesso.
+    """
+    env_home._load_env("production")
+    assert os.environ["SUPABASE_PROJECT_REF"] == _PROD_REF
+    assert os.environ["BASELINE_VERSION"] == "035"
+
+
+def test_load_env_production_still_reads_token_from_env_local(env_home):
+    """A precedência do .env.production não pode expulsar o PAT de .env.local."""
+    env_home._load_env("production")
+    assert os.environ["SUPABASE_ACCESS_TOKEN"] == "sbp_token_de_dev"
+
+
+def test_load_env_production_blocks_staging_ref_when_env_production_lacks_it(
+    env_home, monkeypatch
+):
+    """Se .env.production não define o ref, o de STAGING não pode vazar.
+
+    O .env.production real do repositório traz apenas credenciais de frontend
+    (VITE_SUPABASE_URL/ANON_KEY, SUPABASE_URL/SERVICE_KEY) — não define
+    SUPABASE_PROJECT_REF. Sem o bloqueio, o runner cairia no ref de staging.
+    """
+    (env_home.PROJECT_ROOT / ".env.production").write_text(
+        "SUPABASE_SERVICE_KEY=svc_key\n", encoding="utf-8"
+    )
+    env_home._load_env("production")
+    assert "SUPABASE_PROJECT_REF" not in os.environ
+
+
+def test_load_env_production_blocks_identity_from_env_local(env_home):
+    """BASELINE_VERSION de .env.local também não vale para produção."""
+    (env_home.PROJECT_ROOT / ".env.local").write_text(
+        "SUPABASE_ACCESS_TOKEN=sbp_token_de_dev\nBASELINE_VERSION=000\n", encoding="utf-8"
+    )
+    (env_home.PROJECT_ROOT / ".env.production").write_text(
+        "SUPABASE_SERVICE_KEY=svc_key\n", encoding="utf-8"
+    )
+    env_home._load_env("production")
+    assert os.environ["SUPABASE_ACCESS_TOKEN"] == "sbp_token_de_dev"
+    assert "BASELINE_VERSION" not in os.environ
+
+
+def test_load_env_production_honours_migrate_target_variable(env_home, monkeypatch):
+    """--target ausente: MIGRATE_TARGET=production no ambiente também isola."""
+    monkeypatch.setenv("MIGRATE_TARGET", "production")
+    env_home._load_env(None)
+    assert os.environ["SUPABASE_PROJECT_REF"] == _PROD_REF
+    assert os.environ["BASELINE_VERSION"] == "035"
+
+
+def test_load_env_never_overrides_explicit_environment(env_home, monkeypatch):
+    """Uma variável já exportada pelo shell/secret continua soberana."""
+    monkeypatch.setenv("SUPABASE_PROJECT_REF", _OTHER_REF)
+    env_home._load_env("production")
+    assert os.environ["SUPABASE_PROJECT_REF"] == _OTHER_REF
+
+
+def test_load_env_tolerates_missing_env_files(tmp_path, monkeypatch):
+    """Sem nenhum .env o runner segue usando só o ambiente do processo."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
+    for name in _ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    cli._load_env("production")
+    assert "SUPABASE_PROJECT_REF" not in os.environ

@@ -24,9 +24,10 @@ import sys
 from pathlib import Path
 
 try:
-    from dotenv import load_dotenv
+    from dotenv import dotenv_values, load_dotenv
 except Exception:  # pragma: no cover - dotenv é opcional
     load_dotenv = None
+    dotenv_values = None
 
 from migrate import MigrationError
 from migrate.api import ApiError, ManagementAPI
@@ -45,14 +46,44 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MIGRATIONS_DIR = PROJECT_ROOT / "supabase" / "migrations"
 
 
-def _load_env() -> None:
-    """Carrega .env/.env.local quando presentes (nunca sobrescreve vars existentes)."""
-    if load_dotenv is None:
+_PRODUCTION_ONLY_VARS = frozenset(
+    {"SUPABASE_PROJECT_REF", "BASELINE_VERSION", "SUPABASE_ALLOWED_PROJECT_REFS"}
+)
+
+
+def _load_env(target: str | None = None) -> None:
+    """Carrega .env/.env.local quando presentes (nunca sobrescreve vars existentes).
+
+    O .env do repositório descreve STAGING (SUPABASE_PROJECT_REF de staging e
+    BASELINE_VERSION=000). Como load_dotenv roda com override=False, o primeiro
+    arquivo a definir a variável vence — então, sem cuidado, uma execução local
+    de --target production herdaria a identidade do staging em silêncio. O
+    pior caso: se public.schema_migrations estivesse vazia, o baseline 000 do
+    staging seria aceito e marcaria 000..034 como aplicadas sem terem rodado.
+
+    Por isso, em produção SUPABASE_PROJECT_REF, BASELINE_VERSION e
+    SUPABASE_ALLOWED_PROJECT_REFS só podem vir de .env.production ou do ambiente
+    do processo (secrets/variáveis do GitHub, export explícito no shell). De .env
+    e .env.local são descartados em produção: são arquivos de desenvolvimento, e o
+    único papel deles ali é fornecer credenciais (SUPABASE_ACCESS_TOKEN).
+    """
+    if load_dotenv is None or dotenv_values is None:
         return
-    for name in (".env", ".env.local"):
+    effective = (target or os.environ.get("MIGRATE_TARGET", "") or LOCAL).strip().lower()
+    production = effective == PRODUCTION
+    names = (".env.production", ".env", ".env.local") if production else (".env", ".env.local")
+    for name in names:
         path = PROJECT_ROOT / name
-        if path.is_file():
+        if not path.is_file():
+            continue
+        if not production or name == ".env.production":
             load_dotenv(path, override=False)
+            continue
+        blocked = _PRODUCTION_ONLY_VARS
+        for key, value in dotenv_values(path).items():
+            if key in blocked or key in os.environ or value is None:
+                continue
+            os.environ[key] = value
 
 
 def _build_executor(args: argparse.Namespace, policy: TargetPolicy):
@@ -168,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    _load_env()
+    _load_env(args.target)
 
     try:
         policy = resolve_policy(
