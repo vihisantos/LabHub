@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Music, ArrowLeft, Send, Loader2, CheckCircle2, XCircle, Clock, ExternalLink, Film, Search, Link2, X, Check } from 'lucide-react'
+import { Music, ArrowLeft, Send, Loader2, CheckCircle2, XCircle, Clock, ExternalLink, Film, Search, Link2, X, Check, MonitorOff } from 'lucide-react'
 import { useAuth } from '../core/auth/AuthContext'
+import { useWorkspace } from '../core/workspaces/WorkspaceContext'
+import { isAppDisabled } from '../core/workspaces/apps'
 import { useMusicRequests } from '../apps/tv/hooks/useMusicRequests'
 import { searchYouTube } from '../apps/tv/utils/youtubeApi'
 import type { YouTubeSearchResult } from '../apps/tv/types'
@@ -16,6 +18,7 @@ const STATUS_CONFIG = {
 export function MusicRequestPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { workspace } = useWorkspace()
   const { requests, loading, request } = useMusicRequests()
   const { addToast } = useToast()
 
@@ -167,7 +170,35 @@ export function MusicRequestPage() {
                 <div className="mt-3 space-y-1.5">
                   {results.map((r) => {
                     const isSelected = selected?.videoId === r.videoId
-                    return (
+  // Pedir Música só existe onde a TV do campus está ligada: sem o app `tv`
+  // habilitado no workspace não há para onde o pedido ir (mesma regra dos
+  // atalhos do Launcher e das Ações Rápidas).
+  if (isAppDisabled('tv', workspace)) {
+    return (
+      <div className="min-h-dvh bg-surface text-fg">
+        <div className="mx-auto flex min-h-dvh max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-dim">
+            <MonitorOff size={26} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-fg">TV indisponível neste campus</p>
+            <p className="mt-1 text-xs text-fg-muted">
+              O pedido de música está desativado para {workspace?.name ?? 'este campus'}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/launcher')}
+            className="rounded-lg bg-blue-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-600"
+          >
+            Voltar ao início
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
                       <button
                         key={r.videoId}
                         type="button"

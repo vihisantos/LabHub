@@ -4,7 +4,7 @@ import { appRegistry } from '../../appRegistry'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
-import { filterAppsByWorkspace } from '../../core/workspaces/apps'
+import { filterAppsByWorkspace, isAppDisabled } from '../../core/workspaces/apps'
 import { useModuleVisibilities } from '../../core/permissions/useModuleVisibility'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { useFastSync } from '../../lib/useFastSync'
@@ -157,17 +157,22 @@ export function Launcher() {
         <div className="mb-6">
           <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Seus Apps</p>
           <div className="flex flex-wrap justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate('/pedir-musica')}
-              className="flex w-36 flex-col items-center gap-2.5 rounded-2xl bg-card p-4 text-center shadow-sm transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
-            >
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/15 text-red-500">
-                <Music size={26} />
-              </span>
-              <span className="text-sm font-semibold text-fg">Pedir Música</span>
-              <span className="text-[11px] leading-snug text-fg-muted">Sugira uma música para a TV</span>
-            </button>
+            {/* Pedir Música: atalho fixo, mas só quando o campus tem a TV
+                ligada (mesma regra do QuickActions) — sem TV não há onde o
+                pedido de música ser exibido. */}
+            {!isAppDisabled('tv', workspace) && (
+              <button
+                type="button"
+                onClick={() => navigate('/pedir-musica')}
+                className="flex w-36 flex-col items-center gap-2.5 rounded-2xl bg-card p-4 text-center shadow-sm transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
+              >
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/15 text-red-500">
+                  <Music size={26} />
+                </span>
+                <span className="text-sm font-semibold text-fg">Pedir Música</span>
+                <span className="text-[11px] leading-snug text-fg-muted">Sugira uma música para a TV</span>
+              </button>
+            )}
             {accessibleApps.map((app) => (
               <button
                 key={app.id}

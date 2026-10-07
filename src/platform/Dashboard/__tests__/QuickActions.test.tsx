@@ -126,14 +126,21 @@ describe('QuickActions — Estoque saiu, Pedir Música entrou', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/pedir-musica')
   })
 
-  it('Pedir Música não depende de módulo: fica visível mesmo com tudo desligado', () => {
+  it('Pedir Música fica visível mesmo com os outros módulos desligados', () => {
     // A rota /pedir-musica só exige login (sem AppGuard), então o atalho não
-    // pode sumir por workspace desabilitado nem por falta de permissão.
+    // some por falta de permissão — só pelo eixo da TV do campus (próximo teste).
     mockCanAccessApp.mockReturnValue(false)
-    mockDisabledApps.mockReturnValue(['chamados', 'reservalab', 'pc-care'])
+    mockDisabledApps.mockReturnValue(['chamados', 'reservalab', 'pc-care', 'stock'])
     renderQuick()
     expect(screen.getByRole('button', { name: /Pedir Música/ })).toBeInTheDocument()
     expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('Pedir Música some quando a TV do campus está desligada', () => {
+    // Sem o app `tv` habilitado no workspace não há para onde o pedido ir.
+    mockDisabledApps.mockReturnValue(['tv'])
+    renderQuick()
+    expect(screen.queryByRole('button', { name: /Pedir Música/ })).not.toBeInTheDocument()
   })
 })
 
@@ -144,7 +151,7 @@ describe('QuickActions — o filtro de acesso não mudou', () => {
     mockDisabledApps.mockReturnValue(['chamados', 'pc-care'])
     renderQuick()
     expect(screen.getByRole('button', { name: /Reservas/ })).toBeInTheDocument()
-    // Reservas + Pedir Música (sempre visível).
+    // Reservas + Pedir Música (a TV não está desligada no campus).
     expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 
