@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMyTickets } from '../hooks/useMyTickets'
 import {
@@ -115,14 +115,14 @@ export function MyTickets() {
         isSearching ? (
           <EmptyState
             icon={<icons.ui.search size={20} className="text-fg-muted" />}
-            title="Você ainda não abriu nenhum chamado."
+            title="Nenhum chamado corresponde à sua pesquisa."
             description={`Nada corresponde a "${search.trim()}". A pesquisa só filtra os chamados que você já abriu.`}
           />
         ) : (
           <div className="space-y-3">
             <EmptyState
               title="Você ainda não abriu nenhum chamado."
-              description="Quando precisar de suporte, abra um chamado e ele aparecerá aqui."
+              description="Quando precisar de suporte, registre uma solicitação e acompanhe o atendimento por aqui."
             />
             {/* CTA para o fluxo de abertura JÁ EXISTENTE — nada novo é criado aqui. */}
             <button
