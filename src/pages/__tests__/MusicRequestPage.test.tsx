@@ -1,8 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
 import type { User } from '../../core/auth/types'
 import { MusicRequestPage } from '../MusicRequest'
+import { MemoryRouter } from 'react-router-dom'
+
+// Mock do useNavigate para validar navegação
+const mockNavigate = vi.hoisted(() => vi.fn())
+
+// Mock do react-router-dom: useNavigate mockado, mantendo exports reais
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...(actual as object),
+    useNavigate: () => mockNavigate,
+  }
+})
 
 // Variável mutável para o workspace (lida pelo mock factory)
 let currentDisabledApps: string[] = []
@@ -92,7 +104,7 @@ describe('MusicRequestPage — TV gate', () => {
     const btn = screen.getByRole('button', { name: /Voltar ao início/ })
     expect(btn).toBeInTheDocument()
     fireEvent.click(btn)
-    expect(btn).toBeInTheDocument()
+    expect(mockNavigate).toHaveBeenCalledWith('/launcher')
   })
 })
 
