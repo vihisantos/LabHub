@@ -1,8 +1,24 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { User } from '../../core/auth/types'
 import { MusicRequestPage } from '../MusicRequest'
+
+// Variável mutável para o workspace (lida pelo mock factory)
+let currentDisabledApps: string[] = []
+
+// Mock direto do hook useMusicRequests — sem side effects
+vi.mock('../../apps/tv/hooks/useMusicRequests', () => ({
+  useMusicRequests: () => ({
+    requests: [],
+    pending: [],
+    loading: false,
+    refresh: () => {},
+    request: () => {},
+    approve: () => {},
+    reject: () => {},
+  }),
+}))
 
 vi.mock('../../core/auth/AuthContext', () => ({
   useAuth: () => ({
@@ -23,32 +39,73 @@ vi.mock('../../core/auth/AuthContext', () => ({
   }),
 }))
 
-const mockWorkspace = vi.hoisted(() => ({
-  workspace: { id: 'ws-1', name: 'Lab', slug: 'lab', disabled_apps: [] as string[] },
-}))
-
+// Mock do WorkspaceContext que lê a variável mutável
 vi.mock('../../core/workspaces/WorkspaceContext', () => ({
-  useWorkspace: () => mockWorkspace.workspace,
+  useWorkspace: () => ({
+    workspace: { id: 'ws-1', name: 'Lab', slug: 'lab', disabled_apps: currentDisabledApps },
+  }),
 }))
 
-describe('MusicRequestPage — TV habilitada', () => {
+function renderPage(disabledApps: string[] = []) {
+  currentDisabledApps = disabledApps
+  return render(
+    <MemoryRouter initialEntries={['/pedir-musica']}>
+      <MusicRequestPage />
+    </MemoryRouter>
+  )
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.useRealTimers()
+})
+
+afterEach(() => {
+  cleanup()
+})
+
+describe('MusicRequestPage — TV gate', () => {
+  it('mostra "TV indisponível neste campus" quando o app tv está desabilitado no workspace', () => {
+    renderPage(['tv'])
+    expect(screen.getByText('TV indisponível neste campus')).toBeInTheDocument()
+    expect(screen.getByText(/O pedido de música está desativado para Lab/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Voltar ao início/ })).toBeInTheDocument()
+  })
+
+  it('não renderiza o formulário de pedido quando TV desabilitada', () => {
+    renderPage(['tv'])
+    expect(screen.queryByText('Buscar por nome')).not.toBeInTheDocument()
+    expect(screen.queryByText('Colar link')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Digite o nome da música ou artista...')).not.toBeInTheDocument()
+  })
+
   it('renderiza o formulário normalmente quando TV está habilitada', () => {
-    mockWorkspace.workspace = { ...mockWorkspace.workspace, disabled_apps: [] }
-    render(
-      <MemoryRouter initialEntries={['/pedir-musica']}>
-        <MusicRequestPage />
-      </MemoryRouter>
-    )
+    renderPage([])
     expect(screen.getByText('Pedir Música')).toBeInTheDocument()
     expect(screen.getByText('Buscar por nome')).toBeInTheDocument()
     expect(screen.getByText('Colar link')).toBeInTheDocument()
+    expect(screen.queryByText('TV indisponível neste campus')).not.toBeInTheDocument()
+  })
+
+  it('botão Voltar ao início navega para /launcher quando TV desabilitada', () => {
+    renderPage(['tv'])
+    const btn = screen.getByRole('button', { name: /Voltar ao início/ })
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    expect(btn).toBeInTheDocument()
   })
 })
 
-/*
- * NOTA: O teste do gate "TV desabilitada" não roda devido ao hook useMusicRequests
- * ter side effects (useEffect, setInterval, useRealtimeSubscription) que causam
- * crash no worker do vitest durante a avaliação do módulo.
- * A lógica do gate é simples: isAppDisabled('tv', workspace) — testada em
- * src/core/workspaces/__tests__/apps.test.ts (se existir) ou pode ser adicionado lá.
- */
+describe('MusicRequestPage — fluxo normal (TV habilitada)', () => {
+  it('alterna entre buscar por nome e colar link', () => {
+    renderPage([])
+    expect(screen.getByRole('button', { name: /Buscar por nome/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Colar link/ })).toBeInTheDocument()
+  })
+
+  it('mostra estado vazio de meus pedidos', () => {
+    renderPage([])
+    expect(screen.getByText('Meus pedidos')).toBeInTheDocument()
+    expect(screen.getByText('Nenhum pedido ainda')).toBeInTheDocument()
+  })
+})
