@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ticketService } from '../../chamados/services/ticketService'
 import { publicTicketService, toTicket } from '../../chamados/services/publicTicketService'
@@ -321,8 +321,8 @@ export function TicketSuccess() {
         <icons.ui.checkCircle size={40} className="text-emerald-500" />
       </div>
 
-      <h1 className="text-2xl font-bold text-fg">Chamado Aberto!</h1>
-      <p className="mt-2 text-sm text-fg-muted">Seu chamado foi registrado com sucesso</p>
+      <h1 className="text-2xl font-bold text-fg">Chamado enviado!</h1>
+      <p className="mt-2 text-sm text-fg-muted">Seu chamado foi registrado. Ele está aguardando atendimento da equipe.</p>
 
       <div className="mt-8 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 flex items-center justify-center gap-3">
@@ -512,3 +512,4 @@ export function TicketSuccess() {
     </div>
   )
 }
+

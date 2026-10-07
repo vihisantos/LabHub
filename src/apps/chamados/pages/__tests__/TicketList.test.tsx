@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
 const TICKETS = vi.hoisted(() => [
@@ -629,7 +629,7 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     render(<TicketList />)
     await act(async () => {})
 
-    expect(screen.getByText('Nenhum chamado registrado')).toBeInTheDocument()
+    expect(screen.getByText('Nenhum chamado encontrado na fila atual.')).toBeInTheDocument()
     expect(screen.getByText(/Meus Chamados/)).toBeInTheDocument()
   })
 

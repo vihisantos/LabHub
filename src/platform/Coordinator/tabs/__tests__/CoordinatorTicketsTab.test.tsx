@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { CoordinatorTicketsTab, type CoordinatorTicketsTabProps } from '../CoordinatorTicketsTab'
 import type { Ticket } from '../../../../apps/chamados/types'

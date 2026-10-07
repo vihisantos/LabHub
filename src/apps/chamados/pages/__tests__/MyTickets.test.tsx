@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
 /**
@@ -343,8 +343,8 @@ describe('MyTickets — pesquisa simples', () => {
 
     fireEvent.change(input(), { target: { value: 'inexistente' } })
 
-    expect(screen.getByText('Nenhum chamado encontrado')).toBeInTheDocument()
-    expect(screen.queryByText('Você ainda não abriu nenhum chamado')).not.toBeInTheDocument()
+    expect(screen.getByText('Nenhum chamado corresponde à sua pesquisa.')).toBeInTheDocument()
+    expect(screen.queryByText('Você ainda não abriu nenhum chamado.')).not.toBeInTheDocument()
   })
 
   it('limpar a pesquisa restaura a lista completa', async () => {
@@ -354,7 +354,7 @@ describe('MyTickets — pesquisa simples', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Limpar pesquisa' }))
 
     expect(screen.getByText('#1042')).toBeInTheDocument()
-    expect(screen.queryByText('Nenhum chamado encontrado')).not.toBeInTheDocument()
+    expect(screen.queryByText('Você ainda não abriu nenhum chamado.')).not.toBeInTheDocument()
   })
 
   it('a pesquisa não refaz a chamada ao servidor (é apresentação)', async () => {
@@ -395,8 +395,8 @@ describe('MyTickets — estados', () => {
     mockListMine.mockResolvedValue([])
     await renderMyTickets()
 
-    expect(screen.getByText('Você ainda não abriu nenhum chamado')).toBeInTheDocument()
-    expect(screen.getByText(/abra um chamado e ele aparecerá aqui/)).toBeInTheDocument()
+    expect(screen.getByText('Você ainda não abriu nenhum chamado.')).toBeInTheDocument()
+    expect(screen.getByText(/Quando precisar de suporte, registre uma solicitação e acompanhe o atendimento por aqui./)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Abrir chamado' }))
     expect(mockNavigate).toHaveBeenCalledWith('/chamados-publico/new')
@@ -408,7 +408,7 @@ describe('MyTickets — estados', () => {
 
     expect(screen.getByText('Não foi possível carregar seus chamados.')).toBeInTheDocument()
     expect(screen.getByText('Falha de rede')).toBeInTheDocument()
-    expect(screen.queryByText('Você ainda não abriu nenhum chamado')).not.toBeInTheDocument()
+    expect(screen.queryByText('Você ainda não abriu nenhum chamado.')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument()
   })
 
