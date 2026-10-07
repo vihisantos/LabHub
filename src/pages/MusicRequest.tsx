@@ -90,6 +90,34 @@ export function MusicRequestPage() {
     setUrl('')
   }
 
+  // Pedir Música só existe onde a TV do campus está ligada: sem o app `tv`
+  // habilitado no workspace não há para onde o pedido ir (mesma regra dos
+  // atalhos do Launcher e das Ações Rápidas).
+  if (isAppDisabled('tv', workspace)) {
+    return (
+      <div className="min-h-dvh bg-surface text-fg">
+        <div className="mx-auto flex min-h-dvh max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-dim">
+            <MonitorOff size={26} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-fg">TV indisponível neste campus</p>
+            <p className="mt-1 text-xs text-fg-muted">
+              O pedido de música está desativado para {workspace?.name ?? 'este campus'}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/launcher')}
+            className="rounded-lg bg-blue-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-600"
+          >
+            Voltar ao início
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-dvh bg-surface text-fg">
       <div className="mx-auto max-w-xl px-5 pb-16 pt-8">
@@ -166,39 +194,11 @@ export function MusicRequestPage() {
                 </div>
               )}
 
-              {!searching && results.length > 0 && (
+{!searching && results.length > 0 && (
                 <div className="mt-3 space-y-1.5">
                   {results.map((r) => {
                     const isSelected = selected?.videoId === r.videoId
-  // Pedir Música só existe onde a TV do campus está ligada: sem o app `tv`
-  // habilitado no workspace não há para onde o pedido ir (mesma regra dos
-  // atalhos do Launcher e das Ações Rápidas).
-  if (isAppDisabled('tv', workspace)) {
-    return (
-      <div className="min-h-dvh bg-surface text-fg">
-        <div className="mx-auto flex min-h-dvh max-w-xl flex-col items-center justify-center gap-4 px-6 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-dim">
-            <MonitorOff size={26} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-fg">TV indisponível neste campus</p>
-            <p className="mt-1 text-xs text-fg-muted">
-              O pedido de música está desativado para {workspace?.name ?? 'este campus'}.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate('/launcher')}
-            className="rounded-lg bg-blue-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-600"
-          >
-            Voltar ao início
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
+                    return (
                       <button
                         key={r.videoId}
                         type="button"
