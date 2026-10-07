@@ -1,16 +1,27 @@
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { useModuleVisibilities } from '../../core/permissions/useModuleVisibility'
 import { isAppDisabled } from '../../core/workspaces/apps'
 import { icons } from '../../lib/icons'
 
-const actions = [
+type QuickAction = {
+  label: string
+  icon: ReactNode
+  route: string
+  color: string
+  appId: string | null
+  /** Ação só aparece se este app não estiver desabilitado no workspace. */
+  requiresAppId?: string
+}
+
+const actions: QuickAction[] = [
   {
     label: 'Novo Chamado',
     icon: <icons.ui.plus size={18} />,
     route: '/chamados-publico/new',
     color: '#f59e0b',
-    appId: 'chamados' as string | null,
+    appId: 'chamados',
   },
   {
     label: 'Reservas',
@@ -31,9 +42,11 @@ const actions = [
     icon: <icons.ui.music size={18} />,
     route: '/pedir-musica',
     color: '#ef4444',
-    // Pedir Música não é um app do registry: a rota só exige login, então
-    // aparece para todos — mesma regra do Launcher.
-    appId: null as string | null,
+    // Pedir Música não é um app do registry (a rota só exige login), mas só
+    // faz sentido quando o campus TEM TV ligada: sem TV não há para onde o
+    // pedido de música ir. Semântica do Launcher é a mesma.
+    appId: null,
+    requiresAppId: 'tv',
   },
 ]
 
@@ -51,14 +64,14 @@ export function QuickActions() {
   ])
 
   // `appId: null` (link público de novo chamado) continua visível para todos,
-  // desde que o app não esteja desabilitado — como antes.
-  const visible = actions.filter(
-    (action) =>
-      !action.appId ||
-      (action.appId === 'chamados'
-        ? !isAppDisabled(action.appId, workspace)
-        : isVisible(action.appId)),
-  )
+  // desde que o app não esteja desabilitado — como antes. `requiresAppId` é o
+  // eixo que prende uma ação a um app do mesmo jeito que o workspace liga/desliga.
+  const visible = actions.filter((action) => {
+    if (action.requiresAppId) return !isAppDisabled(action.requiresAppId, workspace)
+    if (!action.appId) return true
+    if (action.appId === 'chamados') return !isAppDisabled(action.appId, workspace)
+    return isVisible(action.appId)
+  })
 
   return (
     <div>
