@@ -2,24 +2,24 @@ import type { TicketStatus } from '../types'
 
 export const SOLICITANTE_STATUS_LABELS: Record<TicketStatus, string> = {
   aberto: 'Chamado recebido',
-  a_caminho: 'TÈcnico a caminho',
+  a_caminho: 'T√öcnico a caminho',
   em_atendimento: 'Em atendimento',
   resolvido: 'Chamado resolvido',
   fechado: 'Atendimento finalizado',
 }
 
 export const SOLICITANTE_STATUS_MESSAGES: Record<TicketStatus, string> = {
-  aberto: 'Seu chamado foi registrado e est· aguardando atendimento da equipe.',
-  a_caminho: 'Um tÈcnico est· a caminho do local informado.',
-  em_atendimento: 'A equipe est· trabalhando neste chamado.',
+  aberto: 'Seu chamado foi registrado e est√ü aguardando atendimento da equipe.',
+  a_caminho: 'Um t√öcnico est√ü a caminho do local informado.',
+  em_atendimento: 'A equipe est√ü trabalhando neste chamado.',
   resolvido: 'Seu chamado foi resolvido. Confira o atendimento e deixe seu feedback.',
   fechado: 'Este atendimento foi finalizado.',
 }
 
-export const EMPTY_MY_TICKETS_TITLE = 'VocÍ ainda n„o abriu nenhum chamado.'
-export const EMPTY_MY_TICKETS_BODY = 'Quando precisar de suporte, registre uma solicitaÁ„o e acompanhe o atendimento por aqui.'
+export const EMPTY_MY_TICKETS_TITLE = 'Voc√õ ainda n√ío abriu nenhum chamado.'
+export const EMPTY_MY_TICKETS_BODY = 'Quando precisar de suporte, registre uma solicita√æ√ío e acompanhe o atendimento por aqui.'
 
-export const ERROR_LOAD_TICKET = 'N„o conseguimos carregar seu chamado.'
+export const ERROR_LOAD_TICKET = 'N√ío conseguimos carregar seu chamado.'
 export const ERROR_LOAD_TICKET_HINT = 'Tente novamente em alguns instantes.'
-export const ERROR_SEND_TICKET = 'N„o foi possÌvel enviar o chamado.'
-export const ERROR_SEND_TICKET_HINT = 'Verifique sua conex„o e tente novamente.'
+export const ERROR_SEND_TICKET = 'N√ío foi poss√ùvel enviar o chamado.'
+export const ERROR_SEND_TICKET_HINT = 'Verifique sua conex√ío e tente novamente.'
