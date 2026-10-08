@@ -2120,7 +2120,9 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
 
     const tab = screen.getByTestId('tab-people')
     expect(within(tab).getByText('Ana Sem Responsável B')).toBeTruthy()
-    expect(screen.getByTestId('people-group-unassigned')).toBeTruthy()
+    // Sem responsável (managed_by NULL) → o filtro "Sem responsável" isola o card, no contexto ws2.
+    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'unassigned' } })
+    expect(within(tab).getByTestId('people-row-ms-unb')).toBeTruthy()
     expect(within(tab).queryByText('Campus A')).toBeNull()
   })
 
