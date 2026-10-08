@@ -60,7 +60,7 @@ Abre um chamado (público, sem autenticação).
 
 Lista chamados.
 
-**Parâmetros:** `workspace_id`, `status`, `reportedBy`, `mine`.
+**Parâmetros:** `workspace_id`, `status`, `reportedBy`, `mine`, `limit`, `offset`.
 
 Dois escopos no mesmo endpoint:
 
@@ -71,6 +71,15 @@ Dois escopos no mesmo endpoint:
 
 `?reportedByUserId=` enviado pelo cliente **não é lido** em nenhum ramo. Regras
 completas em [Chamados — Referência](../apps/chamados/reference.md).
+
+**Paginação opcional (`limit`/`offset`)** — sem esses parâmetros o contrato é
+inalterado: resposta é `{ "tickets": [...] }`. Quando enviados, são repassados
+ao PostgREST (`limit=.N`, `offset=.M`, `Prefer: count=exact`) e o payload passa
+a incluir `pageSize`, `offset` e `hasMore` (`len(tickets) == pageSize`); `total`
+só é incluído se o `Content-Range` do PostgREST puder ser lido. `limit` é
+limitado a 1–200. **A filtragem server-side NÃO foi movida para esta camada**:
+filtros de busca/SLA/status/prioridade continuam sendo client-side sobre a
+janela carregada (ver Central do Coordenador).
 
 ### GET /api/chamados/:id
 

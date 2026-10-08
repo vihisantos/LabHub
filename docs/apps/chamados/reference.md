@@ -148,7 +148,8 @@ Cobertura: `api/tests/test_chamados_data_minimization.py`.
 
 ### GET /api/chamados
 
-Parâmetros de consulta opcionais: `workspace_id`, `status`, `reportedBy`, `mine`.
+Parâmetros de consulta opcionais: `workspace_id`, `status`, `reportedBy`, `mine`,
+`limit`, `offset`.
 
 Dois escopos no mesmo endpoint e no mesmo formato de resposta:
 
@@ -156,6 +157,29 @@ Dois escopos no mesmo endpoint e no mesmo formato de resposta:
 |---|---|---|
 | `GET /api/chamados` | Lista **operacional** (a fila da unidade) | Action `ticket.view` por workspace (RBAC 2.0) |
 | `GET /api/chamados?mine=true` | **Meus Chamados** — só os chamados que o chamador abriu | `reportedByUserId` = identidade autenticada. **Não exige `ticket.view`** |
+
+#### Paginação opcional (`limit`/`offset`)
+
+Sem `limit`/`offset` o contrato é **inalterado** (resposta `{ "tickets": [...] }`
+e nenhum `Prefer` adicional) — todos os consumidores existentes (fila
+operacional `useTickets`, Meus Chamados, relatórios) são preservados. Quando
+enviados:
+
+- São validados (`1 ≤ limit ≤ 200`, `offset ≥ 0`; inválidos → `400`) e
+  repassados ao PostgREST (`limit=.N`, `offset=.M`).
+- A chamada usa `Prefer: count=exact` e o payload passa a ser
+  `{ tickets, pageSize, offset, hasMore }`; `total` só é incluído quando o
+  `Content-Range` do PostgREST puder ser lido (se não vier, o cliente navega por
+  `hasMore`).
+- A ordenação (`order=createdAt.desc`), o isolamento por workspace e o escopo
+  operacional/pessoal continuam exatamente os mesmos.
+
+> **Limitação documentada (importante):** esta camada NÃO traz filtragem
+> server-side. A Central do Coordenador baixa uma **janela** do histórico via
+> `limit`/`offset` e aplica busca/SLA/status/prioridade **no frontend, sobre a
+> janela carregada**. Filtros não cruzam páginas ainda não baixadas, e a
+> paginação não é globalmente filtrada. Não mover busca/SLA/filtros para o
+> servidor sem ampliar este endpoint.
 
 #### `mine=true` — escopo pessoal do solicitante
 

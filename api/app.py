@@ -2014,6 +2014,20 @@ def _project_internal_ticket(row):
         return row
     return {k: v for k, v in row.items() if k in _CHAMADOS_TICKET_READ_SET}
 
+
+def _parse_content_range_total(content_range):
+    """Extrai o total de registros do header `Content-Range` do PostgREST.
+
+    Formato: `start-end/total`, ex.: `0-19/125`. Devolve `None` quando o
+    header está ausente/malformado (página então depende de `hasMore`).
+    """
+    if not content_range:
+        return None
+    try:
+        return int(str(content_range).split('/')[-1])
+    except (TypeError, ValueError, IndexError):
+        return None
+
 CHAMADOS_STATUS_LABELS = {
     'aberto': 'Aguardando técnico',
     'a_caminho': 'Técnico a caminho',
@@ -2547,6 +2561,21 @@ def chamados_list():
         # a fonte que o cliente não tem como influenciar.
         user_id = g.user_id or user.get('id')
 
+        # Paginação opcional (ex.: Central do Coordenador). Sem `limit`/`offset`
+        # o comportamento é inalterado — nenhum consumidor existente é afetado.
+        page_size = None
+        page_offset = 0
+        if request.args.get('limit') is not None or request.args.get('offset') is not None:
+            try:
+                page_size = int(request.args['limit']) if request.args.get('limit') is not None else None
+                page_offset = int(request.args['offset']) if request.args.get('offset') is not None else 0
+            except (TypeError, ValueError):
+                return jsonify({'error': 'limit/offset devem ser inteiros'}), 400
+            if page_size is not None and not (1 <= page_size <= 200):
+                return jsonify({'error': 'limit deve estar entre 1 e 200'}), 400
+            if page_offset < 0:
+                return jsonify({'error': 'offset não pode ser negativo'}), 400
+
         workspace_id = request.args.get('workspace_id')
         if workspace_id:
             if not is_super_admin and workspace_id not in user_ws_ids:
@@ -2607,14 +2636,36 @@ def chamados_list():
         reported_by = request.args.get('reportedBy')
         if reported_by:
             url += f'&reportedBy=ilike.*{quote(reported_by)}*'
-        resp = requests.get(url, headers=_supabase_headers(), timeout=15)
+        if page_size is not None:
+            url += f'&limit=.{page_size}'
+            if page_offset:
+                url += f'&offset=.{page_offset}'
+        headers = _supabase_headers()
+        if page_size is not None:
+            # `count=exact` devolve o total de registros da consulta (filtrada)
+            # no header `Content-Range` — a base da paginação com page numbers.
+            headers = {**headers, 'Prefer': 'count=exact'}
+        resp = requests.get(url, headers=headers, timeout=15)
         if not resp.ok:
             return jsonify({'error': 'Erro ao listar chamados'}), 502
         # `select=` já pede a allowlist ao banco, mas a garantia não pode depender
         # de um serviço remoto honrar isso: a resposta é filtrada de novo aqui.
         # É a mesma defesa do fluxo público (`_project_public_ticket`).
         tickets = [_project_internal_ticket(t) for t in (resp.json() or [])]
-        return jsonify({'tickets': tickets})
+        if page_size is None:
+            return jsonify({'tickets': tickets})
+        # Paginado: anexa metadados. `total` é opcional (Content-Range) —
+        # se o serviço não devolver, o cliente navega por `hasMore`.
+        payload = {
+            'tickets': tickets,
+            'pageSize': page_size,
+            'offset': page_offset,
+            'hasMore': len(tickets) == page_size,
+        }
+        total = _parse_content_range_total(resp.headers.get('Content-Range'))
+        if total is not None:
+            payload['total'] = total
+        return jsonify(payload)
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
@@ -2929,6 +2980,36 @@ def chamados_manage(ticket_id):
         if 'assignedTo' in updates or 'assignedToUserId' in updates:
             if not _is_assigner(user, ticket_ws):
                 return _forbidden('Permissão insuficiente para atribuir responsável')
+
+        # Hardening de atribuição cross-workspace: garante que `assignedToUserId`
+        # pertence ao workspace DO CHAMADO (não ao workspace ativo do assigner).
+        #
+        # Sem esta validação, um assigner de outro campus poderia, via PATCH HTTP
+        # manipulado, atribuir um técnico de campus A a um chamado de campus B —
+        # mesmo que a UI liste apenas técnicos do campus correto.
+        #
+        # String vazia/None = remoção de responsável → não valida membership.
+        # Só valida quando há um UUID explícito, garantindo que o técnico é membro
+        # ATIVO do mesmo workspace do ticket.
+        _new_assignee_id = str(updates.get('assignedToUserId') or '').strip()
+        if _new_assignee_id:
+            try:
+                _assignee_check = requests.get(
+                    f'{_SUPABASE_URL}/rest/v1/memberships'
+                    f'?profile_id=eq.{quote(_new_assignee_id)}'
+                    f'&workspace_id=eq.{quote(ticket_ws)}'
+                    f'&status=eq.active'
+                    f'&select=id',
+                    headers=_supabase_headers(),
+                    timeout=10,
+                )
+                if not _assignee_check.ok or not (_assignee_check.json() or []):
+                    return jsonify({
+                        'error': 'Técnico não pertence ao workspace deste chamado'
+                    }), 400
+            except Exception as _assignee_exc:
+                logger.error('Hardening assignee membership check failed: %s', _assignee_exc)
+                return jsonify({'error': 'Não foi possível validar o responsável'}), 502
 
         prev = None
         assignment_changed = False

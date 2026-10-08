@@ -64,11 +64,12 @@ def _patch_auth_infrastructure(api_module, fake_requests, monkeypatch):
 
 
 class FakeResponse:
-    def __init__(self, payload, status_code=200, ok=True, text=""):
+    def __init__(self, payload, status_code=200, ok=True, text="", headers=None):
         self._payload = payload
         self.status_code = status_code
         self.ok = ok
         self.text = text or (payload if isinstance(payload, str) else str(payload))
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -180,8 +181,38 @@ def _route_list_tickets(fake_requests, tickets):
     fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse(tickets))
 
 
+def _route_paged_tickets(fake_requests, tickets, total=None, key="&limit=."):
+    """Rota específica de GET paginado, com Content-Range quando `total` existe.
+
+    Casa com as chamadas paginadas pelo trecho `&limit=.`/`&offset=.` que o
+    backend anexa à URL. Os testes de paginação NÃO registram a rota genérica
+    `chamados_tickets`, então o match por primeira-rota é inequívoco.
+    """
+    headers = {}
+    if total is not None:
+        hi = max(len(tickets) - 1, 0)
+        headers["Content-Range"] = f"0-{hi}/{total}"
+    fake_requests.route("GET", key, FakeResponse(tickets, headers=headers))
+
+
 def _route_patch_ticket(fake_requests, row):
     fake_requests.route("PATCH", "/rest/v1/chamados_tickets", FakeResponse([row]) if row else FakeResponse([]))
+
+
+def _route_assignee_membership(fake_requests, user_id, workspace_id="ws-a"):
+    """Atende o hardening de atribuição cross-workspace (PATCH).
+
+    O backend agora valida que `assignedToUserId` tem membership ATIVA no
+    workspace do chamado antes de aceitar a atribuição. Testes de atribuição
+    feliz precisam rotear este GET com um membro válido.
+    """
+    fake_requests.route(
+        "GET",
+        f"memberships?profile_id=eq.{user_id}&workspace_id=eq.{workspace_id}&status=eq.active",
+        FakeResponse([
+            {"id": f"m-{user_id}", "workspace_id": workspace_id, "profile_id": user_id, "status": "active"}
+        ]),
+    )
 
 
 def _route_get_ticket(fake_requests, row):
@@ -546,6 +577,108 @@ def test_list_filtra_por_reporter(client, fake_requests, monkeypatch):
     assert resp.status_code == 200
     url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
     assert "reportedBy=ilike.*Maria*" in url
+
+
+# ── GET /api/chamados — paginação opcional (Central do Coordenador) ──────────
+
+
+def test_list_sem_limit_offset_preserva_contrato(client, fake_requests, monkeypatch):
+    """Sem `limit`/`offset` o endpoint é inalterado: só `{tickets}` e sem
+    `Prefer: count=exact`, protegendo os demais consumidores (Meus Chamados,
+    fila operacional etc.)."""
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_list_tickets(fake_requests, [_make_ticket()])
+    resp = client.get("/api/chamados?workspace_id=ws-a", headers=headers)
+    assert resp.status_code == 200
+    assert set(resp.get_json().keys()) == {"tickets"}
+    call = fake_requests.calls_for("GET", "chamados_tickets")[0]
+    assert "limit=" not in call["url"]
+    assert "offset=" not in call["url"]
+    assert "Prefer" not in call["kwargs"].get("headers", {})
+
+
+def test_list_paginado_janela_20_com_metadados(client, fake_requests, monkeypatch):
+    """`limit=20` → URL com `limit=.20`, sem `offset`, payload com pageSize/
+    offset/hasMore/total (Content-Range)."""
+    headers = _setup_auth(fake_requests, monkeypatch)
+    tickets = [_make_ticket(ticketNumber=n) for n in range(1, 21)]
+    _route_paged_tickets(fake_requests, tickets, total=25)
+    resp = client.get("/api/chamados?workspace_id=ws-a&limit=20", headers=headers)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert len(body["tickets"]) == 20
+    assert body["pageSize"] == 20
+    assert body["offset"] == 0
+    assert body["hasMore"] is True
+    assert body["total"] == 25
+    call = fake_requests.calls_for("GET", "chamados_tickets")[0]
+    assert "limit=.20" in call["url"]
+    # offset=0 não é anexado à URL (PostgREST já começa no 0).
+    assert "offset=" not in call["url"]
+    assert call["kwargs"]["headers"]["Prefer"] == "count=exact"
+
+
+def test_list_paginado_aplica_offset(client, fake_requests, monkeypatch):
+    """`offset=20` → janela seguinte: URL `offset=.20`, payload refletindo."""
+    headers = _setup_auth(fake_requests, monkeypatch)
+    tickets = [_make_ticket(ticketNumber=n) for n in range(21, 26)]
+    _route_paged_tickets(fake_requests, tickets, total=25, key="&offset=.")
+    resp = client.get("/api/chamados?workspace_id=ws-a&limit=20&offset=20", headers=headers)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["offset"] == 20
+    assert len(body["tickets"]) == 5
+    assert body["hasMore"] is False
+    call = fake_requests.calls_for("GET", "chamados_tickets")[0]
+    assert "limit=.20" in call["url"]
+    assert "offset=.20" in call["url"]
+
+
+def test_list_paginado_preserva_ordenacao_estavel(client, fake_requests, monkeypatch):
+    """A ordem determinística (`order=createdAt.desc`) é mantida ao paginar."""
+    headers = _setup_auth(fake_requests, monkeypatch)
+    _route_paged_tickets(fake_requests, [], total=0)
+    resp = client.get("/api/chamados?workspace_id=ws-a&limit=20", headers=headers)
+    assert resp.status_code == 200
+    assert "order=createdAt.desc" in fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
+
+
+def test_list_paginado_sem_content_range_omite_total(client, fake_requests, monkeypatch):
+    """Sem `Prefer: count=exact` na resposta, `total` é omitido e o cliente
+    navega por `hasMore` (janela cheia)."""
+    headers = _setup_auth(fake_requests, monkeypatch)
+    tickets = [_make_ticket() for _ in range(20)]
+    _route_paged_tickets(fake_requests, tickets)  # sem Content-Range
+    resp = client.get("/api/chamados?workspace_id=ws-a&limit=20", headers=headers)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert "total" not in body
+    assert body["hasMore"] is True
+
+
+def test_list_paginado_valida_limit_offset(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    for qs in ("limit=0", "limit=201", "limit=abc", "offset=-1", "offset=x"):
+        resp = client.get(f"/api/chamados?workspace_id=ws-a&{qs}", headers=headers)
+        assert resp.status_code == 400, qs
+
+
+def test_list_paginado_preserva_isolamento_workspace(client, fake_requests, monkeypatch):
+    """Paginação não abre brecha de isolamento: coordenador pedindo workspace
+    fora do seu escopo continua recebendo 403."""
+    profile = {
+        "id": "user-9",
+        "email": "coord@lab.local",
+        "name": "Coordenação",
+        "role": "coordinator",
+        "is_super_admin": False,
+        "workspace_ids": ["ws-a"],
+        "status": "active",
+    }
+    headers = _setup_auth(fake_requests, monkeypatch, profile=profile)
+    resp = client.get("/api/chamados?workspace_id=ws-outside&limit=20", headers=headers)
+    assert resp.status_code == 403
+    assert fake_requests.calls_for("GET", "chamados_tickets") == []
 
 
 # ── GET /api/chamados/<id> ──
@@ -1085,6 +1218,7 @@ def _assignment_push_fixture(api_module, monkeypatch):
 def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, target_kwargs = _assignment_push_fixture(api_module, monkeypatch)
+    _route_assignee_membership(fake_requests, "user-2")
     _route_assignment_get(fake_requests, _make_ticket(assignedTo="", assignedToUserId=""))
     _route_patch_ticket(
         fake_requests,
@@ -1106,6 +1240,7 @@ def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module
 def test_patch_atribuicao_sem_mudanca_nao_avisa(client, fake_requests, api_module, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, _ = _assignment_push_fixture(api_module, monkeypatch)
+    _route_assignee_membership(fake_requests, "user-2")
     _route_assignment_get(fake_requests, _make_ticket(assignedTo="Técnico 2", assignedToUserId="user-2"))
     _route_patch_ticket(
         fake_requests,
