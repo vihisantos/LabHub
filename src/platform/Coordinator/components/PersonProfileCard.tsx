@@ -1,7 +1,7 @@
-import type { MembershipStatus } from '../../../core/permissions/membership'
+import { type KeyboardEvent } from 'react'
 import { icons } from '../../../lib/icons'
 import { cn } from '../../../lib/components/ui/utils'
-import { initials, peopleStatusLabel, COORDINATOR_LEADER_LABEL } from '../coordinatorHelpers'
+import { initials, peopleStatusLabel, STATUS_DOT, STATUS_TONE, COORDINATOR_LEADER_LABEL } from '../coordinatorHelpers'
 import type { AggregatedPerson } from '../coordinatorHelpers'
 
 /**
@@ -29,31 +29,24 @@ import type { AggregatedPerson } from '../coordinatorHelpers'
  * Status: os mesmos 4 tokens/tons já usados na Central (mapa fechado).
  */
 
-/** Tonalidade do selo de status — mapa fechado nos 4 status reais da membership. */
-const STATUS_TONE: Record<MembershipStatus, string> = {
-  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  pending: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-  suspended: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
-  removed: 'bg-red-500/10 text-red-500',
-}
-
-/** Cor do ponto de status dentro de cada chip de unidade. */
-const STATUS_DOT: Record<MembershipStatus, string> = {
-  active: 'bg-emerald-500',
-  pending: 'bg-amber-500',
-  suspended: 'bg-violet-500',
-  removed: 'bg-red-500',
-}
-
 /** Quantas unidades viram chips visíveis antes do colapso `+N`. */
 const MAX_UNIT_CHIPS = 3
 
 interface PersonProfileCardProps {
   /** Pessoa consolidada (já autorizada pelo servidor) — fonte única de dados. */
   person: AggregatedPerson
+  /** Abre o perfil interativo (#365): o CARD INTEIRO é o alvo (mouse + teclado). */
+  onOpen?: () => void
 }
 
-export function PersonProfileCard({ person }: PersonProfileCardProps) {
+export function PersonProfileCard({ person, onOpen = () => {} }: PersonProfileCardProps) {
+  const activate = () => onOpen()
+  const handleKeyDown = (e: KeyboardEvent<HTMLLIElement>) => {
+    // Teclado no card interativo (role="button"): Enter e Espaço ativam.
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    activate()
+  }
   const { units } = person
   // Testid estável por card: o PRIMEIRO vínculo da pessoa na ordem do escopo.
   const pid = units[0]?.membershipId ?? 'unknown'
@@ -96,7 +89,12 @@ export function PersonProfileCard({ person }: PersonProfileCardProps) {
   return (
     <li
       data-testid={`people-row-${pid}`}
-      className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-all duration-200 hover:-translate-y-0.5 hover:border-violet-500/40 hover:shadow-lg hover:shadow-violet-500/5 motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:hover:shadow-none"
+      role="button"
+      tabIndex={0}
+      aria-label={`Ver perfil de ${name}`}
+      onClick={activate}
+      onKeyDown={handleKeyDown}
+      className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-all duration-200 hover:-translate-y-0.5 hover:border-violet-500/40 hover:shadow-lg hover:shadow-violet-500/5 focus-visible:border-violet-500/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40 motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:hover:shadow-none"
     >
       {/* Banner — camada de FUNDO posicionada (avatar fica ACIMA dela). */}
       <div data-testid={`people-banner-${pid}`} className="relative h-16 shrink-0 sm:h-20">
@@ -195,6 +193,18 @@ export function PersonProfileCard({ person }: PersonProfileCardProps) {
           <span className="min-w-0 truncate">{managerLabel}</span>
         </p>
         <p className="truncate text-[11px] text-fg-dim">{email}</p>
+        {/* CTA discreto — o CARD INTEIRO abre o perfil (#365). */}
+        <div
+          data-testid={`people-cta-${pid}`}
+          className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-violet-600 dark:text-violet-400"
+        >
+          Ver perfil
+          <icons.ui.chevronRight
+            size={12}
+            aria-hidden="true"
+            className="transition-transform motion-reduce:transition-none group-hover:translate-x-0.5"
+          />
+        </div>
       </div>
     </li>
   )

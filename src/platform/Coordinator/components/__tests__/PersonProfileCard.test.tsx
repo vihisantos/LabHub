@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { PersonProfileCard } from '../PersonProfileCard'
 import type { AggregatedPerson } from '../../coordinatorHelpers'
 import { COORDINATOR_LEADER_LABEL, peopleStatusLabel } from '../../coordinatorHelpers'
@@ -54,10 +54,10 @@ function person(
   }
 }
 
-function renderCard(person: AggregatedPerson) {
+function renderCard(person: AggregatedPerson, onOpen: () => void = () => {}) {
   return render(
     <ul>
-      <PersonProfileCard person={person} />
+      <PersonProfileCard person={person} onOpen={onOpen} />
     </ul>,
   )
 }
@@ -237,5 +237,77 @@ describe('PersonProfileCard — card de perfil da aba Pessoal', () => {
     expect(screen.getByText('Perfil não disponível')).toBeInTheDocument()
     expect(screen.getByText('Sem e-mail registrado')).toBeInTheDocument()
     expect(screen.getByTestId('people-avatar-fallback-ms-1')).toHaveTextContent('?')
+  })
+})
+
+describe('PersonProfileCard — card INTEIRO interativo (#365)', () => {
+  it('o CARD INTEIRO é o alvo: role="button", tabIndex 0, cursor-pointer e nome acessível', () => {
+    renderCard(person())
+
+    const card = screen.getByRole('button', { name: 'Ver perfil de Ana Líder' })
+    expect(card).toHaveAttribute('tabindex', '0')
+    expect(card).toHaveClass('cursor-pointer')
+    expect(card).toHaveAttribute('data-testid', 'people-row-ms-1')
+  })
+
+  it('clique no card abre o perfil (onOpen)', () => {
+    const onOpen = vi.fn()
+    renderCard(person(), onOpen)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver perfil de Ana Líder' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('Enter ativa o perfil pelo teclado', () => {
+    const onOpen = vi.fn()
+    renderCard(person(), onOpen)
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Ver perfil de Ana Líder' }), { key: 'Enter' })
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('Espaço ativa o perfil pelo teclado e previne o scroll da página', () => {
+    const onOpen = vi.fn()
+    renderCard(person(), onOpen)
+
+    const card = screen.getByRole('button', { name: 'Ver perfil de Ana Líder' })
+    const cancelled = fireEvent.keyDown(card, { key: ' ' })
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    // preventDefault aplicado → o espaço não rola a página.
+    expect(cancelled).toBe(false)
+  })
+
+  it('CTA discreto "Ver perfil" presente e com estado de foco visível', () => {
+    renderCard(person())
+
+    const cta = screen.getByTestId('people-cta-ms-1')
+    expect(cta).toHaveTextContent('Ver perfil')
+    expect(screen.getByRole('button', { name: 'Ver perfil de Ana Líder' })).toHaveClass(
+      'focus-visible:ring-2',
+    )
+  })
+
+  it('prefers-reduced-motion preservado no card interativo', () => {
+    renderCard(person())
+
+    const card = screen.getByRole('button', { name: 'Ver perfil de Ana Líder' })
+    expect(card).toHaveClass(
+      'motion-reduce:transition-none',
+      'motion-reduce:hover:translate-y-0',
+      'motion-reduce:hover:shadow-none',
+    )
+  })
+
+  it('conteúdo (foto, unidades, líder) continua íntegro com o card clicável', () => {
+    renderCard(person([
+      unit({ membershipId: 'ms-1', unitName: 'Campus A', status: 'active' }),
+      unit({ membershipId: 'ms-2', unitName: 'Campus B', status: 'pending' }),
+    ]))
+
+    expect(screen.getByTestId('people-unit-ms-1')).toHaveTextContent('Campus A')
+    expect(screen.getByTestId('people-unit-ms-2')).toHaveTextContent('Campus B')
+    expect(screen.getByTestId('people-leader-ms-1')).toHaveTextContent('Sem líder definido')
+    const card = screen.getByRole('button', { name: 'Ver perfil de Ana Líder' })
+    expect(card).toContainElement(screen.getByTestId('people-cta-ms-1'))
   })
 })

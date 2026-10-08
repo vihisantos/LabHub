@@ -607,3 +607,81 @@ describe('CoordinatorPeopleTab — cards de perfil (representação visual, READ
     expect(within(card).getByText('Campus A')).toBeTruthy() // unidade
   })
 })
+
+describe('CoordinatorPeopleTab — perfil interativo (#365) sobre a consolidação (#364)', () => {
+  it('clique no card abre o perfil (bottom-sheet mobile) com identidade autorizada', () => {
+    renderTab()
+    expect(allRows().length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver perfil de Ana Líder' }))
+    expect(screen.getByRole('dialog', { name: 'Perfil de Ana Líder' })).toBeInTheDocument()
+    expect(screen.getByTestId('people-profile-name')).toHaveTextContent('Ana Líder')
+    expect(screen.getByTestId('people-profile-email')).toHaveTextContent('pessoa-l1@labhub.app')
+  })
+
+  it('botão de fechar fecha o perfil: outro card passa a abrir o OUTRO perfil', () => {
+    renderTab()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver perfil de Ana Líder' }))
+    expect(screen.getByTestId('people-profile-name')).toHaveTextContent('Ana Líder')
+
+    fireEvent.click(screen.getByTestId('people-profile-close'))
+    fireEvent.click(screen.getByRole('button', { name: 'Ver perfil de Clara Pendente' }))
+    expect(screen.getByTestId('people-profile-name')).toHaveTextContent('Clara Pendente')
+    expect(screen.getByTestId('people-profile-email')).toHaveTextContent('pessoa-p1@labhub.app')
+    // O grid continua vivo embaixo.
+    expect(allRows().length).toBeGreaterThan(0)
+  })
+
+  it('Enter abre o perfil pelo teclado (sem mouse)', () => {
+    renderTab()
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Ver perfil de Técnico Alpha' }), {
+      key: 'Enter',
+    })
+    expect(screen.getByRole('dialog', { name: 'Perfil de Técnico Alpha' })).toBeInTheDocument()
+    expect(screen.getByTestId('people-profile-name')).toHaveTextContent('Técnico Alpha')
+  })
+
+  it('Espaço abre o perfil pelo teclado', () => {
+    renderTab()
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Ver perfil de Clara Pendente' }), {
+      key: ' ',
+    })
+    expect(screen.getByRole('dialog', { name: 'Perfil de Clara Pendente' })).toBeInTheDocument()
+  })
+
+  it('Esc fecha o perfil: o card fechado deixa de ditar o conteúdo', () => {
+    renderTab()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver perfil de Ana Líder' }))
+    expect(screen.getByTestId('people-profile-name')).toHaveTextContent('Ana Líder')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    // Mesmo mecanismo do botão de fechar: outra pessoa abre o PERFIL DELA.
+    fireEvent.click(screen.getByRole('button', { name: 'Ver perfil de Clara Pendente' }))
+    expect(screen.getByRole('dialog', { name: 'Perfil de Clara Pendente' })).toBeInTheDocument()
+    expect(screen.getByTestId('people-profile-name')).toHaveTextContent('Clara Pendente')
+    expect(screen.getByTestId('people-grid')).toBeInTheDocument()
+  })
+
+  it('perfil consolidado: 3 unidades da MESMA pessoa como vínculos no drawer (1 card → N unidades)', () => {
+    const pi = unitWithJoao('ws-pi', 'Piracicaba', 'ms-pi')
+    const mo = unitWithJoao('ws-mo', 'Mooca', 'ms-mo')
+    const pa = unitWithJoao('ws-pa', 'Paulista', 'ms-pa')
+    renderTab({ units: [pi, mo, pa], requestsByUnit: {}, inactiveByUnit: {} })
+
+    // 3 líderes + João consolidado = 4 cards (1 pessoa NUNCA vira 3 cards).
+    expect(allRows()).toHaveLength(4)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver perfil de João Silva' }))
+
+    expect(screen.getByRole('dialog', { name: 'Perfil de João Silva' })).toBeInTheDocument()
+    expect(screen.getByTestId('people-profile-units')).toBeInTheDocument()
+    // O drawer exibe TODOS os vínculos autorizados de João (nada escondido).
+    expect(screen.getByTestId('people-profile-unit-ms-pi')).toHaveTextContent('Piracicaba')
+    expect(screen.getByTestId('people-profile-unit-ms-mo')).toHaveTextContent('Mooca')
+    expect(screen.getByTestId('people-profile-unit-ms-pa')).toHaveTextContent('Paulista')
+  })
+})
