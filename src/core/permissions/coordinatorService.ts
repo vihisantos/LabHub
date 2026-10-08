@@ -61,6 +61,10 @@ interface RawProfileRow {
   email: string
   status: 'active' | 'pending' | string
   role: string
+  /** Foto de perfil (`profiles.avatar`) — pode ser NULL/vazia (fallback iniciais). */
+  avatar: string | null
+  /** Banner do perfil (`profiles.banner`) — pode ser NULL/vazia (fallback gradiente). */
+  banner: string | null
 }
 
 let lastError: { message: string } | null = null
@@ -147,7 +151,7 @@ export async function getCoordinatorScope(): Promise<CoordinatedUnit[]> {
   ]
   const { data: profileRows, error: profileError } = await db
     .from('profiles')
-    .select('id, name, email, status, role')
+    .select('id, name, email, status, role, avatar, banner')
     .in('id', profileIds)
   if (profileError) {
     lastError = profileError
@@ -162,6 +166,8 @@ export async function getCoordinatorScope(): Promise<CoordinatedUnit[]> {
       email: raw.email,
       status: raw.status === 'active' ? 'active' : 'pending',
       roleId: dbRoleToRoleId(raw.role),
+      avatar: raw.avatar ?? undefined,
+      banner: raw.banner ?? undefined,
     })
   }
 
@@ -292,6 +298,10 @@ interface CoordinatorMemberRow {
   profile_email: string | null
   profile_status: string | null
   profile_role: string | null
+  /** `profiles.avatar` projetado pela RPC (089). Ausente antes da migration → fallback iniciais. */
+  profile_avatar?: string | null
+  /** `profiles.banner` projetado pela RPC (089). Ausente antes da migration → fallback gradiente. */
+  profile_banner?: string | null
 }
 
 function mapCoordinatorMemberRow(row: CoordinatorMemberRow): CoordinatorRequest {
@@ -304,6 +314,8 @@ function mapCoordinatorMemberRow(row: CoordinatorMemberRow): CoordinatorRequest 
           email: row.profile_email ?? '',
           status: row.profile_status === 'active' ? 'active' : 'pending',
           roleId: dbRoleToRoleId(row.profile_role ?? ''),
+          avatar: row.profile_avatar ?? undefined,
+          banner: row.profile_banner ?? undefined,
         }
   return {
     membership: {

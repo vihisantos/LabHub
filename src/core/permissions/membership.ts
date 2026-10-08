@@ -44,7 +44,7 @@ export function isActive(membership: Pick<Membership, 'status'>): boolean {
   return membership.status === 'active'
 }
 
-/** Perfil resumido de um membro da equipe (vindo de `profiles`, visível por RLS). */
+  /** Perfil resumido de um membro da equipe (vindo de `profiles`, visível por RLS). */
 export interface TeamMemberProfile {
   id: string
   name: string
@@ -52,6 +52,13 @@ export interface TeamMemberProfile {
   status: 'active' | 'pending'
   /** roleId do frontend (coleção `roles`) derivado do `role` do banco. */
   roleId: string
+  /**
+   * Foto de perfil (`profiles.avatar`, 001/012; upload Cloudinary). Ausente,
+   * vazia ou NULL = sem foto → fallback de iniciais. NUNCA inventada.
+   */
+  avatar?: string
+  /** Banner do perfil (`profiles.banner`, 014). Ausente/vazio = gradiente do tema. */
+  banner?: string
 }
 
 /** Membro da equipe = membership (relação) + perfil para exibição. */

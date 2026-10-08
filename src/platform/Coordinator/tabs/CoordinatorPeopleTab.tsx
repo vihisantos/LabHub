@@ -13,13 +13,12 @@ import {
   composePeopleGroups,
   composePeopleRows,
   filterPeopleGroups,
-  initials,
-  peopleStatusLabel,
   COORDINATOR_LEADER_LABEL,
   GROUP_EMPTY_LEADER_LABEL,
   GROUP_UNASSIGNED_LABEL,
 } from '../coordinatorHelpers'
-import type { PeopleGroup, PeopleResponsibleFilter, PeopleRow } from '../coordinatorHelpers'
+import type { PeopleGroup, PeopleResponsibleFilter } from '../coordinatorHelpers'
+import { PersonProfileCard } from '../components/PersonProfileCard'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
 import { SkeletonRow } from '../components/Skeletons'
@@ -35,6 +34,13 @@ import { SkeletonRow } from '../components/Skeletons'
  * (071), `membersByUnit` traz TODOS os membros ativos da unidade, inclusive os
  * sem responsável que ficavam fora da hierarquia. NENHUMA ação de gestão vive
  * aqui.
+ *
+ * Representação visual: as pessoas viram CARDS DE PERFIL (`PersonProfileCard`)
+ * — banner/foto reais do perfil (`profiles.banner`/`profiles.avatar`, 089)
+ * com fallback de iniciais/gradiente, em grid responsivo (1 coluna no mobile,
+ * 2 quando há espaço). Apenas apresentação: nenhuma regra de autorização,
+ * escopo, filtro ou status muda — o `PeopleRow` continua sendo a fonte dos
+ * dados já autorizados pelo servidor.
  *
  * Filtros: busca por nome/e-mail + status (mesmos da lista) + "Responsável"
  * (Todos / Coordenação / Líderes / Sem responsável). Lideranças sem membros
@@ -69,14 +75,6 @@ function SummaryCell({ icon, label, count, accent = false }: SummaryCellProps) {
       </div>
     </div>
   )
-}
-
-/** Tonalidade do selo de status — mapa fechado nos 4 status reais da membership. */
-const STATUS_TONE: Record<MembershipStatus, string> = {
-  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  pending: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-  suspended: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
-  removed: 'bg-red-500/10 text-red-500',
 }
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: MembershipStatus | 'all'; label: string }> = [
@@ -116,67 +114,6 @@ function groupTestId(group: PeopleGroup): string {
   if (group.kind === 'unassigned') return 'people-group-unassigned'
   if (group.kind === 'coordination') return `people-group-coordination-${group.unitId}`
   return `people-group-leader-${group.membershipId}`
-}
-
-function PersonRow({ row, multipleUnits }: { row: PeopleRow; multipleUnits: boolean }) {
-  return (
-    <li
-      data-testid={`people-row-${row.membership.id}`}
-      className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2.5 transition-colors hover:bg-input/40"
-    >
-      <span
-        aria-hidden="true"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-[11px] font-bold text-violet-600 dark:text-violet-400"
-      >
-        {initials(row.profile?.name ?? '')}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <p className="truncate text-[13px] font-semibold text-fg">
-            {row.profile?.name ?? 'Perfil não disponível'}
-          </p>
-          <span className="shrink-0 rounded-full bg-input px-1.5 py-0.5 text-[10px] font-medium leading-none text-fg-muted">
-            {row.roleLabel}
-          </span>
-        </div>
-        <p className="mt-1 truncate text-[11px] text-fg-muted">
-          {row.profile?.email || 'Sem e-mail registrado'}
-        </p>
-        <p
-          data-testid={`people-leader-${row.membership.id}`}
-          className="mt-1 flex items-center gap-1 truncate text-[11px] text-fg-muted"
-        >
-          <icons.ui.userCheck size={12} aria-hidden="true" className="shrink-0" />
-          <span className="truncate">
-            {row.leader === null
-              ? 'Sem líder definido'
-              : row.leader.isCoordination
-                ? COORDINATOR_LEADER_LABEL
-                : row.leader.name}
-          </span>
-        </p>
-      </div>
-      <div className="flex w-28 shrink-0 flex-col items-end gap-1 sm:w-36">
-        <span
-          className={cn(
-            'max-w-full truncate text-right text-[10px] font-medium text-fg-muted',
-            multipleUnits && 'text-fg-dim',
-          )}
-        >
-          {row.unitName}
-        </span>
-        <span
-          data-testid={`people-status-${row.membership.id}`}
-          className={cn(
-            'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-            STATUS_TONE[row.status],
-          )}
-        >
-          {peopleStatusLabel(row.status)}
-        </span>
-      </div>
-    </li>
-  )
 }
 
 export function CoordinatorPeopleTab({
@@ -388,9 +325,17 @@ export function CoordinatorPeopleTab({
                     {GROUP_EMPTY_LEADER_LABEL}
                   </p>
                 ) : (
-                  <ul className="flex flex-col gap-1.5 px-2 pb-2" aria-label={`Pessoas de ${group.label}`}>
+                  <ul
+                    data-testid={`people-grid-${groupTestId(group)}`}
+                    className="grid grid-cols-1 gap-2 px-2 pb-2 sm:grid-cols-2"
+                    aria-label={`Pessoas de ${group.label}`}
+                  >
                     {group.people.map((row) => (
-                      <PersonRow key={row.membership.id} row={row} multipleUnits={multipleUnits} />
+                      <PersonProfileCard
+                        key={row.membership.id}
+                        row={row}
+                        multipleUnits={multipleUnits}
+                      />
                     ))}
                   </ul>
                 )}

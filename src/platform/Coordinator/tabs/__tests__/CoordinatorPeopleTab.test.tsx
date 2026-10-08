@@ -476,3 +476,97 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     expect(screen.queryAllByTestId(/^people-row-/)).toHaveLength(0)
   })
 })
+
+describe('CoordinatorPeopleTab — cards de perfil (representação visual, READ-ONLY)', () => {
+  it('pessoa com FOTO real (profiles.avatar) vira card com img', () => {
+    // Foto vem do perfil da fonte autorizada: TeamMemberProfile.avatar.
+    renderTab({
+      membersByUnit: {
+        ws1: [
+          {
+            membership: mem('ms-photo', 'u-photo'),
+            profile: { ...prof('photo', 'Fernanda Foto'), avatar: 'https://cdn.labhub.app/foto.png' },
+          },
+        ],
+      },
+    })
+
+    const card = screen.getByTestId('people-row-ms-photo')
+    expect(within(card).getByTestId('people-avatar-img-ms-photo')).toHaveAttribute(
+      'src',
+      'https://cdn.labhub.app/foto.png',
+    )
+    expect(within(card).queryByTestId('people-avatar-fallback-ms-photo')).toBeNull()
+  })
+
+  it('pessoa sem foto vira card com fallback de iniciais', () => {
+    renderTab({
+      membersByUnit: { ws1: [activeMember('u1', 'Ana Sem Responsável')] },
+    })
+
+    const card = screen.getByTestId('people-row-ms-u1')
+    expect(within(card).getByTestId('people-avatar-fallback-ms-u1')).toHaveTextContent('AR')
+    expect(within(card).queryByTestId('people-avatar-img-ms-u1')).toBeNull()
+  })
+
+  it('banner real do perfil vira img no card; sem banner, gradiente', () => {
+    renderTab({
+      membersByUnit: {
+        ws1: [
+          {
+            membership: mem('ms-banner', 'u-banner'),
+            profile: { ...prof('banner', 'Bruno Banner'), banner: 'https://cdn.labhub.app/banner.png' },
+          },
+          activeMember('u1', 'Ana Sem Responsável'),
+        ],
+      },
+    })
+
+    expect(within(screen.getByTestId('people-row-ms-banner')).getByTestId('people-banner-img-ms-banner')).toHaveAttribute(
+      'src',
+      'https://cdn.labhub.app/banner.png',
+    )
+    // Sem banner → fallback de gradiente (nunca imagem externa).
+    expect(
+      within(screen.getByTestId('people-row-ms-u1')).getByTestId('people-banner-fallback-ms-u1'),
+    ).toBeInTheDocument()
+  })
+
+  it('grid responsivo de cards: 1 coluna no mobile, 2 quando há espaço (sem largura fixa)', () => {
+    // Nó de liderança COM pessoas: lista as pessoas em grid responsivo.
+    const assigned = unit(
+      'ws1',
+      [
+        leader('l1', 'Ana Líder', [
+          { membership: mem('ms-alpha', 'u-alpha', { managed_by: 'ms-l1' }), profile: prof('alpha', 'Técnico Alpha') },
+        ]),
+      ],
+      'Campus A',
+    )
+    renderTab({ units: [assigned], requestsByUnit: {}, inactiveByUnit: {} })
+
+    const grid = screen.getByTestId('people-grid-people-group-leader-ms-l1')
+    expect(grid).toHaveClass('grid', 'grid-cols-1', 'sm:grid-cols-2')
+    expect(grid.className).not.toMatch(/w-\[\d+px\]|max-w-\[\d+px\]/)
+  })
+
+  it('cards preservam os dados autorizados: cargo, líder e status no mesmo card', () => {
+    const assigned = unit(
+      'ws1',
+      [
+        leader('l1', 'Ana Líder', [
+          { membership: mem('ms-alpha', 'u-alpha', { managed_by: 'ms-l1' }), profile: prof('alpha', 'Técnico Alpha') },
+        ]),
+      ],
+      'Campus A',
+    )
+    renderTab({ units: [assigned], requestsByUnit: {}, inactiveByUnit: {} })
+
+    const card = screen.getByTestId('people-row-ms-alpha')
+    expect(within(card).getByText('Técnico Alpha')).toBeTruthy()
+    expect(within(card).getByText('Técnico')).toBeTruthy() // cargo
+    expect(within(card).getByTestId('people-leader-ms-alpha')).toHaveTextContent('Ana Líder')
+    expect(within(card).getByTestId('people-status-ms-alpha')).toHaveTextContent('Ativo')
+    expect(within(card).getByText('Campus A')).toBeTruthy() // unidade
+  })
+})
