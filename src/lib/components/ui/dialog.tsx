@@ -42,6 +42,24 @@ const DialogContent = forwardRef<
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
+const DialogDrawerContent = forwardRef<
+  ElementRef<typeof DialogPrimitive.Content>,
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPrimitive.Content
+    ref={ref}
+    className={cn(
+      'fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-md flex-col overflow-hidden border-l border-line bg-card text-fg shadow-2xl',
+      'data-[state=open]:animate-drawer-right-show data-[state=closed]:animate-drawer-right-hide',
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </DialogPrimitive.Content>
+))
+DialogDrawerContent.displayName = DialogPrimitive.Content.displayName
+
 const DialogHeader = ({
   className,
   ...props
@@ -95,6 +113,7 @@ export {
   DialogClose,
   DialogTrigger,
   DialogContent,
+  DialogDrawerContent,
   DialogHeader,
   DialogFooter,
   DialogTitle,

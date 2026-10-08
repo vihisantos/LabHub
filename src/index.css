@@ -19,6 +19,8 @@
   --animate-popover-content-show: popover-content-show 150ms ease-out;
   --animate-select-content-show: select-content-show 150ms ease-out;
   --animate-tooltip-show: tooltip-show 100ms ease-out;
+  --animate-drawer-right-show: drawer-right-show 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-drawer-right-hide: drawer-right-hide 180ms ease-in;
 }
 
 @layer base {
@@ -261,6 +263,31 @@
 @keyframes tooltip-show {
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Radix Dialog como DRAWER lateral (Pessoal interativa, #365) ──
+   Painel ancorado na borda direita (desktop/wide): entra deslizando da
+   direita e sai na mesma direção, com o fundo ao fundo visível. Em
+   `prefers-reduced-motion` as três famílias de Radix (overlay/content/drawer)
+   param de animar — só a apresentação final importa. */
+@keyframes drawer-right-show {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes drawer-right-hide {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-drawer-right-show,
+  .animate-drawer-right-hide,
+  .animate-overlay-show,
+  .animate-overlay-hide,
+  .animate-content-show,
+  .animate-content-hide {
+    animation: none;
+  }
 }
 
 /* ── Coordenador: navegação mobile animada (PR2) ── */

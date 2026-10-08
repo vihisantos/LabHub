@@ -221,6 +221,25 @@ export function peopleStatusLabel(status: MembershipStatus): string {
 }
 
 /**
+ * Tonalidade do selo de status — mapa fechado nos 4 status reais da membership
+ * (mesmos tokens/tons usados na Central). Compartilhado entre card e perfil.
+ */
+export const STATUS_TONE: Record<MembershipStatus, string> = {
+  active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  pending: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  suspended: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+  removed: 'bg-red-500/10 text-red-500',
+}
+
+/** Cor do ponto de status dentro de cada chip/linha de unidade. */
+export const STATUS_DOT: Record<MembershipStatus, string> = {
+  active: 'bg-emerald-500',
+  pending: 'bg-amber-500',
+  suspended: 'bg-violet-500',
+  removed: 'bg-red-500',
+}
+
+/**
  * Projeta o diretório do escopo (ver doc acima). Ordena por nome (locale pt-BR)
  * e desduplica por `membership.id` (defesa: uma membership nunca fecha em duas
  * fontes, mas se vier, não vira duas linhas).

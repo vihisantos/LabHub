@@ -15,8 +15,9 @@ import {
   filterAggregatedPeople,
   GROUP_UNASSIGNED_LABEL,
 } from '../coordinatorHelpers'
-import type { PeopleResponsibleFilter, PeopleUnitFilter } from '../coordinatorHelpers'
+import type { AggregatedPerson, PeopleResponsibleFilter, PeopleUnitFilter } from '../coordinatorHelpers'
 import { PersonProfileCard } from '../components/PersonProfileCard'
+import { PersonProfileDrawer } from '../components/PersonProfileDrawer'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
 import { SkeletonRow } from '../components/Skeletons'
@@ -121,6 +122,8 @@ export function CoordinatorPeopleTab({
   const [status, setStatus] = useState<MembershipStatus | 'all'>('all')
   const [responsible, setResponsible] = useState<PeopleResponsibleFilter>('all')
   const [unit, setUnit] = useState<PeopleUnitFilter>('all')
+  // Perfil em exibição (#365): snapshot da pessoa consolidada (drawer aberto).
+  const [selectedPerson, setSelectedPerson] = useState<AggregatedPerson | null>(null)
 
   const loading = requestsLoading || inactiveLoading || membersLoading
   const failed = requestsFailed || inactiveFailed || membersFailed
@@ -273,11 +276,18 @@ export function CoordinatorPeopleTab({
             className="grid grid-cols-1 gap-2 sm:grid-cols-2"
           >
             {visiblePeople.map((person) => (
-              <PersonProfileCard key={person.profileId} person={person} />
+              <PersonProfileCard
+                key={person.profileId}
+                person={person}
+                onOpen={() => setSelectedPerson(person)}
+              />
             ))}
           </ul>
         )}
       </div>
+
+      {/* Perfil interativo (#365): bottom-sheet mobile/PWA, drawer lateral desktop. */}
+      <PersonProfileDrawer person={selectedPerson} onClose={() => setSelectedPerson(null)} />
     </section>
   )
 }
