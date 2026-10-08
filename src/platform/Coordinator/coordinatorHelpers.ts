@@ -536,3 +536,138 @@ export function filterPeopleGroups(
     return [{ ...group, people }]
   })
 }
+
+// ---------------------------------------------------------------------------
+// PR 363 — PESSOA CONSOLIDADA (1 perfil → 1 card → N unidades autorizadas).
+// ---------------------------------------------------------------------------
+//
+// A #361/#362 tornou cada membership um card: uma pessoa com memberships em
+// Piracicaba, Mooca e Paulista virava TRÊS cards. A correção é de MODELO (não
+// `distinct` por nome): agrega-se pelo identificador estável do perfil/usuário
+// (`membership.profile_id`, o mesmo `profiles.id` do `TeamMemberProfile` — nunca
+// nome ou e-mail), e o card passa a representar a PESSOA com TODOS os seus
+// vínculos autorizados preservados: cada membership vira um `units[]` que guarda
+// o PRÓPRIO cargo/status/responsável daquela unidade.
+//
+// Assim, quando uma pessoa tem memberships com cargos/responsáveis diferentes,
+// NENHUMA prioridade é inventada — a UI exibe os valores por unidade. Nenhuma
+// RPC/RLS/migration é alterada: a agregação roda sobre o MESMO conjunto que o
+// servidor já escopou (fail-closed por auth.uid + is_coordinator_of).
+
+/** Vínculo de uma pessoa a uma unidade (uma membership autorizada). */
+export interface PeopleUnitMembership {
+  /** Membership PRÓPRIA deste vínculo (role/status/gestor são dela). */
+  membershipId: string
+  unitId: string
+  unitName: string
+  roleLabel: string
+  status: MembershipStatus
+  leader: PeopleLeader | null
+}
+
+/** Pessoa consolidada: 1 perfil (id estável) → 1 card → N unidades. */
+export interface AggregatedPerson {
+  /** Chave estável de agregação: `membership.profile_id`. NUNCA nome/e-mail. */
+  profileId: string
+  profile: TeamMemberProfile | null
+  /** Nome exibível (mesmo perfil = mesmo nome; fallback honesto quando oculto). */
+  name: string
+  email: string
+  /** Vínculos autorizados da pessoa, na ordem do escopo (nenhum é perdido). */
+  units: PeopleUnitMembership[]
+}
+
+/**
+ * Consolida as linhas planas do diretório em UMA PESSOA = UMA CARD.
+ *
+ * Agrega por `row.membership.profile_id` (identificador estável do perfil/
+ * usuário), mantendo TODAS as memberships como vínculos — a mesma pessoa com um
+ * cargo/status/responsável diferente em cada unidade preserva cada valor na
+ *quele vínculo (nenhuma hierarquia de permissões é inventada). Ordena por nome
+ * (locale pt-BR), igual às linhas da diretoria.
+ */
+export function aggregatePeopleRows(rows: PeopleRow[]): AggregatedPerson[] {
+  const byProfile = new Map<string, AggregatedPerson>()
+  for (const row of rows) {
+    const profileId = row.membership.profile_id
+    let person = byProfile.get(profileId)
+    if (!person) {
+      person = {
+        profileId,
+        profile: row.profile,
+        name: row.profile?.name ?? 'Perfil não disponível',
+        email: row.profile?.email ?? 'Sem e-mail registrado',
+        units: [],
+      }
+      byProfile.set(profileId, person)
+    }
+    // Mesmo profile_id ⇒ mesmo perfil; se a primeira linha veio sem, usa a
+    // primeira que projetou (defesa, sem inventar).
+    if (person.profile === null && row.profile) {
+      person.profile = row.profile
+      person.name = row.profile.name ?? person.name
+      person.email = row.profile.email || person.email
+    }
+    person.units.push({
+      membershipId: row.membership.id,
+      unitId: row.unitId,
+      unitName: row.unitName,
+      roleLabel: row.roleLabel,
+      status: row.status,
+      leader: row.leader,
+    })
+  }
+  return [...byProfile.values()].sort(
+    (a, b) => a.name.localeCompare(b.name, 'pt-BR') || a.email.localeCompare(b.email),
+  )
+}
+
+/** Filtro de unidade do diretório consolidado — `'all'` = "Todas as unidades". */
+export type PeopleUnitFilter = 'all' | string
+
+export interface AggregatedPeopleFilters {
+  query: string
+  status: MembershipStatus | 'all'
+  responsible: PeopleResponsibleFilter
+  /** Contexto de unidade: `'all'` agrega todas; um id restringe aos vínculos dela. */
+  unit: PeopleUnitFilter
+}
+
+/** O nível de responsável casa quando QUALQUER vínculo da pessoa está naquele nível. */
+function unitMatchesResponsible(
+  unit: PeopleUnitMembership,
+  responsible: PeopleResponsibleFilter,
+): boolean {
+  if (responsible === 'all') return true
+  if (responsible === 'coordination') return unit.leader?.isCoordination === true
+  if (responsible === 'leaders') return unit.leader !== null && !unit.leader.isCoordination
+  return unit.leader === null // 'unassigned'
+}
+
+/**
+ * Aplica o filtro de unidade ANTES de filtrar pessoas: com uma unidade
+ * selecionada, a pessoa só permanece se tiver vínculo naquela unidade (o card
+ * então exibe SOMENTE aquele vínculo — nunca volta a duplicar cards). Busca,
+ * status e responsável usam semântica "qualquer vínculo autorizado" da pessoa.
+ * Retorna novas pessoas (unidades recortadas) sem mutar a entrada.
+ */
+export function filterAggregatedPeople(
+  people: AggregatedPerson[],
+  { query, status, responsible, unit }: AggregatedPeopleFilters,
+): AggregatedPerson[] {
+  const q = query.trim().toLocaleLowerCase('pt-BR')
+  const unitContext = unit === 'all' ? null : unit
+  return people.flatMap((person) => {
+    const units =
+      unitContext === null ? person.units : person.units.filter((u) => u.unitId === unitContext)
+    if (units.length === 0) return []
+    if (q !== '') {
+      const name = person.name.toLocaleLowerCase('pt-BR')
+      const email = person.email.toLocaleLowerCase('pt-BR')
+      if (!name.includes(q) && !email.includes(q)) return []
+    }
+    if (status !== 'all' && !units.some((u) => u.status === status)) return []
+    if (!units.some((u) => unitMatchesResponsible(u, responsible))) return []
+    return [{ ...person, units }]
+  })
+}

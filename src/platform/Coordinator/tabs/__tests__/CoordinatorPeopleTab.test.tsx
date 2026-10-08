@@ -11,7 +11,6 @@ import type {
 import type { Membership, TeamMember, TeamMemberProfile } from '../../../../core/permissions/membership'
 import {
   COORDINATOR_LEADER_LABEL,
-  GROUP_EMPTY_LEADER_LABEL,
   GROUP_UNASSIGNED_LABEL,
 } from '../../coordinatorHelpers'
 
@@ -104,12 +103,37 @@ function allRows() {
   return screen.getAllByTestId(/^people-row-/)
 }
 
+function select(testid: string, value: string) {
+  fireEvent.change(screen.getByTestId(testid), { target: { value } })
+}
+
+/** Cria uma unidade cujo time tem João (mesmo perfil) — base para consolidação. */
+function unitWithJoao(uid: string, unitName: string, mid: string): CoordinatedUnit {
+  return {
+    coordination: mem(`coordination-${uid}`, 'u-coord', { role_id: 'role-coordinator' }),
+    unitId: uid,
+    unitName,
+    leaders: [
+      {
+        leadership: mem(`ms-${uid}-l`, `u-${uid}-l`, { role_id: 'role-lider', managed_by: `coordination-${uid}` }),
+        profile: prof(`${uid}-l`, `Líder ${unitName}`),
+        members: [
+          {
+            membership: mem(mid, 'u-joao', { workspace_id: uid, managed_by: `ms-${uid}-l` }),
+            profile: prof('joao', 'João Silva'),
+          },
+        ],
+      },
+    ],
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR 275)', () => {
-  it('faixa de resumo calcula só métricas suportadas pelo modelo (pessoas/unidades/lideranças/pendentes)', () => {
+describe('CoordinatorPeopleTab — diretório READ-ONLY consolidado por pessoa (#363)', () => {
+  it('faixa de resumo calcula métricas por PESSOA: total de pessoas, unidades, lideranças, pendentes', () => {
     renderTab()
 
     expect(within(screen.getByTestId('people-summary-total')).getByText('6')).toBeTruthy()
@@ -118,7 +142,7 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     expect(within(screen.getByTestId('people-summary-pending')).getByText('1')).toBeTruthy()
   })
 
-  it('lista densa: avatar, nome, cargo, unidade e status real de cada pessoa (todas as fontes)', () => {
+  it('lista densa: 1 card por pessoa com nome, cargo, unidade e status real (todas as fontes)', () => {
     renderTab()
 
     const rows = allRows()
@@ -137,31 +161,66 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     expect(within(screen.getByTestId('people-row-ms-alpha')).getByText('Técnico Alpha')).toBeTruthy()
   })
 
-  it('ordena a estrutura por nó (pt-BR): sem responsável → coordenação → líderes', () => {
+  it('agrega 1 PERFIL = 1 CARD: João em 3 unidades vira UMA pessoa com 3 chips (nunca 3 cards)', () => {
+    const pi = unitWithJoao('ws-pi', 'Piracicaba', 'ms-pi')
+    const mo = unitWithJoao('ws-mo', 'Mooca', 'ms-mo')
+    const pa = unitWithJoao('ws-pa', 'Paulista', 'ms-pa')
+    renderTab({ units: [pi, mo, pa], requestsByUnit: {}, inactiveByUnit: {} })
+
+    // 3 líderes das unidades + João consolidado = 4 cards.
+    expect(allRows()).toHaveLength(4)
+    const joaoCard = screen.getByTestId('people-row-ms-pi')
+    expect(screen.queryByTestId('people-row-ms-mo')).toBeNull()
+    expect(screen.queryByTestId('people-row-ms-pa')).toBeNull()
+
+    expect(within(joaoCard).getByTestId('people-unit-ms-pi')).toHaveTextContent('Piracicaba')
+    expect(within(joaoCard).getByTestId('people-unit-ms-mo')).toHaveTextContent('Mooca')
+    expect(within(joaoCard).getByTestId('people-unit-ms-pa')).toHaveTextContent('Paulista')
+  })
+
+  it('filtro de UNIDADE (#363): Mooca → João com SOMENTE o vínculo de Mooca (recorta, não duplica)', () => {
+    const pi = unitWithJoao('ws-pi', 'Piracicaba', 'ms-pi')
+    const mo = unitWithJoao('ws-mo', 'Mooca', 'ms-mo')
+    const pa = unitWithJoao('ws-pa', 'Paulista', 'ms-pa')
+    renderTab({ units: [pi, mo, pa], requestsByUnit: {}, inactiveByUnit: {} })
+
+    select('people-unit-filter', 'ws-mo')
+
+    // João + Líder Mooca (os demais não têm vínculo na unidade). No contexto,
+    // o primeiro vínculo de João é Mooca → o card é people-row-ms-mo.
+    expect(allRows()).toHaveLength(2)
+    const joaoCard = screen.getByTestId('people-row-ms-mo')
+    expect(within(joaoCard).queryByTestId('people-unit-ms-pi')).toBeNull()
+    expect(within(joaoCard).getByTestId('people-unit-ms-mo')).toHaveTextContent('Mooca')
+    expect(within(joaoCard).queryByTestId('people-unit-ms-pa')).toBeNull()
+  })
+
+  it('ordena as PESSOAS por nome (pt-BR), independente da unidade/nó', () => {
     renderTab()
 
     const ids = allRows().map((row) => row.getAttribute('data-testid'))
     expect(ids).toEqual([
-      'people-row-ms-p1', // Clara Pendente → Sem responsável
-      'people-row-ms-s1', // Davi Suspenso → Sem responsável
-      'people-row-ms-r1', // Eva Removida → Sem responsável
-      'people-row-ms-alpha', // Técnico Alpha → Sem responsável
-      'people-row-ms-l1', // Ana Líder → Coordenação
-      'people-row-ms-l2', // Bruno Líder → Coordenação
+      'people-row-ms-l1', // Ana Líder
+      'people-row-ms-l2', // Bruno Líder
+      'people-row-ms-p1', // Clara Pendente
+      'people-row-ms-s1', // Davi Suspenso
+      'people-row-ms-r1', // Eva Removida
+      'people-row-ms-alpha', // Técnico Alpha
     ])
   })
 
-  it('seção fixa "Sem responsável" sobe ao topo com as pessoas de managed_by NULL', () => {
+  it('filtro "Responsável = Sem responsável" mostra as pessoas com vínculo sem leader', () => {
     renderTab()
 
-    const section = screen.getByTestId('people-group-unassigned')
-    expect(within(section).getByText(GROUP_UNASSIGNED_LABEL)).toBeTruthy()
-    expect(within(section).getByText('Clara Pendente')).toBeTruthy()
-    expect(within(section).getByText('Técnico Alpha')).toBeTruthy()
-    expect(within(section).queryByText('Ana Líder')).toBeNull()
+    select('people-responsible-filter', 'unassigned')
+    expect(screen.getByRole('option', { name: GROUP_UNASSIGNED_LABEL })).toBeTruthy()
+
+    const ids = allRows().map((row) => row.getAttribute('data-testid'))
+    expect(ids).toEqual(['people-row-ms-p1', 'people-row-ms-s1', 'people-row-ms-r1', 'people-row-ms-alpha'])
+    expect(screen.queryByTestId('people-row-ms-l1')).toBeNull()
   })
 
-  it('não renderiza a seção "Sem responsável" quando ninguém está sem líder', () => {
+  it('"Responsável = Sem responsável" com todo mundo vinculado → EmptyState honesto', () => {
     const assigned = unit('ws1', [
       leader('l1', 'Ana Líder', [
         { membership: mem('ms-alpha', 'u-alpha', { managed_by: 'ms-l1' }), profile: prof('alpha', 'Técnico Alpha') },
@@ -169,64 +228,57 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     ], 'Campus A')
     renderTab({ units: [assigned], requestsByUnit: {}, inactiveByUnit: {} })
 
-    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
-    expect(screen.getByTestId('people-group-leader-ms-l1')).toBeTruthy()
-    expect(within(screen.getByTestId('people-group-leader-ms-l1')).getByText('Técnico Alpha')).toBeTruthy()
+    select('people-responsible-filter', 'unassigned')
+
+    expect(screen.queryAllByTestId(/^people-row-/)).toHaveLength(0)
+    expect(screen.getByText('Nenhuma pessoa encontrada')).toBeTruthy()
   })
 
-  it('estrutura: coordenação sempre no topo da unidade, líderes depois (alfabético)', () => {
+  it('coordenação e lideranças continuam fatores de exibição: Ana e Bruno têm o rótulo de coordenação', () => {
     renderTab()
 
-    const coords = screen.getByTestId('people-group-coordination-ws1')
-    const title = within(coords).getByTestId('people-group-title-people-group-coordination-ws1')
-    expect(title.textContent).toBe(COORDINATOR_LEADER_LABEL)
-    expect(title.parentElement?.textContent).toContain('Campus A')
-    expect(within(coords).getByText('Ana Líder')).toBeTruthy()
-    expect(within(coords).getByText('Bruno Líder')).toBeTruthy()
+    expect(screen.getByTestId('people-row-ms-l1')).toBeTruthy()
+    expect(screen.getByTestId('people-row-ms-l2')).toBeTruthy()
+    expect(within(screen.getByTestId('people-row-ms-l1')).getByTestId('people-leader-ms-l1')).toHaveTextContent(COORDINATOR_LEADER_LABEL)
+    expect(within(screen.getByTestId('people-row-ms-l2')).getByTestId('people-leader-ms-l2')).toHaveTextContent(COORDINATOR_LEADER_LABEL)
   })
 
-  it('liderança sem membros continua visível na estrutura ("Nenhuma pessoa vinculada")', () => {
+  it('liderança que ainda não tem membros permanece visível como pessoa no diretório', () => {
     renderTab()
 
-    expect(screen.getByTestId('people-group-leader-ms-l2')).toBeTruthy()
-    expect(
-      within(screen.getByTestId('people-group-leader-ms-l2')).getByText(GROUP_EMPTY_LEADER_LABEL),
-    ).toBeTruthy()
+    expect(within(screen.getByTestId('people-row-ms-l2')).getByText('Bruno Líder')).toBeTruthy()
   })
 
-  it('filtro "Responsável" por coordenação mostra apenas o nó de coordenação', () => {
+  it('filtro "Responsável" por coordenação mostra só quem responde à coordenação', () => {
     renderTab()
 
-    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'coordination' } })
-    expect(screen.getByTestId('people-group-coordination-ws1')).toBeTruthy()
-    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
-    expect(screen.queryByTestId('people-group-leader-ms-l2')).toBeNull()
+    select('people-responsible-filter', 'coordination')
+
+    const ids = allRows().map((row) => row.getAttribute('data-testid'))
+    expect(ids).toEqual(['people-row-ms-l1', 'people-row-ms-l2'])
+    expect(screen.queryByTestId('people-row-ms-p1')).toBeNull()
   })
 
-  it('filtro "Responsável" por líderes mostra apenas líderes (inclusive vazios)', () => {
-    renderTab()
+  it('filtro "Responsável" por líderes mostra só quem responde a um líder real (não coordenação)', () => {
+    const withTeam = unit('ws1', [
+      leader('l1', 'Ana Líder', [
+        { membership: mem('ms-zed', 'u-zed', { managed_by: 'ms-l1' }), profile: prof('zed', 'Zelma Membro') },
+      ]),
+    ], 'Campus A')
+    renderTab({ units: [withTeam], requestsByUnit: {}, inactiveByUnit: {} })
 
-    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'leaders' } })
-    expect(screen.getByTestId('people-group-leader-ms-l1')).toBeTruthy()
-    expect(screen.getByTestId('people-group-leader-ms-l2')).toBeTruthy()
-    expect(screen.queryByTestId('people-group-coordination-ws1')).toBeNull()
-    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
+    select('people-responsible-filter', 'leaders')
+
+    expect(allRows()).toHaveLength(1)
+    expect(screen.getByTestId('people-row-ms-zed')).toBeInTheDocument()
+    expect(screen.queryByTestId('people-row-ms-l1')).toBeNull()
   })
 
-  it('filtro "Responsável" por sem responsável mostra apenas a seção fixa do topo', () => {
+  it('"Responsável = Sem responsável" combina com status (interseção)', () => {
     renderTab()
 
-    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'unassigned' } })
-    expect(screen.getByTestId('people-group-unassigned')).toBeTruthy()
-    expect(screen.queryByTestId('people-group-coordination-ws1')).toBeNull()
-    expect(screen.queryByTestId('people-group-leader-ms-l1')).toBeNull()
-  })
-
-  it('"Responsável" combina com status (interseção)', () => {
-    renderTab()
-
-    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'unassigned' } })
-    fireEvent.change(screen.getByTestId('people-status-filter'), { target: { value: 'pending' } })
+    select('people-responsible-filter', 'unassigned')
+    select('people-status-filter', 'pending')
 
     expect(allRows()).toHaveLength(1)
     expect(screen.getByTestId('people-row-ms-p1')).toBeInTheDocument()
@@ -234,25 +286,23 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
 
   it('"Responsável" combina com busca (interseção)', () => {
     const withTeam = unit('ws1', [
-      leader('l4', 'Zara Líder', [
-        { membership: mem('ms-zed', 'u-zed', { managed_by: 'ms-l4' }), profile: prof('zed', 'Zelma Membro') },
+      leader('l1', 'Ana Líder', [
+        { membership: mem('ms-zed', 'u-zed', { managed_by: 'ms-l1' }), profile: prof('zed', 'Zelma Membro') },
       ]),
     ], 'Campus A')
     renderTab({ units: [withTeam], requestsByUnit: {}, inactiveByUnit: {} })
 
-    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'leaders' } })
+    select('people-responsible-filter', 'leaders')
     fireEvent.change(screen.getByTestId('people-search'), { target: { value: 'zelma' } })
 
-    // Só o nó do líder que gere "Zelma" permanece, com ela dentro.
     expect(allRows()).toHaveLength(1)
     expect(screen.getByTestId('people-row-ms-zed')).toBeInTheDocument()
-    expect(screen.queryByTestId('people-group-coordination-ws1')).toBeNull()
   })
 
-  it('vazio legítimo: nenhuma unidade → sem nós, EmptyState honesto', () => {
+  it('vazio legítimo: nenhuma unidade → sem cards, EmptyState honesto', () => {
     renderTab({ units: [], requestsByUnit: {}, inactiveByUnit: {} })
 
-    expect(screen.queryByTestId('people-group-unassigned')).toBeNull()
+    expect(screen.queryAllByTestId(/^people-row-/)).toHaveLength(0)
     expect(screen.getByText('Nenhuma pessoa encontrada')).toBeTruthy()
     expect(screen.getByText(/ainda não há pessoas vinculadas/i)).toBeTruthy()
   })
@@ -260,11 +310,11 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
   it('filtro por status é excludente e afeta a lista exibida', () => {
     renderTab()
 
-    fireEvent.change(screen.getByTestId('people-status-filter'), { target: { value: 'pending' } })
+    select('people-status-filter', 'pending')
     expect(allRows()).toHaveLength(1)
     expect(screen.getByTestId('people-row-ms-p1')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByTestId('people-status-filter'), { target: { value: 'active' } })
+    select('people-status-filter', 'active')
     const active = allRows()
     expect(active).toHaveLength(3) // Ana, Bruno e Técnico Alpha
     expect(screen.queryByTestId('people-row-ms-p1')).toBeNull()
@@ -285,26 +335,28 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
   it('busca + status combinados', () => {
     renderTab()
 
-    fireEvent.change(screen.getByTestId('people-status-filter'), { target: { value: 'active' } })
+    select('people-status-filter', 'active')
     fireEvent.change(screen.getByTestId('people-search'), { target: { value: 'ana' } })
     expect(allRows()).toHaveLength(1)
     expect(screen.getByTestId('people-row-ms-l1')).toBeInTheDocument()
   })
 
-  it('nenhuma pessoa corresponde aos filtros → EmptyState com orientação honesta', () => {
+  it('nenhuma pessoa corresponde aos filtros → EmptyState com orientação honesta (inclui unidade)', () => {
     renderTab()
 
     fireEvent.change(screen.getByTestId('people-search'), { target: { value: 'zzz-inexistente' } })
     expect(screen.getByText('Nenhuma pessoa encontrada')).toBeTruthy()
-    expect(screen.getByText(/Ajuste a busca, o status ou o responsável/)).toBeTruthy()
+    expect(screen.getByText(/Ajuste a busca, o status, a unidade ou o responsável/)).toBeTruthy()
     expect(screen.queryAllByTestId(/^people-row-/)).toHaveLength(0)
   })
 
-  it('escopo vazio legítimo → EmptyState de diretório vazio', () => {
-    renderTab({ units: [], requestsByUnit: {}, inactiveByUnit: {} })
+  it('filtro de unidade consciente: opção "Todas as unidades" vem primeiro, com as unidades reais', () => {
+    renderTab({ units: [ws1, ws2], requestsByUnit: {}, inactiveByUnit: {} })
 
-    expect(screen.getByText('Nenhuma pessoa encontrada')).toBeTruthy()
-    expect(screen.getByText(/ainda não há pessoas vinculadas/i)).toBeTruthy()
+    const selectEl = screen.getByTestId('people-unit-filter')
+    expect(within(selectEl).getByRole('option', { name: 'Todas as unidades' })).toBeTruthy()
+    expect(within(selectEl).getByRole('option', { name: 'Campus A' })).toBeTruthy()
+    expect(within(selectEl).getByRole('option', { name: 'Campus B' })).toBeTruthy()
   })
 
   it('loading → skeleton de linhas com role status (sem listar nada fabricado)', () => {
@@ -357,7 +409,7 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     expect(screen.queryByRole('button', { name: /Suspender/i })).toBeNull()
   })
 
-  it('perfil indisponível (RLS) vira linha honesta com fallback', () => {
+  it('perfil indisponível (RLS) vira card honesto com fallback', () => {
     const hidden: CoordinatedUnit = {
       coordination: mem('coordination-ws1', 'u-coord'),
       unitId: 'ws1',
@@ -376,32 +428,28 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     expect(screen.queryByText('Sem e-mail registrado')).toBeTruthy()
   })
 
-  it('membro ATIVO sem responsável (RPC 071, managed_by NULL) aparece na seção fixa "Sem responsável"', () => {
+  it('membro ATIVO sem responsável (RPC 071, managed_by NULL) aparece no diretório', () => {
     renderTab({ membersByUnit: { ws1: [activeMember('u1', 'Ana Sem Responsável')] } })
 
     const row = screen.getByTestId('people-row-ms-u1')
     expect(within(row).getByText('Ana Sem Responsável')).toBeTruthy()
     expect(within(row).getByText('Ativo')).toBeTruthy()
     expect(within(row).getByText('Sem líder definido')).toBeTruthy()
-
-    const section = screen.getByTestId('people-group-unassigned')
-    expect(within(section).getByText('Ana Sem Responsável')).toBeTruthy()
   })
 
-  it('membro ativo com responsável definido é roteado ao nó do líder (e não à seção fixa)', () => {
+  it('membro ativo com responsável definido é roteado ao LÍDER real (não a "Sem líder")', () => {
     renderTab({
       membersByUnit: {
         ws1: [activeMember('u2', 'Bruno Na Equipe', { managed_by: 'ms-l1' })],
       },
     })
 
-    const section = screen.getByTestId('people-group-unassigned')
-    expect(within(section).queryByText('Bruno Na Equipe')).toBeNull()
-    expect(screen.getByTestId('people-row-ms-u2')).toBeTruthy()
-    expect(screen.getByTestId('people-group-leader-ms-l1')).toBeTruthy()
+    const row = screen.getByTestId('people-row-ms-u2')
+    expect(within(row).queryByText('Sem líder definido')).toBeNull()
+    expect(within(row).getByTestId('people-leader-ms-u2')).toHaveTextContent('Ana Líder')
   })
 
-  it('dedup: membro ativo já presente via escopo 047 não vira linha duplicada', () => {
+  it('dedup: membro ativo já presente via escopo 047 não vira pessoa duplicada', () => {
     renderTab({ membersByUnit: { ws1: [activeMember('alpha', 'Técnico Alpha', { managed_by: 'ms-l1' })] } })
 
     const rows = allRows()
@@ -423,20 +471,19 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
   it('filtro "Responsável = Sem responsável" mostra o membro ativo sem responsável', () => {
     renderTab({ membersByUnit: { ws1: [activeMember('u1', 'Ana Sem Responsável')] } })
 
-    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'unassigned' } })
+    select('people-responsible-filter', 'unassigned')
     expect(screen.getByTestId('people-row-ms-u1')).toBeInTheDocument()
-    expect(screen.queryByTestId('people-group-coordination-ws1')).toBeNull()
-    expect(screen.queryByTestId('people-group-leader-ms-l1')).toBeNull()
+    expect(screen.queryByTestId('people-row-ms-l1')).toBeNull()
   })
 
   it('filtro "Responsável" por coordenação NÃO mostra o membro ativo sem responsável', () => {
     renderTab({ membersByUnit: { ws1: [activeMember('u1', 'Ana Sem Responsável')] } })
 
-    fireEvent.change(screen.getByTestId('people-responsible-filter'), { target: { value: 'coordination' } })
+    select('people-responsible-filter', 'coordination')
     expect(screen.queryByTestId('people-row-ms-u1')).toBeNull()
   })
 
-  it('escopo: membros de unidade fora do escopo recebido nunca viram linha', () => {
+  it('escopo: membros de unidade fora do escopo recebido nunca viram card', () => {
     renderTab({
       units: [ws1, ws2],
       membersByUnit: {
@@ -448,7 +495,7 @@ describe('CoordinatorPeopleTab — diretório READ-ONLY do pessoal do escopo (PR
     const rows = allRows()
     expect(rows).toHaveLength(8) // ws1 (6) + ws2 (1) + membro ativo ws1 (1); nada da ws3
     expect(screen.queryByText('Fora do Escopo Ativo')).toBeNull()
-    expect(within(screen.getByTestId('people-group-unassigned')).getByText('Ana Sem Responsável')).toBeTruthy()
+    expect(screen.getByTestId('people-row-ms-u1')).toBeTruthy()
   })
 
   it('falha na leitura de membros ativos → ErrorState honesto e retry só dessa leitura', () => {
@@ -532,20 +579,10 @@ describe('CoordinatorPeopleTab — cards de perfil (representação visual, READ
     ).toBeInTheDocument()
   })
 
-  it('grid responsivo de cards: 1 coluna no mobile, 2 quando há espaço (sem largura fixa)', () => {
-    // Nó de liderança COM pessoas: lista as pessoas em grid responsivo.
-    const assigned = unit(
-      'ws1',
-      [
-        leader('l1', 'Ana Líder', [
-          { membership: mem('ms-alpha', 'u-alpha', { managed_by: 'ms-l1' }), profile: prof('alpha', 'Técnico Alpha') },
-        ]),
-      ],
-      'Campus A',
-    )
-    renderTab({ units: [assigned], requestsByUnit: {}, inactiveByUnit: {} })
+  it('grid público das pessoas: 1 coluna no mobile, 2 quando há espaço (sem largura fixa)', () => {
+    renderTab()
 
-    const grid = screen.getByTestId('people-grid-people-group-leader-ms-l1')
+    const grid = screen.getByTestId('people-grid')
     expect(grid).toHaveClass('grid', 'grid-cols-1', 'sm:grid-cols-2')
     expect(grid.className).not.toMatch(/w-\[\d+px\]|max-w-\[\d+px\]/)
   })

@@ -10,42 +10,34 @@ import type { MembershipStatus } from '../../../core/permissions/membership'
 import { icons } from '../../../lib/icons'
 import { cn } from '../../../lib/components/ui/utils'
 import {
-  composePeopleGroups,
+  aggregatePeopleRows,
   composePeopleRows,
-  filterPeopleGroups,
-  COORDINATOR_LEADER_LABEL,
-  GROUP_EMPTY_LEADER_LABEL,
+  filterAggregatedPeople,
   GROUP_UNASSIGNED_LABEL,
 } from '../coordinatorHelpers'
-import type { PeopleGroup, PeopleResponsibleFilter } from '../coordinatorHelpers'
+import type { PeopleResponsibleFilter, PeopleUnitFilter } from '../coordinatorHelpers'
 import { PersonProfileCard } from '../components/PersonProfileCard'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
 import { SkeletonRow } from '../components/Skeletons'
 
 /**
- * Aba "Pessoal" da Central — ESTRUTURA ORGANIZACIONAL READ-ONLY (PR 277).
+ * Aba "Pessoal" da Central — DIRETÓRIO READ-ONLY consolidado por pessoa (#363).
  *
- * Visão de LEITURA da hierarquia do escopo: por unidade, um nó de coordenação
- * (sempre no topo) + um nó por liderança direta (ordem alfabética pt-BR), e uma
- * seção FIXA "Sem responsável" agregando memberships sem `managed_by` — tudo
- * projetado client-side sobre as leituras fail-closed que o shell já carrega
- * (`units`/`requestsByUnit`/`inactiveByUnit`/`membersByUnit`). Desde a Fase 11
- * (071), `membersByUnit` traz TODOS os membros ativos da unidade, inclusive os
- * sem responsável que ficavam fora da hierarquia. NENHUMA ação de gestão vive
- * aqui.
+ * Visão de LEITURA das pessoas do escopo: 1 PERFIL → 1 CARD → N unidades
+ * autorizadas. Todas as fontes já vêm fail-closed do shell (`units`/`requestsByUnit`/
+ * `inactiveByUnit`/`membersByUnit`), e a consolidação por
+ * `membership.profile_id` (id estável — nunca nome) acontece no helper puro
+ * `aggregatePeopleRows`, SEM RPC/RLS nova e SEM mudança de autorização.
  *
- * Representação visual: as pessoas viram CARDS DE PERFIL (`PersonProfileCard`)
- * — banner/foto reais do perfil (`profiles.banner`/`profiles.avatar`, 089)
- * com fallback de iniciais/gradiente, em grid responsivo (1 coluna no mobile,
- * 2 quando há espaço). Apenas apresentação: nenhuma regra de autorização,
- * escopo, filtro ou status muda — o `PeopleRow` continua sendo a fonte dos
- * dados já autorizados pelo servidor.
+ * As pessoas viram CARDS DE PERFIL (`PersonProfileCard`): banner/foto reais
+ * (`profiles.banner`/`profiles.avatar`, 089) com fallbacks locais, avatar ACIMA
+ * do banner (layering), unidades em chips compactos (colapso `+N`) e status/
+ * cargo/responsável por vínculo quando divergem — nenhuma prioridade inventada.
  *
- * Filtros: busca por nome/e-mail + status (mesmos da lista) + "Responsável"
- * (Todos / Coordenação / Líderes / Sem responsável). Lideranças sem membros
- * permanecem visíveis ("Nenhuma pessoa vinculada"): a estrutura é a
- * organização, não o vínculo do momento. NUNCA decide autorização.
+ * Filtros: busca por nome/e-mail + status + "Responsável" (Todos/Coordenação/
+ * Líderes/Sem responsável) + "Unidade" (Todas ou uma do escopo — a unidade
+ * escolhida é a ÚNICA exibida no card). NUNCA decide autorização.
  */
 
 interface SummaryCellProps {
@@ -109,13 +101,6 @@ export interface CoordinatorPeopleTabProps {
   rolesById: Map<string, CoordinatorRoleOption>
 }
 
-/** Testid estável por nó (chave de UI), independente do separador ':' do id. */
-function groupTestId(group: PeopleGroup): string {
-  if (group.kind === 'unassigned') return 'people-group-unassigned'
-  if (group.kind === 'coordination') return `people-group-coordination-${group.unitId}`
-  return `people-group-leader-${group.membershipId}`
-}
-
 export function CoordinatorPeopleTab({
   units,
   requestsByUnit,
@@ -135,6 +120,7 @@ export function CoordinatorPeopleTab({
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<MembershipStatus | 'all'>('all')
   const [responsible, setResponsible] = useState<PeopleResponsibleFilter>('all')
+  const [unit, setUnit] = useState<PeopleUnitFilter>('all')
 
   const loading = requestsLoading || inactiveLoading || membersLoading
   const failed = requestsFailed || inactiveFailed || membersFailed
@@ -143,26 +129,22 @@ export function CoordinatorPeopleTab({
     () => composePeopleRows(units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit),
     [units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit],
   )
-  const groups = useMemo(
-    () => composePeopleGroups(units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit),
-    [units, requestsByUnit, inactiveByUnit, rolesById, membersByUnit],
-  )
-  const visibleGroups = useMemo(
-    () => filterPeopleGroups(groups, { query, status, responsible }),
-    [groups, query, status, responsible],
+  // 1 PERFIL → 1 CARD → N unidades (chave: membership.profile_id).
+  const people = useMemo(() => aggregatePeopleRows(rows), [rows])
+  const visiblePeople = useMemo(
+    () => filterAggregatedPeople(people, { query, status, responsible, unit }),
+    [people, query, status, responsible, unit],
   )
 
   const summary = useMemo(
     () => ({
-      total: rows.length,
+      total: people.length,
       units: units.length,
       leaders: units.reduce((acc, u) => acc + u.leaders.length, 0),
-      pending: rows.filter((r) => r.status === 'pending').length,
+      pending: people.filter((p) => p.units.some((u) => u.status === 'pending')).length,
     }),
-    [rows, units],
+    [people, units],
   )
-
-  const multipleUnits = units.length > 1
 
   const onRetry = () => {
     if (requestsFailed) onRetryRequests()
@@ -227,6 +209,20 @@ export function CoordinatorPeopleTab({
           ))}
         </select>
         <select
+          data-testid="people-unit-filter"
+          value={unit}
+          onChange={(e) => setUnit(e.target.value as PeopleUnitFilter)}
+          aria-label="Filtrar por unidade"
+          className="w-full shrink-0 rounded-xl border border-line bg-surface px-3 py-2 text-xs text-fg focus:border-violet-500/50 focus:outline-none focus:ring-2 focus:ring-violet-500/30 sm:w-44"
+        >
+          <option value="all">Todas as unidades</option>
+          {units.map((u) => (
+            <option key={u.unitId} value={u.unitId}>
+              {u.unitName}
+            </option>
+          ))}
+        </select>
+        <select
           data-testid="people-status-filter"
           value={status}
           onChange={(e) => setStatus(e.target.value as MembershipStatus | 'all')}
@@ -259,89 +255,27 @@ export function CoordinatorPeopleTab({
             message="Não foi possível carregar as pessoas desta unidade. Os dados já autorizados estão preservados; tente novamente em instantes."
             onRetry={onRetry}
           />
-        ) : visibleGroups.length === 0 ? (
+        ) : visiblePeople.length === 0 ? (
           <EmptyState
             icon={<icons.ui.user size={20} className="text-fg-muted" />}
             variant="soft"
             title="Nenhuma pessoa encontrada"
             description={
-              query.trim() !== '' || status !== 'all' || responsible !== 'all'
-                ? 'Nenhuma pessoa corresponde aos filtros aplicados. Ajuste a busca, o status ou o responsável.'
+              query.trim() !== '' || status !== 'all' || responsible !== 'all' || unit !== 'all'
+                ? 'Nenhuma pessoa corresponde aos filtros aplicados. Ajuste a busca, o status, a unidade ou o responsável.'
                 : 'Ainda não há pessoas vinculadas às unidades sob sua coordenação.'
             }
           />
         ) : (
-          <ol className="flex flex-col gap-3" aria-label="Estrutura organizacional do escopo">
-            {visibleGroups.map((group) => (
-              <li
-                key={group.id}
-                data-testid={groupTestId(group)}
-                className={cn(
-                  'overflow-hidden rounded-xl border border-line bg-surface',
-                  group.kind === 'unassigned' && 'border-dashed',
-                )}
-              >
-                <div className="flex items-start justify-between gap-3 px-3.5 py-2.5">
-                  <div className="flex min-w-0 items-start gap-2">
-                    {group.kind === 'unassigned' ? (
-                      <icons.ui.user size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-fg-dim" />
-                    ) : group.kind === 'coordination' ? (
-                      <icons.ui.shield size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-violet-500" />
-                    ) : (
-                      <icons.ui.userCheck size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-fg-muted" />
-                    )}
-                    <div className="min-w-0">
-                      <p
-                        data-testid={`people-group-title-${groupTestId(group)}`}
-                        className={cn(
-                          'truncate text-xs font-semibold text-fg',
-                          group.kind === 'unassigned' && 'text-fg-muted',
-                        )}
-                      >
-                        {group.kind === 'coordination'
-                          ? COORDINATOR_LEADER_LABEL
-                          : group.label}
-                      </p>
-                      {group.kind !== 'unassigned' && (
-                        <p className="mt-0.5 truncate text-[11px] text-fg-muted">
-                          {group.unitName}
-                          {group.email ? ` · ${group.email}` : ''}
-                        </p>
-                      )}
-                      {group.kind === 'unassigned' && (
-                        <p className="mt-0.5 text-[11px] text-fg-muted">
-                          Pessoas sem responsável definido
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {group.people.length === 0 ? (
-                  <p
-                    data-testid={`people-group-empty-${groupTestId(group)}`}
-                    className="px-3.5 py-2 text-[11px] text-fg-dim"
-                  >
-                    {GROUP_EMPTY_LEADER_LABEL}
-                  </p>
-                ) : (
-                  <ul
-                    data-testid={`people-grid-${groupTestId(group)}`}
-                    className="grid grid-cols-1 gap-2 px-2 pb-2 sm:grid-cols-2"
-                    aria-label={`Pessoas de ${group.label}`}
-                  >
-                    {group.people.map((row) => (
-                      <PersonProfileCard
-                        key={row.membership.id}
-                        row={row}
-                        multipleUnits={multipleUnits}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </li>
+          <ul
+            data-testid="people-grid"
+            aria-label="Pessoas do escopo"
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+          >
+            {visiblePeople.map((person) => (
+              <PersonProfileCard key={person.profileId} person={person} />
             ))}
-          </ol>
+          </ul>
         )}
       </div>
     </section>

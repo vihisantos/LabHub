@@ -1,12 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import {
+  aggregatePeopleRows,
   composePeopleGroups,
   composePeopleRows,
+  filterAggregatedPeople,
   filterPeopleGroups,
   filterPeopleRows,
   peopleStatusLabel,
   COORDINATOR_LEADER_LABEL,
   GROUP_UNASSIGNED_LABEL,
+} from '../coordinatorHelpers'
+import type {
+  AggregatedPerson,
+  PeopleLeader,
+  PeopleRow,
 } from '../coordinatorHelpers'
 import type {
   CoordinatorInactiveMember,
@@ -477,6 +484,248 @@ describe('filterPeopleGroups — filtro por responsável sobre a estrutura (PR 2
 
   it('busca sem correspondência colapsa os nós vazios → estrutura vazia (EmptyState honesto)', () => {
     const out = filterPeopleGroups(groups, { query: 'zzz-inexistente', status: 'all', responsible: 'all' })
+
+    expect(out).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR 363 — PESSOA CONSOLIDADA (1 perfil → 1 card → N unidades autorizadas).
+// ---------------------------------------------------------------------------
+
+describe('aggregatePeopleRows — 1 perfil = 1 card com N unidades (#363)', () => {
+  function prow(opts: {
+    mid: string
+    uid: string
+    unit: string
+    profileId: string
+    name?: string
+    status?: MembershipStatus
+    roleLabel?: string
+    leader?: PeopleLeader | null
+    profile?: TeamMemberProfile | null
+  }): PeopleRow {
+    const profile =
+      opts.profile === undefined
+        ? prof(opts.profileId, opts.name ?? 'João Silva')
+        : opts.profile
+    return {
+      membership: mem(opts.mid, opts.profileId, {
+        workspace_id: opts.uid,
+        status: opts.status ?? 'active',
+      }),
+      profile,
+      roleLabel: opts.roleLabel ?? 'Analista de TI',
+      unitId: opts.uid,
+      unitName: opts.unit,
+      status: opts.status ?? 'active',
+      leader: opts.leader ?? null,
+    }
+  }
+
+  it('João com 3 memberships (Piracicaba/Mooca/Paulista) vira 1 pessoa com 3 unidades — nunca 3 pessoas', () => {
+    const people = aggregatePeopleRows([
+      prow({ mid: 'ms-pi', uid: 'ws-pi', unit: 'Piracicaba', profileId: 'u-joao' }),
+      prow({ mid: 'ms-mo', uid: 'ws-mo', unit: 'Mooca', profileId: 'u-joao' }),
+      prow({ mid: 'ms-pa', uid: 'ws-pa', unit: 'Paulista', profileId: 'u-joao' }),
+    ])
+
+    expect(people).toHaveLength(1)
+    expect(people[0].profileId).toBe('u-joao')
+    expect(people[0].units.map((u) => u.unitName)).toEqual(['Piracicaba', 'Mooca', 'Paulista'])
+  })
+
+  it('agrega por ID estável (profile_id), NUNCA por nome: nomes iguais ≠ mesma pessoa', () => {
+    const pessoas = aggregatePeopleRows([
+      prow({ mid: 'ms-a', uid: 'ws1', unit: 'Unidade A', profileId: 'u-a', name: 'João Silva' }),
+      prow({ mid: 'ms-b', uid: 'ws2', unit: 'Unidade B', profileId: 'u-b', name: 'João Silva' }),
+    ])
+
+    expect(pessoas).toHaveLength(2)
+  })
+
+  it('mesmo id e nomes divergentes → 1 pessoa (o id estável manda)', () => {
+    const people = aggregatePeopleRows([
+      prow({ mid: 'ms-a', uid: 'ws1', unit: 'Unidade A', profileId: 'u-joao', name: 'João Silva' }),
+      prow({ mid: 'ms-b', uid: 'ws2', unit: 'Unidade B', profileId: 'u-joao', name: 'João S.' }),
+    ])
+
+    expect(people).toHaveLength(1)
+    expect(people[0].units).toHaveLength(2)
+  })
+
+  it('preserva cargo/status/líder de CADA vínculo (nenhuma prioridade inventada)', () => {
+    const people = aggregatePeopleRows([
+      prow({ mid: 'ms-a', uid: 'ws1', unit: 'Unidade A', profileId: 'u-joao', status: 'active', roleLabel: 'Analista de TI', leader: null }),
+      prow({
+        mid: 'ms-b',
+        uid: 'ws2',
+        unit: 'Unidade B',
+        profileId: 'u-joao',
+        status: 'pending',
+        roleLabel: 'Estagiário',
+        leader: { membershipId: 'ms-l1', name: 'Maria', email: 'maria@labhub.app', isCoordination: false },
+      }),
+    ])
+
+    const units = people[0].units
+    expect(units.map((u) => u.status)).toEqual(['active', 'pending'])
+    expect(units.map((u) => u.roleLabel)).toEqual(['Analista de TI', 'Estagiário'])
+    expect(units[0].leader).toBeNull()
+    expect(units[1].leader?.name).toBe('Maria')
+  })
+
+  it('perfil oculto (RLS) em uma fonte não apaga o nome — o profile_id consolida', () => {
+    const people = aggregatePeopleRows([
+      prow({ mid: 'ms-a', uid: 'ws1', unit: 'Unidade A', profileId: 'u-joao', profile: null }),
+      prow({ mid: 'ms-b', uid: 'ws2', unit: 'Unidade B', profileId: 'u-joao' }),
+    ])
+
+    expect(people).toHaveLength(1)
+    expect(people[0].name).toBe('João Silva')
+    expect(people[0].profile).not.toBeNull()
+  })
+
+  it('perfil oculto em TODAS as fontes → fallback honesto', () => {
+    const people = aggregatePeopleRows([
+      prow({ mid: 'ms-a', uid: 'ws1', unit: 'Unidade A', profileId: 'u-h1', profile: null }),
+    ])
+
+    expect(people[0].name).toBe('Perfil não disponível')
+    expect(people[0].email).toBe('Sem e-mail registrado')
+  })
+
+  it('ordena pessoas por nome (locale pt-BR) e nunca perde vínculo', () => {
+    const people = aggregatePeopleRows([
+      prow({ mid: 'ms-z', uid: 'ws1', unit: 'Zeta', profileId: 'u-z', name: 'Zico' }),
+      prow({ mid: 'ms-a', uid: 'ws2', unit: 'Alfa', profileId: 'u-a', name: 'Ana' }),
+      prow({ mid: 'ms-j', uid: 'ws3', unit: 'João', profileId: 'u-j', name: 'João Silva' }),
+    ])
+
+    expect(people.map((p) => p.name)).toEqual(['Ana', 'João Silva', 'Zico'])
+    expect(people.reduce((acc, p) => acc + p.units.length, 0)).toBe(3)
+  })
+})
+
+describe('filterAggregatedPeople — unidade como contexto; status/responsável por vínculo (#363)', () => {
+  const profileOf = (id: string, name: string): TeamMemberProfile => ({
+    id,
+    name,
+    email: `pessoa-${id}@labhub.app`,
+    status: 'active',
+    roleId: 'role-technician',
+  })
+  const joao: AggregatedPerson = {
+    profileId: 'u-joao',
+    profile: profileOf('u-joao', 'João Silva'),
+    name: 'João Silva',
+    email: 'pessoa-u-joao@labhub.app',
+    units: [
+      { membershipId: 'ms-pi', unitId: 'ws-pi', unitName: 'Piracicaba', roleLabel: 'Analista de TI', status: 'active', leader: null },
+      { membershipId: 'ms-mo', unitId: 'ws-mo', unitName: 'Mooca', roleLabel: 'Analista de TI', status: 'active', leader: null },
+      { membershipId: 'ms-pa', unitId: 'ws-pa', unitName: 'Paulista', roleLabel: 'Técnico', status: 'pending', leader: null },
+    ],
+  }
+  const maria: AggregatedPerson = {
+    profileId: 'u-maria',
+    profile: profileOf('u-maria', 'Maria Coordenadora'),
+    name: 'Maria Coordenadora',
+    email: 'pessoa-u-maria@labhub.app',
+    units: [
+      {
+        membershipId: 'ms-ma',
+        unitId: 'ws-pi',
+        unitName: 'Piracicaba',
+        roleLabel: 'Líder',
+        status: 'active',
+        leader: { membershipId: 'ms-coord', name: COORDINATOR_LEADER_LABEL, email: null, isCoordination: true },
+      },
+    ],
+  }
+  const zulma: AggregatedPerson = {
+    profileId: 'u-zulma',
+    profile: profileOf('u-zulma', 'Zulma Membro'),
+    name: 'Zulma Membro',
+    email: 'pessoa-u-zulma@labhub.app',
+    units: [
+      {
+        membershipId: 'ms-zu',
+        unitId: 'ws-mo',
+        unitName: 'Mooca',
+        roleLabel: 'Técnico',
+        status: 'active',
+        leader: { membershipId: 'ms-l9', name: 'Zé Líder', email: 'ze@labhub.app', isCoordination: false },
+      },
+    ],
+  }
+  const todos = [joao, maria, zulma]
+
+  it('"all" (Todas as unidades) devolve todos e não recorta vínculo algum', () => {
+    const out = filterAggregatedPeople(todos, { query: '', status: 'all', responsible: 'all', unit: 'all' })
+
+    expect(out).toHaveLength(3)
+    expect(out.find((p) => p.profileId === 'u-joao')?.units).toHaveLength(3)
+  })
+
+  it('unidade específica: João (Piracicaba/Mooca/Paulista) com Mooca → 1 card e SOMENTE Mooca', () => {
+    const out = filterAggregatedPeople(todos, { query: '', status: 'all', responsible: 'all', unit: 'ws-mo' })
+
+    expect(out.map((p) => p.profileId)).toEqual(['u-joao', 'u-zulma'])
+    expect(out.find((p) => p.profileId === 'u-joao')?.units.map((u) => u.unitName)).toEqual(['Mooca'])
+  })
+
+  it('pessoa sem vínculo na unidade filtrada não aparece (mesmo pertencendo ao escopo)', () => {
+    const out = filterAggregatedPeople(todos, { query: '', status: 'all', responsible: 'all', unit: 'ws-pa' })
+
+    expect(out.map((p) => p.profileId)).toEqual(['u-joao'])
+    expect(out.some((p) => p.profileId === 'u-maria')).toBe(false)
+  })
+
+  it('status casa em QUALQUER vínculo do contexto — e respeita o contexto de unidade', () => {
+    // Com Todas as unidades: João tem pendente (Paulista) → casa.
+    const all = filterAggregatedPeople(todos, { query: '', status: 'pending', responsible: 'all', unit: 'all' })
+    expect(all.map((p) => p.profileId)).toEqual(['u-joao'])
+    // Com Mooca selecionada: o vínculo de João lá é ATIVO → João NÃO casa (não inventa).
+    const mo = filterAggregatedPeople(todos, { query: '', status: 'pending', responsible: 'all', unit: 'ws-mo' })
+    expect(mo).toEqual([])
+  })
+
+  it('responsável casa em QUALQUER vínculo (coordenação / líder / sem responsável)', () => {
+    const coord = filterAggregatedPeople(todos, { query: '', status: 'all', responsible: 'coordination', unit: 'all' })
+    expect(coord.map((p) => p.profileId)).toEqual(['u-maria'])
+
+    const leaders = filterAggregatedPeople(todos, { query: '', status: 'all', responsible: 'leaders', unit: 'all' })
+    expect(leaders.map((p) => p.profileId)).toEqual(['u-zulma'])
+
+    const unassigned = filterAggregatedPeople(todos, { query: '', status: 'all', responsible: 'unassigned', unit: 'all' })
+    expect(unassigned.map((p) => p.profileId)).toEqual(['u-joao'])
+  })
+
+  it('busca por nome/e-mail sobre a pessoa consolidada', () => {
+    const byName = filterAggregatedPeople(todos, { query: 'zulma', status: 'all', responsible: 'all', unit: 'all' })
+    expect(byName.map((p) => p.profileId)).toEqual(['u-zulma'])
+
+    const byEmail = filterAggregatedPeople(todos, { query: 'PESSOA-U-MARIA', status: 'all', responsible: 'all', unit: 'all' })
+    expect(byEmail.map((p) => p.profileId)).toEqual(['u-maria'])
+  })
+
+  it('união honesta de filtros funciona sem mágica', () => {
+    const out = filterAggregatedPeople(todos, { query: 'joão', status: 'active', responsible: 'unassigned', unit: 'all' })
+    // João tem um vínculo ATIVO sem responsável → casa.
+    expect(out.map((p) => p.profileId)).toEqual(['u-joao'])
+  })
+
+  it('não muta a entrada (as pessoas originais continuam intactas)', () => {
+    const snapshot = structuredClone(todos)
+
+    filterAggregatedPeople(todos, { query: '', status: 'all', responsible: 'all', unit: 'ws-mo' })
+
+    expect(todos).toEqual(snapshot)
+    expect(joao.units).toHaveLength(3)
+  })
+
+  it('sem correspondência → lista vazia honesta', () => {
+    const out = filterAggregatedPeople(todos, { query: 'zzz-inexistente', status: 'all', responsible: 'all', unit: 'all' })
 
     expect(out).toEqual([])
   })
