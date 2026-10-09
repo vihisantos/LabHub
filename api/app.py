@@ -1934,7 +1934,54 @@ REVOKE ALL ON public.ticket_events FROM anon, authenticated, PUBLIC;
 """
 
 CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
-CHAMADOS_STATUSES = ('aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado')
+CHAMADOS_STATUSES = (
+    'aberto', 'a_caminho', 'em_atendimento', 'em_espera', 'resolvido', 'indeferido', 'fechado',
+)
+
+# ── Estados EM_ESPERA / INDEFERIDO (issue #367) ──────────────────────────────
+# Estado próprio para cada um — nem RESOLVIDO nem ARQUIVADO:
+#   · `em_espera`   — pausa do atendimento; SAI da fila operacional ativa
+#                     (fora de `_CHAMADOS_ACTIVE_STATUSES`), permanece no
+#                     histórico e é retomável (→ em_atendimento).
+#   · `indeferido`  — estado FINAL próprio: sai da fila ativa, não arquiva,
+#                     não conta como resolvido e não é retomável.
+# Transições válidas (validadas no backend, fail-closed — issue #367 §6):
+#   · → em_espera:    somente a partir de um estado ativo da fila.
+#   · → indeferido:   somente a partir de um estado ativo da fila.
+#   · em_espera → em_atendimento: retomada (única saída de em_espera).
+#   · indeferido: NENHUMA transição de saída (estado final).
+CHAMADOS_TRANSITIONS = {
+    'em_espera': ('aberto', 'a_caminho', 'em_atendimento'),
+    'indeferido': ('aberto', 'a_caminho', 'em_atendimento'),
+}
+
+# Catálogo PREDEFINIDO de motivos (issue #367). O cliente envia apenas o
+# `reasonCode`; o rótulo (`reasonLabel`) é resolvido AQUI, no servidor — o
+# texto livre nunca identifica o motivo. Persistido de forma estruturada:
+# reasonCode + reasonLabel (+ reasonNote opcional) na linha do chamado e no
+# evento de status do histórico.
+CHAMADOS_INDEFERIMENTO_REASONS = {
+    'OUT_OF_SCOPE': 'Fora do escopo de atendimento da TI',
+    'DUPLICATE': 'Solicitação duplicada',
+    'NOT_IT_REQUEST': 'Solicitação não caracteriza incidente/requisição de TI',
+    'INSTITUTIONAL_RESOURCE': 'Equipamento ou recurso não pertence à instituição',
+    'OTHER_DEPARTMENT': 'Solicitação deve ser realizada por outro setor',
+    'INSUFFICIENT_INFORMATION': 'Informações insuficientes para atendimento',
+    'OTHER': 'Outro motivo',
+}
+CHAMADOS_ESPERA_REASONS = {
+    'WAITING_REQUESTER': 'Aguardando retorno do solicitante',
+    'WAITING_EQUIPMENT': 'Aguardando equipamento/peça',
+    'WAITING_VENDOR': 'Aguardando terceiro/fornecedor',
+    'WAITING_AUTHORIZATION': 'Aguardando autorização',
+    'WAITING_SCHEDULE': 'Aguardando agendamento',
+    'OTHER': 'Outro motivo',
+}
+# Motivo é OBRIGATÓRIO para estes status (catálogo por status, um lugar só).
+CHAMADOS_STATUS_REASONS = {
+    'em_espera': CHAMADOS_ESPERA_REASONS,
+    'indeferido': CHAMADOS_INDEFERIMENTO_REASONS,
+}
 
 # ── Projeção de leitura de chamado (allowlist explícita) ─────────────────────
 # Havia `select=*` na lista e no detalhe, o que devolvia a linha INTEIRA. Dois
@@ -1961,6 +2008,8 @@ CHAMADOS_TICKET_READ_COLS = (
     'assignedTo', 'assignedToUserId', 'ticketNumber', 'createdAt', 'updatedAt',
     'resolvedAt', 'archived', 'closedAt', 'closedBy', 'statusNote', 'photos',
     'feedbackRating', 'feedbackComment', 'feedbackAt',
+    # Motivo estruturado de espera/indeferimento (issue #367).
+    'reasonCode', 'reasonLabel', 'reasonNote',
 )
 CHAMADOS_TICKET_READ_SELECT = ','.join(CHAMADOS_TICKET_READ_COLS)
 _CHAMADOS_TICKET_READ_SET = frozenset(CHAMADOS_TICKET_READ_COLS)
@@ -1970,8 +2019,9 @@ CHAMADOS_TICKET_INTERNAL_ONLY = ('tracking_token_hash', 'reportedByUserId')
 
 # Projeção da timeline. Espelha a do endpoint público: o frontend declara
 # `ticket_id`/`workspace_id` no tipo `TicketEvent` mas não os lê em runtime, e
-# `workspace_id` é dado de escopo interno.
-CHAMADOS_EVENT_READ_SELECT = 'id,type,content,author,photo_urls,createdAt'
+# `workspace_id` é dado de escopo interno. reasonCode/reasonLabel saem para o
+# histórico registrar o motivo estruturado da espera/indeferimento (#367).
+CHAMADOS_EVENT_READ_SELECT = 'id,type,content,author,photo_urls,createdAt,reasonCode,reasonLabel'
 
 # ── Tipos de evento visíveis ao SOLICITANTE do próprio chamado ───────────────
 # `ticket_events.type` é `TEXT NOT NULL DEFAULT 'comentario'`, sem CHECK e sem
@@ -2032,7 +2082,9 @@ CHAMADOS_STATUS_LABELS = {
     'aberto': 'Aguardando técnico',
     'a_caminho': 'Técnico a caminho',
     'em_atendimento': 'Atendendo agora',
+    'em_espera': 'Em espera',
     'resolvido': 'Chamado resolvido',
+    'indeferido': 'Chamado indeferido',
     'fechado': 'Chamado concluído',
 }
 
@@ -2062,8 +2114,14 @@ def _save_chamado_subs(ticket_id, subs):
         redis.sadd(key, json.dumps(s, ensure_ascii=False))
 
 
-def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author='', photo_urls=''):
-    """Insere um evento no histórico do chamado (falhas não quebram o fluxo principal)."""
+def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author='', photo_urls='',
+                         reason_code=None, reason_label=None):
+    """Insere um evento no histórico do chamado (falhas não quebram o fluxo principal).
+
+    `reason_code`/`reason_label` são opcionais (issue #367): quando presentes,
+    o evento de status registra o motivo estruturado da espera/indeferimento
+    junto do conteúdo. Ausentes → NULL no banco (nenhum evento legado muda).
+    """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return None
     try:
@@ -2074,6 +2132,8 @@ def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author
             'content': content,
             'author': author,
             'photo_urls': photo_urls,
+            'reasonCode': reason_code or None,
+            'reasonLabel': reason_label or None,
         }
         resp = requests.post(
             f'{_SUPABASE_URL}/rest/v1/ticket_events',
@@ -2145,6 +2205,14 @@ def _notify_ticket_status(ticket):
             title = 'Como foi seu atendimento? ⭐'
             body = f"O chamado #{ticket.get('ticketNumber')} foi resolvido. Avalie o atendimento da equipe de TI."
             url = f"/chamados-publico/feedback/{ticket_id}"
+        elif status == 'indeferido':
+            # Issue #367 — o solicitante precisa saber claramente que o chamado
+            # foi indeferido (e por quê), nunca como resolvido.
+            title = f"Chamado #{ticket.get('ticketNumber')} indeferido"
+            body = f"O chamado #{ticket.get('ticketNumber')} não será atendido pela TI." + (
+                f' Motivo: {note}' if note else ''
+            )
+            url = f"/chamados-publico/success/{ticket_id}"
         else:
             label = CHAMADOS_STATUS_LABELS.get(status, status)
             msg = f'{label} — {note}' if note else label
@@ -2933,6 +3001,43 @@ def chamados_manage(ticket_id):
             status_row = (fetch_status.json() or [{}])[0]
             status_prev = status_row.get('status')
 
+            # ── Transições de espera/indeferimento (issue #367) ──────────────
+            # Validadas ANTES da autorização e de qualquer mutation (fail-closed):
+            # o backend valida o ESTADO ATUAL, não confia no cliente (issue §6).
+            new_status = updates['status']
+            if new_status in CHAMADOS_TRANSITIONS:
+                # → em_espera / → indeferido: somente a partir de um estado
+                # ATIVO da fila. Sair de resolvido/fechado para cá é inválido
+                # (chamado finalizado não é indeferido nem pausado); sair de
+                # em_espera direto para indeferido também (primeiro retome).
+                if status_prev not in CHAMADOS_TRANSITIONS[new_status]:
+                    return jsonify({'error': 'Transição de status inválida'}), 400
+            elif status_prev == 'em_espera':
+                # De em_espera a ÚNICA saída é a retomada (→ em_atendimento).
+                return jsonify({'error': 'Transição inválida — retome o atendimento para sair de Em espera'}), 400
+            elif status_prev == 'indeferido':
+                # Indeferido é estado FINAL: nenhuma transição de saída
+                # (não é reaberto por mudança de status comum).
+                return jsonify({'error': 'Transição inválida — chamado indeferido é final'}), 400
+
+            # ── Motivo OBRIGATÓRIO e predefinido (issue #367) ────────────────
+            # O cliente envia apenas `reasonCode`; o rótulo é resolvido AQUI.
+            # Persistido de forma estruturada (reasonCode/reasonLabel/reasonNote):
+            # nunca texto livre para identificar o motivo.
+            reason_code = None
+            reason_label = None
+            reason_note = None
+            reason_catalog = CHAMADOS_STATUS_REASONS.get(new_status)
+            if reason_catalog is not None:
+                body_code = str(body.get('reasonCode') or '').strip()
+                if not body_code or body_code not in reason_catalog:
+                    return jsonify({'error': 'Motivo obrigatório: selecione um motivo predefinido'}), 400
+                reason_code = body_code
+                reason_label = reason_catalog[body_code]
+                reason_note = str(body.get('reasonNote') or '').strip()
+                if len(reason_note) > 500:
+                    return jsonify({'error': 'Observação muito longa (máx. 500 caracteres)'}), 400
+
         # Etapa 6 — PATCH mixed-operation: determinar o conjunto MÍNIMO de Actions
         # exigido pelas operações efetivamente solicitadas e autorizar TODAS
         # ANTES de qualquer mutation (atomicidade). Se qualquer Action for negada,
@@ -3041,12 +3146,25 @@ def chamados_manage(ticket_id):
                 updates['archived'] = True
                 updates['closedAt'] = datetime.now(timezone.utc).isoformat()
                 updates['statusNote'] = ''
+            elif status in ('em_espera', 'indeferido'):
+                # Issue #367 — motivo estruturado gravado no chamado. Estado
+                # PRÓPRIO: NÃO arquiva (indeferido permanece no histórico como
+                # registro, não como arquivado) e NÃO trata como resolvido
+                # (resolvedAt não é tocado). `statusNote` existente é preservado.
+                updates['reasonCode'] = reason_code
+                updates['reasonLabel'] = reason_label
+                updates['reasonNote'] = reason_note
             elif prev_status in ('resolvido', 'fechado'):
                 # Reabertura: volta ao fluxo ativo e limpa marcas de conclusão
                 updates['resolvedAt'] = None
                 updates['closedAt'] = None
                 updates['closedBy'] = ''
                 updates['archived'] = False
+            elif prev_status == 'em_espera' and status == 'em_atendimento':
+                # Retomada (issue #367): PRESERVA o motivo anterior
+                # (reasonCode/reasonLabel/reasonNote ficam intactos) — é o
+                # histórico que mostra por que o chamado esteve em espera.
+                pass
         elif 'statusNote' in updates:
             # Busca o estado atual para comparar a mensagem e notificar só em mudança
             fetch = requests.get(
@@ -3061,8 +3179,19 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Nada para atualizar'}), 400
         updates['updatedAt'] = datetime.now(timezone.utc).isoformat()
 
+        # ── Concorrência (issue #367) ─────────────────────────────────────────
+        # Transição de status é PATCH CONDICIONAL no banco: só alcança linhas
+        # que AINDA estão no `status_prev` lido antes da autorização. Se outro
+        # usuário alterou o status no meio (race perdida), o update afeta
+        # 0 linhas e este request recebe 409 — mesmo padrão atômico do claim.
+        # Sem isso, o último PATCH venceria (last-write-wins) e um chamado
+        # poderia ser resolvido e indeferido "ao mesmo tempo".
+        patch_url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+        if 'status' in updates:
+            patch_url += f'&status=eq.{quote(status_prev)}'
+
         resp = requests.patch(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}',
+            patch_url,
             headers={**_supabase_headers(), 'Prefer': 'return=representation'},
             json=updates,
             timeout=10,
@@ -3071,6 +3200,10 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Erro ao atualizar chamado'}), 502
         rows = resp.json()
         if not rows:
+            if 'status' in updates:
+                return jsonify({
+                    'error': 'Conflito: o chamado foi atualizado por outro usuário. Atualize e tente novamente.'
+                }), 409
             return jsonify({'error': 'Chamado não encontrado'}), 404
 
         ticket = rows[0]
@@ -3079,7 +3212,8 @@ def chamados_manage(ticket_id):
         # os campos alterados sem segredos.
         changed_fields = [
             k for k in ('status', 'statusNote', 'assignedToUserId', 'assignedTo',
-                        'priority', 'problemDescription', 'archived', 'photos')
+                        'priority', 'problemDescription', 'archived', 'photos',
+                        'reasonCode')
             if k in updates
         ]
         record_app_audit(
@@ -3124,8 +3258,24 @@ def chamados_manage(ticket_id):
             )
             if changed:
                 _notify_ticket_status(ticket)
+                # Issue #367 — o motivo estruturado vai no evento somente na
+                # transição PARA um estado com motivo (em_espera/indeferido).
+                # Na retomada e nas demais transições o evento não carrega
+                # motivo: o conteúdo prefere a observação e, depois, o rótulo
+                # do status (mesma cadeia de fallback do fluxo antigo).
                 note = str(body.get('statusNote') or ticket.get('statusNote') or '').strip()
-                content = note or CHAMADOS_STATUS_LABELS.get(ticket.get('status', ''), ticket.get('status', ''))
+                if ticket.get('status') in CHAMADOS_STATUS_REASONS:
+                    ev_reason_code = ticket.get('reasonCode')
+                    ev_reason_label = ticket.get('reasonLabel')
+                    content = note or (ev_reason_label or '') or CHAMADOS_STATUS_LABELS.get(
+                        ticket.get('status', ''), ticket.get('status', '')
+                    )
+                else:
+                    ev_reason_code = None
+                    ev_reason_label = None
+                    content = note or CHAMADOS_STATUS_LABELS.get(
+                        ticket.get('status', ''), ticket.get('status', '')
+                    )
                 author = str(body.get('author') or '').strip() or 'Sistema'
                 _record_ticket_event(
                     ticket_id,
@@ -3133,6 +3283,8 @@ def chamados_manage(ticket_id):
                     'status',
                     content=content,
                     author=author,
+                    reason_code=ev_reason_code,
+                    reason_label=ev_reason_label,
                 )
         # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
         # (Prefer: return=representation). Filtra pela allowlist interna antes
@@ -3343,6 +3495,12 @@ def _project_public_ticket(t: dict) -> dict:
         'createdAt': t.get('createdAt'),
         'updatedAt': t.get('updatedAt'),
         'closedAt': t.get('closedAt'),
+        # Motivo estruturado da espera/indeferimento (#367): é o que permite à
+        # consulta do solicitante mostrar CHAMADO INDEFERIDO + motivo +
+        # observação, sem apresentar indeferimento como chamado resolvido.
+        'reasonCode': t.get('reasonCode'),
+        'reasonLabel': t.get('reasonLabel'),
+        'reasonNote': t.get('reasonNote'),
     }
 
 
@@ -3368,7 +3526,7 @@ def public_chamados_events(tracking_token):
     ticket = g.tracking_ticket
     resp = requests.get(
         f'{_SUPABASE_URL}/rest/v1/ticket_events?ticket_id=eq.{quote(ticket["id"])}'
-        f'&order=createdAt.desc&select=id,type,content,author,photo_urls,createdAt',
+        f'&order=createdAt.desc&select=id,type,content,author,photo_urls,createdAt,reasonCode,reasonLabel',
         headers=_supabase_headers(),
         timeout=10,
     )
@@ -3380,6 +3538,9 @@ def public_chamados_events(tracking_token):
             urls = json.loads(ev.get('photo_urls') or '[]')
         except (TypeError, ValueError):
             urls = []
+        # reasonCode/reasonLabel saem para o histórico registrar o motivo
+        # estruturado da espera/indeferimento (#367) — mesma projeção da
+        # timeline interna.
         events.append({
             'id': ev.get('id'),
             'type': ev.get('type'),
@@ -3387,6 +3548,8 @@ def public_chamados_events(tracking_token):
             'author': ev.get('author'),
             'photos': urls if isinstance(urls, list) else [],
             'createdAt': ev.get('createdAt'),
+            'reasonCode': ev.get('reasonCode'),
+            'reasonLabel': ev.get('reasonLabel'),
         })
     return jsonify({'events': events})
 
@@ -3962,7 +4125,8 @@ def chamados_events_list(ticket_id):
             # Projeção explícita, espelhando o endpoint público: só o que o
             # consumidor lê. `ticket_id` e `workspace_id` não saem — o segundo
             # é dado de escopo interno, e ambos são redundantes numa timeline que
-            # já é de um chamado só.
+            # já é de um chamado só. reasonCode/reasonLabel saem para o histórico
+            # registrar o motivo estruturado da espera/indeferimento (#367).
             events.append({
                 'id': ev.get('id'),
                 'type': ev.get('type'),
@@ -3970,6 +4134,8 @@ def chamados_events_list(ticket_id):
                 'author': ev.get('author'),
                 'photos': urls if isinstance(urls, list) else [],
                 'createdAt': ev.get('createdAt'),
+                'reasonCode': ev.get('reasonCode'),
+                'reasonLabel': ev.get('reasonLabel'),
             })
         return jsonify({'events': events})
     except Exception as e:
@@ -4134,6 +4300,17 @@ def chamados_claim(ticket_id):
                                              resource_type='ticket', resource_id=ticket_id)
             if err:
                 return err
+
+        # Issue #367 — estados fora da fila operacional ativa não são assumidos:
+        #   · `indeferido` é FINAL (nunca retomado, nunca reaberto por claim);
+        #   · `em_espera` só sai pela retomada (→ em_atendimento), que é uma
+        #     mudança de status e não uma assunção — o motivo anterior precisa
+        #     ser preservado, o que o claim não faria.
+        # Bloqueados ANTES de qualquer mutação (mesma fronteira do reopen).
+        if prev_status == 'indeferido':
+            return jsonify({'error': 'Este chamado foi indeferido e não pode ser assumido'}), 409
+        if prev_status == 'em_espera':
+            return jsonify({'error': 'Este chamado está em espera — retome o atendimento para assumir'}), 409
 
         # Ownership: se já tem responsável, só o próprio responsável, o
         # líder/assigner ou o super admin podem (re)assumir.

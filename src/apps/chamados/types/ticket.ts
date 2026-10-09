@@ -1,4 +1,11 @@
-export type TicketStatus = 'aberto' | 'a_caminho' | 'em_atendimento' | 'resolvido' | 'fechado'
+export type TicketStatus =
+  | 'aberto'
+  | 'a_caminho'
+  | 'em_atendimento'
+  | 'em_espera'
+  | 'resolvido'
+  | 'indeferido'
+  | 'fechado'
 export type TicketPriority = 'baixa' | 'normal' | 'alta' | 'urgente'
 export type AssetSource = 'stock' | 'pcare'
 export type TicketProblemArea = 'administrativa' | 'academica'
@@ -43,6 +50,15 @@ export interface Ticket {
   closedAt?: string | null
   closedBy?: string
   statusNote?: string
+  /**
+   * Motivo ESTRUTURADO de espera/indeferimento (issue #367) — `reasonCode` é
+   * um código predefinido escolhido no modal; `reasonLabel` é resolvido pelo
+   * backend a partir do código e `reasonNote` é a observação opcional.
+   * Texto livre nunca identifica o motivo. `null`/ausente = sem motivo.
+   */
+  reasonCode?: string | null
+  reasonLabel?: string | null
+  reasonNote?: string | null
   photos?: string
   createdAt: string
   updatedAt: string
@@ -64,7 +80,9 @@ export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
   aberto: 'Aberto',
   a_caminho: 'A caminho',
   em_atendimento: 'Em atendimento',
+  em_espera: 'Em espera',
   resolvido: 'Resolvido',
+  indeferido: 'Indeferido',
   fechado: 'Fechado',
 }
 
@@ -72,7 +90,9 @@ export const TICKET_STATUS_COLORS: Record<TicketStatus, string> = {
   aberto: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
   a_caminho: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
   em_atendimento: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
+  em_espera: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
   resolvido: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+  indeferido: 'bg-red-500/15 text-red-600 dark:text-red-400',
   fechado: 'bg-fg-muted/15 text-fg-muted',
 }
 

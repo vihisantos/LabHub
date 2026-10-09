@@ -17,6 +17,12 @@ export interface TicketEvent {
   content: string
   author: string
   photos: string[]
+  /**
+   * Motivo estruturado do evento de status (issue #367) — presente somente na
+   * transição PARA em_espera/indeferido; nas demais transições não chega.
+   */
+  reasonCode?: string | null
+  reasonLabel?: string | null
   createdAt: string
 }
 

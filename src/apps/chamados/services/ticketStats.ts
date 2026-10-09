@@ -47,7 +47,9 @@ const EMPTY_STATUSES: Record<TicketStatus, number> = {
   aberto: 0,
   a_caminho: 0,
   em_atendimento: 0,
+  em_espera: 0,
   resolvido: 0,
+  indeferido: 0,
   fechado: 0,
 }
 

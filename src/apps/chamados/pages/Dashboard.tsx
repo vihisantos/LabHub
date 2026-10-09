@@ -38,7 +38,9 @@ export function Dashboard() {
       aberto: 0,
       a_caminho: 0,
       em_atendimento: 0,
+      em_espera: 0,
       resolvido: 0,
+      indeferido: 0,
       fechado: 0,
     }
     for (const t of tickets) {
@@ -110,7 +112,7 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3">
-        {(['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado'] as TicketStatus[]).map((status) => (
+        {(['aberto', 'a_caminho', 'em_atendimento', 'em_espera', 'resolvido', 'indeferido', 'fechado'] as TicketStatus[]).map((status) => (
           <div
             key={status}
             className={`rounded-xl bg-card p-4 shadow-[var(--shadow-card)] ${

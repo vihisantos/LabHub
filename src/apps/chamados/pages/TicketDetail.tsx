@@ -8,6 +8,7 @@ import {
   TICKET_PRIORITIES,
   TICKET_PRIORITY_LABELS,
   TICKET_PRIORITY_COLORS,
+  REASON_STATUS_OPTIONS,
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
 import { getPriority, getSlaInfo } from '../services/sla'
@@ -22,6 +23,7 @@ import { uploadPhotos } from '../utils/photo'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
 import type { TicketEvent } from '../types'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
+import { SheetOrDialog } from '../../../responsive/SheetOrDialog'
 
 const STATUS_FLOW: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
 
@@ -117,18 +119,20 @@ export function TicketDetail() {
    * Nos dois casos a tela reflete o que foi salvo: na fila, o contexto
    * atualiza; fora dela, a resposta do PATCH substitui o registro exibido.
    */
-  async function applyUpdate(data: Partial<Ticket>) {
-    if (!ticket) return
+  async function applyUpdate(data: Partial<Ticket>): Promise<boolean> {
+    if (!ticket) return false
     setWriteError('')
     try {
       if (hasLocal) {
         update(ticket.id, data)
-        return
+        return true
       }
       const saved = await ticketService.patchRemote(ticket.id, data)
       setRemoteTicket(saved)
+      return true
     } catch (err) {
       setWriteError(err instanceof Error ? err.message : 'Não foi possível salvar a alteração.')
+      return false
     }
   }
 
@@ -172,6 +176,46 @@ export function TicketDetail() {
   const [uploading, setUploading] = useState(false)
   const [claimError, setClaimError] = useState('')
   const [claiming, setClaiming] = useState(false)
+
+  // ── Modal de motivo: Em espera / Indeferir (issue #367) ───────────────────
+  // Motivo predefinido OBRIGATÓRIO + observação opcional; o backend valida de
+  // novo (fail-closed) e resolve o rótulo. `null` = modal fechado.
+  const [reasonModal, setReasonModal] = useState<null | 'em_espera' | 'indeferido'>(null)
+  const [reasonCode, setReasonCode] = useState('')
+  const [reasonNote, setReasonNote] = useState('')
+  const [reasonBusy, setReasonBusy] = useState(false)
+  const [reasonError, setReasonError] = useState('')
+
+  function openReasonModal(kind: 'em_espera' | 'indeferido') {
+    setReasonModal(kind)
+    setReasonCode('')
+    setReasonNote('')
+    setReasonError('')
+  }
+
+  async function handleReasonConfirm() {
+    if (!ticket || !reasonModal || reasonBusy) return
+    if (!reasonCode) {
+      setReasonError('Selecione um motivo predefinido.')
+      return
+    }
+    setReasonBusy(true)
+    setReasonError('')
+    const saved = await applyUpdate({
+      status: reasonModal,
+      reasonCode,
+      reasonNote: reasonNote.trim() || undefined,
+    })
+    setReasonBusy(false)
+    if (saved) {
+      setReasonModal(null)
+    }
+  }
+
+  async function handleResume() {
+    if (!ticket) return
+    await applyUpdate({ status: 'em_atendimento' })
+  }
 
   // ── Timeline: quatro estados distintos ─────────────────────────────────────
   // Antes disto era `.catch(() => {})`: qualquer falha (403 de autorização,
@@ -352,8 +396,12 @@ export function TicketDetail() {
     )
   }
 
+  // Issue #367 — em_espera/indeferido NÃO estão no fluxo linear do stepper:
+  // `currentIndex` -1 ⇒ nextStatus null ⇒ sem botão de avanço (o backend
+  // bloquearia a transição). As ações novas têm botões e modal próprios abaixo.
   const currentIndex = STATUS_FLOW.indexOf(ticket.status)
-  const nextStatus = currentIndex < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentIndex + 1] : null
+  const nextStatus =
+    currentIndex >= 0 && currentIndex < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentIndex + 1] : null
 
   const slaInfo = getSlaInfo(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
 
@@ -491,6 +539,51 @@ export function TicketDetail() {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium text-blue-600 dark:text-blue-400">{ticket.statusNote}</p>
             <p className="mt-0.5 text-[10px] text-fg-dim">Mensagem visível para o professor</p>
+          </div>
+        </div>
+      )}
+
+      {ticket.status === 'indeferido' && ticket.reasonLabel && (
+        // Issue #367 — indeferimento NUNCA é apresentado como resolvido:
+        // card vermelho próprio com motivo estruturado + observação opcional.
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-600 dark:text-red-400">
+              <icons.ui.close size={13} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</p>
+              <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{ticket.reasonLabel}</p>
+              {ticket.reasonNote && <p className="mt-0.5 text-[11px] text-fg-muted">{ticket.reasonNote}</p>}
+              <p className="mt-1 text-[10px] text-fg-dim">Motivo visível para o solicitante</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ticket.status === 'em_espera' && ticket.reasonLabel && (
+        // Issue #367 — espera é estado próprio (nem resolvido nem arquivado):
+        // card próprio com motivo estruturado + observação; retomável abaixo.
+        <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <icons.ui.clock size={16} className="mt-0.5 shrink-0 text-violet-500" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-violet-600 dark:text-violet-400">Em espera — {ticket.reasonLabel}</p>
+              {ticket.reasonNote && <p className="mt-0.5 text-[11px] text-fg-muted">{ticket.reasonNote}</p>}
+              <p className="mt-1 text-[10px] text-fg-dim">Motivo visível para o solicitante</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ticket.reasonLabel && ticket.status !== 'indeferido' && ticket.status !== 'em_espera' && (
+        // Motivo preservado de uma espera/indeferimento anterior (issue #367):
+        // a retomada preserva o motivo — ele permanece visível como histórico.
+        <div className="flex items-start gap-2 rounded-xl border border-line bg-input/60 px-4 py-3">
+          <icons.ui.clock size={16} className="mt-0.5 shrink-0 text-fg-muted" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-fg-muted">Motivo do último registro: {ticket.reasonLabel}</p>
+            {ticket.reasonNote && <p className="mt-0.5 text-[11px] text-fg-dim">{ticket.reasonNote}</p>}
           </div>
         </div>
       )}
@@ -883,6 +976,23 @@ export function TicketDetail() {
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h3 className="mb-3 text-xs font-semibold text-fg-muted">Timeline</h3>
         <div className="space-y-3">
+          {currentIndex === -1 && (
+            <div className="flex items-center gap-3">
+              <div
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                  ticket.status === 'indeferido' ? 'bg-red-500/20 text-red-500' : 'bg-violet-500 text-white'
+                }`}
+              >
+                {ticket.status === 'indeferido' ? <icons.ui.close size={12} /> : <icons.ui.clock size={12} />}
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-fg">{TICKET_STATUS_LABELS[ticket.status]}</p>
+                {ticket.reasonLabel && (
+                  <p className="mt-0.5 text-[10px] text-fg-dim">{ticket.reasonLabel}</p>
+                )}
+              </div>
+            </div>
+          )}
           {STATUS_FLOW.map((status, i) => {
             const isPast = i <= currentIndex
             const isCurrent = i === currentIndex
@@ -951,6 +1061,109 @@ export function TicketDetail() {
           {nextStatus === 'resolvido' && 'Marcar como Resolvido'}
           {nextStatus === 'fechado' && 'Fechar Chamado'}
         </button>
+      )}
+
+      {canOperate && inOpenFlow && !lockedByOther && canStatus && (
+        // Issue #367 — ações novas, separadas de Resolver e Arquivar. Ambas
+        // abrem modal com motivo predefinido OBRIGATÓRIO (backend valida de
+        // novo). Só estados ativos da fila: em_espera/indeferido/finalizados
+        // não têm estas ações.
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => openReasonModal('em_espera')}
+            className="rounded-xl border border-violet-500/40 bg-surface px-4 py-3 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:text-violet-400"
+          >
+            Em espera
+          </button>
+          <button
+            type="button"
+            onClick={() => openReasonModal('indeferido')}
+            className="rounded-xl border border-red-500/40 bg-surface px-4 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+          >
+            Indeferir
+          </button>
+        </div>
+      )}
+
+      {canOperate && ticket.status === 'em_espera' && !lockedByOther && canStatus && (
+        // Issue #367 — retomada: única saída de Em espera (→ em_atendimento).
+        // O motivo anterior é preservado pelo backend.
+        <button
+          type="button"
+          onClick={handleResume}
+          className="w-full rounded-xl bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-400"
+        >
+          Retomar atendimento
+        </button>
+      )}
+
+      {reasonModal !== null && (
+        <SheetOrDialog
+          open={reasonModal !== null}
+          onClose={() => { if (!reasonBusy) setReasonModal(null) }}
+          title={reasonModal === 'indeferido' ? 'Indeferir chamado' : 'Colocar em espera'}
+          role="alertdialog"
+        >
+          <div className="space-y-4 px-1 pb-2">
+            <p className="text-xs leading-relaxed text-fg-muted">
+              {reasonModal === 'indeferido'
+                ? 'O chamado sai da fila ativa e fica marcado como indeferido. O solicitante verá o resultado e o motivo.'
+                : 'O chamado sai da fila ativa e fica em espera. É possível retomar o atendimento depois.'}
+            </p>
+            <div>
+              <label htmlFor="ticket-reason-code" className="mb-1.5 block text-xs font-semibold text-fg">
+                Motivo <span aria-hidden="true" className="text-red-500">*</span>
+              </label>
+              <select
+                id="ticket-reason-code"
+                value={reasonCode}
+                onChange={(e) => { setReasonCode(e.target.value); setReasonError('') }}
+                className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-xs text-fg focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">Selecione o motivo...</option>
+                {REASON_STATUS_OPTIONS[reasonModal].map((option) => (
+                  <option key={option.code} value={option.code}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="ticket-reason-note" className="mb-1.5 block text-xs font-semibold text-fg">
+                Observação <span className="text-fg-dim">(opcional)</span>
+              </label>
+              <textarea
+                id="ticket-reason-note"
+                value={reasonNote}
+                onChange={(e) => setReasonNote(e.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="Detalhe adicional para o solicitante ou para o histórico..."
+                className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-xs text-fg placeholder:text-fg-dim focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            {reasonError && <p className="text-[11px] text-red-500">{reasonError}</p>}
+            {writeError && <p className="text-[11px] text-red-500">{writeError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { if (!reasonBusy) setReasonModal(null) }}
+                className="flex-1 rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-fg transition-colors hover:bg-input"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleReasonConfirm}
+                disabled={reasonBusy || !reasonCode}
+                className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  reasonModal === 'indeferido' ? 'bg-red-500 hover:bg-red-400' : 'bg-violet-500 hover:bg-violet-400'
+                }`}
+              >
+                {reasonBusy ? 'Salvando...' : reasonModal === 'indeferido' ? 'Indeferir' : 'Colocar em espera'}
+              </button>
+            </div>
+          </div>
+        </SheetOrDialog>
       )}
 
       {lightbox && (

@@ -13,7 +13,9 @@ const STATUS_MESSAGES: Record<TicketStatus, string> = {
   aberto: 'Aguardando técnico',
   a_caminho: 'Técnico a caminho',
   em_atendimento: 'Atendendo agora',
+  em_espera: 'Em espera',
   resolvido: 'Chamado resolvido',
+  indeferido: 'Chamado indeferido',
   fechado: 'Chamado concluído',
 }
 
@@ -317,12 +319,26 @@ export function TicketSuccess() {
 
   return (
     <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pt-16 pb-8">
-      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15">
-        <icons.ui.checkCircle size={40} className="text-emerald-500" />
-      </div>
+      {ticket.status === 'indeferido' ? (
+        // Issue #367 — X vermelho em destaque: o solicitante vê claramente o
+        // indeferimento, nunca apresentado como chamado resolvido.
+        <>
+          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-red-500/15">
+            <icons.ui.close size={40} className="text-red-500" />
+          </div>
+          <h1 className="text-2xl font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</h1>
+          <p className="mt-2 text-sm text-fg-muted">Este chamado não será atendido pela equipe de TI.</p>
+        </>
+      ) : (
+        <>
+          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15">
+            <icons.ui.checkCircle size={40} className="text-emerald-500" />
+          </div>
 
-      <h1 className="text-2xl font-bold text-fg">Chamado enviado!</h1>
-      <p className="mt-2 text-sm text-fg-muted">Seu chamado foi registrado. Ele está aguardando atendimento da equipe.</p>
+          <h1 className="text-2xl font-bold text-fg">Chamado enviado!</h1>
+          <p className="mt-2 text-sm text-fg-muted">Seu chamado foi registrado. Ele está aguardando atendimento da equipe.</p>
+        </>
+      )}
 
       <div className="mt-8 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 flex items-center justify-center gap-3">
@@ -377,12 +393,31 @@ export function TicketSuccess() {
         </div>
 
         <div className="mt-3">
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
-          >
-            {TICKET_STATUS_LABELS[ticket.status]}
-          </span>
-          {statusMsg && <p className="mt-2 text-sm font-medium text-fg">{statusMsg}</p>}
+          {ticket.status === 'indeferido' ? (
+            // Issue #367 — motivo estruturado + observação do indeferimento.
+            <div className="space-y-2">
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
+              >
+                {TICKET_STATUS_LABELS[ticket.status]}
+              </span>
+              {ticket.reasonLabel && (
+                <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-600 dark:text-red-400">
+                  Motivo: {ticket.reasonLabel}
+                </p>
+              )}
+              {ticket.reasonNote && <p className="text-xs text-fg-muted">{ticket.reasonNote}</p>}
+            </div>
+          ) : (
+            <>
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
+              >
+                {TICKET_STATUS_LABELS[ticket.status]}
+              </span>
+              {statusMsg && <p className="mt-2 text-sm font-medium text-fg">{statusMsg}</p>}
+            </>
+          )}
         </div>
 
         <p className="mt-3 border-t border-line pt-3 text-[10px] text-fg-dim">

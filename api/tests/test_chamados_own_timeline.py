@@ -636,7 +636,12 @@ def test_solicitante_recebe_apenas_os_campos_da_projection(api_module, client,
     r = client.get("/api/chamados/meu-1/events", headers=headers)
 
     evento = r.get_json()["events"][0]
-    assert set(evento) == {"id", "type", "content", "author", "photos", "createdAt"}
+    assert set(evento) == {
+        "id", "type", "content", "author", "photos", "createdAt",
+        # Motivo estruturado de espera/indeferimento (issue #367) — a
+        # projeção da timeline passa a devolvê-los (NULL nos eventos comuns).
+        "reasonCode", "reasonLabel",
+    }
     assert "workspace_id" not in evento
     assert "ticket_id" not in evento
 

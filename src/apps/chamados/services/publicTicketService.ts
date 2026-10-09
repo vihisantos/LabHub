@@ -72,6 +72,10 @@ export interface PublicTicket {
   /** Avaliação enviada pelo próprio professor — devolvida pela API pública. */
   feedbackComment?: string | null
   feedbackAt?: string | null
+  /** Motivo estruturado de espera/indeferimento (issue #367). */
+  reasonCode?: string | null
+  reasonLabel?: string | null
+  reasonNote?: string | null
   createdAt?: string
   updatedAt?: string
   closedAt?: string | null
@@ -126,6 +130,9 @@ export function toTicket(p: PublicTicket): Ticket {
     feedbackRating: p.feedbackRating ?? undefined,
     feedbackComment: p.feedbackComment ?? undefined,
     feedbackAt: p.feedbackAt ?? undefined,
+    reasonCode: p.reasonCode ?? undefined,
+    reasonLabel: p.reasonLabel ?? undefined,
+    reasonNote: p.reasonNote ?? undefined,
     photos: p.photos,
     createdAt: p.createdAt ?? new Date().toISOString(),
     updatedAt: p.updatedAt ?? new Date().toISOString(),

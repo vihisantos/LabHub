@@ -19,7 +19,9 @@ const PERIOD_OPTIONS: { label: string; days: ReportPeriodDays }[] = [
   { label: 'Todo o período', days: 0 },
 ]
 
-const STATUS_ORDER: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
+const STATUS_ORDER: TicketStatus[] = [
+  'aberto', 'a_caminho', 'em_atendimento', 'em_espera', 'resolvido', 'indeferido', 'fechado',
+]
 const PRIORITY_ORDER = ['baixa', 'normal', 'alta', 'urgente']
 
 function BarList({ items, total }: { items: [string, number][]; total: number }) {
