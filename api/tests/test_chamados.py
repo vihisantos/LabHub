@@ -1174,10 +1174,16 @@ def test_schema_inclui_assigned_to_user_id(api_module):
     assert 'ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "assignedToUserId"' in api_module.CHAMADOS_TABLE_SQL
 
 
-def test_create_aceita_assigned_to_user_id(client, fake_requests):
+def test_create_ignora_assigned_to_do_corpo(client, fake_requests):
+    """Criação pública NUNCA aceita responsável escolhido pelo cliente (P2-C).
+
+    Enviar `assignedTo`/`assignedToUserId` no corpo não atribui o chamado: o
+    backend grava SEM responsável; a atribuição ocorre somente pelos fluxos
+    autorizados do servidor (claim atômico / PATCH com `ticket.assign`).
+    """
     _route_workspace_ok(fake_requests)
     _route_ticket_number(fake_requests, last=5)
-    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6, assignedTo="Técnico 2", assignedToUserId="user-2"))
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6, assignedTo="", assignedToUserId=""))
 
     resp = client.post(
         "/api/chamados",
@@ -1186,8 +1192,8 @@ def test_create_aceita_assigned_to_user_id(client, fake_requests):
 
     assert resp.status_code == 200
     insert = fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")[0]["kwargs"]["json"]
-    assert insert["assignedToUserId"] == "user-2"
-    assert insert["assignedTo"] == "Técnico 2"
+    assert insert["assignedToUserId"] == "", "Cliente não pode definir o responsável"
+    assert insert["assignedTo"] == "", "Cliente não pode definir o responsável"
 
 
 def _route_assignment_get(fake_requests, prev_row):

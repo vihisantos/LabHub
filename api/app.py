@@ -2522,8 +2522,12 @@ def chamados_create():
             'reportedBy': reported_by,
             'reportedByEmail': str(body.get('reportedByEmail') or '').strip(),
             'reportedByUserId': reporter_user_id,
-            'assignedTo': str(body.get('assignedTo') or ''),
-            'assignedToUserId': str(body.get('assignedToUserId') or ''),
+            # Atribuição NUNCA vem do corpo na criação pública (issue #371,
+            # P2-C): o cliente não pode escolher arbitrariamente o responsável.
+            # O chamado entra SEM responsável; a atribuição acontece pelos
+            # fluxos confiáveis do servidor (claim atômico / PATCH autorizado).
+            'assignedTo': '',
+            'assignedToUserId': '',
             'photos': photos,
             'ticketNumber': ticket_number,
             'tracking_token_hash': tracking_token_hash,
@@ -3120,8 +3124,11 @@ def chamados_manage(ticket_id):
 
         prev = None
         assignment_changed = False
+        prev_assigned_to = None
         if 'assignedToUserId' in updates:
-            # Busca o responsável atual para só notificar quando houver troca/atribuição
+            # Busca o responsável atual (para a guarda condicional e a
+            # notificação). Guardado em `prev_assigned_to` ANTES do bloco de
+            # status (que reusa a variável `prev`) para montar o PATCH atômico.
             fetch = requests.get(
                 f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=assignedToUserId',
                 headers=_supabase_headers(),
@@ -3130,7 +3137,8 @@ def chamados_manage(ticket_id):
             if not fetch.ok:
                 return jsonify({'error': 'Erro ao buscar chamado'}), 502
             prev = (fetch.json() or [{}])[0]
-            assignment_changed = (prev.get('assignedToUserId') or '') != (updates.get('assignedToUserId') or '')
+            prev_assigned_to = str(prev.get('assignedToUserId') or '')
+            assignment_changed = prev_assigned_to != (str(updates.get('assignedToUserId') or ''))
         if 'status' in updates:
             if updates['status'] not in CHAMADOS_STATUSES:
                 return jsonify({'error': 'Status inválido'}), 400
@@ -3181,16 +3189,28 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Nada para atualizar'}), 400
         updates['updatedAt'] = datetime.now(timezone.utc).isoformat()
 
-        # ── Concorrência (issue #367) ─────────────────────────────────────────
+        # ── Concorrência (issue #367 / #371 P2-B) ─────────────────────────────
         # Transição de status é PATCH CONDICIONAL no banco: só alcança linhas
         # que AINDA estão no `status_prev` lido antes da autorização. Se outro
         # usuário alterou o status no meio (race perdida), o update afeta
         # 0 linhas e este request recebe 409 — mesmo padrão atômico do claim.
         # Sem isso, o último PATCH venceria (last-write-wins) e um chamado
         # poderia ser resolvido e indeferido "ao mesmo tempo".
+        #
+        # A REATRIBUIÇÃO usa a mesma guarda condicional: quando o responsável
+        # muda (`assignment_changed`), o PATCH só afeta linhas cujo
+        # `assignedToUserId` atual ainda é o valor lido antes. Dois assigners
+        # simultâneos disputam a mesma linha; o perdedor afeta 0 linhas → 409,
+        # sem sobrescrita silenciosa do vencedor. "Sem responsável" é string
+        # vazia (schema TEXT), logo o guard cobre '' E NULL (como no claim).
         patch_url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
         if 'status' in updates:
             patch_url += f'&status=eq.{quote(status_prev)}'
+        if assignment_changed:
+            if prev_assigned_to:
+                patch_url += f'&assignedToUserId=eq.{quote(prev_assigned_to)}'
+            else:
+                patch_url += '&or=(assignedToUserId.is.null,assignedToUserId.eq.)'
 
         resp = requests.patch(
             patch_url,
@@ -3202,7 +3222,7 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Erro ao atualizar chamado'}), 502
         rows = resp.json()
         if not rows:
-            if 'status' in updates:
+            if 'status' in updates or assignment_changed:
                 return jsonify({
                     'error': 'Conflito: o chamado foi atualizado por outro usuário. Atualize e tente novamente.'
                 }), 409
@@ -3562,6 +3582,9 @@ def public_chamados_feedback(tracking_token):
     """Registra feedback (1-5) do professor para o próprio chamado.
     - Só permite quando resolvido/fechado.
     - Uma única vez por chamado (segunda tentativa → 409).
+    - Atômico (issue #371 P2-A): o PATCH é condicional a `feedbackRating=is.null`
+      — entre requisições concorrentes, só a PRIMEIRA grava; a perdedora afeta
+      0 linhas e responde 409 (nunca sobrescreve a avaliação vencedora).
     - O ticket é derivado do token, nunca do corpo da requisição.
     """
     ticket = g.tracking_ticket
@@ -3593,8 +3616,13 @@ def public_chamados_feedback(tracking_token):
     comment = str(body.get('comment') or '').strip()[:500]
 
     now = datetime.now(timezone.utc).isoformat()
+    # PATCH CONDICIONAL (issue #371 P2-A): a gravação só alcança linhas cujo
+    # feedback ainda não foi registrado. Se duas requisições concorrentes
+    # passarem pela verificação de cima, apenas a primeira grava; a perdedora
+    # afeta 0 linhas → 409. Sem isso, o último PATCH venceria (last-write-wins)
+    # e uma nota/comentário poderia sobrescrever silenciosamente a avaliação.
     resp = requests.patch(
-        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}',
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}&feedbackRating=is.null',
         headers={**_supabase_headers(), 'Prefer': 'return=representation'},
         json={
             'feedbackRating': rating,
@@ -3604,9 +3632,13 @@ def public_chamados_feedback(tracking_token):
         },
         timeout=10,
     )
-    if not resp.ok or not resp.json():
+    if not resp.ok:
         return jsonify({'error': 'Erro ao registrar o feedback'}), 502
-    return jsonify({'ticket': _project_public_ticket(resp.json()[0])})
+    rows = resp.json() or []
+    if not rows:
+        # Race perdida: outra requisição gravou a primeira avaliação antes.
+        return jsonify({'error': 'Chamado já avaliado'}), 409
+    return jsonify({'ticket': _project_public_ticket(rows[0])})
 
 
 @app.route('/api/public/chamados/<tracking_token>/subscribe', methods=['POST'])
