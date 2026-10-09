@@ -1222,6 +1222,10 @@ def _assignment_push_fixture(api_module, monkeypatch):
 
 
 def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module, monkeypatch):
+    # Perfil do assignee ANTES de _setup_auth (first-match wins): a rota
+    # específica vence para `profiles?id=eq.user-2`; o fetch do caller — URL
+    # sem query — cai na rota genérica registrada depois.
+    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, target_kwargs = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignee_membership(fake_requests, "user-2")
@@ -1244,6 +1248,10 @@ def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module
 
 
 def test_patch_atribuicao_sem_mudanca_nao_avisa(client, fake_requests, api_module, monkeypatch):
+    # Perfil do assignee com o MESMO nome armazenado, registrado ANTES de
+    # _setup_auth (first-match wins): valores iguais não geram notificação
+    # nem guarda de atribuição.
+    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, _ = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignee_membership(fake_requests, "user-2")

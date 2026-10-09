@@ -12,8 +12,9 @@ Cenários cobertos:
   - Remoção de responsável (`assignedToUserId=''`) não exige membership check
     do alvo, mas MANTÉM a autorização do caller: um caller sem `ticket.assign`
     recebe 403 mesmo para unassign.
-  - PATCH com só `assignedTo` (sem `assignedToUserId`): membership check NÃO é
-    executado — o campo `assignedToUserId` isolado é que gatilha a validação.
+  - PATCH com só `assignedTo` (sem `assignedToUserId`): REJEITADO (400) — a
+    identidade não pode ser validada sem o ID; aceitar deixaria o nome de um
+    técnico apontando para o ID de outro.
 
 Garantia de segurança: nenhum filtro visual no frontend pode substituir esta
 validação. Um PATCH HTTP manipulado que inclua um `assignedToUserId` de outro
@@ -164,7 +165,9 @@ def client(api_module, fake_requests, monkeypatch):
 def _setup_caller_auth(fake_requests, monkeypatch, profile):
     """Autentica o caller: JWT → `auth._verify_jwt` → perfil + memberships ativas."""
     monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": profile["id"]})
-    fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
+    # Rota ESPECÍFICA do caller (first-match wins): permite rotear o perfil do
+    # ASSIGNEE (`profiles?id=eq.{tech}`) separadamente nos testes de atribuição.
+    fake_requests.route("GET", f"profiles?id=eq.{profile['id']}", FakeResponse([profile]))
     # `_get_user_workspace_ids` → memberships ativas (`params=` com select=workspace_id).
     ws_ids = profile.get("workspace_ids") or []
     fake_requests.route(
@@ -340,6 +343,12 @@ def test_assign_same_workspace_accepted(client, fake_requests, monkeypatch):
         f"memberships?profile_id=eq.{TECH_A_USER_ID}&workspace_id=eq.{WS_A}&status=eq.active",
         FakeResponse([{"id": "m-tech-a", "workspace_id": WS_A, "profile_id": TECH_A_USER_ID, "status": "active"}]),
     )
+    # Perfil do assignee (fonte canônica do nome gravado no servidor).
+    fake_requests.route(
+        "GET",
+        f"profiles?id=eq.{TECH_A_USER_ID}&select=name",
+        FakeResponse([{"name": "Técnico A"}]),
+    )
     _setup_successful_patch(fake_requests, "Técnico A", TECH_A_USER_ID)
 
     resp = client.patch(
@@ -354,6 +363,10 @@ def test_assign_same_workspace_accepted(client, fake_requests, monkeypatch):
     )
     data = resp.get_json()
     assert data.get("ticket", {}).get("assignedToUserId") == TECH_A_USER_ID
+    # Consistência: o payload grava nome e ID do MESMO responsável.
+    patch_json = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert patch_json.get("assignedTo") == "Técnico A"
+    assert patch_json.get("assignedToUserId") == TECH_A_USER_ID
 
 
 # ── Teste 4: técnico com membership inativa é rejeitado ──────────────────────
@@ -450,18 +463,17 @@ def test_unassign_skips_assignee_membership_check(client, fake_requests, monkeyp
     )
 
 
-# ── Teste 6: apenas assignedTo sem assignedToUserId não gatilha check ─────────
+# ── Teste 6: apenas assignedTo (sem ID) é rejeitado ──────────────────────────
 
-def test_assign_without_userid_skips_membership_check(client, fake_requests, monkeypatch):
-    """PATCH com só `assignedTo` (sem `assignedToUserId`) não executa membership check.
+def test_assign_name_only_rejected_requires_userid(client, fake_requests, monkeypatch):
+    """PATCH com só `assignedTo` (sem `assignedToUserId`) é REJEITADO (400).
 
-    Isso preserva compatibilidade com casos legados onde assignedToUserId não é
-    enviado (ex: assignedTo='Técnico A' sem UUID). A validação só ocorre quando
-    um UUID explícito é fornecido.
+    A identidade não pode ser validada no servidor sem o ID: aceitar deixaria
+    o nome de um técnico apontando para o ID de outro. Nenhuma escrita,
+    membership check ou consulta de perfil do assignee ocorre.
     """
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
-    _setup_successful_patch(fake_requests, "Técnico A", "")
 
     resp = client.patch(
         f"/api/chamados/{TICKET_ID}",
@@ -470,10 +482,12 @@ def test_assign_without_userid_skips_membership_check(client, fake_requests, mon
         headers=headers,
     )
 
-    assert resp.status_code == 200, (
-        f"Esperado 200 para patch sem assignedToUserId, obteve {resp.status_code}: "
+    assert resp.status_code == 400, (
+        f"Esperado 400 para patch só com assignedTo, obteve {resp.status_code}: "
         f"{resp.get_json()}"
     )
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert not patches, "PATCH não deveria ser chamado sem assignedToUserId"
     membership_checks = [
         c for c in fake_requests.calls
         if "memberships" in c["url"]
@@ -483,6 +497,9 @@ def test_assign_without_userid_skips_membership_check(client, fake_requests, mon
     ]
     assert not membership_checks, (
         "Membership check não deveria ser executado quando assignedToUserId não está no payload"
+    )
+    assert not fake_requests.calls_for("GET", "profiles?id=eq.user-tech"), (
+        "Perfil do assignee não deveria ser consultado sem ID"
     )
 
 

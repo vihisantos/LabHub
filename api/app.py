@@ -3103,6 +3103,7 @@ def chamados_manage(ticket_id):
         # Só valida quando há um UUID explícito, garantindo que o técnico é membro
         # ATIVO do mesmo workspace do ticket.
         _new_assignee_id = str(updates.get('assignedToUserId') or '').strip()
+        _canonical_name = ''
         if _new_assignee_id:
             try:
                 _assignee_check = requests.get(
@@ -3118,6 +3119,18 @@ def chamados_manage(ticket_id):
                     return jsonify({
                         'error': 'Técnico não pertence ao workspace deste chamado'
                     }), 400
+                # Consistência nome/ID (revisão P2): o nome gravado vem do
+                # PERFIL do ID validado — nunca do corpo do cliente. O nome
+                # não é prova de identidade; o ID é. Assim, nome e ID gravados
+                # correspondem sempre ao mesmo responsável.
+                _assignee_name_resp = requests.get(
+                    f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(_new_assignee_id)}&select=name',
+                    headers=_supabase_headers(),
+                    timeout=10,
+                )
+                if not _assignee_name_resp.ok or not (_assignee_name_resp.json() or []):
+                    return jsonify({'error': 'Não foi possível validar o responsável'}), 502
+                _canonical_name = str((_assignee_name_resp.json() or [{}])[0].get('name') or '').strip()
             except Exception as _assignee_exc:
                 logger.error('Hardening assignee membership check failed: %s', _assignee_exc)
                 return jsonify({'error': 'Não foi possível validar o responsável'}), 502
@@ -3126,21 +3139,39 @@ def chamados_manage(ticket_id):
         assignment_changed = False
         prev_assigned_to = None
         prev_assigned_to_name = ''
-        # Normalização consistente (revisão corretiva P2): valores vazios ou
-        # compostos só de espaços viram '' — nunca uma atribuição inválida como
-        # ' ' — e a comparação com o estado anterior usa o mesmo valor escrito.
-        if 'assignedToUserId' in updates:
-            updates['assignedToUserId'] = str(updates.get('assignedToUserId') or '').strip()
-        if 'assignedTo' in updates:
-            updates['assignedTo'] = str(updates.get('assignedTo') or '').strip()
-
         if 'assignedTo' in updates or 'assignedToUserId' in updates:
+            # Normalização (revisão corretiva P2): valores vazios ou compostos
+            # só de espaços viram '' — nunca uma atribuição inválida como ' '.
+            if 'assignedToUserId' in updates:
+                updates['assignedToUserId'] = str(updates.get('assignedToUserId') or '').strip()
+            if 'assignedTo' in updates:
+                updates['assignedTo'] = str(updates.get('assignedTo') or '').strip()
+
+            _new_assignee_id = str(updates.get('assignedToUserId') or '').strip()
+            if _new_assignee_id:
+                # Atribuição REAL: o nome gravado é o canônico do PERFIL do ID
+                # validado (acima) — nunca o enviado pelo cliente. Gravar os
+                # DOIS campos nesta MESMA escrita garante que nome e ID
+                # correspondem ao mesmo responsável: alterar só o nome ou só o
+                # id não deixa mais estados divergentes (novo uid com nome
+                # velho, ou nome de um técnico apontando para o id de outro).
+                updates['assignedToUserId'] = _new_assignee_id
+                updates['assignedTo'] = _canonical_name
+            elif updates.get('assignedTo'):
+                # Só `assignedTo` (sem ID): a identidade não pode ser validada
+                # no servidor — exigir os dois campos juntos nas alterações de
+                # responsável.
+                return jsonify({'error': 'Informe também o ID do responsável (assignedToUserId)'}), 400
+            else:
+                # Remoção: limpa os DOIS campos (normaliza remoção parcial —
+                # nunca deixa ID sem nome nem nome sem ID).
+                updates['assignedToUserId'] = ''
+                updates['assignedTo'] = ''
+
             # Busca o responsável atual (nome E id) para a guarda condicional,
             # a notificação e a consistência nome/id. Guardado em
             # `prev_assigned_to*` ANTES do bloco de status (que reusa a variável
-            # `prev`) para montar o PATCH atômico. Alterar SOMENTE `assignedTo`
-            # (nome) também entra na guarda: nome e id são a mesma atribuição e
-            # não podem contornar a proteção contra concorrência.
+            # `prev`) para montar o PATCH atômico.
             fetch = requests.get(
                 f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
                 f'&select=assignedTo,assignedToUserId',
@@ -3152,10 +3183,10 @@ def chamados_manage(ticket_id):
             prev = (fetch.json() or [{}])[0]
             prev_assigned_to = str(prev.get('assignedToUserId') or '')
             prev_assigned_to_name = str(prev.get('assignedTo') or '')
-            if 'assignedToUserId' in updates:
-                assignment_changed = prev_assigned_to != updates['assignedToUserId']
-            if 'assignedTo' in updates:
-                assignment_changed = assignment_changed or (prev_assigned_to_name != updates['assignedTo'])
+            assignment_changed = (
+                prev_assigned_to != updates['assignedToUserId']
+                or prev_assigned_to_name != updates['assignedTo']
+            )
         if 'status' in updates:
             if updates['status'] not in CHAMADOS_STATUSES:
                 return jsonify({'error': 'Status inválido'}), 400
@@ -3233,7 +3264,7 @@ def chamados_manage(ticket_id):
                 patch_url += f'&assignedToUserId=eq.{quote(prev_assigned_to)}'
             else:
                 patch_url += '&or=(assignedToUserId.is.null,assignedToUserId.eq.)'
-            if 'assignedTo' in updates and prev_assigned_to_name != updates['assignedTo']:
+            if prev_assigned_to_name != updates['assignedTo']:
                 patch_url += f'&assignedTo=eq.{quote(prev_assigned_to_name)}'
 
         resp = requests.patch(

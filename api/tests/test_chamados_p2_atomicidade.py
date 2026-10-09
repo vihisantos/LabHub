@@ -15,6 +15,10 @@ P2-B — Reatribuição atômica (mesmo padrão condicional do claim/status)
   - O PATCH de atribuição inclui guarda condicional no responsável lido antes:
     `assignedToUserId=eq.{antigo}` (ou `or=(...)` quando estava SEM responsável).
   - Se a atribuição mudou entre leitura e escrita (0 linhas), responde 409.
+  - Consistência nome/ID: o nome gravado é o canônico do PERFIL do ID validado
+    (`profiles?id=eq.{id}`) — nunca o enviado pelo cliente. Só-nome (sem ID) é
+    rejeitado (400); remoção limpa os DOIS campos. Nome e ID gravados
+    correspondem sempre ao mesmo responsável.
   - Usuário sem `ticket.assign` → 403; atribuição cross-workspace → 400.
   - Reatribuição/unassign válidos mantêm a guarda e retornam 200.
   - Operação mista (status + atribuição) aplica AMBAS as guardas.
@@ -180,7 +184,9 @@ def _hash(token: str) -> str:
 
 def _setup_caller_auth(fake_requests, monkeypatch, profile):
     monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": profile["id"]})
-    fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
+    # Rota ESPECÍFICA do caller (first-match wins): permite que o fetch do
+    # perfil do ASSIGNEE (`profiles?id=eq.{tech}`) seja roteado separadamente.
+    fake_requests.route("GET", f"profiles?id=eq.{profile['id']}", FakeResponse([profile]))
     ws_ids = profile.get("workspace_ids") or []
     fake_requests.route(
         "GET",
@@ -253,6 +259,15 @@ def _route_assignee_membership(fake_requests, profile_id: str, ok: bool = True):
         "GET",
         f"memberships?profile_id=eq.{profile_id}&workspace_id=eq.{WS_A}&status=eq.active",
         FakeResponse(payload),
+    )
+
+
+def _route_assignee_profile(fake_requests, profile_id: str, name: str):
+    """Perfil do responsável validado — fonte canônica do nome gravado."""
+    fake_requests.route(
+        "GET",
+        f"profiles?id=eq.{profile_id}&select=name",
+        FakeResponse([{"name": name}]),
     )
 
 
@@ -450,6 +465,7 @@ def test_reassign_conflict_when_prev_unassigned(client, fake_requests, monkeypat
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
     _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_A_USER_ID, "Técnico A")
     _route_prev_owner(fake_requests, "")  # lido como sem responsável
     fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([]))
 
@@ -471,6 +487,7 @@ def test_reassign_conflict_when_owner_changed_between_read_and_write(client, fak
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
     _route_assignee_membership(fake_requests, TECH_B_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_B_USER_ID, "Técnico B")
     _route_prev_owner(fake_requests, TECH_A_USER_ID)  # responsável atual lido
     fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([]))
 
@@ -527,6 +544,7 @@ def test_reassign_valid_keeps_atomic_guard(client, fake_requests, monkeypatch):
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
     _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_A_USER_ID, "Técnico A")
     _route_prev_owner(fake_requests, "")
     fake_requests.route(
         "PATCH",
@@ -574,6 +592,7 @@ def test_reassign_with_status_change_applies_both_guards(client, fake_requests, 
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A, extra_actions=("ticket.status",))
     _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_A_USER_ID, "Técnico A")
     _route_prev_owner(fake_requests, "")
     fake_requests.route(
         "GET",
@@ -602,52 +621,60 @@ def test_reassign_with_status_change_applies_both_guards(client, fake_requests, 
     )
 
 
-# ── revisão corretiva P2 — atomicidade da atribuição ───────────────────────
+# ── revisão corretiva P2 — consistência nome/ID da atribuição ──────────────
 
-def test_reassign_only_name_change_guarded_and_wins(client, fake_requests, monkeypatch):
-    """Alterar SOMENTE `assignedTo` (nome) não contorna a proteção (req #1).
+def test_reassign_name_only_rejected_400_no_writes(client, fake_requests, monkeypatch):
+    """Alterar SOMENTE `assignedTo` (sem ID) é rejeitado (req #1).
 
-    O guard de nome entra no MESMO PATCH condicional: a linha só é escrita se o
-    nome/id lidos antes ainda estiverem presentes.
+    A identidade não pode ser validada no servidor sem o ID: aceitar deixaria
+    o nome de um técnico apontando para o ID de outro (ou de ninguém). Nenhuma
+    escrita, membership check ou fetch de perfil ocorre.
     """
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
-    _route_prev_owner(fake_requests, "", "")
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}", json={"assignedTo": "Técnico B"}, headers=headers)
+
+    assert resp.status_code == 400, resp.get_json()
+    assert "assignedToUserId" in (resp.get_json().get("error") or "")
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets"), "Nenhuma escrita deve ocorrer"
+    membership_checks = [
+        c for c in fake_requests.calls
+        if "memberships" in c["url"] and "status=eq.active" in c["url"]
+        and ASSIGNER_A_USER_ID not in c["url"]
+    ]
+    assert not membership_checks, "Membership check não deve rodar sem ID"
+    assert not fake_requests.calls_for("GET", "profiles?id=eq.user-tech"), (
+        "Perfil do assignee não deve ser consultado sem ID"
+    )
+
+
+def test_unassign_name_only_empty_clears_both_fields(client, fake_requests, monkeypatch):
+    """Remoção enviando SÓ `assignedTo` vazio: limpa os DOIS campos (req #6).
+
+    Não deixa ID sem nome: a remoção é uma única escrita condicional gravando
+    `assignedTo=''` E `assignedToUserId=''`, com guarda no responsável lido.
+    """
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_prev_owner(fake_requests, TECH_A_USER_ID, name="Técnico A")
     fake_requests.route(
         "PATCH",
         f"chamados_tickets?id=eq.{TICKET_ID}",
-        FakeResponse([_ticket_row(assigned_to="Técnico A")]),
+        FakeResponse([_ticket_row()]),  # assignee vazio após a escrita
     )
 
-    resp = client.patch(f"/api/chamados/{TICKET_ID}", json={"assignedTo": "Técnico A"}, headers=headers)
+    resp = client.patch(f"/api/chamados/{TICKET_ID}", json={"assignedTo": "   "}, headers=headers)
 
     assert resp.status_code == 200, resp.get_json()
     patches = fake_requests.calls_for("PATCH", "chamados_tickets")
     assert len(patches) == 1
+    patch_json = patches[0]["kwargs"]["json"]
+    assert patch_json.get("assignedTo") == ""
+    assert patch_json.get("assignedToUserId") == "", "ID também deve ser limpo na remoção"
     url = patches[0]["url"]
-    assert "or=(assignedToUserId.is.null,assignedToUserId.eq.)" in url
-    assert f"assignedTo=eq." in url, "Alteração só de nome deve ser condicional ao nome anterior"
-    assert patches[0]["kwargs"]["json"].get("assignedTo") == "Técnico A"
-
-
-def test_reassign_only_name_change_conflict_409(client, fake_requests, monkeypatch):
-    """Só nome mudando: se o agente de competição alterou a atribuição antes,
-    o PATCH não casa o responsável lido → 409, sem sobrescrita (req #1 e #6)."""
-    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
-    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
-    _route_prev_owner(fake_requests, TECH_A_USER_ID, name="Técnico A")
-    fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([]))
-
-    resp = client.patch(f"/api/chamados/{TICKET_ID}", json={"assignedTo": "Técnico B"}, headers=headers)
-
-    assert resp.status_code == 409, resp.get_json()
-    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
-    assert len(patches) == 1
-    url = patches[0]["url"]
-    assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in url
-    assert f"assignedTo=eq.T%C3%A9cnico%20A" in url or "assignedTo=eq.T" in url, (
-        "Guard de nome presente mesmo quando só o nome muda"
-    )
+    assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in url, "Guarda casa com o responsável lido"
+    assert f"assignedTo=eq.T%C3%A9cnico%20A" in url or "assignedTo=eq.T" in url
 
 
 def test_reassign_whitespace_assignee_normalized_to_empty(client, fake_requests, monkeypatch):
@@ -679,6 +706,7 @@ def test_reassign_prev_null_owner_uses_or_guard(client, fake_requests, monkeypat
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
     _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_A_USER_ID, "Técnico A")
     fake_requests.route(
         "GET",
         f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedTo,assignedToUserId",
@@ -700,10 +728,15 @@ def test_reassign_prev_null_owner_uses_or_guard(client, fake_requests, monkeypat
 
 
 def test_reassign_both_fields_single_atomic_patch(client, fake_requests, monkeypatch):
-    """Nome + id mudando na mesma operação: UMA escrita condicional grava ambos (req #2/#3)."""
+    """Nome + id mudando na mesma operação: UMA escrita condicional grava ambos (req #2/#3).
+
+    O nome enviado pelo cliente NÃO é fonte de identidade: mesmo com um nome
+    errado no corpo, o payload grava o nome canônico do perfil do ID validado.
+    """
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
     _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_A_USER_ID, "Técnico A")
     _route_prev_owner(fake_requests, "", "")
     fake_requests.route(
         "PATCH",
@@ -712,7 +745,7 @@ def test_reassign_both_fields_single_atomic_patch(client, fake_requests, monkeyp
     )
 
     resp = client.patch(f"/api/chamados/{TICKET_ID}",
-                        json={"assignedTo": "Técnico A", "assignedToUserId": TECH_A_USER_ID},
+                        json={"assignedTo": "Nome Errado do Cliente", "assignedToUserId": TECH_A_USER_ID},
                         headers=headers)
 
     assert resp.status_code == 200, resp.get_json()
@@ -720,7 +753,9 @@ def test_reassign_both_fields_single_atomic_patch(client, fake_requests, monkeyp
     assert len(patches) == 1, "Os dois campos devem ser gravados numa única escrita"
     patch_json = patches[0]["kwargs"]["json"]
     assert patch_json.get("assignedToUserId") == TECH_A_USER_ID
-    assert patch_json.get("assignedTo") == "Técnico A"
+    assert patch_json.get("assignedTo") == "Técnico A", (
+        "Nome gravado deve ser o canônico do perfil — não o do cliente"
+    )
     url = patches[0]["url"]
     assert "or=(assignedToUserId.is.null,assignedToUserId.eq.)" in url
     assert "assignedTo=eq." in url
@@ -732,6 +767,7 @@ def test_reassign_combined_conflict_has_no_partial_effects(client, fake_requests
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A, extra_actions=("ticket.status",))
     _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_A_USER_ID, "Técnico A")
     _route_prev_owner(fake_requests, "")
     fake_requests.route(
         "GET",
@@ -780,18 +816,26 @@ def test_reassign_inactive_assignee_rejected_400(client, fake_requests, monkeypa
 
     assert resp.status_code == 400, resp.get_json()
     assert not fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert not fake_requests.calls_for("GET", "profiles?id=eq.user-tech"), (
+        "Validação de identidade (perfil) não deve rodar quando a membership falha"
+    )
 
 
 def test_reassign_uid_only_change_kept_guarded(client, fake_requests, monkeypatch):
-    """Só `assignedToUserId` mudando também é condicional ao responsável lido (req #2)."""
+    """Só `assignedToUserId` mudando também é condicional ao responsável lido (req #2).
+
+    O nome NÃO fica desatualizado: o servidor grava o canônico do perfil do ID
+    validado na MESMA escrita (o cliente não enviou nome).
+    """
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
     _route_assignee_membership(fake_requests, TECH_B_USER_ID)
+    _route_assignee_profile(fake_requests, TECH_B_USER_ID, "Técnico B")
     _route_prev_owner(fake_requests, TECH_A_USER_ID, name="Técnico A")
     fake_requests.route(
         "PATCH",
         f"chamados_tickets?id=eq.{TICKET_ID}",
-        FakeResponse([_ticket_row(assigned_to_user_id=TECH_B_USER_ID)]),
+        FakeResponse([_ticket_row(assigned_to="Técnico B", assigned_to_user_id=TECH_B_USER_ID)]),
     )
 
     resp = client.patch(f"/api/chamados/{TICKET_ID}",
@@ -799,8 +843,36 @@ def test_reassign_uid_only_change_kept_guarded(client, fake_requests, monkeypatc
                         headers=headers)
 
     assert resp.status_code == 200, resp.get_json()
-    url = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["url"]
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert len(patches) == 1
+    url = patches[0]["url"]
     assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in url, "Guard casa com o id anterior"
+    patch_json = patches[0]["kwargs"]["json"]
+    assert patch_json.get("assignedToUserId") == TECH_B_USER_ID
+    assert patch_json.get("assignedTo") == "Técnico B", (
+        "Nome deve ser derivado do perfil do ID — nunca deixar o nome antigo"
+    )
+
+
+def test_reassign_profile_fetch_failure_502_no_writes(client, fake_requests, monkeypatch):
+    """Falha na validação de identidade (perfil do ID) → 502 fail-closed, sem escrita (req #9)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    fake_requests.route(
+        "GET",
+        f"profiles?id=eq.{TECH_A_USER_ID}&select=name",
+        FakeResponse([], status_code=502, ok=False),
+    )
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "Técnico A", "assignedToUserId": TECH_A_USER_ID},
+                        headers=headers)
+
+    assert resp.status_code == 502, resp.get_json()
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets"), (
+        "Nenhuma escrita quando a identidade não pode ser validada"
+    )
 
 
 # ── P2-C — atribuição na criação pública ───────────────────────────────────

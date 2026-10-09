@@ -469,6 +469,8 @@ def test_lider_pode_atribuir_para_tecnico(client, fake_requests, monkeypatch):
     headers = _setup_as(client, fake_requests, monkeypatch, LEADER, actions={"ticket.assign"})
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
+    # Perfil do assignee — fonte canônica do nome gravado no servidor.
+    fake_requests.route("GET", "profiles?id=eq.user-a&select=name", FakeResponse([{"name": "User user-a"}]))
     updated = dict(ticket, assignedTo="User user-a", assignedToUserId="user-a")
     fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([updated]))
     _route_events(fake_requests)
@@ -486,6 +488,8 @@ def test_lider_pode_reatribuir_e_remover_responsavel(client, fake_requests, monk
 
     # Reatribuir A → B
     _route_ticket(fake_requests, ticket)
+    # Perfil do assignee B — fonte canônica do nome gravado no servidor.
+    fake_requests.route("GET", "profiles?id=eq.user-b&select=name", FakeResponse([{"name": "User user-b"}]))
     updated_b = dict(ticket, assignedTo="User user-b", assignedToUserId="user-b")
     fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([updated_b]))
     _route_events(fake_requests)

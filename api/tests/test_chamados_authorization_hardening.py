@@ -458,6 +458,8 @@ def test_patch_misto_completo_permitido(api_module, client, fake_requests, monke
                        {"ticket.status", "ticket.assign", "ticket.edit"})
     before = _ticket(status="aberto")
     _route_ticket(fake_requests, before)
+    # Perfil do assignee — fonte canônica do nome gravado no servidor.
+    fake_requests.route("GET", "profiles?id=eq.tec-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
     _route_write(fake_requests, dict(before, status="em_atendimento",
                                      priority="alta", assignedToUserId="tec-2"))
 
