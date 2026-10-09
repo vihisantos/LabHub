@@ -3278,7 +3278,7 @@ def chamados_manage(ticket_id):
                     content = note or CHAMADOS_STATUS_LABELS.get(
                         ticket.get('status', ''), ticket.get('status', '')
                     )
-                author = str(body.get('author') or '').strip() or 'Sistema'
+                author = str(user.get('name') or '').strip() or 'Sistema'
                 _record_ticket_event(
                     ticket_id,
                     ticket.get('workspace_id'),
@@ -4188,7 +4188,7 @@ def chamados_events_create(ticket_id):
 
         body = request.get_json() or {}
         content = str(body.get('content') or '').strip()[:1000]
-        author = str(body.get('author') or '').strip()[:120]
+        author = str(user.get('name') or '').strip()[:120]
         photos = body.get('photos') or []
 
         if not isinstance(photos, list):

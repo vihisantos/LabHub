@@ -1555,7 +1555,7 @@ def test_patch_status_resolvido_grava_evento_automatico(client, fake_requests, m
     payload = event_calls[0]["kwargs"]["json"]
     assert payload["type"] == "status"
     assert payload["content"] == "Cabo trocado"
-    assert payload["author"] == "Sistema"
+    assert payload["author"] == "Test User"
 
 
 def test_patch_mesmo_status_nao_grava_evento(client, fake_requests, monkeypatch):
