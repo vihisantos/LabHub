@@ -3125,12 +3125,25 @@ def chamados_manage(ticket_id):
         prev = None
         assignment_changed = False
         prev_assigned_to = None
+        prev_assigned_to_name = ''
+        # Normalização consistente (revisão corretiva P2): valores vazios ou
+        # compostos só de espaços viram '' — nunca uma atribuição inválida como
+        # ' ' — e a comparação com o estado anterior usa o mesmo valor escrito.
         if 'assignedToUserId' in updates:
-            # Busca o responsável atual (para a guarda condicional e a
-            # notificação). Guardado em `prev_assigned_to` ANTES do bloco de
-            # status (que reusa a variável `prev`) para montar o PATCH atômico.
+            updates['assignedToUserId'] = str(updates.get('assignedToUserId') or '').strip()
+        if 'assignedTo' in updates:
+            updates['assignedTo'] = str(updates.get('assignedTo') or '').strip()
+
+        if 'assignedTo' in updates or 'assignedToUserId' in updates:
+            # Busca o responsável atual (nome E id) para a guarda condicional,
+            # a notificação e a consistência nome/id. Guardado em
+            # `prev_assigned_to*` ANTES do bloco de status (que reusa a variável
+            # `prev`) para montar o PATCH atômico. Alterar SOMENTE `assignedTo`
+            # (nome) também entra na guarda: nome e id são a mesma atribuição e
+            # não podem contornar a proteção contra concorrência.
             fetch = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=assignedToUserId',
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+                f'&select=assignedTo,assignedToUserId',
                 headers=_supabase_headers(),
                 timeout=10,
             )
@@ -3138,7 +3151,11 @@ def chamados_manage(ticket_id):
                 return jsonify({'error': 'Erro ao buscar chamado'}), 502
             prev = (fetch.json() or [{}])[0]
             prev_assigned_to = str(prev.get('assignedToUserId') or '')
-            assignment_changed = prev_assigned_to != (str(updates.get('assignedToUserId') or ''))
+            prev_assigned_to_name = str(prev.get('assignedTo') or '')
+            if 'assignedToUserId' in updates:
+                assignment_changed = prev_assigned_to != updates['assignedToUserId']
+            if 'assignedTo' in updates:
+                assignment_changed = assignment_changed or (prev_assigned_to_name != updates['assignedTo'])
         if 'status' in updates:
             if updates['status'] not in CHAMADOS_STATUSES:
                 return jsonify({'error': 'Status inválido'}), 400
@@ -3198,19 +3215,26 @@ def chamados_manage(ticket_id):
         # poderia ser resolvido e indeferido "ao mesmo tempo".
         #
         # A REATRIBUIÇÃO usa a mesma guarda condicional: quando o responsável
-        # muda (`assignment_changed`), o PATCH só afeta linhas cujo
-        # `assignedToUserId` atual ainda é o valor lido antes. Dois assigners
-        # simultâneos disputam a mesma linha; o perdedor afeta 0 linhas → 409,
-        # sem sobrescrita silenciosa do vencedor. "Sem responsável" é string
-        # vazia (schema TEXT), logo o guard cobre '' E NULL (como no claim).
+        # muda (`assignment_changed` — por id, por nome OU por remoção), o PATCH
+        # só afeta linhas cujo `assignedToUserId`/`assignedTo` atuais ainda são
+        # os valores lidos antes. Dois assigners simultâneos disputam a mesma
+        # linha; o perdedor afeta 0 linhas → 409, sem sobrescrita silenciosa do
+        # vencedor. "Sem responsável" é string vazia (schema TEXT), logo o guard
+        # cobre '' E NULL (como no claim).
         patch_url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
         if 'status' in updates:
             patch_url += f'&status=eq.{quote(status_prev)}'
         if assignment_changed:
+            # Guarda ÚNICA e condicional: a alteração combinada (status +
+            # atribuição, ou atribuição de nome/id/remoção) casa apenas a linha
+            # que AINDA está no estado lido antes. 0 linhas → 409 sem efeitos
+            # parciais — nunca uma segunda escrita (sem last-write-wins).
             if prev_assigned_to:
                 patch_url += f'&assignedToUserId=eq.{quote(prev_assigned_to)}'
             else:
                 patch_url += '&or=(assignedToUserId.is.null,assignedToUserId.eq.)'
+            if 'assignedTo' in updates and prev_assigned_to_name != updates['assignedTo']:
+                patch_url += f'&assignedTo=eq.{quote(prev_assigned_to_name)}'
 
         resp = requests.patch(
             patch_url,

@@ -238,11 +238,12 @@ def _setup_ticket_routes(
     fake_requests.route("GET", "membership_overrides", FakeResponse([]))
 
 
-def _route_prev_owner(fake_requests, owner: str) -> None:
+def _route_prev_owner(fake_requests, owner: str, name: str = ""):
+    """Estado atual do responsável (id + nome) lido antes da escrita."""
     fake_requests.route(
         "GET",
-        f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedToUserId",
-        FakeResponse([{"assignedToUserId": owner}]),
+        f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedTo,assignedToUserId",
+        FakeResponse([{"assignedTo": name, "assignedToUserId": owner}]),
     )
 
 
@@ -599,6 +600,207 @@ def test_reassign_with_status_change_applies_both_guards(client, fake_requests, 
     assert "or=(assignedToUserId.is.null,assignedToUserId.eq.)" in url, (
         "Guarda de atribuição presente na operação mista"
     )
+
+
+# ── revisão corretiva P2 — atomicidade da atribuição ───────────────────────
+
+def test_reassign_only_name_change_guarded_and_wins(client, fake_requests, monkeypatch):
+    """Alterar SOMENTE `assignedTo` (nome) não contorna a proteção (req #1).
+
+    O guard de nome entra no MESMO PATCH condicional: a linha só é escrita se o
+    nome/id lidos antes ainda estiverem presentes.
+    """
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_prev_owner(fake_requests, "", "")
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        FakeResponse([_ticket_row(assigned_to="Técnico A")]),
+    )
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}", json={"assignedTo": "Técnico A"}, headers=headers)
+
+    assert resp.status_code == 200, resp.get_json()
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert len(patches) == 1
+    url = patches[0]["url"]
+    assert "or=(assignedToUserId.is.null,assignedToUserId.eq.)" in url
+    assert f"assignedTo=eq." in url, "Alteração só de nome deve ser condicional ao nome anterior"
+    assert patches[0]["kwargs"]["json"].get("assignedTo") == "Técnico A"
+
+
+def test_reassign_only_name_change_conflict_409(client, fake_requests, monkeypatch):
+    """Só nome mudando: se o agente de competição alterou a atribuição antes,
+    o PATCH não casa o responsável lido → 409, sem sobrescrita (req #1 e #6)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_prev_owner(fake_requests, TECH_A_USER_ID, name="Técnico A")
+    fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([]))
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}", json={"assignedTo": "Técnico B"}, headers=headers)
+
+    assert resp.status_code == 409, resp.get_json()
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert len(patches) == 1
+    url = patches[0]["url"]
+    assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in url
+    assert f"assignedTo=eq.T%C3%A9cnico%20A" in url or "assignedTo=eq.T" in url, (
+        "Guard de nome presente mesmo quando só o nome muda"
+    )
+
+
+def test_reassign_whitespace_assignee_normalized_to_empty(client, fake_requests, monkeypatch):
+    """Valores só de espaços viram '' na escrita — sem atribuição inválida (req #9)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_prev_owner(fake_requests, TECH_A_USER_ID, name="Técnico A")
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        FakeResponse([_ticket_row()]),
+    )
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "   ", "assignedToUserId": "   "},
+                        headers=headers)
+
+    assert resp.status_code == 200, resp.get_json()
+    patch_json = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert patch_json.get("assignedToUserId") == "", "Whitespace deve virar ''"
+    assert patch_json.get("assignedTo") == "", "Whitespace deve virar ''"
+    # Guarda casando com o responsável lido antes (remoção segura de TECH_A).
+    url = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["url"]
+    assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in url
+
+
+def test_reassign_prev_null_owner_uses_or_guard(client, fake_requests, monkeypatch):
+    """Responsável anterior NULL (mock) é tratado como 'sem responsável' (req #4)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    fake_requests.route(
+        "GET",
+        f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedTo,assignedToUserId",
+        FakeResponse([{"assignedTo": "", "assignedToUserId": None}]),
+    )
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        FakeResponse([_ticket_row(assigned_to="Técnico A", assigned_to_user_id=TECH_A_USER_ID)]),
+    )
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "Técnico A", "assignedToUserId": TECH_A_USER_ID},
+                        headers=headers)
+
+    assert resp.status_code == 200, resp.get_json()
+    url = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["url"]
+    assert "or=(assignedToUserId.is.null,assignedToUserId.eq.)" in url
+
+
+def test_reassign_both_fields_single_atomic_patch(client, fake_requests, monkeypatch):
+    """Nome + id mudando na mesma operação: UMA escrita condicional grava ambos (req #2/#3)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_prev_owner(fake_requests, "", "")
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        FakeResponse([_ticket_row(assigned_to="Técnico A", assigned_to_user_id=TECH_A_USER_ID)]),
+    )
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "Técnico A", "assignedToUserId": TECH_A_USER_ID},
+                        headers=headers)
+
+    assert resp.status_code == 200, resp.get_json()
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert len(patches) == 1, "Os dois campos devem ser gravados numa única escrita"
+    patch_json = patches[0]["kwargs"]["json"]
+    assert patch_json.get("assignedToUserId") == TECH_A_USER_ID
+    assert patch_json.get("assignedTo") == "Técnico A"
+    url = patches[0]["url"]
+    assert "or=(assignedToUserId.is.null,assignedToUserId.eq.)" in url
+    assert "assignedTo=eq." in url
+
+
+def test_reassign_combined_conflict_has_no_partial_effects(client, fake_requests, monkeypatch):
+    """Conflito em operação combinada (status + atribuição): 409 e NENHUM efeito
+    parcial — uma única escrita condicional, sem mutações posteriores (req #5/#6/#7)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A, extra_actions=("ticket.status",))
+    _route_assignee_membership(fake_requests, TECH_A_USER_ID)
+    _route_prev_owner(fake_requests, "")
+    fake_requests.route(
+        "GET",
+        f"chamados_tickets?id=eq.{TICKET_ID}&select=status,statusNote,resolvedAt,closedAt,archived",
+        FakeResponse([{"status": "aberto", "statusNote": "", "resolvedAt": None, "closedAt": None, "archived": False}]),
+    )
+    fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([]))
+
+    resp = client.patch(
+        f"/api/chamados/{TICKET_ID}",
+        json={"status": "em_atendimento", "assignedTo": "Técnico A", "assignedToUserId": TECH_A_USER_ID},
+        headers=headers,
+    )
+
+    assert resp.status_code == 409, resp.get_json()
+    assert "Conflito" in (resp.get_json().get("error") or "")
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert len(patches) == 1, "Uma única escrita condicional (nunca duas)"
+    url = patches[0]["url"]
+    assert "status=eq.aberto" in url
+    assert "or=(assignedToUserId.is.null,assignedToUserId.eq.)" in url
+    # Sem efeitos parciais: nenhuma ESCRITA de mutação posterior ao 409. Os únicos
+    # POSTs legítimos ANTES do PATCH são o RPC de RBAC (`pg_sql`, leitura) e o
+    # audit de autorização (`rbac_audit_logs`, best-effort idêntico no caminho de
+    # sucesso) — não são mutação do ticket. Auditoria do app/eventos/escritas
+    # do ticket viriam DEPOIS do PATCH bem-sucedido e não podem ter acontecido.
+    mutation_posts = [
+        c for c in fake_requests.calls
+        if c["method"] == "POST"
+        and "pg_sql" not in c["url"]
+        and "rbac_audit_logs" not in c["url"]
+    ]
+    assert not mutation_posts, f"Nenhuma mutação posterior esperada, encontrados POSTs: {mutation_posts}"
+
+
+def test_reassign_inactive_assignee_rejected_400(client, fake_requests, monkeypatch):
+    """Técnico com membership INATIVA (fora do escopo `status=eq.active`) → 400,
+    antes de qualquer escrita (regra de membro ativo do mesmo workspace)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_assignee_membership(fake_requests, TECH_A_USER_ID, ok=False)  # sem membership ativa
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "Técnico A", "assignedToUserId": TECH_A_USER_ID},
+                        headers=headers)
+
+    assert resp.status_code == 400, resp.get_json()
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
+
+
+def test_reassign_uid_only_change_kept_guarded(client, fake_requests, monkeypatch):
+    """Só `assignedToUserId` mudando também é condicional ao responsável lido (req #2)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_assignee_membership(fake_requests, TECH_B_USER_ID)
+    _route_prev_owner(fake_requests, TECH_A_USER_ID, name="Técnico A")
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        FakeResponse([_ticket_row(assigned_to_user_id=TECH_B_USER_ID)]),
+    )
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedToUserId": TECH_B_USER_ID},
+                        headers=headers)
+
+    assert resp.status_code == 200, resp.get_json()
+    url = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["url"]
+    assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in url, "Guard casa com o id anterior"
 
 
 # ── P2-C — atribuição na criação pública ───────────────────────────────────

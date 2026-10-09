@@ -238,8 +238,8 @@ def _setup_successful_patch(fake_requests, assigned_to, assigned_to_user_id) -> 
     """Rotas extras para o PATCH bem-sucedido (fetch prev + PATCH + notificação)."""
     fake_requests.route(
         "GET",
-        f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedToUserId",
-        FakeResponse([{"assignedToUserId": ""}]),
+        f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedTo,assignedToUserId",
+        FakeResponse([{"assignedTo": "", "assignedToUserId": ""}]),
     )
     fake_requests.route(
         "PATCH",
@@ -400,8 +400,8 @@ def test_unassign_skips_assignee_membership_check(client, fake_requests, monkeyp
     # abaixo falharia (a verificação não deve existir — não apenas `None`).
     fake_requests.route(
         "GET",
-        f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedToUserId",
-        FakeResponse([{"assignedToUserId": TECH_A_USER_ID}]),
+        f"chamados_tickets?id=eq.{TICKET_ID}&select=assignedTo,assignedToUserId",
+        FakeResponse([{"assignedTo": "Técnico A", "assignedToUserId": TECH_A_USER_ID}]),
     )
     fake_requests.route(
         "PATCH",
