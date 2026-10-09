@@ -3014,7 +3014,9 @@ def chamados_manage(ticket_id):
                     return jsonify({'error': 'Transição de status inválida'}), 400
             elif status_prev == 'em_espera':
                 # De em_espera a ÚNICA saída é a retomada (→ em_atendimento).
-                return jsonify({'error': 'Transição inválida — retome o atendimento para sair de Em espera'}), 400
+                # Qualquer outra transição a partir de em_espera é inválida.
+                if new_status != 'em_atendimento':
+                    return jsonify({'error': 'Transição inválida — retome o atendimento para sair de Em espera'}), 400
             elif status_prev == 'indeferido':
                 # Indeferido é estado FINAL: nenhuma transição de saída
                 # (não é reaberto por mudança de status comum).
