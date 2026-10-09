@@ -4,7 +4,9 @@ export const SOLICITANTE_STATUS_LABELS: Record<TicketStatus, string> = {
   aberto: 'Chamado recebido',
   a_caminho: 'Técnico a caminho',
   em_atendimento: 'Em atendimento',
+  em_espera: 'Em espera',
   resolvido: 'Chamado resolvido',
+  indeferido: 'Chamado indeferido',
   fechado: 'Atendimento finalizado',
 }
 
@@ -12,7 +14,9 @@ export const SOLICITANTE_STATUS_MESSAGES: Record<TicketStatus, string> = {
   aberto: 'Seu chamado foi registrado e está aguardando atendimento da equipe.',
   a_caminho: 'Um técnico está a caminho do local informado.',
   em_atendimento: 'A equipe está trabalhando neste chamado.',
+  em_espera: 'Seu chamado está em espera. Acompanhe o motivo informado pela equipe.',
   resolvido: 'Seu chamado foi resolvido. Confira o atendimento e deixe seu feedback.',
+  indeferido: 'Seu chamado foi indeferido e não será atendido pela TI. Veja o motivo informado.',
   fechado: 'Este atendimento foi finalizado.',
 }
 

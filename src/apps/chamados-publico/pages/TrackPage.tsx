@@ -152,6 +152,31 @@ export function TrackPage() {
                 </span>
               </div>
 
+              {pubTicket.status === 'indeferido' && (
+                // Issue #367 — X vermelho + CHAMADO INDEFERIDO + motivo,
+                // nunca apresentado como chamado resolvido.
+                <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-600 dark:text-red-400">
+                      <icons.ui.close size={11} />
+                    </span>
+                    <p className="text-[11px] font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</p>
+                  </div>
+                  {pubTicket.reasonLabel && (
+                    <p className="mt-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">Motivo: {pubTicket.reasonLabel}</p>
+                  )}
+                  {pubTicket.reasonNote && <p className="mt-0.5 text-[10px] text-fg-muted">{pubTicket.reasonNote}</p>}
+                </div>
+              )}
+
+              {pubTicket.status === 'em_espera' && pubTicket.reasonLabel && (
+                // Issue #367 — espera é estado próprio: motivo visível.
+                <div className="mt-3 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2.5">
+                  <p className="text-[11px] font-bold text-violet-600 dark:text-violet-400">Em espera — {pubTicket.reasonLabel}</p>
+                  {pubTicket.reasonNote && <p className="mt-0.5 text-[10px] text-fg-muted">{pubTicket.reasonNote}</p>}
+                </div>
+              )}
+
               <div className="mt-2 space-y-1 text-xs text-fg-muted">
                 <p>{pubTicket.roomName}</p>
                 <p>{pubTicket.problemCategory}</p>

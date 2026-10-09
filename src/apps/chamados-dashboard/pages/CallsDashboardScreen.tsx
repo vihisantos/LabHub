@@ -16,7 +16,9 @@ const STATUS_COLORS: Record<TicketStatus, { bg: string; fg: string }> = {
   aberto: { bg: 'rgba(245,158,11,0.16)', fg: '#fbbf24' },
   a_caminho: { bg: 'rgba(249,115,22,0.16)', fg: '#fb923c' },
   em_atendimento: { bg: 'rgba(59,130,246,0.16)', fg: '#60a5fa' },
+  em_espera: { bg: 'rgba(139,92,246,0.16)', fg: '#a78bfa' },
   resolvido: { bg: 'rgba(16,185,129,0.16)', fg: '#34d399' },
+  indeferido: { bg: 'rgba(239,68,68,0.16)', fg: '#f87171' },
   fechado: { bg: 'rgba(100,116,139,0.16)', fg: '#94a3b8' },
 }
 

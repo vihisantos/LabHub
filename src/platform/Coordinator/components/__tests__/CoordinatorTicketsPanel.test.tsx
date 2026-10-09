@@ -11,7 +11,7 @@ function summary(over: Partial<TicketStatsSummary> = {}): TicketStatsSummary {
     semResponsavel: 0,
     altaPrioridade: 0,
     urgentes: 0,
-    byStatus: { aberto: 0, a_caminho: 0, em_atendimento: 0, resolvido: 0, fechado: 0 },
+    byStatus: { aberto: 0, a_caminho: 0, em_atendimento: 0, em_espera: 0, resolvido: 0, indeferido: 0, fechado: 0 },
     byPriority: { baixa: 0, normal: 0, alta: 0, urgente: 0 },
     ...over,
   }
@@ -54,7 +54,7 @@ describe('CoordinatorTicketsPanel — painel apresentacional de chamados (C2, PR
       <CoordinatorTicketsPanel
         stats={summary({
           total: 3,
-          byStatus: { aberto: 2, a_caminho: 0, em_atendimento: 0, resolvido: 1, fechado: 0 },
+          byStatus: { aberto: 2, a_caminho: 0, em_atendimento: 0, em_espera: 0, resolvido: 1, indeferido: 0, fechado: 0 },
         })}
       />,
     )
@@ -161,7 +161,7 @@ describe('CoordinatorTicketsPanel — painel apresentacional de chamados (C2, PR
       <CoordinatorTicketsPanel
         stats={summary({
           total: 1,
-          byStatus: { aberto: 1, a_caminho: 0, em_atendimento: 0, resolvido: 0, fechado: 0 },
+          byStatus: { aberto: 1, a_caminho: 0, em_atendimento: 0, em_espera: 0, resolvido: 0, indeferido: 0, fechado: 0 },
           byPriority: { baixa: 0, normal: 1, alta: 0, urgente: 0 },
         })}
       />,

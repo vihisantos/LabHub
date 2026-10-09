@@ -17,3 +17,10 @@ export {
 export type { SlaConfig } from './sla'
 export type { ChamadosReport, ReportPeriod, ReportPeriodDays, TechnicianReportRow } from './report'
 export type { TicketEvent, TicketEventInput, TicketEventType } from './events'
+export type { TicketReasonCode, ReasonOption } from './reasons'
+export {
+  INDEFERIMENTO_REASONS,
+  EM_ESPERA_REASONS,
+  REASON_STATUS_OPTIONS,
+  reasonLabel,
+} from './reasons'

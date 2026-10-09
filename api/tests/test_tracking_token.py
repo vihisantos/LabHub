@@ -435,6 +435,10 @@ def test_projection_publica_tem_key_set_exato(client, fake_requests):
         "createdAt",
         "updatedAt",
         "closedAt",
+        # Motivo estruturado de espera/indeferimento (issue #367).
+        "reasonCode",
+        "reasonLabel",
+        "reasonNote",
     }
 
 

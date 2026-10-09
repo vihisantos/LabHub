@@ -29,14 +29,18 @@ import { CoordinatorPanel } from './CoordinatorPanel'
  * dado fabricado.
  */
 
-const STATUS_ORDER: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
+const STATUS_ORDER: TicketStatus[] = [
+  'aberto', 'a_caminho', 'em_atendimento', 'em_espera', 'resolvido', 'indeferido', 'fechado',
+]
 const PRIORITY_ORDER: TicketPriority[] = ['baixa', 'normal', 'alta', 'urgente']
 
 const STATUS_CHART_COLORS: Record<TicketStatus, string> = {
   aberto: '#f59e0b',
   a_caminho: '#f97316',
   em_atendimento: '#3b82f6',
+  em_espera: '#8b5cf6',
   resolvido: '#10b981',
+  indeferido: '#ef4444',
   fechado: '#64748b',
 }
 

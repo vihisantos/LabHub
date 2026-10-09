@@ -18,7 +18,9 @@ function slaConfigFor(ticket: Ticket) {
   return slaConfigService.getHoursForTickets()[ticket.workspace_id ?? ''] ?? null
 }
 
-const CONTEXTUAL_STATUS_FILTERS: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido']
+const CONTEXTUAL_STATUS_FILTERS: TicketStatus[] = [
+  'aberto', 'a_caminho', 'em_atendimento', 'em_espera', 'indeferido', 'resolvido',
+]
 
 // Fase 2.1: valor composto da Central ("Em andamento" = a_caminho + em_atendimento).
 // Continua sendo UM único statusFilter — sem segunda lógica de filtragem.
@@ -29,7 +31,9 @@ const STATUS_CHIP_VALUES: Array<Exclude<StatusFilterValue, 'arquivados' | ''>> =
   'em_andamento',
   'a_caminho',
   'em_atendimento',
+  'em_espera',
   'resolvido',
+  'indeferido',
 ]
 
 const STATUS_CHIP_LABELS: Record<TicketStatus | 'em_andamento', string> = {
@@ -103,17 +107,25 @@ export function TicketList() {
     const slaByWorkspace = slaConfigService.getHoursForTickets()
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
+      // Issue #367 — em_espera/indeferido SAIEM da fila operacional ativa:
+      // têm segmentos próprios (chips) e não aparecem na fila de abertos.
+      const pausedOrDenied = t.status === 'em_espera' || t.status === 'indeferido'
       if (assignedFilter) {
         if (archived) return false
         if (t.assignedToUserId !== user?.id) return false
       } else if (unassignedFilter) {
         if (archived) return false
+        if (pausedOrDenied) return false
         if (t.assignedToUserId) return false
       } else {
         if (statusFilter === 'arquivados') {
           if (!archived) return false
+        } else if (statusFilter === 'em_espera' || statusFilter === 'indeferido') {
+          // Segmento próprio (issue #367): fora da fila ativa, localizável.
+          if (archived || t.status !== statusFilter) return false
         } else {
           if (archived) return false
+          if (pausedOrDenied) return false
           if (statusFilter === 'em_andamento') {
             if (t.status !== 'a_caminho' && t.status !== 'em_atendimento') return false
           } else if (statusFilter && t.status !== statusFilter) {
@@ -142,11 +154,15 @@ export function TicketList() {
   }, [tickets])
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { ativos: 0, arquivados: 0, aberto: 0, a_caminho: 0, em_atendimento: 0, em_andamento: 0, resolvido: 0 }
+    const counts: Record<string, number> = { ativos: 0, arquivados: 0, aberto: 0, a_caminho: 0, em_atendimento: 0, em_andamento: 0, em_espera: 0, resolvido: 0, indeferido: 0 }
     for (const t of tickets) {
       const archived = t.archived === true || t.status === 'fechado'
       if (archived) {
         counts.arquivados++
+      } else if (t.status === 'em_espera' || t.status === 'indeferido') {
+        // Issue #367 — fora da fila operacional ativa (segmento próprio):
+        // o contador do chip "Ativos" só reflete a fila de abertos.
+        counts[t.status]++
       } else {
         counts.ativos++
         if (t.status === 'a_caminho' || t.status === 'em_atendimento') counts.em_andamento++

@@ -34,7 +34,7 @@ function emptySummary() {
     semResponsavel: 0,
     altaPrioridade: 0,
     urgentes: 0,
-    byStatus: { aberto: 0, a_caminho: 0, em_atendimento: 0, resolvido: 0, fechado: 0 },
+    byStatus: { aberto: 0, a_caminho: 0, em_atendimento: 0, em_espera: 0, resolvido: 0, indeferido: 0, fechado: 0 },
     byPriority: { baixa: 0, normal: 0, alta: 0, urgente: 0 },
   }
 }
@@ -60,7 +60,9 @@ describe('analyzeTickets (C1, PR B #236)', () => {
       aberto: 1,
       a_caminho: 1,
       em_atendimento: 1,
+      em_espera: 0,
       resolvido: 1,
+      indeferido: 0,
       fechado: 0,
     })
     expect(summary.byPriority).toEqual({
@@ -84,7 +86,7 @@ describe('analyzeTickets (C1, PR B #236)', () => {
       semResponsavel: 0,
       altaPrioridade: 0,
       urgentes: 0,
-      byStatus: { aberto: 1, a_caminho: 0, em_atendimento: 0, resolvido: 0, fechado: 0 },
+      byStatus: { aberto: 1, a_caminho: 0, em_atendimento: 0, em_espera: 0, resolvido: 0, indeferido: 0, fechado: 0 },
       byPriority: { baixa: 0, normal: 1, alta: 0, urgente: 0 },
     })
   })
@@ -162,7 +164,9 @@ describe('analyzeTickets (C1, PR B #236)', () => {
       aberto: 1,
       a_caminho: 0,
       em_atendimento: 0,
+      em_espera: 0,
       resolvido: 2,
+      indeferido: 0,
       fechado: 0,
     })
   })
@@ -201,7 +205,9 @@ describe('analyzeTickets (C1, PR B #236)', () => {
       aberto: 1,
       a_caminho: 0,
       em_atendimento: 0,
+      em_espera: 0,
       resolvido: 0,
+      indeferido: 0,
       fechado: 0,
     })
     expect(summary.byPriority).toEqual({
