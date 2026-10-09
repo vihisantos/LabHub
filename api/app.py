@@ -3139,6 +3139,7 @@ def chamados_manage(ticket_id):
         assignment_changed = False
         prev_assigned_to = None
         prev_assigned_to_name = ''
+        prev_assigned_to_name_is_null = False
         if 'assignedTo' in updates or 'assignedToUserId' in updates:
             # Normalização (revisão corretiva P2): valores vazios ou compostos
             # só de espaços viram '' — nunca uma atribuição inválida como ' '.
@@ -3182,7 +3183,14 @@ def chamados_manage(ticket_id):
                 return jsonify({'error': 'Erro ao buscar chamado'}), 502
             prev = (fetch.json() or [{}])[0]
             prev_assigned_to = str(prev.get('assignedToUserId') or '')
-            prev_assigned_to_name = str(prev.get('assignedTo') or '')
+            # NULL e '' são o MESMO estado "sem nome" para a DETECÇÃO de
+            # mudança, mas a GUARDA preserva a diferença: o PostgREST não casa
+            # `assignedTo=eq.` com NULL — quando o valor ORIGINAL do banco é
+            # NULL, a guarda usa `assignedTo=is.null` (evita 409 falso em
+            # atribuição válida sobre um chamado gravado com NULL).
+            _prev_name_raw = prev.get('assignedTo')
+            prev_assigned_to_name = '' if _prev_name_raw is None else str(_prev_name_raw)
+            prev_assigned_to_name_is_null = _prev_name_raw is None
             assignment_changed = (
                 prev_assigned_to != updates['assignedToUserId']
                 or prev_assigned_to_name != updates['assignedTo']
@@ -3251,7 +3259,9 @@ def chamados_manage(ticket_id):
         # os valores lidos antes. Dois assigners simultâneos disputam a mesma
         # linha; o perdedor afeta 0 linhas → 409, sem sobrescrita silenciosa do
         # vencedor. "Sem responsável" é string vazia (schema TEXT), logo o guard
-        # cobre '' E NULL (como no claim).
+        # cobre '' E NULL (como no claim) — e, no NOME, a diferença entre o
+        # valor original NULL (`assignedTo=is.null`) e string vazia
+        # (`assignedTo=eq.`) é preservada, pois `eq.` não casa NULL.
         patch_url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
         if 'status' in updates:
             patch_url += f'&status=eq.{quote(status_prev)}'
@@ -3265,7 +3275,15 @@ def chamados_manage(ticket_id):
             else:
                 patch_url += '&or=(assignedToUserId.is.null,assignedToUserId.eq.)'
             if prev_assigned_to_name != updates['assignedTo']:
-                patch_url += f'&assignedTo=eq.{quote(prev_assigned_to_name)}'
+                # Preserva a diferença NULL vs '' do valor ORIGINAL do banco:
+                # `is.null` casa NULL; `eq.` casa string vazia; valor
+                # preenchido usa comparação exata com o escaping do projeto.
+                if prev_assigned_to_name_is_null:
+                    patch_url += '&assignedTo=is.null'
+                elif prev_assigned_to_name == '':
+                    patch_url += '&assignedTo=eq.'
+                else:
+                    patch_url += f'&assignedTo=eq.{quote(prev_assigned_to_name)}'
 
         resp = requests.patch(
             patch_url,
