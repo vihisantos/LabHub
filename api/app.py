@@ -122,17 +122,25 @@ def _require_action_in_handler(action, scope='workspace', resource_type=None, re
 #
 # Exceções ESTRITAS ao ownership (P3 #371 — continuidade do atendimento):
 #   - RETOMADA de `em_espera` (→ `em_atendimento`): any técnico autenticado com
-#     membership ativa + Action `ticket.status` no workspace pode retomar um
-#     chamado em espera MESMO atribuído a outro técnico — a fila não pode ficar
-#     travada pela disponibilidade do responsável anterior. É a ÚNICA transição
-#     que se comporta assim (rota dedicada `chamados_resume`); o ownership segue
-#     valendo para todas as demais operações e rotas.
+#     membership ativa + Action `ticket.status` E `ticket.claim` no workspace
+#     pode retomar um chamado em espera MESMO atribuído a outro técnico — a fila
+#     não pode ficar travada pela disponibilidade do responsável anterior. É a
+#     ÚNICA transição que se comporta assim (rota dedicada `chamados_resume`); o
+#     ownership segue valendo para todas as demais operações e rotas. A
+#     retomada torna o ator o NOVO responsável, então ele precisa poder ATENDER
+#     (`ticket.claim` — migration 038); cargos de gestão/visualização não viram
+#     responsáveis por esta via.
 #   - TRANSFERÊNCIA (rota dedicada `chamados_transfer`): o responsável ATUAL do
 #     chamado em atendimento ativo (`a_caminho`/`em_atendimento`) pode transferir
-#     o próprio atendimento a outro técnico ativo do mesmo workspace, e o
-#     assigner (Action `ticket.assign`) também. Isso NÃO concede `ticket.assign`
-#     ao técnico comum: transferência de chamado que não é o seu segue
-#     exigindo o assigner.
+#     o próprio atendimento a outro técnico ATIVO e ELEGÍVEL (Action
+#     `ticket.claim`) do mesmo workspace, e o assigner (Action `ticket.assign`)
+#     também. Isso NÃO concede `ticket.assign` ao técnico comum: transferência
+#     de chamado que não é o seu segue exigindo o assigner.
+#
+# "Elegível para atender" é decidido pela RBAC 2.0 (autoridade única): quem tem
+# a Action `ticket.claim` no workspace DO CHAMADO (ou é super admin). Assim,
+# perfil suspenso, visualizador ou cargo que apenas gerencia não pode receber o
+# atendimento — nem por transferência nem por retomada.
 #
 # "Quem é o assigner" é decidido pela RBAC 2.0 (autoridade única):
 #   - quem tem a Action `ticket.assign` no workspace (role/override) ou é
@@ -186,15 +194,44 @@ def _enforce_ownership(actor, ticket, workspace_id, resource_id):
     return _forbidden('Este chamado está sendo atendido por outro técnico')
 
 
+def _eligible_to_attend(profile_id, workspace_id, is_super_admin=False):
+    """O perfil pode ATENDER chamados neste workspace (RBAC 2.0)?
+
+    Regra derivada do fluxo operacional de Chamados (migration 038,
+    ``ticket_claim_ownership.sql``): "começar atendimento / assumir o chamado
+    para si" é a Action ``ticket.claim`` (scope ``workspace``). Ela é o que
+    distingue quem ATENDE de quem apenas gerencia (assigner/coordenação) ou só
+    visualiza. Super admin tem bypass global (mesma 1ª regra do motor `rbac_can`).
+
+    Fail-closed: contexto ausente ou erro de resolução ⇒ False.
+    """
+    if not profile_id or not workspace_id:
+        return False
+    return bool(rbac_two_can(
+        {'id': profile_id, 'is_super_admin': bool(is_super_admin)},
+        workspace_id,
+        'ticket.claim',
+        'workspace',
+    ))
+
+
 def _resolve_assignee_profile(assignee_id, workspace_id):
     """Valida destinatário de atribuição/transferência como membro ATIVO do
-    workspace e devolve o nome canônico do perfil validado.
+    workspace, com PERFIL ATIVO e ELEGÍVEL para atender chamados, e devolve o
+    nome canônico do perfil validado.
 
     Retorna `(nome, None, 0)` em sucesso, `(None, resposta_flask, status)` em
     falha. Espelha o hardening de reatribuição do PATCH (P2 #371): o
     destinatário precisa ser membro ATIVO do workspace DO CHAMADO (nunca o
     workspace ativo do assigner) e o nome gravado é o canônico do PERFIL do ID
     validado — a identidade é o ID, nunca o nome vindo do cliente.
+
+    Além da membership ativa (P2), a P3 (#371) exige que o destinatário seja
+    LEGITIMAMENTE apto a atender o chamado: perfil com ``status='active'`` no
+    momento da operação e a Action ``ticket.claim`` no workspace do chamado
+    (RBAC 2.0 — migration 038). Sem isso, perfil suspenso/removido,
+    visualizador ou cargo de gestão (que não atende) não pode receber o
+    atendimento — a lista do frontend NÃO é a autoridade.
     """
     if not assignee_id:
         return '', None, 0
@@ -212,14 +249,27 @@ def _resolve_assignee_profile(assignee_id, workspace_id):
             return None, jsonify({
                 'error': 'Técnico não pertence ao workspace deste chamado'
             }), 400
-        name_resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(assignee_id)}&select=name',
+        profile_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles'
+            f'?id=eq.{quote(assignee_id)}'
+            f'&select=name,status,is_super_admin',
             headers=_supabase_headers(),
             timeout=10,
         )
-        if not name_resp.ok or not (name_resp.json() or []):
+        if not profile_resp.ok or not (profile_resp.json() or []):
             return None, jsonify({'error': 'Não foi possível validar o responsável'}), 502
-        canonical = str((name_resp.json() or [{}])[0].get('name') or '').strip()
+        profile = (profile_resp.json() or [{}])[0]
+        if str(profile.get('status') or '').strip() != 'active':
+            return None, jsonify({
+                'error': 'Responsável não está ativo'
+            }), 400
+        if not _eligible_to_attend(
+            assignee_id, workspace_id, profile.get('is_super_admin')
+        ):
+            return None, jsonify({
+                'error': 'Responsável não pode atender chamados neste workspace'
+            }), 400
+        canonical = str(profile.get('name') or '').strip()
         return canonical, None, 0
     except Exception as exc:
         logger.error('Hardening assignee membership check failed: %s', exc)
@@ -4603,11 +4653,14 @@ def chamados_resume(ticket_id):
 
     É a exceção ESTRITA ao ownership: um chamado em espera NÃO pode ficar
     travado pela disponibilidade do responsável anterior. Qualquer técnico
-    autenticado com membership ativa + Action `ticket.status` no workspace pode
-    retomar (reassumir) o chamado, tornando-se o novo responsável. Isso NÃO
-    libera o ownership nas demais rotas: comentar, editar, mudar status ou
-    assumir o chamado de outro técnico seguem exigindo responsável, assigner ou
-    super admin (PR #373).
+    autenticado com membership ativa + Actions `ticket.status` e `ticket.claim`
+    no workspace pode retomar (reassumir) o chamado, tornando-se o novo
+    responsável. A Action `ticket.claim` (migration 038) garante que quem assume
+    a fila é alguém que EFETIVAMENTE atende — cargos de gestão/visualização
+    (sem `ticket.claim`) não viram responsáveis por esta via. Isso NÃO libera o
+    ownership nas demais rotas: comentar, editar, mudar status ou assumir o
+    chamado de outro técnico seguem exigindo responsável, assigner ou super
+    admin (PR #373).
 
     Concorrência (mesmo padrão do claim e do PATCH): UMA única atualização
     condicional — status anterior = `em_espera`. Se dois técnicos retomam ao
@@ -4650,6 +4703,16 @@ def chamados_resume(ticket_id):
 
         g.workspace_id = ticket_ws
         err = _require_action_in_handler('ticket.status', scope='workspace',
+                                         resource_type='ticket', resource_id=ticket_id)
+        if err:
+            return err
+
+        # Elegibilidade para ATENDER (P3 #371): a retomada torna o ATOR o novo
+        # responsável do atendimento, então ele precisa poder atender o chamado
+        # (Action `ticket.claim`, migration 038) — cargos de gestão/visualização
+        # não viram responsáveis pela fila em espera. Checado ANTES do PATCH
+        # atômico para não deixar o chamado parcialmente assumido.
+        err = _require_action_in_handler('ticket.claim', scope='workspace',
                                          resource_type='ticket', resource_id=ticket_id)
         if err:
             return err
@@ -4749,8 +4812,11 @@ def chamados_transfer(ticket_id):
         atendimento a outro técnico ativo do mesmo workspace), ou
       - o ASSIGNER do workspace (Action `ticket.assign`, inclui super admin).
     Técnico comum NÃO ganha `ticket.assign`: transferir o chamado de OUTRO
-    técnico segue exigindo o assigner. Destinatário precisa ser membro ATIVO
-    do workspace (nunca o workspace ativo do assigner — hardening P2).
+    técnico segue exigindo o assigner. Destinatário precisa ser membro ATIVO do
+    workspace DO CHAMADO (nunca o workspace ativo do assigner — hardening P2),
+    com PERFIL ATIVO e ELEGÍVEL para atender (Action `ticket.claim`, RBAC 2.0 —
+    migration 038). Perfil suspenso, visualizador ou cargo que apenas gerencia
+    não pode receber o atendimento.
 
     Concorrência (condicional): guarda pelo status ANTERIOR E pelo responsável
     ANTERIOR (ID+nome; preserva NULL vs ''). Duas transferências simultâneas:

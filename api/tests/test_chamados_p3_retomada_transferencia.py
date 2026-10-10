@@ -4,17 +4,20 @@ Fluxos adicionados na P3 (Etapa 1):
 
 Retomada (`POST /api/chamados/<id>/resume`)
   - Exceção ESTRITA ao ownership: qualquer técnico autenticado com membership
-    ativa + Action `ticket.status` no workspace pode retomar um chamado
-    `em_espera` — mesmo atribuído a outro técnico. A fila não pode ficar
+    ativa + Actions `ticket.status` E `ticket.claim` no workspace pode retomar um
+    chamado `em_espera` — mesmo atribuído a outro técnico. A fila não pode ficar
     travada pela disponibilidade do responsável anterior. `em_espera →`
     `em_atendimento` é a ÚNICA transição da rota (400 em qualquer outro estado).
+  - A retomada torna o ator o NOVO responsável, então ele precisa poder ATENDER
+    (`ticket.claim` — RBAC 2.0, migration 038); cargo de gestão/visualização não
+    vira responsável pela fila em espera (403).
   - NÃO libera o ownership nas demais rotas (PR #373): comentar/editar/mudar
     status/assumir chamado de outro técnico seguem exigindo responsável,
     assigner ou super admin. `chamados_claim` continua rejeitando `em_espera`.
   - Assunção ATÔMICA: PATCH ÚNICO condicional com `status=eq.em_espera`. Dois
     técnicos retomam ao mesmo tempo → o vencedor recebe 200; o perdedor, 409
     SEM evento, auditoria do app ou notificação (escritas só após o PATCH
-    vencedor). Acionou a Action `ticket.status` → exigida, senão 403.
+    vencedor). Acionou `ticket.status`/`ticket.claim` → exigidas, senão 403.
   - Identidade inteiramente do JWT/servidor (autor = `g.user`); nenhum dado de
     responsável vem do corpo.
 
@@ -24,7 +27,9 @@ Transferência (`POST /api/chamados/<id>/transfer`)
     (`ticket.assign`, RBAC). Técnico comum NÃO ganha `ticket.assign`:
     transferir o chamado de OUTRO técnico exige o assigner (403).
   - Destinatário deve ser membro ATIVO do workspace DO CHAMADO (400 caso não
-    seja — nunca o workspace ativo do assigner) e diferente do atual (400).
+    seja — nunca o workspace ativo do assigner), com PERFIL ATIVO (400 se
+    suspenso/pendente) e ELEGÍVEL para atender — Action `ticket.claim` no
+    workspace do chamado (400 se não) — e diferente do atual (400).
     O nome gravado é o canônico do PERFIL do ID validado.
   - Transferência ATÔMICA: PATCH ÚNICO condicional com guarda no status
     ANTERIOR e no responsável ANTERIOR (id + nome, preservando NULL vs '').
@@ -202,7 +207,14 @@ def client(api_module, fake_requests, monkeypatch):
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _auth_as(api_module, fake_requests, monkeypatch, profile, actions):
+def _auth_as(api_module, fake_requests, monkeypatch, profile, actions, target_actions=None):
+    """Autentica o ator e mocka o motor RBAC 2.0 de forma SENSÍVEL AO PERFIL.
+
+    O mesmo `rbac_two_can` decide tanto as Actions do ATOR quanto a
+    elegibilidade (`ticket.claim`) do DESTINATÁRIO de uma transferência. O mock
+    distingue pelo `id` do perfil: o ator usa `actions`; qualquer outro perfil
+    (destinatário) usa `target_actions` (padrão: técnico apto a atender).
+    """
     auth_mod = sys.modules.get("auth")
     if auth_mod is not None:
         monkeypatch.setattr(auth_mod, "_verify_jwt", lambda t: {"sub": profile["id"]})
@@ -215,7 +227,15 @@ def _auth_as(api_module, fake_requests, monkeypatch, profile, actions):
             for w in (profile.get("workspace_ids") or [])
         ]),
     )
-    monkeypatch.setattr(api_module, "rbac_two_can", lambda *a: str(a[2]) in actions)
+    actor_id = str(profile["id"])
+    target_allowed = {"ticket.claim"} if target_actions is None else set(target_actions)
+
+    def _fake_rbac_can(prof, workspace_id, action, scope="workspace"):
+        pid = str((prof or {}).get("id") or "")
+        allowed = set(actions) if pid == actor_id else target_allowed
+        return str(action) in allowed
+
+    monkeypatch.setattr(api_module, "rbac_two_can", _fake_rbac_can)
     return {"Authorization": f"Bearer {_make_jwt({'sub': profile['id']})}"}
 
 
@@ -273,11 +293,11 @@ def _route_assignee_membership(fake_requests, profile_id, ws=WS_A, ok=True):
     )
 
 
-def _route_assignee_profile(fake_requests, profile_id, name):
+def _route_assignee_profile(fake_requests, profile_id, name, status="active", is_super_admin=False):
     fake_requests.route(
         "GET",
-        f"profiles?id=eq.{profile_id}&select=name",
-        FakeResponse([{"name": name}]),
+        f"profiles?id=eq.{profile_id}&select=name,status,is_super_admin",
+        FakeResponse([{"name": name, "status": status, "is_super_admin": is_super_admin}]),
     )
 
 
@@ -287,14 +307,16 @@ def _route_assignee_profile(fake_requests, profile_id, name):
 
 def test_resume_em_espera_by_other_tech_ok_200_becomes_owner(
         api_module, client, fake_requests, monkeypatch):
-    """Qualquer técnico com `ticket.status` retoma chamado `em_espera` de outro
-    técnico: vira responsável, status → em_atendimento, com evento + auditoria.
+    """Qualquer técnico apto a atender (`ticket.status` + `ticket.claim`) retoma
+    chamado `em_espera` de outro técnico: vira responsável, status →
+    em_atendimento, com evento + auditoria.
 
     Exceção ESTRITA ao ownership: TECH_A NÃO é o responsável (é TECH_B), mas a
     retomada é permitida — o PATCH é consequência da roda dedicada, não do PATCH
     genérico de status.
     """
-    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A, {"ticket.status"})
+    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A,
+                       {"ticket.status", "ticket.claim"})
     before = _ticket(status="em_espera")
     updated = dict(before, status="em_atendimento",
                    assignedToUserId=TECH_A["id"], assignedTo="Técnico A")
@@ -337,6 +359,22 @@ def test_resume_em_espera_by_other_tech_ok_200_becomes_owner(
 def test_resume_requires_ticket_status_403_no_write(
         api_module, client, fake_requests, monkeypatch):
     headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A, set())
+    _route_ticket(fake_requests, _ticket(status="em_espera"))
+    _route_write(fake_requests, _ticket(status="em_atendimento"))
+
+    resp = client.post("/api/chamados/t-1/resume", json={}, headers=headers)
+
+    assert resp.status_code == 403, resp.get_json()
+    assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
+    assert fake_requests.calls_for("POST", "ticket_events") == []
+
+
+def test_resume_requires_ticket_claim_403_no_write(
+        api_module, client, fake_requests, monkeypatch):
+    """Quem apenas muda status (`ticket.status`) mas NÃO pode atender
+    (`ticket.claim` — ex.: cargo de gestão/coordenação) não vira responsável
+    pela retomada: 403, sem escrita."""
+    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A, {"ticket.status"})
     _route_ticket(fake_requests, _ticket(status="em_espera"))
     _route_write(fake_requests, _ticket(status="em_atendimento"))
 
@@ -399,7 +437,8 @@ def test_resume_conflict_409_no_events_no_audit_no_notify(
         return []
     monkeypatch.setattr(api_module, "_target_subs", _spy_target_subs)
 
-    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A, {"ticket.status"})
+    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A,
+                       {"ticket.status", "ticket.claim"})
     _route_ticket(fake_requests, _ticket(status="em_espera"))
     fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([]))
 
@@ -423,7 +462,8 @@ def test_resume_concurrent_first_wins_second_409(
     corretamente é a propriedade garantida por este teste; validar a atomicidade
     de banco de verdade é tarefa de staging, padrão `atomic_e2e.py`.)
     """
-    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A, {"ticket.status"})
+    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A,
+                       {"ticket.status", "ticket.claim"})
     before = _ticket(status="em_espera")
     updated = dict(before, status="em_atendimento",
                    assignedToUserId=TECH_A["id"], assignedTo="Técnico A")
@@ -454,7 +494,8 @@ def test_resume_em_espera_no_owner_to_owner(
         api_module, client, fake_requests, monkeypatch):
     """Retomada de chamado `em_espera` SEM responsável também é suportada —
     o antigo vazio vira o novo responsável na mesma condicional por status."""
-    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A, {"ticket.status"})
+    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_A,
+                       {"ticket.status", "ticket.claim"})
     before = _ticket(status="em_espera", assignedTo="", assignedToUserId="")
     updated = dict(before, status="em_atendimento",
                    assignedToUserId=TECH_A["id"], assignedTo="Técnico A")
@@ -644,6 +685,47 @@ def test_transfer_target_not_active_member_400(
     assert fake_requests.calls_for("GET", f"profiles?id=eq.{TECH_C['id']}&select=name") == [], (
         "Perfil do destino não deve ser consultado quando a membership falha"
     )
+
+
+def test_transfer_target_inactive_profile_400(
+        api_module, client, fake_requests, monkeypatch):
+    """Destinatário com membership ativa mas PERFIL não-ativo (suspenso/
+    pendente) é rejeitado (400) — a membership sozinha não basta."""
+    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_B, {"ticket.status"})
+    _route_ticket(fake_requests, _ticket(status="em_atendimento"))
+    _route_assignee_membership(fake_requests, TECH_C["id"])
+    _route_assignee_profile(fake_requests, TECH_C["id"], "Técnico C", status="pending")
+
+    resp = client.post(
+        "/api/chamados/t-1/transfer",
+        json={"assignedToUserId": TECH_C["id"]},
+        headers=headers,
+    )
+
+    assert resp.status_code == 400, resp.get_json()
+    assert "ativo" in resp.get_json()["error"]
+    assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
+
+
+def test_transfer_target_not_eligible_to_attend_400(
+        api_module, client, fake_requests, monkeypatch):
+    """Destinatário ATIVO no workspace mas SEM a Action `ticket.claim` (não
+    atende chamados — ex.: visualizador/cargo de gestão) é rejeitado (400)."""
+    headers = _auth_as(api_module, fake_requests, monkeypatch, TECH_B,
+                       {"ticket.status"}, target_actions=set())
+    _route_ticket(fake_requests, _ticket(status="em_atendimento"))
+    _route_assignee_membership(fake_requests, TECH_C["id"])
+    _route_assignee_profile(fake_requests, TECH_C["id"], "Técnico C")
+
+    resp = client.post(
+        "/api/chamados/t-1/transfer",
+        json={"assignedToUserId": TECH_C["id"]},
+        headers=headers,
+    )
+
+    assert resp.status_code == 400, resp.get_json()
+    assert "atender" in resp.get_json()["error"]
+    assert fake_requests.calls_for("PATCH", "chamados_tickets") == []
 
 
 def test_transfer_conflict_409_no_events_no_audit_no_notify(
