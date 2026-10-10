@@ -13,7 +13,8 @@ Fluxo (tudo em um banco descartável do GitHub Actions `services: postgres`):
    STEP 6  roda TODO arquivo de testes estruturais/comportamentais
            supabase/migrations/tests/*.sql (falha -> FALHA do CI);
    STEP 7  behavioral da migration 072 (13 pontos da PR #284) em fixtures
-           isoladas no próprio banco efêmero.
+           isoladas no próprio banco efêmero;
+   STEP 8  behavioral do Patrimônio (091–095, matriz de acesso da issue #289).
 
 SAÍDA: resumo por passo + código de saída != 0 se qualquer validação falhar.
 NUNCA conecta em DEV/PROD — usa apenas DATABASE_URL (secreto/endpoint do
@@ -180,6 +181,27 @@ def step_behavioral_072(executor) -> None:
     )
 
 
+def step_behavioral_patrimonio(executor) -> None:
+    try:
+        from behavioral_patrimonio import BehavioralPatrimonio
+
+        behavioral = BehavioralPatrimonio(executor)
+        ok = behavioral.run()
+    except Exception as exc:  # noqa: BLE001 - import de módulo irmão
+        _fail("STEP 8 - behavioral patrimonio (matriz de acesso)", exc)
+        return
+    passed = len([r for r in behavioral.results if r[1]])
+    detail = f"{passed}/{len(behavioral.results)} checks"
+    failed = [r[0] for r in behavioral.results if not r[1]]
+    if failed:
+        detail += f"; FALHAS: {failed}"
+    report(
+        "STEP 8 - behavioral patrimonio (matriz de acesso)",
+        ok,
+        detail,
+    )
+
+
 def main() -> int:
     dsn = os.environ.get("DATABASE_URL", "").strip()
     if not dsn:
@@ -194,6 +216,7 @@ def main() -> int:
     step_schema_migrations_consistent(executor, MIGRATIONS_DIR)
     step_run_static_tests(executor)
     step_behavioral_072(executor)
+    step_behavioral_patrimonio(executor)
 
     failed = [n for n, ok, _ in _REPORT if not ok]
     print(f"[suite] RESULTADO: {len(_REPORT) - len(failed)}/{len(_REPORT)} PASS")
