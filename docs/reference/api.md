@@ -94,7 +94,11 @@ Atualiza o chamado. Corpo com objeto parcial do chamado.
 
 ### POST /api/chamados/:id/feedback
 
-Registra a avaliação do professor (público, sem autenticação).
+Registra a avaliação do **solicitante autenticado** (dono do chamado). Exige
+`@require_auth`; o servidor confere o isolamento de unidade e `reportedByUserId == g.user_id`.
+Nenhum dado de identidade, posse ou workspace vem do cliente. O chamado precisa
+estar `resolvido`/`fechado` e ainda sem avaliação. É a via usada pelo
+`FeedbackReminder` em Meus Chamados; não depende do `tracking_token`.
 
 ```json
 {
@@ -107,8 +111,17 @@ Registra a avaliação do professor (público, sem autenticação).
 
 **Erros:**
 
-- `400` — avaliação fora de 1 a 5, chamado não resolvido ou já avaliado
+- `400` — avaliação fora de 1 a 5
+- `401` — não autenticado
+- `403` — fora da unidade, não é o dono, ou chamado não `resolvido`/`fechado`
 - `404` — chamado não encontrado
+- `409` — já avaliado (inclusive na corrida entre dois envios)
+- `502` — falha ao gravar
+
+> A rota `POST /api/chamados/:id/feedback` **não** é mais anônima por UUID. A
+> avaliação sem login usa o caminho público por token, documentado em
+> [Rotas públicas](#rotas-públicas). Detalhes e as duas vias em
+> [Chamados — Referência](../apps/chamados/reference.md).
 
 ### GET /api/chamados/reports
 

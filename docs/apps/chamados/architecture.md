@@ -9,6 +9,7 @@ flowchart TD
     subgraph PAGES["Páginas"]
         LIST["TicketList\n(fila operacional)"]
         MINE["MyTickets\n(área pessoal)"]
+        FR["FeedbackReminder\n(aviso de avaliação)"]
         DETAIL["TicketDetail"]
         DASH["Dashboard"]
     end
@@ -49,6 +50,8 @@ flowchart TD
     MINE --> UM
     UM -->|listMine| TS
     MINE --> MYT
+    MINE --> FR
+    FR -->|submitFeedback| TS
     TS -->|fetch| API["API Flask\n/api/chamados*"]
     API --> DB["Supabase\nchamados_tickets"]
 
@@ -62,6 +65,12 @@ flowchart TD
 > `useMyTickets` → `ticketService.listMine()` (`?mine=true`) e nunca é misturada
 > com a fila. `useMyTickets` não grava em cache local nem assina realtime, para
 > que o filtro do cliente não volte a ser fronteira de autorização.
+>
+> `FeedbackReminder` é filho de `MyTickets`: reaproveita a lista já autorizada
+> (sem leitura extra), mostra os chamados concluídos e ainda não avaliados e
+> envia a nota pelo caminho **autenticado** (`submitFeedback` →
+> `POST /api/chamados/:id/feedback`). A posse do chamado é conferida no servidor;
+> o `localStorage` só limita a repetição do aviso.
 
 ## Gerenciamento de estado
 
@@ -152,6 +161,7 @@ src/apps/chamados/
 │   └── ticketAlerts.ts          # Avisos de chamado novo no sino
 ├── utils/
 │   ├── myTickets.ts             # Agrupamento por data, pesquisa e rótulos
+│   ├── pendingFeedback.ts       # Lembrete de avaliação: elegibilidade + limite por usuário/chamado
 │   └── photo.ts
 ├── types/
 │   ├── ticket.ts                # Tipos de chamado

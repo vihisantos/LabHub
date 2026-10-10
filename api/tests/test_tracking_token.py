@@ -736,11 +736,14 @@ def test_rate_limit_nao_compartilha_contador_entre_ips(client, fake_requests):
 
 # ── B2/B5 — acesso anônimo por UUID eliminado ──────────────────────────────
 
-def test_feedback_anonymo_por_uuid_nao_existe(client):
-    # O endpoint antigo POST /api/chamados/<id>/feedback (acesso anônimo por
-    # UUID, sem token) foi removido. Não deve existir mais rota anônima.
+def test_feedback_anonymo_por_uuid_nao_existe(client, fake_requests):
+    # O acesso ANÔNIMO por UUID continua impossível. A rota
+    # `POST /api/chamados/<id>/feedback` existe desde a issue #370 — mas como
+    # caminho AUTENTICADO do dono: sem token de usuário a resposta é 401 e nada
+    # é gravado. O UUID sozinho não avalia nada.
     r = client.post("/api/chamados/ticket-A/feedback", json={"rating": 5})
-    assert r.status_code == 404
+    assert r.status_code == 401
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
 
 
 def test_subscribe_anonymo_por_uuid_nao_existe(client):

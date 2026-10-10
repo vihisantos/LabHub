@@ -93,10 +93,44 @@ sequenceDiagram
 
 Regras da avaliação:
 
-- Acesso público: o identificador do chamado é o token de acesso
-- Disponível apenas com status `resolvido` ou `fechado`
-- Um chamado recebe no máximo uma avaliação, sem edição posterior
+- Disponível apenas com status `resolvido` ou `fechado` e sem avaliação prévia
+- Um chamado recebe no máximo uma avaliação, sem edição posterior; a gravação é
+  atômica, então dois envios simultâneos não geram avaliação dupla
 - A notificação de chamado resolvido traz link direto para o formulário
+
+### Caminho público (link de acompanhamento)
+
+- Sem login: o identificador da URL é o **token de acompanhamento**, que prova
+  ser o dono do link. O chamado é resolvido a partir do token, nunca de um id
+  enviado pelo cliente
+- `POST /api/public/chamados/:tracking_token/feedback`
+
+### Caminho autenticado (Meus Chamados)
+
+Para quem está logado, avaliar não depende do token guardado no navegador
+original (útil no cenário PC → celular):
+
+```mermaid
+sequenceDiagram
+    participant S as Solicitante (logado)
+    participant MT as Meus Chamados
+    participant API as API Flask
+    participant DB as Supabase
+
+    S->>MT: Vê o aviso "avalie os chamados concluídos"
+    S->>MT: Clica em "Avaliar" e escolhe as estrelas
+    MT->>API: POST /api/chamados/:id/feedback
+    API->>API: Confere unidade, posse (reportedByUserId == g.user_id) e status
+    API->>DB: PATCH condicional (feedbackRating = null e status concluído)
+    API-->>MT: 200 { ticket }
+    MT->>MT: Remove o item e recarrega a lista
+```
+
+- O aviso é dispensável e tem limite de reapresentação; a chave local é escopada
+  por usuário e chamado, então trocar de conta não mistura lembretes
+- Só remove o item após o `200`; em falha mantém o formulário aberto para
+  tentar de novo, e trata `409` como "já avaliado"
+- `POST /api/chamados/:id/feedback`
 
 ## Fluxo 4 — Aprovação de usuário (admin)
 

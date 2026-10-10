@@ -25,7 +25,7 @@ O Chamados centraliza as solicitações de suporte e ordens de serviço de TI. E
 - **Painel de TI** — filtro, atribuição, atualização e resolução de chamados
 - **Controle de SLA** — prazos de resposta e resolução por prioridade
 - **Atualizações em tempo real** — mudanças de status chegam ao professor na hora
-- **Avaliação** — nota de 1 a 5 estrelas após a resolução
+- **Avaliação** — nota de 1 a 5 estrelas após a resolução, pelo link de acompanhamento (sem login) ou de dentro de Meus Chamados (autenticado)
 - **Notificações push** — avisos automáticos de novo chamado e de mudança de status
 - **Fotos** — anexos enviados via Cloudinary (máximo de 600 KB)
 - **Relatórios** — exportação em CSV, XLSX e PDF, com agregação por técnico
@@ -35,8 +35,8 @@ O Chamados centraliza as solicitações de suporte e ordens de serviço de TI. E
 
 | Ator | Nível de acesso | O que pode fazer |
 |------|-----------------|------------------|
-| Professor (público) | Não autenticado | Abrir chamado, acompanhar status e avaliar o atendimento |
-| Solicitante (autenticado, sem Action `ticket.*`) | Autenticado, com membership ativa | Listar os próprios chamados (`/chamados/meus`) e ler o detalhe dos próprios. Sem acesso à fila operacional nem a qualquer Action de gestão |
+| Professor (público) | Não autenticado | Abrir chamado, acompanhar status e avaliar o atendimento pelo link |
+| Solicitante (autenticado, sem Action `ticket.*`) | Autenticado, com membership ativa | Listar os próprios chamados (`/chamados/meus`), ler o detalhe dos próprios e avaliar os próprios chamados concluídos na tela. Sem acesso à fila operacional nem a qualquer Action de gestão |
 | Técnico | `technician` ou `admin` | Ver e atualizar chamados, comentar, resolver |
 | Admin | `admin` ou `super_admin` | Tudo acima, mais atribuir técnicos e gerenciar SLA |
 
@@ -62,7 +62,7 @@ Consulta do status pelo nome do professor, com o histórico de eventos do atendi
 
 ![Avaliação do atendimento por estrelas](../../chamados-demo/screenshots/04-feedback.png)
 
-Avaliação de 1 a 5 estrelas com comentário opcional, disponível após a resolução do chamado.
+Avaliação de 1 a 5 estrelas com comentário opcional, disponível após a resolução do chamado. Pode ser feita pelo link público (token) ou, para quem está logado, direto em **Meus Chamados**, onde um aviso lembra os chamados concluídos ainda não avaliados.
 
 ### Painel de TI
 

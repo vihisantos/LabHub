@@ -310,6 +310,24 @@ export const ticketService = {
     return ticket
   },
 
+  /**
+   * AVALIAÇÃO AUTENTICADA — o próprio solicitante avalia o seu chamado
+   * concluído (issue #370), sem depender do tracking token do navegador.
+   *
+   * `POST /api/chamados/:id/feedback`. A autorização é decidida no SERVIDOR
+   * (`reportedByUserId == identidade do JWT`); o corpo leva apenas nota e
+   * comentário. Não passa pela coleção local: a lista pessoal é recarregada
+   * depois, e o `feedbackRating` devolvido pelo servidor é a fonte de verdade
+   * de que a avaliação foi registrada.
+   */
+  submitFeedback: async (id: string, rating: number, comment = ''): Promise<Ticket> => {
+    const { ticket } = await request<{ ticket: Ticket }>(`${API_BASE}/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, comment }),
+    })
+    return ticket
+  },
+
   /** Busca chamados pelo nome do professor na API (público). */
   getByReporter: async (name: string): Promise<Ticket[]> => {
     const { tickets } = await request<{ tickets: Ticket[] }>(
