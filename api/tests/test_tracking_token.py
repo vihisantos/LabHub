@@ -580,7 +580,44 @@ def test_feedback_segunda_vez_retorna_409(client, fake_requests):
     assert r.status_code == 409
 
 
-@pytest.mark.parametrize("rating", [0, 6, -1, 10])
+@pytest.mark.parametrize("rating", [1, 2, 3, 4, 5, 5.0, "5"])
+def test_feedback_rating_valido_grava(client, fake_requests, rating):
+    _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A", status="resolvido")
+    _route_ticket_full(fake_requests, _make_ticket(tid="ticket-A", status="resolvido"),
+                       select="status,feedbackRating")
+    updated = _make_ticket(tid="ticket-A", status="resolvido", feedbackRating=int(rating))
+    _route_patch(fake_requests, updated)
+
+    r = client.post("/api/public/chamados/segredo-token-A/feedback",
+                    json={"rating": rating}, headers={"X-Tracking-Token": "segredo-token-A"})
+
+    assert r.status_code == 200, (rating, r.get_json())
+    sent = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert sent["feedbackRating"] == int(rating)
+
+
+@pytest.mark.parametrize(
+    "rating",
+    [
+        pytest.param(0, id="zero"),
+        pytest.param(6, id="seis"),
+        pytest.param(-1, id="negativo"),
+        pytest.param(10, id="dez"),
+        pytest.param(True, id="bool-true"),
+        pytest.param(False, id="bool-false"),
+        pytest.param(4.5, id="fracionario"),
+        pytest.param(5.0001, id="quase-inteiro"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="infinito"),
+        pytest.param(float("-inf"), id="infinito-negativo"),
+        pytest.param("0", id="string-zero"),
+        pytest.param("6", id="string-seis"),
+        pytest.param("4.5", id="string-fracionaria"),
+        pytest.param("x", id="string-nao-numerica"),
+        pytest.param([1], id="lista"),
+        pytest.param({"a": 1}, id="objeto"),
+    ],
+)
 def test_feedback_rating_invalido_denegado(client, fake_requests, rating):
     _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A", status="resolvido")
     _route_ticket_full(fake_requests, _make_ticket(tid="ticket-A", status="resolvido"),
@@ -589,7 +626,8 @@ def test_feedback_rating_invalido_denegado(client, fake_requests, rating):
     r = client.post("/api/public/chamados/segredo-token-A/feedback",
                     json={"rating": rating}, headers={"X-Tracking-Token": "segredo-token-A"})
 
-    assert r.status_code == 400
+    assert r.status_code == 400, (rating, r.get_json())
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
 
 
 def test_feedback_sem_rating_denegado(client, fake_requests):
@@ -601,6 +639,19 @@ def test_feedback_sem_rating_denegado(client, fake_requests):
                     json={"comment": "ok"}, headers={"X-Tracking-Token": "segredo-token-A"})
 
     assert r.status_code == 400
+
+
+@pytest.mark.parametrize("body", [[1, 2, 3], "5", 5, True])
+def test_feedback_corpo_nao_objeto_e_400_sem_escrita(client, fake_requests, body):
+    _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A", status="resolvido")
+    _route_ticket_full(fake_requests, _make_ticket(tid="ticket-A", status="resolvido"),
+                       select="status,feedbackRating")
+
+    r = client.post("/api/public/chamados/segredo-token-A/feedback",
+                    json=body, headers={"X-Tracking-Token": "segredo-token-A"})
+
+    assert r.status_code == 400, (body, r.get_json())
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
 
 
 # ── B1.8 — subscribe ───────────────────────────────────────────────────────
@@ -736,11 +787,14 @@ def test_rate_limit_nao_compartilha_contador_entre_ips(client, fake_requests):
 
 # ── B2/B5 — acesso anônimo por UUID eliminado ──────────────────────────────
 
-def test_feedback_anonymo_por_uuid_nao_existe(client):
-    # O endpoint antigo POST /api/chamados/<id>/feedback (acesso anônimo por
-    # UUID, sem token) foi removido. Não deve existir mais rota anônima.
+def test_feedback_anonymo_por_uuid_nao_existe(client, fake_requests):
+    # O acesso ANÔNIMO por UUID continua impossível. A rota
+    # `POST /api/chamados/<id>/feedback` existe desde a issue #370 — mas como
+    # caminho AUTENTICADO do dono: sem token de usuário a resposta é 401 e nada
+    # é gravado. O UUID sozinho não avalia nada.
     r = client.post("/api/chamados/ticket-A/feedback", json={"rating": 5})
-    assert r.status_code == 404
+    assert r.status_code == 401
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
 
 
 def test_subscribe_anonymo_por_uuid_nao_existe(client):

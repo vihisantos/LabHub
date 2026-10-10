@@ -1,4 +1,4 @@
-import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools
+import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools, math
 from datetime import datetime, timedelta, timezone, date
 from io import BytesIO
 from urllib.parse import urlparse, parse_qs, quote, urljoin
@@ -3747,63 +3747,90 @@ def public_chamados_events(tracking_token):
     return jsonify({'events': events})
 
 
-@app.route('/api/public/chamados/<tracking_token>/feedback', methods=['POST'])
-@require_tracking_token
-def public_chamados_feedback(tracking_token):
-    """Registra feedback (1-5) do professor para o próprio chamado.
-    - Só permite quando resolvido/fechado.
-    - Uma única vez por chamado (segunda tentativa → 409).
-    - Atômico (issue #371 P2-A): o PATCH é condicional a `feedbackRating=is.null`
-      — entre requisições concorrentes, só a PRIMEIRA grava; a perdedora afeta
-      0 linhas e responde 409 (nunca sobrescreve a avaliação vencedora).
-    - Atômico quanto ao estado: o MESMO PATCH também é condicional a
-      `status=in.(resolvido,fechado)`. A checagem de status lida acima é só um
-      gate rápido; a condição REAL que impede gravar feedback num chamado
-      reaberto entre a leitura e a escrita é aplicada pelo banco na própria
-      escrita. Se o chamado saiu do estado elegível, 0 linhas → 409.
-    - O ticket é derivado do token, nunca do corpo da requisição.
+def _parse_feedback_rating(raw):
+    """Normaliza a nota recebida para 1..5; qualquer outra coisa devolve 0.
+
+    Aceita SOMENTE um inteiro de 1 a 5 — inclusive quando chega como string
+    numérica (`"5"`), comportamento que o fluxo público já tinha. Rejeita:
+      · booleanos: `True`/`False` são subtipo de `int` em Python e, sem a guarda
+        explícita, `True` viraria silenciosamente a nota 1;
+      · frações (`4.5`, `5.0001`); floats inteiros (`5.0`) continuam aceitos,
+        como antes;
+      · `NaN`/`Infinity`/`-Infinity`: `int(nan)` levanta `ValueError` e
+        `int(inf)` levanta `OverflowError` — antes essas exceções escapavam e
+        viravam HTTP 500; agora devolvem 0;
+      · qualquer tipo incompatível (lista, dicionário, `None`, etc.).
+
+    Nunca lança: 0 é sempre transformado em HTTP 400 pelo chamador
+    (`_write_chamado_feedback`), que restringe de novo a `{1,2,3,4,5}`.
     """
-    ticket = g.tracking_ticket
+    if isinstance(raw, bool):
+        return 0
+    if isinstance(raw, float):
+        if not math.isfinite(raw) or not raw.is_integer():
+            return 0
+        raw = int(raw)
+    if isinstance(raw, int):
+        value = raw
+    else:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError, OverflowError):
+            return 0
+    return value if 1 <= value <= 5 else 0
+
+
+def _write_chamado_feedback(ticket_id, body):
+    """NÚCLEO COMPARTILHADO da gravação de feedback (issue #370, caminho C).
+
+    Os DOIS caminhos — público (`POST /api/public/chamados/<token>/feedback`) e
+    autenticado (`POST /api/chamados/<id>/feedback`) — escrevem por AQUI. A
+    diferença entre eles é só COMO provam o direito ao chamado (token vs.
+    `reportedByUserId == g.user_id`), decidido por quem chama ANTES desta função.
+    A regra de elegibilidade, a validação da nota/comentário e a condição
+    atômica do PATCH são as mesmas, então a corrida entre os dois caminhos não
+    permite avaliação dupla.
+
+    - Só grava em `resolvido`/`fechado` (gate rápido; a condição REAL de estado
+      vai na mesma escrita, abaixo).
+    - Uma única vez: já avaliado → 409.
+    - Atômico: o PATCH é condicional a `feedbackRating=is.null` E a
+      `status=in.(resolvido,fechado)`. Duas requisições concorrentes (inclusive
+      uma pública e uma autenticada) resolvem no banco: só a PRIMEIRA grava; a
+      perdedora afeta 0 linhas → 409. Reaberto entre a leitura e a escrita: a
+      condição de status deixa de casar → 0 linhas → 409. Nunca reporta sucesso
+      sem linha afetada.
+
+    Devolve `(linha_gravada, None)` em sucesso ou `(None, (resposta, status))`
+    em falha.
+    """
     fetch = requests.get(
-        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}&select=status,feedbackRating',
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=status,feedbackRating',
         headers=_supabase_headers(),
         timeout=10,
     )
     if not fetch.ok or not fetch.json():
-        return jsonify({'error': 'Chamado não encontrado'}), 404
+        return None, (jsonify({'error': 'Chamado não encontrado'}), 404)
     full = fetch.json()[0]
 
     if full.get('status') not in ('resolvido', 'fechado'):
-        return jsonify({'error': 'Só é possível avaliar após a resolução do chamado'}), 403
+        return None, (jsonify({'error': 'Só é possível avaliar após a resolução do chamado'}), 403)
     if full.get('feedbackRating') is not None:
-        return jsonify({'error': 'Chamado já avaliado'}), 409
+        return None, (jsonify({'error': 'Chamado já avaliado'}), 409)
 
-    body = request.get_json() or {}
-    raw = body.get('rating')
-    if isinstance(raw, float) and raw != int(raw):
-        rating = 0
-    else:
-        try:
-            rating = int(raw)
-        except (TypeError, ValueError):
-            rating = 0
+    # Corpo precisa ser um objeto JSON. Um corpo que não seja dict (lista,
+    # string, número, booleano) não tem `.get` e, sem esta guarda, estouraria
+    # AttributeError → HTTP 500; tratado como sem nota → 400.
+    if not isinstance(body, dict):
+        body = {}
+    rating = _parse_feedback_rating(body.get('rating'))
     if rating not in (1, 2, 3, 4, 5):
-        return jsonify({'error': 'Nota inválida (1 a 5)'}), 400
+        return None, (jsonify({'error': 'Nota inválida (1 a 5)'}), 400)
     comment = str(body.get('comment') or '').strip()[:500]
 
     now = datetime.now(timezone.utc).isoformat()
-    # PATCH CONDICIONAL (issue #371 P2-A): a gravação só alcança linhas cujo
-    # feedback ainda não foi registrado E que CONTINUAM em estado elegível.
-    # Se duas requisições concorrentes passarem pela verificação de cima, apenas
-    # a primeira grava; a perdedora afeta 0 linhas → 409. Além disso, se o
-    # chamado for reaberto (sai de resolvido/fechado) entre a leitura e a
-    # escrita, a condição de status no banco deixa de casar → 0 linhas → 409.
-    # Sem essas condições o último PATCH venceria (last-write-wins) e uma
-    # nota/comentário poderia sobrescrever silenciosamente a avaliação ou ser
-    # gravada num chamado já reaberto. A guarda de status vai na MESMA escrita
-    # (filtro do PostgREST), não numa segunda consulta — não há janela.
     resp = requests.patch(
-        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}'
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
         f'&feedbackRating=is.null&status=in.(resolvido,fechado)',
         headers={**_supabase_headers(), 'Prefer': 'return=representation'},
         json={
@@ -3815,15 +3842,36 @@ def public_chamados_feedback(tracking_token):
         timeout=10,
     )
     if not resp.ok:
-        return jsonify({'error': 'Erro ao registrar o feedback'}), 502
+        return None, (jsonify({'error': 'Erro ao registrar o feedback'}), 502)
     rows = resp.json() or []
     if not rows:
-        # Race perdida: outra requisição gravou a primeira avaliação antes OU o
-        # chamado foi reaberto (saiu de resolvido/fechado) entre a leitura e a
-        # escrita. Em ambos os casos a condição atômica deixou de casar e NADA
-        # foi gravado — nunca reportar sucesso sem linhas afetadas.
-        return jsonify({'error': 'Chamado já avaliado ou não está mais disponível para avaliação'}), 409
-    return jsonify({'ticket': _project_public_ticket(rows[0])})
+        # Race perdida (outra requisição gravou a primeira avaliação) OU o
+        # chamado saiu do estado elegível entre a leitura e a escrita. Em ambos
+        # os casos a condição atômica deixou de casar e NADA foi gravado.
+        return None, (jsonify({'error': 'Chamado já avaliado ou não está mais disponível para avaliação'}), 409)
+    return rows[0], None
+
+
+@app.route('/api/public/chamados/<tracking_token>/feedback', methods=['POST'])
+@require_tracking_token
+def public_chamados_feedback(tracking_token):
+    """Registra feedback (1-5) do professor para o próprio chamado (caminho A).
+
+    O ticket é derivado do TOKEN, nunca do corpo da requisição. A validação e a
+    gravação ATÔMICA ficam no núcleo compartilhado `_write_chamado_feedback`
+    (issue #370), o mesmo usado pelo caminho autenticado — assim os dois não
+    divergem na regra de elegibilidade nem na proteção contra avaliação dupla:
+      · só `resolvido`/`fechado`;
+      · uma única vez (já avaliado → 409);
+      · PATCH condicional a `feedbackRating=is.null` E
+        `status=in.(resolvido,fechado)`: corrida (inclusive com o caminho
+        autenticado) e reabertura resolvem no banco, 0 linhas → 409.
+    """
+    ticket = g.tracking_ticket
+    row, error = _write_chamado_feedback(ticket['id'], request.get_json() or {})
+    if error:
+        return error
+    return jsonify({'ticket': _project_public_ticket(row)})
 
 
 @app.route('/api/public/chamados/<tracking_token>/subscribe', methods=['POST'])
@@ -4445,6 +4493,73 @@ def chamados_events_create(ticket_id):
         )
         return jsonify({'event': event}), 201
 
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/chamados/<ticket_id>/feedback', methods=['POST'])
+@require_auth
+def chamados_feedback(ticket_id):
+    """AVALIAR ATENDIMENTO — caminho AUTENTICADO do feedback (issue #370).
+
+    O próprio solicitante avalia o seu chamado concluído de QUALQUER
+    dispositivo: não depende do tracking token do navegador onde o chamado foi
+    aberto (o caso PC → celular). O caminho público por token continua existindo
+    para quem não tem conta.
+
+    Autorização (resolvida inteiramente no servidor; NADA de identidade,
+    workspace ou posse vem do corpo da requisição):
+      1. sessão válida (`@require_auth`, o `sub` do JWT validado);
+      2. o chamado precisa estar num workspace do usuário (membership ativa),
+         como em `mine=true` — super admin é capacidade de plataforma e não
+         passa por este passo;
+      3. `reportedByUserId == g.user_id` — a MESMA identidade do `mine=true` e
+         da Via B do detalhe. Conhecer o id NÃO basta: um não-dono recebe 403,
+         mesmo sabendo o UUID e com `ticket.view`.
+
+    A gravação usa o núcleo compartilhado `_write_chamado_feedback`, então nota,
+    elegibilidade (`resolvido`/`fechado`) e atomicidade (inclusive a corrida
+    entre uma tentativa pública e uma autenticada) são idênticas ao caminho por
+    token. Não há `ticket.view` nem Action RBAC aqui: é o dono avaliando o
+    próprio chamado, o mesmo recorte pessoal de `mine=true`.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
+
+        fetch = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+            f'&select=workspace_id,reportedByUserId',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        rows = fetch.json() or []
+        if not rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+
+        ticket_ws = rows[0].get('workspace_id') or ''
+        if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
+
+        # Posse: só o PRÓPRIO solicitante. A identidade é `g.user_id` (o `sub` do
+        # JWT); o `reportedByUserId` do banco é comparado aqui. Nunca do corpo.
+        # Comparação com ambos não-vazios: um `reportedByUserId` NULL/'' (chamado
+        # sem dono) nunca casa com uma identidade — fail-closed.
+        actor_id = str(getattr(g, 'user_id', None) or user.get('id') or '').strip()
+        owner_id = str(rows[0].get('reportedByUserId') or '').strip()
+        if not actor_id or not owner_id or actor_id != owner_id:
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
+
+        row, error = _write_chamado_feedback(ticket_id, request.get_json() or {})
+        if error:
+            return error
+        return jsonify({'ticket': _project_internal_ticket(row)})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500

@@ -78,7 +78,8 @@ const TICKET_STATUS_COLORS: Record<TicketStatus, string> = {
 | GET | `/api/chamados` | Listar chamados |
 | GET | `/api/chamados/:id` | Buscar chamado por identificador |
 | PATCH | `/api/chamados/:id` | Atualizar campos do chamado |
-| POST | `/api/public/chamados/:tracking_token/feedback` | Registrar avaliação (público) |
+| POST | `/api/public/chamados/:tracking_token/feedback` | Registrar avaliação pelo token de acompanhamento (sem login) |
+| POST | `/api/chamados/:id/feedback` | Registrar avaliação pelo solicitante autenticado (dono do chamado) |
 | POST | `/api/chamados/:id/events` | Adicionar comentário |
 | GET | `/api/chamados/:id/events` | Histórico do chamado |
 | GET | `/api/chamados/reports` | Relatório agregado |
@@ -277,6 +278,31 @@ Regras da tela pessoal:
   `404` continua "não encontrado", e falha de rede não é apresentada como
   registro ausente.
 
+#### Aviso de avaliação (`FeedbackReminder`)
+
+No topo de Meus Chamados, o `FeedbackReminder` lembra o solicitante de avaliar
+os chamados **concluídos e ainda não avaliados** da sua própria coleção
+(`?mine=true`): nenhuma leitura extra é feita, a própria lista autorizada já
+contém status e `feedbackRating`. A elegibilidade é sempre decidida pelo estado
+que veio do servidor.
+
+- **Registro em linha.** Ao tocar em "Avaliar", abre um formulário com `Stars` e
+  comentário opcional; o envio chama `ticketService.submitFeedback`, que faz
+  `POST /api/chamados/:id/feedback` (caminho autenticado acima).
+- **Só some após confirmação.** O item é removido e a lista recarregada
+  (`onRated` → `reload()`) somente depois do `200`. Em falha, a mensagem aparece
+  (`role="alert"`) e o formulário continua aberto para nova tentativa. Um `409`
+  é tratado como "já avaliado" (o item é removido sem erro).
+- **Dispensável, com limite.** "Dispensar lembrete de avaliação" esconde o aviso
+  sem marcar o chamado como avaliado. A reapresentação é limitada por
+  `chamado_feedback_reminder_<userId|anon>_<ticketId>` (máx. 2 exibições); depois
+  disso o aviso não volta sozinho. Avaliar com sucesso dispensa o lembrete de vez.
+- **Sem token, sem problema.** O caminho autenticado não usa o token de
+  acompanhamento guardado no `localStorage`; avaliar funciona mesmo quando o
+  token original não existe naquele navegador.
+- **O `localStorage` não decide nada.** Ele só evita repetir o aviso: nunca é
+  prova de avaliação, posse ou autorização — isso é sempre do servidor.
+
 Pendências e regras de cache no detalhe:
 
 - **Linha do tempo vazia para o solicitante.** `TicketDetail` carrega o histórico
@@ -360,7 +386,24 @@ Cobertura: `api/tests/test_chamados_own_ticket_detail.py` (Casos A–H).
 
 Corpo com o objeto parcial do chamado: status, responsável, prioridade, arquivamento, fotos e `statusNote`.
 
-### POST /api/public/chamados/:tracking_token/feedback
+### Avaliação do atendimento (issue #370)
+
+Existem **dois caminhos de escrita** para a mesma avaliação, com o **mesmo núcleo**
+no backend (`_write_chamado_feedback` + `_parse_feedback_rating` em `api/app.py`).
+Só a autorização difere; a regra de elegibilidade e a gravação atômica são
+compartilhadas, e não há tabela nem migration de feedback — continua nos campos
+`feedbackRating` / `feedbackComment` / `feedbackAt` do próprio chamado.
+
+**Elegibilidade (igual nos dois caminhos):**
+
+- o chamado existe;
+- o status é `resolvido` ou `fechado` (efetivamente concluído);
+- ainda não tem `feedbackRating`.
+
+Chamados em aberto, `a_caminho`, `em_atendimento`, `em_espera`, `indeferido`,
+cancelados ou já avaliados não podem avaliar.
+
+**Corpo (igual nos dois caminhos):**
 
 ```json
 {
@@ -369,12 +412,56 @@ Corpo com o objeto parcial do chamado: status, responsável, prioridade, arquiva
 }
 ```
 
-- `rating` — inteiro de 1 a 5 (obrigatório)
-- `comment` — texto de até 500 caracteres (opcional)
+- `rating` — inteiro de 1 a 5 (obrigatório); qualquer outra coisa → `400`;
+- `comment` — texto opcional, truncado em 500 caracteres.
 
-**Regras:** o chamado deve estar `resolvido` ou `fechado` e não pode ter avaliação prévia. Cada violação retorna `400` com a mensagem correspondente.
+**Concorrência (idempotência):** a gravação é um `PATCH` condicional
+(`feedbackRating=is.null` **e** status em `resolvido,fechado`). Se dois pedidos
+chegam juntos — inclusive um pelo caminho público e outro pelo autenticado — o
+primeiro grava, o segundo encontra `0` linhas e recebe `409`. **Nunca há avaliação
+dupla.**
+
+#### POST /api/public/chamados/:tracking_token/feedback
+
+Caminho **sem login**. O chamado é derivado **do token de acompanhamento**
+(`_token_lookup` / `_find_ticket_by_token`), nunca de um id enviado pelo cliente:
+o token prova ser o dono do link. Não há autenticação de usuário. Todo erro é
+devolvido sem revelar dado privado do chamado.
+
+#### POST /api/chamados/:id/feedback
+
+Caminho **autenticado** (`@require_auth`), para o solicitante avaliar de dentro
+de Meus Chamados sem depender do token guardado no navegador original (por
+exemplo, PC → celular). Ordem de verificação:
+
+1. **Isolamento de unidade.** O `workspace_id` do recurso precisa estar entre as
+   memberships ativas do chamador (super admin tem bypass). Fora disso: `403`.
+2. **Posse.** `reportedByUserId` (gravado pelo servidor na criação) precisa ser
+   igual a `g.user_id` (o `sub` do JWT). Chamado anônimo (`reportedByUserId`
+   NULL) nunca satisfaz. Avaliar o chamado de outro com o id em mãos → `403`.
+3. Só então o **núcleo compartilhado** valida status e grava.
+
+Nada de identidade, posse, workspace ou papel vem do cliente. O endpoint **não**
+passa por RBAC: igual a `mine=true` e à via pessoal do detalhe, é acesso ao
+**próprio** recurso, não uma Action `ticket.*`.
+
+Respostas da avaliação (mesma convenção nos dois caminhos):
+
+| Situação | Resposta |
+|---|---|
+| Sucesso | `200 { ticket }` (projeção interna no caminho autenticado; pública no público) |
+| Não autenticado (só no caminho autenticado) | `401` |
+| Chamado inexistente | `404 Chamado não encontrado` |
+| Fora da unidade, ou não é o dono (caminho autenticado) | `403` |
+| Status não é `resolvido`/`fechado` | `403` |
+| Já avaliado (ou perdido na corrida) | `409` |
+| `rating` fora de 1–5 | `400` |
+| Falha ao gravar | `502` |
 
 **Resposta:** `{ "ticket": { ...campos atualizados com feedbackRating, feedbackComment, feedbackAt } }`
+
+Cobertura: `api/tests/test_chamados_feedback_authenticated.py`,
+`api/tests/test_chamados_p2_atomicidade.py` e `api/tests/test_tracking_token.py`.
 
 ### GET /api/chamados/reports
 
@@ -404,12 +491,14 @@ Os prazos são configuráveis na coleção `sla_configs`.
 | Chave | Conteúdo |
 |-------|----------|
 | `labhub_chamados` | Cache local de chamados (não usado para escrita remota) |
+| `chamado_feedback_reminder_<userId\|anon>_<ticketId>` | Lembrete de avaliação: quantas vezes o aviso já foi exibido para aquele usuário naquele chamado. Escopado por identidade (e `anon` para o público) para não misturar contas; é sempre apresentação local, nunca prova de avaliação, posse ou autorização |
 
 ## Componentes
 
 | Componente | Propósito |
 |------------|-----------|
 | `Stars` | Avaliação por estrelas (1 a 5), interativa ou somente leitura |
+| `FeedbackReminder` | Aviso de avaliação em Meus Chamados: lista os chamados concluídos e ainda não avaliados, com formulário de nota em linha (`Stars` + comentário). Dispensável, com limite de reapresentação |
 | `TicketCard` | Card de chamado com status e ações rápidas |
 | `TicketForm` | Formulário de abertura e edição (público ou TI) |
 | `StatusBadge` | Indicador colorido de status |

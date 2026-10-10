@@ -8,6 +8,9 @@ import {
   ticketSubject,
   ticketUpdatedAt,
 } from '../utils/myTickets'
+import { pendingFeedbackTickets } from '../utils/pendingFeedback'
+import { FeedbackReminder } from '../components/FeedbackReminder'
+import { useAuth } from '../../../core/auth/useAuth'
 import { ErrorState } from '../../../platform/Coordinator/components/ErrorState'
 import { EmptyState } from '../../../platform/Coordinator/components/EmptyState'
 import { icons } from '../../../lib/icons'
@@ -38,11 +41,13 @@ import type { Ticket } from '../types'
  */
 export function MyTickets() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [search, setSearch] = useState('')
   const { tickets, loading, error, reload } = useMyTickets(true)
 
   const visibleTickets = useMemo(() => filterTicketsByQuery(tickets, search), [tickets, search])
   const groups = useMemo(() => groupTicketsByUpdateDate(visibleTickets), [visibleTickets])
+  const pending = useMemo(() => pendingFeedbackTickets(tickets), [tickets])
   const isSearching = search.trim().length > 0
 
   function openTicket(ticket: Ticket) {
@@ -52,6 +57,15 @@ export function MyTickets() {
 
   return (
     <div className="space-y-4">
+      {/* Lembrete discreto e não bloqueante de avaliação (issue #370). A
+          avaliação acontece pelo endpoint AUTENTICADO — não depende do token
+          deste navegador. Ao confirmar, recarregamos a lista pessoal. */}
+      <FeedbackReminder
+        pending={pending}
+        userId={user?.id ?? null}
+        onRated={() => void reload()}
+      />
+
       {/* A distinção fica explícita na própria tela: isto não é a fila. */}
       <p className="text-[11px] leading-relaxed text-fg-muted">
         Chamados que <span className="font-medium text-fg">você abriu</span> e o

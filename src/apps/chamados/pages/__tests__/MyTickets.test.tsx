@@ -16,8 +16,18 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
  */
 
 const mockListMine = vi.hoisted(() => vi.fn())
+const mockSubmitFeedback = vi.hoisted(() => vi.fn())
 vi.mock('../../services/ticketService', () => ({
-  ticketService: { listMine: mockListMine },
+  ticketService: { listMine: mockListMine, submitFeedback: mockSubmitFeedback },
+  errorStatus: (err: unknown) =>
+    err && typeof err === 'object' && 'status' in err
+      ? (err as { status?: unknown }).status
+      : null,
+}))
+
+const mockAuthUser = vi.hoisted(() => ({ user: { id: 'user-meu' } as { id: string } | null }))
+vi.mock('../../../../core/auth/useAuth', () => ({
+  useAuth: () => ({ user: mockAuthUser.user }),
 }))
 
 // A fila operacional existe e está disponível — a prova é que ela NÃO aparece.
@@ -116,7 +126,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockQueueTickets.length = 0
   mockListMine.mockResolvedValue([HOJE, ONTEM, ANTIGO])
+  mockSubmitFeedback.mockResolvedValue(ticket({ status: 'resolvido', feedbackRating: 5 }))
+  mockAuthUser.user = { id: 'user-meu' }
   vi.setSystemTime(NOW)
+  localStorage.clear()
 })
 
 // ── Dados ────────────────────────────────────────────────────────────────────
@@ -447,5 +460,99 @@ describe('MyTickets — estados', () => {
 
     expect(mockListMine).toHaveBeenCalledTimes(2)
     expect(screen.getByText('Não foi possível carregar seus chamados.')).toBeInTheDocument()
+  })
+})
+
+// ── Lembrete de avaliação (issue #370) ───────────────────────────────────────
+
+describe('MyTickets — lembrete de avaliação', () => {
+  const PENDENTE = ticket({
+    id: 'pendente',
+    ticketNumber: 1050,
+    status: 'resolvido',
+    assetName: 'Projetor Epson',
+    feedbackRating: null,
+    updatedAt: '2026-10-05T09:00:00',
+  })
+
+  it('mostra o lembrete para chamado concluído sem avaliação', async () => {
+    mockListMine.mockResolvedValue([PENDENTE])
+    await renderMyTickets()
+
+    expect(screen.getByLabelText('Avaliações pendentes')).toBeInTheDocument()
+    expect(screen.getByText('Como foi o atendimento?')).toBeInTheDocument()
+  })
+
+  it('o "Avaliar" abre a avaliação AUTENTICADA na própria tela (sem sair para o fluxo público)', async () => {
+    mockListMine.mockResolvedValue([PENDENTE])
+    await renderMyTickets()
+
+    fireEvent.click(screen.getByRole('button', { name: /Avaliar/ }))
+
+    expect(screen.getByRole('radio', { name: '5 estrelas' })).toBeInTheDocument()
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('avalia pelo endpoint autenticado e recarrega a lista pessoal', async () => {
+    mockListMine.mockResolvedValue([PENDENTE])
+    await renderMyTickets()
+
+    fireEvent.click(screen.getByRole('button', { name: /Avaliar/ }))
+    fireEvent.click(screen.getByRole('radio', { name: '5 estrelas' }))
+    fireEvent.change(screen.getByPlaceholderText('Comentário (opcional)'), {
+      target: { value: 'Excelente' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Enviar avaliação/ }))
+    await act(async () => {})
+    await act(async () => {})
+
+    expect(mockSubmitFeedback).toHaveBeenCalledWith('pendente', 5, 'Excelente')
+    // Recarregou a coleção pessoal depois da confirmação do servidor.
+    expect(mockListMine).toHaveBeenCalledTimes(2)
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('avalia mesmo sem o tracking token do dispositivo (requisito PC → celular)', async () => {
+    // Sem NENHUMA credencial de token no navegador.
+    expect(localStorage.getItem('chamado_token_pendente')).toBeNull()
+    mockListMine.mockResolvedValue([PENDENTE])
+    await renderMyTickets()
+
+    fireEvent.click(screen.getByRole('button', { name: /Avaliar/ }))
+    fireEvent.click(screen.getByRole('radio', { name: '4 estrelas' }))
+    fireEvent.click(screen.getByRole('button', { name: /Enviar avaliação/ }))
+    await act(async () => {})
+
+    expect(mockSubmitFeedback).toHaveBeenCalledWith('pendente', 4, '')
+  })
+
+  it('não lembra chamados em andamento, em espera ou indeferido', async () => {
+    mockListMine.mockResolvedValue([
+      ticket({ id: 'a', status: 'em_atendimento' }),
+      ticket({ id: 'b', status: 'em_espera' }),
+      ticket({ id: 'c', status: 'indeferido' }),
+    ])
+    await renderMyTickets()
+
+    expect(screen.queryByLabelText('Avaliações pendentes')).not.toBeInTheDocument()
+  })
+
+  it('não lembra chamado já avaliado', async () => {
+    mockListMine.mockResolvedValue([ticket({ id: 'a', status: 'resolvido', feedbackRating: 5 })])
+    await renderMyTickets()
+
+    expect(screen.queryByLabelText('Avaliações pendentes')).not.toBeInTheDocument()
+  })
+
+  it('várias pendências viram uma lista compacta, não vários alertas', async () => {
+    mockListMine.mockResolvedValue([
+      ticket({ id: 'a', status: 'resolvido', assetName: 'Projetor Epson' }),
+      ticket({ id: 'b', status: 'fechado', assetName: 'Impressora HP' }),
+    ])
+    await renderMyTickets()
+
+    expect(screen.getAllByLabelText('Avaliações pendentes')).toHaveLength(1)
+    expect(screen.getByText('Como foram esses atendimentos?')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Avaliar/ })).toHaveLength(2)
   })
 })
