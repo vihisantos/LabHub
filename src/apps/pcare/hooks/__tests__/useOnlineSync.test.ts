@@ -10,8 +10,10 @@ vi.mock('../../../../lib/sync', () => ({
 }))
 
 import { syncAll, getPendingChanges } from '../../../../lib/sync'
+import { __resetOnlineSyncForTests } from '../../../../lib/useOnlineSync'
 
 beforeEach(() => {
+  __resetOnlineSyncForTests()
   vi.clearAllMocks()
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
   ;(syncAll as any).mockResolvedValue({ synced: 13, failed: [] })
