@@ -466,11 +466,12 @@ def test_ownership_tecnico_a_pode_operar_proprio_chamado(client, fake_requests, 
 # ── LÍDER / ASSIGNER ─────────────────────────────────────────────────────────
 
 def test_lider_pode_atribuir_para_tecnico(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, LEADER, actions={"ticket.assign"})
+    headers = _setup_as(client, fake_requests, monkeypatch, LEADER, actions={"ticket.assign", "ticket.claim"})
     ticket = _make_ticket(assignedTo="", assignedToUserId="")
     _route_ticket(fake_requests, ticket)
-    # Perfil do assignee — fonte canônica do nome gravado no servidor.
-    fake_requests.route("GET", "profiles?id=eq.user-a&select=name", FakeResponse([{"name": "User user-a"}]))
+    # Perfil do assignee — fonte canônica do nome gravado no servidor + validação
+    # unificada do destinatário (status ativo; P3 #371).
+    fake_requests.route("GET", "profiles?id=eq.user-a&select=name", FakeResponse([{"name": "User user-a", "status": "active", "is_super_admin": False}]))
     updated = dict(ticket, assignedTo="User user-a", assignedToUserId="user-a")
     fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([updated]))
     _route_events(fake_requests)
@@ -483,13 +484,14 @@ def test_lider_pode_atribuir_para_tecnico(client, fake_requests, monkeypatch):
 
 
 def test_lider_pode_reatribuir_e_remover_responsavel(client, fake_requests, monkeypatch):
-    headers = _setup_as(client, fake_requests, monkeypatch, LEADER, actions={"ticket.assign"})
+    headers = _setup_as(client, fake_requests, monkeypatch, LEADER, actions={"ticket.assign", "ticket.claim"})
     ticket = _make_ticket(assignedTo="User user-a", assignedToUserId="user-a")
 
     # Reatribuir A → B
     _route_ticket(fake_requests, ticket)
-    # Perfil do assignee B — fonte canônica do nome gravado no servidor.
-    fake_requests.route("GET", "profiles?id=eq.user-b&select=name", FakeResponse([{"name": "User user-b"}]))
+    # Perfil do assignee B — fonte canônica do nome gravado no servidor +
+    # validação unificada do destinatário (status ativo; P3 #371).
+    fake_requests.route("GET", "profiles?id=eq.user-b&select=name", FakeResponse([{"name": "User user-b", "status": "active", "is_super_admin": False}]))
     updated_b = dict(ticket, assignedTo="User user-b", assignedToUserId="user-b")
     fake_requests.route("PATCH", "chamados_tickets?id=eq.", FakeResponse([updated_b]))
     _route_events(fake_requests)

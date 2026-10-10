@@ -306,20 +306,50 @@ def _route_prev_owner(fake_requests, owner: str, name: str | None = ""):
 
 
 def _route_assignee_membership(fake_requests, profile_id: str, ok: bool = True):
+    """Valida o destinatário: membership ativa no workspace DO CHAMADO.
+
+    `ok=True` também roteia a ELEGIBILIDADE RBAC 2.0 do destinatário
+    (`ticket.claim` — a mesma resolução do PATCH unificado): membership + role
+    base + overrides (vazio ⇒ sem override). Assim o destinatário é elegível
+    por padrão; para o cenário inelegível, use rotas RBAC específicas.
+    """
     payload = [{"id": "m-x", "workspace_id": WS_A, "profile_id": profile_id, "status": "active"}] if ok else []
     fake_requests.route(
         "GET",
         f"memberships?profile_id=eq.{profile_id}&workspace_id=eq.{WS_A}&status=eq.active",
         FakeResponse(payload),
     )
+    if ok:
+        role_id = f"role-{profile_id}"
+        fake_requests.route(
+            "GET",
+            f"memberships?profile_id=eq.{profile_id}&select=id,role_id,status",
+            FakeResponse([{
+                "id": f"m-{profile_id}",
+                "workspace_id": WS_A,
+                "profile_id": profile_id,
+                "status": "active",
+                "role_id": role_id,
+            }]),
+        )
+        fake_requests.route(
+            "GET",
+            f"role_permissions?role_id=eq.{role_id}&select=action,scope",
+            FakeResponse([{"action": "ticket.claim", "scope": "workspace"}]),
+        )
 
 
-def _route_assignee_profile(fake_requests, profile_id: str, name: str):
-    """Perfil do responsável validado — fonte canônica do nome gravado."""
+def _route_assignee_profile(fake_requests, profile_id: str, name: str,
+                            status: str = "active", is_super_admin: bool = False):
+    """Perfil do responsável validado — fonte canônica do nome gravado.
+
+    Inclui `status`/`is_super_admin` (P3 #371): o PATCH unificado exige perfil
+    `status='active'` e resolve elegibilidade RBAC 2.0 do destinatário.
+    """
     fake_requests.route(
         "GET",
-        f"profiles?id=eq.{profile_id}&select=name",
-        FakeResponse([{"name": name}]),
+        f"profiles?id=eq.{profile_id}&select=name,status,is_super_admin",
+        FakeResponse([{"name": name, "status": status, "is_super_admin": is_super_admin}]),
     )
 
 

@@ -455,11 +455,12 @@ def test_status_mais_edicao_sem_edit_nao_grava(api_module, client, fake_requests
 def test_patch_misto_completo_permitido(api_module, client, fake_requests, monkeypatch):
     """Com as três Actions, o PATCH misto é aplicado normalmente."""
     headers = _auth_as(api_module, fake_requests, monkeypatch, TECH,
-                       {"ticket.status", "ticket.assign", "ticket.edit"})
+                       {"ticket.status", "ticket.assign", "ticket.edit", "ticket.claim"})
     before = _ticket(status="aberto")
     _route_ticket(fake_requests, before)
-    # Perfil do assignee — fonte canônica do nome gravado no servidor.
-    fake_requests.route("GET", "profiles?id=eq.tec-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
+    # Perfil do assignee — fonte canônica do nome gravado no servidor +
+    # validação unificada do destinatário (status ativo; P3 #371).
+    fake_requests.route("GET", "profiles?id=eq.tec-2&select=name", FakeResponse([{"name": "Técnico 2", "status": "active", "is_super_admin": False}]))
     _route_write(fake_requests, dict(before, status="em_atendimento",
                                      priority="alta", assignedToUserId="tec-2"))
 

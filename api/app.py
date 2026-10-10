@@ -120,6 +120,28 @@ def _require_action_in_handler(action, scope='workspace', resource_type=None, re
 #     mudar status, editar, assumir); apenas o responsável, o assigner e o
 #     super admin podem.
 #
+# Exceções ESTRITAS ao ownership (P3 #371 — continuidade do atendimento):
+#   - RETOMADA de `em_espera` (→ `em_atendimento`): any técnico autenticado com
+#     membership ativa + Action `ticket.status` E `ticket.claim` no workspace
+#     pode retomar um chamado em espera MESMO atribuído a outro técnico — a fila
+#     não pode ficar travada pela disponibilidade do responsável anterior. É a
+#     ÚNICA transição que se comporta assim (rota dedicada `chamados_resume`); o
+#     ownership segue valendo para todas as demais operações e rotas. A
+#     retomada torna o ator o NOVO responsável, então ele precisa poder ATENDER
+#     (`ticket.claim` — migration 038); cargos de gestão/visualização não viram
+#     responsáveis por esta via.
+#   - TRANSFERÊNCIA (rota dedicada `chamados_transfer`): o responsável ATUAL do
+#     chamado em atendimento ativo (`a_caminho`/`em_atendimento`) pode transferir
+#     o próprio atendimento a outro técnico ATIVO e ELEGÍVEL (Action
+#     `ticket.claim`) do mesmo workspace, e o assigner (Action `ticket.assign`)
+#     também. Isso NÃO concede `ticket.assign` ao técnico comum: transferência
+#     de chamado que não é o seu segue exigindo o assigner.
+#
+# "Elegível para atender" é decidido pela RBAC 2.0 (autoridade única): quem tem
+# a Action `ticket.claim` no workspace DO CHAMADO (ou é super admin). Assim,
+# perfil suspenso, visualizador ou cargo que apenas gerencia não pode receber o
+# atendimento — nem por transferência nem por retomada.
+#
 # "Quem é o assigner" é decidido pela RBAC 2.0 (autoridade única):
 #   - quem tem a Action `ticket.assign` no workspace (role/override) ou é
 #     super admin (bypass global).
@@ -170,6 +192,88 @@ def _enforce_ownership(actor, ticket, workspace_id, resource_id):
     if _can_operate_ticket(actor, ticket, workspace_id):
         return None
     return _forbidden('Este chamado está sendo atendido por outro técnico')
+
+
+def _eligible_to_attend(profile_id, workspace_id, is_super_admin=False):
+    """O perfil pode ATENDER chamados neste workspace (RBAC 2.0)?
+
+    Regra derivada do fluxo operacional de Chamados (migration 038,
+    ``ticket_claim_ownership.sql``): "começar atendimento / assumir o chamado
+    para si" é a Action ``ticket.claim`` (scope ``workspace``). Ela é o que
+    distingue quem ATENDE de quem apenas gerencia (assigner/coordenação) ou só
+    visualiza. Super admin tem bypass global (mesma 1ª regra do motor `rbac_can`).
+
+    Fail-closed: contexto ausente ou erro de resolução ⇒ False.
+    """
+    if not profile_id or not workspace_id:
+        return False
+    return bool(rbac_two_can(
+        {'id': profile_id, 'is_super_admin': bool(is_super_admin)},
+        workspace_id,
+        'ticket.claim',
+        'workspace',
+    ))
+
+
+def _resolve_assignee_profile(assignee_id, workspace_id):
+    """Valida destinatário de atribuição/transferência como membro ATIVO do
+    workspace, com PERFIL ATIVO e ELEGÍVEL para atender chamados, e devolve o
+    nome canônico do perfil validado.
+
+    Retorna `(nome, None, 0)` em sucesso, `(None, resposta_flask, status)` em
+    falha. Espelha o hardening de reatribuição do PATCH (P2 #371): o
+    destinatário precisa ser membro ATIVO do workspace DO CHAMADO (nunca o
+    workspace ativo do assigner) e o nome gravado é o canônico do PERFIL do ID
+    validado — a identidade é o ID, nunca o nome vindo do cliente.
+
+    Além da membership ativa (P2), a P3 (#371) exige que o destinatário seja
+    LEGITIMAMENTE apto a atender o chamado: perfil com ``status='active'`` no
+    momento da operação e a Action ``ticket.claim`` no workspace do chamado
+    (RBAC 2.0 — migration 038). Sem isso, perfil suspenso/removido,
+    visualizador ou cargo de gestão (que não atende) não pode receber o
+    atendimento — a lista do frontend NÃO é a autoridade.
+    """
+    if not assignee_id:
+        return '', None, 0
+    try:
+        check = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/memberships'
+            f'?profile_id=eq.{quote(assignee_id)}'
+            f'&workspace_id=eq.{quote(workspace_id)}'
+            f'&status=eq.active'
+            f'&select=id',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not check.ok or not (check.json() or []):
+            return None, jsonify({
+                'error': 'Técnico não pertence ao workspace deste chamado'
+            }), 400
+        profile_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles'
+            f'?id=eq.{quote(assignee_id)}'
+            f'&select=name,status,is_super_admin',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not profile_resp.ok or not (profile_resp.json() or []):
+            return None, jsonify({'error': 'Não foi possível validar o responsável'}), 502
+        profile = (profile_resp.json() or [{}])[0]
+        if str(profile.get('status') or '').strip() != 'active':
+            return None, jsonify({
+                'error': 'Responsável não está ativo'
+            }), 400
+        if not _eligible_to_attend(
+            assignee_id, workspace_id, profile.get('is_super_admin')
+        ):
+            return None, jsonify({
+                'error': 'Responsável não pode atender chamados neste workspace'
+            }), 400
+        canonical = str(profile.get('name') or '').strip()
+        return canonical, None, 0
+    except Exception as exc:
+        logger.error('Hardening assignee membership check failed: %s', exc)
+        return None, jsonify({'error': 'Não foi possível validar o responsável'}), 502
 
 
 # ── Tracking token público (acesso limitado do professor a um chamado) ──
@@ -3092,48 +3196,30 @@ def chamados_manage(ticket_id):
             if not _is_assigner(user, ticket_ws):
                 return _forbidden('Permissão insuficiente para atribuir responsável')
 
-        # Hardening de atribuição cross-workspace: garante que `assignedToUserId`
-        # pertence ao workspace DO CHAMADO (não ao workspace ativo do assigner).
+        # Validação UNIFICADA do responsável (P2 + P3 #371): reusa
+        # `_resolve_assignee_profile`, a MESMA autoridade da transferência. Não é
+        # mais um check de membership local — exige, para o destinatário:
+        #   1) membership ATIVA no workspace DO CHAMADO (nunca o workspace ativo
+        #      do assigner) — garante isolamento cross-workspace mesmo num PATCH
+        #      HTTP manipulado;
+        #   2) perfil com `status='active'`;
+        #   3) elegibilidade EFETIVA para atender (`ticket.claim`, RBAC 2.0 —
+        #      incluindo overrides por membership; migration 038).
+        # Assim, o PATCH genérico não pode atribuir a um visualizador, a um cargo
+        # de gestão que não atende, a um perfil suspenso nem a alguém de outro
+        # campus — a lista do frontend NÃO é a autoridade.
         #
-        # Sem esta validação, um assigner de outro campus poderia, via PATCH HTTP
-        # manipulado, atribuir um técnico de campus A a um chamado de campus B —
-        # mesmo que a UI liste apenas técnicos do campus correto.
-        #
-        # String vazia/None = remoção de responsável → não valida membership.
-        # Só valida quando há um UUID explícito, garantindo que o técnico é membro
-        # ATIVO do mesmo workspace do ticket.
+        # String vazia/None = remoção de responsável → NÃO valida destinatário
+        # (preserva a semântica atual de unassign); a autorização do caller
+        # (`ticket.assign`) já foi verificada acima e continua valendo.
         _new_assignee_id = str(updates.get('assignedToUserId') or '').strip()
         _canonical_name = ''
         if _new_assignee_id:
-            try:
-                _assignee_check = requests.get(
-                    f'{_SUPABASE_URL}/rest/v1/memberships'
-                    f'?profile_id=eq.{quote(_new_assignee_id)}'
-                    f'&workspace_id=eq.{quote(ticket_ws)}'
-                    f'&status=eq.active'
-                    f'&select=id',
-                    headers=_supabase_headers(),
-                    timeout=10,
-                )
-                if not _assignee_check.ok or not (_assignee_check.json() or []):
-                    return jsonify({
-                        'error': 'Técnico não pertence ao workspace deste chamado'
-                    }), 400
-                # Consistência nome/ID (revisão P2): o nome gravado vem do
-                # PERFIL do ID validado — nunca do corpo do cliente. O nome
-                # não é prova de identidade; o ID é. Assim, nome e ID gravados
-                # correspondem sempre ao mesmo responsável.
-                _assignee_name_resp = requests.get(
-                    f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(_new_assignee_id)}&select=name',
-                    headers=_supabase_headers(),
-                    timeout=10,
-                )
-                if not _assignee_name_resp.ok or not (_assignee_name_resp.json() or []):
-                    return jsonify({'error': 'Não foi possível validar o responsável'}), 502
-                _canonical_name = str((_assignee_name_resp.json() or [{}])[0].get('name') or '').strip()
-            except Exception as _assignee_exc:
-                logger.error('Hardening assignee membership check failed: %s', _assignee_exc)
-                return jsonify({'error': 'Não foi possível validar o responsável'}), 502
+            _canonical_name, _assignee_err, _assignee_status = _resolve_assignee_profile(
+                _new_assignee_id, ticket_ws
+            )
+            if _assignee_err:
+                return _assignee_err, _assignee_status
 
         prev = None
         assignment_changed = False
@@ -4535,6 +4621,352 @@ def chamados_claim(ticket_id):
 
         # Mesma.allowlist interna da criação e do PATCH: `updated` é a
         # representação completa do PATCH no Supabase.
+        return jsonify({'ticket': _project_internal_ticket(updated)})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/chamados/<ticket_id>/resume', methods=['POST'])
+@require_auth
+def chamados_resume(ticket_id):
+    """Retomada atômica de chamado em `em_espera` por outro técnico do mesmo
+    workspace (P3 #371).
+
+    É a exceção ESTRITA ao ownership: um chamado em espera NÃO pode ficar
+    travado pela disponibilidade do responsável anterior. Qualquer técnico
+    autenticado com membership ativa + Actions `ticket.status` e `ticket.claim`
+    no workspace pode retomar (reassumir) o chamado, tornando-se o novo
+    responsável. A Action `ticket.claim` (migration 038) garante que quem assume
+    a fila é alguém que EFETIVAMENTE atende — cargos de gestão/visualização
+    (sem `ticket.claim`) não viram responsáveis por esta via. Isso NÃO libera o
+    ownership nas demais rotas: comentar, editar, mudar status ou assumir o
+    chamado de outro técnico seguem exigindo responsável, assigner ou super
+    admin (PR #373).
+
+    Concorrência (mesmo padrão do claim e do PATCH): UMA única atualização
+    condicional — status anterior = `em_espera`. Se dois técnicos retomam ao
+    mesmo tempo, um vence e o outro recebe 409 SEM eventos, auditoria ou
+    notificação. A troca de responsável preserva o histórico: nada é apagado;
+    o chamado ganha um evento `status` (retomada) e continua o mesmo
+    `ticketNumber`, ficha e participantes.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
+        actor_id = str(user.get('id') or '').strip()
+        actor_name = str(user.get('name') or '').strip() or 'Técnico'
+
+        fetch = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+            '&select=id,workspace_id,status,assignedTo,assignedToUserId,ticketNumber,roomName,problemCategory',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        rows = fetch.json() or []
+        if not rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        ticket = rows[0]
+        ticket_ws = ticket.get('workspace_id') or ''
+        if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
+
+        status_norm = str(ticket.get('status') or '')
+        if status_norm != 'em_espera':
+            return jsonify({
+                'error': 'Retomada só é permitida para chamados em espera',
+                'status': status_norm,
+            }), 400
+
+        g.workspace_id = ticket_ws
+        err = _require_action_in_handler('ticket.status', scope='workspace',
+                                         resource_type='ticket', resource_id=ticket_id)
+        if err:
+            return err
+
+        # Elegibilidade para ATENDER (P3 #371): a retomada torna o ATOR o novo
+        # responsável do atendimento, então ele precisa poder atender o chamado
+        # (Action `ticket.claim`, migration 038) — cargos de gestão/visualização
+        # não viram responsáveis pela fila em espera. Checado ANTES do PATCH
+        # atômico para não deixar o chamado parcialmente assumido.
+        err = _require_action_in_handler('ticket.claim', scope='workspace',
+                                         resource_type='ticket', resource_id=ticket_id)
+        if err:
+            return err
+
+        # Update ATÔMICO: só alcança linhas que AINDA estão em `em_espera`.
+        # 0 linhas ⇒ outro técnico retomou (ou mudou o chamado) entre a leitura
+        # e a escrita → 409, sem eventos, auditoria ou notificação.
+        now = datetime.now(timezone.utc).isoformat()
+        upd_resp = requests.patch(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+            f'?id=eq.{quote(ticket_id)}'
+            f'&status=eq.em_espera',
+            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+            json={
+                'status': 'em_atendimento',
+                'assignedToUserId': actor_id,
+                'assignedTo': actor_name,
+                'updatedAt': now,
+            },
+            timeout=10,
+        )
+        if not upd_resp.ok:
+            return jsonify({'error': 'Erro ao retomar chamado'}), 502
+        updated_rows = upd_resp.json() or []
+        if len(updated_rows) != 1:
+            logger.warning(
+                'Resume conflict: ticket %s no longer em_espera (rows=%s)',
+                ticket_id,
+                len(updated_rows),
+            )
+            return jsonify({'error': 'Conflito: outro técnico retomou este chamado'}), 409
+        updated = updated_rows[0]
+
+        prev_owner = str(ticket.get('assignedToUserId') or '')
+        prev_name = str(ticket.get('assignedTo') or '')
+
+        # Histórico: evento de status documentando a retomada e quem retomou.
+        _record_ticket_event(
+            ticket_id,
+            ticket_ws,
+            'status',
+            content=f'{actor_name} retomou o atendimento',
+            author=actor_name,
+        )
+
+        # Auditoria do app (mudou de responsável).
+        record_app_audit(
+            workspace_id=ticket_ws,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            action='resume',
+            entity='ticket',
+            entity_id=ticket_id,
+            entity_label=f"#{ticket.get('ticketNumber') or ''} · {ticket.get('roomName') or ''}",
+            meta={
+                'prev_owner': prev_owner,
+                'prev_name': prev_name,
+                'new_owner': actor_id,
+                'new_name': actor_name,
+            },
+        )
+
+        # Audit trail próprio para a Action `ticket.status` (reuso do claim).
+        rbac_record_audit(
+            actor_id=actor_id,
+            actor_is_super=is_super_admin,
+            action='ticket.status',
+            workspace_id=ticket_ws,
+            scope='workspace',
+            effect='allow',
+            outcome='success',
+            resource_type='ticket',
+            resource_id=ticket_id,
+            meta={
+                'via': 'resume',
+                'prev_owner': prev_owner,
+                'new_owner': actor_id,
+            },
+        )
+
+        # Notifica os técnicos do workspace (quem assumiu não é re-notificado).
+        _notify_ticket_claimed(updated, actor_name)
+
+        return jsonify({'ticket': _project_internal_ticket(updated)})
+    except Exception as e:
+        logger.error("Erro interno na API: %s", e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+@app.route('/api/chamados/<ticket_id>/transfer', methods=['POST'])
+@require_auth
+def chamados_transfer(ticket_id):
+    """Transferência atômica de chamado em atendimento ATIVO (P3 #371).
+
+    Somente durante `a_caminho`/`em_atendimento`. Dois atores permitidos:
+      - o RESPONSÁVEL ATUAL do chamado (ownership — pode repassar o próprio
+        atendimento a outro técnico ativo do mesmo workspace), ou
+      - o ASSIGNER do workspace (Action `ticket.assign`, inclui super admin).
+    Técnico comum NÃO ganha `ticket.assign`: transferir o chamado de OUTRO
+    técnico segue exigindo o assigner. Destinatário precisa ser membro ATIVO do
+    workspace DO CHAMADO (nunca o workspace ativo do assigner — hardening P2),
+    com PERFIL ATIVO e ELEGÍVEL para atender (Action `ticket.claim`, RBAC 2.0 —
+    migration 038). Perfil suspenso, visualizador ou cargo que apenas gerencia
+    não pode receber o atendimento.
+
+    Concorrência (condicional): guarda pelo status ANTERIOR E pelo responsável
+    ANTERIOR (ID+nome; preserva NULL vs ''). Duas transferências simultâneas:
+    uma vence; a outra, 409 SEM eventos/auditoria/notificação.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
+        actor_id = str(user.get('id') or '').strip()
+        actor_name = str(user.get('name') or '').strip() or 'Técnico'
+        if not actor_id:
+            return jsonify({'error': 'Usuário inválido'}), 400
+
+        fetch = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+            '&select=id,workspace_id,status,assignedTo,assignedToUserId,ticketNumber,roomName,problemCategory',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not fetch.ok:
+            return jsonify({'error': 'Erro ao buscar chamado'}), 502
+        rows = fetch.json() or []
+        if not rows:
+            return jsonify({'error': 'Chamado não encontrado'}), 404
+        ticket = rows[0]
+        ticket_ws = ticket.get('workspace_id') or ''
+        if not is_super_admin and (not ticket_ws or ticket_ws not in user_ws_ids):
+            return jsonify({'error': 'Acesso negado a este chamado'}), 403
+
+        status_norm = str(ticket.get('status') or '')
+        if status_norm not in ('a_caminho', 'em_atendimento'):
+            return jsonify({
+                'error': 'Transferência só é permitida durante o atendimento ativo',
+                'status': status_norm,
+            }), 400
+
+        g.workspace_id = ticket_ws
+
+        # Ator permitido: responsável ATUAL (ownership) OU assigner (`ticket.assign`).
+        prev_owner = str(ticket.get('assignedToUserId') or '')
+        is_owner = prev_owner and prev_owner == actor_id
+        via_assign = False
+        if not is_owner and not is_super_admin:
+            err = _require_action_in_handler('ticket.assign', scope='workspace',
+                                             resource_type='ticket', resource_id=ticket_id)
+            if err:
+                return err
+            via_assign = True
+
+        data = request.get_json(silent=True) or {}
+        target_user_id = str(data.get('assignedToUserId') or '').strip()
+        if not target_user_id:
+            return jsonify({'error': 'Informe o ID do responsável (assignedToUserId)'}), 400
+        if target_user_id == actor_id:
+            return jsonify({'error': 'O destino deve ser um técnico diferente do atual'}), 400
+
+        target_name, err_response, err_status = _resolve_assignee_profile(
+            target_user_id, ticket_ws
+        )
+        if err_response is not None:
+            return err_response, err_status
+        if not target_name:
+            return jsonify({'error': 'Não foi possível validar o responsável'}), 400
+        err = _validate_field_length('assignedTo', target_name)
+        if err:
+            return jsonify({'error': err}), 400
+
+        prev_raw_name = ticket.get('assignedTo')
+        prev_name = '' if prev_raw_name is None else str(prev_raw_name)
+        prev_name_is_null = prev_raw_name is None
+
+        # PATCH ÚNICO E CONDICIONAL: só alcança a linha que AINDA está no
+        # status E com o responsável lidos antes. 0 linhas → 409 sem efeitos
+        # parciais (nunca uma segunda escrita — sem last-write-wins).
+        patch_url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+        patch_url += f'&status=eq.{quote(status_norm)}'
+        if prev_owner:
+            patch_url += f'&assignedToUserId=eq.{quote(prev_owner)}'
+        else:
+            patch_url += '&or=(assignedToUserId.is.null,assignedToUserId.eq.)'
+        if prev_name != target_name:
+            # Preserva a diferença NULL vs '' do valor ORIGINAL do banco:
+            # `is.null` casa NULL; `eq.` casa string vazia.
+            if prev_name_is_null:
+                patch_url += '&assignedTo=is.null'
+            elif prev_name == '':
+                patch_url += '&assignedTo=eq.'
+            else:
+                patch_url += f'&assignedTo=eq.{quote(prev_name)}'
+
+        now = datetime.now(timezone.utc).isoformat()
+        upd_resp = requests.patch(
+            patch_url,
+            headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+            json={
+                'assignedToUserId': target_user_id,
+                'assignedTo': target_name,
+                'updatedAt': now,
+            },
+            timeout=10,
+        )
+        if not upd_resp.ok:
+            return jsonify({'error': 'Erro ao transferir chamado'}), 502
+        updated_rows = upd_resp.json() or []
+        if len(updated_rows) != 1:
+            logger.warning(
+                'Transfer conflict: ticket %s changed concurrently (rows=%s)',
+                ticket_id,
+                len(updated_rows),
+            )
+            return jsonify({'error': 'Conflito: outro técnico mudou o chamado'}), 409
+        updated = updated_rows[0]
+
+        # Histórico: atribuição documenta a transferência (mesmo tipo do PATCH).
+        _record_ticket_event(
+            ticket_id,
+            ticket_ws,
+            'atribuicao',
+            content=f'{target_name} passou a atender este chamado',
+            author=actor_name,
+        )
+
+        # Auditoria do app: transferência.
+        record_app_audit(
+            workspace_id=ticket_ws,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            action='transfer',
+            entity='ticket',
+            entity_id=ticket_id,
+            entity_label=f"#{ticket.get('ticketNumber') or ''} · {ticket.get('roomName') or ''}",
+            meta={
+                'prev_owner': prev_owner,
+                'prev_name': prev_name,
+                'new_owner': target_user_id,
+                'new_name': target_name,
+                'transferor_id': actor_id,
+                'transferor_name': actor_name,
+            },
+        )
+
+        # Audit trail do `ticket.assign` quando a transferência foi mediada pela
+        # Action (o caminho de ownership dispensa checagem RBAC — quem assumiu
+        # já foi auditado em `_require_action_in_handler`, quando houve).
+        if via_assign:
+            rbac_record_audit(
+                actor_id=actor_id,
+                actor_is_super=is_super_admin,
+                action='ticket.assign',
+                workspace_id=ticket_ws,
+                scope='workspace',
+                effect='allow',
+                outcome='success',
+                resource_type='ticket',
+                resource_id=ticket_id,
+                meta={
+                    'via': 'transfer',
+                    'prev_owner': prev_owner,
+                    'new_owner': target_user_id,
+                },
+            )
+
+        # Notifica o novo responsável e os demais técnicos do workspace.
+        _notify_ticket_assigned(updated)
+
         return jsonify({'ticket': _project_internal_ticket(updated)})
     except Exception as e:
         logger.error("Erro interno na API: %s", e)

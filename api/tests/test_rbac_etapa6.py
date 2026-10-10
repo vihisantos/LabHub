@@ -267,8 +267,12 @@ class TestChamadosDelete:
 class TestChamadosPatch:
     def _p(self, client, fake_requests, monkeypatch, rbac_module, body, decisions):
         # Perfil do assignee ANTES do perfil do caller (first-match wins):
-        # a fonte canônica do nome gravado vem do perfil do ID validado.
-        fake_requests.route("GET", "profiles?id=eq.u-9", FakeResponse([{"id": "u-9", "name": "Ana"}]))
+        # a fonte canônica do nome gravado vem do perfil do ID validado. A P3
+        # (#371) passou a exigir `status='active'` na validação unificada do
+        # destinatário (`_resolve_assignee_profile`).
+        fake_requests.route("GET", "profiles?id=eq.u-9", FakeResponse([
+            {"id": "u-9", "name": "Ana", "status": "active", "is_super_admin": False}
+        ]))
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
         fake_requests.route("PATCH", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
@@ -286,10 +290,13 @@ class TestChamadosPatch:
         assert {"ticket.status"} == {c["action"] for c in calls}
 
     def test_patch_assign_requires_ticket_assign(self, client, fake_requests, monkeypatch, rbac_module):
+        # P3 (#371): atribuir exige `ticket.assign` (ator) E, para o
+        # destinatário, `ticket.claim` (elegibilidade para atender).
         resp, calls = self._p(client, fake_requests, monkeypatch, rbac_module,
-                              {"assignedToUserId": "u-9", "assignedTo": "Ana"}, {"ticket.assign": True})
+                              {"assignedToUserId": "u-9", "assignedTo": "Ana"},
+                              {"ticket.assign": True, "ticket.claim": True})
         assert resp.status_code == 200
-        assert {"ticket.assign"} == {c["action"] for c in calls}
+        assert {"ticket.assign", "ticket.claim"} == {c["action"] for c in calls}
 
     def test_patch_edit_requires_ticket_edit(self, client, fake_requests, monkeypatch, rbac_module):
         resp, calls = self._p(client, fake_requests, monkeypatch, rbac_module,
@@ -300,9 +307,9 @@ class TestChamadosPatch:
     def test_patch_mixed_requires_both(self, client, fake_requests, monkeypatch, rbac_module):
         resp, calls = self._p(client, fake_requests, monkeypatch, rbac_module,
                               {"status": "resolvido", "assignedToUserId": "u-9"},
-                              {"ticket.status": True, "ticket.assign": True})
+                              {"ticket.status": True, "ticket.assign": True, "ticket.claim": True})
         assert resp.status_code == 200
-        assert {"ticket.status", "ticket.assign"} == {c["action"] for c in calls}
+        assert {"ticket.status", "ticket.assign", "ticket.claim"} == {c["action"] for c in calls}
 
     def test_patch_mixed_one_denied_403_no_mutation(
         self, client, fake_requests, monkeypatch, rbac_module

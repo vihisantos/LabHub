@@ -52,15 +52,16 @@ def _setup_auth(fake_requests, monkeypatch, profile=None):
 
 
 def _patch_auth_infrastructure(api_module, fake_requests, monkeypatch):
-    """Roteia requests do app e do módulo auth pelo Supabase fake."""
+    """Roteia requests do app, do módulo auth e do RBAC pelo Supabase fake."""
     monkeypatch.setattr(api_module, "_SUPABASE_URL", SUPABASE_URL)
     monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(api_module, "requests", fake_requests)
-    auth_mod = sys.modules.get("auth")
-    if auth_mod is not None:
-        monkeypatch.setattr(auth_mod, "requests", fake_requests)
-        monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
-        monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
+    for name in ("auth", "rbac"):
+        mod = sys.modules.get(name)
+        if mod is not None:
+            monkeypatch.setattr(mod, "requests", fake_requests)
+            monkeypatch.setattr(mod, "_SUPABASE_URL", SUPABASE_URL)
+            monkeypatch.setattr(mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
 
 
 class FakeResponse:
@@ -87,6 +88,14 @@ class FakeRequests:
         self._routes.setdefault(method, []).append((url_part, response))
 
     def _do(self, method, url, **kwargs):
+        # auth/rbac enviam filtros via `params=`; reconstrói a query string na
+        # URL (ordem crescente das chaves, como o cliente real) para que rotas
+        # possam casar por substring também nas consultas RBAC/P3 (#371).
+        params = kwargs.get("params")
+        if params:
+            qs = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}{qs}"
         self.calls.append({"method": method, "url": url, "kwargs": kwargs})
         for part, response in self._routes.get(method, []):
             if part in url:
@@ -200,11 +209,12 @@ def _route_patch_ticket(fake_requests, row):
 
 
 def _route_assignee_membership(fake_requests, user_id, workspace_id="ws-a"):
-    """Atende o hardening de atribuição cross-workspace (PATCH).
+    """Atende a validação unificada do destinatário (PATCH).
 
-    O backend agora valida que `assignedToUserId` tem membership ATIVA no
-    workspace do chamado antes de aceitar a atribuição. Testes de atribuição
-    feliz precisam rotear este GET com um membro válido.
+    O backend valida que `assignedToUserId` tem membership ATIVA no workspace do
+    chamado (`_resolve_assignee_profile`) e é ELEGÍVEL para atender (Action
+    `ticket.claim`, RBAC 2.0 — P3 #371): aqui roteamos a membership de RBAC
+    (`select=id,role_id,status`) e a role base com `ticket.claim`.
     """
     fake_requests.route(
         "GET",
@@ -212,6 +222,20 @@ def _route_assignee_membership(fake_requests, user_id, workspace_id="ws-a"):
         FakeResponse([
             {"id": f"m-{user_id}", "workspace_id": workspace_id, "profile_id": user_id, "status": "active"}
         ]),
+    )
+    role_id = f"role-{user_id}"
+    fake_requests.route(
+        "GET",
+        f"memberships?profile_id=eq.{user_id}&select=id,role_id,status",
+        FakeResponse([
+            {"id": f"m-{user_id}", "workspace_id": workspace_id, "profile_id": user_id,
+             "status": "active", "role_id": role_id}
+        ]),
+    )
+    fake_requests.route(
+        "GET",
+        f"role_permissions?role_id=eq.{role_id}&select=action,scope",
+        FakeResponse([{"action": "ticket.claim", "scope": "workspace"}]),
     )
 
 
@@ -1224,8 +1248,9 @@ def _assignment_push_fixture(api_module, monkeypatch):
 def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module, monkeypatch):
     # Perfil do assignee ANTES de _setup_auth (first-match wins): a rota
     # específica vence para `profiles?id=eq.user-2`; o fetch do caller — URL
-    # sem query — cai na rota genérica registrada depois.
-    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
+    # sem query — cai na rota genérica registrada depois. `status`/`is_super_admin`
+    # são exigidos pela validação unificada do destinatário (P3 #371).
+    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2", "status": "active", "is_super_admin": False}]))
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, target_kwargs = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignee_membership(fake_requests, "user-2")
@@ -1252,8 +1277,9 @@ def test_patch_atribuicao_sem_mudanca_nao_escreve_nem_avisa(client, fake_request
     responsável NÃO vão no payload — a linha não é reescrita (um no-op não pode
     sobrescrever atribuição concorrente) e não há notificação."""
     # Perfil do assignee com o MESMO nome armazenado, registrado ANTES de
-    # _setup_auth (first-match wins).
-    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
+    # _setup_auth (first-match wins). `status`/`is_super_admin` exigidos pela
+    # validação unificada do destinatário (P3 #371).
+    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2", "status": "active", "is_super_admin": False}]))
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, _ = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignee_membership(fake_requests, "user-2")

@@ -10,6 +10,8 @@ export interface TicketsContextValue {
   update: (id: string, data: Partial<Ticket>) => Ticket | undefined
   updateStatus: (id: string, status: TicketStatus) => Ticket | undefined
   claim: (id: string) => Promise<Ticket>
+  resume: (id: string) => Promise<Ticket>
+  transfer: (id: string, assignedToUserId: string) => Promise<Ticket>
   remove: (id: string) => boolean
 }
 

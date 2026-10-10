@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, within } from '@testing-library/react'
 
 const mockUpdate = vi.hoisted(() => vi.fn())
 const mockUpdateStatus = vi.hoisted(() => vi.fn())
 const mockCreate = vi.hoisted(() => vi.fn())
 const mockClaim = vi.hoisted(() => vi.fn())
+const mockResume = vi.hoisted(() => vi.fn())
+const mockTransfer = vi.hoisted(() => vi.fn())
+const mockGetByIdRemote = vi.hoisted(() => vi.fn())
 const mockNavigate = vi.hoisted(() => vi.fn())
 const mockGetEvents = vi.hoisted(() => vi.fn())
 const mockAddEvent = vi.hoisted(() => vi.fn())
@@ -56,10 +59,16 @@ vi.mock('../../contexts/TicketsContext', () => ({
     updateStatus: mockUpdateStatus,
     create: mockCreate,
     claim: mockClaim,
+    resume: mockResume,
+    transfer: mockTransfer,
   }),
 }))
 vi.mock('../../services/ticketService', () => ({
-  ticketService: { getEvents: mockGetEvents, addEvent: mockAddEvent },
+  ticketService: { getEvents: mockGetEvents, addEvent: mockAddEvent, getByIdRemote: mockGetByIdRemote },
+  errorStatus: (err: unknown) =>
+    err && typeof err === 'object' && 'status' in err && typeof (err as { status?: unknown }).status === 'number'
+      ? (err as { status: number }).status
+      : null,
 }))
 vi.mock('../../../../core/auth/useAuth', () => ({
   useAuth: () => ({ user: state.user }),
@@ -114,6 +123,7 @@ beforeEach(() => {
   leadState.isLeadership = false
   mockGetEvents.mockResolvedValue([])
   mockGetAssignees.mockResolvedValue([PROFILE_ME, PROFILE_OTHER])
+  mockGetByIdRemote.mockResolvedValue({ ...TICKET })
 })
 
 describe('TicketDetail — Histórico e comentários (técnico responsável)', () => {
@@ -468,5 +478,198 @@ describe('TicketDetail — avaliação do professor', () => {
     await act(async () => {})
 
     expect(screen.getByText('Feedback do professor')).toBeInTheDocument()
+  })
+})
+
+/**
+ * P3 #371 — RETOMADA (em_espera → em_atendimento).
+ *
+ * A regra antiga (issue #367) prendia a retomada ao dono/leader via
+ * `canOperate`. O P3 torna a retomada uma exceção estreita de ownership:
+ * QUALQUER técnico com a Action `ticket.status` do mesmo workspace retoma, e
+ * quem retoma vira o novo responsável — de forma atômica no servidor (`409` se
+ * outro técnico retomou antes). Os testes travam o gate de UI e o transporte.
+ */
+describe('TicketDetail — retomada de em_espera (P3)', () => {
+  beforeEach(() => {
+    TICKET.status = 'em_espera'
+    TICKET.assignedTo = 'Técnico 2'
+    TICKET.assignedToUserId = 'user-2'
+    state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: false }
+    mockResume.mockResolvedValue({
+      ...TICKET,
+      status: 'em_atendimento',
+      assignedToUserId: 'test-admin',
+      assignedTo: 'Técnico 1',
+    })
+  })
+
+  afterEach(() => {
+    TICKET.status = 'em_atendimento'
+  })
+
+  it('técnico NÃO responsável vê o botão de retomada (exceção de ownership)', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'Retomar atendimento' })).toBeInTheDocument()
+  })
+
+  it('retoma pelo endpoint atômico (POST /resume), não por PATCH de status', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar atendimento' }))
+    await act(async () => {})
+
+    expect(mockResume).toHaveBeenCalledWith('ticket-1')
+    // Não usa o caminho genérico de escrita: o backend é a autoridade.
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateStatus).not.toHaveBeenCalled()
+  })
+
+  it('avisa quando outro técnico retomou antes (409) e recarrega a realidade', async () => {
+    mockResume.mockRejectedValue(
+      Object.assign(new Error('O chamado já foi retomado por outro técnico'), { status: 409 }),
+    )
+    mockGetByIdRemote.mockResolvedValue({
+      ...TICKET,
+      status: 'em_atendimento',
+      assignedTo: 'Técnico 2',
+      assignedToUserId: 'user-2',
+    })
+
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar atendimento' }))
+    await act(async () => {})
+
+    expect(
+      screen.getByText('Outro técnico retomou este chamado antes de você. Acompanhamento atualizado.'),
+    ).toBeInTheDocument()
+    expect(mockGetByIdRemote).toHaveBeenCalledWith('ticket-1')
+  })
+
+  it('não mostra retomada fora de em_espera', async () => {
+    TICKET.status = 'em_atendimento'
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.queryByRole('button', { name: 'Retomar atendimento' })).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * P3 #371 — TRANSFERÊNCIA durante atendimento ATIVO (a_caminho/em_atendimento).
+ *
+ * O responsável atual transfere para outro técnico ativo do mesmo workspace
+ * (ownership — sem `ticket.assign`); o assigner/leader também pode. Confirmação
+ * explícita com responsável atual → novo responsável, `409` se o chamado mudou
+ * entre a leitura e a escrita.
+ */
+describe('TicketDetail — transferência de atendimento (P3)', () => {
+  beforeEach(() => {
+    TICKET.status = 'em_atendimento'
+    TICKET.assignedTo = 'Técnico 1'
+    TICKET.assignedToUserId = 'test-admin'
+    state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: false }
+    mockTransfer.mockResolvedValue({
+      ...TICKET,
+      assignedTo: 'Técnico 2',
+      assignedToUserId: 'user-2',
+    })
+  })
+
+  it('responsável atual vê o card de transferência', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.getByText('Transferir atendimento')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Transferir para outro técnico/ })).toBeInTheDocument()
+  })
+
+  it('não oferece transferência em chamado aberto (fora do atendimento ativo)', async () => {
+    TICKET.status = 'aberto'
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.queryByText('Transferir atendimento')).not.toBeInTheDocument()
+  })
+
+  it('abre o diálogo, mostra atual → novo e confirma a transferência pelo endpoint', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: /Transferir para outro técnico/ }))
+    await act(async () => {})
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByText('Responsável atual')).toBeInTheDocument()
+    expect(within(dialog).getByText('Técnico 1')).toBeInTheDocument()
+
+    // Só o outro técnico ativo aparece como alvo (o atual é filtrado).
+    const select = within(dialog).getByRole('combobox')
+    fireEvent.change(select, { target: { value: 'user-2' } })
+    // 'Técnico 2' aparece na opção E no resumo do novo responsável.
+    expect(within(dialog).getAllByText('Técnico 2').length).toBeGreaterThan(0)
+    expect(within(dialog).getByRole('button', { name: 'Confirmar transferência' })).toBeEnabled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar transferência' }))
+    await act(async () => {})
+
+    expect(mockTransfer).toHaveBeenCalledWith('ticket-1', 'user-2')
+    // Transferência é atômica no servidor; não passa pelo PATCH genérico.
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('não transfere sem escolher um técnico', async () => {
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: /Transferir para outro técnico/ }))
+    await act(async () => {})
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByRole('button', { name: 'Confirmar transferência' })).toBeDisabled()
+    expect(mockTransfer).not.toHaveBeenCalled()
+  })
+
+  it('avisa quando o chamado mudou entre a leitura e a escrita (409)', async () => {
+    mockTransfer.mockRejectedValue(
+      Object.assign(new Error('O chamado foi alterado por outro técnico'), { status: 409 }),
+    )
+    mockGetByIdRemote.mockResolvedValue({
+      ...TICKET,
+      status: 'em_atendimento',
+      assignedTo: 'Técnico 2',
+      assignedToUserId: 'user-2',
+    })
+
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: /Transferir para outro técnico/ }))
+    await act(async () => {})
+    fireEvent.change(within(screen.getByRole('alertdialog')).getByRole('combobox'), {
+      target: { value: 'user-2' },
+    })
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar transferência' }))
+    await act(async () => {})
+
+    expect(
+      screen.getByText('Não foi possível transferir: o chamado foi alterado por outro técnico. Recarregado.'),
+    ).toBeInTheDocument()
+  })
+
+  it('técnico que não é responsável (nem leader) não vê a transferência', async () => {
+    TICKET.assignedTo = 'Técnico 2'
+    TICKET.assignedToUserId = 'user-2'
+    state.user = { id: 'test-admin', name: 'Técnico 1', is_super_admin: false }
+
+    render(<TicketDetail />)
+    await act(async () => {})
+
+    expect(screen.queryByText('Transferir atendimento')).not.toBeInTheDocument()
   })
 })
