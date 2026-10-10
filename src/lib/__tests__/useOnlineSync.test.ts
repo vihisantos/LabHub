@@ -11,12 +11,13 @@ vi.mock('../sync', () => ({
   getLastSyncedAt: vi.fn(() => null),
 }))
 
-import { useOnlineSync } from '../useOnlineSync'
+import { useOnlineSync, __resetOnlineSyncForTests } from '../useOnlineSync'
 import { getPendingChanges, getSyncLog, getLastSyncedAt } from '../sync'
 
 beforeEach(() => {
   vi.useFakeTimers()
   resetCache()
+  __resetOnlineSyncForTests()
   vi.clearAllMocks()
   mockSyncAll.mockResolvedValue({ synced: 0, failed: [] })
   ;(getPendingChanges as any).mockReturnValue(0)
