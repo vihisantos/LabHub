@@ -3196,48 +3196,30 @@ def chamados_manage(ticket_id):
             if not _is_assigner(user, ticket_ws):
                 return _forbidden('Permissão insuficiente para atribuir responsável')
 
-        # Hardening de atribuição cross-workspace: garante que `assignedToUserId`
-        # pertence ao workspace DO CHAMADO (não ao workspace ativo do assigner).
+        # Validação UNIFICADA do responsável (P2 + P3 #371): reusa
+        # `_resolve_assignee_profile`, a MESMA autoridade da transferência. Não é
+        # mais um check de membership local — exige, para o destinatário:
+        #   1) membership ATIVA no workspace DO CHAMADO (nunca o workspace ativo
+        #      do assigner) — garante isolamento cross-workspace mesmo num PATCH
+        #      HTTP manipulado;
+        #   2) perfil com `status='active'`;
+        #   3) elegibilidade EFETIVA para atender (`ticket.claim`, RBAC 2.0 —
+        #      incluindo overrides por membership; migration 038).
+        # Assim, o PATCH genérico não pode atribuir a um visualizador, a um cargo
+        # de gestão que não atende, a um perfil suspenso nem a alguém de outro
+        # campus — a lista do frontend NÃO é a autoridade.
         #
-        # Sem esta validação, um assigner de outro campus poderia, via PATCH HTTP
-        # manipulado, atribuir um técnico de campus A a um chamado de campus B —
-        # mesmo que a UI liste apenas técnicos do campus correto.
-        #
-        # String vazia/None = remoção de responsável → não valida membership.
-        # Só valida quando há um UUID explícito, garantindo que o técnico é membro
-        # ATIVO do mesmo workspace do ticket.
+        # String vazia/None = remoção de responsável → NÃO valida destinatário
+        # (preserva a semântica atual de unassign); a autorização do caller
+        # (`ticket.assign`) já foi verificada acima e continua valendo.
         _new_assignee_id = str(updates.get('assignedToUserId') or '').strip()
         _canonical_name = ''
         if _new_assignee_id:
-            try:
-                _assignee_check = requests.get(
-                    f'{_SUPABASE_URL}/rest/v1/memberships'
-                    f'?profile_id=eq.{quote(_new_assignee_id)}'
-                    f'&workspace_id=eq.{quote(ticket_ws)}'
-                    f'&status=eq.active'
-                    f'&select=id',
-                    headers=_supabase_headers(),
-                    timeout=10,
-                )
-                if not _assignee_check.ok or not (_assignee_check.json() or []):
-                    return jsonify({
-                        'error': 'Técnico não pertence ao workspace deste chamado'
-                    }), 400
-                # Consistência nome/ID (revisão P2): o nome gravado vem do
-                # PERFIL do ID validado — nunca do corpo do cliente. O nome
-                # não é prova de identidade; o ID é. Assim, nome e ID gravados
-                # correspondem sempre ao mesmo responsável.
-                _assignee_name_resp = requests.get(
-                    f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(_new_assignee_id)}&select=name',
-                    headers=_supabase_headers(),
-                    timeout=10,
-                )
-                if not _assignee_name_resp.ok or not (_assignee_name_resp.json() or []):
-                    return jsonify({'error': 'Não foi possível validar o responsável'}), 502
-                _canonical_name = str((_assignee_name_resp.json() or [{}])[0].get('name') or '').strip()
-            except Exception as _assignee_exc:
-                logger.error('Hardening assignee membership check failed: %s', _assignee_exc)
-                return jsonify({'error': 'Não foi possível validar o responsável'}), 502
+            _canonical_name, _assignee_err, _assignee_status = _resolve_assignee_profile(
+                _new_assignee_id, ticket_ws
+            )
+            if _assignee_err:
+                return _assignee_err, _assignee_status
 
         prev = None
         assignment_changed = False

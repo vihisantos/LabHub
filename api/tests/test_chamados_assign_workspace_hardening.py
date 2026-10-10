@@ -343,11 +343,24 @@ def test_assign_same_workspace_accepted(client, fake_requests, monkeypatch):
         f"memberships?profile_id=eq.{TECH_A_USER_ID}&workspace_id=eq.{WS_A}&status=eq.active",
         FakeResponse([{"id": "m-tech-a", "workspace_id": WS_A, "profile_id": TECH_A_USER_ID, "status": "active"}]),
     )
+    # Elegibilidade RBAC 2.0 do destinatário (P3 #371): membership + role base
+    # com `ticket.claim`. O PATCH unificado reusa `_resolve_assignee_profile`.
+    fake_requests.route(
+        "GET",
+        f"memberships?profile_id=eq.{TECH_A_USER_ID}&select=id,role_id,status",
+        FakeResponse([{"id": "m-tech-a", "workspace_id": WS_A,
+                       "profile_id": TECH_A_USER_ID, "status": "active", "role_id": "role-tec"}]),
+    )
+    fake_requests.route(
+        "GET",
+        "role_permissions?role_id=eq.role-tec&select=action,scope",
+        FakeResponse([{"action": "ticket.claim", "scope": "workspace"}]),
+    )
     # Perfil do assignee (fonte canônica do nome gravado no servidor).
     fake_requests.route(
         "GET",
-        f"profiles?id=eq.{TECH_A_USER_ID}&select=name",
-        FakeResponse([{"name": "Técnico A"}]),
+        f"profiles?id=eq.{TECH_A_USER_ID}&select=name,status,is_super_admin",
+        FakeResponse([{"name": "Técnico A", "status": "active", "is_super_admin": False}]),
     )
     _setup_successful_patch(fake_requests, "Técnico A", TECH_A_USER_ID)
 
