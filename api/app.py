@@ -3195,6 +3195,18 @@ def chamados_manage(ticket_id):
                 prev_assigned_to != updates['assignedToUserId']
                 or prev_assigned_to_name != updates['assignedTo']
             )
+            if not assignment_changed:
+                # Atribuição SEM mudança semântica (remoção parcial sobre um
+                # chamado já sem responsável, ou reatribuição com os mesmos
+                # valores): os campos de responsável NÃO vão no payload — sem
+                # escrita e sem guardas de atribuição. Elimina o risco de um
+                # no-op sobrescrever uma atribuição feita por outro assigner
+                # ENTRE a leitura e a escrita: a linha pode ter mudado depois
+                # da leitura, e gravar os mesmos valores a rebaixaria
+                # (last-write-wins). Pure no-op ⇒ updates vazio ⇒ 400
+                # 'Nada para atualizar' antes de qualquer escrita.
+                updates.pop('assignedTo', None)
+                updates.pop('assignedToUserId', None)
         if 'status' in updates:
             if updates['status'] not in CHAMADOS_STATUSES:
                 return jsonify({'error': 'Status inválido'}), 400

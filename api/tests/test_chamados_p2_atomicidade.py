@@ -569,9 +569,11 @@ def test_reassign_valid_keeps_atomic_guard(client, fake_requests, monkeypatch):
 
 
 def test_unassign_valid_keeps_prev_owner_guard(client, fake_requests, monkeypatch):
+    """Remoção REAL de responsável (nome + id preenchidos): guardas de uid E de
+    nome, ambos os campos limpos numa única escrita condicional."""
     headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
     _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
-    _route_prev_owner(fake_requests, TECH_A_USER_ID)  # desatribuindo de TECH_A
+    _route_prev_owner(fake_requests, TECH_A_USER_ID, name="Técnico A")  # desatribuindo de TECH_A
     fake_requests.route(
         "PATCH",
         f"chamados_tickets?id=eq.{TICKET_ID}",
@@ -585,9 +587,118 @@ def test_unassign_valid_keeps_prev_owner_guard(client, fake_requests, monkeypatc
     assert resp.status_code == 200, resp.get_json()
     patches = fake_requests.calls_for("PATCH", "chamados_tickets")
     assert len(patches) == 1
-    assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in patches[0]["url"], (
+    url = patches[0]["url"]
+    assert f"assignedToUserId=eq.{TECH_A_USER_ID}" in url, (
         "Unassign deve casar apenas com o responsável lido antes"
     )
+    assert "assignedTo=eq." in url, "Guarda de nome presente na remoção real"
+    patch_json = patches[0]["kwargs"]["json"]
+    assert patch_json.get("assignedTo") == "" and patch_json.get("assignedToUserId") == ""
+
+
+def test_noop_removal_on_already_empty_assignment_writes_nothing(client, fake_requests, monkeypatch):
+    """Remoção parcial com responsável JÁ vazio (assignedTo=NULL, uid='').
+
+    Sem mudança semântica: os campos NÃO vão no payload e NADA é escrito —
+    um no-op não pode sobrescrever uma atribuição concorrente.
+    """
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_prev_owner(fake_requests, "", name=None)  # assignedTo = NULL, sem dono
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "", "assignedToUserId": ""},
+                        headers=headers)
+
+    assert resp.status_code == 400, resp.get_json()
+    assert "Nada para atualizar" in (resp.get_json().get("error") or "")
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets"), (
+        "No-op não deve reescrever a linha (atribuição concorrente deve sobreviver)"
+    )
+
+
+def test_noop_removal_on_null_uid_empty_name_writes_nothing(client, fake_requests, monkeypatch):
+    """Variante: assignedTo='' e assignedToUserId=NULL no banco + remoção.
+
+    Mesmo estado 'sem responsável' → sem mudança semântica → nada é escrito.
+    """
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_prev_owner(fake_requests, None, name="")  # uid NULL, nome ''
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "", "assignedToUserId": ""},
+                        headers=headers)
+
+    assert resp.status_code == 400, resp.get_json()
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
+
+
+def test_concurrent_assignment_not_clobbered_by_noop_removal(client, fake_requests, monkeypatch):
+    """Atribuição concorrente ENTRE a leitura e a escrita (req #5).
+
+    O request de remoção leu o chamado sem responsável; ANTES da escrita outro
+    assigner atribuiu TECH_X. Como o request não muda semanticamente nada,
+    NENHUMA escrita ocorre — a atribuição concorrente sobrevive (não há
+    last-write-wins)."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A)
+    _route_prev_owner(fake_requests, "", name=None)  # leitura: sem responsável
+
+    resp = client.patch(f"/api/chamados/{TICKET_ID}",
+                        json={"assignedTo": "", "assignedToUserId": ""},
+                        headers=headers)
+
+    assert resp.status_code == 400, resp.get_json()
+    # Determinante: sem escrita nenhuma, nada concorrente é sobrescrito.
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
+    mutation_posts = [
+        c for c in fake_requests.calls
+        if c["method"] == "POST"
+        and "pg_sql" not in c["url"]
+        and "rbac_audit_logs" not in c["url"]
+    ]
+    assert not mutation_posts
+
+
+def test_combined_status_change_with_noop_assignment_updates_only_status(client, fake_requests, monkeypatch):
+    """Status + atribuição SEM mudança: só o status é gravado, com sua guarda;
+    os campos de responsável ficam FORA do payload (não há guarda nem escrita
+    de atribuição) — a atribuição concorrente não é tocada."""
+    headers = _setup_caller_auth(fake_requests, monkeypatch, _assigner_profile(WS_A))
+    _setup_ticket_routes(fake_requests, ticket_ws=WS_A, extra_actions=("ticket.status",))
+    _route_prev_owner(fake_requests, "", name=None)  # leitura: sem responsável
+    fake_requests.route(
+        "GET",
+        f"chamados_tickets?id=eq.{TICKET_ID}&select=status,statusNote,resolvedAt,closedAt,archived",
+        FakeResponse([{"status": "aberto", "statusNote": "", "resolvedAt": None, "closedAt": None, "archived": False}]),
+    )
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        # Estado no momento da escrita: como se um assigner concorrente já
+        # tivesse atribuído TECH_X — o payload NÃO pode contê-lo (no clobber).
+        FakeResponse([_ticket_row(assigned_to="Técnico X", assigned_to_user_id="user-tech-x",
+                                  status="em_atendimento")]),
+    )
+
+    resp = client.patch(
+        f"/api/chamados/{TICKET_ID}",
+        json={"status": "em_atendimento", "assignedTo": "", "assignedToUserId": ""},
+        headers=headers,
+    )
+
+    assert resp.status_code == 200, resp.get_json()
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert len(patches) == 1
+    url = patches[0]["url"]
+    assert "status=eq.aberto" in url, "Guarda de status preservada"
+    assert "or=(assignedToUserId" not in url, "Sem guarda de atribuição em no-op"
+    assert "assignedToUserId=" not in url
+    patch_json = patches[0]["kwargs"]["json"]
+    assert "assignedTo" not in patch_json, "Campos de responsável fora do payload"
+    assert "assignedToUserId" not in patch_json
+    assert patch_json.get("status") == "em_atendimento"
 
 
 def test_reassign_with_status_change_applies_both_guards(client, fake_requests, monkeypatch):
