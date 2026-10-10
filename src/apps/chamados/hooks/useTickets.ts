@@ -165,6 +165,26 @@ export function useTickets() {
     return ticket
   }, [])
 
+  /**
+   * RETOMADA — técnico com `ticket.status` retoma chamado `em_espera` de outro
+   * responsável (P3 #371). Erro 409 se outro técnico retomou primeiro.
+   */
+  const resume = useCallback(async (id: string) => {
+    const ticket = await ticketService.resume(id)
+    setTickets((prev) => prev.map((t) => (t.id === id ? ticket : t)))
+    return ticket
+  }, [])
+
+  /**
+   * TRANSFERÊNCIA — responsável atual (ou assigner) passa o atendimento ativo
+   * a outro técnico do workspace (P3 #371).
+   */
+  const transfer = useCallback(async (id: string, assignedToUserId: string) => {
+    const ticket = await ticketService.transfer(id, assignedToUserId)
+    setTickets((prev) => prev.map((t) => (t.id === id ? ticket : t)))
+    return ticket
+  }, [])
+
   const remove = useCallback((id: string) => {
     const ok = ticketService.remove(id)
     if (ok) {
@@ -175,5 +195,5 @@ export function useTickets() {
 
   const reload = useCallback(() => syncRemote(false), [syncRemote])
 
-  return { tickets, loading, syncing, create, update, updateStatus, claim, remove, reload }
+  return { tickets, loading, syncing, create, update, updateStatus, claim, resume, transfer, remove, reload }
 }

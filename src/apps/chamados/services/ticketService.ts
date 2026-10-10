@@ -346,6 +346,52 @@ export const ticketService = {
     return ticket
   },
 
+  /**
+   * RETOMADA — técnico com `ticket.status` retoma chamado `em_espera` de outro
+   * responsável (P3 #371). Vira o novo responsável e segue `em_atendimento` de
+   * forma atômica no servidor; `409` se outro técnico retomou antes.
+   */
+  resume: async (id: string): Promise<Ticket> => {
+    const ticket = await request<{ ticket: Ticket }>(`${API_BASE}/${id}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).then((res) => res.ticket)
+    persistLocal(ticket)
+    logService.log({
+      userId: 'system',
+      userName: 'Sistema',
+      action: 'updated',
+      entity: 'ticket',
+      entityId: ticket.id,
+      entityLabel: `#${ticket.ticketNumber}`,
+      details: { newOwner: ticket.assignedTo, resumed: true, status: ticket.status },
+    })
+    return ticket
+  },
+
+  /**
+   * TRANSFERÊNCIA — responsável atual (ou assigner) passa o atendimento ATIVO a
+   * outro técnico do workspace (P3 #371). Guardas atômicas no servidor; `409`
+   * se o chamado mudou entre a leitura e a escrita.
+   */
+  transfer: async (id: string, assignedToUserId: string): Promise<Ticket> => {
+    const ticket = await request<{ ticket: Ticket }>(`${API_BASE}/${id}/transfer`, {
+      method: 'POST',
+      body: JSON.stringify({ assignedToUserId }),
+    }).then((res) => res.ticket)
+    persistLocal(ticket)
+    logService.log({
+      userId: 'system',
+      userName: 'Sistema',
+      action: 'updated',
+      entity: 'ticket',
+      entityId: ticket.id,
+      entityLabel: `#${ticket.ticketNumber}`,
+      details: { newOwner: ticket.assignedTo, transferred: true },
+    })
+    return ticket
+  },
+
   /** Adiciona um comentário ao chamado (máx 2 fotos por evento). */
   addEvent: async (id: string, data: TicketEventInput): Promise<TicketEvent> => {
     const { event } = await request<{ event: TicketEvent }>(`${API_BASE}/${id}/events`, {

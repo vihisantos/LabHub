@@ -50,7 +50,7 @@ type TimelineStatus = 'idle' | 'loading' | 'ready' | 'denied' | 'error'
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { tickets, update, updateStatus, create, claim } = useTicketsContext()
+  const { tickets, update, updateStatus, create, claim, resume, transfer } = useTicketsContext()
   const { user } = useAuth()
   // RBAC 2.0: cada operação de escrita é autorizada pela Action correspondente
   // (backend é a autoridade final — RLS/API). O dono do chamado (claimedByMe)
@@ -102,6 +102,11 @@ export function TicketDetail() {
   const [writeError, setWriteError] = useState('')
 
   const ticket = localTicket ?? remoteTicket
+
+  // Hoisted (null-safe): o dono do chamado também escolhe sucessor na
+  // transferência (P3 #371), então o fetch de responsáveis e os handlers
+  // precisam saber disso antes do early-return de `!ticket`.
+  const claimedByMe = (ticket?.assignedToUserId ?? '') === (user?.id || '')
 
   /**
    * Escrita no chamado, com o transporte adequado à origem do registro.
@@ -176,6 +181,12 @@ export function TicketDetail() {
   const [uploading, setUploading] = useState(false)
   const [claimError, setClaimError] = useState('')
   const [claiming, setClaiming] = useState(false)
+  const [resuming, setResuming] = useState(false)
+  const [resumeError, setResumeError] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const [transferError, setTransferError] = useState('')
+  const [transferTarget, setTransferTarget] = useState('')
+  const [transferConfirmOpen, setTransferConfirmOpen] = useState(false)
 
   // ── Modal de motivo: Em espera / Indeferir (issue #367) ───────────────────
   // Motivo predefinido OBRIGATÓRIO + observação opcional; o backend valida de
@@ -212,9 +223,62 @@ export function TicketDetail() {
     }
   }
 
+  // ── Retomada (P3 #371) ─────────────────────────────────────────────────────
+  // Endpoint atômico no servidor: só `em_espera` retoma, e quem retoma vira o
+  // novo responsável. `409` = outro técnico retomou antes — recarrega o registro
+  // para a tela refletir a realidade em vez de afirmar um sucesso falso.
   async function handleResume() {
-    if (!ticket) return
-    await applyUpdate({ status: 'em_atendimento' })
+    if (!ticket || resuming) return
+    setResuming(true)
+    setResumeError('')
+    try {
+      await resume(ticket.id)
+      if (!hasLocal) setRemoteTicket(await ticketService.getByIdRemote(ticket.id))
+    } catch (err) {
+      if (errorStatus(err) === 409) {
+        setResumeError('Outro técnico retomou este chamado antes de você. Acompanhamento atualizado.')
+        const fresh = await ticketService.getByIdRemote(ticket.id).catch(() => null)
+        if (!hasLocal && fresh) setRemoteTicket(fresh)
+      } else {
+        setResumeError(err instanceof Error ? err.message : 'Não foi possível retomar o chamado.')
+      }
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  // ── Transferência (P3 #371) ────────────────────────────────────────────────
+  // Responsável atual (ou assigner) passa um atendimento ATIVO para outro
+  // técnico do workspace. Guardas atômicas no servidor; `409` = o chamado mudou
+  // entre a leitura e a escrita (estado e/ou responsável), então a tela
+  // recarrega para mostrar o que aconteceu.
+  function handleTransferOpen() {
+    setTransferTarget('')
+    setTransferError('')
+    setTransferConfirmOpen(true)
+  }
+
+  async function handleTransferConfirm() {
+    if (!ticket || transferring || !transferTarget) return
+    if (transferTarget === (ticket.assignedToUserId ?? '')) return
+    setTransferring(true)
+    setTransferError('')
+    try {
+      await transfer(ticket.id, transferTarget)
+      setTransferConfirmOpen(false)
+      if (!hasLocal) setRemoteTicket(await ticketService.getByIdRemote(ticket.id))
+    } catch (err) {
+      if (errorStatus(err) === 409) {
+        setTransferConfirmOpen(false)
+        setTransferError('Não foi possível transferir: o chamado foi alterado por outro técnico. Recarregado.')
+        const fresh = await ticketService.getByIdRemote(ticket.id).catch(() => null)
+        if (!hasLocal && fresh) setRemoteTicket(fresh)
+      } else {
+        setTransferError(err instanceof Error ? err.message : 'Não foi possível transferir o chamado.')
+      }
+    } finally {
+      setTransferring(false)
+    }
   }
 
   // ── Timeline: quatro estados distintos ─────────────────────────────────────
@@ -298,8 +362,11 @@ export function TicketDetail() {
 
   // Responsáveis possíveis: membros ATIVOS do workspace do chamado, direto do
   // servidor (RPC não — leitura via RLS 036/044: memberships + profiles).
+  // Carregados para o líder atribuir (ticket.assign) E para a transferência
+  // (P3 #371): o responsável atual escolhe o sucessor entre os técnicos ativos.
+  const canTransferTargets = isLeader || claimedByMe
   useEffect(() => {
-    if (!isLeader || !ticket?.workspace_id) {
+    if (!canTransferTargets || !ticket?.workspace_id) {
       setAssignees([])
       return
     }
@@ -312,7 +379,7 @@ export function TicketDetail() {
     return () => {
       alive = false
     }
-  }, [isLeader, ticket?.workspace_id])
+  }, [canTransferTargets, ticket?.workspace_id])
 
   function handleAssign(userId: string, name: string) {
     if (!ticket) return
@@ -405,7 +472,8 @@ export function TicketDetail() {
 
   const slaInfo = getSlaInfo(ticket.createdAt, ticket.priority, ticket.status, slaConfigFor(ticket))
 
-  const claimedByMe = (ticket.assignedToUserId || '') === (user?.id || '')
+  // `claimedByMe` foi hoisted (linha ~109) para o fetch de responsáveis na
+  // transferência; aqui é só comentário de contexto.
   // Quem pode operar (comentar, mudar status, prioridade...):
   //   - o responsável do chamado;
   //   - o líder/assigner (isLeader);
@@ -418,6 +486,11 @@ export function TicketDetail() {
   const inOpenFlow = ticket.status === 'aberto' || ticket.status === 'a_caminho' || ticket.status === 'em_atendimento'
   // Chamado assumido por outro técnico — quem não é responsável nem líder vê só leitura.
   const lockedByOther = canEdit && !isLeader && !claimedByMe && !!ticket.assignedToUserId && inOpenFlow
+  // Transferência (P3 #371): só durante atendimento ATIVO. Quem transfere é o
+  // responsável atual (ownership, sem `ticket.assign` no backend) ou o
+  // assigner/leader (`ticket.assign`). O servidor é a autoridade final.
+  const inAttendance = ticket.status === 'a_caminho' || ticket.status === 'em_atendimento'
+  const canTransfer = inAttendance && (claimedByMe || (isLeader && canAssign))
 
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket || !canOperate) return
@@ -671,6 +744,30 @@ export function TicketDetail() {
               Atribuído a <span className="font-medium text-fg">{ticket.assignedTo}</span>
             </p>
           )}
+        </div>
+      )}
+
+      {canTransfer && (
+        // P3 #371 — transferência de atendimento ATIVO: o responsável atual (ou
+        // assigner) passa para outro técnico ativo do mesmo workspace. A
+        // confirmação fica num modal (evita troca acidental de responsável).
+        <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+          <h3 className="mb-1 text-xs font-semibold text-fg-muted">Transferir atendimento</h3>
+          <p className="mb-3 text-[11px] leading-relaxed text-fg-dim">
+            Passa este atendimento para outro técnico ativo da sua unidade. Você pode transferir enquanto
+            estiver <span className="font-medium text-fg">a caminho</span> ou em{' '}
+            <span className="font-medium text-fg">atendimento</span>.
+          </p>
+          <button
+            type="button"
+            onClick={handleTransferOpen}
+            disabled={transferring}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <icons.ui.userCheck size={16} />
+            Transferir para outro técnico
+          </button>
+          {transferError && <p className="mt-2 text-[11px] text-red-500">{transferError}</p>}
         </div>
       )}
 
@@ -1086,16 +1183,24 @@ export function TicketDetail() {
         </div>
       )}
 
-      {canOperate && ticket.status === 'em_espera' && !lockedByOther && canStatus && (
-        // Issue #367 — retomada: única saída de Em espera (→ em_atendimento).
-        // O motivo anterior é preservado pelo backend.
-        <button
-          type="button"
-          onClick={handleResume}
-          className="w-full rounded-xl bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-400"
-        >
-          Retomar atendimento
-        </button>
+      {canStatus && ticket.status === 'em_espera' && (
+        // P3 #371 — retomada: única saída de Em espera (→ em_atendimento).
+        // Questão #367 deixava a retomada presa ao dono/leader; agora qualquer
+        // técnico com a Action `ticket.status` do workspace retoma de forma
+        // ATÔMICA no servidor (guarda `status=em_espera`). `409` = outro técnico
+        // retomou primeiro. O motivo anterior é preservado pelo backend.
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleResume}
+            disabled={resuming}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <icons.ui.userCheck size={16} />
+            {resuming ? 'Retomando...' : 'Retomar atendimento'}
+          </button>
+          {resumeError && <p className="text-center text-[11px] text-red-500">{resumeError}</p>}
+        </div>
       )}
 
       {reasonModal !== null && (
@@ -1160,6 +1265,69 @@ export function TicketDetail() {
                 }`}
               >
                 {reasonBusy ? 'Salvando...' : reasonModal === 'indeferido' ? 'Indeferir' : 'Colocar em espera'}
+              </button>
+            </div>
+          </div>
+        </SheetOrDialog>
+      )}
+
+      {transferConfirmOpen && (
+        <SheetOrDialog
+          open={transferConfirmOpen}
+          onClose={() => { if (!transferring) setTransferConfirmOpen(false) }}
+          title="Transferir atendimento"
+          role="alertdialog"
+        >
+          <div className="space-y-4 px-1 pb-2">
+            <p className="text-xs leading-relaxed text-fg-muted">
+              O atendimento passa para outro técnico ativo da sua unidade. Ele assume a partir do status atual do chamado.
+            </p>
+            <div className="rounded-xl border border-line bg-input/50 px-3 py-2.5">
+              <p className="text-[10px] font-semibold text-fg-dim">Responsável atual</p>
+              <p className="text-sm font-medium text-fg">{ticket.assignedTo || '—'}</p>
+            </div>
+            <div>
+              <label htmlFor="ticket-transfer-target" className="mb-1.5 block text-xs font-semibold text-fg">
+                Novo responsável <span aria-hidden="true" className="text-red-500">*</span>
+              </label>
+              <select
+                id="ticket-transfer-target"
+                value={transferTarget}
+                onChange={(e) => { setTransferTarget(e.target.value); setTransferError('') }}
+                className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-xs text-fg focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">Selecione o técnico...</option>
+                {assignees
+                  .filter((a) => a.userId !== (ticket.assignedToUserId ?? ''))
+                  .map((a) => (
+                    <option key={a.profileId} value={a.userId}>{a.name}</option>
+                  ))}
+              </select>
+            </div>
+            {transferTarget && (
+              <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2.5">
+                <p className="text-[10px] font-semibold text-fg-dim">Novo responsável</p>
+                <p className="text-sm font-medium text-fg">
+                  {assignees.find((a) => a.userId === transferTarget)?.name ?? '—'}
+                </p>
+              </div>
+            )}
+            {transferError && <p className="text-[11px] text-red-500">{transferError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { if (!transferring) setTransferConfirmOpen(false) }}
+                className="flex-1 rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-fg transition-colors hover:bg-input"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleTransferConfirm}
+                disabled={transferring || !transferTarget}
+                className="flex-1 rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {transferring ? 'Transferindo...' : 'Confirmar transferência'}
               </button>
             </div>
           </div>
