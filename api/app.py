@@ -2522,8 +2522,12 @@ def chamados_create():
             'reportedBy': reported_by,
             'reportedByEmail': str(body.get('reportedByEmail') or '').strip(),
             'reportedByUserId': reporter_user_id,
-            'assignedTo': str(body.get('assignedTo') or ''),
-            'assignedToUserId': str(body.get('assignedToUserId') or ''),
+            # Atribuição NUNCA vem do corpo na criação pública (issue #371,
+            # P2-C): o cliente não pode escolher arbitrariamente o responsável.
+            # O chamado entra SEM responsável; a atribuição acontece pelos
+            # fluxos confiáveis do servidor (claim atômico / PATCH autorizado).
+            'assignedTo': '',
+            'assignedToUserId': '',
             'photos': photos,
             'ticketNumber': ticket_number,
             'tracking_token_hash': tracking_token_hash,
@@ -3099,6 +3103,7 @@ def chamados_manage(ticket_id):
         # Só valida quando há um UUID explícito, garantindo que o técnico é membro
         # ATIVO do mesmo workspace do ticket.
         _new_assignee_id = str(updates.get('assignedToUserId') or '').strip()
+        _canonical_name = ''
         if _new_assignee_id:
             try:
                 _assignee_check = requests.get(
@@ -3114,23 +3119,94 @@ def chamados_manage(ticket_id):
                     return jsonify({
                         'error': 'Técnico não pertence ao workspace deste chamado'
                     }), 400
+                # Consistência nome/ID (revisão P2): o nome gravado vem do
+                # PERFIL do ID validado — nunca do corpo do cliente. O nome
+                # não é prova de identidade; o ID é. Assim, nome e ID gravados
+                # correspondem sempre ao mesmo responsável.
+                _assignee_name_resp = requests.get(
+                    f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(_new_assignee_id)}&select=name',
+                    headers=_supabase_headers(),
+                    timeout=10,
+                )
+                if not _assignee_name_resp.ok or not (_assignee_name_resp.json() or []):
+                    return jsonify({'error': 'Não foi possível validar o responsável'}), 502
+                _canonical_name = str((_assignee_name_resp.json() or [{}])[0].get('name') or '').strip()
             except Exception as _assignee_exc:
                 logger.error('Hardening assignee membership check failed: %s', _assignee_exc)
                 return jsonify({'error': 'Não foi possível validar o responsável'}), 502
 
         prev = None
         assignment_changed = False
-        if 'assignedToUserId' in updates:
-            # Busca o responsável atual para só notificar quando houver troca/atribuição
+        prev_assigned_to = None
+        prev_assigned_to_name = ''
+        prev_assigned_to_name_is_null = False
+        if 'assignedTo' in updates or 'assignedToUserId' in updates:
+            # Normalização (revisão corretiva P2): valores vazios ou compostos
+            # só de espaços viram '' — nunca uma atribuição inválida como ' '.
+            if 'assignedToUserId' in updates:
+                updates['assignedToUserId'] = str(updates.get('assignedToUserId') or '').strip()
+            if 'assignedTo' in updates:
+                updates['assignedTo'] = str(updates.get('assignedTo') or '').strip()
+
+            _new_assignee_id = str(updates.get('assignedToUserId') or '').strip()
+            if _new_assignee_id:
+                # Atribuição REAL: o nome gravado é o canônico do PERFIL do ID
+                # validado (acima) — nunca o enviado pelo cliente. Gravar os
+                # DOIS campos nesta MESMA escrita garante que nome e ID
+                # correspondem ao mesmo responsável: alterar só o nome ou só o
+                # id não deixa mais estados divergentes (novo uid com nome
+                # velho, ou nome de um técnico apontando para o id de outro).
+                updates['assignedToUserId'] = _new_assignee_id
+                updates['assignedTo'] = _canonical_name
+            elif updates.get('assignedTo'):
+                # Só `assignedTo` (sem ID): a identidade não pode ser validada
+                # no servidor — exigir os dois campos juntos nas alterações de
+                # responsável.
+                return jsonify({'error': 'Informe também o ID do responsável (assignedToUserId)'}), 400
+            else:
+                # Remoção: limpa os DOIS campos (normaliza remoção parcial —
+                # nunca deixa ID sem nome nem nome sem ID).
+                updates['assignedToUserId'] = ''
+                updates['assignedTo'] = ''
+
+            # Busca o responsável atual (nome E id) para a guarda condicional,
+            # a notificação e a consistência nome/id. Guardado em
+            # `prev_assigned_to*` ANTES do bloco de status (que reusa a variável
+            # `prev`) para montar o PATCH atômico.
             fetch = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=assignedToUserId',
+                f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
+                f'&select=assignedTo,assignedToUserId',
                 headers=_supabase_headers(),
                 timeout=10,
             )
             if not fetch.ok:
                 return jsonify({'error': 'Erro ao buscar chamado'}), 502
             prev = (fetch.json() or [{}])[0]
-            assignment_changed = (prev.get('assignedToUserId') or '') != (updates.get('assignedToUserId') or '')
+            prev_assigned_to = str(prev.get('assignedToUserId') or '')
+            # NULL e '' são o MESMO estado "sem nome" para a DETECÇÃO de
+            # mudança, mas a GUARDA preserva a diferença: o PostgREST não casa
+            # `assignedTo=eq.` com NULL — quando o valor ORIGINAL do banco é
+            # NULL, a guarda usa `assignedTo=is.null` (evita 409 falso em
+            # atribuição válida sobre um chamado gravado com NULL).
+            _prev_name_raw = prev.get('assignedTo')
+            prev_assigned_to_name = '' if _prev_name_raw is None else str(_prev_name_raw)
+            prev_assigned_to_name_is_null = _prev_name_raw is None
+            assignment_changed = (
+                prev_assigned_to != updates['assignedToUserId']
+                or prev_assigned_to_name != updates['assignedTo']
+            )
+            if not assignment_changed:
+                # Atribuição SEM mudança semântica (remoção parcial sobre um
+                # chamado já sem responsável, ou reatribuição com os mesmos
+                # valores): os campos de responsável NÃO vão no payload — sem
+                # escrita e sem guardas de atribuição. Elimina o risco de um
+                # no-op sobrescrever uma atribuição feita por outro assigner
+                # ENTRE a leitura e a escrita: a linha pode ter mudado depois
+                # da leitura, e gravar os mesmos valores a rebaixaria
+                # (last-write-wins). Pure no-op ⇒ updates vazio ⇒ 400
+                # 'Nada para atualizar' antes de qualquer escrita.
+                updates.pop('assignedTo', None)
+                updates.pop('assignedToUserId', None)
         if 'status' in updates:
             if updates['status'] not in CHAMADOS_STATUSES:
                 return jsonify({'error': 'Status inválido'}), 400
@@ -3181,16 +3257,45 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Nada para atualizar'}), 400
         updates['updatedAt'] = datetime.now(timezone.utc).isoformat()
 
-        # ── Concorrência (issue #367) ─────────────────────────────────────────
+        # ── Concorrência (issue #367 / #371 P2-B) ─────────────────────────────
         # Transição de status é PATCH CONDICIONAL no banco: só alcança linhas
         # que AINDA estão no `status_prev` lido antes da autorização. Se outro
         # usuário alterou o status no meio (race perdida), o update afeta
         # 0 linhas e este request recebe 409 — mesmo padrão atômico do claim.
         # Sem isso, o último PATCH venceria (last-write-wins) e um chamado
         # poderia ser resolvido e indeferido "ao mesmo tempo".
+        #
+        # A REATRIBUIÇÃO usa a mesma guarda condicional: quando o responsável
+        # muda (`assignment_changed` — por id, por nome OU por remoção), o PATCH
+        # só afeta linhas cujo `assignedToUserId`/`assignedTo` atuais ainda são
+        # os valores lidos antes. Dois assigners simultâneos disputam a mesma
+        # linha; o perdedor afeta 0 linhas → 409, sem sobrescrita silenciosa do
+        # vencedor. "Sem responsável" é string vazia (schema TEXT), logo o guard
+        # cobre '' E NULL (como no claim) — e, no NOME, a diferença entre o
+        # valor original NULL (`assignedTo=is.null`) e string vazia
+        # (`assignedTo=eq.`) é preservada, pois `eq.` não casa NULL.
         patch_url = f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}'
         if 'status' in updates:
             patch_url += f'&status=eq.{quote(status_prev)}'
+        if assignment_changed:
+            # Guarda ÚNICA e condicional: a alteração combinada (status +
+            # atribuição, ou atribuição de nome/id/remoção) casa apenas a linha
+            # que AINDA está no estado lido antes. 0 linhas → 409 sem efeitos
+            # parciais — nunca uma segunda escrita (sem last-write-wins).
+            if prev_assigned_to:
+                patch_url += f'&assignedToUserId=eq.{quote(prev_assigned_to)}'
+            else:
+                patch_url += '&or=(assignedToUserId.is.null,assignedToUserId.eq.)'
+            if prev_assigned_to_name != updates['assignedTo']:
+                # Preserva a diferença NULL vs '' do valor ORIGINAL do banco:
+                # `is.null` casa NULL; `eq.` casa string vazia; valor
+                # preenchido usa comparação exata com o escaping do projeto.
+                if prev_assigned_to_name_is_null:
+                    patch_url += '&assignedTo=is.null'
+                elif prev_assigned_to_name == '':
+                    patch_url += '&assignedTo=eq.'
+                else:
+                    patch_url += f'&assignedTo=eq.{quote(prev_assigned_to_name)}'
 
         resp = requests.patch(
             patch_url,
@@ -3202,7 +3307,7 @@ def chamados_manage(ticket_id):
             return jsonify({'error': 'Erro ao atualizar chamado'}), 502
         rows = resp.json()
         if not rows:
-            if 'status' in updates:
+            if 'status' in updates or assignment_changed:
                 return jsonify({
                     'error': 'Conflito: o chamado foi atualizado por outro usuário. Atualize e tente novamente.'
                 }), 409
@@ -3562,6 +3667,14 @@ def public_chamados_feedback(tracking_token):
     """Registra feedback (1-5) do professor para o próprio chamado.
     - Só permite quando resolvido/fechado.
     - Uma única vez por chamado (segunda tentativa → 409).
+    - Atômico (issue #371 P2-A): o PATCH é condicional a `feedbackRating=is.null`
+      — entre requisições concorrentes, só a PRIMEIRA grava; a perdedora afeta
+      0 linhas e responde 409 (nunca sobrescreve a avaliação vencedora).
+    - Atômico quanto ao estado: o MESMO PATCH também é condicional a
+      `status=in.(resolvido,fechado)`. A checagem de status lida acima é só um
+      gate rápido; a condição REAL que impede gravar feedback num chamado
+      reaberto entre a leitura e a escrita é aplicada pelo banco na própria
+      escrita. Se o chamado saiu do estado elegível, 0 linhas → 409.
     - O ticket é derivado do token, nunca do corpo da requisição.
     """
     ticket = g.tracking_ticket
@@ -3593,8 +3706,19 @@ def public_chamados_feedback(tracking_token):
     comment = str(body.get('comment') or '').strip()[:500]
 
     now = datetime.now(timezone.utc).isoformat()
+    # PATCH CONDICIONAL (issue #371 P2-A): a gravação só alcança linhas cujo
+    # feedback ainda não foi registrado E que CONTINUAM em estado elegível.
+    # Se duas requisições concorrentes passarem pela verificação de cima, apenas
+    # a primeira grava; a perdedora afeta 0 linhas → 409. Além disso, se o
+    # chamado for reaberto (sai de resolvido/fechado) entre a leitura e a
+    # escrita, a condição de status no banco deixa de casar → 0 linhas → 409.
+    # Sem essas condições o último PATCH venceria (last-write-wins) e uma
+    # nota/comentário poderia sobrescrever silenciosamente a avaliação ou ser
+    # gravada num chamado já reaberto. A guarda de status vai na MESMA escrita
+    # (filtro do PostgREST), não numa segunda consulta — não há janela.
     resp = requests.patch(
-        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}',
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}'
+        f'&feedbackRating=is.null&status=in.(resolvido,fechado)',
         headers={**_supabase_headers(), 'Prefer': 'return=representation'},
         json={
             'feedbackRating': rating,
@@ -3604,9 +3728,16 @@ def public_chamados_feedback(tracking_token):
         },
         timeout=10,
     )
-    if not resp.ok or not resp.json():
+    if not resp.ok:
         return jsonify({'error': 'Erro ao registrar o feedback'}), 502
-    return jsonify({'ticket': _project_public_ticket(resp.json()[0])})
+    rows = resp.json() or []
+    if not rows:
+        # Race perdida: outra requisição gravou a primeira avaliação antes OU o
+        # chamado foi reaberto (saiu de resolvido/fechado) entre a leitura e a
+        # escrita. Em ambos os casos a condição atômica deixou de casar e NADA
+        # foi gravado — nunca reportar sucesso sem linhas afetadas.
+        return jsonify({'error': 'Chamado já avaliado ou não está mais disponível para avaliação'}), 409
+    return jsonify({'ticket': _project_public_ticket(rows[0])})
 
 
 @app.route('/api/public/chamados/<tracking_token>/subscribe', methods=['POST'])

@@ -266,6 +266,9 @@ class TestChamadosDelete:
 # ── Chamados PATCH <id> (mixed-operation, atomic) ────────────────────────────
 class TestChamadosPatch:
     def _p(self, client, fake_requests, monkeypatch, rbac_module, body, decisions):
+        # Perfil do assignee ANTES do perfil do caller (first-match wins):
+        # a fonte canônica do nome gravado vem do perfil do ID validado.
+        fake_requests.route("GET", "profiles?id=eq.u-9", FakeResponse([{"id": "u-9", "name": "Ana"}]))
         _patch_supabase_profile(fake_requests, _profile())
         fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))
         fake_requests.route("PATCH", "/rest/v1/chamados_tickets", FakeResponse([_ticket_row()]))

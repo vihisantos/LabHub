@@ -1174,10 +1174,16 @@ def test_schema_inclui_assigned_to_user_id(api_module):
     assert 'ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "assignedToUserId"' in api_module.CHAMADOS_TABLE_SQL
 
 
-def test_create_aceita_assigned_to_user_id(client, fake_requests):
+def test_create_ignora_assigned_to_do_corpo(client, fake_requests):
+    """Criação pública NUNCA aceita responsável escolhido pelo cliente (P2-C).
+
+    Enviar `assignedTo`/`assignedToUserId` no corpo não atribui o chamado: o
+    backend grava SEM responsável; a atribuição ocorre somente pelos fluxos
+    autorizados do servidor (claim atômico / PATCH com `ticket.assign`).
+    """
     _route_workspace_ok(fake_requests)
     _route_ticket_number(fake_requests, last=5)
-    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6, assignedTo="Técnico 2", assignedToUserId="user-2"))
+    _route_create_insert(fake_requests, _make_ticket(ticketNumber=6, assignedTo="", assignedToUserId=""))
 
     resp = client.post(
         "/api/chamados",
@@ -1186,8 +1192,8 @@ def test_create_aceita_assigned_to_user_id(client, fake_requests):
 
     assert resp.status_code == 200
     insert = fake_requests.calls_for("POST", "/rest/v1/chamados_tickets")[0]["kwargs"]["json"]
-    assert insert["assignedToUserId"] == "user-2"
-    assert insert["assignedTo"] == "Técnico 2"
+    assert insert["assignedToUserId"] == "", "Cliente não pode definir o responsável"
+    assert insert["assignedTo"] == "", "Cliente não pode definir o responsável"
 
 
 def _route_assignment_get(fake_requests, prev_row):
@@ -1216,6 +1222,10 @@ def _assignment_push_fixture(api_module, monkeypatch):
 
 
 def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module, monkeypatch):
+    # Perfil do assignee ANTES de _setup_auth (first-match wins): a rota
+    # específica vence para `profiles?id=eq.user-2`; o fetch do caller — URL
+    # sem query — cai na rota genérica registrada depois.
+    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, target_kwargs = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignee_membership(fake_requests, "user-2")
@@ -1237,20 +1247,26 @@ def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module
     assert target_kwargs[0]["workspace_id"] == "ws-a"
 
 
-def test_patch_atribuicao_sem_mudanca_nao_avisa(client, fake_requests, api_module, monkeypatch):
+def test_patch_atribuicao_sem_mudanca_nao_escreve_nem_avisa(client, fake_requests, api_module, monkeypatch):
+    """Atribuição com os MESMOS valores (sem mudança semântica): os campos de
+    responsável NÃO vão no payload — a linha não é reescrita (um no-op não pode
+    sobrescrever atribuição concorrente) e não há notificação."""
+    # Perfil do assignee com o MESMO nome armazenado, registrado ANTES de
+    # _setup_auth (first-match wins).
+    fake_requests.route("GET", "profiles?id=eq.user-2&select=name", FakeResponse([{"name": "Técnico 2"}]))
     headers = _setup_auth(fake_requests, monkeypatch)
     sent, _ = _assignment_push_fixture(api_module, monkeypatch)
     _route_assignee_membership(fake_requests, "user-2")
     _route_assignment_get(fake_requests, _make_ticket(assignedTo="Técnico 2", assignedToUserId="user-2"))
-    _route_patch_ticket(
-        fake_requests,
-        _make_ticket(status="aberto", assignedTo="Técnico 2", assignedToUserId="user-2"),
-    )
 
     resp = client.patch("/api/chamados/ticket-1", json={"assignedToUserId": "user-2"}, headers=headers)
 
-    assert resp.status_code == 200
-    assert sent == []
+    assert resp.status_code == 400
+    assert "Nada para atualizar" in (resp.get_json().get("error") or "")
+    assert sent == [], "No-op de atribuição não deve notificar"
+    assert fake_requests.calls_for("PATCH", "chamados_tickets") == [], (
+        "No-op de atribuição não deve reescrever a linha"
+    )
 
 
 def test_patch_remove_atribuicao_nao_avisa(client, fake_requests, api_module, monkeypatch):
