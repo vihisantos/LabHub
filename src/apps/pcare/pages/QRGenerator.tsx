@@ -11,7 +11,7 @@ export function QRGenerator() {
 
   useEffect(() => {
     if (countdown <= 0) {
-      navigate('/stock/qr', { replace: true })
+      navigate('/stock', { replace: true })
       return
     }
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000)
@@ -74,7 +74,7 @@ export function QRGenerator() {
 
       <button
         type="button"
-        onClick={() => navigate('/stock/qr', { replace: true })}
+        onClick={() => navigate('/stock', { replace: true })}
         className="rounded-xl bg-card px-6 py-3 text-sm font-medium text-fg-muted transition-all hover:bg-input hover:text-fg active:scale-95"
       >
         Ir agora
