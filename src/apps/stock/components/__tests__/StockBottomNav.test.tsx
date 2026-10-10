@@ -3,11 +3,9 @@ import { screen } from '@testing-library/react'
 import { renderWithProviders } from '../../../../test/helpers'
 
 const mockUseStock = vi.hoisted(() => vi.fn())
-const mockUseKits = vi.hoisted(() => vi.fn())
 const mockUseMovements = vi.hoisted(() => vi.fn())
 
 vi.mock('../../hooks/useStock', () => ({ useStock: mockUseStock }))
-vi.mock('../../hooks/useKits', () => ({ useKits: mockUseKits }))
 vi.mock('../../hooks/useMovements', () => ({ useMovements: mockUseMovements }))
 
 import { StockBottomNav } from '../StockBottomNav'
@@ -21,7 +19,6 @@ function isActive(label: string): boolean {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseStock.mockReturnValue({ items: [] })
-  mockUseKits.mockReturnValue({ kits: [] })
   mockUseMovements.mockReturnValue({ movements: [] })
 })
 
@@ -68,11 +65,19 @@ describe('StockBottomNav', () => {
   })
 
   it('em rota do menu "Mais" mostra o item ativo no botão e desativa o Dashboard', () => {
-    renderWithProviders(<StockBottomNav />, { initialEntries: ['/stock/kits'] })
+    renderWithProviders(<StockBottomNav />, { initialEntries: ['/stock/movements'] })
 
     const moreBtn = screen.getByLabelText('Mais opções')
-    expect(moreBtn).toHaveTextContent('Kits')
+    expect(moreBtn).toHaveTextContent('Mov.')
     expect(moreBtn.classList.contains('text-indigo-500')).toBe(true)
     expect(isActive('Dashboard')).toBe(false)
+  })
+
+  it('não oferece mais Kits, Pipeline ou QR na navegação', () => {
+    renderWithProviders(<StockBottomNav />, { initialEntries: ['/stock'] })
+
+    expect(screen.queryByText('Kits')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pipeline')).not.toBeInTheDocument()
+    expect(screen.queryByText('QR')).not.toBeInTheDocument()
   })
 })

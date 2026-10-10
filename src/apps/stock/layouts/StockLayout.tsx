@@ -1,13 +1,13 @@
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useRef, useState, useEffect } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { StockBottomNav } from '../components/StockBottomNav'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { useExpiryAlerts } from '../hooks/useExpiryAlerts'
 import { icons } from '../../../lib/icons'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
-import { STOCK_PREFIXES, stockPrefix, stockNavPath, normalizeStockPath } from '../utils/stockPath'
+import { STOCK_PREFIXES, stockPrefix, normalizeStockPath } from '../utils/stockPath'
 
 function p(pathname: string, suffix: string) {
   return STOCK_PREFIXES.some((pre) => pathname === pre + suffix || pathname.startsWith(pre + suffix + '/'))
@@ -18,21 +18,29 @@ function m(pathname: string) {
 }
 
 function mainRoute(pathname: string) {
-  return m(pathname) || p(pathname, '/items') || p(pathname, '/movements') || p(pathname, '/kits') || p(pathname, '/entry-exit')
+  return m(pathname) || p(pathname, '/items') || p(pathname, '/movements') || p(pathname, '/entry-exit')
 }
 
 function isDetailPage(pathname: string) {
   return !mainRoute(pathname)
 }
 
+/**
+ * Transição discreta entre páginas: deslocamento curto, sem blur, e
+ * desativada quando o usuário pede menos movimento (`prefers-reduced-motion`).
+ */
 function StockPageTransition({ direction, children }: { direction: 'left' | 'right'; children: React.ReactNode }) {
-  const x = direction === 'left' ? 36 : -36
+  const reduceMotion = useReducedMotion()
+  const x = direction === 'left' ? 12 : -12
+  if (reduceMotion) {
+    return <div className="mx-auto max-w-lg p-4">{children}</div>
+  }
   return (
     <motion.div
-      initial={{ opacity: 0, x, filter: 'blur(1.5px)' }}
-      animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
-      exit={{ opacity: 0, x: -x, filter: 'blur(1.5px)' }}
-      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      initial={{ opacity: 0, x }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -x }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
       className="mx-auto max-w-lg p-4"
     >
       {children}
@@ -45,14 +53,12 @@ function getPageTitle(pathname: string): string {
   if (p(pathname, '/items')) return 'Estoque'
   if (p(pathname, '/movements')) return 'Movimentações'
   if (p(pathname, '/entry-exit')) return 'Entrada/Saída'
-  if (p(pathname, '/kits')) return 'Kits'
   return 'Estoque'
 }
 
 function getBackPath(pathname: string): string {
   const pre = stockPrefix(pathname)
   if (p(pathname, '/items')) return pre + '/items'
-  if (p(pathname, '/kits')) return pre + '/kits'
   if (p(pathname, '/inventory')) return pre + '/inventory'
   return pre
 }
@@ -66,10 +72,7 @@ const ROUTE_ORDER: Record<string, number> = {
   '/stock/items': 10,
   '/stock/entry-exit': 20,
   '/stock/movements': 30,
-  '/stock/kits': 40,
-  '/stock/pipeline': 50,
   '/stock/maintenance': 60,
-  '/stock/qr': 70,
   '/stock/inventory': 80,
 }
 
@@ -132,12 +135,8 @@ function StockLayoutInner({
   mainRef: React.RefObject<HTMLDivElement | null>
   scrollToTop: () => void
 }) {
-  const navigate = useNavigate()
   const [direction, setDirection] = useState<'left' | 'right'>('left')
   const prevPathRef = useRef(location.pathname)
-  const swipeStartX = useRef(0)
-  const swipeStartY = useRef(0)
-  const swipeStartTime = useRef(0)
 
   useEffect(() => {
     const prev = prevPathRef.current
@@ -148,35 +147,9 @@ function StockLayoutInner({
     }
   }, [location.pathname])
 
-  const STOCK_TABS = ['/stock', '/stock/items', '/stock/entry-exit', '/stock/movements', '/stock/kits', '/stock/maintenance', '/stock/qr']
-
-  function handleSwipeStart(e: React.TouchEvent) {
-    swipeStartX.current = e.touches[0].clientX
-    swipeStartY.current = e.touches[0].clientY
-    swipeStartTime.current = Date.now()
-  }
-
-  function handleSwipeEnd(e: React.TouchEvent) {
-    if (detail) return
-    const dx = e.changedTouches[0].clientX - swipeStartX.current
-    const dy = e.changedTouches[0].clientY - swipeStartY.current
-    const dt = Date.now() - swipeStartTime.current
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5 || dt > 350) return
-    const currentBase = getBaseRoute(location.pathname)
-    const currentIndex = STOCK_TABS.indexOf(currentBase)
-    if (currentIndex === -1) return
-    if (dx < 0 && currentIndex < STOCK_TABS.length - 1) {
-      navigate(stockNavPath(location.pathname, STOCK_TABS[currentIndex + 1]))
-    } else if (dx > 0 && currentIndex > 0) {
-      navigate(stockNavPath(location.pathname, STOCK_TABS[currentIndex - 1]))
-    }
-  }
-
   return (
     <div
       className="flex min-h-dvh flex-col bg-surface text-fg overflow-x-hidden"
-      onTouchStart={handleSwipeStart}
-      onTouchEnd={handleSwipeEnd}
     >
       <header className="sticky top-0 z-30 flex items-center gap-2 bg-surface/80 px-4 py-3.5 backdrop-blur-xl border-b border-line">
         {detail && (
