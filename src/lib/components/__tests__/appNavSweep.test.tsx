@@ -199,16 +199,11 @@ describe('varredura de rotas — aba ativa', () => {
       ['/stock/items/i-1', 'Estoque'],
       ['/stock/entry-exit', 'Ent/Sai'],
       ['/stock/movements', 'Mov.'],
-      ['/stock/kits', 'Kits'],
-      ['/stock/kits/k-1', 'Kits'],
       ['/stock/inventory', 'Dashboard'],
       ['/stock/inventory/i-1', 'Dashboard'],
-      ['/stock/qr', 'QR'],
       ['/stock/maintenance', 'Manut.'],
-      ['/stock/pipeline', 'Pipeline'],
       ['/general-stock', 'Dashboard'],
       ['/general-stock/items', 'Estoque'],
-      ['/general-stock/kits', 'Kits'],
     ])
   })
 

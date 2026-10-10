@@ -47,17 +47,17 @@ describe('QRGenerator', () => {
     expect(screen.getByText('Ir agora')).toBeInTheDocument()
   })
 
-  it('navega para /stock/qr ao clicar em "Ir agora"', () => {
+  it('navega para /stock ao clicar em "Ir agora"', () => {
     renderQR()
     screen.getByText('Ir agora').click()
-    expect(mockNavigate).toHaveBeenCalledWith('/stock/qr', { replace: true })
+    expect(mockNavigate).toHaveBeenCalledWith('/stock', { replace: true })
   })
 
-  it('navega para /stock/qr após 3 segundos', () => {
+  it('navega para /stock após 3 segundos', () => {
     renderQR()
     act(() => { vi.advanceTimersByTime(1000) })
     act(() => { vi.advanceTimersByTime(1000) })
     act(() => { vi.advanceTimersByTime(1000) })
-    expect(mockNavigate).toHaveBeenCalledWith('/stock/qr', { replace: true })
+    expect(mockNavigate).toHaveBeenCalledWith('/stock', { replace: true })
   })
 })

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStock } from '../hooks/useStock'
-import { useKits } from '../hooks/useKits'
 import { useMovements } from '../hooks/useMovements'
 import { useInventory } from '../hooks/useInventory'
 import { useStockMaintenance } from '../hooks/useStockMaintenance'
@@ -49,7 +48,6 @@ export function StockDashboard() {
   const navigate = useNavigate()
   const location = useLocation()
   const { items, loading, reload } = useStock()
-  const { kits } = useKits()
   const { movements } = useMovements()
   const { cycles: inventoryCycles } = useInventory()
   const [search, setSearch] = useState('')
@@ -57,7 +55,6 @@ export function StockDashboard() {
 
   const activeItems = items.filter((i) => i.status === 'ativo')
   const inRepair = items.filter((i) => i.status === 'em_conserto')
-  const incompleteKits = kits.filter((k) => k.status === 'incompleto')
 
   const sectionCounts = useMemo(() => {
     const counts: Partial<Record<StockSection, number>> = {}
@@ -259,22 +256,6 @@ export function StockDashboard() {
 
               <button
                 type="button"
-                onClick={() => navigate(stockPath(location.pathname, '/kits'))}
-                className={`rounded-xl p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive ${
-                  incompleteKits.length > 0 ? 'bg-red-50 dark:bg-red-950/30' : 'bg-card'
-                }`}
-              >
-                <icons.ui.check size={20} className={incompleteKits.length > 0 ? 'text-red-500' : 'text-fg-muted'} />
-                <p className={`mt-2 text-2xl font-bold tracking-tight ${incompleteKits.length > 0 ? 'text-red-700 dark:text-red-400' : 'text-fg'}`}>
-                  {incompleteKits.length}
-                </p>
-                <p className={`text-[11px] font-medium ${incompleteKits.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-fg-muted'}`}>
-                  Kits Incompletos
-                </p>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => navigate(stockPath(location.pathname, '/movements'))}
                 className={`rounded-xl p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive ${
                   overdueCount > 0 ? 'bg-rose-50 dark:bg-rose-950/30' : 'bg-card'
@@ -297,16 +278,6 @@ export function StockDashboard() {
                 <icons.nav.checklists size={20} className="text-fg-muted" />
                 <p className="mt-2 text-2xl font-bold tracking-tight text-fg">{inventoryCycles.length}</p>
                 <p className="text-[11px] font-medium text-fg-muted">Inventários</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => navigate(stockPath(location.pathname, '/qr-scan'))}
-                className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
-              >
-                <icons.ui.scanBarcode size={20} className="text-fg-muted" />
-                <p className="mt-2 text-2xl font-bold tracking-tight text-fg">Scan</p>
-                <p className="text-[11px] font-medium text-fg-muted">Escanear QR</p>
               </button>
 
               <button
