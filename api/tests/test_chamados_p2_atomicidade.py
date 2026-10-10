@@ -5,11 +5,16 @@ Cobre os três pilares da P2:
 P2-A — Feedback atômico
   - Duas tentativas concorrentes: apenas a PRIMEIRA grava; a perdedora atinge o
     PATCH CONDICIONAL (`feedbackRating=is.null`), afeta 0 linhas e recebe 409.
+  - Estado atômico: o MESMO PATCH também exige `status=in.(resolvido,fechado)`.
+    Se o chamado for reaberto entre a leitura e a escrita, a condição de status
+    deixa de casar no banco → 0 linhas → 409 (sem gravar feedback num chamado
+    já reaberto). A checagem de status lida antes é apenas gate rápido.
   - Avaliação duplicada (já persistida) bloqueada no gate (409).
   - Solicitante não autorizado (token inválido) → 403.
   - O PATCH é escopado ao ticket derivado do TOKEN: o corpo não consegue apontar
     para um ticket de outra unidade nem injetar campos administrativos.
-  - Falha na gravação → 502.
+  - Resposta sem linhas atualizadas NUNCA vira sucesso (409), e falha na
+    gravação → 502.
 
 P2-B — Reatribuição atômica (mesmo padrão condicional do claim/status)
   - O PATCH de atribuição inclui guarda condicional no responsável lido antes:
@@ -34,6 +39,7 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -96,6 +102,47 @@ class SequenceResponse:
         return self._payloads.pop(0) if self._payloads else []
 
 
+class ConditionalTicketPatch:
+    """Simula o PostgREST aplicando os filtros condicionais da URL do PATCH.
+
+    Diferente de um `FakeResponse` fixo, esta resposta lê o estado ATUAL da linha
+    (`state`) e replica a semântica dos filtros que o endpoint envia: `id=eq.`,
+    `feedbackRating=is.null` e `status=in.(...)`. Se TODOS casarem, "grava" e
+    devolve a linha; se qualquer um deixar de casar, devolve `[]` (0 linhas) —
+    exatamente o que o endpoint deve tratar como conflito.
+
+    Isso NÃO prova concorrência real de banco: prova que a condição atômica
+    correta é enviada na MESMA escrita e que o resultado (0 linhas) é tratado
+    sem falso positivo de sucesso. A corrida é simulada mudando `state` entre a
+    leitura inicial (GET) e o PATCH.
+    """
+
+    def __init__(self, ticket_id, state, result_row):
+        self.ticket_id = ticket_id
+        self.state = state
+        self.result_row = result_row
+        self.status_code = 200
+        self.ok = True
+        self.text = ""
+        self.url = ""
+
+    def _matches(self, url):
+        m = re.search(r"id=eq\.([^&]+)", url)
+        if m and m.group(1) != self.ticket_id:
+            return False
+        if "feedbackRating=is.null" in url and self.state.get("feedbackRating") is not None:
+            return False
+        m = re.search(r"status=in\.\(([^)]*)\)", url)
+        if m:
+            allowed = m.group(1).split(",")
+            if self.state.get("status") not in allowed:
+                return False
+        return True
+
+    def json(self):
+        return [self.result_row] if self._matches(self.url) else []
+
+
 class FakeRequests:
     """Intercepta requests.get/post/patch/delete e roteia por substring da URL."""
 
@@ -115,6 +162,8 @@ class FakeRequests:
         self.calls.append({"method": method, "url": url, "kwargs": kwargs})
         for part, response in self._routes.get(method, []):
             if part in url:
+                # Respostas condicionais avaliam os filtros da URL concreta.
+                response.url = url
                 return response
         return self._default
 
@@ -459,6 +508,146 @@ def test_feedback_write_failure_returns_502(client, fake_requests):
 
     assert resp.status_code == 502
     assert "feedback" in (resp.get_json().get("error") or "").lower()
+
+
+# ── P2-A (revisão) — atomicidade do ESTADO na escrita do feedback ──────────
+
+FEEDBACK_ELIGIBLE_FILTER = "status=in.(resolvido,fechado)"
+
+
+def _feedback_pending(status: str = "resolvido") -> dict:
+    return {
+        "id": TICKET_ID,
+        "workspace_id": WS_A,
+        "status": status,
+        "feedbackRating": None,
+        "feedbackComment": "",
+        "feedbackAt": None,
+    }
+
+
+def _feedback_updated(status: str = "resolvido", rating: int = 5) -> dict:
+    row = _ticket_row(status=status)
+    row.update({
+        "feedbackRating": rating,
+        "feedbackComment": "Excelente",
+        "feedbackAt": "2026-01-01T00:00:00Z",
+    })
+    return row
+
+
+def _post_feedback(client, rating=5, comment="Excelente"):
+    return client.post(
+        "/api/public/chamados/segredo-token-x/feedback",
+        json={"rating": rating, "comment": comment},
+        headers={"X-Tracking-Token": TOKEN_A},
+    )
+
+
+def test_feedback_accepted_when_still_resolvido_with_atomic_guards(client, fake_requests):
+    """Chamado continua `resolvido` na escrita: grava e o PATCH carrega AMBAS as
+    guardas atômicas (feedback ainda nulo E estado elegível) na MESMA escrita."""
+    _route_token_lookup(fake_requests, TOKEN_A, tid=TICKET_ID, status="resolvido")
+    _route_ticket_full(fake_requests, _feedback_pending("resolvido"), select="status,feedbackRating")
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        ConditionalTicketPatch(
+            TICKET_ID,
+            {"status": "resolvido", "feedbackRating": None},
+            _feedback_updated("resolvido", 5),
+        ),
+    )
+
+    resp = _post_feedback(client, rating=5)
+
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["ticket"]["feedbackRating"] == 5
+    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
+    assert "feedbackRating=is.null" in patch["url"], "Guarda anti-duplicação presente"
+    assert FEEDBACK_ELIGIBLE_FILTER in patch["url"], (
+        "Guarda atômica de estado deve ir na MESMA escrita do banco"
+    )
+    assert patch["kwargs"]["json"]["feedbackRating"] == 5
+
+
+def test_feedback_accepted_when_still_fechado_with_atomic_guards(client, fake_requests):
+    """Chamado continua `fechado` na escrita: aceito, com as duas guardas."""
+    _route_token_lookup(fake_requests, TOKEN_A, tid=TICKET_ID, status="fechado")
+    _route_ticket_full(fake_requests, _feedback_pending("fechado"), select="status,feedbackRating")
+    fake_requests.route(
+        "PATCH",
+        f"chamados_tickets?id=eq.{TICKET_ID}",
+        ConditionalTicketPatch(
+            TICKET_ID,
+            {"status": "fechado", "feedbackRating": None},
+            _feedback_updated("fechado", 4),
+        ),
+    )
+
+    resp = _post_feedback(client, rating=4)
+
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["ticket"]["feedbackRating"] == 4
+    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
+    assert "feedbackRating=is.null" in patch["url"]
+    assert FEEDBACK_ELIGIBLE_FILTER in patch["url"]
+
+
+def test_feedback_reopened_between_read_and_write_not_persisted_409(client, fake_requests):
+    """Corrida: o chamado é reaberto ENTRE a leitura inicial e a gravação.
+
+    A leitura vê `resolvido`, mas o banco já está `aberto` na escrita. A condição
+    `status=in.(resolvido,fechado)` deixa de casar → 0 linhas → 409, SEM gravar
+    feedback num chamado reaberto. O mock condicional só devolve a linha se os
+    filtros casarem; portanto `[]` comprova que a guarda enviada é a correta.
+    """
+    _route_token_lookup(fake_requests, TOKEN_A, tid=TICKET_ID, status="resolvido")
+    _route_ticket_full(fake_requests, _feedback_pending("resolvido"), select="status,feedbackRating")
+    db = ConditionalTicketPatch(
+        TICKET_ID,
+        {"status": "aberto", "feedbackRating": None},   # reaberto antes do PATCH
+        _feedback_updated("resolvido", 5),
+    )
+    fake_requests.route("PATCH", f"chamados_tickets?id=eq.{TICKET_ID}", db)
+
+    resp = _post_feedback(client, rating=5)
+
+    assert resp.status_code == 409, resp.get_json()
+    assert "avaliado" in (resp.get_json().get("error") or "").lower()
+    patches = fake_requests.calls_for("PATCH", "chamados_tickets")
+    assert len(patches) == 1
+    url = patches[0]["url"]
+    assert "feedbackRating=is.null" in url
+    assert FEEDBACK_ELIGIBLE_FILTER in url, (
+        "O status tem de ser aplicado pelo banco na própria escrita, não só relido"
+    )
+    assert patches[0]["kwargs"]["json"]["feedbackRating"] == 5, "Payload ainda é a tentativa"
+    assert db.json() == [], "Condição não casa com o estado reaberto → 0 linhas"
+
+
+def test_feedback_lost_race_no_rows_updated_never_reports_success(client, fake_requests):
+    """Resposta sem linhas atualizadas NUNCA vira 200.
+
+    Outro request grava a primeira avaliação entre a leitura e a escrita; a
+    condição `feedbackRating=is.null` deixa de casar → 0 linhas → 409.
+    """
+    _route_token_lookup(fake_requests, TOKEN_A, tid=TICKET_ID, status="resolvido")
+    _route_ticket_full(fake_requests, _feedback_pending("resolvido"), select="status,feedbackRating")
+    db = ConditionalTicketPatch(
+        TICKET_ID,
+        {"status": "resolvido", "feedbackRating": 5},   # outra requisição venceu
+        _feedback_updated("resolvido", 5),
+    )
+    fake_requests.route("PATCH", f"chamados_tickets?id=eq.{TICKET_ID}", db)
+
+    resp = _post_feedback(client, rating=1)
+
+    assert resp.status_code == 409, resp.get_json()
+    assert db.json() == []
+    patch = fake_requests.calls_for("PATCH", "chamados_tickets")[0]
+    assert "feedbackRating=is.null" in patch["url"]
+    assert FEEDBACK_ELIGIBLE_FILTER in patch["url"]
 
 
 # ── P2-B — reatribuição atômica ────────────────────────────────────────────

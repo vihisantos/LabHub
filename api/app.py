@@ -3670,6 +3670,11 @@ def public_chamados_feedback(tracking_token):
     - Atômico (issue #371 P2-A): o PATCH é condicional a `feedbackRating=is.null`
       — entre requisições concorrentes, só a PRIMEIRA grava; a perdedora afeta
       0 linhas e responde 409 (nunca sobrescreve a avaliação vencedora).
+    - Atômico quanto ao estado: o MESMO PATCH também é condicional a
+      `status=in.(resolvido,fechado)`. A checagem de status lida acima é só um
+      gate rápido; a condição REAL que impede gravar feedback num chamado
+      reaberto entre a leitura e a escrita é aplicada pelo banco na própria
+      escrita. Se o chamado saiu do estado elegível, 0 linhas → 409.
     - O ticket é derivado do token, nunca do corpo da requisição.
     """
     ticket = g.tracking_ticket
@@ -3702,12 +3707,18 @@ def public_chamados_feedback(tracking_token):
 
     now = datetime.now(timezone.utc).isoformat()
     # PATCH CONDICIONAL (issue #371 P2-A): a gravação só alcança linhas cujo
-    # feedback ainda não foi registrado. Se duas requisições concorrentes
-    # passarem pela verificação de cima, apenas a primeira grava; a perdedora
-    # afeta 0 linhas → 409. Sem isso, o último PATCH venceria (last-write-wins)
-    # e uma nota/comentário poderia sobrescrever silenciosamente a avaliação.
+    # feedback ainda não foi registrado E que CONTINUAM em estado elegível.
+    # Se duas requisições concorrentes passarem pela verificação de cima, apenas
+    # a primeira grava; a perdedora afeta 0 linhas → 409. Além disso, se o
+    # chamado for reaberto (sai de resolvido/fechado) entre a leitura e a
+    # escrita, a condição de status no banco deixa de casar → 0 linhas → 409.
+    # Sem essas condições o último PATCH venceria (last-write-wins) e uma
+    # nota/comentário poderia sobrescrever silenciosamente a avaliação ou ser
+    # gravada num chamado já reaberto. A guarda de status vai na MESMA escrita
+    # (filtro do PostgREST), não numa segunda consulta — não há janela.
     resp = requests.patch(
-        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}&feedbackRating=is.null',
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket["id"])}'
+        f'&feedbackRating=is.null&status=in.(resolvido,fechado)',
         headers={**_supabase_headers(), 'Prefer': 'return=representation'},
         json={
             'feedbackRating': rating,
@@ -3721,8 +3732,11 @@ def public_chamados_feedback(tracking_token):
         return jsonify({'error': 'Erro ao registrar o feedback'}), 502
     rows = resp.json() or []
     if not rows:
-        # Race perdida: outra requisição gravou a primeira avaliação antes.
-        return jsonify({'error': 'Chamado já avaliado'}), 409
+        # Race perdida: outra requisição gravou a primeira avaliação antes OU o
+        # chamado foi reaberto (saiu de resolvido/fechado) entre a leitura e a
+        # escrita. Em ambos os casos a condição atômica deixou de casar e NADA
+        # foi gravado — nunca reportar sucesso sem linhas afetadas.
+        return jsonify({'error': 'Chamado já avaliado ou não está mais disponível para avaliação'}), 409
     return jsonify({'ticket': _project_public_ticket(rows[0])})
 
 
