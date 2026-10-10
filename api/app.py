@@ -1,4 +1,4 @@
-import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools
+import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools, math
 from datetime import datetime, timedelta, timezone, date
 from io import BytesIO
 from urllib.parse import urlparse, parse_qs, quote, urljoin
@@ -3748,13 +3748,36 @@ def public_chamados_events(tracking_token):
 
 
 def _parse_feedback_rating(raw):
-    """Normaliza a nota recebida para 1..5; qualquer outra coisa devolve 0."""
-    if isinstance(raw, float) and raw != int(raw):
+    """Normaliza a nota recebida para 1..5; qualquer outra coisa devolve 0.
+
+    Aceita SOMENTE um inteiro de 1 a 5 — inclusive quando chega como string
+    numérica (`"5"`), comportamento que o fluxo público já tinha. Rejeita:
+      · booleanos: `True`/`False` são subtipo de `int` em Python e, sem a guarda
+        explícita, `True` viraria silenciosamente a nota 1;
+      · frações (`4.5`, `5.0001`); floats inteiros (`5.0`) continuam aceitos,
+        como antes;
+      · `NaN`/`Infinity`/`-Infinity`: `int(nan)` levanta `ValueError` e
+        `int(inf)` levanta `OverflowError` — antes essas exceções escapavam e
+        viravam HTTP 500; agora devolvem 0;
+      · qualquer tipo incompatível (lista, dicionário, `None`, etc.).
+
+    Nunca lança: 0 é sempre transformado em HTTP 400 pelo chamador
+    (`_write_chamado_feedback`), que restringe de novo a `{1,2,3,4,5}`.
+    """
+    if isinstance(raw, bool):
         return 0
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return 0
+    if isinstance(raw, float):
+        if not math.isfinite(raw) or not raw.is_integer():
+            return 0
+        raw = int(raw)
+    if isinstance(raw, int):
+        value = raw
+    else:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError, OverflowError):
+            return 0
+    return value if 1 <= value <= 5 else 0
 
 
 def _write_chamado_feedback(ticket_id, body):
@@ -3795,7 +3818,11 @@ def _write_chamado_feedback(ticket_id, body):
     if full.get('feedbackRating') is not None:
         return None, (jsonify({'error': 'Chamado já avaliado'}), 409)
 
-    body = body or {}
+    # Corpo precisa ser um objeto JSON. Um corpo que não seja dict (lista,
+    # string, número, booleano) não tem `.get` e, sem esta guarda, estouraria
+    # AttributeError → HTTP 500; tratado como sem nota → 400.
+    if not isinstance(body, dict):
+        body = {}
     rating = _parse_feedback_rating(body.get('rating'))
     if rating not in (1, 2, 3, 4, 5):
         return None, (jsonify({'error': 'Nota inválida (1 a 5)'}), 400)

@@ -385,8 +385,48 @@ def test_ja_avaliado_e_409_sem_escrita(client, fake_requests, monkeypatch):
 
 # ── Validação da nota / comentário ───────────────────────────────────────────
 
-@pytest.mark.parametrize("rating", [0, 6, -1, "x", None, 2.5, 5.0001])
+@pytest.mark.parametrize("rating", [1, 2, 3, 4, 5, 5.0, "5"])
+def test_nota_valida_grava(client, fake_requests, monkeypatch, rating):
+    """Notas válidas (1–5) são aceitas; preserva float inteiro e string numérica."""
+    headers = _auth(fake_requests, monkeypatch, _profile(OWNER_A, [WS_A]))
+    _route_owner(fake_requests)
+    _route_status(fake_requests, status="resolvido")
+    _route_patch(fake_requests, FakeResponse([_row(feedbackRating=int(rating))]))
+
+    r = client.post(f"/api/chamados/{TICKET_ID}/feedback",
+                    json={"rating": rating}, headers=headers)
+
+    assert r.status_code == 200, (rating, r.get_json())
+    sent = fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"]
+    assert sent["feedbackRating"] == int(rating)
+
+
+INVALID_RATINGS = [
+    pytest.param(0, id="zero"),
+    pytest.param(6, id="seis"),
+    pytest.param(-1, id="negativo"),
+    pytest.param(10, id="dez"),
+    pytest.param(True, id="bool-true"),
+    pytest.param(False, id="bool-false"),
+    pytest.param(4.5, id="fracionario"),
+    pytest.param(2.5, id="fracionario-2"),
+    pytest.param(5.0001, id="quase-inteiro"),
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(float("inf"), id="infinito"),
+    pytest.param(float("-inf"), id="infinito-negativo"),
+    pytest.param("x", id="string-nao-numerica"),
+    pytest.param("0", id="string-zero"),
+    pytest.param("6", id="string-seis"),
+    pytest.param("4.5", id="string-fracionaria"),
+    pytest.param(None, id="null"),
+    pytest.param([1], id="lista"),
+    pytest.param({"a": 1}, id="objeto"),
+]
+
+
+@pytest.mark.parametrize("rating", INVALID_RATINGS)
 def test_nota_invalida_e_400_sem_escrita(client, fake_requests, monkeypatch, rating):
+    """Toda nota inválida vira 400 — nunca 500 — e NÃO grava nada no banco."""
     headers = _auth(fake_requests, monkeypatch, _profile(OWNER_A, [WS_A]))
     _route_owner(fake_requests)
     _route_status(fake_requests, status="resolvido")
@@ -395,6 +435,50 @@ def test_nota_invalida_e_400_sem_escrita(client, fake_requests, monkeypatch, rat
 
     assert r.status_code == 400, (rating, r.get_json())
     assert not fake_requests.calls_for("PATCH", "chamados_tickets")
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (1, 1),
+        (5, 5),
+        (True, 0),
+        (False, 0),
+        (4.5, 0),
+        (5.0, 5),
+        (float("nan"), 0),
+        (float("inf"), 0),
+        (float("-inf"), 0),
+        (0, 0),
+        (6, 0),
+        ("5", 5),
+        ("4.5", 0),
+        ("x", 0),
+        (None, 0),
+        ([1], 0),
+        ({"a": 1}, 0),
+        # Casos que não chegam como JSON válido: testados no nível da função.
+        (3 + 0j, 0),
+        (10**400, 0),
+    ],
+)
+def test_parse_feedback_rating_direto(api_module, raw, expected):
+    """A função nunca lança e só aceita inteiro 1..5 (NaN/Inf/complex → 0)."""
+    assert api_module._parse_feedback_rating(raw) == expected
+
+
+@pytest.mark.parametrize("body", [[1, 2, 3], "5", 5, True])
+def test_corpo_nao_objeto_e_400_sem_escrita(client, fake_requests, monkeypatch, body):
+    """Corpo JSON que não é objeto não gera 500: vira 400 e não grava."""
+    headers = _auth(fake_requests, monkeypatch, _profile(OWNER_A, [WS_A]))
+    _route_owner(fake_requests)
+    _route_status(fake_requests, status="resolvido")
+
+    r = client.post(f"/api/chamados/{TICKET_ID}/feedback", json=body, headers=headers)
+
+    assert r.status_code == 400, (body, r.get_json())
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
+
 
 
 def test_comentario_truncado_em_500(client, fake_requests, monkeypatch):
