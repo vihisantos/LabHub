@@ -28,6 +28,21 @@ vi.mock('../hooks/usePatrimonioReferences', () => ({
     mockUseReferences(workspaceId, enabled),
 }))
 
+vi.mock('../components/AssetFormModal', () => ({
+  AssetFormModal: ({
+    open,
+    onSaved,
+  }: {
+    open: boolean
+    onSaved: (asset: unknown) => void
+  }) =>
+    open ? (
+      <button type="button" onClick={() => onSaved({ id: 'novo' })}>
+        stub-salvar
+      </button>
+    ) : null,
+}))
+
 import { AssetListPage } from '../pages/AssetListPage'
 import type { PatrimonioAsset } from '../../../core/patrimonio'
 
@@ -204,5 +219,44 @@ describe('AssetListPage', () => {
     })
     const last = mockUseAssetsList.mock.calls.at(-1)?.[0] as { workspaceId: string }
     expect(last.workspaceId).toBe('ws-2')
+  })
+
+  it('autorizado a criar ⇒ mostra o botão "Cadastrar bem"', () => {
+    renderPage()
+    expect(screen.getByRole('button', { name: 'Cadastrar bem' })).toBeInTheDocument()
+  })
+
+  it('sem permissão de criação ⇒ oculta o botão e a ação do estado vazio', () => {
+    mockUseCanAccessAction.mockImplementation((action: string) => ({
+      allowed: action === 'patrimonio.view',
+      loading: false,
+    }))
+    mockUseAssetsList.mockReturnValue({
+      assets: [],
+      loading: false,
+      error: null,
+      hasNext: false,
+      reload: vi.fn(),
+    })
+    renderPage()
+    expect(screen.queryByRole('button', { name: 'Cadastrar bem' })).not.toBeInTheDocument()
+    expect(screen.getByText('Acervo vazio')).toBeInTheDocument()
+  })
+
+  it('cadastro bem-sucedido recarrega a listagem', () => {
+    const reload = vi.fn()
+    mockUseAssetsList.mockReturnValue({
+      assets: [asset()],
+      loading: false,
+      error: null,
+      hasNext: false,
+      reload,
+    })
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cadastrar bem' }))
+    fireEvent.click(screen.getByText('stub-salvar'))
+
+    expect(reload).toHaveBeenCalled()
   })
 })

@@ -26,6 +26,21 @@ vi.mock('../hooks/usePatrimonioReferences', () => ({
     mockUseReferences(workspaceId, enabled),
 }))
 
+vi.mock('../components/AssetFormModal', () => ({
+  AssetFormModal: ({
+    open,
+    onSaved,
+  }: {
+    open: boolean
+    onSaved: (asset: unknown) => void
+  }) =>
+    open ? (
+      <button type="button" onClick={() => onSaved({ id: 'a-1' })}>
+        stub-salvar
+      </button>
+    ) : null,
+}))
+
 import { AssetDetailPage } from '../pages/AssetDetailPage'
 import type { AssetMovement, PatrimonioAsset } from '../../../core/patrimonio'
 
@@ -185,5 +200,30 @@ describe('AssetDetailPage', () => {
     const lastCall = mockUseAssetDetail.mock.calls.at(-1) as [string, string | null, boolean]
     expect(lastCall[0]).toBe('a-1')
     expect(lastCall[1]).toBe('ws-1')
+  })
+
+  it('autorizado a editar ⇒ mostra o botão Editar', () => {
+    renderPage()
+    expect(screen.getByRole('button', { name: 'Editar bem' })).toBeInTheDocument()
+  })
+
+  it('sem permissão de edição ⇒ oculta o botão Editar', () => {
+    mockUseCanAccessAction.mockImplementation((action: string) => ({
+      allowed: action === 'patrimonio.view',
+      loading: false,
+    }))
+    renderPage()
+    expect(screen.queryByRole('button', { name: 'Editar bem' })).not.toBeInTheDocument()
+  })
+
+  it('edição bem-sucedida recarrega o bem', () => {
+    const reloadAsset = vi.fn()
+    mockUseAssetDetail.mockReturnValue({ ...mockUseAssetDetail(), reloadAsset })
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar bem' }))
+    fireEvent.click(screen.getByText('stub-salvar'))
+
+    expect(reloadAsset).toHaveBeenCalled()
   })
 })

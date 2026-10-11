@@ -440,6 +440,38 @@ class BehavioralPatrimonio:
             "violates foreign key",
         )
 
+    def _j_criacao_cross_workspace(self):
+        """PR-4 (097): criar ativo com local/responsável INICIAL de OUTRA
+        unidade é bloqueado — a RLS de INSERT só olha o workspace da própria
+        linha; a guarda 097 fecha a associação cruzada server-side."""
+        f = self.fx
+        loc_b = self.q(
+            "INSERT INTO public.patrimonio_locations (workspace_id, nome) "
+            f"VALUES ('{f.ws_b}', 'Local B criacao') RETURNING id"
+        )[0]["id"]
+        resp_b = self.q(
+            "INSERT INTO public.patrimonio_responsibles (workspace_id, nome) "
+            f"VALUES ('{f.ws_b}', 'Resp B criacao') RETURNING id"
+        )[0]["id"]
+
+        self.expect_error(
+            lambda: self._as(f.p_tec, (
+                "INSERT INTO public.assets (workspace_id, equipment_type, name, location_id, status) "
+                f"VALUES ('{f.ws_a}', 'Monitor', 'Ativo com local B', '{loc_b}', 'disponivel')")),
+            "pertence a outra unidade",
+        )
+        self.expect_error(
+            lambda: self._as(f.p_tec, (
+                "INSERT INTO public.assets (workspace_id, equipment_type, name, responsible_id, status) "
+                f"VALUES ('{f.ws_a}', 'Monitor', 'Ativo com resp B', '{resp_b}', 'disponivel')")),
+            "pertence a outra unidade",
+        )
+
+        # Criação legítima com local/responsável DA PRÓPRIA unidade segue ok
+        # (coberto em _tec_operacoes); aqui apenas garantimos que o estado do
+        # ativo principal não foi corrompido pelos INSERTs rejeitados.
+        n = self.q(f"SELECT count(*) AS n FROM public.assets WHERE workspace_id = '{f.ws_a}'")[0]["n"]
+        assert n >= 1, "ativo legítimo da unidade A deve permanecer existente"
 
     def _superadmin_global(self):
         f = self.fx
@@ -674,6 +706,7 @@ self._tec_operacoes)
         self.check("G7. histórico append-only (sem UPDATE/DELETE)", self._g_append_only)
         self.check("G8. anon não acessa nada", self._g_anon)
         self.check("G9. local em uso não pode ser apagado (RESTRICT)", self._g_local_em_uso)
+        self.check("J. cria\u00e7\u00e3o com local/respons\u00e1vel inicial de outra unidade \u00e9 bloqueada (097)", self._j_criacao_cross_workspace)
         self.check("H. superadmin preserva mecanismo global (lê/escreve, não reescreve histórico)", self._superadmin_global)
         self.check("S. autoria e proveniência não falsificáveis (performed_by/source/import_batch_id)", self._s_autoria_nao_falsificavel)
         self.check("T. exclusão de perfil preserva a autoria histórica (snapshot)", self._t_autoria_sobrevive_exclusao_perfil)

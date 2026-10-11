@@ -1,6 +1,7 @@
 import { activeWorkspaceId, currentUserId, requireDb, toRow, toRows } from './client'
 import { toAsset } from './mappers'
 import { toPatrimonioError, validationError } from './errors'
+import { isAssetStatus } from './types'
 import type {
   AssetCondition,
   AssetStatus,
@@ -15,11 +16,16 @@ import type {
  * Somente campos "frios" são gravados aqui. Os campos de custódia —
  * `location_id`, `responsible_id` e `status` — NÃO são editáveis por este
  * repositório: o schema (094) os bloqueia em UPDATE direto e exige que a
- * mudança passe por `asset_movements` (ver `movements.ts`). A `condition`
+ * mudança passe por `asset_movements` (ver `movements.ts`). A EXCEÇÃO é a
+ * CRIAção, onde o estado inicial de custódia é aceito e vira o movimento
+ * `criacao` (a guarda 097 valida a unidade das referências). A `condition`
  * (estado físico) é fria e editável.
  *
- * Toda leitura/escrita é escopada ao workspace ativo e à RLS
- * (`patrimonio.view` para ler; `patrimonio.asset.create/edit` para escrever).
+ * `create` e `update` EXIGEM o `workspaceId` explícito: a unidade enviada à
+ * camada de dados é sempre a SELECIONADA no momento da operação, sem depender
+ * do timing de sincronização do `workspaceStore` (ver `AssetListOptions.workspaceId`).
+ * Toda leitura/escrita é escopada ao workspace e à RLS (`patrimonio.view` para
+ * ler; `patrimonio.asset.create/edit` para escrever).
  */
 
 /** Tamanho de página padrão. Ver `docs/patrimonio/data-layer.md`. */
@@ -71,9 +77,17 @@ interface AssetPayload {
   serial_number: string | null
   manufacturer: string
   model: string
+  /** Estado inicial de custódia; o histórico `criacao` (094) o registra. */
+  location_id: string | null
+  responsible_id: string | null
+  status: AssetStatus
   condition: AssetCondition | undefined
   notes: string
   metadata: Record<string, unknown>
+}
+
+function normalizeId(value: string | null | undefined): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
 function buildCreatePayload(input: PatrimonioAssetCreateInput): AssetPayload {
@@ -81,6 +95,9 @@ function buildCreatePayload(input: PatrimonioAssetCreateInput): AssetPayload {
   if (!name) throw validationError('O nome do equipamento é obrigatório.')
   const equipmentType = input.equipment_type?.trim()
   if (!equipmentType) throw validationError('O tipo do equipamento é obrigatório.')
+  if (input.status !== undefined && !isAssetStatus(input.status)) {
+    throw validationError('Estado inicial inválido.')
+  }
   return {
     name,
     equipment_type: equipmentType,
@@ -88,6 +105,9 @@ function buildCreatePayload(input: PatrimonioAssetCreateInput): AssetPayload {
     serial_number: input.serial_number?.trim() || null,
     manufacturer: input.manufacturer?.trim() ?? '',
     model: input.model?.trim() ?? '',
+    location_id: normalizeId(input.location_id),
+    responsible_id: normalizeId(input.responsible_id),
+    status: input.status ?? 'draft',
     condition: input.condition,
     notes: input.notes?.trim() ?? '',
     metadata: input.metadata ?? {},
@@ -166,9 +186,9 @@ export const assetsRepository = {
     return toAsset(toRow(data))
   },
 
-  async create(input: PatrimonioAssetCreateInput): Promise<PatrimonioAsset> {
+  async create(input: PatrimonioAssetCreateInput, workspaceId: string): Promise<PatrimonioAsset> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = workspaceId
     const payload = buildCreatePayload(input)
     const { data, error } = await db
       .from('assets')
@@ -183,9 +203,13 @@ export const assetsRepository = {
     return toAsset(toRow(data))
   },
 
-  async update(id: string, input: PatrimonioAssetUpdateInput): Promise<PatrimonioAsset> {
+  async update(
+    id: string,
+    input: PatrimonioAssetUpdateInput,
+    workspaceId: string,
+  ): Promise<PatrimonioAsset> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = workspaceId
     if (!id) throw validationError('Ativo inválido.')
     const payload = buildUpdatePayload(input)
     const { data, error } = await db
