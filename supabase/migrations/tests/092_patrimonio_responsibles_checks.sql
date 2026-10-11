@@ -26,16 +26,21 @@ BEGIN
         RAISE EXCEPTION 'FAIL: uniques parciais (profile_id/matricula) ausentes (encontradas %/2)', v_count;
     END IF;
 
-    -- profile_id é OPCIONAL (responsável sem conta) e aponta para profiles
-    SELECT COUNT(*) INTO v_count FROM pg_constraint
+    -- FK de profile_id: única FK com ON DELETE SET NULL na tabela (auto-diagnóstico)
+    SELECT count(*) INTO v_count
+    FROM pg_constraint
     WHERE conrelid = 'public.patrimonio_responsibles'::regclass
-      AND conname LIKE '%profile_id%fkey' AND confdeltype = 's';
+      AND contype = 'f' AND confdeltype = 's'
+      AND pg_get_constraintdef(oid) LIKE '%profiles%';
     IF v_count <> 1 THEN
-        RAISE EXCEPTION 'FAIL: FK de profile_id ausente ou ON DELETE incorreto';
+        SELECT string_agg(conname || '=' || confdeltype, ', ') INTO v_text
+        FROM pg_constraint
+        WHERE conrelid = 'public.patrimonio_responsibles'::regclass AND contype = 'f';
+        RAISE EXCEPTION 'FAIL: FK de profile_id ausente ou ON DELETE incorreto (fks: %)', coalesce(v_text, '-');
     END IF;
 
     -- Gates de Action
-    SELECT pg_get_expr(qual, 0) INTO v_text FROM pg_policies
+    SELECT qual INTO v_text FROM pg_policies
     WHERE schemaname='public' AND tablename='patrimonio_responsibles' AND policyname='patrimonio_responsibles_select';
     IF v_text IS NULL OR position('patrimonio.view' in v_text) = 0 THEN
         RAISE EXCEPTION 'FAIL: select policy sem gate patrimonio.view';
@@ -43,7 +48,7 @@ BEGIN
     SELECT count(*) INTO v_count FROM pg_policies
     WHERE schemaname='public' AND tablename='patrimonio_responsibles'
       AND policyname IN ('patrimonio_responsibles_insert','patrimonio_responsibles_update','patrimonio_responsibles_delete')
-      AND coalesce(pg_get_expr(with_check, 0), pg_get_expr(qual, 0)) LIKE '%patrimonio.responsibles.manage%';
+      AND coalesce(with_check, qual) LIKE '%patrimonio.responsibles.manage%';
     IF v_count <> 3 THEN
         RAISE EXCEPTION 'FAIL: policies de escrita sem gate responsibles.manage (encontradas %/3)', v_count;
     END IF;

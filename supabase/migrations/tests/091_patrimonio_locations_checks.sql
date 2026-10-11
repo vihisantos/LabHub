@@ -34,7 +34,7 @@ BEGIN
     END IF;
 
     -- 4. Policies: SELECT com patrimonio.view; INSERT/UPDATE/DELETE com locations.manage
-    SELECT pg_get_expr(qual, 0) INTO v_text FROM pg_policies
+    SELECT qual INTO v_text FROM pg_policies
     WHERE schemaname='public' AND tablename='patrimonio_locations' AND policyname='patrimonio_locations_select';
     IF v_text IS NULL OR position('patrimonio.view' in v_text) = 0 THEN
         RAISE EXCEPTION 'FAIL: select policy sem gate patrimonio.view';
@@ -42,7 +42,7 @@ BEGIN
     SELECT count(*) INTO v_count FROM pg_policies
     WHERE schemaname='public' AND tablename='patrimonio_locations'
       AND policyname IN ('patrimonio_locations_insert','patrimonio_locations_update','patrimonio_locations_delete')
-      AND coalesce(pg_get_expr(with_check, 0), pg_get_expr(qual, 0)) LIKE '%patrimonio.locations.manage%';
+      AND coalesce(with_check, qual) LIKE '%patrimonio.locations.manage%';
     IF v_count <> 3 THEN
         RAISE EXCEPTION 'FAIL: policies de escrita sem gate locations.manage (encontradas %/3)', v_count;
     END IF;

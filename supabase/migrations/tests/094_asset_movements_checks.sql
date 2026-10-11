@@ -31,12 +31,12 @@ BEGIN
     END IF;
 
     -- 3. Gates: SELECT=patrimonio.view; INSERT=patrimonio.asset.move
-    SELECT pg_get_expr(qual, 0) INTO v_text FROM pg_policies
+    SELECT qual INTO v_text FROM pg_policies
     WHERE schemaname='public' AND tablename='asset_movements' AND policyname='asset_movements_select';
     IF v_text NOT LIKE '%patrimonio.view%' THEN
         RAISE EXCEPTION 'FAIL: select de movimentos sem gate patrimonio.view';
     END IF;
-    SELECT pg_get_expr(with_check, 0) INTO v_text FROM pg_policies
+    SELECT with_check INTO v_text FROM pg_policies
     WHERE schemaname='public' AND tablename='asset_movements' AND policyname='asset_movements_insert';
     IF v_text NOT LIKE '%patrimonio.asset.move%' THEN
         RAISE EXCEPTION 'FAIL: insert de movimentos sem gate patrimonio.asset.move';

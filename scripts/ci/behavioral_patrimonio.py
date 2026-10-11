@@ -87,16 +87,16 @@ class BehavioralPatrimonio:
     def _as(self, profile_id: str, sql: str):
         """Executa `sql` como uma sessão autenticada do perfil informado.
 
-        Uma ÚNICA chamada ao executor: a conexão é nova por chamada
-        (autocommit), então role + claims vivem e morrem dentro do script.
+        Cada `query()` abre conexão NOVA (autocommit): `SET ROLE` e
+        `set_config` vivem só dentro desta chamada e morrem com a conexão —
+        não há vazamento de identidade entre checks. O ÚLTIMO statement é o
+        do chamador, então é o resultset devolvido.
         """
         claims = json.dumps({"sub": profile_id}).replace("'", "''")
         return self.q(
             f"SELECT set_config('request.jwt.claims', '{claims}', false); "
             f"SET ROLE authenticated; "
-            f"{sql} "
-            f"RESET ROLE; "
-            f"SELECT set_config('request.jwt.claims', '', false);"
+            f"{sql};"
         )
 
     # -- fixtures ---------------------------------------------------------------
@@ -157,27 +157,32 @@ class BehavioralPatrimonio:
     def _tec_operacoes(self):
         f = self.fx
 
+        # ids gerados no cliente (evita depender de RETURNING através da
+        # sessão simulada); INSERT explícito é permitido (PK uuid)
+        f.loc_a = self.uid()
+        f.resp_a = self.uid()
+        f.asset_a = self.uid()
+
         # local + responsável institucional (sem conta)
-        f.loc_a = self._as(f.p_tec, (
-            "INSERT INTO public.patrimonio_locations (workspace_id, predio, andar, nome, complemento) "
-            f"VALUES ('{f.ws_a}', 'Bloco Industrial', 'Terreo', 'Lab de Redes', 'rack B-12') RETURNING id"
-        ))[0]["id"]
-        f.resp_a = self._as(f.p_tec, (
-            "INSERT INTO public.patrimonio_responsibles (workspace_id, nome, matricula, email) "
-            f"VALUES ('{f.ws_a}', 'Maria Institucional', 'MAT-001', 'maria.inst@test.invalid') RETURNING id"
-        ))[0]["id"]
+        self._as(f.p_tec, (
+            f"INSERT INTO public.patrimonio_locations (id, workspace_id, predio, andar, nome, complemento) "
+            f"VALUES ('{f.loc_a}', '{f.ws_a}', 'Bloco Industrial', 'Terreo', 'Lab de Redes', 'rack B-12')"
+        ))
+        self._as(f.p_tec, (
+            f"INSERT INTO public.patrimonio_responsibles (id, workspace_id, nome, matricula, email) "
+            f"VALUES ('{f.resp_a}', '{f.ws_a}', 'Maria Institucional', 'MAT-001', 'maria.inst@test.invalid')"
+        ))
 
         # ativo: INSERT gera histórico `criacao` automaticamente
-        f.asset_a = self._as(f.p_tec, (
-            "INSERT INTO public.assets (workspace_id, asset_tag, serial_number, equipment_type, "
-            "name, location_id, responsible_id, status, condition, metadata) "
-            f"VALUES ('{f.ws_a}', 'PAT-0001', 'SN-XYZ', 'Notebook', 'Notebook CI', "
-            f"'{f.loc_a}', '{f.resp_a}', 'disponivel', 'novo', "
-            "'{}'::jsonb) RETURNING id"
-        ))[0]["id"]
+        self._as(f.p_tec, (
+            f"INSERT INTO public.assets (id, workspace_id, asset_tag, serial_number, equipment_type, "
+            f"name, location_id, responsible_id, status, condition, metadata) "
+            f"VALUES ('{f.asset_a}', '{f.ws_a}', 'PAT-0001', 'SN-XYZ', 'Notebook', 'Notebook CI', "
+            f"'{f.loc_a}', '{f.resp_a}', 'disponivel', 'novo', '{{}}'::jsonb)"
+        ))
         criacao = self.q(
-            f"SELECT type, to_location_id, to_responsible_id, to_status FROM public.asset_movements "
-            f"WHERE asset_id = '{f.asset_a}' AND type = 'criacao'"
+            f"SELECT type, to_location_id, to_responsible_id, to_status, to_responsible_nome "
+            f"FROM public.asset_movements WHERE asset_id = '{f.asset_a}' AND type = 'criacao'"
         )
         assert len(criacao) == 1, "INSERT em assets deve gerar movimento criacao automaticamente"
         assert criacao[0]["to_status"] == "disponivel"
@@ -344,7 +349,7 @@ class BehavioralPatrimonio:
         )
         # anon sem nada
         self.expect_error(
-            lambda: self.q("SET ROLE anon; SELECT id FROM public.assets LIMIT 1; RESET ROLE"),
+            lambda: self.q("SET ROLE anon; SELECT id FROM public.assets LIMIT 1; RESET ROLE;"),
             "permission denied",
         )
         # local em uso não pode ser apagado (RESTRICT fecha bypass via FK)
