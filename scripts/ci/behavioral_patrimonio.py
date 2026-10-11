@@ -440,6 +440,38 @@ class BehavioralPatrimonio:
             "violates foreign key",
         )
 
+    def _j_criacao_cross_workspace(self):
+        """PR-4 (097): criar ativo com local/responsável INICIAL de OUTRA
+        unidade é bloqueado — a RLS de INSERT só olha o workspace da própria
+        linha; a guarda 097 fecha a associação cruzada server-side."""
+        f = self.fx
+        loc_b = self.q(
+            "INSERT INTO public.patrimonio_locations (workspace_id, nome) "
+            f"VALUES ('{f.ws_b}', 'Local B criacao') RETURNING id"
+        )[0]["id"]
+        resp_b = self.q(
+            "INSERT INTO public.patrimonio_responsibles (workspace_id, nome) "
+            f"VALUES ('{f.ws_b}', 'Resp B criacao') RETURNING id"
+        )[0]["id"]
+
+        self.expect_error(
+            lambda: self._as(f.p_tec, (
+                "INSERT INTO public.assets (workspace_id, equipment_type, name, location_id, status) "
+                f"VALUES ('{f.ws_a}', 'Monitor', 'Ativo com local B', '{loc_b}', 'disponivel')")),
+            "pertence a outra unidade",
+        )
+        self.expect_error(
+            lambda: self._as(f.p_tec, (
+                "INSERT INTO public.assets (workspace_id, equipment_type, name, responsible_id, status) "
+                f"VALUES ('{f.ws_a}', 'Monitor', 'Ativo com resp B', '{resp_b}', 'disponivel')")),
+            "pertence a outra unidade",
+        )
+
+        # Criação legítima com local/responsável DA PRÓPRIA unidade segue ok
+        # (coberto em _tec_operacoes); aqui apenas garantimos que o estado do
+        # ativo principal não foi corrompido pelos INSERTs rejeitados.
+        n = self.q(f"SELECT count(*) AS n FROM public.assets WHERE workspace_id = '{f.ws_a}'")[0]["n"]
+        assert n >= 1, "ativo legítimo da unidade A deve permanecer existente"
 
     def _superadmin_global(self):
         f = self.fx
@@ -602,6 +634,52 @@ class BehavioralPatrimonio:
             "AUTORIA APAGADA: o snapshot do nome do autor deve sobreviver à exclusão do perfil"
         )
 
+    def _i_grants_plataforma_normalizados(self):
+        """Reproduz o desvio real: o Supabase concede arwdDxtm (incl. TRUNCATE)
+        a authenticated em TODO objeto novo do schema public via
+        pg_default_acl — o CI (PostgreSQL puro) NÃO reproduz isso, então este
+        check SIMULA os grants excessivos e prova que o SQL da 096 os remove
+        preservando SELECT/INSERT de asset_movements e o DML autorizado das
+        outras tabelas (gated por RLS)."""
+        f = self.fx
+        # 1. excesso simulado (mesma ACL arwdDxtm recortada dos default privileges)
+        self.q(
+            "GRANT UPDATE, DELETE, TRUNCATE ON public.asset_movements TO authenticated; "
+            "GRANT TRUNCATE ON public.assets, public.patrimonio_locations, "
+            "public.patrimonio_responsibles TO authenticated;"
+        )
+        assert self.q(
+            "SELECT has_table_privilege('authenticated', 'public.asset_movements', 'TRUNCATE') AS t"
+        )[0]["t"] is True, "simulação do default privilege falhou"
+
+        # 2. re-aplicação do SQL da 096 (idempotente: REVOKE de privilégio não
+        #    concedido é no-op)
+        self.q(
+            "REVOKE UPDATE, DELETE, TRUNCATE ON public.asset_movements FROM authenticated; "
+            "REVOKE TRUNCATE ON public.assets FROM authenticated; "
+            "REVOKE TRUNCATE ON public.patrimonio_locations FROM authenticated; "
+            "REVOKE TRUNCATE ON public.patrimonio_responsibles FROM authenticated;"
+        )
+
+        # 3. estado final: sem excesso, sem perda do que é autorizado
+        self._as_assert(f.p_tec, (
+            "IF has_table_privilege('authenticated', 'public.asset_movements', 'UPDATE') OR "
+               "has_table_privilege('authenticated', 'public.asset_movements', 'DELETE') OR "
+               "has_table_privilege('authenticated', 'public.asset_movements', 'TRUNCATE') THEN "
+            "RAISE EXCEPTION 'asset_movements com escrita além de SELECT/INSERT após a 096'; END IF; "
+            "IF NOT has_table_privilege('authenticated', 'public.asset_movements', 'SELECT') OR "
+               "NOT has_table_privilege('authenticated', 'public.asset_movements', 'INSERT') THEN "
+            "RAISE EXCEPTION 'asset_movements perdeu SELECT/INSERT na 096'; END IF; "
+            "IF has_table_privilege('authenticated', 'public.assets', 'TRUNCATE') OR "
+               "has_table_privilege('authenticated', 'public.patrimonio_locations', 'TRUNCATE') OR "
+               "has_table_privilege('authenticated', 'public.patrimonio_responsibles', 'TRUNCATE') THEN "
+            "RAISE EXCEPTION 'TRUNCATE sobreviveu à 096'; END IF; "
+            "IF NOT has_table_privilege('authenticated', 'public.assets', 'UPDATE') OR "
+               "NOT has_table_privilege('authenticated', 'public.patrimonio_locations', 'UPDATE') OR "
+               "NOT has_table_privilege('authenticated', 'public.patrimonio_responsibles', 'UPDATE') THEN "
+            "RAISE EXCEPTION '096 removeu UPDATE autorizado das tabelas com DML'; END IF;"
+        ))
+
     # -- run principal -----------------------------------------------------------
     def run(self) -> bool:
         self._seed()
@@ -628,9 +706,11 @@ self._tec_operacoes)
         self.check("G7. histórico append-only (sem UPDATE/DELETE)", self._g_append_only)
         self.check("G8. anon não acessa nada", self._g_anon)
         self.check("G9. local em uso não pode ser apagado (RESTRICT)", self._g_local_em_uso)
+        self.check("J. cria\u00e7\u00e3o com local/respons\u00e1vel inicial de outra unidade \u00e9 bloqueada (097)", self._j_criacao_cross_workspace)
         self.check("H. superadmin preserva mecanismo global (lê/escreve, não reescreve histórico)", self._superadmin_global)
         self.check("S. autoria e proveniência não falsificáveis (performed_by/source/import_batch_id)", self._s_autoria_nao_falsificavel)
         self.check("T. exclusão de perfil preserva a autoria histórica (snapshot)", self._t_autoria_sobrevive_exclusao_perfil)
+        self.check("I. default privileges de plataforma simulados e normalizados pela 096", self._i_grants_plataforma_normalizados)
 
         passed = len([r for r in self.results if r[1]])
         total = len(self.results)

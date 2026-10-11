@@ -99,11 +99,15 @@ Comportamentos relevantes:
 
 ## Padrões de acesso a dados
 
-### Padrão 1 — Supabase direto (ativos globais)
+### Padrão 1 — Supabase direto (Patrimônio)
 
 ```text
-Componente → useAssets() → global-repository.ts → Supabase (RLS)
+Componente → src/core/patrimonio/ → Supabase (RLS)
 ```
+
+> O protótipo `global-repository.ts` citado em versões antigas deste documento
+> foi removido no PR-2 (#289). Ver
+> [`docs/patrimonio/data-layer.md`](../../patrimonio/data-layer.md).
 
 ### Padrão 2 — Engine de sync (PC Care, Estoque)
 

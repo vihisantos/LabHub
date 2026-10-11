@@ -146,7 +146,7 @@ describe('a matriz RBAC2 é a fonte de verdade (fonte legada removida no F2-D-N2
   // matriz legada removida, este é o teste que trava contra alguém "melhorar" a
   // política sem querer.
   const ESPERADO: Record<string, Partial<Record<ModuleId, ModuleLevel>>> = {
-    tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', tv: 'full', chamados: 'full' },
+    tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', tv: 'full', chamados: 'full', patrimonio: 'full' },
     vis: { 'pc-care': 'read', stock: 'read', reservalab: 'read', tv: 'read', chamados: 'read' },
     lider: { 'pc-care': 'read', stock: 'read', chamados: 'full' },
     coordinator: {
@@ -155,6 +155,7 @@ describe('a matriz RBAC2 é a fonte de verdade (fonte legada removida no F2-D-N2
       reservalab: 'read',
       tv: 'read',
       chamados: 'read',
+      patrimonio: 'read',
     },
   }
 

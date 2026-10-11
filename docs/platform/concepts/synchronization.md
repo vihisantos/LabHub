@@ -22,7 +22,12 @@ As coleções se dividem em duas categorias.
 |---------|--------|
 | `pcs`, `parts`, `part_usage`, `maintenance`, `checklist_templates`, `pc_checklists`, `action_logs` | `pcare` |
 | `stock_items`, `stock_movements`, `stock_kits`, `stock_maintenance`, `inventory_cycles`, `inventory_counts`, `notifications` | `stock` |
-| `workspaces`, `global_assets` | `public` |
+| `workspaces` | `public` |
+
+> **Patrimônio (`public.assets`)** NÃO é uma coleção do motor local-first. É
+> snake_case e append-only (via `asset_movements`); a camada de dados fala
+> direto com o Supabase (RLS) em `src/core/patrimonio/`. Ver
+> [`docs/patrimonio/data-layer.md`](../../patrimonio/data-layer.md).
 
 **Somente locais** (sem tabela remota):
 
