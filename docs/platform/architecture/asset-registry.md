@@ -2,6 +2,13 @@
 
 > Entidade global de ativos de TI, independente do PC Care e do Estoque. Criada na migration 024.
 
+> ⚠️ **Documento histórico.** A descrição abaixo reflete o protótipo legado
+> (`global-repository.ts` / coleção `global_assets` no IndexedDB), **removido no
+> PR-2 (#289)**. O acesso atual a `public.assets` é feito por
+> `src/core/patrimonio/`, com schema real das migrations 091–096 (custódia via
+> `asset_movements`, fora do motor de sync). Ver
+> [`docs/patrimonio/data-layer.md`](../../patrimonio/data-layer.md).
+
 O Registro Global de Ativos é uma capacidade da plataforma, não uma aplicação independente: ele fornece a visão unificada de bens físicos consumida pelas aplicações. O conceito está descrito em [Conceitos: Ativos](../concepts/assets.md).
 
 ---

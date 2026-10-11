@@ -34,14 +34,16 @@ As coleções coexistem: são coleções, tipos e schemas distintos.
 ```text
 Usuário cria ou atualiza um ativo
     ↓
-Repositório global (core/assets/global-repository.ts)
+src/core/patrimonio/ (Supabase direto, RLS)
     ↓
-IndexedDB (cache local)
+public.assets / patrimonio_locations / patrimonio_responsibles / asset_movements
     ↓
-Supabase (public.assets)
-    ↓
-Filtro por RLS com base no workspace_id
+Filtro por RLS (patrimonio.view / asset.create / asset.edit / asset.move)
 ```
+
+> Atualizado no PR-2 (#289): o caminho antigo via `core/assets/global-repository.ts`
+> + IndexedDB foi removido; a custódia muda por `asset_movements`. Ver
+> [`docs/patrimonio/data-layer.md`](../../patrimonio/data-layer.md).
 
 ## Segurança
 

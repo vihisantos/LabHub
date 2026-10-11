@@ -6,6 +6,12 @@
 > DEV/PROD (ver §3.7). Nenhum arquivo, banco, configuração ou ambiente foi alterado para
 > produzir este relatório — exceto a criação deste próprio arquivo, explicitamente autorizada.
 
+> **Resolução (PR-2, #289):** o protótipo morto apontado aqui (`global-repository.ts`,
+> `global-types.ts`, coleção `global_assets` no sync) foi **removido**. A camada de dados
+> do Patrimônio está em `src/core/patrimonio/` (schema real 091–096, custódia via
+> `asset_movements`, fora do motor de sync). Ver
+> [`data-layer.md`](./data-layer.md). Este documento permanece como registro da auditoria.
+
 ---
 
 ## 1. Resumo executivo

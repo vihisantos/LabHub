@@ -243,6 +243,26 @@ describe('syncAll / syncSingle com coleções locais (sem rede)', () => {
   })
 })
 
+describe('global_assets não é coleção remota (Patrimônio fora do motor local-first)', () => {
+  // Regressão PR-2 (#289): `public.assets` é snake_case e append-only
+  // (asset_movements). O mapeamento especulativo `global_assets → assets` foi
+  // removido. O Patrimônio fala direto com o Supabase via src/core/patrimonio/.
+  it('remove em global_assets NÃO registra tombstone (deixou de ser remota)', () => {
+    const service = createSyncService<{ id: string; name: string }>('global_assets')
+    const created = service.create({ name: 'legado' })
+    expect(service.remove(created.id)).toBe(true)
+    const tombstones = JSON.parse(localStorage.getItem('labhub_deleted_ids') || '{}')
+    expect(tombstones['global_assets']).toBeUndefined()
+  })
+
+  it('syncSingle global_assets não tenta rede (tratado como coleção local)', async () => {
+    vi.useRealTimers()
+    markDirty('global_assets')
+    await expect(syncSingle('global_assets')).resolves.toBeUndefined()
+    expect(getDirtyCollections()).not.toContain('global_assets')
+  })
+})
+
 describe('Storage hardening — saveDirtySet / saveDeletedMap', () => {
   it('markDirty não lança quando localStorage.setItem lança SecurityError', () => {
     const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
