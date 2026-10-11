@@ -48,7 +48,7 @@ export const appRegistry: AppModule[] = [
   {
     id: 'stock',
     name: 'Estoque',
-    description: 'Controle de estoque, movimentações e conferência de kits',
+    description: 'Controle de estoque, equipamentos, movimentações e conferência de kits',
     icon: icons.ui.package,
     route: '/stock',
     color: '#10b981',
@@ -80,14 +80,6 @@ export const appRegistry: AppModule[] = [
     icon: icons.ui.alertCircle,
     route: '/chamados',
     color: '#f59e0b',
-  },
-  {
-    id: 'patrimonio',
-    name: 'Patrimônio',
-    description: 'Inventário de equipamentos de TI, localização e responsáveis',
-    icon: icons.ui.hardDrive,
-    route: '/patrimonio',
-    color: '#0ea5e9',
   },
   {
     id: 'admin',

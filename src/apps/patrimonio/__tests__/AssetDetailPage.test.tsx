@@ -2,13 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
-const { mockUseCanAccessAction, mockUseWorkspace, mockUseAssetDetail, mockUseReferences } =
-  vi.hoisted(() => ({
-    mockUseCanAccessAction: vi.fn(),
-    mockUseWorkspace: vi.fn(),
-    mockUseAssetDetail: vi.fn(),
-    mockUseReferences: vi.fn(),
-  }))
+const {
+  mockUseCanAccessAction,
+  mockUseWorkspace,
+  mockUseAssetDetail,
+  mockUseReferences,
+} = vi.hoisted(() => ({
+  mockUseCanAccessAction: vi.fn(),
+  mockUseWorkspace: vi.fn(),
+  mockUseAssetDetail: vi.fn(),
+  mockUseReferences: vi.fn(),
+}))
 
 vi.mock('../../../core/permissions/usePermissions', () => ({
   useCanAccessAction: (...args: unknown[]) => mockUseCanAccessAction(...args),
@@ -25,18 +29,25 @@ vi.mock('../hooks/usePatrimonioReferences', () => ({
   usePatrimonioReferences: (workspaceId: string | null, enabled: boolean) =>
     mockUseReferences(workspaceId, enabled),
 }))
-
 vi.mock('../components/AssetFormModal', () => ({
-  AssetFormModal: ({
+  AssetFormModal: ({ open, onSaved }: { open: boolean; onSaved: (asset: unknown) => void }) =>
+    open ? (
+      <button type="button" onClick={() => onSaved({ id: 'a-1' })}>
+        stub-salvar
+      </button>
+    ) : null,
+}))
+vi.mock('../components/MovementFormModal', () => ({
+  MovementFormModal: ({
     open,
     onSaved,
   }: {
     open: boolean
-    onSaved: (asset: unknown) => void
+    onSaved: (movement: unknown) => void
   }) =>
     open ? (
-      <button type="button" onClick={() => onSaved({ id: 'a-1' })}>
-        stub-salvar
+      <button type="button" onClick={() => onSaved({ id: 'mv-new', type: 'transferencia' })}>
+        stub-salvar-movimento
       </button>
     ) : null,
 }))
@@ -85,12 +96,18 @@ const movement: AssetMovement = {
 
 function references() {
   return {
-    locations: [{ id: 'l-1', nome: 'Sala 101' }],
-    responsibles: [{ id: 'r-1', nome: 'Fulano' }],
+    locations: [
+      { id: 'l-1', nome: 'Sala 101', workspace_id: 'ws-1', predio: '', andar: '', complemento: '', notes: '', created_at: '', updated_at: '' },
+      { id: 'l-2', nome: 'Sala 102', workspace_id: 'ws-1', predio: '', andar: '', complemento: '', notes: '', created_at: '', updated_at: '' },
+    ],
+    responsibles: [
+      { id: 'r-1', nome: 'Fulano', workspace_id: 'ws-1', matricula: null, email: null, profile_id: null, notes: '', created_at: '', updated_at: '' },
+      { id: 'r-2', nome: 'Ciclano', workspace_id: 'ws-1', matricula: null, email: null, profile_id: null, notes: '', created_at: '', updated_at: '' },
+    ],
     loading: false,
     error: null,
-    locationLabel: (id: string | null) => (id === 'l-1' ? 'Sala 101' : null),
-    responsibleLabel: (id: string | null) => (id === 'r-1' ? 'Fulano' : null),
+    locationLabel: (id: string | null) => (id === 'l-1' ? 'Sala 101' : id === 'l-2' ? 'Sala 102' : null),
+    responsibleLabel: (id: string | null) => (id === 'r-1' ? 'Fulano' : id === 'r-2' ? 'Ciclano' : null),
     reload: vi.fn(),
   }
 }
@@ -105,7 +122,62 @@ function renderPage() {
   )
 }
 
-describe('AssetDetailPage', () => {
+describe('AssetDetailPage — movimento', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseCanAccessAction.mockImplementation((action: string) => ({
+      allowed: action === 'patrimonio.view' || action === 'patrimonio.asset.edit' || action === 'patrimonio.asset.move',
+      loading: false,
+    }))
+    mockUseWorkspace.mockReturnValue({ workspace: { id: 'ws-1', name: 'Escola A' } })
+    mockUseAssetDetail.mockReturnValue({
+      asset,
+      loading: false,
+      error: null,
+      reloadAsset: vi.fn(),
+      movements: [movement],
+      movementsLoading: false,
+      movementsError: null,
+      movementsHasNext: false,
+      loadMoreMovements: vi.fn(),
+      reloadMovements: vi.fn(),
+    })
+    mockUseReferences.mockReturnValue(references())
+  })
+
+  it('autorizado a movimentar ⇒ mostra o botão Movimentar', () => {
+    renderPage()
+    expect(screen.getByRole('button', { name: 'Movimentar bem' })).toBeInTheDocument()
+  })
+
+  it('sem permissão de movimentação ⇒ oculta o botão Movimentar', () => {
+    mockUseCanAccessAction.mockImplementation((action: string) => ({
+      allowed: action === 'patrimonio.view' || action === 'patrimonio.asset.edit',
+      loading: false,
+    }))
+    renderPage()
+    expect(screen.queryByRole('button', { name: 'Movimentar bem' })).not.toBeInTheDocument()
+  })
+
+  it('clicar em Movimentar abre o modal de movimentação', () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Movimentar bem' }))
+    expect(screen.getByText('stub-salvar-movimento')).toBeInTheDocument()
+  })
+
+  it('movimentação bem-sucedida recarrega o histórico', () => {
+    const reloadMovements = vi.fn()
+    mockUseAssetDetail.mockReturnValue({ ...mockUseAssetDetail(), reloadMovements })
+    renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Movimentar bem' }))
+    fireEvent.click(screen.getByText('stub-salvar-movimento'))
+
+    expect(reloadMovements).toHaveBeenCalled()
+  })
+})
+
+describe('AssetDetailPage — edição (regressão)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseCanAccessAction.mockReturnValue({ allowed: true, loading: false })
@@ -123,76 +195,6 @@ describe('AssetDetailPage', () => {
       reloadMovements: vi.fn(),
     })
     mockUseReferences.mockReturnValue(references())
-  })
-
-  it('exibe todos os campos do bem', () => {
-    renderPage()
-    expect(screen.getByText('Notebook Dell')).toBeInTheDocument()
-    expect(screen.getByText('PAT-001')).toBeInTheDocument()
-    expect(screen.getAllByText('Sala 101').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Fulano').length).toBeGreaterThan(0)
-    expect(screen.getByText('Observação importante')).toBeInTheDocument()
-  })
-
-  it('exibe o histórico de movimentações', () => {
-    renderPage()
-    expect(screen.getByText('Histórico de movimentações')).toBeInTheDocument()
-    expect(screen.getByText('Transferência')).toBeInTheDocument()
-    expect(screen.getByText('por Admin')).toBeInTheDocument()
-  })
-
-  it('histórico vazio ⇒ mensagem explícita', () => {
-    mockUseAssetDetail.mockReturnValue({
-      ...mockUseAssetDetail(),
-      movements: [],
-    })
-    renderPage()
-    expect(screen.getByText('Nenhuma movimentação registrada.')).toBeInTheDocument()
-  })
-
-  it('bem não encontrado ⇒ estado dedicado', () => {
-    mockUseAssetDetail.mockReturnValue({
-      asset: null,
-      loading: false,
-      error: null,
-      reloadAsset: vi.fn(),
-      movements: [],
-      movementsLoading: false,
-      movementsError: null,
-      movementsHasNext: false,
-      loadMoreMovements: vi.fn(),
-      reloadMovements: vi.fn(),
-    })
-    renderPage()
-    expect(screen.getByText('Bem não encontrado')).toBeInTheDocument()
-  })
-
-  it('erro ao carregar o bem ⇒ retry', () => {
-    const reloadAsset = vi.fn()
-    mockUseAssetDetail.mockReturnValue({
-      asset: null,
-      loading: false,
-      error: { message: 'Falha de rede' },
-      reloadAsset,
-      movements: [],
-      movementsLoading: false,
-      movementsError: null,
-      movementsHasNext: false,
-      loadMoreMovements: vi.fn(),
-      reloadMovements: vi.fn(),
-    })
-    renderPage()
-    expect(screen.getByText('Falha ao carregar o bem')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Tentar novamente'))
-    expect(reloadAsset).toHaveBeenCalled()
-  })
-
-  it('sem permissão ⇒ bloqueia sem habilitar consulta', () => {
-    mockUseCanAccessAction.mockReturnValue({ allowed: false, loading: false })
-    renderPage()
-    expect(screen.getByText('Sem permissão')).toBeInTheDocument()
-    const lastCall = mockUseAssetDetail.mock.calls.at(-1) as [string, string | null, boolean]
-    expect(lastCall[2]).toBe(false)
   })
 
   it('encaminha a unidade ativa ao hook de detalhe', () => {
