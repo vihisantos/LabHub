@@ -22,6 +22,7 @@ const StockApp = lazy(() => import('./apps/stock').then(m => ({ default: m.Stock
 const ReservaLabApp = lazy(() => import('./apps/reservalab').then(m => ({ default: m.ReservaLabApp })))
 const TvApp = lazy(() => import('./apps/tv').then(m => ({ default: m.TvApp })))
 const ChamadosApp = lazy(() => import('./apps/chamados').then(m => ({ default: m.ChamadosApp })))
+const PatrimonioApp = lazy(() => import('./apps/patrimonio').then(m => ({ default: m.PatrimonioApp })))
 const ChamadosPublicApp = lazy(() => import('./apps/chamados-publico').then(m => ({ default: m.ChamadosPublicApp })))
 const AdminApp = lazy(() => import('./apps/admin').then(m => ({ default: m.AdminApp })))
 const LiderHome = lazy(() => import('./platform/Lider/LiderHome').then(m => ({ default: m.LiderHome })))
@@ -115,6 +116,13 @@ function AppRoutes() {
         </AuthGuard>
       } />
       <Route path="chamados-publico/*" element={<ChamadosPublicApp />} />
+      <Route path="patrimonio/*" element={
+        <AuthGuard fallback={AUTH_FALLBACK}>
+          <AppGuard appId="patrimonio">
+            <PatrimonioApp />
+          </AppGuard>
+        </AuthGuard>
+      } />
       <Route path="lider" element={
         <AuthGuard fallback={AUTH_FALLBACK}>
           <LeadershipAreaGuard scope="team">

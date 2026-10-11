@@ -82,6 +82,14 @@ export const appRegistry: AppModule[] = [
     color: '#f59e0b',
   },
   {
+    id: 'patrimonio',
+    name: 'Patrimônio',
+    description: 'Inventário de equipamentos de TI, localização e responsáveis',
+    icon: icons.ui.hardDrive,
+    route: '/patrimonio',
+    color: '#0ea5e9',
+  },
+  {
     id: 'admin',
     name: 'Administração',
     description: 'Configurações do sistema e gestão de usuários',
