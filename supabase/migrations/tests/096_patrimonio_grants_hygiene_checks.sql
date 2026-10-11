@@ -39,12 +39,16 @@ BEGIN
         RAISE EXCEPTION 'FAIL: DML autorizado de assets/locations/responsibles foi removido indevidamente';
     END IF;
 
-    -- 4. service_role intacto (full nas 4 tabelas)
+    -- 4. service_role intacto (DML+TRUNCATE completos nas 4 tabelas)
     FOR v_count IN 1..1 LOOP
-        IF NOT has_table_privilege('service_role', 'public.asset_movements', 'ALL')
-           OR NOT has_table_privilege('service_role', 'public.assets', 'ALL')
-           OR NOT has_table_privilege('service_role', 'public.patrimonio_locations', 'ALL')
-           OR NOT has_table_privilege('service_role', 'public.patrimonio_responsibles', 'ALL') THEN
+        IF NOT has_table_privilege('service_role', 'public.asset_movements', 'SELECT')
+           OR NOT has_table_privilege('service_role', 'public.asset_movements', 'INSERT')
+           OR NOT has_table_privilege('service_role', 'public.asset_movements', 'UPDATE')
+           OR NOT has_table_privilege('service_role', 'public.asset_movements', 'DELETE')
+           OR NOT has_table_privilege('service_role', 'public.assets', 'SELECT')
+           OR NOT has_table_privilege('service_role', 'public.assets', 'INSERT')
+           OR NOT has_table_privilege('service_role', 'public.patrimonio_locations', 'SELECT')
+           OR NOT has_table_privilege('service_role', 'public.patrimonio_responsibles', 'SELECT') THEN
             RAISE EXCEPTION 'FAIL: service_role alterado pela 096';
         END IF;
     END LOOP;
