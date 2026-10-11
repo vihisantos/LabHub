@@ -40,9 +40,9 @@ function buildPayload(input: PatrimonioResponsibleInput): ResponsiblePayload {
 }
 
 export const responsiblesRepository = {
-  async list(): Promise<PatrimonioResponsible[]> {
+  async list(workspaceId?: string): Promise<PatrimonioResponsible[]> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = workspaceId ?? activeWorkspaceId()
     const { data, error } = await db
       .from('patrimonio_responsibles')
       .select('*')

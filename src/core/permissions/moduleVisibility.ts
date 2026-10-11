@@ -75,6 +75,7 @@ export const MODULE_IDS = [
   'reservalab',
   'tv',
   'chamados',
+  'patrimonio',
   'admin',
 ] as const
 
@@ -99,11 +100,14 @@ export type ModuleId = (typeof MODULE_IDS)[number]
  *     TV nem ReservaLab. Não é alvo desta tarefa e segue inalterado.
  *
  * ── REGRAS DE PRODUTO QUE ESTA MATRIZ EXPRESSA ───────────────────────────────
- *   · Técnico  → `full` nos 5 módulos disponíveis ao workspace.
+ *   · Técnico  → `full` nos 5 módulos disponíveis ao workspace + Patrimônio.
  *   · Visualizador e Coordenador → `read` nos 5 módulos. `read` é VISIBILIDADE:
  *     quem tem `read` não ganha escrita. As Actions do papel são decididas em
  *     `role_permissions` e podem ser (e no caso do coordenador, são) mais
  *     amplas que `read` sem que a matriz deixe de ser `read`.
+ *   · Patrimônio (issue #289) entra como módulo novo: `tec` `full` (tem as
+ *     Actions `patrimonio.*` da migration 095) e `coordinator` `read` (só
+ *     `patrimonio.view`); `vis` e `lider` não têm linha ⇒ `none`.
  *
  * ── `dash` NÃO É DECORATIVO ──────────────────────────────────────────────────
  * `'dash'` continua no tipo e nos consumidores (redirect em `ReservaLabLayout`
@@ -125,6 +129,7 @@ export const MODULE_VISIBILITY_BY_SLUG: Readonly<
     reservalab: 'full',
     tv: 'full',
     chamados: 'full',
+    patrimonio: 'full',
   },
   // Visualizador: leitura nos cinco módulos. Nenhuma Action de mutação é
   // concedida a `vis` (036 + trava anti-escalada da 086).
@@ -149,6 +154,7 @@ export const MODULE_VISIBILITY_BY_SLUG: Readonly<
     reservalab: 'read',
     tv: 'read',
     chamados: 'read',
+    patrimonio: 'read',
   },
 }
 

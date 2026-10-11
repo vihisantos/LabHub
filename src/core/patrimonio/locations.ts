@@ -33,9 +33,9 @@ function buildPayload(input: PatrimonioLocationInput): LocationPayload {
 }
 
 export const locationsRepository = {
-  async list(): Promise<PatrimonioLocation[]> {
+  async list(workspaceId?: string): Promise<PatrimonioLocation[]> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = workspaceId ?? activeWorkspaceId()
     const { data, error } = await db
       .from('patrimonio_locations')
       .select('*')
