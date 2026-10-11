@@ -602,6 +602,52 @@ class BehavioralPatrimonio:
             "AUTORIA APAGADA: o snapshot do nome do autor deve sobreviver à exclusão do perfil"
         )
 
+    def _i_grants_plataforma_normalizados(self):
+        """Reproduz o desvio real: o Supabase concede arwdDxtm (incl. TRUNCATE)
+        a authenticated em TODO objeto novo do schema public via
+        pg_default_acl — o CI (PostgreSQL puro) NÃO reproduz isso, então este
+        check SIMULA os grants excessivos e prova que o SQL da 096 os remove
+        preservando SELECT/INSERT de asset_movements e o DML autorizado das
+        outras tabelas (gated por RLS)."""
+        f = self.fx
+        # 1. excesso simulado (mesma ACL arwdDxtm recortada dos default privileges)
+        self.q(
+            "GRANT UPDATE, DELETE, TRUNCATE ON public.asset_movements TO authenticated; "
+            "GRANT TRUNCATE ON public.assets, public.patrimonio_locations, "
+            "public.patrimonio_responsibles TO authenticated;"
+        )
+        assert self.q(
+            "SELECT has_table_privilege('authenticated', 'public.asset_movements', 'TRUNCATE') AS t"
+        )[0]["t"] is True, "simulação do default privilege falhou"
+
+        # 2. re-aplicação do SQL da 096 (idempotente: REVOKE de privilégio não
+        #    concedido é no-op)
+        self.q(
+            "REVOKE UPDATE, DELETE, TRUNCATE ON public.asset_movements FROM authenticated; "
+            "REVOKE TRUNCATE ON public.assets FROM authenticated; "
+            "REVOKE TRUNCATE ON public.patrimonio_locations FROM authenticated; "
+            "REVOKE TRUNCATE ON public.patrimonio_responsibles FROM authenticated;"
+        )
+
+        # 3. estado final: sem excesso, sem perda do que é autorizado
+        self._as_assert(f.p_tec, (
+            "IF has_table_privilege('authenticated', 'public.asset_movements', 'UPDATE') OR "
+               "has_table_privilege('authenticated', 'public.asset_movements', 'DELETE') OR "
+               "has_table_privilege('authenticated', 'public.asset_movements', 'TRUNCATE') THEN "
+            "RAISE EXCEPTION 'asset_movements com escrita além de SELECT/INSERT após a 096'; END IF; "
+            "IF NOT has_table_privilege('authenticated', 'public.asset_movements', 'SELECT') OR "
+               "NOT has_table_privilege('authenticated', 'public.asset_movements', 'INSERT') THEN "
+            "RAISE EXCEPTION 'asset_movements perdeu SELECT/INSERT na 096'; END IF; "
+            "IF has_table_privilege('authenticated', 'public.assets', 'TRUNCATE') OR "
+               "has_table_privilege('authenticated', 'public.patrimonio_locations', 'TRUNCATE') OR "
+               "has_table_privilege('authenticated', 'public.patrimonio_responsibles', 'TRUNCATE') THEN "
+            "RAISE EXCEPTION 'TRUNCATE sobreviveu à 096'; END IF; "
+            "IF NOT has_table_privilege('authenticated', 'public.assets', 'UPDATE') OR "
+               "NOT has_table_privilege('authenticated', 'public.patrimonio_locations', 'UPDATE') OR "
+               "NOT has_table_privilege('authenticated', 'public.patrimonio_responsibles', 'UPDATE') THEN "
+            "RAISE EXCEPTION '096 removeu UPDATE autorizado das tabelas com DML'; END IF;"
+        ))
+
     # -- run principal -----------------------------------------------------------
     def run(self) -> bool:
         self._seed()
@@ -631,6 +677,7 @@ self._tec_operacoes)
         self.check("H. superadmin preserva mecanismo global (lê/escreve, não reescreve histórico)", self._superadmin_global)
         self.check("S. autoria e proveniência não falsificáveis (performed_by/source/import_batch_id)", self._s_autoria_nao_falsificavel)
         self.check("T. exclusão de perfil preserva a autoria histórica (snapshot)", self._t_autoria_sobrevive_exclusao_perfil)
+        self.check("I. default privileges de plataforma simulados e normalizados pela 096", self._i_grants_plataforma_normalizados)
 
         passed = len([r for r in self.results if r[1]])
         total = len(self.results)
