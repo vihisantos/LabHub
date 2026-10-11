@@ -456,6 +456,81 @@ class BehavioralPatrimonio:
             "permission denied",
         )
 
+    # -- autoria e proveniência (revisão de segurança) ---------------------------
+    def _s_autoria_nao_falsificavel(self):
+        f = self.fx
+        assert f.asset_a is not None, "fixture do ativo A ausente"
+
+        # 1. TENTATIVA DE FALSIFICAÇÃO: tec insere um movimento assinando como
+        #    OUTRO perfil (o coordenador). A operação é legítima (correcao é o
+        #    único tipo permitido num ativo baixado), mas a AUTORIA final tem
+        #    que ser a identidade da sessão — nunca a informada pelo cliente.
+        self._as(f.p_tec, (
+            f"INSERT INTO public.asset_movements "
+            f"(workspace_id, asset_id, type, to_status, note, performed_by) "
+            f"VALUES ('{f.ws_a}', '{f.asset_a}', 'correcao', 'baixado', "
+            f"'tentativa de falsificar autoria', '{f.p_coord}')"
+        ))
+        stored = self.q(
+            f"SELECT performed_by, source, import_batch_id FROM public.asset_movements "
+            f"WHERE asset_id = '{f.asset_a}' AND note = 'tentativa de falsificar autoria'"
+        )
+        assert len(stored) == 1, "movimento da tentativa de falsificação não foi gravado"
+        assert str(stored[0]["performed_by"]) == f.p_tec, (
+            f"AUTORIA FALSIFICÁVEL: performed_by gravado como "
+            f"{stored[0]['performed_by']} em vez do usuário da sessão ({f.p_tec})"
+        )
+        assert stored[0]["source"] == "ui", "fonte de ação de usuário deve ser 'ui'"
+        assert stored[0]["import_batch_id"] is None, "usuário não pode vincular lote de importação"
+
+        # 2. Criação de ativo com metadata FALSIFICADA de importação: o
+        #    movimento `criacao` gerado automaticamente tem que assinar com o
+        #    criador real e ignorar source/import_batch_id do cliente.
+        asset2 = str(uuid.uuid4())
+        batch_falso = str(uuid.uuid4())
+        self._as(f.p_tec, (
+            "INSERT INTO public.assets (id, workspace_id, equipment_type, name, status, metadata) "
+            f"VALUES ('{asset2}', '{f.ws_a}', 'Monitor', 'Ativo SPOOF', 'disponivel', "
+            f"jsonb_build_object('source', 'import', 'import_batch_id', '{batch_falso}'))"
+        ))
+        criacao = self.q(
+            f"SELECT performed_by, source, import_batch_id FROM public.asset_movements "
+            f"WHERE asset_id = '{asset2}' AND type = 'criacao'"
+        )
+        assert len(criacao) == 1, "criacao automática ausente para o segundo ativo"
+        assert str(criacao[0]["performed_by"]) == f.p_tec, "criacao deve ser assinada pelo criador real"
+        assert criacao[0]["source"] == "ui", "metadata.source do cliente não pode virar 'import' no histórico"
+        assert criacao[0]["import_batch_id"] is None, "metadata.import_batch_id do cliente não pode ser aceito"
+
+        # 3. Fluxo legítimo de SERVIDOR (service_role, sem usuário): o valor
+        #    gravado pelo backend é preservado — é assim que a importação
+        #    futura vai atribuir autoria/origem sem falsificação.
+        self.q(
+            f"INSERT INTO public.asset_movements "
+            f"(workspace_id, asset_id, type, to_status, performed_by, source, import_batch_id) "
+            f"VALUES ('{f.ws_a}', '{f.asset_a}', 'correcao', 'baixado', "
+            f"'{f.p_tec}', 'api', '{batch_falso}')"
+        )
+        server = self.q(
+            f"SELECT performed_by, source, import_batch_id FROM public.asset_movements "
+            f"WHERE asset_id = '{f.asset_a}' AND source = 'api'"
+        )
+        assert len(server) == 1, "movimento de servidor ausente"
+        assert str(server[0]["performed_by"]) == f.p_tec, "servidor pode atribuir autoria legítima"
+        assert server[0]["source"] == "api" and str(server[0]["import_batch_id"]) == batch_falso, (
+            "valores de proveniência fornecidos PELO SERVIDOR devem ser preservados"
+        )
+
+        # 4. Autoria do histórico automático de CRIAÇÃO do ativo principal (A):
+        #    assinada pelo próprio criador.
+        criacao_a = self.q(
+            f"SELECT performed_by FROM public.asset_movements "
+            f"WHERE asset_id = '{f.asset_a}' AND type = 'criacao'"
+        )[0]
+        assert str(criacao_a["performed_by"]) == f.p_tec, (
+            "criacao do ativo principal deve estar assinada pelo criador"
+        )
+
     # -- run principal -----------------------------------------------------------
     def run(self) -> bool:
         self._seed()
@@ -483,6 +558,7 @@ self._tec_operacoes)
         self.check("G8. anon não acessa nada", self._g_anon)
         self.check("G9. local em uso não pode ser apagado (RESTRICT)", self._g_local_em_uso)
         self.check("H. superadmin preserva mecanismo global (lê/escreve, não reescreve histórico)", self._superadmin_global)
+        self.check("S. autoria e proveniência não falsificáveis (performed_by/source/import_batch_id)", self._s_autoria_nao_falsificavel)
 
         passed = len([r for r in self.results if r[1]])
         total = len(self.results)

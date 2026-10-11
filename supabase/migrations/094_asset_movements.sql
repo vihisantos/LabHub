@@ -146,34 +146,45 @@ DECLARE
     v_resp_matricula TEXT;
     v_source         TEXT;
     v_batch          UUID;
+    v_actor          UUID := auth.uid();
 BEGIN
     IF NEW.responsible_id IS NOT NULL THEN
         SELECT nome, matricula INTO v_resp_nome, v_resp_matricula
         FROM public.patrimonio_responsibles WHERE id = NEW.responsible_id;
     END IF;
 
-    v_source := COALESCE(NEW.metadata ->> 'source', 'ui');
-    IF v_source NOT IN ('ui', 'import', 'api') THEN
+    -- Proveniência: em sessão autenticada a origem é sempre 'ui' (o cliente
+    -- não escolhe — um INSERT de usuário com metadata.source='import' NÃO
+    -- vira importação no histórico). Sem auth.uid() o chamador é o servidor
+    -- (service_role) e os valores que ele gravar em metadata são legítimos.
+    IF v_actor IS NOT NULL THEN
         v_source := 'ui';
+        v_batch  := NULL;
+    ELSE
+        v_source := COALESCE(NEW.metadata ->> 'source', 'api');
+        IF v_source NOT IN ('ui', 'import', 'api') THEN
+            v_source := 'api';
+        END IF;
+        BEGIN
+            v_batch := (NEW.metadata ->> 'import_batch_id')::uuid;
+        EXCEPTION WHEN OTHERS THEN
+            v_batch := NULL;
+        END;
     END IF;
-    BEGIN
-        v_batch := (NEW.metadata ->> 'import_batch_id')::uuid;
-    EXCEPTION WHEN OTHERS THEN
-        v_batch := NULL;
-    END;
 
     -- INSERT como definer: não passa pela RLS de asset_movements (é a própria
-    -- infraestrutura de histórico, não uma ação do usuário).
+    -- infraestrutura de histórico, não uma ação do usuário). A autoria é o
+    -- criador real do ativo (auth.uid()) ou NULL em operação de servidor.
     INSERT INTO public.asset_movements (
         workspace_id, asset_id, type,
         to_location_id, to_responsible_id, to_status,
         to_responsible_nome, to_responsible_matricula,
-        source, import_batch_id
+        performed_by, source, import_batch_id
     ) VALUES (
         NEW.workspace_id, NEW.id, 'criacao',
         NEW.location_id, NEW.responsible_id, NEW.status,
         v_resp_nome, v_resp_matricula,
-        v_source, v_batch
+        v_actor, v_source, v_batch
     );
 
     RETURN NEW;
@@ -219,8 +230,19 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Autoria: nunca confiada ao cliente.
-    NEW.performed_by := COALESCE(NEW.performed_by, auth.uid());
+    -- AUDITORIA — autoria e proveniência NUNCA vêm do cliente:
+    --   · com sessão autenticada, `performed_by` é SEMPRE auth.uid() (o valor
+    --     enviado é descartado mesmo que seja um uuid válido — um usuário não
+    --     pode assinar uma movimentação em nome de outro perfil); a fonte de
+    --     uma ação de usuário é 'ui' e não há lote de importação;
+    --   · sem auth.uid() o chamador é o PRÓPRIO SERVIDOR (service_role:
+    --     importação, rotinas internas) — o valor gravado por ele é legítimo
+    --     e pode ser NULL (operação de sistema). Anon não chega aqui (RLS).
+    IF auth.uid() IS NOT NULL THEN
+        NEW.performed_by     := auth.uid();
+        NEW.source           := 'ui';
+        NEW.import_batch_id  := NULL;
+    END IF;
 
     -- Serializa movimentos concorrentes sobre o MESMO ativo (atomicidade real).
     SELECT * INTO v_asset FROM public.assets WHERE id = NEW.asset_id FOR UPDATE;

@@ -84,5 +84,22 @@ BEGIN
         RAISE EXCEPTION 'FAIL: motor sem travas de workspace/criacao';
     END IF;
 
+    -- 7. Autoria NUNCA do cliente: performed_by derivado de auth.uid() e
+    --    proveniência normalizada em sessão autenticada
+    IF v_text LIKE '%COALESCE(NEW.performed_by%' THEN
+        RAISE EXCEPTION 'FAIL: motor aceita performed_by do cliente (COALESCE)';
+    END IF;
+    IF v_text NOT LIKE '%NEW.performed_by%auth.uid()%' THEN
+        RAISE EXCEPTION 'FAIL: motor não deriva performed_by de auth.uid()';
+    END IF;
+    IF v_text NOT LIKE '%NEW.source%ui%' OR v_text NOT LIKE '%NEW.import_batch_id%NULL%' THEN
+        RAISE EXCEPTION 'FAIL: motor não normaliza proveniência (source/import_batch_id)';
+    END IF;
+    SELECT p.prosrc INTO v_text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname='patrimonio_asset_created_history';
+    IF v_text NOT LIKE '%performed_by%' OR v_text NOT LIKE '%auth.uid()%' THEN
+        RAISE EXCEPTION 'FAIL: histórico de criação não assina com o criador (auth.uid())';
+    END IF;
+
     RAISE NOTICE 'OK: 094 asset_movements checks passed';
 END $$;

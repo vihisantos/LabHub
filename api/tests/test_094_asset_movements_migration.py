@@ -89,7 +89,30 @@ def test_094_motor_valida_regras_de_estado():
     # snapshot imune a renomeação
     assert "NEW.to_responsible_nome" in body and "NEW.to_responsible_matricula" in body
     # autoria nunca do cliente
-    assert "COALESCE(NEW.performed_by, auth.uid())" in body
+    assert "COALESCE(NEW.performed_by, auth.uid())" not in body, (
+        "performed_by não pode ser aceito do cliente (COALESCE permitia falsificação)"
+    )
+    assert re.search(r"NEW\.performed_by\s*:=\s*auth\.uid\(\)", body), (
+        "performed_by deve ser SEMPRE derivado de auth.uid() em sessão autenticada"
+    )
+    # proveniência normalizada em sessão autenticada
+    assert re.search(r"NEW\.source\s*:=\s*'ui'", body)
+    assert re.search(r"NEW\.import_batch_id\s*:=\s*NULL", body)
+
+
+def test_094_historico_de_criacao_assina_com_o_criador():
+    hist = re.search(r"CREATE OR REPLACE FUNCTION public\.patrimonio_asset_created_history\(\)(.*?)\$\$;", SQL, re.S)
+    body = hist.group(1)
+    assert re.search(r"v_actor\s+UUID\s*:=\s*auth\.uid\(\)", body), (
+        "histórico de criação deve derivar a autoria de auth.uid()"
+    )
+    # a coluna performed_by entra no INSERT do movimento criacao
+    insert = re.search(r"INSERT INTO public\.asset_movements \((.*?)\) VALUES", body, re.S)
+    assert insert and "performed_by" in insert.group(1)
+    # proveniência em sessão autenticada é 'ui' (metadata só vale para servidor)
+    assert re.search(r"IF v_actor IS NOT NULL THEN\s+v_source := 'ui';", body)
+    # o valor do servidor cai no fallback 'api' (nunca 'ui' sem usuário)
+    assert re.search(r"COALESCE\(NEW\.metadata ->> 'source', 'api'\)", body)
 
 
 def test_094_fk_do_historico_com_restrict():
