@@ -19,10 +19,11 @@ export function AssetDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { workspace } = useWorkspace()
   const { allowed, loading: permLoading } = useCanAccessAction('patrimonio.view')
-  const enabled = allowed && !!workspace && !!id
+  const workspaceId = workspace?.id ?? null
+  const enabled = allowed && !!workspaceId
 
-  const detail = useAssetDetail(id, enabled)
-  const references = usePatrimonioReferences(enabled)
+  const detail = useAssetDetail(id, workspaceId, enabled)
+  const references = usePatrimonioReferences(workspaceId, enabled)
 
   if (!permLoading && !allowed) {
     return (

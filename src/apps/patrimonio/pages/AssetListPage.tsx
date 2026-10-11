@@ -16,7 +16,8 @@ import { QueryError } from '../components/QueryError'
 export function AssetListPage() {
   const { workspace } = useWorkspace()
   const { allowed, loading: permLoading } = useCanAccessAction('patrimonio.view')
-  const enabled = allowed && !!workspace
+  const workspaceId = workspace?.id ?? null
+  const enabled = allowed && !!workspaceId
 
   const [searchRaw, setSearchRaw] = useState('')
   const [search, setSearch] = useState('')
@@ -43,9 +44,10 @@ export function AssetListPage() {
     condition,
     locationId,
     page,
+    workspaceId,
     enabled,
   })
-  const references = usePatrimonioReferences(enabled)
+  const references = usePatrimonioReferences(workspaceId, enabled)
 
   const activeFilterCount = [status, condition, locationId].filter(Boolean).length
   const hasActiveFilters = activeFilterCount > 0 || search !== ''

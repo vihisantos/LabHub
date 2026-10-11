@@ -35,6 +35,17 @@ export interface AssetListOptions {
   search?: string
   limit?: number
   offset?: number
+  /**
+   * Unidade a escopar. Sem isto, usa a unidade ativa da sessão.
+   *
+   * Existe para a UI fixar a consulta à unidade SELECIONADA no momento da
+   * chamada: o `workspaceStore` é sincronizado por um efeito do provider que
+   * roda DEPOIS dos efeitos das páginas, então ler a unidade ativa "do store"
+   * dentro de um fetch disparado pela troca de unidade pegaria a unidade
+   * ANTERIOR. O escopo explícito elimina essa corrida. A RLS continua sendo a
+   * autoridade: passar uma unidade sem acesso é negado pelo banco.
+   */
+  workspaceId?: string
 }
 
 /**
@@ -114,7 +125,7 @@ function buildUpdatePayload(input: PatrimonioAssetUpdateInput): Record<string, u
 export const assetsRepository = {
   async list(options: AssetListOptions = {}): Promise<PatrimonioAsset[]> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = options.workspaceId ?? activeWorkspaceId()
     const limit = clampLimit(options.limit)
     const offset = Math.max(0, Math.floor(options.offset ?? 0))
 
@@ -141,9 +152,9 @@ export const assetsRepository = {
     return toRows(data).map(toAsset)
   },
 
-  async get(id: string): Promise<PatrimonioAsset> {
+  async get(id: string, workspaceId?: string): Promise<PatrimonioAsset> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = workspaceId ?? activeWorkspaceId()
     if (!id) throw validationError('Ativo inválido.')
     const { data, error } = await db
       .from('assets')

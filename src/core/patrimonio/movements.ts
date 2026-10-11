@@ -39,6 +39,11 @@ export const MOVEMENT_LIST_MAX_LIMIT = 500
 export interface MovementListOptions {
   limit?: number
   offset?: number
+  /**
+   * Unidade a escopar. Sem isto, usa a unidade ativa da sessão. Ver
+   * `AssetListOptions.workspaceId` para o motivo da corrida que isto evita.
+   */
+  workspaceId?: string
 }
 
 function clampLimit(limit?: number): number {
@@ -141,7 +146,7 @@ export const movementsRepository = {
   /** Histórico de um ativo, mais recente primeiro. */
   async listByAsset(assetId: string, options: MovementListOptions = {}): Promise<AssetMovement[]> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = options.workspaceId ?? activeWorkspaceId()
     if (!isNonEmptyString(assetId)) throw validationError('Ativo inválido.')
     const limit = clampLimit(options.limit)
     const offset = Math.max(0, Math.floor(options.offset ?? 0))
@@ -159,7 +164,7 @@ export const movementsRepository = {
   /** Movimentações recentes da unidade (feed de auditoria). */
   async listRecent(options: MovementListOptions = {}): Promise<AssetMovement[]> {
     const db = requireDb()
-    const ws = activeWorkspaceId()
+    const ws = options.workspaceId ?? activeWorkspaceId()
     const limit = clampLimit(options.limit)
     const offset = Math.max(0, Math.floor(options.offset ?? 0))
     const { data, error } = await db

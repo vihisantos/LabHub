@@ -28,23 +28,30 @@ export interface AssetDetailResult {
  * Detalhe de um bem + histórico de movimentações, ambos escopados à unidade.
  *
  * O ativo e o histórico têm estados de erro independentes: uma falha no
- * histórico não derruba os dados do bem (e vice-versa). Ao trocar de ativo, o
- * histórico é resetado antes de recarregar — nunca se misturam dois bens.
+ * histórico não derruba os dados do bem (e vice-versa). Ao trocar de ativo OU
+ * de unidade, ambos são invalidados e esvaziados ANTES de recarregar — nunca se
+ * misturam dois bens nem duas unidades. Uma resposta atrasada de uma consulta
+ * antiga é descartada pelo contador `seq` de cada recurso.
  */
-export function useAssetDetail(id: string | undefined, enabled: boolean): AssetDetailResult {
+export function useAssetDetail(
+  id: string | undefined,
+  workspaceId: string | null,
+  enabled: boolean,
+): AssetDetailResult {
+  const active = enabled && !!workspaceId && !!id
   const [asset, setAsset] = useState<PatrimonioAsset | null>(null)
-  const [loading, setLoading] = useState(enabled)
+  const [loading, setLoading] = useState(active)
   const [error, setError] = useState<PatrimonioError | null>(null)
   const assetSeq = useRef(0)
 
   const loadAsset = useCallback(async () => {
-    if (!enabled || !id) return
+    if (!enabled || !workspaceId || !id) return
     const req = ++assetSeq.current
     setLoading(true)
     setError(null)
     setAsset(null)
     try {
-      const data = await assetsRepository.get(id)
+      const data = await assetsRepository.get(id, workspaceId)
       if (req !== assetSeq.current) return
       setAsset(data)
     } catch (err) {
@@ -54,31 +61,39 @@ export function useAssetDetail(id: string | undefined, enabled: boolean): AssetD
     } finally {
       if (req === assetSeq.current) setLoading(false)
     }
-  }, [enabled, id])
+  }, [enabled, workspaceId, id])
+
+  const scopedKey = `${workspaceId ?? ''}|${id ?? ''}|${active ? 'on' : 'off'}`
+  const lastKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!enabled || !id) {
+    if (lastKeyRef.current !== scopedKey) {
+      lastKeyRef.current = scopedKey
+      assetSeq.current++
       setAsset(null)
       setError(null)
+    }
+    if (!active) {
       setLoading(false)
       return
     }
     void loadAsset()
-  }, [enabled, id, loadAsset])
+  }, [active, scopedKey, loadAsset])
 
   const [movements, setMovements] = useState<AssetMovement[]>([])
-  const [movementsLoading, setMovementsLoading] = useState(enabled)
+  const [movementsLoading, setMovementsLoading] = useState(active)
   const [movementsError, setMovementsError] = useState<PatrimonioError | null>(null)
   const [movementsHasNext, setMovementsHasNext] = useState(false)
   const movSeq = useRef(0)
 
   const loadMovements = useCallback(
     async (offset: number) => {
-      if (!enabled || !id) return
+      if (!enabled || !workspaceId || !id) return
       const req = ++movSeq.current
       setMovementsLoading(true)
       try {
         const rows = await movementsRepository.listByAsset(id, {
+          workspaceId,
           limit: MOVEMENTS_PAGE_SIZE + 1,
           offset,
         })
@@ -95,19 +110,24 @@ export function useAssetDetail(id: string | undefined, enabled: boolean): AssetD
         if (req === movSeq.current) setMovementsLoading(false)
       }
     },
-    [enabled, id],
+    [enabled, workspaceId, id],
   )
 
+  const lastMovKeyRef = useRef<string | null>(null)
   useEffect(() => {
-    setMovements([])
-    setMovementsHasNext(false)
-    setMovementsError(null)
-    if (!enabled || !id) {
+    if (lastMovKeyRef.current !== scopedKey) {
+      lastMovKeyRef.current = scopedKey
+      movSeq.current++
+      setMovements([])
+      setMovementsHasNext(false)
+      setMovementsError(null)
+    }
+    if (!active) {
       setMovementsLoading(false)
       return
     }
     void loadMovements(0)
-  }, [enabled, id, loadMovements])
+  }, [active, scopedKey, loadMovements])
 
   const loadMoreMovements = useCallback(() => {
     void loadMovements(movements.length)

@@ -18,10 +18,12 @@ vi.mock('../../../core/workspaces/WorkspaceContext', () => ({
 }))
 vi.mock('../hooks/useAssetDetail', () => ({
   MOVEMENTS_PAGE_SIZE: 10,
-  useAssetDetail: (id: string | undefined, enabled: boolean) => mockUseAssetDetail(id, enabled),
+  useAssetDetail: (id: string | undefined, workspaceId: string | null, enabled: boolean) =>
+    mockUseAssetDetail(id, workspaceId, enabled),
 }))
 vi.mock('../hooks/usePatrimonioReferences', () => ({
-  usePatrimonioReferences: (enabled: boolean) => mockUseReferences(enabled),
+  usePatrimonioReferences: (workspaceId: string | null, enabled: boolean) =>
+    mockUseReferences(workspaceId, enabled),
 }))
 
 import { AssetDetailPage } from '../pages/AssetDetailPage'
@@ -174,7 +176,14 @@ describe('AssetDetailPage', () => {
     mockUseCanAccessAction.mockReturnValue({ allowed: false, loading: false })
     renderPage()
     expect(screen.getByText('Sem permissão')).toBeInTheDocument()
-    const lastCall = mockUseAssetDetail.mock.calls.at(-1) as [string, boolean]
-    expect(lastCall[1]).toBe(false)
+    const lastCall = mockUseAssetDetail.mock.calls.at(-1) as [string, string | null, boolean]
+    expect(lastCall[2]).toBe(false)
+  })
+
+  it('encaminha a unidade ativa ao hook de detalhe', () => {
+    renderPage()
+    const lastCall = mockUseAssetDetail.mock.calls.at(-1) as [string, string | null, boolean]
+    expect(lastCall[0]).toBe('a-1')
+    expect(lastCall[1]).toBe('ws-1')
   })
 })

@@ -263,6 +263,23 @@ describe('assetsRepository', () => {
     expect(calls.eqs).toContainEqual(['workspace_id', 'ws-1'])
   })
 
+  it('escopa pela unidade informada, ignorando a unidade ativa (isolamento por unidade)', async () => {
+    // store ativo = 'ws-1'; a consulta deve ir para 'ws-B' quando informada.
+    result = { data: [assetRow()], error: null }
+    const assets = await loadAssets()
+    await assets.list({ workspaceId: 'ws-B' })
+    expect(calls.eqs).toContainEqual(['workspace_id', 'ws-B'])
+    expect(calls.eqs).not.toContainEqual(['workspace_id', 'ws-1'])
+  })
+
+  it('get escopa pela unidade informada', async () => {
+    result = { data: assetRow(), error: null }
+    const assets = await loadAssets()
+    await assets.get('a-1', 'ws-B')
+    expect(calls.eqs).toContainEqual(['id', 'a-1'])
+    expect(calls.eqs).toContainEqual(['workspace_id', 'ws-B'])
+  })
+
   it('erro de unicidade (23505) ⇒ conflict', async () => {
     result = { data: null, error: { code: '23505', message: 'duplicate key' } }
     const assets = await loadAssets()
@@ -402,5 +419,13 @@ describe('movementsRepository — único caminho de mutação (append-only)', ()
     expect(calls.range).toEqual([0, 99])
     expect(rows[0].type).toBe('emprestimo')
     expect(rows[0].to_status).toBe('emprestado')
+  })
+
+  it('escopa o histórico pela unidade informada', async () => {
+    result = { data: [movementRow()], error: null }
+    const movements = await loadMovements()
+    await movements.listByAsset('a-1', { workspaceId: 'ws-B' })
+    expect(calls.eqs).toContainEqual(['workspace_id', 'ws-B'])
+    expect(calls.eqs).not.toContainEqual(['workspace_id', 'ws-1'])
   })
 })

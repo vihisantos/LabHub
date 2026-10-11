@@ -20,7 +20,12 @@ export interface AssetsListFilters {
 
 interface UseAssetsListOptions extends AssetsListFilters {
   page: number
-  /** Só dispara consultas quando o usuário tem contexto (unidade + permissão). */
+  /**
+   * Unidade ativa — identidade da consulta. Trocar de unidade invalida a
+   * requisição em voo, limpa a lista e recarrega no novo contexto.
+   */
+  workspaceId: string | null
+  /** Só dispara consultas quando o usuário tem permissão. */
   enabled: boolean
 }
 
@@ -47,19 +52,21 @@ export interface AssetsListResult {
  * antigos na tela como se fossem atuais.
  */
 export function useAssetsList(options: UseAssetsListOptions): AssetsListResult {
-  const { search, status, condition, locationId, page, enabled } = options
+  const { search, status, condition, locationId, page, workspaceId, enabled } = options
+  const active = enabled && !!workspaceId
   const [assets, setAssets] = useState<PatrimonioAsset[]>([])
-  const [loading, setLoading] = useState(enabled)
+  const [loading, setLoading] = useState(active)
   const [error, setError] = useState<PatrimonioError | null>(null)
   const [hasNext, setHasNext] = useState(false)
   const seq = useRef(0)
 
   const load = useCallback(async () => {
-    if (!enabled) return
+    if (!active || !workspaceId) return
     const req = ++seq.current
     setLoading(true)
     try {
       const rows = await assetsRepository.list({
+        workspaceId,
         search: search.trim() || undefined,
         status: status || undefined,
         condition: condition || undefined,
@@ -79,18 +86,31 @@ export function useAssetsList(options: UseAssetsListOptions): AssetsListResult {
     } finally {
       if (req === seq.current) setLoading(false)
     }
-  }, [enabled, search, status, condition, locationId, page])
+  }, [active, workspaceId, search, status, condition, locationId, page])
+
+  // Chave de escopo: muda quando a unidade ativa muda ou a permissão é
+  // revogada/concedida. NÃO muda em busca/filtro/página — nesses casos a lista
+  // atual permanece até a resposta nova (comportamento de paginação), e só o
+  // `seq` é incrementado dentro de `load` para descartar a resposta antiga.
+  const scopedKey = `${workspaceId ?? ''}|${active ? 'on' : 'off'}`
+  const lastKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!enabled) {
+    if (lastKeyRef.current !== scopedKey) {
+      // Troca de unidade / mudança de acesso: invalida o que está em voo e
+      // esvazia IMEDIATAMENTE — nada da unidade anterior fica visível.
+      lastKeyRef.current = scopedKey
+      seq.current++
       setAssets([])
-      setError(null)
       setHasNext(false)
+      setError(null)
+    }
+    if (!active) {
       setLoading(false)
       return
     }
     void load()
-  }, [enabled, load])
+  }, [active, scopedKey, load])
 
   return { assets, loading, error, hasNext, reload: load }
 }

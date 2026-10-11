@@ -24,7 +24,8 @@ vi.mock('../hooks/useAssetsList', () => ({
 }))
 
 vi.mock('../hooks/usePatrimonioReferences', () => ({
-  usePatrimonioReferences: (enabled: boolean) => mockUseReferences(enabled),
+  usePatrimonioReferences: (workspaceId: string | null, enabled: boolean) =>
+    mockUseReferences(workspaceId, enabled),
 }))
 
 import { AssetListPage } from '../pages/AssetListPage'
@@ -176,5 +177,32 @@ describe('AssetListPage', () => {
     const lastCall = mockUseAssetsList.mock.calls.at(-1)?.[0] as { search: string; page: number }
     expect(lastCall.search).toBe('notebook')
     expect(lastCall.page).toBe(0)
+  })
+
+  it('encaminha a unidade ativa ao hook de listagem', () => {
+    renderPage()
+    const lastCall = mockUseAssetsList.mock.calls.at(-1)?.[0] as { workspaceId: string }
+    expect(lastCall.workspaceId).toBe('ws-1')
+  })
+
+  it('troca de unidade reflete no hook de listagem (nova identidade de consulta)', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <AssetListPage />
+      </MemoryRouter>,
+    )
+    const first = mockUseAssetsList.mock.calls.at(-1)?.[0] as { workspaceId: string }
+    expect(first.workspaceId).toBe('ws-1')
+
+    mockUseWorkspace.mockReturnValue({ workspace: { id: 'ws-2', name: 'Escola B' } })
+    act(() => {
+      rerender(
+        <MemoryRouter>
+          <AssetListPage />
+        </MemoryRouter>,
+      )
+    })
+    const last = mockUseAssetsList.mock.calls.at(-1)?.[0] as { workspaceId: string }
+    expect(last.workspaceId).toBe('ws-2')
   })
 })
