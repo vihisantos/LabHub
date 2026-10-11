@@ -229,9 +229,13 @@ export interface PatrimonioResponsibleInput {
 }
 
 /**
- * Campos "frios" de um ativo: os que o cliente pode criar/editar diretamente.
- * `location_id`/`responsible_id`/`status` NÃO entram — mudam só via movimento
- * (094). A `condition` entra porque é estado físico, não custódia.
+ * Campos "frios" de um ativo: os que o cliente pode criar diretamente. Na
+ * CRIAÇÃO o estado inicial de custódia — `location_id`, `responsible_id` e
+ * `status` — TAMBÉM é aceito: o INSERT em `assets` gera o movimento `criacao`
+ * (094) que registra esses valores como o início da história do bem. A guarda
+ * 097 valida server-side que local/responsável iniciais pertencem à MESMA
+ * unidade; depois de criado, esses três campos mudam só via `asset_movements`.
+ * A `condition` entra porque é estado físico, não custódia.
  */
 export interface PatrimonioAssetCreateInput {
   name: string
@@ -240,6 +244,12 @@ export interface PatrimonioAssetCreateInput {
   serial_number?: string | null
   manufacturer?: string
   model?: string
+  /** Local inicial (vira o `to_location_id` do movimento `criacao`). */
+  location_id?: string | null
+  /** Responsável inicial (vira o `to_responsible_id` do movimento `criacao`). */
+  responsible_id?: string | null
+  /** Estado inicial de custódia. Default no banco: 'draft'. */
+  status?: AssetStatus
   condition?: AssetCondition
   notes?: string
   metadata?: Record<string, unknown>

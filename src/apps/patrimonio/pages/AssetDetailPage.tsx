@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   ASSET_CONDITION_LABELS,
@@ -11,6 +12,7 @@ import { icons } from '../../../lib/icons'
 import { useAssetDetail } from '../hooks/useAssetDetail'
 import { usePatrimonioReferences } from '../hooks/usePatrimonioReferences'
 import { AssetConditionBadge, AssetStatusBadge } from '../components/AssetBadges'
+import { AssetFormModal } from '../components/AssetFormModal'
 import { MovementTimeline } from '../components/MovementTimeline'
 import { QueryError } from '../components/QueryError'
 import { formatDateTime } from '../utils/format'
@@ -19,8 +21,10 @@ export function AssetDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { workspace } = useWorkspace()
   const { allowed, loading: permLoading } = useCanAccessAction('patrimonio.view')
+  const canEdit = useCanAccessAction('patrimonio.asset.edit')
   const workspaceId = workspace?.id ?? null
   const enabled = allowed && !!workspaceId
+  const [formOpen, setFormOpen] = useState(false)
 
   const detail = useAssetDetail(id, workspaceId, enabled)
   const references = usePatrimonioReferences(workspaceId, enabled)
@@ -92,6 +96,17 @@ export function AssetDetailPage() {
             <h2 className="mt-0.5 text-lg font-semibold leading-tight text-fg">{asset.name}</h2>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
+            {canEdit.allowed && !canEdit.loading && (
+              <button
+                type="button"
+                onClick={() => setFormOpen(true)}
+                className="mt-[-2px] flex items-center gap-1 rounded-lg bg-input px-2.5 py-1 text-[11px] font-medium text-fg-dim transition-colors hover:bg-input/80 hover:text-fg btn-interactive"
+                aria-label="Editar bem"
+              >
+                <icons.ui.edit size={12} />
+                Editar
+              </button>
+            )}
             <AssetStatusBadge status={asset.status} />
             <AssetConditionBadge condition={asset.condition} />
           </div>
@@ -139,6 +154,15 @@ export function AssetDetailPage() {
           onRetry={detail.reloadMovements}
         />
       </section>
+
+      <AssetFormModal
+        open={formOpen}
+        workspaceId={workspaceId}
+        initial={asset}
+        references={references}
+        onClose={() => setFormOpen(false)}
+        onSaved={() => detail.reloadAsset()}
+      />
     </div>
   )
 }

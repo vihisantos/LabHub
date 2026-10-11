@@ -199,27 +199,65 @@ describe('assetsRepository', () => {
     expect(calls.range).toEqual([0, 999])
   })
 
-  it('cria apenas campos frios: sem status/local/responsável', async () => {
+  it('cria no workspace informado com estado inicial de custódia (criacao vira histórico 094)', async () => {
     result = { data: assetRow({ name: 'Novo', equipment_type: 'Monitor' }), error: null }
     const assets = await loadAssets()
 
-    await assets.create({ name: '  Novo  ', equipment_type: ' Monitor ' })
+    // store ativo = 'ws-1', mas a criação deve ir para 'ws-B' (unidade informada).
+    await assets.create(
+      {
+        name: '  Novo  ',
+        equipment_type: ' Monitor ',
+        asset_tag: '  PAT-009  ',
+        location_id: 'l-2',
+        responsible_id: 'r-2',
+      },
+      'ws-B',
+    )
 
     expect(calls.inserted).toMatchObject({
       name: 'Novo',
       equipment_type: 'Monitor',
-      workspace_id: 'ws-1',
+      asset_tag: 'PAT-009',
+      location_id: 'l-2',
+      responsible_id: 'r-2',
+      status: 'draft',
+      workspace_id: 'ws-B',
       created_by: 'user-1',
     })
-    expect(calls.inserted).not.toHaveProperty('status')
-    expect(calls.inserted).not.toHaveProperty('location_id')
-    expect(calls.inserted).not.toHaveProperty('responsible_id')
     expect(calls.single).toBe(true)
+  })
+
+  it('status inicial inválido ⇒ erro de validação (sem round-trip)', async () => {
+    const assets = await loadAssets()
+    await expect(
+      assets.create(
+        { name: 'X', equipment_type: 'Monitor', status: 'inventado' } as never,
+        'ws-1',
+      ),
+    ).rejects.toMatchObject({ code: 'validation' })
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('normaliza referências vazias para null e aplica defaults de custódia', async () => {
+    result = { data: assetRow({ name: 'Novo' }), error: null }
+    const assets = await loadAssets()
+    await assets.create(
+      { name: 'Novo', equipment_type: 'Monitor', location_id: '  ', responsible_id: '' },
+      'ws-1',
+    )
+    expect(calls.inserted).toMatchObject({
+      location_id: null,
+      responsible_id: null,
+      status: 'draft',
+    })
   })
 
   it('rejeita criação sem nome (validação local, sem round-trip)', async () => {
     const assets = await loadAssets()
-    await expect(assets.create({ name: '   ', equipment_type: 'Monitor' })).rejects.toMatchObject(
+    await expect(
+      assets.create({ name: '   ', equipment_type: 'Monitor' }, 'ws-1'),
+    ).rejects.toMatchObject(
       { code: 'validation' },
     )
     expect(mockFrom).not.toHaveBeenCalled()
@@ -237,7 +275,7 @@ describe('assetsRepository', () => {
       created_at: 'hack',
     } as unknown as PatrimonioAssetUpdateInput
 
-    await assets.update('a-1', forbidden)
+    await assets.update('a-1', forbidden, 'ws-1')
 
     expect(calls.updated).toMatchObject({ name: 'Alterado' })
     expect(calls.updated).not.toHaveProperty('location_id')
@@ -250,7 +288,7 @@ describe('assetsRepository', () => {
 
   it('update vazio ⇒ erro de validação (nada a fazer)', async () => {
     const assets = await loadAssets()
-    await expect(assets.update('a-1', {})).rejects.toMatchObject({ code: 'validation' })
+    await expect(assets.update('a-1', {}, 'ws-1')).rejects.toMatchObject({ code: 'validation' })
   })
 
   it('get usa single e escopa por id + workspace', async () => {
@@ -283,9 +321,17 @@ describe('assetsRepository', () => {
   it('erro de unicidade (23505) ⇒ conflict', async () => {
     result = { data: null, error: { code: '23505', message: 'duplicate key' } }
     const assets = await loadAssets()
-    await expect(
-      assets.create({ name: 'X', equipment_type: 'Monitor' }),
-    ).rejects.toMatchObject({ code: 'conflict' })
+    await expect(assets.create({ name: 'X', equipment_type: 'Monitor' }, 'ws-1')).rejects.toMatchObject(
+      { code: 'conflict' },
+    )
+  })
+
+  it('erro de RLS (42501) ⇒ permission_denied', async () => {
+    result = { data: null, error: { code: '42501', message: 'permission denied' } }
+    const assets = await loadAssets()
+    await expect(assets.create({ name: 'X', equipment_type: 'Monitor' }, 'ws-1')).rejects.toMatchObject(
+      { code: 'permission_denied' },
+    )
   })
 
   it('sem workspace ativo ⇒ fail-closed (no_workspace)', async () => {

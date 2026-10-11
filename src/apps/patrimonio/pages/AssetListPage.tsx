@@ -10,12 +10,14 @@ import { useAssetsList } from '../hooks/useAssetsList'
 import { usePatrimonioReferences } from '../hooks/usePatrimonioReferences'
 import { AssetCard } from '../components/AssetCard'
 import { AssetFiltersSheet } from '../components/AssetFiltersSheet'
+import { AssetFormModal } from '../components/AssetFormModal'
 import { Pagination } from '../components/Pagination'
 import { QueryError } from '../components/QueryError'
 
 export function AssetListPage() {
   const { workspace } = useWorkspace()
   const { allowed, loading: permLoading } = useCanAccessAction('patrimonio.view')
+  const canCreate = useCanAccessAction('patrimonio.asset.create')
   const workspaceId = workspace?.id ?? null
   const enabled = allowed && !!workspaceId
 
@@ -26,6 +28,7 @@ export function AssetListPage() {
   const [locationId, setLocationId] = useState('')
   const [page, setPage] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
@@ -102,6 +105,11 @@ export function AssetListPage() {
           title="Acervo vazio"
           description={`Nenhum bem cadastrado em ${unitName || 'nesta unidade'}.`}
           accentColor="cyan"
+          action={
+            canCreate.allowed && !canCreate.loading
+              ? { label: 'Cadastrar bem', onClick: () => setFormOpen(true) }
+              : undefined
+          }
         />
       )
     }
@@ -119,7 +127,7 @@ export function AssetListPage() {
         ))}
       </div>
     )
-  }, [showingSkeletons, error, assets, hasActiveFilters, unitName, references, reload])
+  }, [showingSkeletons, error, assets, hasActiveFilters, unitName, references, reload, canCreate.allowed, canCreate.loading])
 
   if (!permLoading && !allowed) {
     return (
@@ -173,6 +181,17 @@ export function AssetListPage() {
               </button>
             )}
           </div>
+          {canCreate.allowed && !canCreate.loading && (
+            <button
+              type="button"
+              onClick={() => setFormOpen(true)}
+              className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 px-3.5 text-sm font-medium text-white transition-all hover:shadow-md btn-interactive"
+              aria-label="Cadastrar bem"
+            >
+              <icons.ui.plus size={16} />
+              <span className="hidden sm:inline">Cadastrar bem</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setFiltersOpen(true)}
@@ -248,6 +267,18 @@ export function AssetListPage() {
         onLocationChange={setLocationId}
         onClear={clearFilters}
         activeCount={activeFilterCount}
+      />
+
+      <AssetFormModal
+        open={formOpen}
+        workspaceId={workspaceId}
+        initial={null}
+        references={references}
+        onClose={() => setFormOpen(false)}
+        onSaved={() => {
+          setPage(0)
+          reload()
+        }}
       />
     </PullToRefresh>
   )
