@@ -19,9 +19,10 @@ function formatTime(isoString: string): string {
 }
 
 export function SyncStatusBadge() {
-  const { online, syncing, syncError, lastSync, pendingChanges, triggerSync, syncLog } = useOnlineSync()
+  const { online, syncing, syncError, lastSync, pendingChanges, triggerSync, syncLog, retryBlocked } = useOnlineSync()
   const [open, setOpen] = useState(false)
   const [relativeTime, setRelativeTime] = useState(() => formatRelativeTime(lastSync))
+  const [retrying, setRetrying] = useState(false)
 
   useEffect(() => {
     setRelativeTime(formatRelativeTime(lastSync))
@@ -76,6 +77,15 @@ export function SyncStatusBadge() {
   const cfg = badgeConfig[state]
   const recentLogs = [...syncLog].reverse().slice(0, 8)
 
+  const handleRetryBlocked = async () => {
+    setRetrying(true)
+    try {
+      await retryBlocked()
+    } finally {
+      setRetrying(false)
+    }
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -111,6 +121,37 @@ export function SyncStatusBadge() {
           <div className="mx-3 mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-[10px] text-red-400">
             <p className="font-medium mb-0.5">Último erro:</p>
             <p className="font-mono break-all">{syncError}</p>
+          </div>
+        )}
+
+        <div className="px-3 pt-3 pb-2">
+          <button
+            type="button"
+            id="sync-now-btn"
+            onClick={() => { triggerSync(); setOpen(false) }}
+            disabled={syncing || !online}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-xs font-medium text-white shadow-sm shadow-cyan-500/20 transition-all hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <icons.ui.refresh size={12} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
+          </button>
+        </div>
+
+        {syncError && (
+          <div className="mx-3 mt-2 px-3 py-2">
+            <button
+              type="button"
+              id="retry-blocked-btn"
+              onClick={handleRetryBlocked}
+              disabled={retrying || !online}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 py-2 text-xs font-medium text-white shadow-sm shadow-amber-500/20 transition-all hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <icons.ui.refresh size={12} className={retrying ? 'animate-spin' : ''} />
+              {retrying ? 'Tentando recuperar...' : 'Tentar sincronizar novamente'}
+            </button>
+            <p className="text-[10px] text-fg-muted mt-1.5 text-center">
+              Tenta limpar bloqueios de autorização e re-sincronizar
+            </p>
           </div>
         )}
 
