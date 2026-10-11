@@ -148,7 +148,10 @@ const REMOTE_DB: Record<string, 'pcare' | 'stock' | 'public'> = {
   notifications: 'stock',
   // schema public
   workspaces: 'public',
-  global_assets: 'public',
+  // NOTA: `public.assets` (Patrimônio) NÃO é uma coleção do motor local-first.
+  // É snake_case e append-only via `asset_movements`; o Patrimônio fala direto
+  // com o Supabase (RLS) em `src/core/patrimonio/`. Ver
+  // `docs/patrimonio/data-layer.md`.
 }
 
 function getDbFor(collection: string): NonNullable<typeof pcareDb> | null {
@@ -164,7 +167,6 @@ function getDbFor(collection: string): NonNullable<typeof pcareDb> | null {
 const TABLE_NAME_MAP: Record<string, string> = {
   inventory_cycles: 'stock_inventory_cycles',
   inventory_counts: 'stock_inventory_counts',
-  global_assets: 'assets',
 }
 
 function getTableName(collection: string): string {

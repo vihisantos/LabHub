@@ -2,7 +2,11 @@
 
 ## Status
 
-Aceita
+Aceita — **parcialmente superada pelo PR-2 (#289)**: `public.assets` segue
+valendo, mas o protótipo de acesso legado (`global-repository.ts`,
+`global-types.ts`, coleção `global_assets` no sync) foi removido. A camada de
+dados do Patrimônio vive em `src/core/patrimonio/` (ver
+[`docs/patrimonio/data-layer.md`](../../patrimonio/data-layer.md)).
 
 ## Contexto
 
