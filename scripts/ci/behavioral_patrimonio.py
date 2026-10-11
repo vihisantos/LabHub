@@ -569,7 +569,7 @@ class BehavioralPatrimonio:
         self.q(
             f"INSERT INTO public.profiles (id, email, name, status, created_at, updated_at) "
             f"VALUES ('{p_author}', '{email}', 'Autor Temporario', 'active', now(), now()) "
-            f"ON CONFLICT (id) DO UPDATE SET status = 'active', updated_at = now()"
+            f"ON CONFLICT (id) DO UPDATE SET status = 'active', name = 'Autor Temporario', updated_at = now()"
         )
         self.q(f"SELECT public.admin_upsert_membership('{p_author}', '{f.ws_a}', 'tec')")
 
