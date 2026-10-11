@@ -33,7 +33,7 @@ BEGIN
       AND contype = 'f' AND confdeltype = 's'
       AND pg_get_constraintdef(oid) LIKE '%profiles%';
     IF v_count <> 1 THEN
-        SELECT string_agg(conname || '=' || confdeltype, ', ') INTO v_text
+        SELECT string_agg(conname || '=' || confdeltype::text, ', ') INTO v_text
         FROM pg_constraint
         WHERE conrelid = 'public.patrimonio_responsibles'::regclass AND contype = 'f';
         RAISE EXCEPTION 'FAIL: FK de profile_id ausente ou ON DELETE incorreto (fks: %)', coalesce(v_text, '-');

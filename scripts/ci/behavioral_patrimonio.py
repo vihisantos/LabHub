@@ -159,9 +159,9 @@ class BehavioralPatrimonio:
 
         # ids gerados no cliente (evita depender de RETURNING através da
         # sessão simulada); INSERT explícito é permitido (PK uuid)
-        f.loc_a = self.uid()
-        f.resp_a = self.uid()
-        f.asset_a = self.uid()
+        f.loc_a = str(uuid.uuid4())
+        f.resp_a = str(uuid.uuid4())
+        f.asset_a = str(uuid.uuid4())
 
         # local + responsável institucional (sem conta)
         self._as(f.p_tec, (

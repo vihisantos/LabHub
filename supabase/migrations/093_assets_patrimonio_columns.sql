@@ -109,6 +109,15 @@ CREATE POLICY "public_assets_delete"
     FOR DELETE TO authenticated
     USING (public.is_super_admin());
 
+-- Grants EXPLÍCITOS no padrão 026/031/033 (não dependa de default privileges
+-- da plataforma — em DEV/PROD a tabela tinha grants amplos de plataforma,
+-- INCLUSIVE para anon; aqui o acesso é normalizado: anon/PUBLIC fora,
+-- authenticated com DML gating por policies, service_role tudo).
+REVOKE ALL ON public.assets FROM anon;
+REVOKE ALL ON public.assets FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.assets TO authenticated;
+GRANT ALL ON public.assets TO service_role;
+
 COMMENT ON COLUMN public.assets.condition IS
   'Estado FISICO do ativo (independente da custodia): novo|bom|regular|danificado|inservivel. "danificado" NAO e status.';
 COMMENT ON COLUMN public.assets.responsible_id IS

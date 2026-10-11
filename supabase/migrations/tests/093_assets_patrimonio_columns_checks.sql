@@ -65,5 +65,16 @@ BEGIN
         RAISE EXCEPTION 'FAIL: indice (workspace_id, serial_number) ausente';
     END IF;
 
+    -- 6. Grants normalizados (não dependem de default privileges da plataforma)
+    IF has_table_privilege('anon', 'public.assets', 'SELECT')
+       OR has_table_privilege('anon', 'public.assets', 'INSERT') THEN
+        RAISE EXCEPTION 'FAIL: anon ainda tem privilégios em public.assets';
+    END IF;
+    IF NOT has_table_privilege('authenticated', 'public.assets', 'SELECT')
+       OR NOT has_table_privilege('authenticated', 'public.assets', 'INSERT')
+       OR NOT has_table_privilege('authenticated', 'public.assets', 'UPDATE') THEN
+        RAISE EXCEPTION 'FAIL: authenticated sem DML em public.assets';
+    END IF;
+
     RAISE NOTICE 'OK: 093 assets patrimonio columns checks passed';
 END $$;

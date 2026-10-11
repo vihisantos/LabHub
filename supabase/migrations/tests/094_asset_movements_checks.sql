@@ -53,7 +53,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
                    JOIN pg_namespace n ON n.oid=c.relnamespace
                    WHERE n.nspname='public' AND c.relname='asset_movements' AND NOT t.tgisinternal
-                   AND t.tgname='trg_asset_movements_apply' AND t.tgtype::text LIKE '%69%') THEN
+                   AND t.tgname='trg_asset_movements_apply' AND (t.tgtype & 7) = 7) THEN
         RAISE EXCEPTION 'FAIL: trigger trg_asset_movements_apply ausente ou nao e BEFORE INSERT';
     END IF;
     SELECT count(*) INTO v_count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
