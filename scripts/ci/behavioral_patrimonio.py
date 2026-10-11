@@ -230,18 +230,24 @@ class BehavioralPatrimonio:
 
     def _coord_le(self):
         f = self.fx
+        # Diagnóstico: `auth.uid()` direto não é chamável por authenticated no
+        # efêmero (sem USAGE no schema auth — nas policies reais ele roda DENTRO
+        # das helpers SECURITY DEFINER). O probe de identidade é o GUC do JWT.
         diag = self._as(f.p_coord, (
-            f"SELECT auth.uid() AS uid, "
+            f"SELECT current_setting('request.jwt.claim.sub', true) AS uid, "
             f"public.user_has_action('{f.ws_a}', 'patrimonio.view') AS can_view, "
             f"(SELECT count(*)::int FROM public.role_permissions rp JOIN public.roles r ON r.id = rp.role_id "
-            f"WHERE r.slug = 'coordinator' AND rp.action LIKE 'patrimonio.%') AS coord_seeds, "
-            f"(SELECT m.status FROM public.memberships m WHERE m.profile_id = auth.uid() "
-            f"AND m.workspace_id = '{f.ws_a}') AS membership_status"
+            f"WHERE r.slug = 'coordinator' AND rp.action LIKE 'patrimonio.%') AS coord_seeds"
         ))[0]
+        membership = self.q(
+            f"SELECT status FROM public.memberships WHERE profile_id = '{f.p_coord}' "
+            f"AND workspace_id = '{f.ws_a}'"
+        )[0]["status"]
         print(f"[patrimonio][diag B] uid={diag['uid']} can_view={diag['can_view']} "
-              f"coord_seeds={diag['coord_seeds']} membership={diag['membership_status']}", flush=True)
-        assert str(diag["uid"]) == f.p_coord, "auth.uid() da sessão não é o coordenador"
+              f"coord_seeds={diag['coord_seeds']} membership={membership}", flush=True)
+        assert str(diag["uid"]) == f.p_coord, "claims do JWT não são do coordenador"
         assert diag["can_view"] is True, "user_has_action(view) deveria ser true para o coordenador"
+        assert membership == "active", "membership do coordenador deveria estar ativa"
 
         rows = self._as(f.p_coord, f"SELECT id FROM public.assets WHERE workspace_id = '{f.ws_a}'")
         assert [str(r["id"]) for r in rows] == [f.asset_a], (
@@ -354,6 +360,12 @@ class BehavioralPatrimonio:
                 f"VALUES ('{f.ws_a}', '{f.asset_a}', 'emprestimo', '{f.resp_a}', now() + interval '7 days')")),
             "ja esta emprestado",
         )
+        # devolução legítima fecha o ciclo
+        self._as(f.p_tec, (
+            f"INSERT INTO public.asset_movements (workspace_id, asset_id, type) "
+            f"VALUES ('{f.ws_a}', '{f.asset_a}', 'devolucao')"
+        ))
+        # ...e uma SEGUNDA devolução não tem mais empréstimo ativo → bloqueada
         self.expect_error(
             lambda: self.q(
                 f"INSERT INTO public.asset_movements (workspace_id, asset_id, type) "
@@ -361,11 +373,6 @@ class BehavioralPatrimonio:
             ),
             "sem emprestimo ativo",
         )
-        # devolução legítima fecha o ciclo (estado limpo para os próximos checks)
-        self._as(f.p_tec, (
-            f"INSERT INTO public.asset_movements (workspace_id, asset_id, type) "
-            f"VALUES ('{f.ws_a}', '{f.asset_a}', 'devolucao')"
-        ))
 
     def _g_baixa_terminal(self):
         f = self.fx
