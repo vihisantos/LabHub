@@ -136,6 +136,11 @@ class BehavioralPatrimonio:
         f = self.fx = _Fixtures()
         q = self.q
 
+        # `service_role` no Supabase real tem BYPASSRLS (escreve sem policies);
+        # o stub do CI cria o papel sem o atributo — espelhar a produção para
+        # que o contexto de servidor seja simulado com fidelidade.
+        q("ALTER ROLE service_role BYPASSRLS")
+
         role_slugs = [r["slug"] for r in q("SELECT slug FROM public.roles ORDER BY slug") or []]
         for slug in ("tec", "vis", "coordinator"):
             if slug not in role_slugs:
@@ -464,7 +469,8 @@ class BehavioralPatrimonio:
         # 1. TENTATIVA DE FALSIFICAÇÃO: tec insere um movimento assinando como
         #    OUTRO perfil (o coordenador). A operação é legítima (correcao é o
         #    único tipo permitido num ativo baixado), mas a AUTORIA final tem
-        #    que ser a identidade da sessão — nunca a informada pelo cliente.
+        #    que ser a identidade da sessão — nunca a informada pelo cliente —
+        #    e o NOME do autor é snapshot do servidor.
         self._as(f.p_tec, (
             f"INSERT INTO public.asset_movements "
             f"(workspace_id, asset_id, type, to_status, note, performed_by) "
@@ -472,13 +478,17 @@ class BehavioralPatrimonio:
             f"'tentativa de falsificar autoria', '{f.p_coord}')"
         ))
         stored = self.q(
-            f"SELECT performed_by, source, import_batch_id FROM public.asset_movements "
+            f"SELECT performed_by, performed_by_nome, source, import_batch_id "
+            f"FROM public.asset_movements "
             f"WHERE asset_id = '{f.asset_a}' AND note = 'tentativa de falsificar autoria'"
         )
         assert len(stored) == 1, "movimento da tentativa de falsificação não foi gravado"
         assert str(stored[0]["performed_by"]) == f.p_tec, (
             f"AUTORIA FALSIFICÁVEL: performed_by gravado como "
             f"{stored[0]['performed_by']} em vez do usuário da sessão ({f.p_tec})"
+        )
+        assert stored[0]["performed_by_nome"] == "CI 091", (
+            "snapshot do nome do autor deve vir do servidor"
         )
         assert stored[0]["source"] == "ui", "fonte de ação de usuário deve ser 'ui'"
         assert stored[0]["import_batch_id"] is None, "usuário não pode vincular lote de importação"
@@ -494,29 +504,36 @@ class BehavioralPatrimonio:
             f"jsonb_build_object('source', 'import', 'import_batch_id', '{batch_falso}'))"
         ))
         criacao = self.q(
-            f"SELECT performed_by, source, import_batch_id FROM public.asset_movements "
-            f"WHERE asset_id = '{asset2}' AND type = 'criacao'"
+            f"SELECT performed_by, performed_by_nome, source, import_batch_id "
+            f"FROM public.asset_movements WHERE asset_id = '{asset2}' AND type = 'criacao'"
         )
         assert len(criacao) == 1, "criacao automática ausente para o segundo ativo"
         assert str(criacao[0]["performed_by"]) == f.p_tec, "criacao deve ser assinada pelo criador real"
         assert criacao[0]["source"] == "ui", "metadata.source do cliente não pode virar 'import' no histórico"
         assert criacao[0]["import_batch_id"] is None, "metadata.import_batch_id do cliente não pode ser aceito"
 
-        # 3. Fluxo legítimo de SERVIDOR (service_role, sem usuário): o valor
-        #    gravado pelo backend é preservado — é assim que a importação
-        #    futura vai atribuir autoria/origem sem falsificação.
+        # 3. Fluxo legítimo de SERVIDOR: sessão EXPLÍCITAMENTE como
+        #    `service_role` (sem claims ⇒ auth.uid() NULL), com BYPASSRLS como
+        #    no Supabase real. Os valores de autoria/proveniência fornecidos
+        #    PELO SERVIDOR são preservados — e não há usuário autenticado cuja
+        #    identidade pudesse ser falsificada.
         self.q(
+            "SET ROLE service_role; "
             f"INSERT INTO public.asset_movements "
-            f"(workspace_id, asset_id, type, to_status, performed_by, source, import_batch_id) "
+            f"(workspace_id, asset_id, type, to_status, performed_by, performed_by_nome, source, import_batch_id) "
             f"VALUES ('{f.ws_a}', '{f.asset_a}', 'correcao', 'baixado', "
-            f"'{f.p_tec}', 'api', '{batch_falso}')"
+            f"'{f.p_tec}', 'Servidor Patrimonio', 'api', '{batch_falso}'); "
+            "RESET ROLE;"
         )
         server = self.q(
-            f"SELECT performed_by, source, import_batch_id FROM public.asset_movements "
-            f"WHERE asset_id = '{f.asset_a}' AND source = 'api'"
+            f"SELECT performed_by, performed_by_nome, source, import_batch_id "
+            f"FROM public.asset_movements WHERE asset_id = '{f.asset_a}' AND source = 'api'"
         )
         assert len(server) == 1, "movimento de servidor ausente"
         assert str(server[0]["performed_by"]) == f.p_tec, "servidor pode atribuir autoria legítima"
+        assert server[0]["performed_by_nome"] == "Servidor Patrimonio", (
+            "snapshot de autoria do servidor deve ser preservado"
+        )
         assert server[0]["source"] == "api" and str(server[0]["import_batch_id"]) == batch_falso, (
             "valores de proveniência fornecidos PELO SERVIDOR devem ser preservados"
         )
@@ -524,11 +541,65 @@ class BehavioralPatrimonio:
         # 4. Autoria do histórico automático de CRIAÇÃO do ativo principal (A):
         #    assinada pelo próprio criador.
         criacao_a = self.q(
-            f"SELECT performed_by FROM public.asset_movements "
+            f"SELECT performed_by, performed_by_nome FROM public.asset_movements "
             f"WHERE asset_id = '{f.asset_a}' AND type = 'criacao'"
         )[0]
         assert str(criacao_a["performed_by"]) == f.p_tec, (
             "criacao do ativo principal deve estar assinada pelo criador"
+        )
+        assert criacao_a["performed_by_nome"] == "CI 091", "snapshot do criador ausente"
+
+    def _t_autoria_sobrevive_exclusao_perfil(self):
+        """Excluir o perfil NÃO apaga a autoria histórica: o FK vai a NULL
+        (convenção app_audit_logs.actor_id, 054) e o snapshot
+        `performed_by_nome` preserva quem fez."""
+        f = self.fx
+        p_author = str(uuid.uuid4())
+        email = f"091-author-{p_author[:8]}@labhub-ci.test"
+        self.q(
+            f"INSERT INTO auth.users (id, instance_id, aud, role, email, "
+            f"email_confirmed_at, raw_app_meta_data, raw_user_meta_data, "
+            f"is_sso_user, is_anonymous, created_at, updated_at) "
+            f"VALUES ('{p_author}', '00000000-0000-0000-0000-000000000000', "
+            f"'authenticated', 'authenticated', '{email}', now(), "
+            f"'{{\"provider\":\"email\",\"providers\":[\"email\"]}}'::jsonb, "
+            f"'{{\"name\":\"CI 091\"}}'::jsonb, false, false, now(), now()) "
+            f"ON CONFLICT (id) DO NOTHING"
+        )
+        self.q(
+            f"INSERT INTO public.profiles (id, email, name, status, created_at, updated_at) "
+            f"VALUES ('{p_author}', '{email}', 'Autor Temporario', 'active', now(), now()) "
+            f"ON CONFLICT (id) DO UPDATE SET status = 'active', updated_at = now()"
+        )
+        self.q(f"SELECT public.admin_upsert_membership('{p_author}', '{f.ws_a}', 'tec')")
+
+        # o autor temporário assina um movimento legítimo
+        self._as(p_author, (
+            f"INSERT INTO public.asset_movements "
+            f"(workspace_id, asset_id, type, to_status, note) "
+            f"VALUES ('{f.ws_a}', '{f.asset_a}', 'correcao', 'baixado', "
+            f"'autoria do autor temporario')"
+        ))
+        before = self.q(
+            f"SELECT performed_by, performed_by_nome FROM public.asset_movements "
+            f"WHERE asset_id = '{f.asset_a}' AND note = 'autoria do autor temporario'"
+        )
+        assert len(before) == 1, "movimento do autor temporário ausente"
+        assert str(before[0]["performed_by"]) == p_author
+        assert before[0]["performed_by_nome"] == "Autor Temporario", "snapshot do autor ausente"
+
+        # EXCLUSÃO do perfil (super admin no sistema real): o CASCADE remove a
+        # membership, o FK de performed_by vai a NULL — mas o snapshot permanece.
+        self.q(f"DELETE FROM public.profiles WHERE id = '{p_author}'")
+
+        after = self.q(
+            f"SELECT performed_by, performed_by_nome FROM public.asset_movements "
+            f"WHERE asset_id = '{f.asset_a}' AND note = 'autoria do autor temporario'"
+        )
+        assert len(after) == 1, "o movimento NÃO pode desaparecer com o perfil"
+        assert after[0]["performed_by"] is None, "FK do perfil excluído vai a NULL (SET NULL)"
+        assert after[0]["performed_by_nome"] == "Autor Temporario", (
+            "AUTORIA APAGADA: o snapshot do nome do autor deve sobreviver à exclusão do perfil"
         )
 
     # -- run principal -----------------------------------------------------------
@@ -559,6 +630,7 @@ self._tec_operacoes)
         self.check("G9. local em uso não pode ser apagado (RESTRICT)", self._g_local_em_uso)
         self.check("H. superadmin preserva mecanismo global (lê/escreve, não reescreve histórico)", self._superadmin_global)
         self.check("S. autoria e proveniência não falsificáveis (performed_by/source/import_batch_id)", self._s_autoria_nao_falsificavel)
+        self.check("T. exclusão de perfil preserva a autoria histórica (snapshot)", self._t_autoria_sobrevive_exclusao_perfil)
 
         passed = len([r for r in self.results if r[1]])
         total = len(self.results)

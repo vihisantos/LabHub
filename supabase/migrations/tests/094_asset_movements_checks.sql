@@ -100,6 +100,26 @@ BEGIN
     IF v_text NOT LIKE '%performed_by%' OR v_text NOT LIKE '%auth.uid()%' THEN
         RAISE EXCEPTION 'FAIL: histórico de criação não assina com o criador (auth.uid())';
     END IF;
+    IF v_text NOT LIKE '%performed_by_nome%' THEN
+        RAISE EXCEPTION 'FAIL: histórico de criação sem snapshot do nome do autor';
+    END IF;
+
+    -- 8. Snapshot da autoria: performed_by_nome existe e sobrevive à exclusão
+    --    do perfil (FK performed_by é SET NULL — convenção app_audit_logs/054)
+    SELECT count(*) INTO v_count FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='asset_movements'
+      AND column_name='performed_by_nome';
+    IF v_count <> 1 THEN
+        RAISE EXCEPTION 'FAIL: coluna performed_by_nome ausente';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.asset_movements'::regclass
+               AND contype='f' AND pg_get_constraintdef(oid) LIKE '%performed_by%'
+               AND confdeltype <> 'n') THEN
+        RAISE EXCEPTION 'FAIL: FK de performed_by deve ser ON DELETE SET NULL (autor nomeado sobrevive)';
+    END IF;
+    IF v_text NOT LIKE '%performed_by_nome%' AND v_text NOT LIKE '%auth.uid()%' THEN
+        RAISE EXCEPTION 'FAIL: incoerência no snapshot do histórico';
+    END IF;
 
     RAISE NOTICE 'OK: 094 asset_movements checks passed';
 END $$;

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS public.asset_movements (
     expected_return_at        TIMESTAMPTZ,
     note                      TEXT NOT NULL DEFAULT '',
     performed_by              UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    performed_by_nome         TEXT,
     source                    TEXT NOT NULL DEFAULT 'ui',
     import_batch_id           UUID,
     created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -147,6 +148,7 @@ DECLARE
     v_source         TEXT;
     v_batch          UUID;
     v_actor          UUID := auth.uid();
+    v_actor_nome     TEXT;
 BEGIN
     IF NEW.responsible_id IS NOT NULL THEN
         SELECT nome, matricula INTO v_resp_nome, v_resp_matricula
@@ -158,6 +160,7 @@ BEGIN
     -- vira importação no histórico). Sem auth.uid() o chamador é o servidor
     -- (service_role) e os valores que ele gravar em metadata são legítimos.
     IF v_actor IS NOT NULL THEN
+        SELECT name INTO v_actor_nome FROM public.profiles WHERE id = v_actor;
         v_source := 'ui';
         v_batch  := NULL;
     ELSE
@@ -174,17 +177,19 @@ BEGIN
 
     -- INSERT como definer: não passa pela RLS de asset_movements (é a própria
     -- infraestrutura de histórico, não uma ação do usuário). A autoria é o
-    -- criador real do ativo (auth.uid()) ou NULL em operação de servidor.
+    -- criador real do ativo (auth.uid()) ou NULL em operação de servidor — e
+    -- o NOME do autor fica em snapshot (performed_by_nome), imune à exclusão
+    -- futura do perfil (mesma convenção de app_audit_logs.actor_name, 054).
     INSERT INTO public.asset_movements (
         workspace_id, asset_id, type,
         to_location_id, to_responsible_id, to_status,
         to_responsible_nome, to_responsible_matricula,
-        performed_by, source, import_batch_id
+        performed_by, performed_by_nome, source, import_batch_id
     ) VALUES (
         NEW.workspace_id, NEW.id, 'criacao',
         NEW.location_id, NEW.responsible_id, NEW.status,
         v_resp_nome, v_resp_matricula,
-        v_actor, v_source, v_batch
+        v_actor, v_actor_nome, v_source, v_batch
     );
 
     RETURN NEW;
@@ -230,18 +235,21 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- AUDITORIA — autoria e proveniência NUNCA vêm do cliente:
+    -- AUDITORIA — autoria e proveniência NUNCA vem do cliente:
     --   · com sessão autenticada, `performed_by` é SEMPRE auth.uid() (o valor
     --     enviado é descartado mesmo que seja um uuid válido — um usuário não
-    --     pode assinar uma movimentação em nome de outro perfil); a fonte de
-    --     uma ação de usuário é 'ui' e não há lote de importação;
+    --     pode assinar uma movimentação em nome de outro perfil); o NOME do
+    --     autor é capturado agora (snapshot) e a fonte de uma ação de usuário
+    --     é 'ui', sem lote de importação;
     --   · sem auth.uid() o chamador é o PRÓPRIO SERVIDOR (service_role:
-    --     importação, rotinas internas) — o valor gravado por ele é legítimo
-    --     e pode ser NULL (operação de sistema). Anon não chega aqui (RLS).
+    --     importação, rotinas internas) — os valores que ele gravar são
+    --     legítimos e podem ser NULL (operação de sistema). Anon não chega
+    --     aqui (RLS).
     IF auth.uid() IS NOT NULL THEN
-        NEW.performed_by     := auth.uid();
-        NEW.source           := 'ui';
-        NEW.import_batch_id  := NULL;
+        NEW.performed_by      := auth.uid();
+        NEW.performed_by_nome := (SELECT name FROM public.profiles WHERE id = auth.uid());
+        NEW.source            := 'ui';
+        NEW.import_batch_id   := NULL;
     END IF;
 
     -- Serializa movimentos concorrentes sobre o MESMO ativo (atomicidade real).

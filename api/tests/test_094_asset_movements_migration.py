@@ -98,6 +98,8 @@ def test_094_motor_valida_regras_de_estado():
     # proveniência normalizada em sessão autenticada
     assert re.search(r"NEW\.source\s*:=\s*'ui'", body)
     assert re.search(r"NEW\.import_batch_id\s*:=\s*NULL", body)
+    # snapshot do nome do autor (sobrevive à exclusão do perfil)
+    assert "NEW.performed_by_nome := (SELECT name FROM public.profiles WHERE id = auth.uid())" in body
 
 
 def test_094_historico_de_criacao_assina_com_o_criador():
@@ -106,13 +108,22 @@ def test_094_historico_de_criacao_assina_com_o_criador():
     assert re.search(r"v_actor\s+UUID\s*:=\s*auth\.uid\(\)", body), (
         "histórico de criação deve derivar a autoria de auth.uid()"
     )
+    assert re.search(r"v_actor_nome\s+TEXT", body), "snapshot do nome do criador ausente"
     # a coluna performed_by entra no INSERT do movimento criacao
     insert = re.search(r"INSERT INTO public\.asset_movements \((.*?)\) VALUES", body, re.S)
     assert insert and "performed_by" in insert.group(1)
+    assert insert and "performed_by_nome" in insert.group(1)
     # proveniência em sessão autenticada é 'ui' (metadata só vale para servidor)
-    assert re.search(r"IF v_actor IS NOT NULL THEN\s+v_source := 'ui';", body)
+    assert re.search(r"IF v_actor IS NOT NULL THEN\s+SELECT name INTO v_actor_nome", body)
     # o valor do servidor cai no fallback 'api' (nunca 'ui' sem usuário)
     assert re.search(r"COALESCE\(NEW\.metadata ->> 'source', 'api'\)", body)
+
+
+def test_094_coluna_snapshot_da_autoria_existe():
+    ddl = re.search(r"CREATE TABLE IF NOT EXISTS public\.asset_movements \((.*?)\);", SQL, re.S)
+    assert ddl and re.search(r"performed_by_nome\s+TEXT", ddl.group(1)), (
+        "coluna performed_by_nome (snapshot imune à exclusão de perfil) ausente"
+    )
 
 
 def test_094_fk_do_historico_com_restrict():
