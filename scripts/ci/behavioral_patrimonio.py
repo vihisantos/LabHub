@@ -112,6 +112,25 @@ class BehavioralPatrimonio:
             f"{sql};"
         )
 
+    def _as_assert(self, profile_id: str, body: str):
+        """Executa um bloco plpgsql DE ASSERÇÕES como a sessão do perfil.
+
+        Nenhum resultset atravessa o executor multi-statement — então as
+        verificações de LEITURA usam RAISE EXCEPTION dentro do bloco (o erro
+        propaga com a mensagem do teste). O DO interno roda como o papel
+        `authenticated` setado fora, logo as policies RLS se aplicam de
+        verdade às leituras.
+        """
+        sub = str(profile_id).replace("'", "''")
+        self.q(
+            "DO $$ BEGIN "
+            f"PERFORM set_config('request.jwt.claim.sub', '{sub}', false); "
+            "PERFORM set_config('request.jwt.claim.role', 'authenticated', false); "
+            "END $$; "
+            "SET ROLE authenticated; "
+            f"DO $outer$ BEGIN {body} END $outer$;"
+        )
+
     # -- fixtures ---------------------------------------------------------------
     def _seed(self) -> None:
         f = self.fx = _Fixtures()
@@ -230,24 +249,21 @@ class BehavioralPatrimonio:
 
     def _coord_le(self):
         f = self.fx
-        # Diagnóstico: `auth.uid()` direto não é chamável por authenticated no
-        # efêmero (sem USAGE no schema auth — nas policies reais ele roda DENTRO
-        # das helpers SECURITY DEFINER). O probe de identidade é o GUC do JWT.
-        diag = self._as(f.p_coord, (
-            f"SELECT current_setting('request.jwt.claim.sub', true) AS uid, "
-            f"public.user_has_action('{f.ws_a}', 'patrimonio.view') AS can_view"
-        ))[0]
-        print(f"[patrimonio][diag B] uid={diag['uid']} can_view={diag['can_view']}", flush=True)
-        assert str(diag["uid"]) == f.p_coord, "claims do JWT não são do coordenador"
-        assert diag["can_view"] is True, "user_has_action(view) deveria ser true para o coordenador"
-
-        rows = self._as(f.p_coord, f"SELECT id FROM public.assets WHERE workspace_id = '{f.ws_a}'")
-        assert [str(r["id"]) for r in rows] == [f.asset_a], (
-            f"coordenador deve consultar exatamente o ativo da própria unidade (viu: {rows})"
-        )
-        self._as(f.p_coord, f"SELECT id FROM public.asset_movements WHERE workspace_id = '{f.ws_a}'")
-        self._as(f.p_coord, f"SELECT id FROM public.patrimonio_locations WHERE workspace_id = '{f.ws_a}'")
-        self._as(f.p_coord, f"SELECT id FROM public.patrimonio_responsibles WHERE workspace_id = '{f.ws_a}'")
+        # O executor multi-statement não devolve resultset — a prova de leitura
+        # é feita por asserções DENTRO da sessão simulada (_as_assert), onde as
+        # policies RLS se aplicam de verdade ao papel `authenticated`.
+        self._as_assert(f.p_coord, (
+            f"IF public.user_has_action('{f.ws_a}', 'patrimonio.view') IS NOT TRUE THEN "
+            "RAISE EXCEPTION 'coordenador sem patrimonio.view na propria unidade'; END IF; "
+            f"IF (SELECT count(*) FROM public.assets WHERE workspace_id = '{f.ws_a}') <> 1 THEN "
+            "RAISE EXCEPTION 'coordenador deve ver exatamente 1 ativo da propria unidade'; END IF; "
+            f"IF (SELECT count(*) FROM public.asset_movements WHERE workspace_id = '{f.ws_a}') < 1 THEN "
+            "RAISE EXCEPTION 'coordenador deve ver o historico da propria unidade'; END IF; "
+            f"IF (SELECT count(*) FROM public.patrimonio_locations WHERE workspace_id = '{f.ws_a}') <> 1 THEN "
+            "RAISE EXCEPTION 'coordenador deve ver os locais da propria unidade'; END IF; "
+            f"IF (SELECT count(*) FROM public.patrimonio_responsibles WHERE workspace_id = '{f.ws_a}') <> 1 THEN "
+            "RAISE EXCEPTION 'coordenador deve ver os responsaveis da propria unidade'; END IF;"
+        ))
 
     def _coord_nao_escreve(self):
         f = self.fx
@@ -288,14 +304,28 @@ class BehavioralPatrimonio:
 
     def _coord_escopo(self):
         f = self.fx
-        rows = self._as(f.p_coord, f"SELECT id FROM public.assets WHERE workspace_id = '{f.ws_b}'")
-        assert rows == [], "coordenador não pode consultar unidade fora do escopo"
+        self._as_assert(f.p_coord, (
+            f"IF EXISTS (SELECT 1 FROM public.assets WHERE workspace_id = '{f.ws_b}') THEN "
+            "RAISE EXCEPTION 'coordenador viu ativo de outra unidade'; END IF; "
+            f"IF EXISTS (SELECT 1 FROM public.asset_movements WHERE workspace_id = '{f.ws_b}') THEN "
+            "RAISE EXCEPTION 'coordenador viu historico de outra unidade'; END IF; "
+            f"IF EXISTS (SELECT 1 FROM public.patrimonio_locations WHERE workspace_id = '{f.ws_b}') THEN "
+            "RAISE EXCEPTION 'coordenador viu local de outra unidade'; END IF; "
+            f"IF EXISTS (SELECT 1 FROM public.patrimonio_responsibles WHERE workspace_id = '{f.ws_b}') THEN "
+            "RAISE EXCEPTION 'coordenador viu responsavel de outra unidade'; END IF;"
+        ))
 
     def _sem_acesso_zero_dados(self):
         f = self.fx
         for pid in (f.p_vis, f.p_none):
-            rows = self._as(pid, f"SELECT id FROM public.assets WHERE workspace_id = '{f.ws_a}'")
-            assert rows == [], "sem patrimonio.view, leitura de dado patrimonial deve ser vazia"
+            self._as_assert(pid, (
+                f"IF EXISTS (SELECT 1 FROM public.assets WHERE workspace_id = '{f.ws_a}') THEN "
+                "RAISE EXCEPTION 'sem patrimonio.view, dado patrimonial NAO deveria ser visivel'; END IF; "
+                f"IF EXISTS (SELECT 1 FROM public.patrimonio_locations WHERE workspace_id = '{f.ws_a}') THEN "
+                "RAISE EXCEPTION 'sem patrimonio.view, locais NAO deveriam ser visiveis'; END IF; "
+                f"IF EXISTS (SELECT 1 FROM public.asset_movements WHERE workspace_id = '{f.ws_a}') THEN "
+                "RAISE EXCEPTION 'sem patrimonio.view, movimentos NAO deveriam ser visiveis'; END IF;"
+            ))
             self.expect_error(
                 lambda pid=pid: self._as(pid, (
                     "INSERT INTO public.assets (workspace_id, equipment_type, name) "
