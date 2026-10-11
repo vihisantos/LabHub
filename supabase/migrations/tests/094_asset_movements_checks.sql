@@ -59,7 +59,8 @@ BEGIN
     SELECT count(*) INTO v_count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='public'
       AND p.proname IN ('patrimonio_assets_guard','patrimonio_asset_created_history','patrimonio_apply_movement')
-      AND p.prosecdef AND p.prosrc LIKE '%search_path%';
+      AND p.prosecdef
+      AND EXISTS (SELECT 1 FROM unnest(p.proconfig) AS cfg WHERE cfg LIKE 'search_path%');
     IF v_count <> 3 THEN
         RAISE EXCEPTION 'FAIL: funções do patrimonio devem ser SECURITY DEFINER com search_path fixo (encontradas %/3)', v_count;
     END IF;

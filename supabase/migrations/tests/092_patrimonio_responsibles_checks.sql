@@ -26,11 +26,11 @@ BEGIN
         RAISE EXCEPTION 'FAIL: uniques parciais (profile_id/matricula) ausentes (encontradas %/2)', v_count;
     END IF;
 
-    -- FK de profile_id: única FK com ON DELETE SET NULL na tabela (auto-diagnóstico)
+    -- FK de profile_id: única FK com ON DELETE SET NULL ('n' = SET NULL no catálogo)
     SELECT count(*) INTO v_count
     FROM pg_constraint
     WHERE conrelid = 'public.patrimonio_responsibles'::regclass
-      AND contype = 'f' AND confdeltype = 's'
+      AND contype = 'f' AND confdeltype = 'n'
       AND pg_get_constraintdef(oid) LIKE '%profiles%';
     IF v_count <> 1 THEN
         SELECT string_agg(conname || '=' || confdeltype::text, ', ') INTO v_text

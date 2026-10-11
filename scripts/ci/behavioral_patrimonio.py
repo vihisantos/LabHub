@@ -87,15 +87,28 @@ class BehavioralPatrimonio:
     def _as(self, profile_id: str, sql: str):
         """Executa `sql` como uma sessão autenticada do perfil informado.
 
-        Cada `query()` abre conexão NOVA (autocommit): `SET ROLE` e
-        `set_config` vivem só dentro desta chamada e morrem com a conexão —
-        não há vazamento de identidade entre checks. O ÚLTIMO statement é o
-        do chamador, então é o resultset devolvido.
+        Cada `query()` abre conexão NOVA (autocommit): `SET ROLE` e os GUCs
+        vivem só dentro desta chamada e morrem com a conexão — não há
+        vazamento de identidade entre checks.
+
+        O setup roda num `DO` block (nenhum resultset) e `SET ROLE` também
+        não produz resultset — assim o ÚNICO resultset do script é o do
+        próprio `sql` do chamador (psycopg lê um único resultset por
+        execute multi-statement; um `SELECT set_config(...)` antes viraria a
+        resposta lida e corromperia as asserções).
+
+        GUCs no formato do stub do CI (`supabase_stub_bootstrap.sql`):
+        `auth.uid()` lê `request.jwt.claim.sub` — NÃO o JSON `request.jwt.claims`.
         """
-        claims = json.dumps({"sub": profile_id}).replace("'", "''")
+        sub = str(profile_id).replace("'", "''")
         return self.q(
-            f"SELECT set_config('request.jwt.claims', '{claims}', false); "
-            f"SET ROLE authenticated; "
+            "DO $$ BEGIN "
+            f"PERFORM set_config('request.jwt.claim.sub', '{sub}', false); "
+            "PERFORM set_config('request.jwt.claim.role', 'authenticated', false); "
+            "PERFORM set_config('request.jwt.claims', "
+            f"json_build_object('sub', '{sub}', 'role', 'authenticated')::text, false); "
+            "END $$; "
+            "SET ROLE authenticated; "
             f"{sql};"
         )
 
@@ -217,7 +230,9 @@ class BehavioralPatrimonio:
     def _coord_le(self):
         f = self.fx
         rows = self._as(f.p_coord, f"SELECT id FROM public.assets WHERE workspace_id = '{f.ws_a}'")
-        assert len(rows) == 1, "coordenador deve consultar a própria unidade"
+        assert [str(r["id"]) for r in rows] == [f.asset_a], (
+            f"coordenador deve consultar exatamente o ativo da própria unidade (viu: {rows})"
+        )
         self._as(f.p_coord, f"SELECT id FROM public.asset_movements WHERE workspace_id = '{f.ws_a}'")
         self._as(f.p_coord, f"SELECT id FROM public.patrimonio_locations WHERE workspace_id = '{f.ws_a}'")
         self._as(f.p_coord, f"SELECT id FROM public.patrimonio_responsibles WHERE workspace_id = '{f.ws_a}'")
@@ -278,6 +293,7 @@ class BehavioralPatrimonio:
 
     def _bypasses_bloqueados(self):
         f = self.fx
+        assert f.asset_a is not None, "fixture do ativo A ausente (falha em cascata do check A)"
 
         # campo quente via UPDATE direto (guarda pg_trigger_depth)
         self.expect_error(
