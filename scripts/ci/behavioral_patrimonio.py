@@ -147,7 +147,8 @@ class BehavioralPatrimonio:
             q(
                 f"INSERT INTO public.profiles (id, email, name, status, is_super_admin, created_at, updated_at) "
                 f"VALUES ('{uid}', '{email}', 'CI 091', 'active', {str(super_admin).lower()}, now(), now()) "
-                f"ON CONFLICT (id) DO UPDATE SET status = 'active', updated_at = now()"
+                f"ON CONFLICT (id) DO UPDATE SET status = 'active', is_super_admin = EXCLUDED.is_super_admin, "
+                f"updated_at = now()"
             )
 
         for pid, suffix in (
@@ -229,6 +230,19 @@ class BehavioralPatrimonio:
 
     def _coord_le(self):
         f = self.fx
+        diag = self._as(f.p_coord, (
+            f"SELECT auth.uid() AS uid, "
+            f"public.user_has_action('{f.ws_a}', 'patrimonio.view') AS can_view, "
+            f"(SELECT count(*)::int FROM public.role_permissions rp JOIN public.roles r ON r.id = rp.role_id "
+            f"WHERE r.slug = 'coordinator' AND rp.action LIKE 'patrimonio.%') AS coord_seeds, "
+            f"(SELECT m.status FROM public.memberships m WHERE m.profile_id = auth.uid() "
+            f"AND m.workspace_id = '{f.ws_a}') AS membership_status"
+        ))[0]
+        print(f"[patrimonio][diag B] uid={diag['uid']} can_view={diag['can_view']} "
+              f"coord_seeds={diag['coord_seeds']} membership={diag['membership_status']}", flush=True)
+        assert str(diag["uid"]) == f.p_coord, "auth.uid() da sessão não é o coordenador"
+        assert diag["can_view"] is True, "user_has_action(view) deveria ser true para o coordenador"
+
         rows = self._as(f.p_coord, f"SELECT id FROM public.assets WHERE workspace_id = '{f.ws_a}'")
         assert [str(r["id"]) for r in rows] == [f.asset_a], (
             f"coordenador deve consultar exatamente o ativo da própria unidade (viu: {rows})"
@@ -291,28 +305,32 @@ class BehavioralPatrimonio:
                 'row-level security policy for table "assets"',
             )
 
-    def _bypasses_bloqueados(self):
+    # -- bypasses (cada um com nome próprio no log) ------------------------------
+    def _g_guarda_campo_quente(self):
         f = self.fx
-        assert f.asset_a is not None, "fixture do ativo A ausente (falha em cascata do check A)"
-
-        # campo quente via UPDATE direto (guarda pg_trigger_depth)
         self.expect_error(
             lambda: self._as(f.p_tec, f"UPDATE public.assets SET status = 'baixado' WHERE id = '{f.asset_a}'"),
             "asset_movements",
         )
-        # workspace do ativo é imutável
+
+    def _g_workspace_imutavel(self):
+        f = self.fx
         self.expect_error(
             lambda: self.q(f"UPDATE public.assets SET workspace_id = '{f.ws_b}' WHERE id = '{f.asset_a}'"),
             "imutavel",
         )
-        # criacao forjada
+
+    def _g_criacao_forjada(self):
+        f = self.fx
         self.expect_error(
             lambda: self._as(f.p_tec, (
                 f"INSERT INTO public.asset_movements (workspace_id, asset_id, type) "
                 f"VALUES ('{f.ws_a}', '{f.asset_a}', 'criacao')")),
             "gerado automaticamente",
         )
-        # movimento cross-workspace (local de B para ativo de A)
+
+    def _g_cross_workspace(self):
+        f = self.fx
         loc_b = self.q(
             "INSERT INTO public.patrimonio_locations (workspace_id, nome) "
             f"VALUES ('{f.ws_b}', 'Lab B') RETURNING id"
@@ -323,7 +341,9 @@ class BehavioralPatrimonio:
                 f"VALUES ('{f.ws_a}', '{f.asset_a}', 'transferencia', '{loc_b}', 'em_transito')")),
             "outra unidade",
         )
-        # empréstimo duplo / devolução sem empréstimo
+
+    def _g_ciclo_emprestimo(self):
+        f = self.fx
         self._as(f.p_tec, (
             f"INSERT INTO public.asset_movements (workspace_id, asset_id, type, to_responsible_id, expected_return_at) "
             f"VALUES ('{f.ws_a}', '{f.asset_a}', 'emprestimo', '{f.resp_a}', now() + interval '7 days')"
@@ -346,7 +366,9 @@ class BehavioralPatrimonio:
             f"INSERT INTO public.asset_movements (workspace_id, asset_id, type) "
             f"VALUES ('{f.ws_a}', '{f.asset_a}', 'devolucao')"
         ))
-        # ativo baixado é terminal
+
+    def _g_baixa_terminal(self):
+        f = self.fx
         self._as(f.p_tec, (
             f"INSERT INTO public.asset_movements (workspace_id, asset_id, type) "
             f"VALUES ('{f.ws_a}', '{f.asset_a}', 'baixa')"
@@ -357,22 +379,33 @@ class BehavioralPatrimonio:
                 f"VALUES ('{f.ws_a}', '{f.asset_a}', 'inventario', 'nao_localizado')")),
             "terminal",
         )
-        # histórico append-only: nem tec nem postgres-owner-role do app reescreve
+
+    def _g_append_only(self):
+        f = self.fx
         self.expect_error(
             lambda: self._as(f.p_tec, (
                 f"UPDATE public.asset_movements SET note = 'rewrite' WHERE asset_id = '{f.asset_a}'")),
             "permission denied",
         )
-        # anon sem nada
+        self.expect_error(
+            lambda: self._as(f.p_tec, (
+                f"DELETE FROM public.asset_movements WHERE asset_id = '{f.asset_a}'")),
+            "permission denied",
+        )
+
+    def _g_anon(self):
         self.expect_error(
             lambda: self.q("SET ROLE anon; SELECT id FROM public.assets LIMIT 1; RESET ROLE;"),
             "permission denied",
         )
-        # local em uso não pode ser apagado (RESTRICT fecha bypass via FK)
+
+    def _g_local_em_uso(self):
+        f = self.fx
         self.expect_error(
             lambda: self.q(f"DELETE FROM public.patrimonio_locations WHERE id = '{f.loc_a}'"),
             "violates foreign key",
         )
+
 
     def _superadmin_global(self):
         f = self.fx
@@ -405,13 +438,21 @@ class BehavioralPatrimonio:
             "INSERT INTO public.assets (workspace_id, equipment_type, name, status) "
             f"VALUES ('{f.ws_b}', 'Projetor', 'Projetor B', 'disponivel') RETURNING id"
         )[0]["id"]
-
-        self.check("A. tec executa operações (local, responsável, ativo+movement, edição, ciclo)", self._tec_operacoes)
+        self.check("A. tec executa operações (local, responsável, ativo+movement, edição, ciclo)", 
+self._tec_operacoes)
         self.check("B. coordinator consulta ativos/histórico/locais/responsáveis da unidade", self._coord_le)
         self.check("C. coordinator não escreve (ativo, movimento, local, responsável)", self._coord_nao_escreve)
         self.check("D. coordinator não vê unidade fora do escopo", self._coord_escopo)
         self.check("E/F. vis e sem-membership: zero dados e escrita bloqueada", self._sem_acesso_zero_dados)
-        self.check("G. bypasses diretos bloqueados (guarda, workspace, criacao, cross-ws, ciclo, append-only, anon)", self._bypasses_bloqueados)
+        self.check("G1. guarda: campo quente via UPDATE direto é bloqueado", self._g_guarda_campo_quente)
+        self.check("G2. workspace_id do ativo é imutável", self._g_workspace_imutavel)
+        self.check("G3. movimento criacao forjado é bloqueado", self._g_criacao_forjada)
+        self.check("G4. movimento cross-workspace é bloqueado", self._g_cross_workspace)
+        self.check("G5. ciclo de empréstimo sem estados contraditórios", self._g_ciclo_emprestimo)
+        self.check("G6. baixa é terminal", self._g_baixa_terminal)
+        self.check("G7. histórico append-only (sem UPDATE/DELETE)", self._g_append_only)
+        self.check("G8. anon não acessa nada", self._g_anon)
+        self.check("G9. local em uso não pode ser apagado (RESTRICT)", self._g_local_em_uso)
         self.check("H. superadmin preserva mecanismo global (lê/escreve, não reescreve histórico)", self._superadmin_global)
 
         passed = len([r for r in self.results if r[1]])
