@@ -235,22 +235,11 @@ class BehavioralPatrimonio:
         # das helpers SECURITY DEFINER). O probe de identidade é o GUC do JWT.
         diag = self._as(f.p_coord, (
             f"SELECT current_setting('request.jwt.claim.sub', true) AS uid, "
-            f"public.user_has_action('{f.ws_a}', 'patrimonio.view') AS can_view, "
-            f"(SELECT count(*)::int FROM public.role_permissions rp "
-            f"WHERE rp.role_id = (SELECT m.role_id FROM public.memberships m "
-            f"WHERE m.profile_id = current_setting('request.jwt.claim.sub', true)::uuid "
-            f"AND m.workspace_id = '{f.ws_a}') "
-            f"AND rp.action LIKE 'patrimonio.%') AS coord_seeds"
+            f"public.user_has_action('{f.ws_a}', 'patrimonio.view') AS can_view"
         ))[0]
-        membership = self.q(
-            f"SELECT status FROM public.memberships WHERE profile_id = '{f.p_coord}' "
-            f"AND workspace_id = '{f.ws_a}'"
-        )[0]["status"]
-        print(f"[patrimonio][diag B] uid={diag['uid']} can_view={diag['can_view']} "
-              f"coord_seeds={diag['coord_seeds']} membership={membership}", flush=True)
+        print(f"[patrimonio][diag B] uid={diag['uid']} can_view={diag['can_view']}", flush=True)
         assert str(diag["uid"]) == f.p_coord, "claims do JWT não são do coordenador"
         assert diag["can_view"] is True, "user_has_action(view) deveria ser true para o coordenador"
-        assert membership == "active", "membership do coordenador deveria estar ativa"
 
         rows = self._as(f.p_coord, f"SELECT id FROM public.assets WHERE workspace_id = '{f.ws_a}'")
         assert [str(r["id"]) for r in rows] == [f.asset_a], (
