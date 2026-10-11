@@ -236,8 +236,11 @@ class BehavioralPatrimonio:
         diag = self._as(f.p_coord, (
             f"SELECT current_setting('request.jwt.claim.sub', true) AS uid, "
             f"public.user_has_action('{f.ws_a}', 'patrimonio.view') AS can_view, "
-            f"(SELECT count(*)::int FROM public.role_permissions rp JOIN public.roles r ON r.id = rp.role_id "
-            f"WHERE r.slug = 'coordinator' AND rp.action LIKE 'patrimonio.%') AS coord_seeds"
+            f"(SELECT count(*)::int FROM public.role_permissions rp "
+            f"WHERE rp.role_id = (SELECT m.role_id FROM public.memberships m "
+            f"WHERE m.profile_id = current_setting('request.jwt.claim.sub', true)::uuid "
+            f"AND m.workspace_id = '{f.ws_a}') "
+            f"AND rp.action LIKE 'patrimonio.%') AS coord_seeds"
         ))[0]
         membership = self.q(
             f"SELECT status FROM public.memberships WHERE profile_id = '{f.p_coord}' "
