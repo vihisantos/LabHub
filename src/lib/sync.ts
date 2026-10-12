@@ -442,6 +442,21 @@ export function retrySyncCollection(collection: string) {
   }
 }
 
+/**
+ * Recupera TODAS as coleções bloqueadas por falha de autorização (auth).
+ * Remove os bloqueios e limpa o estado de retry/tentativas de exclusão
+ * para que o próximo ciclo tente sincronizar novamente.
+ * Não apaga dados locais (dirty, tombstones).
+ */
+export function retryBlockedCollections(): string[] {
+  const blockers = getSyncBlockers()
+  const blockedCollections = Object.keys(blockers)
+  for (const collection of blockedCollections) {
+    retrySyncCollection(collection)
+  }
+  return blockedCollections
+}
+
 async function getSessionUserId(db: NonNullable<typeof pcareDb>): Promise<string | null> {
   try {
     const { data } = await db.auth.getSession()

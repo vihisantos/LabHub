@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
-import { syncAll, getPendingChanges, getSyncLog, getLastSyncedAt, type SyncLogEntry } from './sync'
+import { syncAll, getPendingChanges, getSyncLog, getLastSyncedAt, type SyncLogEntry, retryBlockedCollections } from './sync'
 
 /**
  * Runtime de sincronização COMPARTILHADO por todos os consumidores de
@@ -158,6 +158,15 @@ export function useOnlineSync() {
     notify()
   }, [])
 
+  const retryBlocked = useCallback(async () => {
+    const blockedCollections = retryBlockedCollections()
+    if (blockedCollections.length > 0) {
+      // Trigger a sync after clearing the blockers
+      await runSync()
+    }
+    return blockedCollections
+  }, [])
+
   // Sync no mount de cada consumidor — o single-flight deduplica execuções
   // simultâneas (várias instâncias montando juntas, StrictMode, remounts).
   useEffect(() => {
@@ -184,6 +193,7 @@ export function useOnlineSync() {
     pendingChanges: pendingState,
     syncLog: syncLogState,
     refreshLog,
+    retryBlocked,
   }
 }
 
