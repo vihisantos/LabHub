@@ -17,7 +17,6 @@ AS $$
 DECLARE
   v_horario_fim timestamptz;
   v_workspace_id uuid;
-  v_can_update boolean;
 BEGIN
   -- Busca horario_fim e workspace_id da reserva ANTES da atualização (OLD)
   SELECT horario_fim, workspace_id
@@ -30,16 +29,14 @@ BEGIN
   END IF;
 
   -- Regra temporal: se horario_fim já passou, NEGA a atualização
-  -- Usa now() AT TIME ZONE 'UTC' para comparar com horario_fim (timestamptz)
-  IF v_horario_fim <= now() AT TIME ZONE 'UTC' THEN
+  -- Usa now() diretamente (timestamptz) para comparar com horario_fim (timestamptz)
+  IF v_horario_fim <= now() THEN
     RETURN false;
   END IF;
 
   -- Verifica permissão RBAC 2.0 via função existente
   -- Passa o workspace_id já obtido (evita query extra)
-  v_can_update := public.user_can_cancel_tablet_reservation(v_workspace_id);
-
-  RETURN COALESCE(v_can_update, false);
+  RETURN public.user_can_cancel_tablet_reservation(v_workspace_id);
 END;
 $$;
 
