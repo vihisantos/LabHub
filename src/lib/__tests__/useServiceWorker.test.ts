@@ -8,11 +8,20 @@ import {
   onReloadBlocked,
   applyPendingUpdate,
   useReloadBlocker,
-  __resetStateForTesting,
-  __setUpdateAvailableForTesting,
   getUpdateAvailable,
   type BlockId,
 } from '../useServiceWorker'
+
+// Test-only utilities (attached to globalThis in test environment)
+const testUtils = (globalThis as any).__testUtils
+
+function __resetStateForTesting(): void {
+  testUtils?.__resetStateForTesting?.()
+}
+
+function __setUpdateAvailableForTesting(available: boolean): void {
+  testUtils?.__setUpdateAvailableForTesting?.(available)
+}
 
 beforeEach(() => {
   vi.useFakeTimers()

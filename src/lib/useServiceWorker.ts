@@ -25,7 +25,7 @@ function notifyUpdateAvailable(v: boolean) {
 }
 
 /** Reset module-level state (for testing only) */
-export function __resetStateForTesting(): void {
+function __resetStateForTesting(): void {
   _updateAvailable = false
   _listeners.length = 0
   _activeBlocks.clear()
@@ -34,8 +34,21 @@ export function __resetStateForTesting(): void {
 }
 
 /** Set update available state for testing only */
-export function __setUpdateAvailableForTesting(available: boolean): void {
+function __setUpdateAvailableForTesting(available: boolean): void {
   _updateAvailable = available
+}
+
+// Test-only utilities (attached to globalThis in test environment)
+const testUtils = {
+  __resetStateForTesting,
+  __setUpdateAvailableForTesting
+}
+
+// Attach to globalThis in test environment for test access
+if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+  if (typeof globalThis !== 'undefined') {
+    (globalThis as any).__testUtils = testUtils
+  }
 }
 
 /* ── Module-level reload blocking for unsaved changes ── */
