@@ -56,6 +56,19 @@ function isoToTimeInput(iso: string): string {
   return `${String(d.getHours()).padStart(2, '0')}h${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/**
+ * Verifica se uma reserva de tablet pode ser editada.
+ * Regra de negócio: uma reserva pode ser editada enquanto horario_fim não passou.
+ * @param horario_fim - ISO string do horário de fim da reserva
+ * @returns true se a reserva pode ser editada (horario_fim ainda não passou)
+ */
+export function isTabletReservaEditable(horario_fim: string): boolean {
+  if (!horario_fim) return false
+  const fim = new Date(horario_fim).getTime()
+  if (isNaN(fim)) return false
+  return fim > Date.now()
+}
+
 export function TabletsView() {
   const isMobile = useIsMobile()
   const [reservas, setReservas] = useState<TabletReserva[]>([])
@@ -614,6 +627,8 @@ function ReservationRow({
   canCancel: boolean
   canEdit: boolean
 }) {
+  const isEditable = canEdit && isTabletReservaEditable(reservation.horario_fim)
+
   return (
     <div
       data-testid="reservation-row"
@@ -647,7 +662,7 @@ function ReservationRow({
         </div>
       </div>
       <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-        {canEdit && (
+        {isEditable && (
           <button
             onClick={() => onEdit(reservation)}
             title="Editar reserva"

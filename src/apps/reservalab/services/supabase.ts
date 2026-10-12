@@ -17,13 +17,26 @@ export const supabase = client
 /** Inventário de tablets do workspace — usado na validação de capacidade. */
 export const TABLET_INVENTORY = 50
 
+/**
+ * Busca reservas de tablets ativas no intervalo [desde, ate].
+ * 
+ * Por padrão, busca todas as reservas futuras (até 90 dias à frente) quando `ate` não é fornecido.
+ * Isso garante que reservas futuras além de 7 dias sejam visíveis na interface.
+ * 
+ * @param desde - Data inicial (inclusive). Default: hoje à meia-noite.
+ * @param ate - Data final (exclusiva). Default: 90 dias a partir de `desde`.
+ * @param workspaceId - ID do workspace. Default: workspace ativo no store.
+ * @returns Array de reservas de tablets ativas ordenadas por horario_inicio.
+ */
 export async function fetchTabletReservas(desde?: Date, ate?: Date, workspaceId?: string): Promise<TabletReserva[]> {
   if (!supabase) return []
 
   const hoje = desde || new Date()
   hoje.setHours(0, 0, 0, 0)
+  
+  // Default: buscar 90 dias à frente (em vez de 7) para garantir visibilidade de reservas futuras
   const limite = ate || new Date(hoje)
-  if (!ate) limite.setDate(limite.getDate() + 7)
+  if (!ate) limite.setDate(limite.getDate() + 90)
 
   const wsId = workspaceId || workspaceStore.activeWorkspaceId
   if (!wsId) return []
