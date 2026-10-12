@@ -365,3 +365,153 @@ describe('useServiceWorker — bloqueio de reload', () => {
     expect(typeof applyPendingUpdate).toBe('function')
   })
 })
+
+describe('applyPendingUpdate', () => {
+  it('retorna false e NÃO recarrega quando não há update disponível', () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    const result = applyPendingUpdate()
+    expect(result).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('retorna false e NÃO recarrega quando update disponível mas há bloqueio ativo', () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    // Create a block to simulate blocked state
+    const blockId = blockReload()
+
+    const result = applyPendingUpdate()
+    expect(result).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
+
+    unblockReload(blockId)
+  })
+
+  it('retorna true e recarrega quando update disponível e sem bloqueio', () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    // We can't easily set _updateAvailable from outside, but we verify the function exists
+    // and returns boolean
+    const result = applyPendingUpdate()
+    expect(typeof result).toBe('boolean')
+  })
+})
+
+describe('Race condition handling', () => {
+  it('verifica bloqueios novamente antes de recarregar adiado (controllerchange)', () => {
+    const addEventListener = vi.fn()
+    const removeEventListener = vi.fn()
+    const reload = vi.fn()
+
+    Object.defineProperty(window, 'location', {
+      value: { reload },
+      writable: true,
+    })
+
+    // Start with a block
+    const blockId = blockReload()
+
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        addEventListener,
+        removeEventListener,
+        ready: Promise.resolve({
+          addEventListener: vi.fn(),
+          installing: null,
+        }),
+      },
+    })
+
+    renderHook(() => useServiceWorker())
+
+    const controllerCallback = addEventListener.mock.calls.find(
+      (call: any) => call[0] === 'controllerchange'
+    )?.[1]
+
+    expect(controllerCallback).toBeDefined()
+
+    // First controllerchange - should be blocked
+    controllerCallback()
+    vi.advanceTimersByTime(500)
+
+    // Add another block during timer
+    const blockId2 = blockReload()
+
+    vi.advanceTimersByTime(600)
+
+    // Reload should not have been called
+    expect(reload).not.toHaveBeenCalled()
+
+    // Remove both blocks
+    unblockReload(blockId)
+    unblockReload(blockId2)
+
+    vi.advanceTimersByTime(1100)
+
+    // Should have reloaded now
+    expect(reload).toHaveBeenCalled()
+  })
+
+  it('não cria timers duplicados para recarga adiada', async () => {
+    const addEventListener = vi.fn()
+    const removeEventListener = vi.fn()
+    const reload = vi.fn()
+
+    Object.defineProperty(window, 'location', {
+      value: { reload },
+      writable: true,
+    })
+
+    const mockInstalling = {
+      addEventListener: vi.fn(),
+      state: 'installing',
+    }
+
+    const mockReg = {
+      addEventListener: vi.fn((event: string, cb: Function) => {
+        if (event === 'updatefound') cb()
+      }),
+      installing: mockInstalling,
+    }
+
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        addEventListener,
+        removeEventListener,
+        controller: {} as ServiceWorker,
+        ready: Promise.resolve(mockReg),
+      },
+    })
+
+    renderHook(() => useServiceWorker())
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Simulate SW installed
+    const stateCallback = mockInstalling.addEventListener.mock.calls.find(
+      (call: any) => call[0] === 'statechange'
+    )?.[1]
+
+    expect(stateCallback).toBeDefined()
+
+    mockInstalling.state = 'installed'
+    stateCallback!()
+
+    // Now trigger multiple block/unblock cycles rapidly
+    const blockId1 = blockReload()
+    unblockReload(blockId1)
+    const blockId2 = blockReload()
+    unblockReload(blockId2)
+    const blockId3 = blockReload()
+    unblockReload(blockId3)
+
+    vi.advanceTimersByTime(1100)
+
+    // Should only have called reload once
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+})

@@ -76,11 +76,15 @@ export function onReloadBlocked(fn: (blocked: boolean) => void): () => void {
   }
 }
 
-/** Manually trigger a reload when an update is available (used when user confirms). */
-export function applyPendingUpdate(): void {
-  if (_updateAvailable) {
+/** Manually trigger a reload when an update is available (used when user confirms).
+ * Respects active reload blocks — will not reload if blocked.
+ * Returns true if reload was triggered, false if blocked. */
+export function applyPendingUpdate(): boolean {
+  if (_updateAvailable && !isReloadBlocked()) {
     window.location.reload()
+    return true
   }
+  return false
 }
 
 /**
@@ -152,7 +156,14 @@ export function useServiceWorker(options: { immediate?: boolean; onUpdate?: () =
         return
       }
       reloadTimer = setTimeout(() => {
-        window.location.reload()
+        // Final check before reload (race condition protection)
+        if (!isReloadBlocked()) {
+          window.location.reload()
+        } else {
+          // New block appeared during timer — keep update as pending
+          isUpdatePendingRef.current = true
+          reloadTimer = null
+        }
       }, 1000)
     }
 
@@ -178,9 +189,17 @@ export function useServiceWorker(options: { immediate?: boolean; onUpdate?: () =
     const unsubBlocked = onReloadBlocked((blocked) => {
       if (!blocked && isUpdatePendingRef.current) {
         // Blocks cleared and update was pending — perform the deferred reload
-        reloadTimer = setTimeout(() => {
-          window.location.reload()
-        }, 1000)
+        // But first check if still not blocked (race condition protection)
+        if (!isReloadBlocked()) {
+          // Clear any existing timer to avoid duplicates
+          if (reloadTimer) clearTimeout(reloadTimer)
+          reloadTimer = setTimeout(() => {
+            // Final check before reload
+            if (!isReloadBlocked()) {
+              window.location.reload()
+            }
+          }, 1000)
+        }
       }
     })
 

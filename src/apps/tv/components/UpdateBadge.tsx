@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { RefreshCw, Loader2 } from 'lucide-react'
-import { getUpdateAvailable, onUpdateAvailable, isReloadBlocked, onReloadBlocked, applyPendingUpdate } from '../../../lib/useServiceWorker'
+import { Loader2, AlertCircle } from 'lucide-react'
+import { getUpdateAvailable, onUpdateAvailable, isReloadBlocked, onReloadBlocked } from '../../../lib/useServiceWorker'
 
 const BADGE_DISPLAY_MS = 8000
 
@@ -52,13 +52,12 @@ export function UpdateBadge() {
           fontSize: '0.8rem',
           fontWeight: 600,
           animation: 'update-badge-in 0.3s ease-out',
-          cursor: 'pointer',
+          cursor: 'default',
         }}
-        onClick={applyPendingUpdate}
-        title="Clique para recarregar e aplicar a nova versão"
+        title="Complete ou descarte suas alterações antes de atualizar"
       >
-        <RefreshCw size={14} />
-        <span>Nova versão disponível — clique para atualizar</span>
+        <AlertCircle size={14} />
+        <span>Nova versão disponível — complete suas alterações para atualizar</span>
       </div>
     )
   }
