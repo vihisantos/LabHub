@@ -195,8 +195,9 @@ export function MovementFormModal({
       return
     }
     setLockedWorkspaceId(workspaceId)
-    setForm(EMPTY)
-    initialFormRef.current = EMPTY
+    const initialForm = { ...EMPTY, to_status: getDefaultStatusForType(EMPTY.type, asset.status) }
+    setForm(initialForm)
+    initialFormRef.current = initialForm
     setServerError(null)
     setSubmitting(false)
     busyRef.current = false
