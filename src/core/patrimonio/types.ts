@@ -23,6 +23,8 @@
  * banco. Qualquer divergência é bug.
  */
 
+import type { PatrimonioError } from './errors'
+
 // ---------------------------------------------------------------------------
 // Enums reais do banco (CHECK constraints)
 // ---------------------------------------------------------------------------
@@ -206,6 +208,20 @@ export interface AssetMovement {
   source: AssetMovementSource
   import_batch_id: string | null
   created_at: string
+}
+
+/**
+ * Diretórios de referência da unidade: locais e responsáveis.
+ * Usado para resolver IDs em rótulos legíveis.
+ */
+export interface PatrimonioReferences {
+  locations: PatrimonioLocation[]
+  responsibles: PatrimonioResponsible[]
+  loading: boolean
+  error: PatrimonioError | null
+  locationLabel: (id: string | null) => string | null
+  responsibleLabel: (id: string | null) => string | null
+  reload: () => void
 }
 
 // ---------------------------------------------------------------------------
