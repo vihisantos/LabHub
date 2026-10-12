@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 
 /* ── Module-level update-available signal ── */
 type UpdateListener = (available: boolean) => void
@@ -24,6 +24,100 @@ function notifyUpdateAvailable(v: boolean) {
   _listeners.forEach((fn) => fn(v))
 }
 
+/** Reset module-level state (for testing only) */
+export function __resetStateForTesting(): void {
+  _updateAvailable = false
+  _listeners.length = 0
+  _activeBlocks.clear()
+  _blockListeners.length = 0
+  _blockCounter = 0
+}
+
+/* ── Module-level reload blocking for unsaved changes ── */
+export type BlockId = string & { readonly __brand: unique symbol }
+let _blockCounter = 0
+const _activeBlocks = new Set<BlockId>()
+const _blockListeners: Array<(blocked: boolean) => void> = []
+
+function notifyBlockedChange() {
+  const blocked = _activeBlocks.size > 0
+  _blockListeners.forEach((fn) => fn(blocked))
+}
+
+/**
+ * Register a blocking operation (e.g., unsaved form, critical request).
+ * Returns a unique block ID that must be passed to `unblockReload` to release.
+ */
+export function blockReload(): BlockId {
+  const id = `block_${++_blockCounter}_${Math.random().toString(36).slice(2)}` as BlockId
+  _activeBlocks.add(id)
+  notifyBlockedChange()
+  return id
+}
+
+/** Release a previously registered blocking operation. */
+export function unblockReload(id: BlockId): void {
+  if (_activeBlocks.delete(id)) {
+    notifyBlockedChange()
+  }
+}
+
+/** Check if there are any active blocks preventing auto-reload. */
+export function isReloadBlocked(): boolean {
+  return _activeBlocks.size > 0
+}
+
+/** Subscribe to reload-blocked state changes. */
+export function onReloadBlocked(fn: (blocked: boolean) => void): () => void {
+  _blockListeners.push(fn)
+  return () => {
+    const idx = _blockListeners.indexOf(fn)
+    if (idx >= 0) _blockListeners.splice(idx, 1)
+  }
+}
+
+/** Manually trigger a reload when an update is available (used when user confirms). */
+export function applyPendingUpdate(): void {
+  if (_updateAvailable) {
+    window.location.reload()
+  }
+}
+
+/**
+ * Hook to easily manage reload blocking for a component (e.g., a form).
+ * Returns { blockReload, unblockReload, isBlocked }.
+ */
+export function useReloadBlocker(): {
+  blockReload: () => BlockId
+  unblockReload: (id: BlockId) => void
+  isBlocked: boolean
+} {
+  const idRef = useRef<BlockId | null>(null)
+  const [isBlocked, setIsBlocked] = useState(false)
+
+  useEffect(() => {
+    // Initialize with current state
+    setIsBlocked(isReloadBlocked())
+    const unsub = onReloadBlocked(setIsBlocked)
+    return unsub
+  }, [])
+
+  const startBlock = useCallback(() => {
+    if (idRef.current) return idRef.current
+    const id = blockReload()
+    idRef.current = id
+    return id
+  }, [])
+
+  const endBlock = useCallback(() => {
+    if (!idRef.current) return
+    unblockReload(idRef.current)
+    idRef.current = null
+  }, [])
+
+  return { blockReload: startBlock, unblockReload: endBlock, isBlocked }
+}
+
 /**
  * Hook that monitors Service Worker updates and auto-reloads the page
  * when a new version is detected.
@@ -32,11 +126,16 @@ function notifyUpdateAvailable(v: boolean) {
  * after a new deployment. Instead of requiring Ctrl+F5, the hook:
  * 1. Listens for 'controllerchange' events (new SW takes over)
  * 2. Reloads the page to ensure fresh assets are used
+ *
+ * Auto-reload is deferred while there are active reload blocks
+ * (e.g., unsaved forms, critical operations in progress).
  */
 export function useServiceWorker(options: { immediate?: boolean; onUpdate?: () => void } = {}): void {
   const { immediate = false, onUpdate } = options
   const onUpdateRef = useRef(onUpdate)
   onUpdateRef.current = onUpdate
+
+  const isUpdatePendingRef = useRef(getUpdateAvailable())
 
   useEffect(() => {
     const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : null
@@ -47,6 +146,11 @@ export function useServiceWorker(options: { immediate?: boolean; onUpdate?: () =
     // When a new SW takes over, reload to get fresh assets
     const onControllerChange = () => {
       if (reloadTimer) return
+      if (isReloadBlocked()) {
+        // Update is available but reload is blocked — notify so UI can show action
+        isUpdatePendingRef.current = true
+        return
+      }
       reloadTimer = setTimeout(() => {
         window.location.reload()
       }, 1000)
@@ -63,16 +167,28 @@ export function useServiceWorker(options: { immediate?: boolean; onUpdate?: () =
         newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && sw.controller) {
             notifyUpdateAvailable(true)
+            isUpdatePendingRef.current = true
             onUpdateRef.current?.()
           }
         })
       })
     })
 
+    // Subscribe to reload-blocked changes to potentially trigger deferred reload
+    const unsubBlocked = onReloadBlocked((blocked) => {
+      if (!blocked && isUpdatePendingRef.current) {
+        // Blocks cleared and update was pending — perform the deferred reload
+        reloadTimer = setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      }
+    })
+
     return () => {
       // Reset state on cleanup
       notifyUpdateAvailable(false)
       sw.removeEventListener('controllerchange', onControllerChange)
+      unsubBlocked()
       if (reloadTimer) clearTimeout(reloadTimer)
     }
   }, [immediate])
