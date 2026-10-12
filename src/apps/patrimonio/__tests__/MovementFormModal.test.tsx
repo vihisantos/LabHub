@@ -97,6 +97,7 @@ describe('MovementFormModal', () => {
     expect(within(currentAssetSection!).getByText('Sala 101')).toBeInTheDocument()
     expect(within(currentAssetSection!).getByText('Fulano')).toBeInTheDocument()
     expect(within(currentAssetSection!).getByText('Em uso')).toBeInTheDocument()
+    expect(screen.getByLabelText('Status de destino')).toHaveValue('em_transito')
   })
 
   it('lista todos os tipos de movimentação registráveis', () => {
