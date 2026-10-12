@@ -8,6 +8,8 @@ import { InventoryList } from './pages/InventoryList'
 import { InventoryDetail } from './pages/InventoryDetail'
 import { StockEntryExit } from './pages/StockEntryExit'
 import { StockMaintenance } from './pages/StockMaintenance'
+import { StockEquipamentosListPage } from './pages/StockEquipamentosListPage'
+import { StockEquipamentoDetailPage } from './pages/StockEquipamentoDetailPage'
 import { stockNavPath, stockPrefix } from './utils/stockPath'
 
 /**
@@ -29,6 +31,8 @@ export function StockApp() {
         <Route index element={<StockDashboard />} />
         <Route path="items" element={<StockSectionPage />} />
         <Route path="items/:id" element={<StockDetail />} />
+        <Route path="equipamentos" element={<StockEquipamentosListPage />} />
+        <Route path="equipamentos/:id" element={<StockEquipamentoDetailPage />} />
         <Route path="movements" element={<MovementsPage />} />
         <Route path="inventory" element={<InventoryList />} />
         <Route path="inventory/:id" element={<InventoryDetail />} />

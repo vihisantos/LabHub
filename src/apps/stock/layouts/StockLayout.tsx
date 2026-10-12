@@ -18,7 +18,7 @@ function m(pathname: string) {
 }
 
 function mainRoute(pathname: string) {
-  return m(pathname) || p(pathname, '/items') || p(pathname, '/movements') || p(pathname, '/entry-exit')
+  return m(pathname) || p(pathname, '/items') || p(pathname, '/equipamentos') || p(pathname, '/movements') || p(pathname, '/entry-exit')
 }
 
 function isDetailPage(pathname: string) {
@@ -50,15 +50,19 @@ function StockPageTransition({ direction, children }: { direction: 'left' | 'rig
 
 function getPageTitle(pathname: string): string {
   if (m(pathname)) return 'Dashboard'
-  if (p(pathname, '/items')) return 'Estoque'
+  if (p(pathname, '/items')) return 'Materiais'
+  if (p(pathname, '/equipamentos')) return 'Equipamentos'
   if (p(pathname, '/movements')) return 'Movimentações'
   if (p(pathname, '/entry-exit')) return 'Entrada/Saída'
+  if (p(pathname, '/maintenance')) return 'Manutenções'
+  if (p(pathname, '/inventory')) return 'Inventários'
   return 'Estoque'
 }
 
 function getBackPath(pathname: string): string {
   const pre = stockPrefix(pathname)
   if (p(pathname, '/items')) return pre + '/items'
+  if (p(pathname, '/equipamentos')) return pre + '/equipamentos'
   if (p(pathname, '/inventory')) return pre + '/inventory'
   return pre
 }
@@ -70,6 +74,7 @@ function normalizeRoute(pathname: string): string {
 const ROUTE_ORDER: Record<string, number> = {
   '/stock': 0,
   '/stock/items': 10,
+  '/stock/equipamentos': 15,
   '/stock/entry-exit': 20,
   '/stock/movements': 30,
   '/stock/maintenance': 60,

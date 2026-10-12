@@ -195,15 +195,15 @@ describe('varredura de rotas — aba ativa', () => {
   it('Estoque: aba ativa correta em todas as rotas (incl. /general-stock)', () => {
     runSweep(<StockBottomNav />, [
       ['/stock', 'Dashboard'],
-      ['/stock/items', 'Estoque'],
-      ['/stock/items/i-1', 'Estoque'],
+      ['/stock/items', 'Materiais'],
+      ['/stock/items/i-1', 'Materiais'],
       ['/stock/entry-exit', 'Ent/Sai'],
       ['/stock/movements', 'Mov.'],
-      ['/stock/inventory', 'Dashboard'],
-      ['/stock/inventory/i-1', 'Dashboard'],
+      ['/stock/inventory', 'Invent.'],
+      ['/stock/inventory/i-1', 'Invent.'],
       ['/stock/maintenance', 'Manut.'],
       ['/general-stock', 'Dashboard'],
-      ['/general-stock/items', 'Estoque'],
+      ['/general-stock/items', 'Materiais'],
     ])
   })
 

@@ -13,6 +13,7 @@ import { useAssetDetail } from '../hooks/useAssetDetail'
 import { usePatrimonioReferences } from '../hooks/usePatrimonioReferences'
 import { AssetConditionBadge, AssetStatusBadge } from '../components/AssetBadges'
 import { AssetFormModal } from '../components/AssetFormModal'
+import { MovementFormModal } from '../components/MovementFormModal'
 import { MovementTimeline } from '../components/MovementTimeline'
 import { QueryError } from '../components/QueryError'
 import { formatDateTime } from '../utils/format'
@@ -22,9 +23,11 @@ export function AssetDetailPage() {
   const { workspace } = useWorkspace()
   const { allowed, loading: permLoading } = useCanAccessAction('patrimonio.view')
   const canEdit = useCanAccessAction('patrimonio.asset.edit')
+  const canMove = useCanAccessAction('patrimonio.asset.move')
   const workspaceId = workspace?.id ?? null
   const enabled = allowed && !!workspaceId
   const [formOpen, setFormOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
 
   const detail = useAssetDetail(id, workspaceId, enabled)
   const references = usePatrimonioReferences(workspaceId, enabled)
@@ -107,6 +110,17 @@ export function AssetDetailPage() {
                 Editar
               </button>
             )}
+            {canMove.allowed && !canMove.loading && (
+              <button
+                type="button"
+                onClick={() => setMoveOpen(true)}
+                className="mt-[-2px] flex items-center gap-1 rounded-lg bg-input px-2.5 py-1 text-[11px] font-medium text-fg-dim transition-colors hover:bg-input/80 hover:text-fg btn-interactive"
+                aria-label="Movimentar bem"
+              >
+                <icons.ui.chevronRight size={12} />
+                Movimentar
+              </button>
+            )}
             <AssetStatusBadge status={asset.status} />
             <AssetConditionBadge condition={asset.condition} />
           </div>
@@ -162,6 +176,14 @@ export function AssetDetailPage() {
         references={references}
         onClose={() => setFormOpen(false)}
         onSaved={() => detail.reloadAsset()}
+      />
+      <MovementFormModal
+        open={moveOpen}
+        workspaceId={workspaceId}
+        asset={asset}
+        references={references}
+        onClose={() => setMoveOpen(false)}
+        onSaved={() => detail.reloadMovements()}
       />
     </div>
   )
