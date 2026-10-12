@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import {
   ASSET_MOVEMENT_TYPE_LABELS,
   ASSET_STATUS_LABELS,
@@ -17,6 +17,7 @@ import {
 } from '../../../core/patrimonio'
 import type { PatrimonioReferences } from '../hooks/usePatrimonioReferences'
 import { Modal } from '../../pcare/components/Modal'
+import { useReloadBlocker } from '@/lib/useServiceWorker'
 
 type MovementType = (typeof REGISTRABLE_MOVEMENT_TYPES)[number]
 
@@ -150,6 +151,33 @@ export function MovementFormModal({
   const [lockedWorkspaceId, setLockedWorkspaceId] = useState<string | null>(null)
   const busyRef = useRef(false)
 
+  /* ── Bloqueio de reload enquanto houver alterações não salvas ── */
+  const { blockReload, unblockReload } = useReloadBlocker()
+
+  /* Formulário inicial para detectar alterações (dirty state). */
+  const initialFormRef = useRef<FormState>(EMPTY)
+  /* Armazena o ID do bloqueio ativo. */
+  const blockIdRef = useRef<ReturnType<typeof blockReload> | null>(null)
+
+  /* Detecta se o formulário está sujo (diferente do inicial). */
+  const isDirty = useMemo(() => {
+    if (!open) return false
+    const current = form
+    const initial = initialFormRef.current
+    return Object.keys(current).some((k) => current[k as keyof FormState] !== initial[k as keyof FormState])
+  }, [form, open])
+
+  /* Bloqueia/desbloqueia reload baseado no estado dirty. */
+  useEffect(() => {
+    if (isDirty && !blockIdRef.current) {
+      blockIdRef.current = blockReload()
+    } else if (!isDirty && blockIdRef.current) {
+      unblockReload(blockIdRef.current)
+      blockIdRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, blockReload, unblockReload])
+
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
@@ -160,14 +188,21 @@ export function MovementFormModal({
       busyRef.current = false
       setSubmitting(false)
       setServerError(null)
+      if (blockIdRef.current) {
+        unblockReload(blockIdRef.current)
+        blockIdRef.current = null
+      }
       return
     }
     setLockedWorkspaceId(workspaceId)
-    setForm({ ...EMPTY, to_status: getDefaultStatusForType(EMPTY.type, asset.status) })
+    const initialForm = { ...EMPTY, to_status: getDefaultStatusForType(EMPTY.type, asset.status) }
+    setForm(initialForm)
+    initialFormRef.current = initialForm
     setServerError(null)
     setSubmitting(false)
     busyRef.current = false
-  }, [open, asset.status])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const unlocked = open && !!lockedWorkspaceId && !!workspaceId
   const workspaceChanged = unlocked && workspaceId !== lockedWorkspaceId
@@ -256,6 +291,10 @@ export function MovementFormModal({
       } as AssetMovementInput
       const saved = await movementsRepository.register(input)
       onSaved(saved)
+      if (blockIdRef.current) {
+        unblockReload(blockIdRef.current)
+        blockIdRef.current = null
+      }
       onClose()
     } catch (err) {
       setServerError(toPatrimonioError(err))
@@ -267,6 +306,10 @@ export function MovementFormModal({
 
   function handleClose() {
     if (busyRef.current) return
+    if (blockIdRef.current) {
+      unblockReload(blockIdRef.current)
+      blockIdRef.current = null
+    }
     onClose()
   }
 

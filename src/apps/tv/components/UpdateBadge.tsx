@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
-import { getUpdateAvailable, onUpdateAvailable } from '../../../lib/useServiceWorker'
+import { Loader2, AlertCircle } from 'lucide-react'
+import { getUpdateAvailable, onUpdateAvailable, isReloadBlocked, onReloadBlocked } from '../../../lib/useServiceWorker'
 
 const BADGE_DISPLAY_MS = 8000
 
 export function UpdateBadge() {
   const [visible, setVisible] = useState(getUpdateAvailable())
+  const [isBlocked, setIsBlocked] = useState(isReloadBlocked())
 
   useEffect(() => {
     const unsub = onUpdateAvailable((available) => {
@@ -14,14 +15,52 @@ export function UpdateBadge() {
     return unsub
   }, [])
 
-  /* Auto-hide after a few seconds */
   useEffect(() => {
-    if (!visible) return
+    const unsub = onReloadBlocked((blocked) => {
+      setIsBlocked(blocked)
+    })
+    return unsub
+  }, [])
+
+  /* Auto-hide after a few seconds (only when not blocked) */
+  useEffect(() => {
+    if (!visible || isBlocked) return
     const timer = setTimeout(() => setVisible(false), BADGE_DISPLAY_MS)
     return () => clearTimeout(timer)
-  }, [visible])
+  }, [visible, isBlocked])
 
   if (!visible) return null
+
+  if (isBlocked) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          bottom: '6rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.5rem 1.25rem',
+          borderRadius: '9999px',
+          background: 'rgba(245, 158, 11, 0.15)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          backdropFilter: 'blur(8px)',
+          color: '#fbbf24',
+          fontSize: '0.8rem',
+          fontWeight: 600,
+          animation: 'update-badge-in 0.3s ease-out',
+          cursor: 'default',
+        }}
+        title="Complete ou descarte suas alterações antes de atualizar"
+      >
+        <AlertCircle size={14} />
+        <span>Nova versão disponível — complete suas alterações para atualizar</span>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -46,7 +85,7 @@ export function UpdateBadge() {
         pointerEvents: 'none',
       }}
     >
-      <RefreshCw size={14} style={{ animation: 'update-badge-spin 1s linear infinite' }} />
+      <Loader2 size={14} style={{ animation: 'update-badge-spin 1s linear infinite' }} />
       <span>Nova versão disponível — recarregando...</span>
     </div>
   )

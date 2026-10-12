@@ -5,6 +5,16 @@ import { precacheAndRoute } from 'workbox-precaching'
 // self.__WB_MANIFEST é substituído pelo plugin durante o build.
 precacheAndRoute(self.__WB_MANIFEST)
 
+// autoUpdate (vite-plugin-pwa) requer skipWaiting + clientsClaim no SW customizado.
+// Com injectManifest, o plugin NÃO injeta esses automaticamente (só no generateSW).
+self.addEventListener('install', () => {
+  self.skipWaiting()
+})
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim())
+})
+
 /* ------------------------------------------------------------------ */
 /*  Push Notifications                                                 */
 /* ------------------------------------------------------------------ */
