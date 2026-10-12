@@ -30,7 +30,13 @@ vi.mock('../hooks/usePatrimonioReferences', () => ({
     mockUseReferences(workspaceId, enabled),
 }))
 vi.mock('../components/AssetFormModal', () => ({
-  AssetFormModal: ({ open, onSaved }: { open: boolean; onSaved: (asset: unknown) => void }) =>
+  AssetFormModal: ({
+    open,
+    onSaved,
+  }: {
+    open: boolean
+    onSaved: (asset: unknown) => void
+  }) =>
     open ? (
       <button type="button" onClick={() => onSaved({ id: 'a-1' })}>
         stub-salvar
