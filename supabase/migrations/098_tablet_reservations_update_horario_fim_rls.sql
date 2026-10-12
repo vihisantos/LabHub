@@ -36,10 +36,8 @@ BEGIN
   END IF;
 
   -- Verifica permissão RBAC 2.0 via função existente
-  SELECT public.user_can_cancel_tablet_reservation(workspace_id)
-  INTO v_can_update
-  FROM public.tablet_reservations
-  WHERE id = reservation_id;
+  -- Passa o workspace_id já obtido (evita query extra)
+  v_can_update := public.user_can_cancel_tablet_reservation(v_workspace_id);
 
   RETURN COALESCE(v_can_update, false);
 END;
