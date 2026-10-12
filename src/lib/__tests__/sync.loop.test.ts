@@ -399,4 +399,43 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     expect(getCol('notifications')).toHaveLength(3)
     expect(getDirtyCollections()).toContain('notifications')
   })
+
+  // 9. Erro 406 (schema inválido) bloqueia a coleção e não entra em loop.
+  it('406 (schema inválido) bloqueia a coleção e não entra em loop', async () => {
+    const svc = notifService()
+    svc.create({ updatedAt: new Date().toISOString(), title: 'schema inválido' })
+
+    // Simula erro 406: schema inválido / não exposto
+    const err406 = {
+      code: 'PGRST106',
+      message: 'Invalid schema: pcare',
+      status: 406,
+    }
+    harness.state.select = () => {
+      throw err406
+    }
+
+    // 1º ciclo: a tentativa real acontece e FALHA como erro de configuração (auth).
+    await expect(syncSingle('notifications')).rejects.toMatchObject({ name: 'SyncError', kind: 'auth' })
+    expect(harness.calls('notifications', 'select')).toHaveLength(1)
+    expect(getDirtyCollections()).toContain('notifications')
+    expect(getSyncBlockers().notifications).toMatchObject({ kind: 'auth', code: 'PGRST106' })
+    expect(getSyncLog().at(-1)).toMatchObject({ collection: 'notifications', status: 'error' })
+
+    // 10 ciclos seguintes: NENHUMA nova requisição — o loop foi interrompido.
+    for (let i = 0; i < 10; i++) {
+      await expect(syncSingle('notifications')).rejects.toMatchObject({ kind: 'auth' })
+    }
+    expect(harness.calls('notifications', 'select')).toHaveLength(1)
+    expect(getDirtyCollections()).toContain('notifications')
+
+    // Recuperação explícita após corrigir o schema: volta a sincronizar
+    // e limpa o estado — sem perder a operação pendente.
+    harness.state.select = () => ({ data: [], error: null })
+    retrySyncCollection('notifications')
+    await expect(syncSingle('notifications')).resolves.toBeUndefined()
+    expect(harness.calls('notifications', 'select')).toHaveLength(2)
+    expect(getDirtyCollections()).not.toContain('notifications')
+    expect(getSyncBlockers().notifications).toBeUndefined()
+  })
 })
