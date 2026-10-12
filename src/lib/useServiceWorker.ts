@@ -33,6 +33,11 @@ export function __resetStateForTesting(): void {
   _blockCounter = 0
 }
 
+/** Set update available state for testing only */
+export function __setUpdateAvailableForTesting(available: boolean): void {
+  _updateAvailable = available
+}
+
 /* ── Module-level reload blocking for unsaved changes ── */
 export type BlockId = string & { readonly __brand: unique symbol }
 let _blockCounter = 0

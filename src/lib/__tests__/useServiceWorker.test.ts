@@ -9,6 +9,8 @@ import {
   applyPendingUpdate,
   useReloadBlocker,
   __resetStateForTesting,
+  __setUpdateAvailableForTesting,
+  getUpdateAvailable,
   type BlockId,
 } from '../useServiceWorker'
 
@@ -394,10 +396,26 @@ describe('applyPendingUpdate', () => {
     const reload = vi.fn()
     Object.defineProperty(window, 'location', { value: { reload }, writable: true })
 
-    // We can't easily set _updateAvailable from outside, but we verify the function exists
-    // and returns boolean
+    // Set update available via test helper
+    __setUpdateAvailableForTesting(true)
+
     const result = applyPendingUpdate()
-    expect(typeof result).toBe('boolean')
+    expect(result).toBe(true)
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('retorna false e NÃO recarrega quando update disponível mas bloqueio ativado depois', () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    __setUpdateAvailableForTesting(true)
+    const blockId = blockReload()
+
+    const result = applyPendingUpdate()
+    expect(result).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
+
+    unblockReload(blockId)
   })
 })
 
@@ -513,5 +531,196 @@ describe('Race condition handling', () => {
 
     // Should only have called reload once
     expect(reload).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('applyPendingUpdate — cenários completos', () => {
+  it('Cenário A: update disponível e sem bloqueios → recarrega exatamente uma vez', () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    __setUpdateAvailableForTesting(true)
+
+    const result = applyPendingUpdate()
+    expect(result).toBe(true)
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cenário B: update disponível com bloqueio ativo → não recarrega, retorna false', () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    __setUpdateAvailableForTesting(true)
+    const blockId = blockReload()
+
+    const result = applyPendingUpdate()
+    expect(result).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
+
+    // Verify block can be released
+    unblockReload(blockId)
+    expect(isReloadBlocked()).toBe(false)
+  })
+
+  it('Cenário C: nenhuma atualização disponível → não recarrega, retorna false', () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    // Ensure no update is available (reset state does this)
+    __setUpdateAvailableForTesting(false)
+
+    const result = applyPendingUpdate()
+    expect(result).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('Cenário D: atualização adiada — bloqueio ativo durante detecção, depois liberado', async () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    const blockId = blockReload()
+
+    const mockInstalling = {
+      addEventListener: vi.fn(),
+      state: 'installing',
+    }
+
+    const mockReg = {
+      addEventListener: vi.fn((event: string, cb: Function) => {
+        if (event === 'updatefound') cb()
+      }),
+      installing: mockInstalling,
+    }
+
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        controller: {} as ServiceWorker,
+        ready: Promise.resolve(mockReg),
+      },
+    })
+
+    renderHook(() => useServiceWorker())
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Simulate SW installed (update found)
+    const stateCallback = mockInstalling.addEventListener.mock.calls.find(
+      (call: any) => call[0] === 'statechange'
+    )?.[1]
+
+    expect(stateCallback).toBeDefined()
+
+    mockInstalling.state = 'installed'
+    stateCallback!()
+
+    // At this point update is pending but blocked
+    expect(reload).not.toHaveBeenCalled()
+
+    // Unblock - should trigger deferred reload
+    unblockReload(blockId)
+    vi.advanceTimersByTime(1100)
+
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cenário D: atualização adiada — novo bloqueio durante timer de recarga adiada', async () => {
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { value: { reload }, writable: true })
+
+    const mockInstalling = {
+      addEventListener: vi.fn(),
+      state: 'installing',
+    }
+
+    const mockReg = {
+      addEventListener: vi.fn((event: string, cb: Function) => {
+        if (event === 'updatefound') cb()
+      }),
+      installing: mockInstalling,
+    }
+
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        controller: {} as ServiceWorker,
+        ready: Promise.resolve(mockReg),
+      },
+    })
+
+    renderHook(() => useServiceWorker())
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Simulate SW installed
+    const stateCallback = mockInstalling.addEventListener.mock.calls.find(
+      (call: any) => call[0] === 'statechange'
+    )?.[1]
+
+    mockInstalling.state = 'installed'
+    stateCallback!()
+
+    // Now unblock to start deferred reload timer
+    // (no initial block, so timer should start)
+    vi.advanceTimersByTime(0)
+
+    // Add a block during the deferred reload timer
+    const blockId = blockReload()
+
+    vi.advanceTimersByTime(500)
+
+    // Reload should not have happened due to new block
+    expect(reload).not.toHaveBeenCalled()
+
+    // Remove block - should trigger new deferred reload
+    unblockReload(blockId)
+    vi.advanceTimersByTime(1100)
+
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Isolamento entre testes (Cenário E)', () => {
+  it('testes não herdam _updateAvailable de testes anteriores', () => {
+    // First set update available
+    __setUpdateAvailableForTesting(true)
+    expect(getUpdateAvailable()).toBe(true)
+
+    // Reset state (simulates beforeEach)
+    __resetStateForTesting()
+    expect(getUpdateAvailable()).toBe(false)
+  })
+
+  it('testes não herdam bloqueios de testes anteriores', () => {
+    blockReload()
+    expect(isReloadBlocked()).toBe(true)
+
+    __resetStateForTesting()
+    expect(isReloadBlocked()).toBe(false)
+  })
+
+  it('testes não herdam listeners de testes anteriores', () => {
+    const fn = vi.fn()
+    const unsub = onReloadBlocked(fn)
+
+    blockReload()
+    expect(fn).toHaveBeenCalledWith(true)
+
+    unsub()
+    __resetStateForTesting()
+
+    // After reset, new blocks should not call old listener
+    const fn2 = vi.fn()
+    onReloadBlocked(fn2)
+    blockReload()
+    expect(fn2).toHaveBeenCalledWith(true)
+    expect(fn).toHaveBeenCalledTimes(1) // old listener not called
+  })
+
+  it('testes não herdam _updateAvailable definido em outro teste', () => {
+    // This test runs after the one that sets update available
+    expect(getUpdateAvailable()).toBe(false) // should be reset by __resetStateForTesting
   })
 })
