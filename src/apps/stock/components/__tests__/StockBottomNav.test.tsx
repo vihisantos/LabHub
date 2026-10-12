@@ -28,7 +28,7 @@ describe('StockBottomNav', () => {
 
     expect(screen.getByText('Início')).toBeInTheDocument()
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('Estoque')).toBeInTheDocument()
+    expect(screen.getByText('Materiais')).toBeInTheDocument()
     expect(screen.getByText('Ent/Sai')).toBeInTheDocument()
     expect(screen.getByLabelText('Mais opções')).toBeInTheDocument()
   })
@@ -37,14 +37,14 @@ describe('StockBottomNav', () => {
     renderWithProviders(<StockBottomNav />, { initialEntries: ['/stock'] })
 
     expect(isActive('Dashboard')).toBe(true)
-    expect(isActive('Estoque')).toBe(false)
+    expect(isActive('Materiais')).toBe(false)
     expect(isActive('Ent/Sai')).toBe(false)
   })
 
-  it('em /stock/items destaca somente Estoque (Dashboard não fica selecionado)', () => {
+  it('em /stock/items destaca somente Materiais (Dashboard não fica selecionado)', () => {
     renderWithProviders(<StockBottomNav />, { initialEntries: ['/stock/items'] })
 
-    expect(isActive('Estoque')).toBe(true)
+    expect(isActive('Materiais')).toBe(true)
     expect(isActive('Dashboard')).toBe(false)
     expect(isActive('Ent/Sai')).toBe(false)
   })
@@ -54,13 +54,13 @@ describe('StockBottomNav', () => {
 
     expect(isActive('Ent/Sai')).toBe(true)
     expect(isActive('Dashboard')).toBe(false)
-    expect(isActive('Estoque')).toBe(false)
+    expect(isActive('Materiais')).toBe(false)
   })
 
-  it('em /general-stock/items normaliza o caminho e destaca Estoque', () => {
+  it('em /general-stock/items normaliza o caminho e destaca Materiais', () => {
     renderWithProviders(<StockBottomNav />, { initialEntries: ['/general-stock/items'] })
 
-    expect(isActive('Estoque')).toBe(true)
+    expect(isActive('Materiais')).toBe(true)
     expect(isActive('Dashboard')).toBe(false)
   })
 

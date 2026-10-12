@@ -176,17 +176,24 @@ export function MovementFormModal({
   const statusOptions = requiresStatus(form.type)
     ? getStatusOptionsForType(form.type)
     : ([] as readonly string[])
-  const defaultStatus = getDefaultStatusForType(form.type, asset.status)
 
-  useEffect(() => {
-    if (requiresStatus(form.type) && !form.to_status && defaultStatus) {
-      set('to_status', defaultStatus)
-    }
-  }, [form.type, defaultStatus])
+  // Removed useEffect - default status is now set synchronously in the type change handler
 
   function validate(): PatrimonioError | null {
     if (!REGISTRABLE_MOVEMENT_TYPES.includes(form.type)) {
       return validationError('Tipo de movimentação inválido.')
+    }
+    if (asset.status === 'baixado' && form.type !== 'correcao') {
+      return validationError('Equipamento baixado é terminal — apenas correção é permitida.')
+    }
+    if (form.type === 'devolucao' && asset.status !== 'emprestado') {
+      return validationError('Só é possível devolver um equipamento que está emprestado.')
+    }
+    if (form.type === 'emprestimo' && asset.status === 'emprestado') {
+      return validationError('Este equipamento já está emprestado — registre a devolução primeiro.')
+    }
+    if (form.type === 'baixa' && asset.status === 'baixado') {
+      return validationError('Este equipamento já está baixado.')
     }
     if (requiresLocation(form.type) && !form.to_location_id) {
       return validationError('Transferência exige o local de destino.')
@@ -207,18 +214,6 @@ export function MovementFormModal({
     if (form.to_responsible_id) {
       const ok = references.responsibles.some((r) => r.id === form.to_responsible_id)
       if (!ok) return validationError('O responsável de destino não pertence a esta unidade.')
-    }
-    if (form.type === 'devolucao' && asset.status !== 'emprestado') {
-      return validationError('Só é possível devolver um equipamento que está emprestado.')
-    }
-    if (form.type === 'baixa' && asset.status === 'baixado') {
-      return validationError('Este equipamento já está baixado.')
-    }
-    if (form.type === 'emprestimo' && asset.status === 'emprestado') {
-      return validationError('Este equipamento já está emprestado — registre a devolução primeiro.')
-    }
-    if (asset.status === 'baixado' && form.type !== 'correcao') {
-      return validationError('Equipamento baixado é terminal — apenas correção é permitida.')
     }
     if (form.to_location_id && form.type === 'transferencia') {
       const currentLoc = references.locationLabel(asset.location_id)
@@ -321,7 +316,14 @@ export function MovementFormModal({
           <select
             aria-label="Tipo de movimentação"
             value={form.type}
-            onChange={(e) => set('type', e.target.value as MovementType)}
+            onChange={(e) => {
+              const newType = e.target.value as MovementType
+              set('type', newType)
+              const defaultStatus = getDefaultStatusForType(newType, asset.status)
+              if (requiresStatus(newType) && defaultStatus) {
+                set('to_status', defaultStatus)
+              }
+            }}
             disabled={!unlocked || workspaceChanged}
             className={inputCls}
           >
