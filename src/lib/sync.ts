@@ -287,6 +287,8 @@ export class SyncError extends Error {
 export function classifySyncError(e: unknown): SyncFailureKind {
   const code = String((e as { code?: unknown } | null)?.code ?? '')
   const message = String((e as { message?: unknown } | null)?.message ?? e ?? '')
+  // HTTP status code may be in e.status or e.statusCode (Supabase client)
+  const status = Number((e as { status?: unknown; statusCode?: unknown } | null)?.status ?? (e as { statusCode?: unknown } | null)?.statusCode ?? 0)
 
   // Rede/fetch: recuperável com nova tentativa.
   if (e instanceof TypeError) return 'transient'
@@ -309,8 +311,21 @@ export function classifySyncError(e: unknown): SyncFailureKind {
     if (status === 429 || status >= 500) return 'transient'
   }
 
+  // HTTP status code no objeto de erro (ex.: 406, 400, etc.)
+  if (status) {
+    if (status === 403) return 'auth'
+    if (status === 401) return 'transient'
+    if (status === 429 || status >= 500) return 'transient'
+    // 406 = schema inválido / não exposto: erro permanente de configuração
+    if (status === 406) return 'auth'
+    if (status === 400 || status === 404) return 'auth'
+  }
+
   // JWT expirado: o refresh automático torna a próxima tentativa válida.
   if (code === 'PGRST301') return 'transient'
+
+  // Erros do PostgREST com código PGRSTxxx que indicam erro de configuração/schema
+  if (/^PGRST(106|200|201|202|203|204|205)$/.test(code)) return 'auth'
 
   return 'unknown'
 }
