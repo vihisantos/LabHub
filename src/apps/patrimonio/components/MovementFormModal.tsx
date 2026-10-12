@@ -163,11 +163,11 @@ export function MovementFormModal({
       return
     }
     setLockedWorkspaceId(workspaceId)
-    setForm(EMPTY)
+    setForm({ ...EMPTY, to_status: getDefaultStatusForType(EMPTY.type, asset.status) })
     setServerError(null)
     setSubmitting(false)
     busyRef.current = false
-  }, [open])
+  }, [open, asset.status])
 
   const unlocked = open && !!lockedWorkspaceId && !!workspaceId
   const workspaceChanged = unlocked && workspaceId !== lockedWorkspaceId
