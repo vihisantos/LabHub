@@ -62,14 +62,17 @@ function isoToTimeInput(iso: string): string {
  * Verifica se uma reserva de tablet pode ser editada.
  * Regra de negócio: uma reserva pode ser editada enquanto horario_fim não passou.
  *
- * IMPORTANTE (superadmin × regra temporal): o gate do frontend NÃO conhece
- * `is_super_admin()`. Na policy RLS (migration 098) o super admin mantém o
- * bypass explícito e pode atualizar mesmo uma reserva encerrada. Isso é uma
- * divergência INTENCIONAL e pré-existente (invariante da 078), NÃO um
- * alargamento silencioso de privilégio: a regra temporal vale para o fluxo
- * normal (RBAC 2.0) e o super admin é explicitamente soberano. O frontend
- * continua escondendo o botão "Editar" após o fim para quem não é superadmin;
- * o backend é a autoridade final.
+ * REGRA DEFINITIVA (superadmin × regra temporal): a condição temporal vale para
+ * TODOS os perfis, inclusive super admin. A migration 098 promove
+ * `horario_fim > now()` a conjunção de topo da policy RLS de UPDATE — tanto no
+ * `USING` (linha OLD) quanto no `WITH CHECK` (linha NEW) — de modo que nenhum
+ * perfil pode editar uma reserva encerrada. O bypass de `is_super_admin()` é
+ * preservado apenas para os privilégios de workspace/RBAC (quais workspaces
+ * podem editar), nunca para a janela temporal.
+ *
+ * O gate do frontend espelha exatamente essa regra (`fim > Date.now()`, mesma
+ * semântica de `horario_fim > now()`), escondendo o botão "Editar" após o fim
+ * para todos os perfis; o backend/RLS permanece a autoridade final.
  *
  * @param horario_fim - ISO string do horário de fim da reserva
  * @returns true se a reserva pode ser editada (horario_fim ainda não passou)
