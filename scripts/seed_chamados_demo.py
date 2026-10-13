@@ -2,7 +2,10 @@
 """Populate a DEMO workspace with realistic Chamados data for screenshots.
 
 Creates an isolated workspace "Campus Demo LabHub" (slug: demo-chamados) with:
-  - 14 tickets across all statuses and priorities
+  - 16 tickets across all statuses and priorities
+    (inclui #15 em_espera e #16 indeferido, com motivo estruturado — issue #367)
+  - Tracking tokens determinísticos para #15 e #16 (`tracking_token_hash`), usados
+    pela captura `scripts/browser-verify/chamados-espera-indeferido.mjs`
   - Timeline events on key tickets
   - Teacher feedback (5 evaluations)
   - Base64 placeholder photos on 2 tickets
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import os
 import sys
 import uuid
@@ -38,6 +42,12 @@ DEMO_LOCATION = "Campus Demonstration — LabHub"
 
 # Deterministic UUID (v5: namespace DNS + slug) — reproducible across runs.
 DEMO_WORKSPACE_ID = str(uuid.uuid5(uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), DEMO_SLUG))
+
+# Tracking tokens (credencial pública de acompanhamento do professor) usados
+# pelas capturas da issue #369. O banco guarda apenas o SHA-256
+# (`tracking_token_hash`); o token em claro é entregue ao professor na abertura.
+DEMO_TOKEN_ESPERA = "DEMO-ESPERA-2026"
+DEMO_TOKEN_INDEFERIDO = "DEMO-INDEFERIDO-2026"
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -123,11 +133,16 @@ def _days_ago(d: float) -> str:
     return _iso(NOW - timedelta(days=d))
 
 
+def _token_hash(token: str) -> str:
+    """SHA-256 hex do tracking token — é o que fica gravado em `tracking_token_hash`."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 # ── Ticket definitions ───────────────────────────────────────────────────────
 
 
 def _make_tickets() -> list[dict]:
-    """Return 14 ticket dicts with realistic data."""
+    """Return 16 ticket dicts with realistic data."""
     ws = DEMO_WORKSPACE_ID
     t: list[dict] = []
 
@@ -589,6 +604,84 @@ def _make_tickets() -> list[dict]:
         "feedbackAt": None,
     })
 
+    # ── TICKET 15: em_espera (issue #367) — motivo estruturado ──────────────
+    t.append({
+        "id": str(uuid.uuid5(uuid.UUID(ws), "demo-ticket-015")),
+        "ticketNumber": 15,
+        "roomId": "room-sala103",
+        "roomName": "Sala de Aula 103",
+        "assetId": "asset-switch-sala103",
+        "assetSource": "stock",
+        "assetName": "Switch de rede 24 portas",
+        "assetPatrimony": "PAT-015",
+        "problemCategory": "Rede",
+        "problemArea": "academica",
+        "problemDescription": (
+            "A sala ficou sem rede após a queima do switch. "
+            "Aguardando a chegada do switch reserva para substituição."
+        ),
+        "status": "em_espera",
+        "priority": "alta",
+        "reportedBy": "Carlos Mendes",
+        "reportedByEmail": "carlos.mendes@demo.labhub",
+        "assignedTo": "Rafael Oliveira",
+        "assignedToUserId": "",
+        "photos": "",
+        "createdAt": _days_ago(2),
+        "updatedAt": _hours_ago(5),
+        "resolvedAt": None,
+        "archived": False,
+        "closedAt": None,
+        "closedBy": "",
+        "statusNote": "",
+        "reasonCode": "WAITING_EQUIPMENT",
+        "reasonLabel": "Aguardando equipamento/peça",
+        "reasonNote": "Aguardando a chegada do switch reserva para substituição.",
+        "tracking_token_hash": _token_hash(DEMO_TOKEN_ESPERA),
+        "feedbackRating": None,
+        "feedbackComment": "",
+        "feedbackAt": None,
+    })
+
+    # ── TICKET 16: indeferido (issue #367) — motivo estruturado ─────────────
+    t.append({
+        "id": str(uuid.uuid5(uuid.UUID(ws), "demo-ticket-016")),
+        "ticketNumber": 16,
+        "roomId": "room-sala103",
+        "roomName": "Sala de Aula 103",
+        "assetId": "",
+        "assetSource": "",
+        "assetName": "",
+        "assetPatrimony": "",
+        "problemCategory": "Outros",
+        "problemArea": "administrativa",
+        "problemDescription": (
+            "Solicitação de reorganização do mobiliário da sala. "
+            "Não se trata de incidente ou requisição de TI."
+        ),
+        "status": "indeferido",
+        "priority": "baixa",
+        "reportedBy": "Carlos Mendes",
+        "reportedByEmail": "carlos.mendes@demo.labhub",
+        "assignedTo": "Rafael Oliveira",
+        "assignedToUserId": "",
+        "photos": "",
+        "createdAt": _days_ago(1.5),
+        "updatedAt": _days_ago(1),
+        "resolvedAt": None,
+        "archived": False,
+        "closedAt": None,
+        "closedBy": "",
+        "statusNote": "",
+        "reasonCode": "NOT_IT_REQUEST",
+        "reasonLabel": "Solicitação não caracteriza incidente/requisição de TI",
+        "reasonNote": "A reorganização é responsabilidade do setor de Patrimônio.",
+        "tracking_token_hash": _token_hash(DEMO_TOKEN_INDEFERIDO),
+        "feedbackRating": None,
+        "feedbackComment": "",
+        "feedbackAt": None,
+    })
+
     return t
 
 
@@ -656,6 +749,20 @@ def _make_events(tickets: list[dict]) -> list[dict]:
         _ev(tid11, "status", "Chamado aberto por Ana Martins", "Sistema", _hours_ago(24)),
         _ev(tid11, "atribuicao", "Atribuído a Lucas Almeida", "Lucas Almeida", _hours_ago(22)),
         _ev(tid11, "comentario", "Problema identificado como memória RAM com defeito. Aguardando substituta.", "Lucas Almeida", _hours_ago(4)),
+    ])
+
+    # Ticket 15 (em espera — issue #367)
+    tid15 = tickets[14]["id"]
+    events.extend([
+        _ev(tid15, "status", "Chamado aberto por Carlos Mendes", "Sistema", _days_ago(2)),
+        _ev(tid15, "status", "Em espera — Aguardando equipamento/peça", "Rafael Oliveira", _hours_ago(5)),
+    ])
+
+    # Ticket 16 (indeferido — issue #367)
+    tid16 = tickets[15]["id"]
+    events.extend([
+        _ev(tid16, "status", "Chamado aberto por Carlos Mendes", "Sistema", _days_ago(1.5)),
+        _ev(tid16, "status", "Indeferido — Solicitação não caracteriza incidente/requisição de TI", "Rafael Oliveira", _days_ago(1)),
     ])
 
     return events
@@ -823,16 +930,23 @@ def main():
     print(f"\nPhotos: 2 base64 placeholders (inline in ticket photos field)")
     print(f"\nMain ticket (STAR):  #1 (Laboratório 01 — Computador Desktop — em_atendimento)")
     print(f"Feedback ticket:     #6 (Sala 201 - resolvido - 5 stars)")
+    print(f"Em espera (#367):    #15 (Sala 103 — em_espera — {tickets[14]['reasonLabel']})")
+    print(f"Indeferido (#367):   #16 (Sala 103 — indeferido — {tickets[15]['reasonLabel']})")
     print(f"\nRoutes for screenshots:")
     print(f"  Dashboard:     /chamados")
     print(f"  Ticket list:   /chamados/tickets")
     print(f"  Ticket detail: /chamados/tickets/{tickets[0]['id']}")
+    print(f"  Em espera:     /chamados/tickets/{tickets[14]['id']}")
+    print(f"  Indeferido:    /chamados/tickets/{tickets[15]['id']}")
     print(f"  SLA:           /chamados/sla")
     print(f"  Reports:       /chamados/reports")
     print(f"  QR Code:       /chamados/qr")
     print(f"  Public form:   /chamados-publico/new")
     print(f"  Track:         /chamados-publico/track")
     print(f"  Feedback:      /chamados-publico/feedback/{tickets[5]['id']}")
+    print(f"\nTracking tokens (#367 — usar com o script de captura):")
+    print(f"  Em espera:   {DEMO_TOKEN_ESPERA}")
+    print(f"  Indeferido:  {DEMO_TOKEN_INDEFERIDO}")
     print(f"\nTo cleanup: python scripts/cleanup_chamados_demo.py")
 
 
