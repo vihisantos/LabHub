@@ -158,6 +158,37 @@ describe('ChamadosLayout', () => {
     expect(mockOpenCount).toBe(0)
   })
 
+  it('badge=0 para ticket em espera no workspace atual (issue #367)', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket({ status: 'em_espera' })],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(0)
+  })
+
+  it('badge=0 para ticket indeferido no workspace atual (issue #367)', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [makeTicket({ status: 'indeferido' })],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(0)
+  })
+
+  it('indeferido e em espera não inflam o badge junto de um ativo', () => {
+    mockUseTickets.mockReturnValue({
+      tickets: [
+        makeTicket({ id: 't-active', status: 'aberto' }),
+        makeTicket({ id: 't-denied', status: 'indeferido', ticketNumber: 2 }),
+        makeTicket({ id: 't-hold', status: 'em_espera', ticketNumber: 3 }),
+      ],
+      loading: false, syncing: false, reload: vi.fn(),
+    })
+    renderLayout('/chamados')
+    expect(mockOpenCount).toBe(1)
+  })
+
   it('badge=0 para ticket archived', () => {
     mockUseTickets.mockReturnValue({
       tickets: [makeTicket({ archived: true })],

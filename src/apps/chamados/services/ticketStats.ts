@@ -102,3 +102,24 @@ export function analyzeTickets(tickets: Ticket[]): TicketStatsSummary {
     byPriority,
   }
 }
+
+/**
+ * "Ativos" da fila operacional de um workspace — definição ÚNICA do badge da
+ * navbar (`ChamadosLayout`), do chip "Ativos" (`TicketList.statusCounts`), do
+ * card do módulo no dashboard (`ModuleStats`) e das métricas de saúde: o mesmo
+ * `isTicketOpen` (aberto | a_caminho | em_atendimento) sobre os não arquivados.
+ *
+ * Issue #367: `em_espera` (pausa) e `indeferido` (estado final) SAEM da fila
+ * ativa — e `resolvido`/`fechado` já não eram abertos. Antes o badge da navbar
+ * usava uma lista própria desatualizada e inflava a contagem com indeferidos.
+ * Reutilizar esta definição evita que a navbar volte a divergir das demais.
+ *
+ * Pura e determinística: recebe o array já autorizado e o escopo de workspace;
+ * não consulta Supabase, API, permissões nem cache. `workspaceId` é
+ * obrigatório — o badge só é calculado com workspace resolvido.
+ */
+export function countOpenTickets(tickets: Ticket[], workspaceId: string): number {
+  return tickets.filter(
+    (t) => t.workspace_id === workspaceId && !ticketService.isArchived(t) && isTicketOpen(t.status),
+  ).length
+}
