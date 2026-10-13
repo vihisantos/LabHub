@@ -2,6 +2,17 @@ import type { ParsedHorario } from '../types'
 
 export const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const
 
+/**
+ * Data LOCAL no formato "YYYY-MM-DD".
+ *
+ * NUNCA usar `toISOString().slice(0, 10)` para chaves de dia: o ISO é UTC e,
+ * em fusos como o do Brasil (UTC-3), uma reserva às 21h local cai no DIA
+ * SEGUINTE em UTC — marcando o dia errado no calendário e no agrupamento.
+ */
+export function toLocalDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function getPeriodo(horario: string | null | undefined): string {
   if (!horario) return 'noite'
   const h = horario.toLowerCase()

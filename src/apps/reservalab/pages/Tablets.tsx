@@ -8,8 +8,10 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
+import { toLocalDateKey } from '../utils/timeUtils'
 import {
   fetchTabletReservas,
+  fetchAllTabletReservas,
   createTabletReserva,
   updateTabletReserva,
   deleteTabletReserva,
@@ -59,6 +61,16 @@ function isoToTimeInput(iso: string): string {
 /**
  * Verifica se uma reserva de tablet pode ser editada.
  * Regra de negócio: uma reserva pode ser editada enquanto horario_fim não passou.
+ *
+ * IMPORTANTE (superadmin × regra temporal): o gate do frontend NÃO conhece
+ * `is_super_admin()`. Na policy RLS (migration 098) o super admin mantém o
+ * bypass explícito e pode atualizar mesmo uma reserva encerrada. Isso é uma
+ * divergência INTENCIONAL e pré-existente (invariante da 078), NÃO um
+ * alargamento silencioso de privilégio: a regra temporal vale para o fluxo
+ * normal (RBAC 2.0) e o super admin é explicitamente soberano. O frontend
+ * continua escondendo o botão "Editar" após o fim para quem não é superadmin;
+ * o backend é a autoridade final.
+ *
  * @param horario_fim - ISO string do horário de fim da reserva
  * @returns true se a reserva pode ser editada (horario_fim ainda não passou)
  */
@@ -110,9 +122,10 @@ export function TabletsView() {
     let mounted = true
     const load = async () => {
       try {
-        const hoje = new Date()
-        hoje.setHours(0, 0, 0, 0)
-        const rows = await fetchTabletReservas(hoje, undefined, workspace?.id)
+        // HISTÓRICO COMPLETO (passado + hoje + futuro, sem janela fixa). Antes
+        // esta chamada usava `fetchTabletReservas(hoje, undefined)` que cortava
+        // em 90 dias e escondia tanto o passado quanto o futuro distante.
+        const rows = await fetchAllTabletReservas(workspace?.id)
         if (mounted) setReservas(rows)
       } catch {
         // ignore
@@ -153,28 +166,30 @@ export function TabletsView() {
   const calendarDays = useMemo<CalendarDay[]>(() => {
     const firstDay = new Date(calYear, calMonth, 1).getDay()
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
-    const todayKey = new Date().toISOString().slice(0, 10)
+    const todayKey = toLocalDateKey(new Date())
 
     const byDay = new Map<string, TabletReserva[]>()
     monthReservas.forEach((r) => {
-      const key = new Date(r.horario_inicio).toISOString().slice(0, 10)
+      const key = toLocalDateKey(new Date(r.horario_inicio))
       if (!byDay.has(key)) byDay.set(key, [])
       byDay.get(key)!.push(r)
     })
 
     const days: CalendarDay[] = []
     for (let i = 0; i < firstDay; i++) {
-      days.push({ date: '', day: 0, isToday: false, isOther: true, items: [] })
+      days.push({ date: '', day: 0, isToday: false, isPast: false, isOther: true, items: [] })
     }
     for (let d = 1; d <= daysInMonth; d++) {
       const date = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-      days.push({ date, day: d, isToday: date === todayKey, isOther: false, items: byDay.get(date) || [] })
+      // Chaves "YYYY-MM-DD" comparam lexicograficamente == cronologicamente.
+      // isPast independe de haver reservas: é só o dia anterior a hoje.
+      days.push({ date, day: d, isToday: date === todayKey, isPast: date < todayKey, isOther: false, items: byDay.get(date) || [] })
     }
     return days
   }, [calYear, calMonth, monthReservas])
 
   const selectedDayItems = useMemo(
-    () => (selectedDay ? monthReservas.filter((r) => new Date(r.horario_inicio).toISOString().slice(0, 10) === selectedDay) : []),
+    () => (selectedDay ? monthReservas.filter((r) => toLocalDateKey(new Date(r.horario_inicio)) === selectedDay) : []),
     [selectedDay, monthReservas]
   )
 
@@ -193,7 +208,7 @@ export function TabletsView() {
   function goToToday() {
     setCalYear(new Date().getFullYear())
     setCalMonth(new Date().getMonth())
-    setSelectedDay(new Date().toISOString().slice(0, 10))
+    setSelectedDay(toLocalDateKey(new Date()))
   }
 
   const reservasHoje = useMemo(
@@ -208,7 +223,7 @@ export function TabletsView() {
     if (!mostrarTodas) return []
     const map: Record<string, TabletReserva[]> = {}
     reservas.forEach((r) => {
-      const key = new Date(r.horario_inicio).toISOString().slice(0, 10)
+      const key = toLocalDateKey(new Date(r.horario_inicio))
       if (!map[key]) map[key] = []
       map[key].push(r)
     })
@@ -216,8 +231,8 @@ export function TabletsView() {
   }, [reservas, mostrarTodas])
 
   const formatGroupLabel = (key: string) => {
-    const hojeKey = hoje.toISOString().slice(0, 10)
-    const amanhaKey = amanha.toISOString().slice(0, 10)
+    const hojeKey = toLocalDateKey(hoje)
+    const amanhaKey = toLocalDateKey(amanha)
     if (key === hojeKey) return 'HOJE'
     if (key === amanhaKey) return 'AMANHÃ'
     const [y, m, d] = key.split('-').map(Number)
@@ -278,9 +293,9 @@ export function TabletsView() {
       setFormError('')
       setShowForm(false)
       setEditing(null)
-      const hoje2 = new Date(); hoje2.setHours(0, 0, 0, 0)
-      const rows = await fetchTabletReservas(hoje2, undefined, workspace?.id)
-      setReservas(rows)
+      // Refresh da listagem (histórico completo) e do calendário do mês exibido,
+      // sem exigir reload manual da página.
+      setReservas(await fetchAllTabletReservas(workspace?.id))
       setLoadingCalendar(true)
       const primeiro = new Date(calYear, calMonth, 1); primeiro.setHours(0, 0, 0, 0)
       const ultimo = new Date(calYear, calMonth + 1, 1); ultimo.setHours(0, 0, 0, 0)
@@ -378,7 +393,7 @@ export function TabletsView() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {reservas.length > 5 && (
+          {reservas.length > reservasHoje.length && (
             <button
               onClick={() => setMostrarTodas(!mostrarTodas)}
               style={{
@@ -570,6 +585,15 @@ export function TabletsView() {
           <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
             <TabletIcon size={48} style={{ opacity: 0.3, marginBottom: '1rem' }} />
             <p>Nenhuma reserva encontrada</p>
+          </div>
+        )}
+        {reservas.length > 0 && !mostrarTodas && reservasHoje.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+            <TabletIcon size={40} style={{ opacity: 0.3, marginBottom: '1rem' }} />
+            <p>Nenhuma reserva hoje</p>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+              Toque em “Todas” para ver reservas passadas e futuras.
+            </p>
           </div>
         )}
       </div>

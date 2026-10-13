@@ -6,13 +6,21 @@ import { TabletsView } from '../Tablets'
 // Mock services
 vi.mock('../../services/supabase', () => ({
   fetchTabletReservas: vi.fn(),
+  fetchAllTabletReservas: vi.fn(),
   createTabletReserva: vi.fn(),
+  updateTabletReserva: vi.fn(),
   deleteTabletReserva: vi.fn(),
+  checkTabletCapacity: vi.fn().mockResolvedValue(null),
 }))
 
 // Mock useIsMobile
 vi.mock('../../hooks/useIsMobile', () => ({
   useIsMobile: vi.fn(() => false),
+}))
+
+// Workspace fixo para validar o isolamento (fetchAllTabletReservas recebe o id).
+vi.mock('../../../../core/workspaces/WorkspaceContext', () => ({
+  useWorkspace: () => ({ workspace: { id: 'ws-test', name: 'Campus Teste', slug: 'campus-teste' } }),
 }))
 
 // RBAC 2.0: controla useCanAccessAction por teste (default = concedido).
@@ -55,7 +63,13 @@ vi.mock('../../components/TabletModal', () => ({
   TabletModal: () => <div data-testid="tablet-modal" />,
 }))
 
-import { fetchTabletReservas, deleteTabletReserva } from '../../services/supabase'
+import {
+  fetchTabletReservas,
+  fetchAllTabletReservas,
+  deleteTabletReserva,
+  createTabletReserva,
+  checkTabletCapacity,
+} from '../../services/supabase'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 const mockReservas = [
@@ -77,6 +91,8 @@ describe('TabletsView', () => {
     mockUseCanAccessAction.mockReturnValue({ allowed: true, loading: false })
     vi.useRealTimers()
     ;(fetchTabletReservas as any).mockResolvedValue(mockReservas)
+    ;(fetchAllTabletReservas as any).mockResolvedValue(mockReservas)
+    ;(checkTabletCapacity as any).mockResolvedValue(null)
     ;(useIsMobile as any).mockReturnValue(false)
   })
 
@@ -187,7 +203,7 @@ describe('TabletsView', () => {
     expect(timeInputs.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('alterna para "Todas" quando há mais de 5 reservas', async () => {
+  it('mostra "Todas" quando há reservas fora de hoje', async () => {
     const manyReservas = Array.from({ length: 10 }, (_, i) => ({
       id: `res-${i + 1}`,
       sala: `Sala ${i + 1}`,
@@ -199,7 +215,7 @@ describe('TabletsView', () => {
       reservado_por: '',
       status: 'ativa',
     }))
-    ;(fetchTabletReservas as any).mockResolvedValue(manyReservas)
+    ;(fetchAllTabletReservas as any).mockResolvedValue(manyReservas)
     renderTablets()
     expect(await screen.findByText('Todas')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Todas'))
@@ -209,13 +225,13 @@ describe('TabletsView', () => {
   })
 
   it('exibe estado vazio quando não há reservas', async () => {
-    ;(fetchTabletReservas as any).mockResolvedValue([])
+    ;(fetchAllTabletReservas as any).mockResolvedValue([])
     renderTablets()
     expect(await screen.findByText('Nenhuma reserva encontrada')).toBeInTheDocument()
   })
 
   it('lida com erro na API sem quebrar', async () => {
-    ;(fetchTabletReservas as any).mockRejectedValue(new Error('Erro'))
+    ;(fetchAllTabletReservas as any).mockRejectedValue(new Error('Erro'))
     renderTablets()
     expect(await screen.findByText('Nenhuma reserva encontrada')).toBeInTheDocument()
   })
@@ -243,5 +259,114 @@ describe('TabletsView', () => {
       expect(screen.queryAllByText('Cancelar').length).toBe(0)
     })
     expect(screen.queryAllByText('Editar').length).toBe(0)
+  })
+
+  describe('histórico completo, dias passados e edição (Issue #388)', () => {
+    const iso = (offsetDays: number, hour = 10) => {
+      const d = new Date()
+      d.setDate(d.getDate() + offsetDays)
+      d.setHours(hour, 0, 0, 0)
+      return d.toISOString()
+    }
+    const makeReserva = (over: Record<string, unknown>) => ({
+      id: String(over.id),
+      sala: 'Sala Hist',
+      quantidade_tablets: 2,
+      professor: 'Prof. Hist',
+      finalidade: '',
+      reservado_por: 'Eu',
+      status: 'ativa',
+      ...over,
+    })
+
+    it('busca o histórico completo no workspace ativo (isolamento)', async () => {
+      renderTablets()
+      await waitFor(() => {
+        expect(fetchAllTabletReservas).toHaveBeenCalledWith('ws-test')
+      })
+    })
+
+    it('exibe reserva PASSADA ao acionar "Todas"', async () => {
+      ;(fetchAllTabletReservas as any).mockResolvedValue([
+        makeReserva({ id: 'passada', sala: 'Sala Passada', horario_inicio: iso(-10), horario_fim: iso(-9) }),
+      ])
+      renderTablets()
+      fireEvent.click(await screen.findByText('Todas'))
+      expect(await screen.findByText('Sala Passada')).toBeInTheDocument()
+    })
+
+    it('exibe reserva de HOJE na listagem padrão', async () => {
+      ;(fetchAllTabletReservas as any).mockResolvedValue([
+        makeReserva({ id: 'hoje', sala: 'Sala Hoje', horario_inicio: iso(0, 8), horario_fim: iso(0, 23) }),
+      ])
+      renderTablets()
+      expect(await screen.findByText('Sala Hoje')).toBeInTheDocument()
+    })
+
+    it('exibe reserva futura além de 90 dias (sem corte fixo)', async () => {
+      ;(fetchAllTabletReservas as any).mockResolvedValue([
+        makeReserva({ id: 'futura', sala: 'Sala 200 dias', horario_inicio: iso(200), horario_fim: iso(200, 12) }),
+      ])
+      renderTablets()
+      fireEvent.click(await screen.findByText('Todas'))
+      expect(await screen.findByText('Sala 200 dias')).toBeInTheDocument()
+    })
+
+    it('mostra "Nenhuma reserva hoje" (e mantém "Todas") quando só há histórico', async () => {
+      ;(fetchAllTabletReservas as any).mockResolvedValue([
+        makeReserva({ id: 'passada2', sala: 'Sala Antiga', horario_inicio: iso(-3), horario_fim: iso(-2) }),
+      ])
+      renderTablets()
+      expect(await screen.findByText('Nenhuma reserva hoje')).toBeInTheDocument()
+      expect(screen.getByText('Todas')).toBeInTheDocument()
+    })
+
+    it('NÃO permite editar reserva já encerrada (destaque histórico)', async () => {
+      ;(fetchAllTabletReservas as any).mockResolvedValue([
+        makeReserva({ id: 'encerrada', sala: 'Sala Encerrada', horario_inicio: iso(-5), horario_fim: iso(-5, 11) }),
+      ])
+      renderTablets()
+      fireEvent.click(await screen.findByText('Todas'))
+      await screen.findByText('Sala Encerrada')
+      expect(screen.queryByText('Editar')).not.toBeInTheDocument()
+      // Cancelar continua disponível (regra de cancelamento da 050/078 inalterada).
+      expect(screen.getByText('Cancelar')).toBeInTheDocument()
+    })
+
+    it('permite editar reserva futura (horario_fim não passou)', async () => {
+      ;(fetchAllTabletReservas as any).mockResolvedValue([
+        makeReserva({ id: 'futura2', sala: 'Sala Futura', horario_inicio: iso(1), horario_fim: iso(1, 12) }),
+      ])
+      renderTablets()
+      fireEvent.click(await screen.findByText('Todas'))
+      await screen.findByText('Sala Futura')
+      expect(screen.getByText('Editar')).toBeInTheDocument()
+    })
+
+    it('atualiza lista e calendário após criar reserva (sem reload)', async () => {
+      ;(fetchAllTabletReservas as any).mockResolvedValue([])
+      ;(createTabletReserva as any).mockResolvedValue(undefined)
+
+      renderTablets()
+      fireEvent.click(await screen.findByText('Nova reserva'))
+
+      fireEvent.change(await screen.findByPlaceholderText('Digite ou selecione uma sala'), { target: { value: 'Sala 1' } })
+      fireEvent.change(screen.getByPlaceholderText('Nome do professor'), { target: { value: 'Prof. X' } })
+      const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement
+      fireEvent.change(dateInput, { target: { value: '2026-07-10' } })
+      fireEvent.change(screen.getByTestId('time-input-Horário início'), { target: { value: '08h00' } })
+      fireEvent.change(screen.getByTestId('time-input-Horário fim'), { target: { value: '09h00' } })
+
+      const callsBefore = (fetchAllTabletReservas as any).mock.calls.length
+      fireEvent.click(screen.getByText('Criar Reserva'))
+
+      await waitFor(() => {
+        expect(createTabletReserva).toHaveBeenCalled()
+      })
+      // Refresh: a listagem é reconsultada (e o calendário também).
+      await waitFor(() => {
+        expect((fetchAllTabletReservas as any).mock.calls.length).toBeGreaterThan(callsBefore)
+      })
+    })
   })
 })

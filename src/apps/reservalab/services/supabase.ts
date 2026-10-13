@@ -18,11 +18,53 @@ export const supabase = client
 export const TABLET_INVENTORY = 50
 
 /**
- * Busca reservas de tablets ativas no intervalo [desde, ate].
- * 
- * Por padrão, busca todas as reservas futuras (até 90 dias à frente) quando `ate` não é fornecido.
- * Isso garante que reservas futuras além de 7 dias sejam visíveis na interface.
- * 
+ * Tamanho de página para buscas paginadas. O PostgREST/Supabase trunca as
+ * respostas no limite de linhas configurado no servidor (padrão 1000). Como
+ * esse truncamento é silencioso, paginamos explicitamente com `.range()` para
+ * nunca perder registros.
+ */
+export const TABLET_PAGE_SIZE = 1000
+
+/** Guarda contra loop infinito caso o backend ignore `.range()`. */
+const MAX_TABLET_PAGES = 100
+
+/**
+ * Resultado mínimo de uma query paginável do Supabase (builder é thenable).
+ * Mantido estrutural para não acoplar o serviço aos tipos internos do client.
+ */
+interface TabletReservasQuery {
+  range: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>
+}
+
+/**
+ * Executa uma busca paginada e concatena todas as páginas.
+ * `buildQuery` deve devolver um builder novo, com filtros/ordenação já
+ * aplicados (sem `.range()`), a cada iteração.
+ */
+async function fetchAllTabletPages(buildQuery: () => TabletReservasQuery): Promise<TabletReserva[]> {
+  const todas: TabletReserva[] = []
+  for (let page = 0; page < MAX_TABLET_PAGES; page++) {
+    const from = page * TABLET_PAGE_SIZE
+    const to = from + TABLET_PAGE_SIZE - 1
+    const { data, error } = await buildQuery().range(from, to)
+    if (error) throw error
+    const rows = (data as TabletReserva[]) || []
+    todas.push(...rows)
+    // Última página: veio menos que o tamanho da página.
+    if (rows.length < TABLET_PAGE_SIZE) break
+  }
+  return todas
+}
+
+/**
+ * Busca reservas de tablets ativas no intervalo [desde, ate], paginando o
+ * resultado. A ordenação secundária por `id` garante paginação ESTÁVEL
+ * (sem duplicar/pular linhas com o mesmo `horario_inicio`).
+ *
+ * Por padrão, busca reservas futuras (até 90 dias à frente) quando `ate` não é
+ * fornecido — mantém a semântica histórica desta função. Para o HISTÓRICO
+ * COMPLETO (passado + hoje + futuro, sem janela), use `fetchAllTabletReservas`.
+ *
  * @param desde - Data inicial (inclusive). Default: hoje à meia-noite.
  * @param ate - Data final (exclusiva). Default: 90 dias a partir de `desde`.
  * @param workspaceId - ID do workspace. Default: workspace ativo no store.
@@ -31,27 +73,56 @@ export const TABLET_INVENTORY = 50
 export async function fetchTabletReservas(desde?: Date, ate?: Date, workspaceId?: string): Promise<TabletReserva[]> {
   if (!supabase) return []
 
-  const hoje = desde || new Date()
-  hoje.setHours(0, 0, 0, 0)
-  
+  const inicio = desde ? new Date(desde) : new Date()
+  inicio.setHours(0, 0, 0, 0)
+
   // Default: buscar 90 dias à frente (em vez de 7) para garantir visibilidade de reservas futuras
-  const limite = ate || new Date(hoje)
-  if (!ate) limite.setDate(limite.getDate() + 90)
+  const fim = ate ? new Date(ate) : new Date(inicio)
+  if (!ate) fim.setDate(fim.getDate() + 90)
 
   const wsId = workspaceId || workspaceStore.activeWorkspaceId
   if (!wsId) return []
 
-  let query = supabase
-    .from('tablet_reservations')
-    .select('*')
-    .gte('horario_inicio', hoje.toISOString())
-    .lt('horario_inicio', limite.toISOString())
-    .eq('status', 'ativa')
-    .eq('workspace_id', wsId)
+  const client = supabase
+  return fetchAllTabletPages(() =>
+    client
+      .from('tablet_reservations')
+      .select('*')
+      .gte('horario_inicio', inicio.toISOString())
+      .lt('horario_inicio', fim.toISOString())
+      .eq('status', 'ativa')
+      .eq('workspace_id', wsId)
+      .order('horario_inicio', { ascending: true })
+      .order('id', { ascending: true }),
+  )
+}
 
-  const { data } = await query.order('horario_inicio', { ascending: true })
+/**
+ * Busca TODAS as reservas ativas do workspace — passado, hoje e futuro — sem
+ * janela de datas. É a fonte do histórico exibido na ReservaLab, garantindo que
+ * nada seja escondido por um corte fixo (ex.: 90 dias) e que o calendário possa
+ * navegar livremente entre os meses.
+ *
+ * Paginada (`.range()`) para não sofrer o truncamento silencioso do PostgREST.
+ * O filtro por `workspace_id` preserva o isolamento entre workspaces; o RLS do
+ * backend continua sendo a autoridade final.
+ */
+export async function fetchAllTabletReservas(workspaceId?: string): Promise<TabletReserva[]> {
+  if (!supabase) return []
 
-  return (data as TabletReserva[]) || []
+  const wsId = workspaceId || workspaceStore.activeWorkspaceId
+  if (!wsId) return []
+
+  const client = supabase
+  return fetchAllTabletPages(() =>
+    client
+      .from('tablet_reservations')
+      .select('*')
+      .eq('status', 'ativa')
+      .eq('workspace_id', wsId)
+      .order('horario_inicio', { ascending: true })
+      .order('id', { ascending: true }),
+  )
 }
 
 /**

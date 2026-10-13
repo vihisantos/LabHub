@@ -41,6 +41,7 @@ function makeCalendarDays(): CalendarDay[] {
       date,
       day: d,
       isToday: date === AGORA.toISOString().slice(0, 10),
+      isPast: date < '2026-06-25',
       isOther: false,
       items: d === 25 ? [makeReserva()] : [],
     })
@@ -187,5 +188,67 @@ describe('TabletCalendar', () => {
     fireEvent.click(screen.getByText('Sala 1'))
     expect(onSelectReservation).toHaveBeenCalledTimes(1)
     expect(onSelectReservation).toHaveBeenCalledWith(reserva)
+  })
+
+  describe('dias passados em cinza, hoje destacado (Issue #388)', () => {
+    const dayButton = (label: string) => screen.getByText(label).closest('button') as HTMLButtonElement
+
+    it('aplica fundo cinza discreto nos dias passados, sem desabilitar', () => {
+      renderCalendar()
+      const passado = dayButton('10')
+      expect(passado.getAttribute('data-past')).toBe('true')
+      expect(passado.className).toContain('bg-fg-muted/10')
+      expect(passado.className).toContain('text-fg-muted')
+      // Continua clicável — NÃO usamos `disabled` só para acinzentar.
+      expect(passado).not.toBeDisabled()
+    })
+
+    it('mantém o dia passado clicável (seleção funciona)', () => {
+      const onSelectDay = vi.fn()
+      renderCalendar({ onSelectDay })
+      fireEvent.click(dayButton('10'))
+      expect(onSelectDay).toHaveBeenCalledWith('2026-06-10')
+    })
+
+    it('mantém o destaque distinto de HOJE (não fica cinza)', () => {
+      renderCalendar()
+      const hoje = dayButton('25')
+      expect(hoje.getAttribute('data-today')).toBe('true')
+      expect(hoje.className).toContain('bg-indigo-500/10')
+      expect(hoje.className).not.toContain('bg-fg-muted/10')
+    })
+
+    it('não acinzenta dias futuros', () => {
+      renderCalendar()
+      const futuro = dayButton('26')
+      expect(futuro.getAttribute('data-past')).toBeNull()
+      expect(futuro.className).not.toContain('bg-fg-muted/10')
+    })
+
+    it('mantém os indicadores de reserva visíveis em dia passado', () => {
+      const days = makeCalendarDays()
+      const dia10 = days.find((d) => d.date === '2026-06-10')!
+      dia10.items = [makeReserva()]
+      renderCalendar({ calendarDays: days })
+      const passado = dayButton('10')
+      expect(passado.getAttribute('data-past')).toBe('true')
+      // O pontinho de reserva continua renderizado no dia passado.
+      expect(passado.querySelectorAll('.rounded-full').length).toBeGreaterThan(0)
+    })
+
+    it('o cinza não depende de haver reservas (dia passado vazio continua cinza)', () => {
+      renderCalendar()
+      const passadoVazio = dayButton('10')
+      expect(passadoVazio.getAttribute('data-past')).toBe('true')
+      expect(passadoVazio.className).toContain('bg-fg-muted/10')
+    })
+
+    it('mantém dias de outro mês como espaços diferenciados (sem botão)', () => {
+      const days = makeCalendarDays()
+      days.unshift({ date: '', day: 0, isToday: false, isPast: false, isOther: true, items: [] })
+      renderCalendar({ calendarDays: days })
+      // 30 dias reais + 1 placeholder → só os 30 reais viram botão.
+      expect(screen.getAllByTestId('tablet-calendar-day')).toHaveLength(30)
+    })
   })
 })

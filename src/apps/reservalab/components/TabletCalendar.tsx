@@ -1,12 +1,15 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Tablet as TabletIcon, User } from 'lucide-react'
 import { cn } from '../../../lib/components/ui/utils'
+import { toLocalDateKey } from '../utils/timeUtils'
 import type { TabletReserva } from '../types'
 
 export interface CalendarDay {
   date: string
   day: number
   isToday: boolean
+  /** Dia anterior a hoje (data local). Independe de haver reservas. */
+  isPast: boolean
   isOther: boolean
   items: TabletReserva[]
 }
@@ -53,7 +56,7 @@ export function TabletCalendar({
   formatTime,
   onSelectReservation,
 }: TabletCalendarProps) {
-  const todayKey = new Date().toISOString().slice(0, 10)
+  const todayKey = toLocalDateKey(new Date())
   const isCurrentMonth =
     new Date().getFullYear() === calYear && new Date().getMonth() === calMonth
 
@@ -127,6 +130,11 @@ export function TabletCalendar({
                   <button
                     key={d.date}
                     type="button"
+                    data-testid="tablet-calendar-day"
+                    data-past={d.isPast ? 'true' : undefined}
+                    data-today={d.isToday ? 'true' : undefined}
+                    aria-current={d.isToday ? 'date' : undefined}
+                    aria-pressed={selectedDay === d.date}
                     onClick={() => onSelectDay(selectedDay === d.date ? null : d.date)}
                     className={cn(
                       'relative flex min-h-11 flex-col items-center justify-center rounded-lg py-1 text-xs font-medium transition-all',
@@ -134,7 +142,13 @@ export function TabletCalendar({
                         ? 'bg-indigo-600 text-white shadow-sm'
                         : d.isToday
                           ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/15'
-                          : 'text-fg hover:bg-input'
+                          // Dia passado: fundo cinza discreto + texto atenuado, porém
+                          // SEMPRE clicável (não usamos `disabled`). O cinza depende
+                          // só da data (não de ter reservas) e não aplica opacity
+                          // global no card.
+                          : d.isPast
+                            ? 'bg-fg-muted/10 text-fg-muted hover:bg-input'
+                            : 'text-fg hover:bg-input'
                     )}
                   >
                     <span>{d.day}</span>
