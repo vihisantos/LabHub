@@ -1,67 +1,65 @@
 -- 098_tablet_reservations_update_horario_fim_rls.sql
--- Impedir atualização de reservas de tablet após horario_fim.
--- Regra de negócio: uma reserva só pode ser atualizada enquanto horario_fim não passou.
+-- Issue #388 — ReservaLab: impedir atualização de reserva de tablet após horario_fim.
+--
+-- Regra de negócio: uma reserva só pode ser atualizada enquanto `horario_fim`
+-- não passou (comparação do instante completo, timestamptz).
+--
+-- POR QUE REESCREVER A POLICY (e não criar um helper novo):
+--   A 078 deixou explícito que a policy `tablet_reservations_update` é
+--   `is_super_admin() OR (user_belongs_to_workspace(workspace_id) AND
+--   user_can_cancel_tablet_reservation(workspace_id))` e que esse shape é uma
+--   invariante coberta pelos testes estruturais 050 e 078. A regra temporal
+--   nova entra NA policy, preservando os três pilares de autorização:
+--     · bypass explícito de super admin (`is_super_admin()`);
+--     · isolamento por workspace (`user_belongs_to_workspace(workspace_id)`);
+--     · checagem RBAC 2.0 (`user_can_cancel_tablet_reservation(workspace_id)`).
+--
+-- SEMÂNTICA DA REGRA TEMPORAL (por que `USING` e `WITH CHECK`):
+--   Em uma policy FOR UPDATE:
+--     · o `USING` é avaliado sobre a linha EXISTENTE (OLD);
+--     · o `WITH CHECK` sobre a linha NOVA (NEW).
+--   A condição temporal vive no `USING`: uma reserva já encerrada
+--   (`OLD.horario_fim <= now()`) não satisfaz o predicado e o UPDATE é recusado
+--   antes de qualquer escrita. Isso impede que alguém "ressuscite" uma reserva
+--   encerrada alterando `horario_fim` para o futuro — o valor considerado é o
+--   OLD, não o NEW.
+--   O `WITH CHECK` repete a condição para impedir o caminho inverso: empurrar
+--   para o passado uma reserva ativa, o que a tornaria imediatamente
+--   não-editável e burlaria a intenção da regra.
+--
+--   `horario_fim > now()` (e não `>=`) mantém paridade exata com o frontend
+--   (`isTabletReservaEditable`: `fim > Date.now()`).
 
--- Helper: verifica se o caller pode atualizar a reserva.
--- Reutiliza a função existente user_can_cancel_tablet_reservation (RBAC 2.0).
--- A regra temporal é aplicada ANTES da verificação RBAC: se horario_fim já passou, NEGA.
--- Isso impede que um update altere horario_fim para contornar a regra (o OLD.horario_fim é verificado).
-
-CREATE OR REPLACE FUNCTION public.user_can_update_tablet_reservation(
-  reservation_id uuid
-) RETURNS boolean
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_horario_fim timestamptz;
-  v_workspace_id uuid;
-BEGIN
-  -- Busca horario_fim e workspace_id da reserva ANTES da atualização (OLD)
-  SELECT horario_fim, workspace_id
-  INTO v_horario_fim, v_workspace_id
-  FROM public.tablet_reservations
-  WHERE id = reservation_id;
-
-  IF v_horario_fim IS NULL THEN
-    RETURN false;
-  END IF;
-
-  -- Regra temporal: se horario_fim já passou, NEGA a atualização
-  -- Usa now() diretamente (timestamptz) para comparar com horario_fim (timestamptz)
-  IF v_horario_fim <= now() THEN
-    RETURN false;
-  END IF;
-
-  -- Verifica permissão RBAC 2.0 via função existente
-  -- Passa o workspace_id já obtido (evita query extra)
-  RETURN public.user_can_cancel_tablet_reservation(v_workspace_id);
-END;
-$$;
-
-COMMENT ON FUNCTION public.user_can_update_tablet_reservation(uuid) IS
-  'Retorna true se o caller pode atualizar a reserva de tablet:
-   - horario_fim ainda não passou (regra temporal obrigatória)
-   - E o caller tem permissão RBAC 2.0 (reservelab.tablet.cancel no workspace)
-   Usada na policy tablet_reservations_update.';
-
--- Garante que a função não seja executável por roles não autorizadas
-REVOKE EXECUTE ON FUNCTION public.user_can_update_tablet_reservation(uuid) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.user_can_update_tablet_reservation(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.user_can_update_tablet_reservation(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.user_can_update_tablet_reservation(uuid) TO service_role;
-
--- Atualiza a policy UPDATE para usar a nova função
+-- ─── 1. Remove a policy anterior (e o helper efêmero de uma versão preliminar
+--        desta migration, se existir) — idempotente ─────────────────────────
 DROP POLICY IF EXISTS "tablet_reservations_update" ON public.tablet_reservations;
+DROP FUNCTION IF EXISTS public.user_can_update_tablet_reservation(uuid);
+
+-- ─── 2. Recria a policy UPDATE preservando RBAC/RLS e adicionando a regra
+--        temporal ────────────────────────────────────────────────────────────
 CREATE POLICY "tablet_reservations_update"
   ON public.tablet_reservations FOR UPDATE
+  TO authenticated
   USING (
-    public.user_can_update_tablet_reservation(id)
+    public.is_super_admin()
+    OR (
+      public.user_belongs_to_workspace(workspace_id)
+      AND public.user_can_cancel_tablet_reservation(workspace_id)
+      AND horario_fim > now()
+    )
   )
   WITH CHECK (
-    public.user_can_update_tablet_reservation(id)
+    public.is_super_admin()
+    OR (
+      public.user_belongs_to_workspace(workspace_id)
+      AND public.user_can_cancel_tablet_reservation(workspace_id)
+      AND horario_fim > now()
+    )
   );
 
 COMMENT ON POLICY "tablet_reservations_update" ON public.tablet_reservations IS
-  'UPDATE permitido apenas se: (1) horario_fim ainda não passou, (2) caller tem permissão RBAC 2.0 (reservelab.tablet.cancel no workspace) OU é super_admin. O bypass de super_admin está na função user_can_cancel_tablet_reservation.';
+  'Issue #388: UPDATE permitido apenas enquanto horario_fim não passou, mantendo '
+  'o bypass de super admin (is_super_admin()) e o RBAC 2.0 já vigente desde '
+  '050/078 (user_belongs_to_workspace + user_can_cancel_tablet_reservation). '
+  'O USING avalia a linha OLD (impede ressuscitar reserva encerrada); o '
+  'WITH CHECK avalia a linha NEW (impede empurrar reserva ativa para o passado).';
