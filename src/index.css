@@ -12,6 +12,19 @@
   --color-card-hover: var(--bg-card-hover);
   --color-module-card: var(--bg-module-card);
   --color-quick-card: var(--bg-quick-card);
+
+  /* ── Estoque — identidade Industrial Premium (Issue #382) ──
+     Paleta PRÓPRIA do app Estoque: azul-marinho estrutural + ciano de acento.
+     Centralizada aqui (e não espalhada em dezenas de componentes) porque o
+     cabeçalho é uma barra de marca deliberadamente escura nos três temas
+     (Claro/Sutil/Escuro) — por isso usa cores fixas, não tokens semânticos
+     que mudariam com o tema e quebrariam o contraste do texto claro. */
+  --color-stock-navy: #0b1c33;
+  --color-stock-navy-soft: #12294a;
+  --color-stock-cyan: #22d3ee;
+  --color-stock-ink: #eaf2fb;
+  --color-stock-ink-dim: #9db4cf;
+
   --animate-overlay-show: overlay-show 200ms ease-out;
   --animate-overlay-hide: overlay-hide 150ms ease-in;
   --animate-content-show: content-show 200ms ease-out;

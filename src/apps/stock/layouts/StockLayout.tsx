@@ -1,13 +1,15 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { useRef, useState, useEffect } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { StockBottomNav } from '../components/StockBottomNav'
+import { StockHeader } from '../components/StockHeader'
 import { useSwipeBack } from '../../pcare/hooks/useSwipeBack'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { useExpiryAlerts } from '../hooks/useExpiryAlerts'
-import { icons } from '../../../lib/icons'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { PushNotificationButton } from '../../reservalab/components/PushNotificationButton'
 import { STOCK_PREFIXES, stockPrefix, normalizeStockPath } from '../utils/stockPath'
+import { STOCK_CONTAINER_CLASS } from './stockContainer'
 
 function p(pathname: string, suffix: string) {
   return STOCK_PREFIXES.some((pre) => pathname === pre + suffix || pathname.startsWith(pre + suffix + '/'))
@@ -33,7 +35,7 @@ function StockPageTransition({ direction, children }: { direction: 'left' | 'rig
   const reduceMotion = useReducedMotion()
   const x = direction === 'left' ? 12 : -12
   if (reduceMotion) {
-    return <div className="mx-auto max-w-lg p-4">{children}</div>
+    return <div className={`${STOCK_CONTAINER_CLASS} py-4`}>{children}</div>
   }
   return (
     <motion.div
@@ -41,7 +43,7 @@ function StockPageTransition({ direction, children }: { direction: 'left' | 'rig
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -x }}
       transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-      className="mx-auto max-w-lg p-4"
+      className={`${STOCK_CONTAINER_CLASS} py-4`}
     >
       {children}
     </motion.div>
@@ -108,6 +110,7 @@ export function StockLayout() {
   const title = getPageTitle(location.pathname)
   const detail = isDetailPage(location.pathname)
   const mainRef = useRef<HTMLDivElement>(null)
+  const { workspace } = useWorkspace()
   // Tema centralizado no perfil do app principal — sem controle local aqui
 
   useSwipeBack()
@@ -125,6 +128,7 @@ export function StockLayout() {
       location={location}
       title={title}
       detail={detail}
+      unitName={workspace?.name ?? null}
       mainRef={mainRef}
       scrollToTop={scrollToTop}
     />
@@ -132,11 +136,12 @@ export function StockLayout() {
 }
 
 function StockLayoutInner({
-  location, title, detail, mainRef, scrollToTop,
+  location, title, detail, unitName, mainRef, scrollToTop,
 }: {
   location: ReturnType<typeof useLocation>
   title: string
   detail: boolean
+  unitName: string | null
   mainRef: React.RefObject<HTMLDivElement | null>
   scrollToTop: () => void
 }) {
@@ -156,30 +161,13 @@ function StockLayoutInner({
     <div
       className="flex min-h-dvh flex-col bg-surface text-fg overflow-x-hidden"
     >
-      <header className="sticky top-0 z-30 flex items-center gap-2 bg-surface/80 px-4 py-3.5 backdrop-blur-xl border-b border-line">
-        {detail && (
-          <Link
-            to={getBackPath(location.pathname)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-fg-dim transition-colors hover:bg-input hover:text-fg"
-            aria-label="Voltar"
-            viewTransition
-          >
-            <icons.ui.back size={20} />
-          </Link>
-        )}
-
-        <button
-          type="button"
-          onClick={scrollToTop}
-          className="flex items-center gap-2 overflow-hidden text-left"
-        >
-          <div className="flex flex-col">
-            <h1 className="text-[17px] font-semibold tracking-tight text-fg leading-tight">{title}</h1>
-            <p className="text-[11px] font-medium leading-tight bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">Estoque</p>
-          </div>
-        </button>
-
-      </header>
+      <StockHeader
+        title={title}
+        canGoBack={detail}
+        backTo={getBackPath(location.pathname)}
+        onTitleClick={scrollToTop}
+        unitName={unitName}
+      />
 
       <main ref={mainRef} className="flex-1 overflow-y-auto pb-28" style={{ paddingBottom: 'max(7rem, calc(4rem + env(safe-area-inset-bottom)))' }}>
         <AnimatePresence mode="wait" initial={false}>
