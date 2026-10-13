@@ -15,9 +15,13 @@ export function EmptyState({ icon, title, description, action, accentColor = 'vi
     cyan: 'from-cyan-600 to-blue-600 shadow-cyan-500/20',
     emerald: 'from-emerald-600 to-green-600 shadow-emerald-500/20',
     amber: 'from-amber-600 to-orange-600 shadow-amber-500/20',
+    accent: 'from-[var(--accent)] to-[var(--accent-strong)] shadow-[var(--accent-ring)]',
   }
 
   const gradient = gradients[accentColor] || gradients.cyan
+  // Sobre o accent escurecido (Claro/Sutil) o texto claro é legível; nas demais
+  // variantes mantém-se o `text-fg` original.
+  const buttonTextClass = accentColor === 'accent' ? 'text-[var(--on-accent)]' : 'text-fg'
 
   function renderIcon() {
     if (!icon) return <icons.ui.inbox size={28} className="text-fg-muted" />
@@ -39,7 +43,7 @@ export function EmptyState({ icon, title, description, action, accentColor = 'vi
         <button
           type="button"
           onClick={action.onClick}
-          className={`rounded-lg bg-gradient-to-r ${gradient} px-5 py-2 text-sm font-medium text-fg shadow-sm transition-all hover:shadow-md`}
+          className={`rounded-lg bg-gradient-to-r ${gradient} px-5 py-2 text-sm font-medium ${buttonTextClass} shadow-sm transition-all hover:shadow-md`}
         >
           {action.label}
         </button>

@@ -92,7 +92,7 @@ export function InventoryDetail() {
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <icons.ui.search size={32} className="mb-3 text-fg-muted" />
         <h3 className="mb-1 text-lg font-medium text-fg-dim">Ciclo não encontrado</h3>
-        <button type="button" onClick={() => navigate(stockPath(location.pathname, '/inventory'))} className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
+        <button type="button" onClick={() => navigate(stockPath(location.pathname, '/inventory'))} className="mt-2 text-sm text-[var(--accent-strong)]">
           Voltar
         </button>
       </div>
@@ -160,7 +160,7 @@ export function InventoryDetail() {
           <icons.ui.checkCircle size={32} className="mx-auto mb-2 text-emerald-500" />
           <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-400">Ciclo Concluído</h3>
         </div>
-        <button type="button" onClick={() => navigate(stockPath(location.pathname, '/inventory'))} className="w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+        <button type="button" onClick={() => navigate(stockPath(location.pathname, '/inventory'))} className="w-full rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive">
           Voltar ao Inventário
         </button>
       </div>
@@ -206,7 +206,7 @@ export function InventoryDetail() {
             Voltar à Contagem
           </button>
           {canWrite && (
-            <button type="button" onClick={() => setShowFinish(true)} className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+            <button type="button" onClick={() => setShowFinish(true)} className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive">
               Finalizar Ciclo
             </button>
           )}
@@ -243,7 +243,7 @@ export function InventoryDetail() {
 
       <div className="flex items-center gap-2">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-segmented">
-          <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${progress}%` }} />
+          <div className="h-full rounded-full bg-[var(--accent)] transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
         <span className="text-xs font-medium text-fg-muted shrink-0">{counts.length}/{allItems.length}</span>
       </div>
@@ -253,7 +253,7 @@ export function InventoryDetail() {
           <icons.ui.checkCircle size={36} className="mb-2 text-emerald-500" />
           <p className="text-sm font-medium text-fg">Todos os itens foram verificados!</p>
           {canWrite && (
-            <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+            <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-[var(--accent-strong)] px-6 py-2 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive">
               Revisar e Finalizar
             </button>
           )}
@@ -297,7 +297,7 @@ export function InventoryDetail() {
           <icons.ui.checkCircle size={36} className="mb-2 text-emerald-500" />
           <p className="text-sm font-medium text-fg">Contagem finalizada!</p>
           {canWrite && (
-            <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive">
+            <button type="button" onClick={() => setStep('review')} className="mt-3 rounded-xl bg-[var(--accent-strong)] px-6 py-2 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive">
               Revisar Resultados
             </button>
           )}

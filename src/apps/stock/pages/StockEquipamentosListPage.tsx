@@ -99,7 +99,7 @@ export function StockEquipamentosListPage() {
             icon={icons.ui.search}
             title="Nenhum equipamento encontrado"
             description="Tente ajustar a busca ou os filtros."
-            accentColor="cyan"
+            accentColor="accent"
           />
         )
       }
@@ -108,7 +108,7 @@ export function StockEquipamentosListPage() {
           icon={icons.ui.hardDrive}
           title="Acervo vazio"
           description={`Nenhum equipamento cadastrado em ${unitName || 'nesta unidade'}.`}
-          accentColor="cyan"
+          accentColor="accent"
           action={
             canCreate.allowed && !canCreate.loading
               ? { label: 'Cadastrar equipamento', onClick: () => setFormOpen(true) }
@@ -139,7 +139,7 @@ export function StockEquipamentosListPage() {
         icon={icons.ui.shield}
         title="Sem permissão"
         description="Você não tem acesso ao módulo Equipamentos nesta unidade."
-        accentColor="amber"
+        accentColor="accent"
       />
     )
   }
@@ -150,7 +150,7 @@ export function StockEquipamentosListPage() {
         icon={icons.ui.mapPin}
         title="Nenhuma unidade ativa"
         description="Selecione uma unidade para visualizar os equipamentos."
-        accentColor="amber"
+        accentColor="accent"
       />
     )
   }
@@ -169,7 +169,7 @@ export function StockEquipamentosListPage() {
               placeholder="Buscar tombamento, nome, série..."
               value={searchRaw}
               onChange={(e) => setSearchRaw(e.target.value)}
-              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none transition-all placeholder:text-fg-muted focus:ring-2 focus:ring-sky-500/30"
+              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none transition-all placeholder:text-fg-muted focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
             {searchRaw && (
               <button
@@ -189,7 +189,7 @@ export function StockEquipamentosListPage() {
             <button
               type="button"
               onClick={() => setFormOpen(true)}
-              className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 px-3.5 text-sm font-medium text-white transition-all hover:shadow-md btn-interactive"
+              className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-[var(--accent-strong)] px-3.5 text-sm font-medium text-[var(--on-accent)] transition-all hover:opacity-90 shadow-sm btn-interactive"
               aria-label="Cadastrar equipamento"
             >
               <icons.ui.plus size={16} />
@@ -201,14 +201,14 @@ export function StockEquipamentosListPage() {
             onClick={() => setFiltersOpen(true)}
             className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors ${
               activeFilterCount > 0
-                ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-strong)]'
                 : 'bg-input text-fg-dim hover:text-fg'
             }`}
             aria-label="Filtros"
           >
             <icons.ui.sliders size={16} />
             {activeFilterCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[14px] items-center justify-center rounded-full bg-sky-600 px-1 text-[9px] font-bold text-white">
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent-strong)] px-1 text-[9px] font-bold text-[var(--on-accent)]">
                 {activeFilterCount}
               </span>
             )}
@@ -290,9 +290,9 @@ export function StockEquipamentosListPage() {
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-lg bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700 dark:bg-sky-950/30 dark:text-sky-400">
+    <span className="inline-flex items-center gap-1 rounded-lg bg-[var(--accent-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--accent-strong)]">
       {label}
-      <button type="button" onClick={onRemove} className="hover:text-sky-900 dark:hover:text-sky-200" aria-label={`Remover ${label}`}>
+      <button type="button" onClick={onRemove} className="hover:opacity-70" aria-label={`Remover ${label}`}>
         <icons.ui.close size={12} />
       </button>
     </span>

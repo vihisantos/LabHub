@@ -13,18 +13,6 @@
   --color-module-card: var(--bg-module-card);
   --color-quick-card: var(--bg-quick-card);
 
-  /* ── Estoque — identidade Industrial Premium (Issue #382) ──
-     Paleta PRÓPRIA do app Estoque: azul-marinho estrutural + ciano de acento.
-     Centralizada aqui (e não espalhada em dezenas de componentes) porque o
-     cabeçalho é uma barra de marca deliberadamente escura nos três temas
-     (Claro/Sutil/Escuro) — por isso usa cores fixas, não tokens semânticos
-     que mudariam com o tema e quebrariam o contraste do texto claro. */
-  --color-stock-navy: #0b1c33;
-  --color-stock-navy-soft: #12294a;
-  --color-stock-cyan: #22d3ee;
-  --color-stock-ink: #eaf2fb;
-  --color-stock-ink-dim: #9db4cf;
-
   --animate-overlay-show: overlay-show 200ms ease-out;
   --animate-overlay-hide: overlay-hide 150ms ease-in;
   --animate-content-show: content-show 200ms ease-out;
@@ -515,36 +503,6 @@
   animation: card-bg-shift 4s ease-in-out infinite;
 }
 
-/* ── Stock card gradient (emerald/teal) ── */
-.card-gradient-bg-stock::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    135deg,
-    rgba(16, 185, 129, 0.06),
-    rgba(5, 150, 105, 0.04),
-    rgba(20, 184, 166, 0.06),
-    rgba(52, 211, 153, 0.05)
-  );
-  background-size: 400% 400%;
-  animation: card-bg-shift 8s ease-in-out infinite;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.card-gradient-bg-stock:hover::before {
-  background: linear-gradient(
-    135deg,
-    rgba(16, 185, 129, 0.10),
-    rgba(5, 150, 105, 0.08),
-    rgba(20, 184, 166, 0.10),
-    rgba(52, 211, 153, 0.08)
-  );
-  background-size: 400% 400%;
-  animation: card-bg-shift 4s ease-in-out infinite;
-}
-
 /* ── Status dot pulse ── */
 @keyframes status-dot-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
@@ -599,7 +557,7 @@
   right: 20%;
   height: 2.5px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
   animation: tab-indicator-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 

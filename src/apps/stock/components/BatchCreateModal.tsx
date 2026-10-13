@@ -98,7 +98,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
             onChange={(e) => setSerialsText(e.target.value)}
             placeholder={'Cole os patrimônios, um por linha:\n\nPAT-001\nPAT-002\nPAT-003'}
             rows={4}
-            className="w-full resize-none rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full resize-none rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             required
           />
           {serialList.length > 0 && (
@@ -142,7 +142,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
               placeholder={p.name}
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               required
             />
           </div>
@@ -151,7 +151,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
             <select
               value={form.section}
               onChange={(e) => set('section', e.target.value as StockSection)}
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             >
               {stockSections.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
@@ -168,7 +168,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
               <select
                 value={form.subcategory}
                 onChange={(e) => set('subcategory', e.target.value)}
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               >
                 <option value="">Selecione...</option>
                 {subcategories.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -179,7 +179,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
                 value={form.subcategory}
                 onChange={(e) => set('subcategory', e.target.value)}
                 placeholder="Ex: Desktop"
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             )}
           </div>
@@ -188,7 +188,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
             <select
               value={form.condition}
               onChange={(e) => set('condition', e.target.value)}
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             >
               {stockConditions.map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -205,7 +205,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
             value={form.room}
             onChange={(e) => set('room', e.target.value)}
             placeholder={p.room}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
         </div>
 
@@ -217,7 +217,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
             value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
             placeholder={p.notes}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
         </div>
 
@@ -226,7 +226,7 @@ export function BatchCreateModal({ open, onClose, create, reload, onCreated }: B
           <button
             type="submit"
             disabled={!form.name.trim() || serialList.length === 0}
-            className="flex-1 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 py-2.5 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50 btn-interactive"
+            className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm disabled:opacity-50 btn-interactive"
           >
             {serialList.length > 0
               ? `Criar ${serialList.length} ${serialList.length === 1 ? 'item' : 'itens'}`

@@ -276,7 +276,7 @@ export function StockDetail() {
 
         {item.section === 'maquinas' && !item.linkedPcId && item.pcParts && item.pcParts.length > 0 && (
           <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-card)]">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Peças do PC</h3>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--accent-strong)]">Peças do PC</h3>
             <div className="space-y-2">
               {item.pcParts.map((part) => (
                 <div key={part.partName} className="flex items-center gap-2">
@@ -285,14 +285,14 @@ export function StockDetail() {
                       type="button"
                       onClick={() => togglePart(part.partName)}
                       className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ${
-                        part.present ? 'bg-emerald-500' : 'border-2 border-line'
+                        part.present ? 'bg-[var(--accent)]' : 'border-2 border-line'
                       }`}
                     >
-                      {part.present && <icons.ui.check size={12} className="text-white" />}
+                      {part.present && <icons.ui.check size={12} className="text-[var(--on-accent)]" />}
                     </button>
                   ) : (
-                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${part.present ? 'bg-emerald-500/30' : 'border-2 border-line'}`}>
-                      {part.present && <icons.ui.check size={12} className="text-emerald-600 dark:text-emerald-400" />}
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${part.present ? 'bg-[var(--accent-soft)]' : 'border-2 border-line'}`}>
+                      {part.present && <icons.ui.check size={12} className="text-[var(--accent-strong)]" />}
                     </span>
                   )}
                   <span className="text-sm text-fg">{part.partName}</span>
@@ -312,7 +312,7 @@ export function StockDetail() {
                 <button
                   type="button"
                   onClick={handleActivate}
-                  className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-all hover:shadow-md btn-interactive"
+                  className="rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm font-medium text-[var(--on-accent)] shadow-sm shadow-[var(--accent-ring)] transition-all hover:opacity-90 btn-interactive"
                 >
                   <icons.nav.pcs size={14} className="inline mr-1" />
                   Ativar e enviar para PC Care

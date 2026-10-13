@@ -174,7 +174,7 @@ export function StockMaintenance() {
               <select
                 value={form.itemId}
                 onChange={(e) => handleItemChange(e.target.value)}
-                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-amber-500"
+                className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-[var(--accent)]"
                 required
               >
                 <option value="">Selecione um item</option>
@@ -198,7 +198,7 @@ export function StockMaintenance() {
                     onClick={() => setForm({ ...form, type: value as StockMaintenanceType })}
                     className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
                       form.type === value
-                        ? 'border-amber-500 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                        ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]'
                         : 'border-line text-fg-dim hover:border-line'
                     }`}
                   >
@@ -214,7 +214,7 @@ export function StockMaintenance() {
                   type="date"
                   value={form.scheduledDate}
                   onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })}
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-amber-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-[var(--accent)]"
                   required
                 />
               </div>
@@ -225,7 +225,7 @@ export function StockMaintenance() {
                   value={form.performedBy}
                   onChange={(e) => setForm({ ...form, performedBy: e.target.value })}
                   placeholder="Nome do técnico"
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-amber-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-[var(--accent)]"
                 />
               </div>
             </div>
@@ -256,7 +256,7 @@ export function StockMaintenance() {
             title="Nenhuma manutenção agendada"
             description="Programe a manutenção preventiva dos equipamentos do estoque."
             action={canWrite ? { label: 'Agendar', onClick: () => setShowForm(true) } : undefined}
-            accentColor="amber"
+            accentColor="accent"
           />
       ) : view === 'calendar' ? (
         <div>
@@ -287,9 +287,9 @@ export function StockMaintenance() {
                   onClick={() => setSelectedDay(selectedDay === d.date ? null : d.date)}
                   className={`relative flex flex-col items-center rounded-lg py-2 text-xs font-medium transition-all ${
                     selectedDay === d.date
-                      ? 'bg-amber-600 text-white shadow-sm'
+                      ? 'bg-[var(--accent-strong)] text-[var(--on-accent)] shadow-sm'
                       : d.isToday
-                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent-strong)]'
                         : 'text-fg hover:bg-input'
                   }`}
                 >
