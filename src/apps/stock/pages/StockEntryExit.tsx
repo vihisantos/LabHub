@@ -142,7 +142,7 @@ export function StockEntryExit() {
               placeholder="Buscar por nome, sala, série..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
           </div>
 
@@ -230,7 +230,7 @@ export function StockEntryExit() {
                   value={room}
                   onChange={(e) => setRoom(e.target.value)}
                   placeholder={mode === 'entrada' ? 'Ex: Lab Info 2' : 'Ex: Lab Info 2'}
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-emerald-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-[var(--accent)]"
                 />
               </div>
               <div>
@@ -240,7 +240,7 @@ export function StockEntryExit() {
                   value={performedBy}
                   onChange={(e) => setPerformedBy(e.target.value)}
                   placeholder="Nome do responsável"
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-emerald-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-[var(--accent)]"
                 />
               </div>
               <div>
@@ -250,7 +250,7 @@ export function StockEntryExit() {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Motivo, descrição..."
-                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-emerald-500"
+                  className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-[var(--accent)]"
                 />
               </div>
 

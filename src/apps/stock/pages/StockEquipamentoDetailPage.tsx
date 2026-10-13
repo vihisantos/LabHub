@@ -38,7 +38,7 @@ export function StockEquipamentoDetailPage() {
         icon={icons.ui.shield}
         title="Sem permissão"
         description="Você não tem acesso ao módulo Equipamentos nesta unidade."
-        accentColor="amber"
+        accentColor="accent"
       />
     )
   }
@@ -49,7 +49,7 @@ export function StockEquipamentoDetailPage() {
         icon={icons.ui.mapPin}
         title="Nenhuma unidade ativa"
         description="Selecione uma unidade para visualizar o equipamento."
-        accentColor="amber"
+        accentColor="accent"
       />
     )
   }
@@ -79,7 +79,7 @@ export function StockEquipamentoDetailPage() {
         icon={icons.ui.hardDrive}
         title="Equipamento não encontrado"
         description="Este equipamento não existe ou não pertence à unidade ativa."
-        accentColor="cyan"
+        accentColor="accent"
       />
     )
   }

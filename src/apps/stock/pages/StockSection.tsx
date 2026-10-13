@@ -299,7 +299,7 @@ export function StockSectionPage() {
               <button
                 type="button"
                 onClick={() => { setEditing(null); setShowForm(true) }}
-                className="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+                className="rounded-xl bg-[var(--accent-strong)] px-3.5 py-2 text-xs font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive"
               >
                 + Novo
               </button>
@@ -308,7 +308,7 @@ export function StockSectionPage() {
               <button
                 type="button"
                 onClick={() => setShowBatch(true)}
-                className="flex items-center gap-1 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-violet-700 shadow-sm btn-interactive"
+                className="flex items-center gap-1 rounded-xl bg-[var(--accent-soft)] px-3.5 py-2 text-xs font-medium text-[var(--accent-strong)] transition-colors hover:opacity-90 shadow-sm btn-interactive"
               >
                 <icons.ui.copy size={13} />
                 Lote
@@ -318,7 +318,7 @@ export function StockSectionPage() {
               <button
                 type="button"
                 onClick={() => setShowDesktopSetup(true)}
-                className="flex items-center gap-1 rounded-xl bg-cyan-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-700 shadow-sm btn-interactive"
+                className="flex items-center gap-1 rounded-xl bg-[var(--accent-soft)] px-3.5 py-2 text-xs font-medium text-[var(--accent-strong)] transition-colors hover:opacity-90 shadow-sm btn-interactive"
               >
                 <icons.nav.pcs size={13} />
                 Desktop
@@ -328,7 +328,7 @@ export function StockSectionPage() {
               <button
                 type="button"
                 onClick={() => setShowNotebookSetup(true)}
-                className="flex items-center gap-1 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 shadow-sm btn-interactive"
+                className="flex items-center gap-1 rounded-xl bg-[var(--accent-soft)] px-3.5 py-2 text-xs font-medium text-[var(--accent-strong)] transition-colors hover:opacity-90 shadow-sm btn-interactive"
               >
                 <icons.nav.pcs size={13} />
                 Notebook
@@ -338,7 +338,7 @@ export function StockSectionPage() {
               <button
                 type="button"
                 onClick={() => setShowNotebookBatchImport(true)}
-                className="flex items-center gap-1 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 shadow-sm btn-interactive"
+                className="flex items-center gap-1 rounded-xl bg-[var(--accent-soft)] px-3.5 py-2 text-xs font-medium text-[var(--accent-strong)] transition-colors hover:opacity-90 shadow-sm btn-interactive"
               >
                 <icons.ui.upload size={13} />
                 Importar Notebooks
@@ -356,7 +356,7 @@ export function StockSectionPage() {
               placeholder="Buscar nome, série, sala, PC..."
               value={searchRaw}
               onChange={(e) => setSearchRaw(e.target.value)}
-              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-violet-500/30"
+              className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
             {searchRaw && (
               <button
@@ -373,13 +373,13 @@ export function StockSectionPage() {
             onClick={() => setFilterSheetOpen(true)}
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors btn-interactive ${
               activeFilterCount > 0
-                ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400'
+                ? 'bg-[var(--accent-soft)] text-[var(--accent-strong)]'
                 : 'bg-input text-fg-dim hover:text-fg'
             }`}
           >
             <icons.ui.sliders size={16} />
             {activeFilterCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[14px] items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white">
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[14px] items-center justify-center rounded-full bg-[var(--accent-strong)] px-1 text-[9px] font-bold text-[var(--on-accent)]">
                 {activeFilterCount}
               </span>
             )}
@@ -452,7 +452,7 @@ export function StockSectionPage() {
               onClick={() => setImportMode(!importMode)}
               className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
                 importMode
-                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent-strong)] ring-1 ring-inset ring-[var(--accent-ring)]'
                   : 'text-fg-muted hover:bg-input'
               }`}
             >
@@ -577,7 +577,7 @@ export function StockSectionPage() {
                     setImporting(false)
                   }}
                   disabled={importing}
-                  className="rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 py-3 text-sm font-medium text-fg shadow-sm transition-all hover:shadow-md disabled:opacity-50"
+                  className="rounded-lg bg-[var(--accent-strong)] py-3 text-sm font-medium text-[var(--on-accent)] shadow-sm transition-all hover:shadow-md disabled:opacity-50"
                 >
                   {importing ? 'Importando...' : `Importar ${importResult.rows.length} registro${importResult.rows.length !== 1 ? 's' : ''}`}
                 </button>
@@ -607,7 +607,7 @@ export function StockSectionPage() {
             title={items.length === 0 ? 'Estoque vazio' : 'Nenhum item encontrado'}
             description={items.length === 0 ? 'Adicione itens para controlar o estoque.' : 'Tente alterar os filtros ou busca.'}
             action={items.length === 0 && canCreate ? { label: 'Adicionar Item', onClick: () => { setEditing(null); setShowForm(true) } } : undefined}
-            accentColor="emerald"
+            accentColor="accent"
           />
         ) : (
           <>
@@ -615,7 +615,7 @@ export function StockSectionPage() {
               <button
                 type="button"
                 onClick={() => selection.toggleAll(filtered.map((i) => i.id))}
-                className="text-xs font-medium text-emerald-600 dark:text-emerald-400 btn-interactive"
+                className="text-xs font-medium text-[var(--accent-strong)] btn-interactive"
               >
                 {filtered.every((i) => selection.selected.has(i.id)) ? 'Desmarcar todos' : 'Selecionar todos'}
               </button>
@@ -779,9 +779,9 @@ export function StockSectionPage() {
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-lg bg-violet-100 dark:bg-violet-950/30 px-2.5 py-1 text-[11px] font-medium text-violet-700 dark:text-violet-400">
+    <span className="inline-flex items-center gap-1 rounded-lg bg-[var(--accent-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--accent-strong)]">
       {label}
-      <button type="button" onClick={onRemove} className="hover:text-violet-900 dark:hover:text-violet-200">
+      <button type="button" onClick={onRemove} className="hover:opacity-70">
         <icons.ui.close size={12} />
       </button>
     </span>
@@ -804,7 +804,7 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
       onClick={onClick}
       className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
         active
-          ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400 ring-1 ring-violet-300 dark:ring-violet-800'
+          ? 'bg-[var(--accent-soft)] text-[var(--accent-strong)] ring-1 ring-[var(--accent-ring)]'
           : 'bg-input text-fg-muted hover:text-fg hover:bg-input/80'
       }`}
     >

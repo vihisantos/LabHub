@@ -499,7 +499,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
               <div
                 key={s}
                 className={`h-1 flex-1 rounded-full transition-colors ${
-                  i <= stepIndex ? 'bg-emerald-500' : 'bg-input'
+                  i <= stepIndex ? 'bg-[var(--accent)]' : 'bg-input'
                 }`}
               />
             ))}
@@ -510,46 +510,46 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
         <div className="flex justify-between text-[10px] text-fg-muted">
           {mode === 'full' && (
             <>
-              <span className={step === 'notebook' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'notebook' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Notebook {notebook.name ? '✓' : '*'}
               </span>
-              <span className={step === 'charger' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'charger' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Carregador {charger.name ? '✓' : '*'}
               </span>
-              <span className={step === 'monitor' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'monitor' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Monitor {monitor.name ? '✓' : ''}
               </span>
-              <span className={step === 'mouse' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'mouse' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Mouse {mouse.name ? '✓' : ''}
               </span>
-              <span className={step === 'keyboard' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'keyboard' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Teclado {keyboard.name ? '✓' : ''}
               </span>
-              <span className={step === 'confirm' ? 'text-emerald-500 font-medium' : ''}>Confirmar</span>
+              <span className={step === 'confirm' ? 'text-[var(--accent-strong)] font-medium' : ''}>Confirmar</span>
             </>
           )}
           {mode === 'monitor' && (
             <>
-              <span className={step === 'monitor' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'monitor' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Monitor {monitor.name ? '✓' : '*'}
               </span>
-              <span className={step === 'confirm' ? 'text-emerald-500 font-medium' : ''}>Confirmar</span>
+              <span className={step === 'confirm' ? 'text-[var(--accent-strong)] font-medium' : ''}>Confirmar</span>
             </>
           )}
           {mode === 'mouse' && (
             <>
-              <span className={step === 'mouse' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'mouse' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Mouse {mouse.name ? '✓' : '*'}
               </span>
-              <span className={step === 'confirm' ? 'text-emerald-500 font-medium' : ''}>Confirmar</span>
+              <span className={step === 'confirm' ? 'text-[var(--accent-strong)] font-medium' : ''}>Confirmar</span>
             </>
           )}
           {mode === 'keyboard' && (
             <>
-              <span className={step === 'keyboard' ? 'text-emerald-500 font-medium' : ''}>
+              <span className={step === 'keyboard' ? 'text-[var(--accent-strong)] font-medium' : ''}>
                 Teclado {keyboard.name ? '✓' : '*'}
               </span>
-              <span className={step === 'confirm' ? 'text-emerald-500 font-medium' : ''}>Confirmar</span>
+              <span className={step === 'confirm' ? 'text-[var(--accent-strong)] font-medium' : ''}>Confirmar</span>
             </>
           )}
         </div>
@@ -570,7 +570,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.brand}
                   onChange={(e) => updateNotebook('brand', e.target.value)}
                   placeholder="Ex: HP"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -580,7 +580,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.model}
                   onChange={(e) => updateNotebook('model', e.target.value)}
                   placeholder="Ex: HP ProBook 440 G3"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -592,7 +592,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 value={notebook.name}
                 onChange={(e) => updateNotebook('name', e.target.value)}
                 placeholder="Ex: Notebook HP ProBook 440 G3"
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 required
               />
             </div>
@@ -605,7 +605,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.serialNumber}
                   onChange={(e) => updateNotebook('serialNumber', e.target.value)}
                   placeholder="Ex: PAT-001"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -615,7 +615,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.patrimonyAnhembi}
                   onChange={(e) => updateNotebook('patrimonyAnhembi', e.target.value)}
                   placeholder="Ex: 138356"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -628,7 +628,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.cpu}
                   onChange={(e) => updateNotebook('cpu', e.target.value)}
                   placeholder="Ex: Intel Core i5-6200"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -638,7 +638,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.ram}
                   onChange={(e) => updateNotebook('ram', e.target.value)}
                   placeholder="Ex: 4GB"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -648,7 +648,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.storage}
                   onChange={(e) => updateNotebook('storage', e.target.value)}
                   placeholder="Ex: SSD 240GB"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -659,7 +659,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 <select
                   value={notebook.osType}
                   onChange={(e) => updateNotebook('osType', e.target.value)}
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 >
                   <option value="windows10">Windows 10</option>
                   <option value="windows11">Windows 11</option>
@@ -674,7 +674,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.osVersion}
                   onChange={(e) => updateNotebook('osVersion', e.target.value)}
                   placeholder="Ex: 22H2"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -682,7 +682,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 <select
                   value={notebook.osEdition}
                   onChange={(e) => updateNotebook('osEdition', e.target.value)}
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 >
                   <option value="enterprise">Enterprise</option>
                   <option value="education">Education</option>
@@ -700,7 +700,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 value={notebook.osBuild}
                 onChange={(e) => updateNotebook('osBuild', e.target.value)}
                 placeholder="Ex: 19045.6456"
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
 
@@ -712,7 +712,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.room}
                   onChange={(e) => updateNotebook('room', e.target.value)}
                   placeholder="Ex: Lab Info 2"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -722,7 +722,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={notebook.bay}
                   onChange={(e) => updateNotebook('bay', e.target.value)}
                   placeholder="Ex: Baia 1"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -732,7 +732,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
               <select
                 value={notebook.condition}
                 onChange={(e) => updateNotebook('condition', e.target.value)}
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               >
                 {stockConditions.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -747,7 +747,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 value={notebook.notes}
                 onChange={(e) => updateNotebook('notes', e.target.value)}
                 placeholder="Informações adicionais..."
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
 
@@ -828,7 +828,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
               <select
                 value={notebook.batteryStatus}
                 onChange={(e) => updateNotebook('batteryStatus', e.target.value)}
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               >
                 <option value="ok">OK - Funcionando</option>
                 <option value="ruim">Ruim - Não segura carga</option>
@@ -843,7 +843,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 value={notebook.visualDamage}
                 onChange={(e) => updateNotebook('visualDamage', e.target.value)}
                 placeholder="Ex: Riscos na tampa, amassado no canto..."
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
           </div>
@@ -865,7 +865,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={charger.brand}
                   onChange={(e) => updateCharger('brand', e.target.value)}
                   placeholder="Ex: HP"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -875,7 +875,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={charger.name}
                   onChange={(e) => updateCharger('name', e.target.value)}
                   placeholder="Ex: Carregador HP 65W"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -888,7 +888,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={charger.serialNumber}
                   onChange={(e) => updateCharger('serialNumber', e.target.value)}
                   placeholder="Ex: SN-789"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -898,7 +898,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={charger.power}
                   onChange={(e) => updateCharger('power', e.target.value)}
                   placeholder="Ex: 65W"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -911,7 +911,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={charger.room}
                   onChange={(e) => updateCharger('room', e.target.value)}
                   placeholder="Ex: Lab Info 2"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -919,7 +919,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 <select
                   value={charger.condition}
                   onChange={(e) => updateCharger('condition', e.target.value)}
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 >
                   {stockConditions.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -935,7 +935,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 value={charger.notes}
                 onChange={(e) => updateCharger('notes', e.target.value)}
                 placeholder="Informações adicionais..."
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
           </div>
@@ -956,7 +956,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 value={monitor.name}
                 onChange={(e) => updateMonitor('name', e.target.value)}
                 placeholder="Ex: HP 19M37D-B V198bz G2"
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
 
@@ -968,7 +968,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={monitor.serialNumber}
                   onChange={(e) => updateMonitor('serialNumber', e.target.value)}
                   placeholder="Ex: BRG7390CMT"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -978,7 +978,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={monitor.patrimonyAnhembi}
                   onChange={(e) => updateMonitor('patrimonyAnhembi', e.target.value)}
                   placeholder="Ex: 138579"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -991,7 +991,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={monitor.room}
                   onChange={(e) => updateMonitor('room', e.target.value)}
                   placeholder="Ex: Lab Info 2"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -999,7 +999,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 <select
                   value={monitor.condition}
                   onChange={(e) => updateMonitor('condition', e.target.value)}
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 >
                   {stockConditions.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -1015,7 +1015,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 value={monitor.notes}
                 onChange={(e) => updateMonitor('notes', e.target.value)}
                 placeholder="Informações adicionais..."
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
           </div>
@@ -1037,7 +1037,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.brand}
                   onChange={(e) => updateMouse('brand', e.target.value)}
                   placeholder="Ex: HP"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1047,7 +1047,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.name}
                   onChange={(e) => updateMouse('name', e.target.value)}
                   placeholder="Ex: Mouse USB"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1060,7 +1060,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.serialNumber}
                   onChange={(e) => updateMouse('serialNumber', e.target.value)}
                   placeholder="Ex: SN-123"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1070,7 +1070,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.room}
                   onChange={(e) => updateMouse('room', e.target.value)}
                   placeholder="Ex: Lab Info 2"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1083,7 +1083,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.assyPin}
                   onChange={(e) => updateMouse('assyPin', e.target.value)}
                   placeholder="Ex: 672654-001"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1093,7 +1093,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.sparesPin}
                   onChange={(e) => updateMouse('sparesPin', e.target.value)}
                   placeholder="Ex: 674318-001"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1103,7 +1103,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.ct}
                   onChange={(e) => updateMouse('ct', e.target.value)}
                   placeholder="Ex: FCMHL0EW28076V"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1114,7 +1114,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 <select
                   value={mouse.condition}
                   onChange={(e) => updateMouse('condition', e.target.value)}
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 >
                   {stockConditions.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -1128,7 +1128,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={mouse.notes}
                   onChange={(e) => updateMouse('notes', e.target.value)}
                   placeholder="Ex: Mouse perfeito, sem defeitos"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1151,7 +1151,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.brand}
                   onChange={(e) => updateKeyboard('brand', e.target.value)}
                   placeholder="Ex: HP"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1161,7 +1161,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.name}
                   onChange={(e) => updateKeyboard('name', e.target.value)}
                   placeholder="Ex: Teclado USB"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1174,7 +1174,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.serialNumber}
                   onChange={(e) => updateKeyboard('serialNumber', e.target.value)}
                   placeholder="Ex: SN-456"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1184,7 +1184,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.room}
                   onChange={(e) => updateKeyboard('room', e.target.value)}
                   placeholder="Ex: Lab Info 2"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1197,7 +1197,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.hpPn}
                   onChange={(e) => updateKeyboard('hpPn', e.target.value)}
                   placeholder="Ex: 803181-201 BRZL"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1207,7 +1207,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.spsPn}
                   onChange={(e) => updateKeyboard('spsPn', e.target.value)}
                   placeholder="Ex: 803823-001"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -1217,7 +1217,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.ct}
                   onChange={(e) => updateKeyboard('ct', e.target.value)}
                   placeholder="Ex: BEXJQ0B5Y833QR"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1228,7 +1228,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                 <select
                   value={keyboard.condition}
                   onChange={(e) => updateKeyboard('condition', e.target.value)}
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 >
                   {stockConditions.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -1242,7 +1242,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
                   value={keyboard.notes}
                   onChange={(e) => updateKeyboard('notes', e.target.value)}
                   placeholder="Ex: Somente com uma perninha, mas funcionando"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -1372,7 +1372,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
               type="button"
               onClick={goNext}
               disabled={!canProceed()}
-              className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive disabled:opacity-50"
+              className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive disabled:opacity-50"
             >
               {step === 'notebook' && !notebook.name.trim() ? 'Preencha o nome do Notebook' : 
                step === 'charger' && !charger.name.trim() ? 'Preencha o nome do Carregador' :
@@ -1386,7 +1386,7 @@ export function NotebookSetupModal({ open, onClose, create, reload, onCreated }:
               type="button"
               onClick={handleSubmit}
               disabled={!canProceed() || (mode === 'full' && !charger.name.trim())}
-              className="flex-1 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 py-2.5 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50 btn-interactive"
+              className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm disabled:opacity-50 btn-interactive"
             >
               {!canProceed()
                 ? 'Preencha os campos obrigatórios'

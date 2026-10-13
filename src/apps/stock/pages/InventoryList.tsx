@@ -44,7 +44,7 @@ export function InventoryList() {
             <button
               type="button"
               onClick={() => setShowNew(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+              className="flex items-center gap-1.5 rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive"
             >
               <icons.ui.plus size={16} />
               Novo Ciclo
@@ -62,7 +62,7 @@ export function InventoryList() {
             title="Nenhum ciclo de inventário"
             description="Crie um ciclo para iniciar a contagem física dos itens."
             action={canWrite ? { label: 'Iniciar Contagem', onClick: () => setShowNew(true) } : undefined}
-            accentColor="emerald"
+            accentColor="accent"
           />
         ) : (
           <div className="space-y-2">
@@ -96,7 +96,7 @@ export function InventoryList() {
                     </p>
                   </div>
                   {cycle.status === 'in_progress' && (
-                    <span className="ml-2 shrink-0 rounded-full bg-emerald-50 dark:bg-emerald-900/40 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                    <span className="ml-2 shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-1 text-[10px] font-medium text-[var(--accent-strong)]">
                       Continuar
                     </span>
                   )}
@@ -116,7 +116,7 @@ export function InventoryList() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex: Contagem Janeiro 2026"
-              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               autoFocus
             />
           </div>
@@ -125,7 +125,7 @@ export function InventoryList() {
             <select
               value={section}
               onChange={(e) => setSection(e.target.value)}
-              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             >
               <option value="">Todas as seções ({activeItems.length} itens)</option>
               {stockSections.map((s) => {
@@ -139,7 +139,7 @@ export function InventoryList() {
               type="button"
               onClick={handleCreate}
               disabled={!name.trim()}
-              className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive disabled:opacity-50"
+              className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive disabled:opacity-50"
             >
               Iniciar Contagem
             </button>

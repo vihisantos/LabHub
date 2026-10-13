@@ -161,14 +161,14 @@ export function StockDashboard() {
             (StockBanner retorna null). Fica acima dos wallpaper blobs (z-10). */}
         <StockBanner />
 
-        {/* ── Wallpaper blobs animados ── */}
+        {/* ── Wallpaper blobs animados (tom do acento global) ── */}
         <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
           <div
             className="wallpaper-blob"
             style={{
               width: '500px', height: '500px',
               top: '-10%', right: '-15%',
-              background: 'radial-gradient(circle, rgba(16, 185, 129, 0.12), transparent 70%)',
+              background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 15%, transparent), transparent 70%)',
               animation: 'blob-float-slow 8s ease-in-out infinite',
             }}
           />
@@ -177,7 +177,7 @@ export function StockDashboard() {
             style={{
               width: '400px', height: '400px',
               bottom: '-5%', left: '-10%',
-              background: 'radial-gradient(circle, rgba(5, 150, 105, 0.10), transparent 70%)',
+              background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%)',
               animation: 'blob-float-slow-2 10s ease-in-out infinite',
             }}
           />
@@ -195,7 +195,7 @@ export function StockDashboard() {
             placeholder="Buscar em todo o estoque..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl bg-input py-2.5 pl-9 pr-9 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
           {search && (
             <button
@@ -238,7 +238,7 @@ export function StockDashboard() {
                 onClick={() => navigate(stockPath(location.pathname, '/items?section=all'))}
                 className="rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-shadow duration-300 hover:shadow-[var(--shadow-elevated)] btn-interactive"
               >
-                <icons.ui.package size={20} className="text-emerald-500" />
+                <icons.ui.package size={20} className="text-[var(--accent-strong)]" />
                 <p className="mt-2 text-2xl font-bold tracking-tight text-fg">{activeItems.length}</p>
                 <p className="text-[11px] font-medium text-fg-muted">Total Ativos</p>
               </button>
@@ -308,7 +308,7 @@ export function StockDashboard() {
                 <button
                   type="button"
                   onClick={() => navigate(stockPath(location.pathname, '/items'))}
-                  className="text-xs font-medium text-emerald-600 dark:text-emerald-400"
+                  className="text-xs font-medium text-[var(--accent-strong)]"
                 >
                   Ver tudo
                 </button>
@@ -325,7 +325,7 @@ export function StockDashboard() {
                       key={section}
                       type="button"
                       onClick={() => navigate(`/stock/items?section=${section}`)}
-                      className={`card-gradient-bg-stock relative flex flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-all duration-200 btn-interactive ${color.bg}`}
+                      className={`relative flex flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-all duration-200 btn-interactive ${color.bg}`}
                     >
                       <Icon size={20} className={color.icon} />
                       <span className={`text-xs font-medium ${color.text}`}>{label}</span>
@@ -436,7 +436,7 @@ export function StockDashboard() {
                   <button
                     type="button"
                     onClick={() => navigate(stockPath(location.pathname, '/movements'))}
-                    className="text-xs font-medium text-emerald-600 dark:text-emerald-400"
+                    className="text-xs font-medium text-[var(--accent-strong)]"
                   >
                     Ver todas
                   </button>

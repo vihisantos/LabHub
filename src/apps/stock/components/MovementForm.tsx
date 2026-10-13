@@ -51,7 +51,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
         <select
           value={type}
           onChange={(e) => setType(e.target.value as MovementType)}
-          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
         >
           {movementTypes.map((mt) => (
             <option key={mt.value} value={mt.value}>{mt.label}</option>
@@ -67,7 +67,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
             value={toRoom}
             onChange={(e) => setToRoom(e.target.value)}
             placeholder="Ex: Lab Info 2"
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             required
           />
         </div>
@@ -84,7 +84,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
                 value={borrowedBy}
                 onChange={(e) => setBorrowedBy(e.target.value)}
                 placeholder="Nome do aluno/professor"
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 required
               />
             </div>
@@ -95,7 +95,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
                 value={borrowerContact}
                 onChange={(e) => setBorrowerContact(e.target.value)}
                 placeholder="Email ou telefone"
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -105,7 +105,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
                   type="date"
                   value={expectedReturnAt}
                   onChange={(e) => setExpectedReturnAt(e.target.value)}
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
               <div>
@@ -115,7 +115,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
                   value={destinationRoom}
                   onChange={(e) => setDestinationRoom(e.target.value)}
                   placeholder="Ex: Lab Info 2"
-                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                  className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
                 />
               </div>
             </div>
@@ -133,7 +133,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
               value={performedBy}
               onChange={(e) => setPerformedBy(e.target.value)}
               placeholder="Quem recebeu o item"
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
           </div>
         </div>
@@ -148,7 +148,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
               value={replacedPart}
               onChange={(e) => setReplacedPart(e.target.value)}
               placeholder="Ex: SSD 240GB"
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
           </div>
           <div>
@@ -158,7 +158,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
               value={newPart}
               onChange={(e) => setNewPart(e.target.value)}
               placeholder="Ex: SSD 480GB"
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
           </div>
         </>
@@ -172,7 +172,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={type === 'emprestimo' ? 'Motivo do empréstimo (opcional)' : 'Ex: SSD com setores defeituosos'}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
         </div>
       )}
@@ -185,7 +185,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
             value={performedBy}
             onChange={(e) => setPerformedBy(e.target.value)}
             placeholder="Nome (opcional)"
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
         </div>
       )}
@@ -193,7 +193,7 @@ export function MovementForm({ itemId, itemName, currentRoom, initialType = 'mud
       <div className="flex gap-2 pt-1">
         <button
           type="submit"
-          className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+          className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive"
         >
           {initial ? 'Salvar' : 'Registrar'}
         </button>

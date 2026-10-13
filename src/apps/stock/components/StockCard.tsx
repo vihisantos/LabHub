@@ -36,12 +36,12 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
       type="button"
       onClick={handleClick}
       className={`group relative w-full overflow-hidden rounded-xl bg-card p-4 text-left shadow-[var(--shadow-card)] transition-all duration-300 hover:shadow-lg hover:shadow-black/10 hover:-translate-y-0.5 active:scale-[0.98] ${
-        selected ? 'ring-2 ring-emerald-500' : 'ring-1 ring-line/50 hover:ring-emerald-500/30 card-gradient-bg-stock'
+        selected ? 'ring-2 ring-[var(--accent)]' : 'ring-1 ring-line/50 hover:ring-[var(--accent-ring)]'
       }`}
     >
       {/* Glow sutil no hover */}
       <div className="absolute -inset-4 opacity-0 transition-opacity duration-500 group-hover:opacity-100 pointer-events-none"
-        style={{ background: 'radial-gradient(400px circle at 50% 0%, rgba(16,185,129,0.06), transparent 60%)' }}
+        style={{ background: 'radial-gradient(400px circle at 50% 0%, var(--accent-soft), transparent 60%)' }}
       />
       <div className="flex gap-3">
         {(() => {
@@ -63,9 +63,9 @@ export function StockCard({ item, onEdit, onMove, onRepair, onDiscard, onLoan, o
               <div className="flex items-center gap-2">
                 {selectable && (
                   <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg transition-colors ${
-                    selected ? 'bg-emerald-500' : 'border-2 border-line'
+                    selected ? 'bg-[var(--accent)]' : 'border-2 border-line'
                   }`}>
-                    {selected && <icons.ui.check size={12} className="text-white" />}
+                    {selected && <icons.ui.check size={12} className="text-[var(--on-accent)]" />}
                   </span>
                 )}
                 <h3 className="truncate font-semibold text-fg text-sm">{item.name}</h3>

@@ -415,7 +415,7 @@ export function NotebookBatchImport({ open, onClose, create, reload, onCreated }
             <button
               type="button"
               onClick={handleDownloadTemplate}
-              className="flex items-center gap-1.5 rounded-lg bg-violet-100 px-3 py-2 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50"
+              className="flex items-center gap-1.5 rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-xs font-medium text-[var(--accent-strong)] transition-colors hover:opacity-90"
             >
               <icons.ui.download size={14} />
               Baixar Template CSV
@@ -423,7 +423,7 @@ export function NotebookBatchImport({ open, onClose, create, reload, onCreated }
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-lg bg-cyan-100 px-3 py-2 text-xs font-medium text-cyan-700 transition-colors hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:hover:bg-cyan-900/50"
+              className="flex items-center gap-1.5 rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-xs font-medium text-[var(--accent-strong)] transition-colors hover:opacity-90"
             >
               <icons.ui.upload size={14} />
               Importar CSV
@@ -439,7 +439,7 @@ export function NotebookBatchImport({ open, onClose, create, reload, onCreated }
           <button
             type="button"
             onClick={addEmptyRow}
-            className="flex items-center gap-1.5 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50"
+            className="flex items-center gap-1.5 rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-xs font-medium text-[var(--accent-strong)] transition-colors hover:opacity-90"
           >
             <icons.ui.plus size={14} />
             Adicionar Linha
@@ -526,7 +526,7 @@ export function NotebookBatchImport({ open, onClose, create, reload, onCreated }
                           <button
                             type="button"
                             onClick={() => duplicateRow(row.id)}
-                            className="rounded p-1 text-fg-muted hover:text-cyan-500 transition-colors"
+                            className="rounded p-1 text-fg-muted hover:text-[var(--accent-strong)] transition-colors"
                             title="Duplicar"
                           >
                             <icons.ui.copy size={12} />
@@ -562,7 +562,7 @@ export function NotebookBatchImport({ open, onClose, create, reload, onCreated }
             type="button"
             onClick={handleSubmit}
             disabled={rows.length === 0 || rows.every(r => !r.model.trim())}
-            className="rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 px-6 py-2.5 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50"
+            className="rounded-xl bg-[var(--accent-strong)] px-6 py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm disabled:opacity-50"
           >
             Importar {rows.filter(r => r.model.trim()).length} Notebook{rows.filter(r => r.model.trim()).length !== 1 ? 's' : ''}
           </button>

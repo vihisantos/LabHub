@@ -155,7 +155,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
             <button
               type="button"
               onClick={() => setShowMoveModal(true)}
-              className="flex items-center gap-1 rounded-lg bg-cyan-50 dark:bg-cyan-950/30 px-2.5 py-1.5 text-[11px] font-medium text-cyan-700 dark:text-cyan-400 transition-colors btn-interactive"
+              className="flex items-center gap-1 rounded-lg bg-[var(--accent-soft)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--accent-strong)] transition-colors btn-interactive"
             >
               <icons.ui.refresh size={12} />
               Mover
@@ -211,7 +211,7 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
             value={loanBorrowedBy}
             onChange={(e) => setLoanBorrowedBy(e.target.value)}
             placeholder="Nome de quem pegou *"
-            className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             autoFocus
             required
           />
@@ -220,21 +220,21 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
             value={loanBorrowerContact}
             onChange={(e) => setLoanBorrowerContact(e.target.value)}
             placeholder="Contato (email/telefone)"
-            className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
           <div className="grid grid-cols-2 gap-3">
             <input
               type="date"
               value={loanExpectedReturn}
               onChange={(e) => setLoanExpectedReturn(e.target.value)}
-              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
             <input
               type="text"
               value={loanDestinationRoom}
               onChange={(e) => setLoanDestinationRoom(e.target.value)}
               placeholder="Sala de destino"
-              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
           </div>
           <div className="flex gap-2">
@@ -264,14 +264,14 @@ export function StockBatchBar({ selected, items, onClear, onExit, onUpdate, onDe
             value={toRoom}
             onChange={(e) => setToRoom(e.target.value)}
             placeholder="Sala de destino"
-            className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             autoFocus
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={handleMove}
-              className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+              className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive"
             >
               Mover
             </button>

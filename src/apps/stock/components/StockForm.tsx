@@ -145,7 +145,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
             placeholder={p.name}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             required
           />
         </div>
@@ -169,7 +169,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
                 set('section', newSection)
               }
             }}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           >
             {stockSections.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
@@ -185,7 +185,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             <select
               value={form.subcategory}
               onChange={(e) => set('subcategory', e.target.value)}
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             >
               <option value="">Selecione...</option>
               {subcategories.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -196,7 +196,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
               value={form.subcategory}
               onChange={(e) => set('subcategory', e.target.value)}
               placeholder={form.section === 'cabos' ? 'Ex: Extensão 5 tomadas' : 'Ex: Notebook'}
-              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+              className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
             />
           )}
         </div>
@@ -205,7 +205,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           <select
             value={form.condition}
             onChange={(e) => set('condition', e.target.value)}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           >
             {stockConditions.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -222,7 +222,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             value={form.serialNumber}
             onChange={(e) => set('serialNumber', e.target.value)}
             placeholder={p.serial || 'Nº de série'}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
         </div>
         <div>
@@ -232,7 +232,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
             value={form.room}
             onChange={(e) => set('room', e.target.value)}
             placeholder={p.room}
-            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+            className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
           />
         </div>
       </div>
@@ -243,7 +243,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           type="date"
           value={form.expiresAt || ''}
           onChange={(e) => set('expiresAt', e.target.value || undefined)}
-          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
         />
         <p className="mt-1 text-[10px] text-fg-muted">Itens vencendo em até 30 dias geram alerta</p>
       </div>
@@ -255,7 +255,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
           value={form.notes}
           onChange={(e) => set('notes', e.target.value)}
           placeholder={p.notes}
-          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-emerald-500/30"
+          className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
         />
       </div>
 
@@ -283,7 +283,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
                 onChange={(e) => { setPcSearch(e.target.value); setShowPcPicker(true) }}
                 onFocus={() => setShowPcPicker(true)}
                 placeholder="Buscar PC por lab, número ou sala..."
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-violet-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none placeholder:text-fg-muted transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </PopoverTrigger>
             <PopoverContent side="bottom" align="start" className="w-[var(--radix-popover-trigger-width)] p-1 border-line bg-card shadow-lg shadow-black/20" onOpenAutoFocus={(e) => e.preventDefault()}>
@@ -386,7 +386,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
               <select
                 value={form.cableType || ''}
                 onChange={(e) => set('cableType', e.target.value)}
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               >
                 <option value="">Selecione...</option>
                 <option value="HDMI">HDMI</option>
@@ -408,7 +408,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
                 value={form.cableLength || ''}
                 onChange={(e) => set('cableLength', e.target.value)}
                 placeholder="Ex: 1.5, 3, 5"
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
           </div>
@@ -418,7 +418,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
               <select
                 value={form.connectorType || ''}
                 onChange={(e) => set('connectorType', e.target.value)}
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               >
                 <option value="">Selecione...</option>
                 <option value="Macho/Macho">Macho / Macho</option>
@@ -436,7 +436,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
                 onChange={(e) => set('outletCount', e.target.value ? Number(e.target.value) : undefined)}
                 placeholder="Ex: 4"
                 min={1}
-                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-emerald-500/30"
+                className="w-full rounded-xl border-none bg-input px-3.5 py-2.5 text-sm text-fg outline-none transition-all focus:ring-2 focus:ring-[var(--accent-ring)]"
               />
             </div>
           </div>
@@ -445,7 +445,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
 
       {form.section === 'maquinas' && !form.linkedPcId && form.pcParts && form.pcParts.length > 0 && (
         <div className="rounded-xl bg-cyan-50 dark:bg-cyan-950/20 p-3 space-y-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Peças do PC</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--accent-strong)]">Peças do PC</p>
           <p className="text-[11px] text-fg-dim">Marque as peças que estão presentes neste PC</p>
           <div className="space-y-2">
             {form.pcParts.map((part) => (
@@ -461,7 +461,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
                       )
                     }))
                   }}
-                  className="h-4 w-4 rounded border-line text-cyan-600 focus:ring-cyan-500/30"
+                  className="h-4 w-4 rounded border-line text-[var(--accent)] focus:ring-[var(--accent-ring)]"
                 />
                 <span className="text-sm text-fg">{part.partName}</span>
                 {part.present ? (
@@ -484,7 +484,7 @@ export function StockForm({ initial, onSave, onCancel }: StockFormProps) {
       <div className="flex gap-2 pt-1">
         <button
           type="submit"
-          className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 shadow-sm btn-interactive"
+          className="flex-1 rounded-xl bg-[var(--accent-strong)] py-2.5 text-sm font-medium text-[var(--on-accent)] transition-opacity hover:opacity-90 shadow-sm btn-interactive"
         >
           Salvar
         </button>
