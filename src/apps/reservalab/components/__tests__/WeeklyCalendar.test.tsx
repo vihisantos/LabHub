@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { WeeklyCalendar } from '../WeeklyCalendar'
 import type { WeekDayData } from '../../types'
@@ -280,6 +281,90 @@ describe('WeeklyCalendar', () => {
       expect(call).toBeTruthy()
       expect(call[0].description).not.toContain('Reservado por')
       expect(call[0].description).not.toContain('João')
+    })
+  })
+
+  describe('faixa horizontal de dias (Issue #391)', () => {
+    it('renderiza os dias em uma única linha (flex + nowrap), sem grid', () => {
+      renderCalendar()
+      const strip = screen.getByTestId('weekly-calendar-scroll')
+      expect(strip.style.display).toBe('flex')
+      expect(strip.style.flexWrap).toBe('nowrap')
+      expect(strip.style.display).not.toBe('grid')
+      expect(strip.style.gridTemplateColumns).toBe('')
+    })
+
+    it('permite rolagem horizontal e restringe a largura ao layout', () => {
+      renderCalendar()
+      const strip = screen.getByTestId('weekly-calendar-scroll')
+      expect(strip.style.overflowX).toBe('auto')
+      expect(strip.style.overflowY).toBe('hidden')
+      expect(strip.style.width).toBe('100%')
+      expect(strip.style.maxWidth).toBe('100%')
+    })
+
+    it('não comprime os itens (largura fixa) para não quebrar em segunda linha', () => {
+      renderCalendar()
+      const days = screen.getAllByTestId('weekly-calendar-day')
+      expect(days.length).toBeGreaterThanOrEqual(3)
+      days.forEach((day) => {
+        expect(day.style.flex).toBe('0 0 9.5rem')
+        expect(day.style.minWidth).toBe('9.5rem')
+        expect(day.style.maxWidth).toBe('9.5rem')
+      })
+    })
+
+    it('mantém 30 dias em uma única faixa rolável', () => {
+      const trintaDias: WeekDayData[] = Array.from({ length: 30 }, (_, i) => ({
+        date: `${String(i + 1).padStart(2, '0')}/07/2026`,
+        dayName: 'Segunda-feira',
+        reservations: [],
+      }))
+      renderCalendar(trintaDias)
+      const strip = screen.getByTestId('weekly-calendar-scroll')
+      expect(strip.style.display).toBe('flex')
+      expect(strip.style.flexWrap).toBe('nowrap')
+      expect(screen.getAllByTestId('weekly-calendar-day')).toHaveLength(30)
+    })
+
+    it('remove a barra quando poucos dias cabem naturalmente', () => {
+      const tresDias: WeekDayData[] = makeWeekData()
+      renderCalendar(tresDias)
+      const strip = screen.getByTestId('weekly-calendar-scroll')
+      // overflowX auto: navegador só mostra a barra se o conteúdo exceder a largura
+      expect(strip.style.overflowX).toBe('auto')
+      expect(screen.getAllByTestId('weekly-calendar-day')).toHaveLength(3)
+    })
+
+    it('mantém os indicadores de reservas visíveis nos dias', () => {
+      renderCalendar()
+      expect(screen.getByText('Lab Info 1')).toBeInTheDocument()
+      expect(screen.getByText('Lab Tablets')).toBeInTheDocument()
+      expect(screen.getByText('0 reservas')).toBeInTheDocument()
+    })
+
+    it('seleciona um dia via clique (modal continua funcionando)', () => {
+      renderCalendar()
+      fireEvent.click(screen.getByText('29'))
+      expect(screen.getByText('29/06/2026')).toBeInTheDocument()
+    })
+
+    it('seleciona um dia via teclado (tab + Enter) com foco visível', async () => {
+      const user = userEvent.setup()
+      renderCalendar()
+      const primeiroDia = screen.getAllByTestId('weekly-calendar-day')[0]
+      await user.tab()
+      expect(primeiroDia).toHaveFocus()
+      await user.keyboard('{Enter}')
+      expect(screen.getByText('29/06/2026')).toBeInTheDocument()
+    })
+
+    it('indica semanticamente o dia selecionado via aria-pressed', () => {
+      renderCalendar()
+      fireEvent.click(screen.getByText('29'))
+      const days = screen.getAllByTestId('weekly-calendar-day')
+      expect(days[0]).toHaveAttribute('aria-pressed', 'true')
+      expect(days[1]).toHaveAttribute('aria-pressed', 'false')
     })
   })
 })

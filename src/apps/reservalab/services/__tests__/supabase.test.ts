@@ -14,6 +14,7 @@ const { mockCreateClient, mockFrom, mockQueryBuilder, mockAuthGetSession } = vi.
     gt: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
+    range: vi.fn().mockReturnThis(),
     insert: vi.fn().mockReturnThis(),
     update: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
@@ -142,6 +143,68 @@ describe('supabase service', () => {
 
         const result = await supabaseModule.fetchTabletReservas()
         expect(result).toEqual([])
+      })
+
+      it('pagina a faixa quando há mais de uma página (sem truncamento)', async () => {
+        const page1 = Array.from({ length: 1000 }, (_, i) => ({ ...mockTablets[0], id: `r1-${i}` }))
+        const page2 = Array.from({ length: 2 }, (_, i) => ({ ...mockTablets[0], id: `r2-${i}` }))
+        let call = 0
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => {
+          call += 1
+          resolve({ data: call === 1 ? page1 : page2 })
+        })
+
+        const result = await supabaseModule.fetchTabletReservas()
+
+        expect(result).toHaveLength(1002)
+        expect(mockQueryBuilder.range).toHaveBeenNthCalledWith(1, 0, 999)
+        expect(mockQueryBuilder.range).toHaveBeenNthCalledWith(2, 1000, 1999)
+      })
+    })
+
+    describe('fetchAllTabletReservas', () => {
+      it('busca TODO o histórico ativo do workspace, sem janela de datas', async () => {
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve({ data: mockTablets }))
+
+        const result = await supabaseModule.fetchAllTabletReservas()
+
+        expect(result).toEqual(mockTablets)
+        expect(mockFrom).toHaveBeenCalledWith('tablet_reservations')
+        expect(mockQueryBuilder.select).toHaveBeenCalledWith('*')
+        expect(mockQueryBuilder.eq).toHaveBeenCalledWith('status', 'ativa')
+        // Isolamento por workspace.
+        expect(mockQueryBuilder.eq).toHaveBeenCalledWith('workspace_id', 'ws-test-reservalab')
+        // Sem corte de data: nem gte nem lt.
+        expect(mockQueryBuilder.gte).not.toHaveBeenCalled()
+        expect(mockQueryBuilder.lt).not.toHaveBeenCalled()
+        // Paginação explícita.
+        expect(mockQueryBuilder.range).toHaveBeenCalledWith(0, 999)
+      })
+
+      it('aceita workspaceId explícito', async () => {
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => resolve({ data: [] }))
+
+        await supabaseModule.fetchAllTabletReservas('ws-explicito')
+
+        expect(mockQueryBuilder.eq).toHaveBeenCalledWith('workspace_id', 'ws-explicito')
+      })
+
+      it('pagina até a última página (histórico grande, sem perda de linhas)', async () => {
+        const page1 = Array.from({ length: 1000 }, (_, i) => ({ ...mockTablets[0], id: `p1-${i}` }))
+        const page2 = Array.from({ length: 1000 }, (_, i) => ({ ...mockTablets[0], id: `p2-${i}` }))
+        const page3 = Array.from({ length: 5 }, (_, i) => ({ ...mockTablets[0], id: `p3-${i}` }))
+        let call = 0
+        mockQueryBuilder.then.mockImplementation((resolve: (v: unknown) => void) => {
+          call += 1
+          resolve({ data: call === 1 ? page1 : call === 2 ? page2 : page3 })
+        })
+
+        const result = await supabaseModule.fetchAllTabletReservas()
+
+        expect(result).toHaveLength(2005)
+        expect(mockQueryBuilder.range).toHaveBeenNthCalledWith(1, 0, 999)
+        expect(mockQueryBuilder.range).toHaveBeenNthCalledWith(2, 1000, 1999)
+        expect(mockQueryBuilder.range).toHaveBeenNthCalledWith(3, 2000, 2999)
       })
     })
 
@@ -279,6 +342,12 @@ describe('supabase service', () => {
 
     it('fetchTabletReservas retorna array vazio sem chamar Supabase', async () => {
       const result = await supabaseModule.fetchTabletReservas()
+      expect(result).toEqual([])
+      expect(mockFrom).not.toHaveBeenCalled()
+    })
+
+    it('fetchAllTabletReservas retorna array vazio sem chamar Supabase', async () => {
+      const result = await supabaseModule.fetchAllTabletReservas()
       expect(result).toEqual([])
       expect(mockFrom).not.toHaveBeenCalled()
     })

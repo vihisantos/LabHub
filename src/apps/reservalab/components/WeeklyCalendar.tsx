@@ -91,37 +91,57 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
       </h3>
 
       <div
-        className="calendar-grid-7"
+        data-testid="weekly-calendar-scroll"
+        role="group"
+        aria-label="Grade de reservas dos próximos dias"
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, minmax(120px, 1fr))',
+          // Faixa horizontal de UMA única linha: os itens nunca quebram para
+          // a linha de baixo (flexWrap: nowrap) e o excesso rola no eixo X.
+          display: 'flex',
+          flexWrap: 'nowrap',
           gap: '1rem',
-          alignItems: 'start',
+          alignItems: 'stretch',
           overflowX: 'auto',
+          overflowY: 'hidden',
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
           paddingBottom: '0.5rem',
           scrollbarWidth: 'thin',
+          WebkitOverflowScrolling: 'touch',
         }}
       >
         {weekData.map((day, i) => {
           const [dia, mes, ano] = day.date.split('/').map(Number)
           const date = new Date(ano, mes - 1, dia)
           const diaSemana = diasSemana[date.getDay()]
+          const isSelected = selectedDay?.date === day.date
 
           return (
             <motion.button
               key={day.date}
+              type="button"
+              data-testid="weekly-calendar-day"
+              aria-haspopup="dialog"
+              aria-pressed={isSelected}
+              aria-label={`${diaSemana}, ${day.date}, ${day.reservations.length} ${day.reservations.length === 1 ? 'reserva' : 'reservas'}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(0.1 * i, 0.4) }}
               onClick={() => setSelectedDay(day)}
+              className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               style={{
+                // Largura fixa evita compressão dos dias e mantém a faixa rolável.
+                flex: '0 0 9.5rem',
+                width: '9.5rem',
+                minWidth: '9.5rem',
+                maxWidth: '9.5rem',
                 padding: '1rem',
                 borderRadius: '0.75rem',
-                border: '1px solid var(--border)',
+                border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
                 background: 'var(--bg-card)',
                 cursor: 'pointer',
                 textAlign: 'left',
-                minHeight: '100%',
                 display: 'flex',
                 flexDirection: 'column',
               }}
