@@ -1,8 +1,10 @@
 -- 098_tablet_reservations_update_horario_fim_rls.sql
--- Issue #388 — ReservaLab: impedir atualização de reserva de tablet após horario_fim.
+-- Issue #388 — ReservaLab: impedir atualização de reserva de tablet após
+-- horario_fim, para TODOS os perfis — inclusive super admin.
 --
 -- Regra de negócio: uma reserva só pode ser atualizada enquanto `horario_fim`
--- não passou (comparação do instante completo, timestamptz).
+-- não passou (comparação do instante completo, timestamptz). A regra é garantida
+-- pela RLS (não apenas pela interface) e não possui exceção de perfil.
 --
 -- POR QUE REESCREVER A POLICY (e não criar um helper novo):
 --   A 078 deixou explícito que a policy `tablet_reservations_update` é
@@ -13,6 +15,31 @@
 --     · bypass explícito de super admin (`is_super_admin()`);
 --     · isolamento por workspace (`user_belongs_to_workspace(workspace_id)`);
 --     · checagem RBAC 2.0 (`user_can_cancel_tablet_reservation(workspace_id)`).
+--
+-- FIX DO BYPASS TEMPORAL DE SUPER ADMIN (v2 — fechamento da Issue #388):
+--   A primeira versão desta migration colocou `horario_fim > now()` DENTRO do
+--   ramo `user_belongs_to_workspace AND user_can_cancel_tablet_reservation`,
+--   deixando o ramo `is_super_admin()` sem a condição temporal. Resultado:
+--   o super admin podia atualizar reservas encerradas — o RLS NÃO impedia.
+--   A versão final promove a regra temporal a CONJUNÇÃO DE TOPO:
+--
+--     USING / WITH CHECK =
+--       horario_fim > now()                        -- regra temporal: TODOS
+--       AND (
+--         is_super_admin()                         -- bypass de workspace APENAS
+--         OR (
+--           user_belongs_to_workspace(workspace_id)
+--           AND user_can_cancel_tablet_reservation(workspace_id)
+--         )
+--       )
+--
+--   · A regra temporal é o PRIMEIRO operando da AND de topo — fora do alcance
+--     do `OR` do bypass. Nenhum perfil (super admin incluído) pode ignorá-la.
+--   · O bypass de super admin é preservado EXCLUSIVAMENTE para os privilégios
+--     que não conflitam com a janela temporal (quais workspaces/memberships
+--     podem editar), nunca para a janela em si.
+--   · Nenhum outro artefato foi tocado: `tablet_reservations_delete` continua
+--     super admin only e `tablet_reservations_insert` permanece intacta.
 --
 -- SEMÂNTICA DA REGRA TEMPORAL (por que `USING` e `WITH CHECK`):
 --   Em uma policy FOR UPDATE:
@@ -35,31 +62,36 @@
 DROP POLICY IF EXISTS "tablet_reservations_update" ON public.tablet_reservations;
 DROP FUNCTION IF EXISTS public.user_can_update_tablet_reservation(uuid);
 
--- ─── 2. Recria a policy UPDATE preservando RBAC/RLS e adicionando a regra
---        temporal ────────────────────────────────────────────────────────────
+-- ─── 2. Recria a policy UPDATE preservando RBAC/RLS e tornando a regra
+--        temporal uma CONJUNÇÃO DE TOPO (aplicável a todos os perfis) ───────
 CREATE POLICY "tablet_reservations_update"
   ON public.tablet_reservations FOR UPDATE
   TO authenticated
   USING (
-    public.is_super_admin()
-    OR (
-      public.user_belongs_to_workspace(workspace_id)
-      AND public.user_can_cancel_tablet_reservation(workspace_id)
-      AND horario_fim > now()
+    horario_fim > now()
+    AND (
+      public.is_super_admin()
+      OR (
+        public.user_belongs_to_workspace(workspace_id)
+        AND public.user_can_cancel_tablet_reservation(workspace_id)
+      )
     )
   )
   WITH CHECK (
-    public.is_super_admin()
-    OR (
-      public.user_belongs_to_workspace(workspace_id)
-      AND public.user_can_cancel_tablet_reservation(workspace_id)
-      AND horario_fim > now()
+    horario_fim > now()
+    AND (
+      public.is_super_admin()
+      OR (
+        public.user_belongs_to_workspace(workspace_id)
+        AND public.user_can_cancel_tablet_reservation(workspace_id)
+      )
     )
   );
 
 COMMENT ON POLICY "tablet_reservations_update" ON public.tablet_reservations IS
-  'Issue #388: UPDATE permitido apenas enquanto horario_fim não passou, mantendo '
-  'o bypass de super admin (is_super_admin()) e o RBAC 2.0 já vigente desde '
-  '050/078 (user_belongs_to_workspace + user_can_cancel_tablet_reservation). '
-  'O USING avalia a linha OLD (impede ressuscitar reserva encerrada); o '
-  'WITH CHECK avalia a linha NEW (impede empurrar reserva ativa para o passado).';
+  'Issue #388: UPDATE permitido apenas enquanto horario_fim > now() para TODOS os '
+  'perfis, inclusive super admin — a regra temporal é conjunção de topo e não pode '
+  'ser ignorada pelo bypass. Super admin mantém apenas o bypass de workspace/RBAC; '
+  'os demais exigem membership ativa + Action reservelab.tablet.cancel@workspace. '
+  'O USING avalia a linha OLD (impede ressuscitar reserva encerrada); o WITH CHECK '
+  'avalia a linha NEW (impede empurrar reserva ativa para o passado).';
