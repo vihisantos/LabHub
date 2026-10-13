@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { analyzeTickets } from '../ticketStats'
+import { analyzeTickets, countOpenTickets } from '../ticketStats'
 import type { Ticket } from '../../types'
 
 function ticket(id: string, over: Partial<Ticket> = {}): Ticket {
@@ -258,6 +258,119 @@ describe('analyzeTickets (C1, PR B #236)', () => {
     const snapshot = tickets.map((t) => ({ ...t }))
 
     analyzeTickets(tickets)
+
+    expect(tickets).toEqual(snapshot)
+  })
+})
+
+describe('countOpenTickets — badge da navbar (issue #367)', () => {
+  it('conta a fila ativa do workspace (aberto | a_caminho | em_atendimento)', () => {
+    const tickets = [
+      ticket('t1', { status: 'aberto' }),
+      ticket('t2', { status: 'a_caminho' }),
+      ticket('t3', { status: 'em_atendimento' }),
+    ]
+
+    expect(countOpenTickets(tickets, 'ws1')).toBe(3)
+  })
+
+  it('indeferido NÃO entra no contador de ativos', () => {
+    const tickets = [
+      ticket('t1', { status: 'aberto' }),
+      ticket('t2', { status: 'indeferido' }),
+    ]
+
+    expect(countOpenTickets(tickets, 'ws1')).toBe(1)
+  })
+
+  it('em_espera NÃO entra no contador de ativos', () => {
+    const tickets = [
+      ticket('t1', { status: 'aberto' }),
+      ticket('t2', { status: 'em_espera' }),
+    ]
+
+    expect(countOpenTickets(tickets, 'ws1')).toBe(1)
+  })
+
+  it('resolvido e fechado NÃO entram no contador de ativos', () => {
+    const tickets = [
+      ticket('t1', { status: 'resolvido' }),
+      ticket('t2', { status: 'fechado' }),
+      ticket('t3', { status: 'a_caminho' }),
+    ]
+
+    expect(countOpenTickets(tickets, 'ws1')).toBe(1)
+  })
+
+  it('arquivado não conta nem mesmo com status ativo', () => {
+    const tickets = [
+      ticket('t1', { status: 'aberto', archived: true }),
+      ticket('t2', { status: 'aberto' }),
+    ]
+
+    expect(countOpenTickets(tickets, 'ws1')).toBe(1)
+  })
+
+  it('indeferir um chamado ativo reduz a contagem em 1', () => {
+    const antes = [
+      ticket('t1', { status: 'aberto' }),
+      ticket('t2', { status: 'em_atendimento' }),
+    ]
+    const depois = [
+      ticket('t1', { status: 'indeferido' }),
+      ticket('t2', { status: 'em_atendimento' }),
+    ]
+
+    expect(countOpenTickets(antes, 'ws1')).toBe(2)
+    expect(countOpenTickets(depois, 'ws1')).toBe(1)
+  })
+
+  it('retomar um chamado em espera (→ em_atendimento) o devolve à contagem', () => {
+    const emEspera = [ticket('t1', { status: 'em_espera' })]
+    const retomado = [ticket('t1', { status: 'em_atendimento' })]
+
+    expect(countOpenTickets(emEspera, 'ws1')).toBe(0)
+    expect(countOpenTickets(retomado, 'ws1')).toBe(1)
+  })
+
+  it('respeita o escopo de workspace (mesma métrica por unidade)', () => {
+    const tickets = [
+      ticket('t1', { workspace_id: 'ws1', status: 'aberto' }),
+      ticket('t2', { workspace_id: 'ws1', status: 'indeferido' }),
+      ticket('t3', { workspace_id: 'ws2', status: 'aberto' }),
+      ticket('t4', { workspace_id: undefined, status: 'aberto' }),
+    ]
+
+    expect(countOpenTickets(tickets, 'ws1')).toBe(1)
+    expect(countOpenTickets(tickets, 'ws2')).toBe(1)
+  })
+
+  it('não contradiz o card "Abertos" do dashboard (mesma definição isTicketOpen)', () => {
+    const tickets = [
+      ticket('t1', { status: 'aberto' }),
+      ticket('t2', { status: 'a_caminho' }),
+      ticket('t3', { status: 'em_atendimento' }),
+      ticket('t4', { status: 'em_espera' }),
+      ticket('t5', { status: 'indeferido' }),
+      ticket('t6', { status: 'resolvido' }),
+      ticket('t7', { status: 'fechado' }),
+      ticket('t8', { status: 'aberto', archived: true }),
+    ]
+
+    // "Abertos" (ModuleStats/health): aberto | a_caminho | em_atendimento, não arquivados.
+    const dashboardAbertos = tickets.filter(
+      (t) => !t.archived && (t.status === 'aberto' || t.status === 'a_caminho' || t.status === 'em_atendimento'),
+    ).length
+
+    expect(countOpenTickets(tickets, 'ws1')).toBe(dashboardAbertos)
+    expect(countOpenTickets(tickets, 'ws1')).toBe(3)
+  })
+
+  it('não muta o array de entrada', () => {
+    const tickets = [ticket('t1', { status: 'indeferido' })]
+    const snapshot = tickets.map((t) => ({ ...t }))
+
+    countOpenTickets(tickets, 'ws1')
 
     expect(tickets).toEqual(snapshot)
   })
