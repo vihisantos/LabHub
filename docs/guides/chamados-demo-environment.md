@@ -32,7 +32,12 @@ Depois do seed, a aplicação de demonstração fica disponível nas rotas públ
 
 ## Capturar telas
 
-As capturas são feitas pelo script `scripts/browser-verify/chamados-screenshots.mjs`, que grava os arquivos em `docs/chamados-demo/screenshots/`.
+As capturas são feitas por scripts em `scripts/browser-verify/`, que gravam os arquivos em `docs/chamados-demo/screenshots/`:
+
+| Script | Capturas | Telas |
+|--------|----------|-------|
+| `chamados-screenshots.mjs` | `01`–`11` | Visão geral do módulo (QR, formulário, painel, SLA, relatórios) |
+| `chamados-espera-indeferido.mjs` | `12`–`19` | Em espera / Indeferimento (#369), interno e público |
 
 Pré-requisitos:
 
@@ -40,17 +45,47 @@ Pré-requisitos:
 # 1. Backend Flask (porta 5000)
 cd api && python app.py &
 
-# 2. Servidor de desenvolvimento (porta 5174)
+# 2. Servidor de desenvolvimento (porta 5173 por padrão nos scripts)
 npm run dev &
 
 # 3. Dados de demonstração
 python scripts/seed_chamados_demo.py
 
 # 4. Captura
-BASE_URL=http://localhost:5174 node scripts/browser-verify/chamados-screenshots.mjs
+BASE_URL=http://localhost:5173 node scripts/browser-verify/chamados-screenshots.mjs
+BASE_URL=http://localhost:5173 node scripts/browser-verify/chamados-espera-indeferido.mjs
 ```
 
 **Importante:** o backend Flask precisa estar em execução, porque o frontend busca os chamados na API.
+
+### Usuário de demonstração
+
+Os scripts internos autenticam com um usuário de demonstração com acesso ao
+workspace `demo-chamados`. A senha **não** é versionada: segue a convenção dos
+outros scripts, lendo o arquivo `.playwright-creds` (gitignored) no formato
+`usuario;senha`, ou as variáveis de ambiente `DEMO_USER` / `DEMO_PASS`:
+
+```bash
+# .playwright-creds (não versionado)
+demo-screenshots;SUA_SENHA_DE_DEMO
+```
+
+O usuário precisa de membership ativa no workspace `demo-chamados` e permissões
+para operar chamados (o seed **não** cria o usuário — crie-o pelo cadastro normal
+e aprove-o, concedendo acesso à unidade `Campus Demo LabHub`).
+
+### Tracking tokens (#369)
+
+O seed grava os tickets #15 (`em_espera`) e #16 (`indeferido`) com *tracking
+tokens* determinísticos, usados nas telas públicas:
+
+| Ticket | Estado | Token | URL de acompanhamento |
+|--------|--------|-------|-----------------------|
+| #15 | `em_espera` | `DEMO-ESPERA-2026` | `/chamados-publico/track?token=DEMO-ESPERA-2026` |
+| #16 | `indeferido` | `DEMO-INDEFERIDO-2026` | `/chamados-publico/track?token=DEMO-INDEFERIDO-2026` |
+
+Apenas o SHA-256 do token fica no banco (`tracking_token_hash`); o token em claro
+é o link que o solicitante recebe.
 
 As imagens capturadas e o significado de cada tela estão descritos em [`../chamados-demo/screenshots/README.md`](../chamados-demo/screenshots/README.md). O diretório `docs/chamados-demo/screenshots/` é referenciado por script e **não deve ser movido nem renomeado**.
 
