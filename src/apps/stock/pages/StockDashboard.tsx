@@ -5,6 +5,7 @@ import { useMovements } from '../hooks/useMovements'
 import { useInventory } from '../hooks/useInventory'
 import { useStockMaintenance } from '../hooks/useStockMaintenance'
 import { StatusBadge } from '../components/StatusBadge'
+import { StockBanner } from '../components/StockBanner'
 import { MovementTimeline } from '../components/MovementTimeline'
 import { ChartCard, DonutChart, BarChart } from '../../../lib/charts'
 import { PullToRefresh } from '../../pcare/components/PullToRefresh'
@@ -156,6 +157,10 @@ export function StockDashboard() {
   return (
     <PullToRefresh onRefresh={reload}>
       <div className="relative space-y-6">
+        {/* Área de banner do Estoque — sem conteúdo configurado, não ocupa espaço
+            (StockBanner retorna null). Fica acima dos wallpaper blobs (z-10). */}
+        <StockBanner />
+
         {/* ── Wallpaper blobs animados ── */}
         <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
           <div
