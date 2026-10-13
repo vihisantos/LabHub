@@ -40,6 +40,9 @@
 --     podem editar), nunca para a janela em si.
 --   · Nenhum outro artefato foi tocado: `tablet_reservations_delete` continua
 --     super admin only e `tablet_reservations_insert` permanece intacta.
+--   · A seção 3 torna EXPLÍCITOS os grants de tabela que a produção Supabase já
+--     concede por default privileges (padrão 091/093/096), para que o PostgreSQL
+--     efêmero do CI modele produção e possa exercitar a RLS. RLS intacta.
 --
 -- SEMÂNTICA DA REGRA TEMPORAL (por que `USING` e `WITH CHECK`):
 --   Em uma policy FOR UPDATE:
@@ -95,3 +98,18 @@ COMMENT ON POLICY "tablet_reservations_update" ON public.tablet_reservations IS
   'os demais exigem membership ativa + Action reservelab.tablet.cancel@workspace. '
   'O USING avalia a linha OLD (impede ressuscitar reserva encerrada); o WITH CHECK '
   'avalia a linha NEW (impede empurrar reserva ativa para o passado).';
+
+-- ─── 3. Grants explícitos de tabela (padrão 026/033, seguido por 091/093/096) ─
+--   `tablet_reservations` é anterior ao padrão de grants explícitos: em DEV/PROD
+--   a tabela herdava os default privileges amplos da plataforma Supabase
+--   (schema public → anon/authenticated/service_role), enquanto o PostgreSQL
+--   efêmero do CI NÃO os aplica. Sem o grant, um SELECT/UPDATE de `authenticated`
+--   falha com 42501 (insufficient_privilege) ANTES de a RLS ser avaliada — o que
+--   dá falsa segurança: a regra temporal não chega a ser exercitada.
+--   Explicitamos o MESMO estado efetivo de produção (`não dependa de default
+--   privileges da plataforma` — 093). A RLS permanece habilitada e é quem
+--   restringe as linhas: o grant de tabela NÃO amplia acesso efetivo.
+REVOKE ALL ON public.tablet_reservations FROM anon;
+REVOKE ALL ON public.tablet_reservations FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.tablet_reservations TO authenticated;
+GRANT ALL ON public.tablet_reservations TO service_role;
