@@ -11,6 +11,7 @@ import { icons } from '../../../lib/icons'
 import type { ChamadosReport, ReportPeriodDays, TicketStatus } from '../types'
 import type { ReportTicket } from '../types/report'
 import { BottomSheet, SheetHeader } from '../../../platform/ui/BottomSheet'
+import { SheetOrDialog } from '../../../responsive'
 
 const PERIOD_OPTIONS: { label: string; days: ReportPeriodDays }[] = [
   { label: '7 dias', days: 7 },
@@ -96,6 +97,7 @@ export function Reports() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [customMode, setCustomMode] = useState(false)
   const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null)
   const [drilldown, setDrilldown] = useState('')
   const [error, setError] = useState('')
@@ -153,44 +155,111 @@ export function Reports() {
     })
   }, [drilldown, report])
 
+  const drilldownTitle = useMemo(() => {
+    if (drilldown.startsWith('status:')) {
+      const status = drilldown.slice(7) as TicketStatus
+      return `Chamados ${TICKET_STATUS_LABELS[status] ?? status}`
+    }
+    if (drilldown.startsWith('category:')) return `Chamados de ${drilldown.slice(9)}`
+    if (drilldown.startsWith('technician:')) return `Chamados de ${formatTechnicianName(drilldown.slice(11))}`
+    return 'Detalhes dos chamados'
+  }, [drilldown])
+
+  const customRangeValid = Boolean(customFrom && customTo && customFrom <= customTo)
+
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {PERIOD_OPTIONS.map((opt) => (
-          <button
-            key={opt.days}
-            type="button"
-            onClick={() => { setCustomRange(null); setDays(opt.days) }}
-            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              !customRange && days === opt.days ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-        {customRange && <span className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white">Intervalo personalizado</span>}
-      </div>
+      <section aria-label="Filtros do relatório" className="space-y-4 rounded-2xl border border-line bg-card p-3 sm:p-4">
+        <fieldset className="min-w-0">
+          <legend className="mb-2 text-xs font-semibold text-fg">Período</legend>
+          <div role="group" aria-label="Período do relatório" className="flex flex-wrap gap-2">
+            {PERIOD_OPTIONS.map((opt) => {
+              const selected = !customMode && !customRange && days === opt.days
+              return (
+                <button
+                  key={opt.days}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => { setCustomMode(false); setCustomRange(null); setDays(opt.days) }}
+                  className={`min-h-10 rounded-xl border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+                    selected ? 'border-amber-500 bg-amber-500 text-white' : 'border-line bg-surface text-fg-dim hover:text-fg'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              aria-pressed={customMode}
+              onClick={() => setCustomMode(true)}
+              className={`min-h-10 rounded-xl border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+                customMode ? 'border-amber-500 bg-amber-500 text-white' : 'border-line bg-surface text-fg-dim hover:text-fg'
+              }`}
+            >
+              Personalizado
+            </button>
+          </div>
+        </fieldset>
 
-      <div className="grid grid-cols-2 gap-2 rounded-xl border border-line bg-card p-3 sm:grid-cols-5">
-        <label className="text-[11px] text-fg-muted">De
-          <input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg" />
-        </label>
-        <label className="text-[11px] text-fg-muted">Até
-          <input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg" />
-        </label>
-        <button type="button" onClick={() => { if (customFrom && customTo && customFrom <= customTo) setCustomRange({ from: customFrom, to: customTo }) }} className="self-end rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white">Aplicar datas</button>
-        <label className="text-[11px] text-fg-muted">Técnico
-          <select value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg">
-            <option value="">Todos</option>{(filterOptions?.byTechnician ?? []).map((tech) => <option key={tech.name} value={tech.name}>{formatTechnicianName(tech.name)}</option>)}
-          </select>
-        </label>
-        <label className="text-[11px] text-fg-muted">Status
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg"><option value="">Todos</option>{STATUS_ORDER.map((status) => <option key={status} value={status}>{TICKET_STATUS_LABELS[status]}</option>)}</select>
-        </label>
-        <label className="col-span-2 text-[11px] text-fg-muted sm:col-span-1">Categoria
-          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg"><option value="">Todas</option>{Object.keys(filterOptions?.byCategory ?? {}).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
-        </label>
-      </div>
+        {customMode && (
+          <fieldset className="grid min-w-0 grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+            <legend className="sr-only">Intervalo de datas personalizado</legend>
+            <label htmlFor="reports-date-from" className="block min-w-0 text-xs font-medium text-fg-muted">
+              De
+              <input
+                id="reports-date-from"
+                type="date"
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={(event) => setCustomFrom(event.target.value)}
+                className="mt-1 block h-10 w-full min-w-0 rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              />
+            </label>
+            <label htmlFor="reports-date-to" className="block min-w-0 text-xs font-medium text-fg-muted">
+              Até
+              <input
+                id="reports-date-to"
+                type="date"
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={(event) => setCustomTo(event.target.value)}
+                className="mt-1 block h-10 w-full min-w-0 rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!customRangeValid}
+              onClick={() => { if (customRangeValid) setCustomRange({ from: customFrom, to: customTo }) }}
+              className="h-10 rounded-xl bg-amber-500 px-4 text-sm font-semibold text-white transition-colors hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Aplicar período
+            </button>
+          </fieldset>
+        )}
+
+        <fieldset className="grid min-w-0 grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-2 lg:grid-cols-3">
+          <legend className="sr-only">Filtros adicionais</legend>
+          <label htmlFor="reports-technician" className="block min-w-0 text-xs font-medium text-fg-muted">
+            Técnico
+            <select id="reports-technician" value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
+              <option value="">Todos os técnicos</option>{(filterOptions?.byTechnician ?? []).map((tech) => <option key={tech.name} value={tech.name}>{formatTechnicianName(tech.name)}</option>)}
+            </select>
+          </label>
+          <label htmlFor="reports-status" className="block min-w-0 text-xs font-medium text-fg-muted">
+            Status
+            <select id="reports-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
+              <option value="">Todos os status</option>{STATUS_ORDER.map((status) => <option key={status} value={status}>{TICKET_STATUS_LABELS[status]}</option>)}
+            </select>
+          </label>
+          <label htmlFor="reports-category" className="block min-w-0 text-xs font-medium text-fg-muted">
+            Categoria
+            <select id="reports-category" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
+              <option value="">Todas as categorias</option>{Object.keys(filterOptions?.byCategory ?? {}).sort().map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </label>
+        </fieldset>
+      </section>
 
       {loading && !report && (
         <div className="flex items-center justify-center gap-3 rounded-xl bg-card py-10 text-sm text-fg-muted">
@@ -344,7 +413,55 @@ export function Reports() {
             </div>
           )}
 
-          {drilldown && <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]"><div className="mb-2 flex items-center justify-between"><h3 className="text-xs font-semibold text-fg-muted">Detalhes dos chamados ({drilldownTickets.length})</h3><button type="button" onClick={() => setDrilldown('')} className="text-xs text-amber-600">Fechar</button></div><div className="space-y-2">{drilldownTickets.map((ticket: ReportTicket) => <div key={ticket.id} className="rounded-lg bg-surface px-3 py-2 text-xs"><button type="button" onClick={() => navigate(`/chamados/tickets/${ticket.id}`)} className="text-left font-semibold text-fg hover:text-amber-600">#{ticket.ticketNumber} · {ticket.category} · {ticket.roomName}</button><p className="mt-1 text-fg-muted">{TICKET_STATUS_LABELS[ticket.status as TicketStatus] ?? ticket.status} · {ticket.technician || 'Sem técnico'} · {ticket.createdAt.slice(0, 10)}</p><p className="mt-1 text-fg-muted">Até primeira atribuição: {ticket.timeToAssignedMinutes != null ? `${ticket.timeToAssignedMinutes} min` : 'sem evento de atribuição'} · Resolução: {ticket.resolutionMinutes != null ? `${ticket.resolutionMinutes} min` : '—'} · Em atendimento: {ticket.serviceMinutes != null ? `${ticket.serviceMinutes} min` : 'sem histórico estruturado'}</p></div>)}</div></div>}
+          <SheetOrDialog
+            open={Boolean(drilldown)}
+            onClose={() => setDrilldown('')}
+            title={drilldownTitle}
+            description={`${drilldownTickets.length} chamado${drilldownTickets.length === 1 ? '' : 's'} no filtro selecionado`}
+            className="max-w-3xl"
+          >
+            <div className="space-y-3 px-4 pb-5 sm:px-5">
+              <p className="text-xs text-fg-muted">
+                {drilldownTickets.length} chamado{drilldownTickets.length === 1 ? '' : 's'} encontrado{drilldownTickets.length === 1 ? '' : 's'}.
+              </p>
+              {drilldownTickets.length === 0 ? (
+                <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-sm text-fg-muted">
+                  Nenhum chamado encontrado neste filtro.
+                </div>
+              ) : (
+                <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+                  {drilldownTickets.map((ticket: ReportTicket) => (
+                    <article key={ticket.id} className="rounded-xl border border-line bg-surface p-3">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/chamados/tickets/${ticket.id}`)}
+                        className="text-left text-sm font-semibold text-fg hover:text-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+                      >
+                        #{ticket.ticketNumber} · {ticket.category} · {ticket.roomName || 'Local não informado'}
+                      </button>
+                      <p className="mt-1 text-xs text-fg-muted">
+                        {TICKET_STATUS_LABELS[ticket.status as TicketStatus] ?? ticket.status} · {ticket.technician || 'Sem técnico'} · {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
+                      </p>
+                      <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                        <div className="rounded-lg bg-card px-3 py-2">
+                          <dt className="text-[10px] text-fg-muted">Até primeira atribuição</dt>
+                          <dd className="mt-0.5 font-medium text-fg">{ticket.timeToAssignedMinutes != null ? `${ticket.timeToAssignedMinutes} min` : 'Sem evento de atribuição'}</dd>
+                        </div>
+                        <div className="rounded-lg bg-card px-3 py-2">
+                          <dt className="text-[10px] text-fg-muted">Tempo de resolução</dt>
+                          <dd className="mt-0.5 font-medium text-fg">{ticket.resolutionMinutes != null ? `${ticket.resolutionMinutes} min` : '—'}</dd>
+                        </div>
+                        <div className="rounded-lg bg-card px-3 py-2">
+                          <dt className="text-[10px] text-fg-muted">Em atendimento</dt>
+                          <dd className="mt-0.5 font-medium text-fg">{ticket.serviceMinutes != null ? `${ticket.serviceMinutes} min` : 'Sem histórico estruturado'}</dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </SheetOrDialog>
 
           <div className="rounded-xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-1 text-xs font-semibold text-fg">Enviar resumo semanal por email</h3>

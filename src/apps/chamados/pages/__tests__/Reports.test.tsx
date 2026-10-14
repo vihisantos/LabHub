@@ -23,6 +23,24 @@ const REPORT = vi.hoisted(() => ({
       ratingCount: 2,
     },
   ],
+  tickets: [
+    {
+      id: 'ticket-23',
+      ticketNumber: 23,
+      status: 'aberto',
+      category: 'Internet',
+      area: 'academica',
+      roomName: 'Sala 101',
+      technician: 'Técnico A',
+      createdAt: '2026-06-20T12:00:00Z',
+      resolvedAt: null,
+      rating: null,
+      comment: '',
+      resolutionMinutes: null,
+      serviceMinutes: 18,
+      timeToAssignedMinutes: 12,
+    },
+  ],
   avgResolutionHours: 4.5,
   feedback: { count: 2, average: 4.8 },
 }))
@@ -87,6 +105,18 @@ describe('Reports — relatório de chamados', () => {
 
     const last = mockGetReports.mock.calls.at(-1)?.[0]
     expect(last).toMatchObject({ technician: 'Técnico A', status: 'resolvido', category: 'Internet', workspace_id: 'ws-a' })
+  })
+
+  it('abre os chamados filtrados em um diálogo de detalhes', async () => {
+    render(<Reports />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver Internet (2)' }))
+
+    expect(screen.getByRole('dialog', { name: 'Chamados de Internet' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /#23 · Internet · Sala 101/ })).toBeInTheDocument()
+    expect(screen.getByText('12 min')).toBeInTheDocument()
+    expect(screen.getByText('18 min')).toBeInTheDocument()
   })
 })
 
