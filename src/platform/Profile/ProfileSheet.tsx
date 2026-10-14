@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { useAuth } from '../../core/auth/AuthContext'
@@ -10,12 +10,13 @@ import { uploadAvatarToCloudinary, uploadBannerToCloudinary } from '../../lib/cl
 import { icons } from '../../lib/icons'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { WorkspaceSwitcherSheet } from '../WorkspaceSwitcher/WorkspaceSwitcherSheet'
-import { BottomSheet, SheetHeader } from '../ui/BottomSheet'
+import { BottomSheet } from '../ui/BottomSheet'
 import { AvatarIcon } from './UserAvatar'
 import { SecuritySheet } from './SecuritySheet'
 import { usePushNotifications } from '../../lib/usePushNotifications'
 import { buildPushUser } from '../../lib/buildPushUser'
 import { defaultDb as supabase } from '../../lib/supabase'
+import { membershipService } from '../../core/memberships/service'
 
 interface ProfileSheetProps {
   open: boolean
@@ -37,6 +38,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(user?.name || '')
   const [institutionalEmail, setInstitutionalEmail] = useState(user?.institutionalEmail || '')
+  const [profileNote, setProfileNote] = useState(user?.profile_note || '')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<'avatar' | 'banner' | null>(null)
   const [feedback, setFeedback] = useState<Feedback>(null)
@@ -45,6 +47,40 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [securityOpen, setSecurityOpen] = useState(false)
   const { workspace, assignedWorkspaces } = useWorkspace()
+  const [workspaceRoles, setWorkspaceRoles] = useState<Map<string, { slug: string; name: string }>>(new Map())
+  const [workspaceManagers, setWorkspaceManagers] = useState<Map<string, { name: string; role: string | null }>>(new Map())
+
+  useEffect(() => {
+    let cancelled = false
+    const roleIds = user?.memberships?.filter((membership) => membership.status === 'active').map((membership) => membership.role_id) ?? []
+    membershipService.resolveRoleInfo(roleIds).then((roles) => {
+      if (!cancelled) setWorkspaceRoles(roles)
+    })
+    return () => { cancelled = true }
+  }, [user?.memberships])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!user || !supabase || user.membershipsLoaded !== true) {
+      setWorkspaceManagers(new Map())
+      return
+    }
+    supabase.rpc('get_my_membership_managers').then(({ data, error }) => {
+      if (cancelled) return
+      if (error) {
+        setWorkspaceManagers(new Map())
+        return
+      }
+      const managers = new Map<string, { name: string; role: string | null }>()
+      for (const row of data ?? []) {
+        if (row.workspace_id && row.manager_name) {
+          managers.set(row.workspace_id, { name: row.manager_name, role: row.manager_role || null })
+        }
+      }
+      setWorkspaceManagers(managers)
+    })
+    return () => { cancelled = true }
+  }, [user?.id, user?.membershipsLoaded, user?.memberships])
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
   const { supported, permission, subscribed, loading: pushLoading, error: pushError, subscribe } = usePushNotifications(
     '/api/push/subscribe',
@@ -107,6 +143,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
     // próxima abertura, com a tela já mostrando "editando" e nada editável.
     setName(user?.name || '')
     setInstitutionalEmail(user?.institutionalEmail || '')
+    setProfileNote(user?.profile_note || '')
     setFeedback(null)
     setEditing(true)
   }
@@ -114,6 +151,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   function fecharEdicao() {
     setName(user?.name || '')
     setInstitutionalEmail(user?.institutionalEmail || '')
+    setProfileNote(user?.profile_note || '')
     setFeedback(null)
     setEditing(false)
   }
@@ -144,6 +182,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
 
   const nomeAlterado = name.trim() !== user.name
   const emailAlterado = institutionalEmail.trim() !== emailInstitucional
+  const recadoAlterado = profileNote.trim() !== (user.profile_note?.trim() || '')
 
   async function handleSave() {
     const trimmedName = name.trim()
@@ -163,6 +202,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
       await authService.updateProfile({
         name: trimmedName,
         institutionalEmail: trimmedEmail || null,
+        ...(recadoAlterado ? { profile_note: profileNote.trim() || null } : {}),
       })
       setEditing(false)
       flash('Perfil atualizado!')
@@ -213,16 +253,22 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   return (
     <>
       <BottomSheet open={open} onClose={onClose}>
-        <SheetHeader onClose={onClose} />
-
-      <div data-testid="perfil-conteudo" className="scrollbar-thin flex-1 overflow-y-auto">
+      <div data-testid="perfil-conteudo" className="profile-panel-scrollbar flex-1 overflow-y-auto">
               {/* Banner */}
-              <div className="relative mt-2 h-32 w-full overflow-hidden">
+              <div className="relative h-40 w-full overflow-hidden sm:h-48">
                 {user.banner ? (
                   <img src={user.banner} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full" style={{ backgroundColor: accent + '20' }} />
                 )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Fechar perfil"
+                  className="absolute right-4 top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
+                >
+                  <icons.ui.close size={18} />
+                </button>
                 <input
                   ref={bannerRef}
                   type="file"
@@ -252,10 +298,10 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
               </div>
 
               {/* Avatar + identidade */}
-              <div className="flex items-end gap-4 px-5 pt-4 pb-4">
+              <div className="relative -mt-12 flex items-end gap-4 px-5 pt-0 pb-4 sm:-mt-14">
                 <div className="relative shrink-0">
-                  <div className="h-20 w-20 overflow-hidden rounded-full border-4 border-surface">
-                    <AvatarIcon user={user} size={80} />
+                  <div className="h-24 w-24 overflow-hidden rounded-full border-2 border-surface bg-surface">
+                    <AvatarIcon user={user} size={96} />
                   </div>
                   <input
                     ref={avatarRef}
@@ -285,7 +331,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   )}
                 </div>
 
-                <div className="min-w-0 flex-1 pb-1">
+                <div className="min-w-0 flex-1 pb-1 pt-14">
                   {editing ? (
                     <div className="space-y-2">
                       <div>
@@ -315,10 +361,24 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                           className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-[var(--accent)] focus:outline-none"
                         />
                       </div>
+                      <div>
+                        <label htmlFor="perfil-recado" className="mb-1 block text-[11px] font-medium text-fg-muted">Recado do perfil</label>
+                        <textarea
+                          id="perfil-recado"
+                          value={profileNote}
+                          onChange={(e) => setProfileNote(e.target.value.slice(0, 160))}
+                          maxLength={160}
+                          rows={2}
+                          placeholder="Compartilhe uma informação útil sobre você"
+                          className="w-full resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-[var(--accent)] focus:outline-none"
+                        />
+                        <p className="mt-1 text-right text-[10px] text-fg-muted">{profileNote.length}/160</p>
+                      </div>
                     </div>
                   ) : (
                     <>
                       <p className="truncate text-base font-bold text-fg">{user.name}</p>
+                      {user.profile_note && <p className="mt-1 line-clamp-2 text-xs italic text-fg-dim">“{user.profile_note}”</p>}
                       <p
                         className={`truncate text-xs ${emailInstitucional ? 'text-fg-dim' : 'text-fg-muted italic'}`}
                       >
@@ -332,6 +392,46 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                 </div>
               </div>
 
+              {!editing && (
+                <section aria-label="Informações dos campi" className="mx-5 mb-4 rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">No LabHub</p>
+                  {user.membershipsLoaded !== true ? (
+                    <p className="text-sm text-fg-muted">Carregando seus vínculos…</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(user.memberships ?? [])
+                        .filter((membership) => membership.status === 'active')
+                        .map((membership) => {
+                          const campus = assignedWorkspaces.find((item) => item.id === membership.workspace_id)
+                          if (!campus) return null
+                          const isCurrent = campus.id === workspace?.id
+                          const campusRole = workspaceRoles.get(membership.role_id)?.name
+                          return (
+                            <div key={membership.id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-surface px-3 py-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-fg">{campus.name}{isCurrent ? ' · atual' : ''}</p>
+                                {campus.location && <p className="mt-0.5 truncate text-[11px] text-fg-muted">{campus.location}</p>}
+                                {workspaceManagers.get(campus.id) && (
+                                  <p className="mt-1 truncate text-[11px] text-fg-muted">
+                                    Gestor: <span className="font-medium text-fg-dim">{workspaceManagers.get(campus.id)?.name}</span>
+                                    {workspaceManagers.get(campus.id)?.role ? ` · ${workspaceManagers.get(campus.id)?.role}` : ''}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="shrink-0 rounded-full bg-card px-2.5 py-1 text-xs font-medium text-fg-dim">
+                                {campusRole || (user.is_super_admin ? 'Administrador' : 'Cargo não informado')}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      {(user.memberships ?? []).filter((membership) => membership.status === 'active').length === 0 && (
+                        <p className="text-sm text-fg-muted">{user.is_super_admin ? 'Acesso administrativo global' : 'Nenhum vínculo ativo encontrado'}</p>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+
               {/* Alterar / Salvar */}
               <div className="px-5 pb-4">
                 {editing ? (
@@ -339,7 +439,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                     <button
                       type="button"
                       onClick={handleSave}
-                      disabled={saving || uploading !== null || (!nomeAlterado && !emailAlterado)}
+                      disabled={saving || uploading !== null || (!nomeAlterado && !emailAlterado && !recadoAlterado)}
                       className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
                       // --accent-strong, não --accent: branco sobre o accent puro
                       // fica entre 2.43:1 (ciano) e 3.97:1 (roxo) e reprova em
