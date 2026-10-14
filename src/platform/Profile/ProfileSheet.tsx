@@ -16,7 +16,6 @@ import { SecuritySheet } from './SecuritySheet'
 import { usePushNotifications } from '../../lib/usePushNotifications'
 import { buildPushUser } from '../../lib/buildPushUser'
 import { defaultDb as supabase } from '../../lib/supabase'
-import { permissionService } from '../../core/permissions/service'
 import { membershipService } from '../../core/memberships/service'
 
 interface ProfileSheetProps {
@@ -125,7 +124,6 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   if (!user) return null
 
   const accent = accentColor(user.accent)
-  const role = permissionService.getRoleForUser(user.roleId)
   const emailInstitucional = user.institutionalEmail?.trim() || ''
 
   // Mostrar o @labhub como se fosse o contato real seria a mentira que o campo
