@@ -11,6 +11,7 @@ import { icons } from '../../../lib/icons'
 import type { ChamadosReport, ReportPeriodDays, TicketStatus } from '../types'
 import type { ReportTicket } from '../types/report'
 import { BottomSheet, SheetHeader } from '../../../platform/ui/BottomSheet'
+import { SheetOrDialog } from '../../../responsive'
 
 const PERIOD_OPTIONS: { label: string; days: ReportPeriodDays }[] = [
   { label: '7 dias', days: 7 },
@@ -153,6 +154,16 @@ export function Reports() {
       return false
     })
   }, [drilldown, report])
+
+  const drilldownTitle = useMemo(() => {
+    if (drilldown.startsWith('status:')) {
+      const status = drilldown.slice(7) as TicketStatus
+      return `Chamados ${TICKET_STATUS_LABELS[status] ?? status}`
+    }
+    if (drilldown.startsWith('category:')) return `Chamados de ${drilldown.slice(9)}`
+    if (drilldown.startsWith('technician:')) return `Chamados de ${formatTechnicianName(drilldown.slice(11))}`
+    return 'Detalhes dos chamados'
+  }, [drilldown])
 
   const customRangeValid = Boolean(customFrom && customTo && customFrom <= customTo)
 
@@ -402,7 +413,55 @@ export function Reports() {
             </div>
           )}
 
-          {drilldown && <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]"><div className="mb-2 flex items-center justify-between"><h3 className="text-xs font-semibold text-fg-muted">Detalhes dos chamados ({drilldownTickets.length})</h3><button type="button" onClick={() => setDrilldown('')} className="text-xs text-amber-600">Fechar</button></div><div className="space-y-2">{drilldownTickets.map((ticket: ReportTicket) => <div key={ticket.id} className="rounded-lg bg-surface px-3 py-2 text-xs"><button type="button" onClick={() => navigate(`/chamados/tickets/${ticket.id}`)} className="text-left font-semibold text-fg hover:text-amber-600">#{ticket.ticketNumber} · {ticket.category} · {ticket.roomName}</button><p className="mt-1 text-fg-muted">{TICKET_STATUS_LABELS[ticket.status as TicketStatus] ?? ticket.status} · {ticket.technician || 'Sem técnico'} · {ticket.createdAt.slice(0, 10)}</p><p className="mt-1 text-fg-muted">Até primeira atribuição: {ticket.timeToAssignedMinutes != null ? `${ticket.timeToAssignedMinutes} min` : 'sem evento de atribuição'} · Resolução: {ticket.resolutionMinutes != null ? `${ticket.resolutionMinutes} min` : '—'} · Em atendimento: {ticket.serviceMinutes != null ? `${ticket.serviceMinutes} min` : 'sem histórico estruturado'}</p></div>)}</div></div>}
+          <SheetOrDialog
+            open={Boolean(drilldown)}
+            onClose={() => setDrilldown('')}
+            title={drilldownTitle}
+            description={`${drilldownTickets.length} chamado${drilldownTickets.length === 1 ? '' : 's'} no filtro selecionado`}
+            className="max-w-3xl"
+          >
+            <div className="space-y-3 px-4 pb-5 sm:px-5">
+              <p className="text-xs text-fg-muted">
+                {drilldownTickets.length} chamado{drilldownTickets.length === 1 ? '' : 's'} encontrado{drilldownTickets.length === 1 ? '' : 's'}.
+              </p>
+              {drilldownTickets.length === 0 ? (
+                <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-sm text-fg-muted">
+                  Nenhum chamado encontrado neste filtro.
+                </div>
+              ) : (
+                <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+                  {drilldownTickets.map((ticket: ReportTicket) => (
+                    <article key={ticket.id} className="rounded-xl border border-line bg-surface p-3">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/chamados/tickets/${ticket.id}`)}
+                        className="text-left text-sm font-semibold text-fg hover:text-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+                      >
+                        #{ticket.ticketNumber} · {ticket.category} · {ticket.roomName || 'Local não informado'}
+                      </button>
+                      <p className="mt-1 text-xs text-fg-muted">
+                        {TICKET_STATUS_LABELS[ticket.status as TicketStatus] ?? ticket.status} · {ticket.technician || 'Sem técnico'} · {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
+                      </p>
+                      <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                        <div className="rounded-lg bg-card px-3 py-2">
+                          <dt className="text-[10px] text-fg-muted">Até primeira atribuição</dt>
+                          <dd className="mt-0.5 font-medium text-fg">{ticket.timeToAssignedMinutes != null ? `${ticket.timeToAssignedMinutes} min` : 'Sem evento de atribuição'}</dd>
+                        </div>
+                        <div className="rounded-lg bg-card px-3 py-2">
+                          <dt className="text-[10px] text-fg-muted">Tempo de resolução</dt>
+                          <dd className="mt-0.5 font-medium text-fg">{ticket.resolutionMinutes != null ? `${ticket.resolutionMinutes} min` : '—'}</dd>
+                        </div>
+                        <div className="rounded-lg bg-card px-3 py-2">
+                          <dt className="text-[10px] text-fg-muted">Em atendimento</dt>
+                          <dd className="mt-0.5 font-medium text-fg">{ticket.serviceMinutes != null ? `${ticket.serviceMinutes} min` : 'Sem histórico estruturado'}</dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </SheetOrDialog>
 
           <div className="rounded-xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-1 text-xs font-semibold text-fg">Enviar resumo semanal por email</h3>
