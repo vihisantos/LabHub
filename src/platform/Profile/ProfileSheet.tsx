@@ -261,6 +261,10 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                 ) : (
                   <div className="h-full w-full" style={{ backgroundColor: accent + '20' }} />
                 )}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-2 rounded-xl border border-white/40 shadow-[0_0_0_1px_rgba(15,23,42,0.16),inset_0_0_0_1px_rgba(255,255,255,0.12)]"
+                />
                 <button
                   type="button"
                   onClick={onClose}
