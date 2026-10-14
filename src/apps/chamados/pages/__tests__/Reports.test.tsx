@@ -84,7 +84,9 @@ describe('Reports — relatório de chamados', () => {
     render(<Reports />)
     await act(async () => {})
 
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros' }))
     fireEvent.click(screen.getByRole('button', { name: '7 dias' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
     await act(async () => {})
 
     const calls = mockGetReports.mock.calls
@@ -98,9 +100,11 @@ describe('Reports — relatório de chamados', () => {
     render(<Reports />)
     await act(async () => {})
 
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros' }))
     fireEvent.change(screen.getByLabelText('Técnico'), { target: { value: 'Técnico A' } })
     fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'resolvido' } })
     fireEvent.change(screen.getByLabelText('Categoria'), { target: { value: 'Internet' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
     await act(async () => {})
 
     const last = mockGetReports.mock.calls.at(-1)?.[0]
