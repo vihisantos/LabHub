@@ -27,7 +27,7 @@ export function Ranking() {
       setLoading(true)
       setError('')
       const params: { from?: string; to?: string; workspace_id?: string } = {}
-      if (d > 0) {
+      if (typeof d === 'number' && d > 0) {
         params.from = new Date(Date.now() - d * 86400000).toISOString()
       }
       if (workspace?.id) params.workspace_id = workspace.id

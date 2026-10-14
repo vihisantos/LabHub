@@ -146,7 +146,11 @@ estar `resolvido`/`fechado` e ainda sem avaliação. É a via usada pelo
 
 ### GET /api/chamados/reports
 
-Retorna os dados agregados do relatório.
+Retorna os dados agregados e os chamados resumidos do relatório. Aceita `from` e `to` (ISO),
+`workspace_id`, além de filtros opcionais combináveis `technician`, `status` e `category`.
+Inclui contagens mensais, distribuição das notas e tempos médios até primeira atribuição,
+em atendimento e até resolução. O tempo em atendimento usa transições de status registradas;
+o tempo até atribuição usa o primeiro evento `atribuicao` do chamado.
 
 ### POST /api/chamados/workspaces
 

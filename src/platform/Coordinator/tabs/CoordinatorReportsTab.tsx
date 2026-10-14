@@ -27,8 +27,10 @@ export interface CoordinatorReportsTabProps {
   workspaces: Workspace[]
 }
 
+type ReportPeriodKey = 7 | 30 | 90 | 'semester'
+
 interface ReportPeriod {
-  days: 7 | 30 | 90
+  days: ReportPeriodKey
   label: string
 }
 
@@ -36,17 +38,37 @@ const REPORT_PERIODS: readonly ReportPeriod[] = [
   { days: 7, label: '7 dias' },
   { days: 30, label: '30 dias' },
   { days: 90, label: '90 dias' },
+  { days: 'semester', label: 'Semestre atual' },
 ]
 
-function periodRange(days: number): { from: string; to: string } {
+function periodLabel(period: ReportPeriodKey): string {
+  return period === 'semester' ? 'semestre' : `${period}d`
+}
+
+function periodRanges(days: ReportPeriodKey): { current: { from: string; to: string }; previous: { from: string; to: string } } {
+  if (days === 'semester') {
+    const now = new Date()
+    const startMonth = now.getMonth() < 6 ? 0 : 6
+    const year = now.getFullYear()
+    const start = new Date(year, startMonth, 1)
+    return {
+      current: { from: start.toISOString(), to: new Date(new Date(year, startMonth + 6, 1).getTime() - 1).toISOString() },
+      previous: { from: new Date(year, startMonth - 6, 1).toISOString(), to: new Date(start.getTime() - 1).toISOString() },
+    }
+  }
   const to = new Date()
   const from = new Date(to.getTime() - days * DAY_MS)
-  return { from: from.toISOString(), to: to.toISOString() }
+  const previousTo = new Date(from.getTime() - 1)
+  return {
+    current: { from: from.toISOString(), to: to.toISOString() },
+    previous: { from: new Date(previousTo.getTime() - days * DAY_MS).toISOString(), to: previousTo.toISOString() },
+  }
 }
 
 interface UnitReportsState {
   workspace: Workspace | null
   report: ChamadosReport | null
+  comparison: ChamadosReport | null
   error: string | null
   /** SLA HISTÓRICO do período: resolvidos por `resolvedAt` no [from,to] da unidade. */
   period: SlaAnalysis | null
@@ -55,7 +77,7 @@ interface UnitReportsState {
 }
 
 function emptyUnitState(workspace: Workspace | null): UnitReportsState {
-  return { workspace, report: null, error: null, period: null, operational: null }
+  return { workspace, report: null, comparison: null, error: null, period: null, operational: null }
 }
 
 /**
@@ -139,7 +161,7 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
   // RBAC 2.0 (F2-D-L): dentro de uma área JÁ autorizada pelo LeadershipAreaGuard,
   // a nova fonte responde apenas qual módulo aparece. O guard da área não muda.
   const { visible: canAccessChamados } = useModuleLevel('chamados', { ignoreDisabledApps: true })
-  const [periodKey, setPeriodKey] = useState<7 | 30 | 90>(30)
+  const [periodKey, setPeriodKey] = useState<ReportPeriodKey>(30)
   const [loading, setLoading] = useState(true)
   const [byUnit, setByUnit] = useState<Record<string, UnitReportsState>>({})
 
@@ -154,7 +176,8 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
     let cancelled = false
     setLoading(true)
 
-    const { from, to } = periodRange(periodKey)
+    const { current, previous } = periodRanges(periodKey)
+    const { from, to } = current
     // Cache bruto do USUÁRIO DA SESSÃO (`chamados:<userId>`, #344) — a chave
     // literal `chamados` seria a fila de outro usuário. A leitura multiunidade
     // abaixo continua igual: o filtro por unidade é o `unit.unitId`.
@@ -167,7 +190,10 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
         return { ...emptyUnitState(null), error: 'workspace não visível no escopo' }
       }
       const report = await ticketService.getReports({ from, to, workspace_id: unit.unitId })
-      return { ...emptyUnitState(workspace), report }
+      const comparison = periodKey === 'semester'
+        ? await ticketService.getReports({ ...previous, workspace_id: unit.unitId })
+        : null
+      return { ...emptyUnitState(workspace), report, comparison }
     }
 
     Promise.allSettled(units.map((unit) => loadUnit(unit))).then((results) => {
@@ -215,6 +241,8 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
       'Abertos',
       'Resolvidos',
       'Tempo médio (h)',
+      'Total período anterior',
+      'Tempo médio período anterior (h)',
       'SLA no período (%)',
       'SLA operacional (agora) (%)',
     ]
@@ -234,11 +262,13 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
         String(open),
         String(resolvedCount),
         avg,
+        String(st?.comparison?.total ?? 0),
+        st?.comparison?.avgResolutionHours != null ? String(st.comparison.avgResolutionHours) : '',
         `${periodRate}%`,
         `${operationRate}%`,
       ]
     })
-    exportCSV(headers, rows, `relatorios-central-${periodKey}d`)
+    exportCSV(headers, rows, `relatorios-central-${periodKey}`)
   }
 
   return (
@@ -320,7 +350,7 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
                       {unit?.unitName ?? st.workspace?.name ?? uid}
                     </p>
                     <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
-                      {periodKey}d
+                      {periodLabel(periodKey)}
                     </span>
                   </div>
 
@@ -334,16 +364,18 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
                     <>
                       <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                         <Kpi label="Total" value={st.report?.total ?? 0} tone="neutral" />
+                        <Kpi label="Total anterior" value={st.comparison?.total ?? '—'} tone="neutral" />
                         <Kpi label="Abertos" value={totalOpen(st)} tone="violet" />
                         <Kpi label="Resolvidos" value={st.report?.byStatus?.resolvido ?? 0} tone="emerald" />
                         <Kpi label="Tempo médio (h)" value={fmtAvg(st.report?.avgResolutionHours)} tone="neutral" />
+                        <Kpi label="Tempo médio anterior (h)" value={fmtAvg(st.comparison?.avgResolutionHours)} tone="neutral" />
                         <Kpi label="SLA no período" value={`${st.period?.rate ?? 0}%`} tone="emerald" />
                         <Kpi label="Satisfação" value={fmtFeedback(st.report)} tone="neutral" />
                       </div>
 
                       <div className="mt-2 space-y-1 border-t border-line pt-2">
                         <p data-testid={`reports-unit-${uid}-sla-period`} className="text-[10px] text-fg-muted">
-                          SLA do período ({periodKey}d): {st.period?.rate ?? 0}% dentro ·{' '}
+                          SLA do período ({periodLabel(periodKey)}): {st.period?.rate ?? 0}% dentro ·{' '}
                           {st.period?.met ?? 0}/{st.period?.total ?? 0} resolvidos no prazo
                         </p>
                         <p data-testid={`reports-unit-${uid}-sla-operational`} className="text-[10px] text-fg-muted">
@@ -357,12 +389,12 @@ export function CoordinatorReportsTab({ units, workspaces }: CoordinatorReportsT
 
                   {st.report && (
                     <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <ChartCard title="Por status" subtitle={`Distribuição do período (${periodKey}d)`}>
+                      <ChartCard title="Por status" subtitle={`Distribuição do período (${periodLabel(periodKey)})`}>
                         <div data-testid={`reports-unit-${uid}-chart-status`}>
                           <DonutChart data={distDonut(st.report.byStatus, TICKET_STATUS_LABELS)} size={150} centralLabel={String(distTotal(st.report.byStatus))} centralSubLabel="chamados" />
                         </div>
                       </ChartCard>
-                      <ChartCard title="Por prioridade" subtitle={`Distribuição do período (${periodKey}d)`}>
+                      <ChartCard title="Por prioridade" subtitle={`Distribuição do período (${periodLabel(periodKey)})`}>
                         <div data-testid={`reports-unit-${uid}-chart-priority`}>
                           <DonutChart data={distDonut(st.report.byPriority, TICKET_PRIORITY_LABELS)} size={150} centralLabel={String(distTotal(st.report.byPriority))} centralSubLabel="chamados" />
                         </div>

@@ -469,11 +469,14 @@ export const ticketService = {
   },
 
   /** Relatório agregado no servidor (período opcional em ISO: from/to). */
-  getReports: async (params: { from?: string; to?: string; workspace_id?: string } = {}): Promise<ChamadosReport> => {
+  getReports: async (params: { from?: string; to?: string; workspace_id?: string; technician?: string; status?: string; category?: string } = {}): Promise<ChamadosReport> => {
     const qs = new URLSearchParams()
     if (params.from) qs.set('from', params.from)
     if (params.to) qs.set('to', params.to)
     if (params.workspace_id) qs.set('workspace_id', params.workspace_id)
+    if (params.technician) qs.set('technician', params.technician)
+    if (params.status) qs.set('status', params.status)
+    if (params.category) qs.set('category', params.category)
     const suffix = qs.toString() ? `?${qs.toString()}` : ''
     const { report } = await request<{ report: ChamadosReport }>(`${API_BASE}/reports${suffix}`)
     return report
