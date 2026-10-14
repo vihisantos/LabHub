@@ -90,11 +90,15 @@ export function Reports() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
   const [days, setDays] = useState<ReportPeriodDays>(30)
+  const [draftDays, setDraftDays] = useState<ReportPeriodDays>(30)
   const [report, setReport] = useState<ChamadosReport | null>(null)
   const [filterOptions, setFilterOptions] = useState<ChamadosReport | null>(null)
   const [technicianFilter, setTechnicianFilter] = useState('')
+  const [draftTechnicianFilter, setDraftTechnicianFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [draftStatusFilter, setDraftStatusFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [draftCategoryFilter, setDraftCategoryFilter] = useState('')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [customMode, setCustomMode] = useState(false)
@@ -103,6 +107,7 @@ export function Reports() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [emailDisabledOpen, setEmailDisabledOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   const load = useCallback(
     async (d: ReportPeriodDays, range: { from: string; to: string } | null, filters: { technician: string; status: string; category: string }) => {
@@ -167,21 +172,48 @@ export function Reports() {
 
   const customRangeValid = Boolean(customFrom && customTo && customFrom <= customTo)
 
+  const openFilters = () => {
+    setDraftDays(days)
+    setCustomMode(Boolean(customRange))
+    setCustomFrom(customRange?.from ?? '')
+    setCustomTo(customRange?.to ?? '')
+    setDraftTechnicianFilter(technicianFilter)
+    setDraftStatusFilter(statusFilter)
+    setDraftCategoryFilter(categoryFilter)
+    setFiltersOpen(true)
+  }
+
+  const applyFilters = () => {
+    if (customMode && !customRangeValid) return
+    setDays(draftDays)
+    setCustomRange(customMode ? { from: customFrom, to: customTo } : null)
+    setTechnicianFilter(draftTechnicianFilter)
+    setStatusFilter(draftStatusFilter)
+    setCategoryFilter(draftCategoryFilter)
+    setFiltersOpen(false)
+  }
+
   return (
     <div className="space-y-4">
-      <section aria-label="Filtros do relatório" className="space-y-4 rounded-2xl border border-line bg-card p-3 sm:p-4">
+      <div className="flex justify-end">
+        <button type="button" onClick={openFilters} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold text-fg transition-colors hover:border-amber-500 hover:text-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50">
+          <icons.ui.filter size={16} /> Filtros
+        </button>
+      </div>
+      <SheetOrDialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filtros do relatório" description="Escolha o período e refine os chamados exibidos." className="max-w-2xl">
+      <section aria-label="Filtros do relatório" className="space-y-4 px-4 pb-5 sm:px-5">
         <fieldset className="min-w-0">
           <legend className="mb-2 text-xs font-semibold text-fg">Período</legend>
-          <div role="group" aria-label="Período do relatório" className="flex flex-wrap gap-2">
+          <div role="group" aria-label="Período do relatório" className="reports-period-scroll flex gap-2 overflow-x-auto pb-2">
             {PERIOD_OPTIONS.map((opt) => {
-              const selected = !customMode && !customRange && days === opt.days
+              const selected = !customMode && draftDays === opt.days
               return (
                 <button
                   key={opt.days}
                   type="button"
                   aria-pressed={selected}
-                  onClick={() => { setCustomMode(false); setCustomRange(null); setDays(opt.days) }}
-                  className={`min-h-10 rounded-xl border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+                  onClick={() => { setCustomMode(false); setDraftDays(opt.days) }}
+                  className={`min-h-10 shrink-0 whitespace-nowrap rounded-xl border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                     selected ? 'border-amber-500 bg-amber-500 text-white' : 'border-line bg-surface text-fg-dim hover:text-fg'
                   }`}
                 >
@@ -193,7 +225,7 @@ export function Reports() {
               type="button"
               aria-pressed={customMode}
               onClick={() => setCustomMode(true)}
-              className={`min-h-10 rounded-xl border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+              className={`min-h-10 shrink-0 whitespace-nowrap rounded-xl border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                 customMode ? 'border-amber-500 bg-amber-500 text-white' : 'border-line bg-surface text-fg-dim hover:text-fg'
               }`}
             >
@@ -203,7 +235,7 @@ export function Reports() {
         </fieldset>
 
         {customMode && (
-          <fieldset className="grid min-w-0 grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+          <fieldset className="grid min-w-0 grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-2">
             <legend className="sr-only">Intervalo de datas personalizado</legend>
             <label htmlFor="reports-date-from" className="block min-w-0 text-xs font-medium text-fg-muted">
               De
@@ -227,14 +259,6 @@ export function Reports() {
                 className="mt-1 block h-10 w-full min-w-0 rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
               />
             </label>
-            <button
-              type="button"
-              disabled={!customRangeValid}
-              onClick={() => { if (customRangeValid) setCustomRange({ from: customFrom, to: customTo }) }}
-              className="h-10 rounded-xl bg-amber-500 px-4 text-sm font-semibold text-white transition-colors hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Aplicar período
-            </button>
           </fieldset>
         )}
 
@@ -242,24 +266,28 @@ export function Reports() {
           <legend className="sr-only">Filtros adicionais</legend>
           <label htmlFor="reports-technician" className="block min-w-0 text-xs font-medium text-fg-muted">
             Técnico
-            <select id="reports-technician" value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
+            <select id="reports-technician" value={draftTechnicianFilter} onChange={(event) => setDraftTechnicianFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
               <option value="">Todos os técnicos</option>{(filterOptions?.byTechnician ?? []).map((tech) => <option key={tech.name} value={tech.name}>{formatTechnicianName(tech.name)}</option>)}
             </select>
           </label>
           <label htmlFor="reports-status" className="block min-w-0 text-xs font-medium text-fg-muted">
             Status
-            <select id="reports-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
+            <select id="reports-status" value={draftStatusFilter} onChange={(event) => setDraftStatusFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
               <option value="">Todos os status</option>{STATUS_ORDER.map((status) => <option key={status} value={status}>{TICKET_STATUS_LABELS[status]}</option>)}
             </select>
           </label>
           <label htmlFor="reports-category" className="block min-w-0 text-xs font-medium text-fg-muted">
             Categoria
-            <select id="reports-category" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
+            <select id="reports-category" value={draftCategoryFilter} onChange={(event) => setDraftCategoryFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/30">
               <option value="">Todas as categorias</option>{Object.keys(filterOptions?.byCategory ?? {}).sort().map((category) => <option key={category} value={category}>{category}</option>)}
             </select>
           </label>
         </fieldset>
+        <div className="flex justify-end border-t border-line pt-3">
+          <button type="button" disabled={customMode && !customRangeValid} onClick={applyFilters} className="h-10 rounded-xl bg-amber-500 px-5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 disabled:cursor-not-allowed disabled:opacity-50">Aplicar</button>
+        </div>
       </section>
+      </SheetOrDialog>
 
       {loading && !report && (
         <div className="flex items-center justify-center gap-3 rounded-xl bg-card py-10 text-sm text-fg-muted">
