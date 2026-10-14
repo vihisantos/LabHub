@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ticketService } from '../services/ticketService'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { useAuth } from '../../../core/auth/useAuth'
-import { defaultDb as supabase } from '../../../lib/supabase'
 import {
   TICKET_STATUS_LABELS,
   TICKET_PRIORITY_LABELS,
@@ -11,6 +9,7 @@ import {
 } from '../types'
 import { icons } from '../../../lib/icons'
 import type { ChamadosReport, ReportPeriodDays, TicketStatus } from '../types'
+import { BottomSheet, SheetHeader } from '../../../platform/ui/BottomSheet'
 
 const PERIOD_OPTIONS: { label: string; days: ReportPeriodDays }[] = [
   { label: '7 dias', days: 7 },
@@ -48,14 +47,11 @@ function BarList({ items, total }: { items: [string, number][]; total: number })
 export function Reports() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
-  const { user } = useAuth()
   const [days, setDays] = useState<ReportPeriodDays>(30)
   const [report, setReport] = useState<ChamadosReport | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [emailTo, setEmailTo] = useState('')
-  const [emailSending, setEmailSending] = useState(false)
-  const [emailResult, setEmailResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [emailDisabledOpen, setEmailDisabledOpen] = useState(false)
 
   const load = useCallback(
     async (d: ReportPeriodDays) => {
@@ -217,69 +213,37 @@ export function Reports() {
           <div className="rounded-xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-1 text-xs font-semibold text-fg">Enviar resumo semanal por email</h3>
             <p className="mb-3 text-[11px] text-fg-muted">
-              Gera o resumo dos últimos 7 dias e envia para o email abaixo.
+              O envio por e-mail está temporariamente desativado.
             </p>
-            <input
-              type="email"
-              value={emailTo}
-              onChange={(e) => setEmailTo(e.target.value)}
-              onFocus={() => {
-                // O institucional primeiro: o e-mail da conta é o @labhub
-                // provisório e não existe como caixa de entrada, então
-                // pré-preencher com ele mandava o resumo para o vazio.
-                if (!emailTo) {
-                  setEmailTo(user?.institutionalEmail?.trim() || user?.email || '')
-                }
-              }}
-              placeholder="email@exemplo.com"
-              className="mb-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none"
-            />
             <button
               type="button"
-              onClick={async () => {
-                if (emailSending) return
-                setEmailSending(true)
-                setEmailResult(null)
-                try {
-                  if (!supabase) throw new Error('Supabase não configurado')
-                  const { data: { session } } = await supabase.auth.getSession()
-                  if (!session) throw new Error('Sessão expirada. Faça login novamente.')
-                  const res = await fetch('/api/chamados/reports/weekly-email', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                      to: emailTo.trim(),
-                      workspace_id: workspace?.id,
-                    }),
-                  })
-                  const data = await res.json()
-                  if (!res.ok) throw new Error(data.error || 'Erro ao enviar o email')
-                  setEmailResult({ ok: true, message: `Resumo enviado para ${data.sent_to}` })
-                } catch (e) {
-                  setEmailResult({ ok: false, message: e instanceof Error ? e.message : 'Erro ao enviar o email' })
-                } finally {
-                  setEmailSending(false)
-                }
-              }}
-              disabled={emailSending}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setEmailDisabledOpen(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
             >
               <icons.ui.mail size={16} />
-              {emailSending ? 'Enviando...' : 'Enviar resumo semanal'}
+              Enviar relatório semanal
             </button>
-            {emailResult && (
-              <p
-                className={`mt-2 text-[11px] font-medium ${
-                  emailResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'
-                }`}
-              >
-                {emailResult.message}
-              </p>
-            )}
           </div>
+
+          <BottomSheet open={emailDisabledOpen} onClose={() => setEmailDisabledOpen(false)}>
+            <SheetHeader
+              title="Envio desativado no momento"
+              subtitle="Relatórios por e-mail"
+              onClose={() => setEmailDisabledOpen(false)}
+            />
+            <div className="space-y-4 px-5 pb-6">
+              <p className="text-sm leading-relaxed text-fg-muted">
+                O relatório não foi enviado. Estamos configurando o remetente de e-mail do LabHub. Não é um problema com sua conta; o envio será liberado quando essa configuração estiver pronta.
+              </p>
+              <button
+                type="button"
+                onClick={() => setEmailDisabledOpen(false)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
+              >
+                Entendi
+              </button>
+            </div>
+          </BottomSheet>
 
           <button
             type="button"
@@ -294,3 +258,4 @@ export function Reports() {
     </div>
   )
 }
+
