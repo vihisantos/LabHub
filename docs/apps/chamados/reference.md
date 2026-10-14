@@ -386,6 +386,49 @@ Cobertura: `api/tests/test_chamados_own_ticket_detail.py` (Casos A–H).
 
 Corpo com o objeto parcial do chamado: status, responsável, prioridade, arquivamento, fotos e `statusNote`.
 
+### Em espera e Indeferimento (issue #367)
+
+Dois status próprios, fora da linha `resolvido → fechado`:
+
+| Status | Entra a partir de | Sai para | Conta como resolvido? | Arquiva? |
+|--------|-------------------|----------|-----------------------|----------|
+| `em_espera` | `aberto`, `a_caminho`, `em_atendimento` | `em_atendimento` (retomada) | não | não |
+| `indeferido` | `aberto`, `a_caminho`, `em_atendimento` | — (estado final) | não | não |
+
+A transição é validada no servidor (fail-closed) **antes** de qualquer mutation, a
+partir do estado **atual** lido do banco — nunca do que o cliente envia.
+
+**Motivo obrigatório (estruturado).** As transições `→ em_espera` e
+`→ indeferido` exigem um `reasonCode` de um catálogo predefinido. O cliente envia
+**apenas** o código; o `reasonLabel` é resolvido no servidor e persistido em
+`chamados_tickets` (`reasonCode`/`reasonLabel`/`reasonNote`) e no evento de status
+(`ticket_events.reasonCode`/`reasonLabel`). A observação (`reasonNote`) é opcional
+(máx. 500 caracteres). Texto livre nunca identifica o motivo. Código ausente ou
+fora do catálogo → `400`.
+
+Catálogos (constantes em `api/app.py`):
+
+| Status | `reasonCode` |
+|--------|--------------|
+| `em_espera` | `WAITING_REQUESTER`, `WAITING_EQUIPMENT`, `WAITING_VENDOR`, `WAITING_AUTHORIZATION`, `WAITING_SCHEDULE`, `OTHER` |
+| `indeferido` | `OUT_OF_SCOPE`, `DUPLICATE`, `NOT_IT_REQUEST`, `INSTITUTIONAL_RESOURCE`, `OTHER_DEPARTMENT`, `INSUFFICIENT_INFORMATION`, `OTHER` |
+
+`POST /api/chamados/:id/resume` — retomada atômica de um chamado `em_espera`
+(`@require_auth`):
+
+- Exige as Actions `ticket.status` **e** `ticket.claim` no workspace do chamado
+  (quem retoma **passa a ser** o novo responsável — é a exceção estrita ao
+  ownership, não uma brecha nas demais rotas).
+- `PATCH` condicional (`status=eq.em_espera`): se dois técnicos retomam ao mesmo
+  tempo, um vence e o outro recebe `409`, **sem** eventos, auditoria ou notificação.
+- Só é aceita para `em_espera`; para qualquer outro status → `400`.
+- Preserva o histórico: gera um evento de status ("retomou o atendimento") e
+  mantém `ticketNumber`, ficha e participantes.
+
+Chamados `em_espera` e `indeferido` **não** estão entre os status ativos da fila
+e **não** podem ser avaliados (só `resolvido`/`fechado`) — ver a seção de
+avaliação abaixo.
+
 ### Avaliação do atendimento (issue #370)
 
 Existem **dois caminhos de escrita** para a mesma avaliação, com o **mesmo núcleo**

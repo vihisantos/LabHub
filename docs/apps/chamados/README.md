@@ -74,6 +74,31 @@ Lista com filtros por status, prioridade, campus e responsável, além das açõ
 
 Dashboard com a distribuição dos chamados e a visão de cumprimento de SLA.
 
+### Em espera e Indeferimento
+
+![Botões Em espera e Indeferir no detalhe do chamado](../../chamados-demo/screenshots/12-em-espera-acoes.png)
+
+No detalhe operacional, o técnico pode **colocar o chamado em espera** (por
+exemplo, aguardando uma peça) ou **indeferir** a solicitação. As duas ações
+exigem um **motivo predefinido** e retiram o chamado da fila ativa **sem** contar
+como resolvido. O detalhe completo do fluxo está em [Fluxos](workflows.md) e as
+regras de transição/motivo em [Referência](reference.md).
+
+![Modal Colocar em espera](../../chamados-demo/screenshots/13-modal-colocar-em-espera.png)
+
+O modal de espera pede o motivo (ou, opcionalmente, outro motivo) e deixa o
+chamado retomável.
+
+![Chamado em espera com opção de retomar](../../chamados-demo/screenshots/15-chamado-em-espera.png)
+
+O solicitante acompanha o estado e o motivo pelo link público, e o técnico pode
+**retomar o atendimento** a qualquer momento.
+
+![Chamado indeferido](../../chamados-demo/screenshots/16-chamado-indeferido.png)
+
+O indeferimento é um **estado final** próprio: o chamado sai da fila, permanece
+no histórico com o motivo e **não** é apresentado ao solicitante como resolvido.
+
 > O conjunto completo (QR Code, SLA, relatórios e detalhe do atendimento) está em [`../../chamados-demo/screenshots/README.md`](../../chamados-demo/screenshots/README.md). Para recriar o ambiente, consulte o [guia do ambiente DEMO](../../guides/chamados-demo-environment.md).
 
 ## Onde está a documentação

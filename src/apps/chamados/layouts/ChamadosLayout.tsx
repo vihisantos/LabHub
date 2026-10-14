@@ -5,6 +5,7 @@ import { ChamadosBottomNav } from '../components/ChamadosBottomNav'
 import { useOnlineSync } from '../../../lib/useOnlineSync'
 import { icons } from '../../../lib/icons'
 import { isAlertsMuted, setAlertsMuted } from '../services/ticketAlerts'
+import { countOpenTickets } from '../services/ticketStats'
 import { useTickets } from '../hooks/useTickets'
 import { TicketsContext } from '../contexts/TicketsContext'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
@@ -57,9 +58,11 @@ export function ChamadosLayout() {
 
   const { tickets, loading, syncing, reload, create, update, updateStatus, claim, resume, transfer, remove } = useTickets()
   const { workspace } = useWorkspace()
-  const openCount = tickets.filter(
-    (t) => t.workspace_id === workspace?.id && t.status !== 'fechado' && t.status !== 'resolvido' && !t.archived,
-  ).length
+  // Issue #367: o badge reflete a fila ATIVA do workspace
+  // (aberto | a_caminho | em_atendimento). `em_espera` e `indeferido` não
+  // contam — mesma métrica do chip "Ativos" da fila e do card do módulo no
+  // dashboard, via `countOpenTickets` (isTicketOpen + não arquivado).
+  const openCount = workspace ? countOpenTickets(tickets, workspace.id) : 0
 
   function scrollToTop() {
     if (mainRef.current && mainRef.current.scrollTop > 0) {
