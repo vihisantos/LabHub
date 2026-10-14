@@ -227,7 +227,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   type="button"
                   onClick={onClose}
                   aria-label="Fechar perfil"
-                  className="absolute right-4 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
+                  className="absolute right-4 top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
                 >
                   <icons.ui.close size={18} />
                 </button>
