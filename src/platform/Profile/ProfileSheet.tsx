@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { useAuth } from '../../core/auth/AuthContext'
@@ -17,6 +17,7 @@ import { usePushNotifications } from '../../lib/usePushNotifications'
 import { buildPushUser } from '../../lib/buildPushUser'
 import { defaultDb as supabase } from '../../lib/supabase'
 import { permissionService } from '../../core/permissions/service'
+import { membershipService } from '../../core/memberships/service'
 
 interface ProfileSheetProps {
   open: boolean
@@ -46,6 +47,16 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [securityOpen, setSecurityOpen] = useState(false)
   const { workspace, assignedWorkspaces } = useWorkspace()
+  const [workspaceRoles, setWorkspaceRoles] = useState<Map<string, { slug: string; name: string }>>(new Map())
+
+  useEffect(() => {
+    let cancelled = false
+    const roleIds = user?.memberships?.filter((membership) => membership.status === 'active').map((membership) => membership.role_id) ?? []
+    membershipService.resolveRoleInfo(roleIds).then((roles) => {
+      if (!cancelled) setWorkspaceRoles(roles)
+    })
+    return () => { cancelled = true }
+  }, [user?.memberships])
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
   const { supported, permission, subscribed, loading: pushLoading, error: pushError, subscribe } = usePushNotifications(
     '/api/push/subscribe',
@@ -341,19 +352,36 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
               </div>
 
               {!editing && (
-                <section aria-label="Informações do campus" className="mx-5 mb-4 rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
+                <section aria-label="Informações dos campi" className="mx-5 mb-4 rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
                   <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">No LabHub</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="min-w-0 rounded-xl bg-surface px-3 py-3">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-fg-muted">Campus</p>
-                      <p className="mt-1 truncate text-sm font-semibold text-fg">{workspace?.name || 'Não selecionado'}</p>
-                      {workspace?.location && <p className="mt-0.5 truncate text-[11px] text-fg-muted">{workspace.location}</p>}
+                  {user.membershipsLoaded !== true ? (
+                    <p className="text-sm text-fg-muted">Carregando seus vínculos…</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(user.memberships ?? [])
+                        .filter((membership) => membership.status === 'active')
+                        .map((membership) => {
+                          const campus = assignedWorkspaces.find((item) => item.id === membership.workspace_id)
+                          if (!campus) return null
+                          const isCurrent = campus.id === workspace?.id
+                          const campusRole = workspaceRoles.get(membership.role_id)?.name
+                          return (
+                            <div key={membership.id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-surface px-3 py-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-fg">{campus.name}{isCurrent ? ' · atual' : ''}</p>
+                                {campus.location && <p className="mt-0.5 truncate text-[11px] text-fg-muted">{campus.location}</p>}
+                              </div>
+                              <span className="shrink-0 rounded-full bg-card px-2.5 py-1 text-xs font-medium text-fg-dim">
+                                {campusRole || (user.is_super_admin ? 'Administrador' : 'Cargo não informado')}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      {(user.memberships ?? []).filter((membership) => membership.status === 'active').length === 0 && (
+                        <p className="text-sm text-fg-muted">{user.is_super_admin ? 'Acesso administrativo global' : 'Nenhum vínculo ativo encontrado'}</p>
+                      )}
                     </div>
-                    <div className="min-w-0 rounded-xl bg-surface px-3 py-3">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-fg-muted">Cargo</p>
-                      <p className="mt-1 truncate text-sm font-semibold text-fg">{role?.name || (user.is_super_admin ? 'Administrador' : 'Não informado')}</p>
-                    </div>
-                  </div>
+                  )}
                 </section>
               )}
 
