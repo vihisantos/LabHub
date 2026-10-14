@@ -215,7 +215,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   return (
     <>
       <BottomSheet open={open} onClose={onClose}>
-      <div data-testid="perfil-conteudo" className="scrollbar-thin flex-1 overflow-y-auto">
+      <div data-testid="perfil-conteudo" className="profile-panel-scrollbar flex-1 overflow-y-auto">
               {/* Banner */}
               <div className="relative h-40 w-full overflow-hidden sm:h-48">
                 {user.banner ? (
