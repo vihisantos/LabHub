@@ -204,7 +204,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
       await authService.updateProfile({
         name: trimmedName,
         institutionalEmail: trimmedEmail || null,
-        profile_note: profileNote.trim() || null,
+        ...(recadoAlterado ? { profile_note: profileNote.trim() || null } : {}),
       })
       setEditing(false)
       flash('Perfil atualizado!')
