@@ -768,3 +768,27 @@
 .profile-panel-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
 }
+
+/* Trilha curta e discreta para a navegação horizontal de períodos nos relatórios. */
+.reports-period-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-secondary) 45%, transparent) transparent;
+}
+
+.reports-period-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+
+.reports-period-scroll::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: transparent;
+}
+
+.reports-period-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+}
+
+.reports-period-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
+}
