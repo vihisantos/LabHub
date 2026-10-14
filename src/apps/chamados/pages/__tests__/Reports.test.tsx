@@ -56,9 +56,9 @@ describe('Reports — relatório de chamados', () => {
 
     expect(screen.getByText(/Anhembi Piracicaba/)).toBeInTheDocument()
     expect(screen.getByText(/Chamados no período/)).toBeInTheDocument()
-    expect(screen.getAllByText('4.5h').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/4h 30min \(270 min\)/).length).toBeGreaterThan(0)
     expect(screen.getByText('Tempo médio de resolução')).toBeInTheDocument()
-    expect(screen.getByText('Técnico A')).toBeInTheDocument()
+    expect(screen.getAllByText('Técnico A').length).toBeGreaterThan(0)
     expect(screen.getByText(/2 avaliações/)).toBeInTheDocument()
   })
 
@@ -75,67 +75,36 @@ describe('Reports — relatório de chamados', () => {
     expect(last.from).toContain('2026-06-18')
     expect(last.workspace_id).toBe('ws-a')
   })
+
+  it('combina filtros de técnico, status e categoria na consulta', async () => {
+    render(<Reports />)
+    await act(async () => {})
+
+    fireEvent.change(screen.getByLabelText('Técnico'), { target: { value: 'Técnico A' } })
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'resolvido' } })
+    fireEvent.change(screen.getByLabelText('Categoria'), { target: { value: 'Internet' } })
+    await act(async () => {})
+
+    const last = mockGetReports.mock.calls.at(-1)?.[0]
+    expect(last).toMatchObject({ technician: 'Técnico A', status: 'resolvido', category: 'Internet', workspace_id: 'ws-a' })
+  })
 })
 
-describe('Reports — destinatário do resumo por email', () => {
-  function campoEmail(): HTMLInputElement {
-    return screen.getByPlaceholderText('email@exemplo.com') as HTMLInputElement
-  }
-
+describe('Reports — envio por email desativado', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetReports.mockResolvedValue(REPORT)
   })
 
-  it('usa o e-mail institucional quando existe', async () => {
-    mockUser.current = {
-      id: 'u-1',
-      name: 'Vitor',
-      email: 'vitor@labhub.app',
-      institutionalEmail: 'vitor@univ.edu',
-    }
-    render(<Reports />)
-    await act(async () => {})
-
-    fireEvent.focus(campoEmail())
-    expect(campoEmail().value).toBe('vitor@univ.edu')
-  })
-
-  it('cai no e-mail da conta quando não há institucional', async () => {
+  it('informa que o envio está pausado e explica que o relatório não foi enviado', async () => {
     mockUser.current = { id: 'u-1', name: 'Vitor', email: 'vitor@labhub.app' }
     render(<Reports />)
     await act(async () => {})
 
-    fireEvent.focus(campoEmail())
-    expect(campoEmail().value).toBe('vitor@labhub.app')
-  })
-
-  it('ignora institucional vazio, em vez de pré-preencher ""', async () => {
-    mockUser.current = {
-      id: 'u-1',
-      name: 'Vitor',
-      email: 'vitor@labhub.app',
-      institutionalEmail: '   ',
-    }
-    render(<Reports />)
-    await act(async () => {})
-
-    fireEvent.focus(campoEmail())
-    expect(campoEmail().value).toBe('vitor@labhub.app')
-  })
-
-  it('não sobrescreve o que a pessoa já digitou', async () => {
-    mockUser.current = {
-      id: 'u-1',
-      name: 'Vitor',
-      email: 'vitor@labhub.app',
-      institutionalEmail: 'vitor@univ.edu',
-    }
-    render(<Reports />)
-    await act(async () => {})
-
-    fireEvent.change(campoEmail(), { target: { value: 'coorte@univ.edu' } })
-    fireEvent.focus(campoEmail())
-    expect(campoEmail().value).toBe('coorte@univ.edu')
+    expect(screen.getByText('O envio por e-mail está temporariamente desativado.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar relatório semanal' }))
+    expect(screen.getByText('Envio desativado no momento')).toBeInTheDocument()
+    expect(screen.getByText(/O relatório não foi enviado/)).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('email@exemplo.com')).not.toBeInTheDocument()
   })
 })

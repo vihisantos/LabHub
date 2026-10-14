@@ -2012,6 +2012,7 @@ ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS content TEXT NOT NULL 
 ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS author TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "photo_urls" TEXT DEFAULT '';
 ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "newStatus" TEXT;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "priority" TEXT DEFAULT 'normal';
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "archived" BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMPTZ;
@@ -2219,7 +2220,7 @@ def _save_chamado_subs(ticket_id, subs):
 
 
 def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author='', photo_urls='',
-                         reason_code=None, reason_label=None):
+                         reason_code=None, reason_label=None, new_status=None):
     """Insere um evento no histórico do chamado (falhas não quebram o fluxo principal).
 
     `reason_code`/`reason_label` são opcionais (issue #367): quando presentes,
@@ -2238,6 +2239,7 @@ def _record_ticket_event(ticket_id, workspace_id, event_type, content='', author
             'photo_urls': photo_urls,
             'reasonCode': reason_code or None,
             'reasonLabel': reason_label or None,
+            'newStatus': new_status or None,
         }
         resp = requests.post(
             f'{_SUPABASE_URL}/rest/v1/ticket_events',
@@ -3478,6 +3480,7 @@ def chamados_manage(ticket_id):
                     author=author,
                     reason_code=ev_reason_code,
                     reason_label=ev_reason_label,
+                    new_status=ticket.get('status'),
                 )
         # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
         # (Prefer: return=representation). Filtra pela allowlist interna antes
@@ -3489,7 +3492,7 @@ def chamados_manage(ticket_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-def _aggregate_ticket_reports(rows):
+def _aggregate_ticket_reports(rows, service_minutes_by_ticket=None, assignment_minutes_by_ticket=None):
     """Agrega chamados do período em métricas para a página de relatórios."""
     total = len(rows)
     by_status = {}
@@ -3500,8 +3503,17 @@ def _aggregate_ticket_reports(rows):
     tech = {}
     resolution_total_ms = 0
     resolution_count = 0
+    service_total_minutes = 0
+    service_count = 0
+    assignment_total_minutes = 0
+    assignment_count = 0
     rating_sum = 0
     rating_count = 0
+    rating_distribution = {str(star): 0 for star in range(1, 6)}
+    by_month = {}
+    ticket_summaries = []
+    service_minutes_by_ticket = service_minutes_by_ticket or {}
+    assignment_minutes_by_ticket = assignment_minutes_by_ticket or {}
 
     for t in rows:
         status = t.get('status') or 'aberto'
@@ -3516,10 +3528,36 @@ def _aggregate_ticket_reports(rows):
         room = t.get('roomName') or ''
         if room:
             by_room[room] = by_room.get(room, 0) + 1
-
         name = (t.get('assignedTo') or '').strip()
+        created_at = t.get('createdAt')
+        start_dt = _parse_iso(created_at, 'createdAt') if created_at else None
+        end_dt = _parse_iso(t.get('resolvedAt'), 'resolvedAt') if t.get('resolvedAt') else None
+        resolution_minutes = round((end_dt - start_dt).total_seconds() / 60) if start_dt and end_dt else None
+        if created_at:
+            month = str(created_at)[:7]
+            by_month.setdefault(month, {'created': 0, 'resolved': 0})['created'] += 1
+        if t.get('resolvedAt'):
+            resolved_month = str(t['resolvedAt'])[:7]
+            by_month.setdefault(resolved_month, {'created': 0, 'resolved': 0})['resolved'] += 1
+        ticket_summaries.append({
+            'id': t.get('id'), 'ticketNumber': t.get('ticketNumber'), 'status': status,
+            'category': category, 'area': area, 'roomName': room, 'technician': name,
+            'createdAt': created_at, 'resolvedAt': t.get('resolvedAt'),
+            'rating': t.get('feedbackRating'), 'comment': (t.get('feedbackComment') or '').strip(), 'feedbackAt': t.get('feedbackAt'),
+            'resolutionMinutes': resolution_minutes,
+            'serviceMinutes': service_minutes_by_ticket.get(str(t.get('id'))),
+            'timeToAssignedMinutes': assignment_minutes_by_ticket.get(str(t.get('id'))),
+        })
+        assigned_minutes = assignment_minutes_by_ticket.get(str(t.get('id')))
+        if assigned_minutes is not None:
+            assignment_total_minutes += assigned_minutes
+            assignment_count += 1
+
         if name:
-            row = tech.setdefault(name, {'name': name, 'open': 0, 'resolved': 0, 'total': 0, 'resolutionMs': 0, 'ratingSum': 0, 'ratingCount': 0})
+            # Agrupa variações de caixa/espaçamento do mesmo nome e mantém uma apresentação consistente.
+            display_name = ' '.join(name.split())
+            key = display_name.casefold()
+            row = tech.setdefault(key, {'name': display_name, 'open': 0, 'resolved': 0, 'total': 0, 'resolutionMs': 0, 'ratingSum': 0, 'ratingCount': 0, 'reviews': [], 'serviceMinutes': 0, 'serviceCount': 0, 'assignmentMinutes': 0, 'assignmentCount': 0})
             row['total'] += 1
             if status in ('aberto', 'a_caminho', 'em_atendimento'):
                 row['open'] += 1
@@ -3530,10 +3568,28 @@ def _aggregate_ticket_reports(rows):
                     row['resolutionMs'] += (_parse_iso(t['resolvedAt'], 'resolvedAt') - _parse_iso(t['createdAt'], 'createdAt')).total_seconds() * 1000
                 except Exception:
                     pass
+            service_minutes = service_minutes_by_ticket.get(str(t.get('id')))
+            if service_minutes is not None:
+                row['serviceMinutes'] += service_minutes
+                row['serviceCount'] += 1
+            assigned_minutes = assignment_minutes_by_ticket.get(str(t.get('id')))
+            if assigned_minutes is not None:
+                row['assignmentMinutes'] += assigned_minutes
+                row['assignmentCount'] += 1
             rating = t.get('feedbackRating')
             if rating:
-                row['ratingSum'] += float(rating)
-                row['ratingCount'] += 1
+                try:
+                    rating_value = float(rating)
+                    row['ratingSum'] += rating_value
+                    row['ratingCount'] += 1
+                    row['reviews'].append({
+                        'rating': int(rating_value),
+                        'comment': (t.get('feedbackComment') or '').strip(),
+                        'ticketNumber': t.get('ticketNumber'),
+                        'feedbackAt': t.get('feedbackAt'),
+                    })
+                except (TypeError, ValueError):
+                    pass
 
         if t.get('resolvedAt') and t.get('createdAt'):
             try:
@@ -3543,11 +3599,18 @@ def _aggregate_ticket_reports(rows):
             except Exception:
                 pass
 
+        service_minutes = service_minutes_by_ticket.get(str(t.get('id')))
+        if service_minutes is not None:
+            service_total_minutes += service_minutes
+            service_count += 1
+
         rating = t.get('feedbackRating')
         if rating:
             try:
                 rating_sum += float(rating)
                 rating_count += 1
+                star_key = str(max(1, min(5, int(float(rating)))))
+                rating_distribution[star_key] += 1
             except (TypeError, ValueError):
                 pass
 
@@ -3559,8 +3622,12 @@ def _aggregate_ticket_reports(rows):
             'resolved': row['resolved'],
             'total': row['total'],
             'avgResolutionHours': round(row['resolutionMs'] / row['resolved'] / 3600000, 1) if row['resolved'] else None,
+            'avgResolutionMinutes': round(row['resolutionMs'] / row['resolved'] / 60000) if row['resolved'] else None,
             'rating': round(row['ratingSum'] / row['ratingCount'], 2) if row['ratingCount'] else None,
             'ratingCount': row['ratingCount'],
+            'reviews': row['reviews'],
+            'avgServiceMinutes': round(row['serviceMinutes'] / row['serviceCount']) if row['serviceCount'] else None,
+            'avgTimeToAssignedMinutes': round(row['assignmentMinutes'] / row['assignmentCount']) if row['assignmentCount'] else None,
         })
     by_technician.sort(key=lambda r: -r['total'])
 
@@ -3572,8 +3639,13 @@ def _aggregate_ticket_reports(rows):
         'byArea': by_area,
         'byRoom': sorted(by_room.items(), key=lambda kv: -kv[1]),
         'byTechnician': by_technician,
+        'tickets': ticket_summaries,
+        'byMonth': [{'month': month, **counts} for month, counts in sorted(by_month.items())],
         'avgResolutionHours': round(resolution_total_ms / resolution_count / 3600000, 1) if resolution_count else None,
-        'feedback': {'count': rating_count, 'average': round(rating_sum / rating_count, 2) if rating_count else None},
+        'avgResolutionMinutes': round(resolution_total_ms / resolution_count / 60000) if resolution_count else None,
+        'avgServiceMinutes': round(service_total_minutes / service_count) if service_count else None,
+        'avgTimeToAssignedMinutes': round(assignment_total_minutes / assignment_count) if assignment_count else None,
+        'feedback': {'count': rating_count, 'average': round(rating_sum / rating_count, 2) if rating_count else None, 'byRating': rating_distribution},
     }
 
 
@@ -3583,6 +3655,59 @@ def _parse_iso(value, label):
         return datetime.fromisoformat(s)
     except (ValueError, TypeError):
         return None
+
+
+def _service_minutes_by_ticket(rows, events):
+    """Tempo acumulado em `em_atendimento`, baseado em transições de status registradas."""
+    legacy_status = {
+        'Aguardando técnico': 'aberto', 'Técnico a caminho': 'a_caminho',
+        'Atendendo agora': 'em_atendimento', 'Em espera': 'em_espera',
+        'Chamado resolvido': 'resolvido', 'Chamado indeferido': 'indeferido',
+        'Chamado concluído': 'fechado',
+    }
+    tickets = {str(row.get('id')): row for row in rows if row.get('id')}
+    timeline = {}
+    for event in events:
+        ticket_id = str(event.get('ticket_id') or '')
+        at = _parse_iso(event.get('createdAt'), 'createdAt')
+        status = event.get('newStatus') or legacy_status.get(str(event.get('content') or '').strip())
+        if ticket_id in tickets and at and status:
+            timeline.setdefault(ticket_id, []).append((at, status))
+    now = datetime.now(timezone.utc)
+    durations = {}
+    for ticket_id, ticket in tickets.items():
+        ordered = sorted(timeline.get(ticket_id, []), key=lambda item: item[0])
+        active_since = None
+        elapsed = 0.0
+        for at, status in ordered:
+            if active_since is not None and status != 'em_atendimento':
+                elapsed += max(0.0, (at - active_since).total_seconds())
+                active_since = None
+            if status == 'em_atendimento' and active_since is None:
+                active_since = at
+        if active_since is not None and ticket.get('status') == 'em_atendimento':
+            end = _parse_iso(ticket.get('resolvedAt'), 'resolvedAt') or now
+            elapsed += max(0.0, (end - active_since).total_seconds())
+        durations[ticket_id] = round(elapsed / 60) if ordered else None
+    return durations
+
+
+def _time_to_first_assignment_minutes(rows, events):
+    assignments = {}
+    for event in events:
+        if event.get('type') != 'atribuicao':
+            continue
+        ticket_id = str(event.get('ticket_id') or '')
+        at = _parse_iso(event.get('createdAt'), 'createdAt')
+        if ticket_id and at and (ticket_id not in assignments or at < assignments[ticket_id]):
+            assignments[ticket_id] = at
+    result = {}
+    for row in rows:
+        ticket_id = str(row.get('id') or '')
+        created = _parse_iso(row.get('createdAt'), 'createdAt')
+        assigned = assignments.get(ticket_id)
+        result[ticket_id] = max(0, round((assigned - created).total_seconds() / 60)) if created and assigned else None
+    return result
 
 
 @app.route('/api/chamados/reports', methods=['GET'])
@@ -3613,9 +3738,20 @@ def chamados_reports():
 
         url = (
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
-            f'?select=status,priority,problemCategory,problemArea,roomName,assignedTo,createdAt,resolvedAt,feedbackRating'
+            f'?select=id,status,priority,problemCategory,problemArea,roomName,assignedTo,createdAt,resolvedAt,feedbackRating,feedbackComment,feedbackAt,ticketNumber'
             f'&createdAt=gte.{quote(from_iso)}&createdAt=lte.{quote(to_iso)}'
         )
+        filter_status = str(request.args.get('status') or '').strip()
+        filter_technician = str(request.args.get('technician') or '').strip()
+        filter_category = str(request.args.get('category') or '').strip()
+        if filter_status:
+            if filter_status not in CHAMADOS_STATUSES:
+                return jsonify({'error': 'Status inválido'}), 400
+            url += f'&status=eq.{quote(filter_status, safe="")}'
+        if filter_technician:
+            url += f'&assignedTo=eq.{quote(filter_technician, safe="")}'
+        if filter_category:
+            url += f'&problemCategory=eq.{quote(filter_category, safe="")}'
         workspace_id = request.args.get('workspace_id')
         if workspace_id:
             if not is_super_admin and workspace_id not in user_ws_ids:
@@ -3650,7 +3786,23 @@ def chamados_reports():
         if not resp.ok:
             return jsonify({'error': 'Erro ao gerar relatório'}), 502
 
-        report = _aggregate_ticket_reports(resp.json() or [])
+        rows = resp.json() or []
+        events = []
+        ticket_ids = [str(row.get('id') or '') for row in rows if row.get('id')]
+        if ticket_ids:
+            event_url = (
+                f'{_SUPABASE_URL}/rest/v1/ticket_events?select=ticket_id,type,newStatus,content,createdAt'
+                f'&type=in.(status,atribuicao)&ticket_id=in.({quote(",".join(ticket_ids), safe="")})'
+            )
+            try:
+                event_resp = requests.get(event_url, headers=_supabase_headers(), timeout=15)
+                if event_resp.ok:
+                    events = event_resp.json() or []
+            except Exception:
+                logger.warning('Não foi possível carregar eventos de status para o relatório')
+        service_minutes = _service_minutes_by_ticket(rows, events)
+        assignment_minutes = _time_to_first_assignment_minutes(rows, events)
+        report = _aggregate_ticket_reports(rows, service_minutes, assignment_minutes)
         report['period'] = {'from': from_iso, 'to': to_iso}
         return jsonify({'report': report})
     except Exception as e:

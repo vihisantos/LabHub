@@ -1330,7 +1330,7 @@ def test_reports_agrega_chamados_do_periodo(client, fake_requests, monkeypatch):
             feedbackRating=None,
         ),
     ]
-    fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse(rows))
+    fake_requests.route("GET", "chamados_tickets?select=id,status,priority", FakeResponse(rows))
 
     resp = client.get("/api/chamados/reports", query_string={"from": "2026-06-01T00:00:00Z", "to": "2026-07-01T00:00:00Z"}, headers=headers)
 
@@ -1344,7 +1344,16 @@ def test_reports_agrega_chamados_do_periodo(client, fake_requests, monkeypatch):
     assert report["byArea"]["administrativa"] == 1
     assert ["Lab 2", 1] in report["byRoom"]
     assert report["avgResolutionHours"] == 2.0
-    assert report["feedback"] == {"count": 1, "average": 5.0}
+    assert report["avgResolutionMinutes"] == 120
+    assert report["avgServiceMinutes"] is None
+    assert report["byMonth"] == [
+        {"month": "2026-06", "created": 2, "resolved": 1}
+    ]
+    assert report["feedback"] == {
+        "count": 1,
+        "average": 5.0,
+        "byRating": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 1},
+    }
     assert report["byTechnician"] == [
         {
             "name": "Técnico A",
@@ -1352,8 +1361,12 @@ def test_reports_agrega_chamados_do_periodo(client, fake_requests, monkeypatch):
             "resolved": 1,
             "total": 2,
             "avgResolutionHours": 2.0,
+            "avgResolutionMinutes": 120,
+            "avgServiceMinutes": None,
+            "avgTimeToAssignedMinutes": None,
             "rating": 5.0,
             "ratingCount": 1,
+            "reviews": [{"rating": 5, "comment": "", "ticketNumber": 6, "feedbackAt": None}],
         }
     ]
     url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
@@ -1363,11 +1376,46 @@ def test_reports_agrega_chamados_do_periodo(client, fake_requests, monkeypatch):
 
 def test_reports_filtra_por_workspace(client, fake_requests, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch)
-    fake_requests.route("GET", "chamados_tickets?select=status,priority", FakeResponse([]))
+    fake_requests.route("GET", "chamados_tickets?select=id,status,priority", FakeResponse([]))
     resp = client.get("/api/chamados/reports", query_string={"workspace_id": "ws-a"}, headers=headers)
     assert resp.status_code == 200
     url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
     assert "workspace_id=eq.ws-a" in url
+
+
+def test_reports_aplica_filtros_combinados(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    fake_requests.route("GET", "chamados_tickets?select=id,status,priority", FakeResponse([]))
+    resp = client.get(
+        "/api/chamados/reports",
+        query_string={"workspace_id": "ws-a", "status": "resolvido", "technician": "Técnico A", "category": "Projetor"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    url = fake_requests.calls_for("GET", "chamados_tickets")[0]["url"]
+    assert "status=eq.resolvido" in url
+    assert "assignedTo=eq.T%C3%A9cnico%20A" in url
+    assert "problemCategory=eq.Projetor" in url
+
+
+def test_tempo_em_atendimento_soma_intervalos_ativos(api_module):
+    rows = [{"id": "t1", "status": "resolvido"}]
+    events = [
+        {"ticket_id": "t1", "newStatus": "em_atendimento", "createdAt": "2026-01-01T09:00:00Z"},
+        {"ticket_id": "t1", "newStatus": "em_espera", "createdAt": "2026-01-01T10:00:00Z"},
+        {"ticket_id": "t1", "newStatus": "em_atendimento", "createdAt": "2026-01-01T11:00:00Z"},
+        {"ticket_id": "t1", "newStatus": "resolvido", "createdAt": "2026-01-01T12:30:00Z"},
+    ]
+    assert api_module._service_minutes_by_ticket(rows, events) == {"t1": 150}
+
+
+def test_relatorio_mede_tempo_ate_primeira_atribuicao(api_module):
+    rows = [{"id": "t1", "createdAt": "2026-01-01T09:00:00Z"}]
+    events = [
+        {"ticket_id": "t1", "type": "atribuicao", "createdAt": "2026-01-01T09:40:00Z"},
+        {"ticket_id": "t1", "type": "atribuicao", "createdAt": "2026-01-01T10:00:00Z"},
+    ]
+    assert api_module._time_to_first_assignment_minutes(rows, events) == {"t1": 40}
 
 
 def test_reports_periodo_invalido_retorna_400(client, fake_requests, monkeypatch):
@@ -1390,7 +1438,7 @@ def test_reports_erro_do_supabase_retorna_502(client, fake_requests, monkeypatch
     headers = _setup_auth(fake_requests, monkeypatch)
     fake_requests.route(
         "GET",
-        "chamados_tickets?select=status,priority",
+        "chamados_tickets?select=id,status,priority",
         FakeResponse({"error": "x"}, status_code=500, ok=False),
     )
     resp = client.get("/api/chamados/reports", headers=headers)

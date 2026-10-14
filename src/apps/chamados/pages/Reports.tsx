@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ticketService } from '../services/ticketService'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
-import { useAuth } from '../../../core/auth/useAuth'
-import { defaultDb as supabase } from '../../../lib/supabase'
 import {
   TICKET_STATUS_LABELS,
   TICKET_PRIORITY_LABELS,
@@ -11,11 +9,14 @@ import {
 } from '../types'
 import { icons } from '../../../lib/icons'
 import type { ChamadosReport, ReportPeriodDays, TicketStatus } from '../types'
+import type { ReportTicket } from '../types/report'
+import { BottomSheet, SheetHeader } from '../../../platform/ui/BottomSheet'
 
 const PERIOD_OPTIONS: { label: string; days: ReportPeriodDays }[] = [
   { label: '7 dias', days: 7 },
   { label: '30 dias', days: 30 },
-  { label: '90 dias', days: 90 },
+  { label: 'Semestre atual', days: 'semester' },
+  { label: 'Semestre anterior', days: 'previous-semester' },
   { label: 'Todo o período', days: 0 },
 ]
 
@@ -45,29 +46,90 @@ function BarList({ items, total }: { items: [string, number][]; total: number })
   )
 }
 
+function formatResolutionTime(hours: number | null, exactMinutes?: number | null): string {
+  if (exactMinutes == null && hours === null) return '—'
+  const minutes = exactMinutes ?? Math.round((hours ?? 0) * 60)
+  if (minutes < 60) return `${minutes} min`
+  const wholeHours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes ? `${wholeHours}h ${remainingMinutes}min (${minutes} min)` : `${wholeHours}h (${minutes} min)`
+}
+
+function formatTechnicianName(name: string): string {
+  const particles = new Set(['da', 'de', 'do', 'das', 'dos', 'e'])
+  return name.trim().toLocaleLowerCase('pt-BR').split(/\s+/).map((part, index) =>
+    index > 0 && particles.has(part) ? part : part.replace(/(^|[-'])((?:\p{L}))/gu, (_, prefix: string, letter: string) => prefix + letter.toLocaleUpperCase('pt-BR')),
+  ).join(' ')
+}
+
+function MonthlyTrend({ items }: { items: NonNullable<ChamadosReport['byMonth']> }) {
+  const peak = Math.max(1, ...items.flatMap((item) => [item.created, item.resolved]))
+  return (
+    <div className="space-y-3">
+      {items.map((month) => (
+        <div key={month.month} className="grid grid-cols-[70px_1fr] items-center gap-2 text-[10px] text-fg-muted">
+          <span>{month.month}</span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="w-20 shrink-0">Criados {month.created}</span>
+              <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${Math.max(month.created ? 3 : 0, (month.created / peak) * 100)}%` }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-20 shrink-0">Resolvidos {month.resolved}</span>
+              <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${Math.max(month.resolved ? 3 : 0, (month.resolved / peak) * 100)}%` }} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function Reports() {
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
-  const { user } = useAuth()
   const [days, setDays] = useState<ReportPeriodDays>(30)
   const [report, setReport] = useState<ChamadosReport | null>(null)
+  const [filterOptions, setFilterOptions] = useState<ChamadosReport | null>(null)
+  const [technicianFilter, setTechnicianFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null)
+  const [drilldown, setDrilldown] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [emailTo, setEmailTo] = useState('')
-  const [emailSending, setEmailSending] = useState(false)
-  const [emailResult, setEmailResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [emailDisabledOpen, setEmailDisabledOpen] = useState(false)
 
   const load = useCallback(
-    async (d: ReportPeriodDays) => {
+    async (d: ReportPeriodDays, range: { from: string; to: string } | null, filters: { technician: string; status: string; category: string }) => {
       setLoading(true)
       setError('')
       const params: { from?: string; to?: string; workspace_id?: string } = {}
-      if (d > 0) {
+      if (range) {
+        params.from = new Date(`${range.from}T00:00:00`).toISOString()
+        params.to = new Date(`${range.to}T23:59:59.999`).toISOString()
+      } else if (typeof d === 'number' && d > 0) {
         params.from = new Date(Date.now() - d * 86400000).toISOString()
+      }
+      if (!range && (d === 'semester' || d === 'previous-semester')) {
+        const now = new Date()
+        const currentStartMonth = now.getMonth() < 6 ? 0 : 6
+        const startYear = now.getFullYear() - (d === 'previous-semester' && currentStartMonth === 0 ? 1 : 0)
+        const startMonth = d === 'previous-semester' ? (currentStartMonth === 0 ? 6 : 0) : currentStartMonth
+        const start = new Date(startYear, startMonth, 1)
+        const end = new Date(new Date(startYear, startMonth + 6, 1).getTime() - 1)
+        params.from = start.toISOString()
+        params.to = end.toISOString()
       }
       if (workspace?.id) params.workspace_id = workspace.id
       try {
-        setReport(await ticketService.getReports(params))
+        const all = await ticketService.getReports(params)
+        const hasFilters = Boolean(filters.technician || filters.status || filters.category)
+        const filtered = hasFilters ? await ticketService.getReports({ ...params, ...filters }) : all
+        setFilterOptions(all)
+        setReport(filtered)
       } catch {
         setError('Não foi possível carregar o relatório')
       } finally {
@@ -78,8 +140,18 @@ export function Reports() {
   )
 
   useEffect(() => {
-    load(days)
-  }, [load, days])
+    load(days, customRange, { technician: technicianFilter, status: statusFilter, category: categoryFilter })
+  }, [load, days, customRange, technicianFilter, statusFilter, categoryFilter])
+
+  const drilldownTickets = useMemo(() => {
+    if (!report) return []
+    return (report.tickets ?? []).filter((ticket) => {
+      if (drilldown.startsWith('status:')) return ticket.status === drilldown.slice(7)
+      if (drilldown.startsWith('category:')) return ticket.category === drilldown.slice(9)
+      if (drilldown.startsWith('technician:')) return ticket.technician === drilldown.slice(11)
+      return false
+    })
+  }, [drilldown, report])
 
   return (
     <div className="space-y-4">
@@ -88,14 +160,36 @@ export function Reports() {
           <button
             key={opt.days}
             type="button"
-            onClick={() => setDays(opt.days)}
+            onClick={() => { setCustomRange(null); setDays(opt.days) }}
             className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              days === opt.days ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+              !customRange && days === opt.days ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
             }`}
           >
             {opt.label}
           </button>
         ))}
+        {customRange && <span className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white">Intervalo personalizado</span>}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 rounded-xl border border-line bg-card p-3 sm:grid-cols-5">
+        <label className="text-[11px] text-fg-muted">De
+          <input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg" />
+        </label>
+        <label className="text-[11px] text-fg-muted">Até
+          <input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg" />
+        </label>
+        <button type="button" onClick={() => { if (customFrom && customTo && customFrom <= customTo) setCustomRange({ from: customFrom, to: customTo }) }} className="self-end rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white">Aplicar datas</button>
+        <label className="text-[11px] text-fg-muted">Técnico
+          <select value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg">
+            <option value="">Todos</option>{(filterOptions?.byTechnician ?? []).map((tech) => <option key={tech.name} value={tech.name}>{formatTechnicianName(tech.name)}</option>)}
+          </select>
+        </label>
+        <label className="text-[11px] text-fg-muted">Status
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg"><option value="">Todos</option>{STATUS_ORDER.map((status) => <option key={status} value={status}>{TICKET_STATUS_LABELS[status]}</option>)}</select>
+        </label>
+        <label className="col-span-2 text-[11px] text-fg-muted sm:col-span-1">Categoria
+          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-fg"><option value="">Todas</option>{Object.keys(filterOptions?.byCategory ?? {}).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
+        </label>
       </div>
 
       {loading && !report && (
@@ -124,9 +218,19 @@ export function Reports() {
             </div>
             <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
               <p className="text-2xl font-bold text-fg">
-                {report.avgResolutionHours !== null ? `${report.avgResolutionHours}h` : '—'}
+                {formatResolutionTime(report.avgResolutionHours, report.avgResolutionMinutes)}
               </p>
               <p className="mt-0.5 text-xs text-fg-muted">Tempo médio de resolução</p>
+            </div>
+            <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+              <p className="text-2xl font-bold text-fg">{report.avgServiceMinutes != null ? `${report.avgServiceMinutes} min` : '—'}</p>
+              <p className="mt-0.5 text-xs text-fg-muted">Média em “Em atendimento”</p>
+              <p className="mt-1 text-[10px] text-fg-dim">Tempo no status, conforme o histórico.</p>
+            </div>
+            <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+              <p className="text-2xl font-bold text-fg">{report.avgTimeToAssignedMinutes != null ? `${report.avgTimeToAssignedMinutes} min` : '—'}</p>
+              <p className="mt-0.5 text-xs text-fg-muted">Média até a primeira atribuição</p>
+              <p className="mt-1 text-[10px] text-fg-dim">Da abertura até o primeiro registro de atribuição.</p>
             </div>
             <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
               <div className="flex items-center justify-center gap-1">
@@ -151,6 +255,7 @@ export function Reports() {
               items={STATUS_ORDER.filter((s) => report.byStatus[s]).map((s) => [TICKET_STATUS_LABELS[s], report.byStatus[s]])}
               total={report.total}
             />
+            <div className="mt-2 flex flex-wrap gap-1">{STATUS_ORDER.filter((status) => report.byStatus[status]).map((status) => <button key={status} type="button" onClick={() => setDrilldown(`status:${status}`)} className="rounded-md px-2 py-1 text-[10px] text-amber-600 hover:bg-amber-500/10">Ver {TICKET_STATUS_LABELS[status]} ({report.byStatus[status]})</button>)}</div>
           </div>
 
           <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
@@ -165,8 +270,21 @@ export function Reports() {
             <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
               <h3 className="mb-3 text-xs font-semibold text-fg-muted">Por categoria</h3>
               <BarList items={Object.entries(report.byCategory).sort((a, b) => b[1] - a[1])} total={report.total} />
+              <div className="mt-2 flex flex-wrap gap-1">{Object.entries(report.byCategory).map(([category, count]) => <button key={category} type="button" onClick={() => setDrilldown(`category:${category}`)} className="rounded-md px-2 py-1 text-[10px] text-amber-600 hover:bg-amber-500/10">Ver {category} ({count})</button>)}</div>
             </div>
           )}
+
+          {(report.byMonth ?? []).length > 0 && (
+            <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+              <h3 className="mb-3 text-xs font-semibold text-fg-muted">Chamados por mês</h3>
+              <MonthlyTrend items={report.byMonth ?? []} />
+            </div>
+          )}
+
+          <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+            <h3 className="mb-2 text-xs font-semibold text-fg-muted">Distribuição das avaliações</h3>
+            <div className="flex flex-wrap gap-3 text-xs text-fg">{[5, 4, 3, 2, 1].map((star) => <span key={star}>{'★'.repeat(star)} {report.feedback.byRating?.[String(star)] ?? 0}</span>)}</div>
+          </div>
 
           {Object.keys(report.byArea).length > 0 && (
             <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
@@ -191,95 +309,77 @@ export function Reports() {
           {report.byTechnician.length > 0 && (
             <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
               <h3 className="mb-3 text-xs font-semibold text-fg-muted">Atendimento por técnico</h3>
+              <p className="mb-3 text-[10px] text-fg-muted">Chamados atribuídos a cada técnico no período selecionado.</p>
               <div className="space-y-2">
                 {report.byTechnician.map((tech) => (
-                  <div key={tech.name} className="flex items-center justify-between rounded-xl bg-surface px-3 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-fg">{tech.name}</p>
-                      <p className="text-[10px] text-fg-muted">
-                        {tech.open} aberto{tech.open !== 1 ? 's' : ''} · {tech.resolved} resolvido{tech.resolved !== 1 ? 's' : ''}
-                      </p>
+                  <div key={tech.name}>
+                    <div className="flex items-center justify-between rounded-xl bg-surface px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-fg">{formatTechnicianName(tech.name)}</p>
+                        <p className="text-[10px] text-fg-muted">
+                          {tech.open} em andamento · {tech.resolved} resolvido{tech.resolved !== 1 ? 's' : ''}
+                        </p>
+                        {tech.ratingCount > 0 && <p className="text-[10px] text-fg-muted">{tech.ratingCount} avaliação{tech.ratingCount !== 1 ? 'ões' : ''}</p>}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-semibold text-fg">{formatResolutionTime(tech.avgResolutionHours, tech.avgResolutionMinutes)}</p>
+                        <p className="text-[10px] text-fg-muted">
+                          {tech.rating !== null ? `★ ${tech.rating.toFixed(1)}` : 'Sem avaliação'}
+                        </p>
+                        {tech.avgTimeToAssignedMinutes != null && <p className="text-[10px] text-fg-muted">Atribuído em média em {tech.avgTimeToAssignedMinutes} min</p>}
+                      </div>
                     </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-sm font-semibold text-fg">
-                        {tech.avgResolutionHours !== null ? `${tech.avgResolutionHours}h` : '—'}
-                      </p>
-                      <p className="text-[10px] text-fg-muted">
-                        {tech.rating !== null ? `★ ${tech.rating.toFixed(1)}` : 'Sem avaliação'}
-                      </p>
-                    </div>
+                    <button type="button" onClick={() => setDrilldown(`technician:${tech.name}`)} className="mt-1 px-2 py-1 text-[10px] text-amber-600">Ver chamados de {formatTechnicianName(tech.name)} ({tech.total})</button>
+                    {tech.reviews?.map((review, index) => (
+                      <div key={`${tech.name}-review-${index}`} className="ml-3 mt-1 rounded-lg border-l-2 border-amber-500/50 bg-surface px-3 py-2 text-xs text-fg-muted">
+                        <span className="mr-2 text-amber-500">{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span>
+                        {review.ticketNumber ? <span className="mr-2">Chamado #{review.ticketNumber}</span> : null}
+                        {review.feedbackAt ? <span className="mr-2">{new Date(review.feedbackAt).toLocaleDateString('pt-BR')}</span> : null}
+                        <span>{review.comment ? `“${review.comment}”` : 'Sem comentário'}</span>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
             </div>
           )}
 
+          {drilldown && <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]"><div className="mb-2 flex items-center justify-between"><h3 className="text-xs font-semibold text-fg-muted">Detalhes dos chamados ({drilldownTickets.length})</h3><button type="button" onClick={() => setDrilldown('')} className="text-xs text-amber-600">Fechar</button></div><div className="space-y-2">{drilldownTickets.map((ticket: ReportTicket) => <div key={ticket.id} className="rounded-lg bg-surface px-3 py-2 text-xs"><button type="button" onClick={() => navigate(`/chamados/tickets/${ticket.id}`)} className="text-left font-semibold text-fg hover:text-amber-600">#{ticket.ticketNumber} · {ticket.category} · {ticket.roomName}</button><p className="mt-1 text-fg-muted">{TICKET_STATUS_LABELS[ticket.status as TicketStatus] ?? ticket.status} · {ticket.technician || 'Sem técnico'} · {ticket.createdAt.slice(0, 10)}</p><p className="mt-1 text-fg-muted">Até primeira atribuição: {ticket.timeToAssignedMinutes != null ? `${ticket.timeToAssignedMinutes} min` : 'sem evento de atribuição'} · Resolução: {ticket.resolutionMinutes != null ? `${ticket.resolutionMinutes} min` : '—'} · Em atendimento: {ticket.serviceMinutes != null ? `${ticket.serviceMinutes} min` : 'sem histórico estruturado'}</p></div>)}</div></div>}
+
           <div className="rounded-xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
             <h3 className="mb-1 text-xs font-semibold text-fg">Enviar resumo semanal por email</h3>
             <p className="mb-3 text-[11px] text-fg-muted">
-              Gera o resumo dos últimos 7 dias e envia para o email abaixo.
+              O envio por e-mail está temporariamente desativado.
             </p>
-            <input
-              type="email"
-              value={emailTo}
-              onChange={(e) => setEmailTo(e.target.value)}
-              onFocus={() => {
-                // O institucional primeiro: o e-mail da conta é o @labhub
-                // provisório e não existe como caixa de entrada, então
-                // pré-preencher com ele mandava o resumo para o vazio.
-                if (!emailTo) {
-                  setEmailTo(user?.institutionalEmail?.trim() || user?.email || '')
-                }
-              }}
-              placeholder="email@exemplo.com"
-              className="mb-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-amber-500 focus:outline-none"
-            />
             <button
               type="button"
-              onClick={async () => {
-                if (emailSending) return
-                setEmailSending(true)
-                setEmailResult(null)
-                try {
-                  if (!supabase) throw new Error('Supabase não configurado')
-                  const { data: { session } } = await supabase.auth.getSession()
-                  if (!session) throw new Error('Sessão expirada. Faça login novamente.')
-                  const res = await fetch('/api/chamados/reports/weekly-email', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                      to: emailTo.trim(),
-                      workspace_id: workspace?.id,
-                    }),
-                  })
-                  const data = await res.json()
-                  if (!res.ok) throw new Error(data.error || 'Erro ao enviar o email')
-                  setEmailResult({ ok: true, message: `Resumo enviado para ${data.sent_to}` })
-                } catch (e) {
-                  setEmailResult({ ok: false, message: e instanceof Error ? e.message : 'Erro ao enviar o email' })
-                } finally {
-                  setEmailSending(false)
-                }
-              }}
-              disabled={emailSending}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setEmailDisabledOpen(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
             >
               <icons.ui.mail size={16} />
-              {emailSending ? 'Enviando...' : 'Enviar resumo semanal'}
+              Enviar relatório semanal
             </button>
-            {emailResult && (
-              <p
-                className={`mt-2 text-[11px] font-medium ${
-                  emailResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'
-                }`}
-              >
-                {emailResult.message}
-              </p>
-            )}
           </div>
+
+          <BottomSheet open={emailDisabledOpen} onClose={() => setEmailDisabledOpen(false)}>
+            <SheetHeader
+              title="Envio desativado no momento"
+              subtitle="Relatórios por e-mail"
+              onClose={() => setEmailDisabledOpen(false)}
+            />
+            <div className="space-y-4 px-5 pb-6">
+              <p className="text-sm leading-relaxed text-fg-muted">
+                O relatório não foi enviado. Estamos configurando o remetente de e-mail do LabHub. Não é um problema com sua conta; o envio será liberado quando essa configuração estiver pronta.
+              </p>
+              <button
+                type="button"
+                onClick={() => setEmailDisabledOpen(false)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
+              >
+                Entendi
+              </button>
+            </div>
+          </BottomSheet>
 
           <button
             type="button"
