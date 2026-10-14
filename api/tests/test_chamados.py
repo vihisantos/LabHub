@@ -1343,6 +1343,9 @@ def test_reports_agrega_chamados_do_periodo(client, fake_requests, monkeypatch):
     assert report["byCategory"]["Projetor"] == 1
     assert report["byArea"]["administrativa"] == 1
     assert ["Lab 2", 1] in report["byRoom"]
+    lab_ticket = next(ticket for ticket in report["tickets"] if ticket["roomName"] == "Lab 2")
+    assert lab_ticket["priority"] == "normal"
+    assert lab_ticket["workspaceId"] == "ws-a"
     assert report["avgResolutionHours"] == 2.0
     assert report["avgResolutionMinutes"] == 120
     assert report["avgServiceMinutes"] is None

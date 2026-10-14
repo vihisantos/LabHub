@@ -1,3 +1,5 @@
+import type { TicketPriority } from './ticket'
+
 export interface ReportPeriod {
   from: string
   to: string
@@ -7,6 +9,7 @@ export interface ReportTicket {
   id: string
   ticketNumber: number
   status: string
+  priority?: TicketPriority
   category: string
   area: string
   roomName: string
@@ -19,6 +22,7 @@ export interface ReportTicket {
   resolutionMinutes: number | null
   serviceMinutes: number | null
   timeToAssignedMinutes: number | null
+  workspaceId?: string | null
 }
 
 export interface TechnicianReportRow {
