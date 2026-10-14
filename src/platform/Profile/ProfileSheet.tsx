@@ -39,6 +39,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(user?.name || '')
   const [institutionalEmail, setInstitutionalEmail] = useState(user?.institutionalEmail || '')
+  const [profileNote, setProfileNote] = useState(user?.profile_note || '')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<'avatar' | 'banner' | null>(null)
   const [feedback, setFeedback] = useState<Feedback>(null)
@@ -144,6 +145,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
     // próxima abertura, com a tela já mostrando "editando" e nada editável.
     setName(user?.name || '')
     setInstitutionalEmail(user?.institutionalEmail || '')
+    setProfileNote(user?.profile_note || '')
     setFeedback(null)
     setEditing(true)
   }
@@ -151,6 +153,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   function fecharEdicao() {
     setName(user?.name || '')
     setInstitutionalEmail(user?.institutionalEmail || '')
+    setProfileNote(user?.profile_note || '')
     setFeedback(null)
     setEditing(false)
   }
@@ -181,6 +184,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
 
   const nomeAlterado = name.trim() !== user.name
   const emailAlterado = institutionalEmail.trim() !== emailInstitucional
+  const recadoAlterado = profileNote.trim() !== (user.profile_note?.trim() || '')
 
   async function handleSave() {
     const trimmedName = name.trim()
@@ -200,6 +204,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
       await authService.updateProfile({
         name: trimmedName,
         institutionalEmail: trimmedEmail || null,
+        profile_note: profileNote.trim() || null,
       })
       setEditing(false)
       flash('Perfil atualizado!')
@@ -358,10 +363,24 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                           className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-[var(--accent)] focus:outline-none"
                         />
                       </div>
+                      <div>
+                        <label htmlFor="perfil-recado" className="mb-1 block text-[11px] font-medium text-fg-muted">Recado do perfil</label>
+                        <textarea
+                          id="perfil-recado"
+                          value={profileNote}
+                          onChange={(e) => setProfileNote(e.target.value.slice(0, 160))}
+                          maxLength={160}
+                          rows={2}
+                          placeholder="Compartilhe uma informação útil sobre você"
+                          className="w-full resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-[var(--accent)] focus:outline-none"
+                        />
+                        <p className="mt-1 text-right text-[10px] text-fg-muted">{profileNote.length}/160</p>
+                      </div>
                     </div>
                   ) : (
                     <>
                       <p className="truncate text-base font-bold text-fg">{user.name}</p>
+                      {user.profile_note && <p className="mt-1 line-clamp-2 text-xs italic text-fg-dim">“{user.profile_note}”</p>}
                       <p
                         className={`truncate text-xs ${emailInstitucional ? 'text-fg-dim' : 'text-fg-muted italic'}`}
                       >
@@ -422,7 +441,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                     <button
                       type="button"
                       onClick={handleSave}
-                      disabled={saving || uploading !== null || (!nomeAlterado && !emailAlterado)}
+                      disabled={saving || uploading !== null || (!nomeAlterado && !emailAlterado && !recadoAlterado)}
                       className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
                       // --accent-strong, não --accent: branco sobre o accent puro
                       // fica entre 2.43:1 (ciano) e 3.97:1 (roxo) e reprova em
