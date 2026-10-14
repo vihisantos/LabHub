@@ -52,6 +52,8 @@ export interface User {
   name: string
   avatar?: string
   banner?: string
+  /** Recado curto opcional exibido no perfil. */
+  profile_note?: string | null
   /** Id do cargo (coleção local `roles`). Admin absoluto não depende de cargo. */
   roleId: string
   status: UserStatus

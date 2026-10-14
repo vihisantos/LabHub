@@ -9,12 +9,27 @@ stateDiagram-v2
     [*] --> aberto
     aberto --> a_caminho : técnico despachado
     a_caminho --> em_atendimento : técnico no local
+    em_atendimento --> em_espera : pausa (motivo obrigatório)
+    em_espera --> em_atendimento : retomada
+    aberto --> indeferido : indeferimento (motivo obrigatório)
+    a_caminho --> indeferido : indeferimento (motivo obrigatório)
+    em_atendimento --> indeferido : indeferimento (motivo obrigatório)
     em_atendimento --> resolvido : problema resolvido
     resolvido --> fechado : encerramento (arquiva o chamado)
     fechado --> [*]
 ```
 
-Um chamado também pode ser arquivado a qualquer momento, o que o retira da visão ativa sem alterar o status.
+Um chamado também pode ser arquivado a qualquer momento, o que o retira da visão
+ativa sem alterar o status.
+
+Dois estados **não** fazem parte da linha "resolvido → fechado":
+
+- **`em_espera`** — pausa do atendimento: sai da fila ativa, permanece no
+  histórico e é **retomável** (volta para `em_atendimento`).
+- **`indeferido`** — estado **final** próprio: sai da fila ativa, **não** é
+  arquivado, **não** conta como resolvido e **não** é retomável.
+
+Os dois exigem um **motivo predefinido**, validado no servidor.
 
 ## Fluxo 1 — Abertura de chamado (professor)
 
@@ -164,6 +179,93 @@ sequenceDiagram
 3. Confirmar no diálogo
 4. Todos os chamados selecionados são atualizados
 5. A lista é recarregada
+
+## Fluxo 6 — Em espera e Indeferimento (técnico e solicitante)
+
+Fluxo operacional novo (issue #367): pausar o atendimento sem resolvê-lo e
+recusar formalmente uma solicitação, sempre com motivo predefinido. Detalhe
+visual em [`docs/chamados-demo/screenshots/`](../../chamados-demo/screenshots/README.md) (capturas 12–19).
+
+```mermaid
+sequenceDiagram
+    participant TI as Técnico
+    participant DETAIL as TicketDetail
+    participant API as API Flask
+    participant DB as Supabase
+    participant P as Solicitante
+
+    TI->>DETAIL: Abre o chamado (estado ativo)
+    alt Colocar em espera
+        TI->>DETAIL: Clica em "Em espera"
+        DETAIL->>DETAIL: Modal de motivo (obrigatório)
+        TI->>DETAIL: Escolhe o motivo e confirma
+        DETAIL->>API: PATCH /api/chamados/:id { status: em_espera, reasonCode }
+        API->>API: Valida a transição e resolve o reasonLabel
+        API->>DB: UPDATE + evento (reasonCode/reasonLabel)
+    else Indeferir
+        TI->>DETAIL: Clica em "Indeferir"
+        DETAIL->>DETAIL: Modal de motivo (obrigatório)
+        TI->>DETAIL: Escolhe o motivo e confirma
+        DETAIL->>API: PATCH /api/chamados/:id { status: indeferido, reasonCode }
+        API->>API: Valida a transição e resolve o reasonLabel
+        API->>DB: UPDATE + evento (reasonCode/reasonLabel)
+    end
+    API-->>P: Atualização em tempo real + push com o resultado
+    P->>API: GET /api/public/chamados/:tracking_token
+    API-->>P: Estado + motivo + observação (CHAMADO INDEFERIDO, se for o caso)
+    opt Retomada (só para em_espera)
+        TI->>DETAIL: Clica em "Retomar atendimento"
+        DETAIL->>API: POST /api/chamados/:id/resume
+        API->>DB: PATCH atômico (status=em_espera → em_atendimento)
+        API-->>TI: 200 (novo responsável) ou 409 (outro técnico retomou)
+    end
+```
+
+### Em espera
+
+![Detalhe com os botões Em espera e Indeferir](../../chamados-demo/screenshots/12-em-espera-acoes.png)
+
+Regras:
+
+- **Motivo obrigatório** de um catálogo predefinido (retorno do solicitante,
+  equipamento/peça, terceiro/fornecedor, autorização, agendamento ou outro).
+  O cliente envia só o `reasonCode`; o rótulo é resolvido no servidor.
+- **Somente a partir de um estado ativo** da fila (`aberto`, `a_caminho` ou
+  `em_atendimento`) — um chamado resolvido/fechado não pode ser pausado.
+- **Única saída**: a retomada (`→ em_atendimento`). A retomada é atômica e pode
+  ser feita por **qualquer técnico** do workspace (não fica travada pela
+  disponibilidade do responsável anterior); em corrida, um vence e o outro
+  recebe `409` sem efeitos.
+
+![Modal de motivo do Em espera](../../chamados-demo/screenshots/13-modal-colocar-em-espera.png)
+
+![Chamado em espera, com opção de retomar](../../chamados-demo/screenshots/15-chamado-em-espera.png)
+
+### Indeferimento
+
+![Detalhe com o botão Indeferir](../../chamados-demo/screenshots/14-modal-indeferir.png)
+
+Regras:
+
+- **Motivo obrigatório** de um catálogo predefinido (fora do escopo,
+  duplicado, não é requisição de TI, recurso não pertence à instituição,
+  outro setor, informações insuficientes ou outro).
+- **Somente a partir de um estado ativo** da fila.
+- **Estado final**: nenhuma transição de saída (não é retomado, reaberto nem
+  assumido). Diferente de **resolvido**, o solicitante o vê como
+  **CHAMADO INDEFERIDO** com o motivo — nunca como atendimento concluído.
+
+![Chamado indeferido (card vermelho)](../../chamados-demo/screenshots/16-chamado-indeferido.png)
+
+### Acompanhamento pelo solicitante
+
+O link público de acompanhamento (token) mostra o estado e o motivo, sem login:
+
+![Acompanhamento público de um chamado em espera](../../chamados-demo/screenshots/17-acompanhar-em-espera.png)
+
+![Acompanhamento público de um chamado indeferido](../../chamados-demo/screenshots/18-acompanhar-indeferido.png)
+
+![Resultado do indeferimento para o solicitante](../../chamados-demo/screenshots/19-resultado-indeferido.png)
 
 ## Relacionados
 

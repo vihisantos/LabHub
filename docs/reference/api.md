@@ -90,7 +90,28 @@ Busca um chamado pelo identificador. Exige autenticação e tem duas vias:
 
 ### PATCH /api/chamados/:id
 
-Atualiza o chamado. Corpo com objeto parcial do chamado.
+Atualiza o chamado. Corpo com objeto parcial do chamado: status, responsável,
+prioridade, arquivamento, fotos e `statusNote`.
+
+**Motivo obrigatório em `em_espera`/`indeferido` (issue #367).** Para mover um
+chamado ativo para `em_espera` ou `indeferido`, o corpo precisa de um
+`reasonCode` de um catálogo predefinido; o servidor resolve o `reasonLabel` e
+persiste `reasonCode`/`reasonLabel`/`reasonNote` (opcional, máx. 500 caracteres).
+Transições inválidas (p.ex. sair de `em_espera` por status comum, ou reabrir um
+`indeferido`) → `400`. Contrato e catálogos completos em
+[Chamados — Referência](../apps/chamados/reference.md).
+
+### POST /api/chamados/:id/resume
+
+Retomada atômica de um chamado `em_espera` (`@require_auth`): move o chamado para
+`em_atendimento` e torna o solicitante da ação o **novo responsável**. Exige as
+Actions `ticket.status` e `ticket.claim` no workspace do chamado. A gravação é um
+`PATCH` condicional (`status=eq.em_espera`): em corrida, um técnico vence e o
+outro recebe `409`. Só aceita chamados em `em_espera` (caso contrário `400`).
+
+**Erros:** `401` não autenticado · `403` fora da unidade ou sem as Actions ·
+`404` chamado não encontrado · `409` conflito (outro técnico retomou) ·
+`502` falha ao gravar.
 
 ### POST /api/chamados/:id/feedback
 

@@ -108,3 +108,4 @@ describe('Reports — envio por email desativado', () => {
     expect(screen.queryByPlaceholderText('email@exemplo.com')).not.toBeInTheDocument()
   })
 })
+
