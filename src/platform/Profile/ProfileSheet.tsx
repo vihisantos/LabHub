@@ -16,6 +16,7 @@ import { SecuritySheet } from './SecuritySheet'
 import { usePushNotifications } from '../../lib/usePushNotifications'
 import { buildPushUser } from '../../lib/buildPushUser'
 import { defaultDb as supabase } from '../../lib/supabase'
+import { permissionService } from '../../core/permissions/service'
 
 interface ProfileSheetProps {
   open: boolean
@@ -88,6 +89,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   if (!user) return null
 
   const accent = accentColor(user.accent)
+  const role = permissionService.getRoleForUser(user.roleId)
   const emailInstitucional = user.institutionalEmail?.trim() || ''
 
   // Mostrar o @labhub como se fosse o contato real seria a mentira que o campo
@@ -217,7 +219,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
 
       <div data-testid="perfil-conteudo" className="scrollbar-thin flex-1 overflow-y-auto">
               {/* Banner */}
-              <div className="relative mt-2 h-32 w-full overflow-hidden">
+              <div className="relative mt-2 h-40 w-full overflow-hidden sm:h-48">
                 {user.banner ? (
                   <img src={user.banner} alt="" className="h-full w-full object-cover" />
                 ) : (
@@ -252,10 +254,10 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
               </div>
 
               {/* Avatar + identidade */}
-              <div className="flex items-end gap-4 px-5 pt-4 pb-4">
+              <div className="relative -mt-12 flex items-end gap-4 px-5 pt-0 pb-4 sm:-mt-14">
                 <div className="relative shrink-0">
-                  <div className="h-20 w-20 overflow-hidden rounded-full border-4 border-surface">
-                    <AvatarIcon user={user} size={80} />
+                  <div className="h-24 w-24 overflow-hidden rounded-full border-2 border-surface bg-surface">
+                    <AvatarIcon user={user} size={96} />
                   </div>
                   <input
                     ref={avatarRef}
@@ -285,7 +287,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   )}
                 </div>
 
-                <div className="min-w-0 flex-1 pb-1">
+                <div className="min-w-0 flex-1 pb-1 pt-14">
                   {editing ? (
                     <div className="space-y-2">
                       <div>
@@ -331,6 +333,23 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   )}
                 </div>
               </div>
+
+              {!editing && (
+                <section aria-label="Informações do campus" className="mx-5 mb-4 rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)]">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">No LabHub</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="min-w-0 rounded-xl bg-surface px-3 py-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-fg-muted">Campus</p>
+                      <p className="mt-1 truncate text-sm font-semibold text-fg">{workspace?.name || 'Não selecionado'}</p>
+                      {workspace?.location && <p className="mt-0.5 truncate text-[11px] text-fg-muted">{workspace.location}</p>}
+                    </div>
+                    <div className="min-w-0 rounded-xl bg-surface px-3 py-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-fg-muted">Cargo</p>
+                      <p className="mt-1 truncate text-sm font-semibold text-fg">{role?.name || (user.is_super_admin ? 'Administrador' : 'Não informado')}</p>
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {/* Alterar / Salvar */}
               <div className="px-5 pb-4">

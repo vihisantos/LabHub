@@ -104,9 +104,9 @@ export function HomeView() {
                 type="button"
                 onClick={() => setProfileOpen(true)}
                 title="Meu perfil"
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-card p-1 transition-colors hover:bg-input"
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-card p-0.5 transition-colors hover:bg-input"
               >
-                <UserAvatar user={user} size={32} />
+                <UserAvatar user={user} size={44} />
               </button>
             )}
           </div>
