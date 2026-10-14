@@ -10,7 +10,7 @@ import { uploadAvatarToCloudinary, uploadBannerToCloudinary } from '../../lib/cl
 import { icons } from '../../lib/icons'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
 import { WorkspaceSwitcherSheet } from '../WorkspaceSwitcher/WorkspaceSwitcherSheet'
-import { BottomSheet, SheetHeader } from '../ui/BottomSheet'
+import { BottomSheet } from '../ui/BottomSheet'
 import { AvatarIcon } from './UserAvatar'
 import { SecuritySheet } from './SecuritySheet'
 import { usePushNotifications } from '../../lib/usePushNotifications'
@@ -215,16 +215,22 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   return (
     <>
       <BottomSheet open={open} onClose={onClose}>
-        <SheetHeader onClose={onClose} />
-
       <div data-testid="perfil-conteudo" className="scrollbar-thin flex-1 overflow-y-auto">
               {/* Banner */}
-              <div className="relative mt-2 h-40 w-full overflow-hidden sm:h-48">
+              <div className="relative h-40 w-full overflow-hidden sm:h-48">
                 {user.banner ? (
                   <img src={user.banner} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full" style={{ backgroundColor: accent + '20' }} />
                 )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Fechar perfil"
+                  className="absolute right-4 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
+                >
+                  <icons.ui.close size={18} />
+                </button>
                 <input
                   ref={bannerRef}
                   type="file"
