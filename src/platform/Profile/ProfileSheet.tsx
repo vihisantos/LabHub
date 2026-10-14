@@ -48,6 +48,7 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
   const [securityOpen, setSecurityOpen] = useState(false)
   const { workspace, assignedWorkspaces } = useWorkspace()
   const [workspaceRoles, setWorkspaceRoles] = useState<Map<string, { slug: string; name: string }>>(new Map())
+  const [workspaceManagers, setWorkspaceManagers] = useState<Map<string, { name: string; role: string | null }>>(new Map())
 
   useEffect(() => {
     let cancelled = false
@@ -57,6 +58,29 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
     })
     return () => { cancelled = true }
   }, [user?.memberships])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!user || !supabase || user.membershipsLoaded !== true) {
+      setWorkspaceManagers(new Map())
+      return
+    }
+    supabase.rpc('get_my_membership_managers').then(({ data, error }) => {
+      if (cancelled) return
+      if (error) {
+        setWorkspaceManagers(new Map())
+        return
+      }
+      const managers = new Map<string, { name: string; role: string | null }>()
+      for (const row of data ?? []) {
+        if (row.workspace_id && row.manager_name) {
+          managers.set(row.workspace_id, { name: row.manager_name, role: row.manager_role || null })
+        }
+      }
+      setWorkspaceManagers(managers)
+    })
+    return () => { cancelled = true }
+  }, [user?.id, user?.membershipsLoaded, user?.memberships])
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
   const { supported, permission, subscribed, loading: pushLoading, error: pushError, subscribe } = usePushNotifications(
     '/api/push/subscribe',
@@ -370,6 +394,12 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-fg">{campus.name}{isCurrent ? ' · atual' : ''}</p>
                                 {campus.location && <p className="mt-0.5 truncate text-[11px] text-fg-muted">{campus.location}</p>}
+                                {workspaceManagers.get(campus.id) && (
+                                  <p className="mt-1 truncate text-[11px] text-fg-muted">
+                                    Gestor: <span className="font-medium text-fg-dim">{workspaceManagers.get(campus.id)?.name}</span>
+                                    {workspaceManagers.get(campus.id)?.role ? ` · ${workspaceManagers.get(campus.id)?.role}` : ''}
+                                  </p>
+                                )}
                               </div>
                               <span className="shrink-0 rounded-full bg-card px-2.5 py-1 text-xs font-medium text-fg-dim">
                                 {campusRole || (user.is_super_admin ? 'Administrador' : 'Cargo não informado')}
