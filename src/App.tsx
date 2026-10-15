@@ -17,6 +17,7 @@ const DashboardPage = lazy(() => import('./platform/Dashboard/DashboardPage').th
 const HomePage = lazy(() => import('./platform/Dashboard/HomePage').then(m => ({ default: m.HomePage })))
 const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
 const MusicRequestPage = lazy(() => import('./pages/MusicRequest').then(m => ({ default: m.default })))
+const PublicMusicRequestPage = lazy(() => import('./pages/PublicMusicRequest').then(m => ({ default: m.default })))
 const PCCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCCareApp })))
 const StockApp = lazy(() => import('./apps/stock').then(m => ({ default: m.StockApp })))
 const ReservaLabApp = lazy(() => import('./apps/reservalab').then(m => ({ default: m.ReservaLabApp })))
@@ -67,6 +68,11 @@ function AppRoutes() {
         <AuthGuard fallback={AUTH_FALLBACK}>
           <Roadmap />
         </AuthGuard>
+      } />
+      <Route path="pedir-musica/:token" element={
+        <Suspense fallback={<RouteFallback />}>
+          <PublicMusicRequestPage />
+        </Suspense>
       } />
       <Route path="pedir-musica" element={
         <AuthGuard fallback={AUTH_FALLBACK}>

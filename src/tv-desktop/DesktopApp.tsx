@@ -4,6 +4,7 @@ import { loadConfig, saveConfig, type DeviceConfig } from './config'
 import { hasDeviceSession } from './deviceService'
 import { SetupFlow } from './SetupFlow'
 import { DisplayShell } from './DisplayShell'
+import { KioskErrorBoundary } from './KioskErrorBoundary'
 
 export function DesktopApp() {
   const [config, setConfig] = useState<DeviceConfig | null>(null)
@@ -59,7 +60,11 @@ export function DesktopApp() {
   }
 
   console.log('[LabHub TV] Display ativo:', config.name, '| workspace:', config.workspace.name, '| device:', config.deviceId)
-  return <DisplayShell config={config} onReconfigure={() => setReconfiguring(true)} />
+  return (
+    <KioskErrorBoundary>
+      <DisplayShell config={config} onReconfigure={() => setReconfiguring(true)} />
+    </KioskErrorBoundary>
+  )
 }
 
 const splashStyle: CSSProperties = {

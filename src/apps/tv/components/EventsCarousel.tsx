@@ -123,6 +123,7 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
                 <img
                   src={bgUrl}
                   alt={event.title}
+                  onError={() => console.warn('[EventsCarousel] falha ao carregar imagem')}
                   style={{
                     width: '100%', height: '100%', objectFit: 'cover',
                   }}
@@ -254,6 +255,7 @@ export function EventsCarousel({ events, interval = 8000, fullBleed }: EventsCar
           <img
             src={getSafeEventImageUrl(event.title, event.description, event.image_url)}
             alt={event.title}
+            onError={() => console.warn('[EventsCarousel] falha ao carregar imagem')}
             style={{
               width: '100%', maxHeight: '300px', objectFit: 'cover',
               borderRadius: '1rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',

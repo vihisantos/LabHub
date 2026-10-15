@@ -152,10 +152,31 @@ export async function listDevices(workspaceId?: string): Promise<TvDevice[]> {
 }
 
 export function startHeartbeat(deviceId: string, intervalMs = 5 * 60 * 1000): () => void {
-  const ping = () => heartbeatDevice(deviceId).catch(() => {})
-  ping()
-  const timer = setInterval(ping, intervalMs)
-  return () => clearInterval(timer)
+  let stopped = false
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const ping = async () => {
+    let delay = 1000
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (stopped) return
+      try {
+        await heartbeatDevice(deviceId)
+        return
+      } catch (err) {
+        console.warn('[TV] heartbeat falhou, retry com backoff:', err)
+        await sleep(delay)
+        delay *= 2
+      }
+    }
+    console.warn('[TV] heartbeat indisponível; próxima tentativa no próximo ciclo')
+  }
+
+  void ping()
+  const timer = setInterval(() => { void ping() }, intervalMs)
+  return () => {
+    stopped = true
+    clearInterval(timer)
+  }
 }
 /** Indica se o ambiente é o app desktop Electron (vs navegador). */
 export function isDesktop(): boolean {
