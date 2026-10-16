@@ -64,11 +64,20 @@ Disponibiliza:
 | Guard | Propósito |
 |-------|-----------|
 | `AuthGuard` | Exige usuário autenticado |
-| `AdminGuard` | Exige cargo admin ou super admin |
+| `AdminGuard` | Exige `is_super_admin` (capacidade de plataforma global). Não existe mais "admin por workspace" no backend — apenas Super Admin |
 | `AppGuard` | Verifica o acesso à aplicação (habilitada no workspace e permitida ao usuário) |
+
+## Modelo de autorização (contexto)
+
+A autenticação acima (Supabase Auth + perfil `pending`/`active`) segue valendo para identificar o usuário. A **autorização** do que cada usuário pode fazer, no entanto, é controlada pelo **RBAC 2.0**:
+
+- Camada autoritativa do backend, **sempre ativa** (ON-only, deny-by-default)
+- Autorização granular por **Action** resolvida contra a `membership` do usuário no workspace
+- Super Admin (`profiles.is_super_admin`) é capacidade de plataforma global, não uma role de workspace
+- O modelo legado (`profiles.role` + `app_access`) **não autoriza mais nada no backend** — serve apenas para compatibilidade de frontend
 
 ## Relacionados
 
-- [Autorização](authorization.md)
-- [Workspaces](../concepts/workspaces.md)
+- [Autorização](authorization.md) — camadas de controle, RBAC 2.0, roles e Actions
+- [Workspaces](../concepts/workspaces.md) — modelo de multi-tenancy e isolamento
 - [Referência da API](../../reference/api.md)

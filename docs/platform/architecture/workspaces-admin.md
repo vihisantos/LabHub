@@ -33,6 +33,8 @@ flowchart LR
 
 O vínculo entre usuário e workspace é a `membership`. A role define a base de permissões, os overrides ajustam caso a caso e cada permissão referencia uma Action do catálogo. Super admins (`profiles.is_super_admin`) ficam fora desse caminho e veem todos os workspaces.
 
+> **Nota:** o modelo legado usava `profiles.workspace_ids` para vincular usuários a workspaces. Esse campo está em processo de drift para `memberships` (fonte da verdade no RBAC 2.0). Consulte `docs/platform/concepts/workspaces.md` para detalhes do isolamento por workspace.
+
 A disponibilidade de uma aplicação combina duas informações: o campus precisa tê-la habilitada em `workspaces.disabled_apps` e o usuário precisa ter acesso concedido pela membership. A desativação no campus sempre prevalece.
 
 ## Ciclo de vida

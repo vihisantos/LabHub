@@ -2,11 +2,29 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.3.0](https://github.com/vihisantos/LabHub/compare/v2.2.0...v2.3.0) (2026-09-16)
+
+### Features
+
+* **app:** novo tela de Novidades (`/changelog`) substitui o antigo Roadmap, com checkboxes por atualização, separação entre Corrigido (bugs) e Melhoria (features), e estatísticas de progresso por versão
+* **docs:** guia de manutenção do changelog da home (`docs/guides/changelog-app.md`)
+
+### Docs
+
+* **roadmap:** adicionado estado atual dos ciclos C–F entregos no plano RBAC 2.0 + Mascote + Multiunidades
+* **authorization:** nota da migration 049 sobre `user_belongs_to_workspace()` ler `memberships` em vez de `workspace_ids`
+* **authentication:** `AdminGuard` corrigido para exigir `is_super_admin`; contexto RBAC 2.0 adicionado
+* **chamados:** `TicketStatus` inclui `em_espera` e `indeferido` no type e no ciclo de vida
+* **workspaces-admin:** nota sobre `workspace_ids` como modelo legado em drift para `memberships`
+* **asset-registry:** aviso de que o protótipo `global-repository.ts` foi removido no PR-2 #289
+* **types:** `TicketStatus` atualizado e `Profile` com nota sobre cargo legado
+* **data-layer:** `user_belongs_to_workspace()` atualizado para ler `memberships` (migração 049)
+
 ## [2.2.0](https://github.com/vihisantos/LabHub/compare/v2.1.0...v2.2.0) (2026-09-07)
 
 ### Security
 
-* **rbac2:** controlled activation of RBAC 2.0 (`RBAC_2_ENABLED=1`) with flag-based rollback; legacy gates preserved.
+* **rbac2:** ativação controlada do RBAC 2.0 (`RBAC_2_ENABLED=1`) com rollback por flag; gates legados preservados. (A flag foi posteriormente removida do runtime; consulte `docs/platform/security/authorization.md`.)
 * **rbac2:** Etapa 7 closed — rollout decisions explicit (multi-workspace deferred, mixed push endpoints deferred, `adm` as canonical RBAC authority, legacy compatibility kept).
 * **security:** RLS Hardening 044 for `profiles` and `workspaces` — removal of `USING(true)` and visibility helper `profile_visible_to_me`; cross-workspace isolation and fail-closed reinforced.
 
@@ -38,13 +56,9 @@ All notable changes to this project will be documented in this file. See [standa
 
 ## [Unreleased]
 
-### Features
-
-* **rbac2:** engine, schema 036, and backend enforcement — action-based authorization with deny-by-default, super_admin bypass, membership-based role resolution, per-action overrides, and append-only audit trail (`rbac_audit_logs`).
-
 ### Docs
 
-* **rbac2:** Etapa 7 updated with post-activation status and documented limitation of the specific audit.
+* **rbac2:** Etapa 7 atualizada com status pós-ativação e limitação documentada da auditoria específica.
 
 ## [2.1.0](https://github.com/vihisantos/LabHub/compare/v2.0.0...v2.1.0) (2026-08-16)
 

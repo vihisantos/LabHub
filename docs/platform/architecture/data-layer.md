@@ -67,16 +67,21 @@ createSyncService<T>(collection) → {
 Todas as tabelas de `pcare` e `stock` usam RLS com políticas por operação (SELECT, INSERT, UPDATE e DELETE), apoiadas na função auxiliar `user_belongs_to_workspace()`:
 
 ```sql
--- Função com sobrecargas text/uuid (migration 027)
+-- Função com sobrecargas text/uuid (migration 027, reescrita na 049)
 CREATE OR REPLACE FUNCTION public.user_belongs_to_workspace(ws_id text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
   SELECT ws_id IS NULL OR ws_id = ''
       OR ws_id IN (
-        SELECT unnest(workspace_ids)::text
-        FROM public.profiles WHERE id = auth.uid()
+        SELECT m.workspace_id::text
+        FROM public.memberships m
+        WHERE m.profile_id = auth.uid()
+          AND m.status = 'active'
       )
 $$;
 -- Também existe a sobrecarga uuid para colunas workspace_id com FK
+-- A migration 049 reescreveu a função para ler `memberships` (status='active')
+-- em vez de `profiles.workspace_ids` (legado). Fail-closed preservado:
+-- sem membership ativa => false.
 ```
 
 Padrão de política:

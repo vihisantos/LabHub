@@ -35,7 +35,7 @@ import type { Workspace } from '../workspaces/types'
  *                      RPC `get_coordinator_units`, migration 047);
  *   · `/lider`      → `LeadershipAreaGuard('team')` (slug da membership ativa +
  *                      RPC `get_leader_team`, migrations 045/046);
- *   · `/pedir-musica`, `/roadmap`, `/chamados-publico/*`, TV Desktop → sem gate
+ *   · `/pedir-musica`, `/changelog`, `/chamados-publico/*`, TV Desktop → sem gate
  *     de app por design.
  *
  * ══ MIGRAÇÃO ════════════════════════════════════════════════════════════════

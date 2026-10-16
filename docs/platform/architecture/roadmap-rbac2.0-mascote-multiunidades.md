@@ -47,6 +47,41 @@ vivo da experiência do LabHub.
 
 ---
 
+## Estado atual da implementação (ciclos entregues)
+
+A partir da sessão de 2026-09-08, os seguintes ciclos já foram implementados
+e verificados (testes, lint e build verdes):
+
+- **Ciclo C — Fases 4 a 6 (cargos, liderança, área do Coordenador em construção):**
+  Cargo `lider` com `isLeadership` e `leadershipLevel`; hierarquia com
+  `LeadershipLevel`; migração idempotente; regra de que somente cargo de
+  liderança lidera; área do Coordenador em estado "em construção" na rota
+  `/coordenador`; badge de liderança no admin; 1705 testes passando.
+
+- **Ciclo D — Fase 7 (escopo `team`, Área do Líder):**
+  Migração `045` com `memberships.managed_by`, RPC `get_leader_team`, rota
+  `/lider` real, indicadores de equipe, card "Minha Liderança" no Launcher;
+  1735 testes passando.
+
+- **Ciclo E — Fase 7.7 (auditoria de fechamento):**
+  3 lacunas fechadas na migration `046` (`managed_by` cross-workspace, líder
+  não gerencia líder, detecção de ciclo em INSERT/UPDATE); 48 testes passando.
+
+- **Ciclo F — Fase 8 (escopo `coordination`, gestão do Coordenador):**
+  Migration `047` com 5 helpers SECURITY DEFINER (`is_coordinator_of`,
+  `get_coordinator_units`, `get_coordinator_leaders`, `get_memberships_by_manager`,
+  `coordinator_set_manager`); tela `/coordenador` real (unidades → lideranças →
+  equipes); UI de atribuição/remoção de gestor; 1754 testes passando.
+
+**Pendentes:** Fases 8+ (release real dos recursos do Coordenador), auditoria de
+fechamento da Fase 8, drift `workspace_ids` (legado) ↔ memberships, expansão do
+mascote e experiência desktop dos demais módulos.
+
+> O mascote permanece congelado até que o plano do RBAC esteja totalmente
+> consolidado ("primeiro o plano do RBAC, depois voltamos ao mascote").
+
+---
+
 # PARTE 1 — PLANO PÓS-REFORMA
 
 ## FASE 1 — Fluxo de aprovação
