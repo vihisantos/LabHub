@@ -418,16 +418,6 @@ const RELEASES: Release[] = [
   },
 ]
 
-const TYPE_LABELS = {
-  bug: 'Corrigido',
-  melhoria: 'Melhoria',
-}
-
-const TYPE_COLORS = {
-  bug: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20',
-  melhoria: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
-}
-
 export function Changelog() {
   const stats = useMemo(() => {
     let total = 0
