@@ -208,6 +208,8 @@ CREATE POLICY "{table}_select" ON schema.table FOR SELECT
 
 A função `user_belongs_to_workspace()` tem duas sobrecargas (text e uuid) para acompanhar os tipos de coluna em cada schema.
 
+> **Nota (migration 049):** a função foi reescrita para ler `memberships` (com `status = 'active'`) em vez de `profiles.workspace_ids` (legado). Isso alinha o RLS ao RBAC 2.0: sem membership ativa, a função retorna `false` (fail-closed). O bypass de super admin continua sendo feito pelas próprias políticas (`is_super_admin() OR ...`).
+
 ### Nível de frontend
 
 ```typescript

@@ -7,7 +7,7 @@
 ### Chamado
 
 ```typescript
-type TicketStatus = 'aberto' | 'a_caminho' | 'em_atendimento' | 'resolvido' | 'fechado'
+type TicketStatus = 'aberto' | 'a_caminho' | 'em_atendimento' | 'em_espera' | 'resolvido' | 'fechado' | 'indeferido'
 type TicketPriority = 'baixa' | 'normal' | 'alta' | 'urgente'
 ```
 
@@ -37,6 +37,7 @@ interface Profile {
   id: string
   email: string
   name: string
+  /** Cargo legado do modelo pré-RBAC 2.0 (`viewer` / `technician` / `admin`). Mantido por compatibilidade; a autorização vigente usa `memberships` + `role_permissions` (RBAC 2.0). */
   role: 'viewer' | 'technician' | 'admin'
   status: 'active' | 'pending'
   is_super_admin: boolean
