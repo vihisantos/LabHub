@@ -4,6 +4,8 @@ import { ticketService } from '../services/ticketService'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { BarChart } from '../../../lib/charts/BarChart'
 import { icons } from '../../../lib/icons'
+import { slaConfigService } from '../services/slaConfigService'
+import { rankProblemRooms } from '../utils/roomRanking'
 import type { ChamadosReport, ReportPeriodDays } from '../types'
 
 const PERIOD_OPTIONS: { label: string; days: ReportPeriodDays }[] = [
@@ -21,6 +23,7 @@ export function Ranking() {
   const [report, setReport] = useState<ChamadosReport | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const slaConfigs = useMemo(() => slaConfigService.getHoursForTickets(), [])
 
   const load = useCallback(
     async (d: ReportPeriodDays) => {
@@ -46,18 +49,21 @@ export function Ranking() {
     load(days)
   }, [load, days])
 
-  const chartData = useMemo(() => {
+  const rankedRooms = useMemo(() => {
     if (!report) return []
-    return report.byRoom
+    return rankProblemRooms(report.byRoom, report.tickets ?? [], slaConfigs)
+  }, [report, slaConfigs])
+
+  const chartData = useMemo(() => {
+    return rankedRooms
       .slice(0, TOP)
-      .map(([label, value], i) => ({
-        label,
-        value,
+      .map((room, i) => ({
+        label: room.room,
+        value: room.score,
         color: i === 0 ? 'var(--color-chart-danger)' : i < 3 ? 'var(--color-chart-warn)' : undefined,
       }))
-  }, [report])
+  }, [rankedRooms])
 
-  const total = report?.total ?? 0
   const maxRoom = chartData[0]?.value ?? 0
 
   return (
@@ -103,16 +109,17 @@ export function Ranking() {
           {chartData.length > 0 ? (
             <>
               <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-                <h3 className="mb-3 text-xs font-semibold text-fg-muted">Top {Math.min(TOP, chartData.length)} salas</h3>
+                <h3 className="mb-1 text-xs font-semibold text-fg-muted">Top {Math.min(TOP, chartData.length)} salas por criticidade</h3>
+                <p className="mb-3 text-[10px] text-fg-muted">Pontos: 1 por chamado, +2 prioridade alta, +4 urgente e +3 fora do SLA.</p>
                 <BarChart data={chartData} layout="horizontal" height={Math.max(180, chartData.length * 36)} />
               </div>
 
               <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
                 <h3 className="mb-3 text-xs font-semibold text-fg-muted">Detalhe por sala</h3>
                 <div className="space-y-2">
-                  {report.byRoom.slice(0, TOP).map(([room, count], i) => (
+                  {rankedRooms.slice(0, TOP).map((room, i) => (
                     <button
-                      key={room}
+                      key={room.room}
                       type="button"
                       onClick={() => navigate('/chamados/tickets')}
                       className="flex w-full items-center gap-3 rounded-xl bg-surface p-3 text-left transition-colors hover:bg-input"
@@ -129,16 +136,19 @@ export function Ranking() {
                         {i + 1}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-fg">{room}</p>
+                        <p className="truncate text-sm font-medium text-fg">{room.room}</p>
                         <p className="text-[11px] text-fg-muted">
-                          {count} chamado{count !== 1 ? 's' : ''}
-                          {total > 0 ? ` · ${Math.round((count / total) * 100)}% do período` : ''}
+                          {room.total} chamado{room.total !== 1 ? 's' : ''} · {room.highPriority + room.urgent} alta/urgente · {room.overdue} fora do SLA
                         </p>
                       </div>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-sm font-bold text-fg">{room.score}</span>
+                        <span className="block text-[9px] text-fg-muted">pontos</span>
+                      </span>
                       <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-input">
                         <div
                           className={`h-1.5 rounded-full ${i === 0 ? 'bg-red-500' : 'bg-amber-500'}`}
-                          style={{ width: `${maxRoom > 0 ? (count / maxRoom) * 100 : 0}%` }}
+                          style={{ width: `${maxRoom > 0 ? (room.score / maxRoom) * 100 : 0}%` }}
                         />
                       </div>
                       <icons.ui.chevronRight size={14} className="shrink-0 text-fg-dim" />
