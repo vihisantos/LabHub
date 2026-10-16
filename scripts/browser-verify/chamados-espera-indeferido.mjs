@@ -102,10 +102,8 @@ export function snippet(text, secrets = [], limit = 240) {
  */
 export async function secureScreenshot(page, target, { secrets = [], screenshotOptions = {} } = {}) {
   const tmp = `${target}.tmp.png`
-  let tmpExists = false
   try {
     await page.screenshot({ path: tmp, ...screenshotOptions })
-    tmpExists = true
     const size = statSync(tmp).size
     // Um screenshot legítimo tem vários KB; menos de 1 KB é tratado como vazio.
     if (size < 1024) {
@@ -114,9 +112,9 @@ export async function secureScreenshot(page, target, { secrets = [], screenshotO
     renameSync(tmp, target)
     return statSync(target).size
   } catch (err) {
-    if (tmpExists) {
-      try { unlinkSync(tmp) } catch {}
-    }
+    // Sempre tente remover o temporário, mesmo se page.screenshot() falhou
+    // durante a gravação (arquivo parcial pode ter ficado no disco).
+    try { unlinkSync(tmp) } catch {}
     throw err
   }
 }

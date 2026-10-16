@@ -538,4 +538,29 @@ describe('captura atômica extra', () => {
     expect(fs.existsSync(target + '.tmp.png')).toBe(false)
     expect(fs.statSync(target).size).toBe(4096)
   })
+
+  it('remove arquivo temporário parcial quando screenshot falha durante gravação', async () => {
+    const os = await import('node:os')
+    const fs = await import('node:fs')
+    const dir = os.tmpdir() + '/labhub-shot-partial-' + Math.random().toString(16).slice(2)
+    fs.mkdirSync(dir, { recursive: true })
+    const target = dir + '/14.png'
+    // Captura anterior intacta
+    fs.writeFileSync(target, Buffer.alloc(4096, 0x2d))
+    // Arquivo temporário parcial já existente (simula screenshot que gravou parcialmente e falhou)
+    fs.writeFileSync(target + '.tmp.png', Buffer.alloc(100, 0x2e))
+    const page = {
+      async screenshot({ path }) {
+        // Simula gravação parcial (arquivo já existe) e depois lança exceção
+        throw new Error('screenshot falhou durante a gravação')
+      },
+      async evaluate() { return { w: 1, h: 1 } },
+    }
+    await expect(secureScreenshot(page, target, { secrets: [] })).rejects.toThrow(/falhou durante a gravação/i)
+    // Temporário deve ter sido removido
+    expect(fs.existsSync(target + '.tmp.png')).toBe(false)
+    // Captura anterior continua intacta
+    expect(fs.statSync(target).size).toBe(4096)
+    expect(fs.readFileSync(target)[0]).toBe(0x2d)
+  })
 })
