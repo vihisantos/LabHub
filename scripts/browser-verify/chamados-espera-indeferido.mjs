@@ -100,11 +100,11 @@ export function snippet(text, secrets = [], limit = 240) {
  * `secrets` é mantido por compatibilidade de assinatura (não é gravado no
  * nome do arquivo).
  */
-export async function secureScreenshot(page, target, { secrets = [] } = {}) {
+export async function secureScreenshot(page, target, { secrets = [], screenshotOptions = {} } = {}) {
   const tmp = `${target}.tmp.png`
   let tmpExists = false
   try {
-    await page.screenshot({ path: tmp })
+    await page.screenshot({ path: tmp, ...screenshotOptions })
     tmpExists = true
     const size = statSync(tmp).size
     // Um screenshot legítimo tem vários KB; menos de 1 KB é tratado como vazio.
@@ -216,6 +216,31 @@ function indent(text, prefix = '    ') {
     .split('\n')
     .map((line) => prefix + line)
     .join('\n')
+}
+
+/**
+ * Sanitiza uma exceção antes de qualquer registro em log: aplica `redact()`
+ * na mensagem e no stack para nunca vazar tokens, credenciais ou URLs com
+ * parâmetros sensíveis (ex.: ?token=...) nos diagnósticos.
+ */
+function sanitizeError(err, secrets = []) {
+  const message = err ? String(err.message || err || '') : ''
+  const stack = err && err.stack ? String(err.stack) : ''
+  return {
+    message: redact(message, secrets),
+    stack: redact(stack, secrets),
+  }
+}
+
+/**
+ * Registra uma falha de cenário com a mensagem e o stack sanitizados.
+ */
+function logScenarioError(log, err, secrets, scenarioId) {
+  const { message, stack } = sanitizeError(err, secrets)
+  log.error(`  ✗ cenário ${scenarioId} FALHOU\n${indent(message, '    ')}`)
+  if (stack) {
+    log.error(`    ${indent(stack, '      ')}`)
+  }
 }
 
 // ── Funções utilitárias do script original (mantidas idênticas) ──────────────
@@ -387,11 +412,13 @@ export function createRuntime({ browser, config, log = console }) {
   }
 
   /**
-   * Captura de tela (idêntica ao script original).
+   * Captura de tela atômica (usa secureScreenshot): grava em .tmp.png, valida
+   * o arquivo e só então renomeia para o destino final, preservando a captura
+   * anterior em caso de falha. Mantém fullPage: true do script original.
    */
   async function shot(page, name) {
     const path = `${outDir}/${name}.png`
-    await page.screenshot({ path, fullPage: true })
+    await secureScreenshot(page, path, { secrets: config.secrets, screenshotOptions: { fullPage: true } })
     const size = statSync(path).size
     const dims = await page.evaluate(() => ({
       w: document.documentElement.scrollWidth,
@@ -444,7 +471,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(12)
-    log.error(`  ✗ cenário 12 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 12)
   }
 
   // 13
@@ -465,7 +492,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(13)
-    log.error(`  ✗ cenário 13 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 13)
   }
 
   // 14
@@ -486,7 +513,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(14)
-    log.error(`  ✗ cenário 14 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 14)
   }
 
   // 15
@@ -505,7 +532,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(15)
-    log.error(`  ✗ cenário 15 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 15)
   }
 
   // 16
@@ -523,7 +550,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(16)
-    log.error(`  ✗ cenário 16 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 16)
   }
 
   // 17
@@ -542,7 +569,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(17)
-    log.error(`  ✗ cenário 17 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 17)
   }
 
   // 18
@@ -561,7 +588,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(18)
-    log.error(`  ✗ cenário 18 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 18)
   }
 
   // 19
@@ -580,7 +607,7 @@ async function runAllScenarios(rt, log = console) {
   } catch (err) {
     results.failed++
     results.failedIds.push(19)
-    log.error(`  ✗ cenário 19 FALHOU\n${String(err).split('\n').map(l => '    ' + l).join('\n')}`)
+    logScenarioError(log, err, rt.config.secrets, 19)
   }
 
   return results
