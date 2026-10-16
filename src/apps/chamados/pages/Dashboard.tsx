@@ -152,7 +152,7 @@ export function Dashboard() {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-fg">Ranking de salas problemáticas</p>
-          <p className="text-[11px] text-fg-muted">Quais salas mais geram chamados</p>
+          <p className="text-[11px] text-fg-muted">Volume, urgência e chamados fora do SLA</p>
         </div>
         <icons.ui.chevronRight size={18} className="shrink-0 text-fg-dim" />
       </button>

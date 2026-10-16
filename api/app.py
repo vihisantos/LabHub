@@ -3541,6 +3541,7 @@ def _aggregate_ticket_reports(rows, service_minutes_by_ticket=None, assignment_m
             by_month.setdefault(resolved_month, {'created': 0, 'resolved': 0})['resolved'] += 1
         ticket_summaries.append({
             'id': t.get('id'), 'ticketNumber': t.get('ticketNumber'), 'status': status,
+            'priority': priority, 'workspaceId': t.get('workspace_id'),
             'category': category, 'area': area, 'roomName': room, 'technician': name,
             'createdAt': created_at, 'resolvedAt': t.get('resolvedAt'),
             'rating': t.get('feedbackRating'), 'comment': (t.get('feedbackComment') or '').strip(), 'feedbackAt': t.get('feedbackAt'),
@@ -3738,7 +3739,7 @@ def chamados_reports():
 
         url = (
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
-            f'?select=id,status,priority,problemCategory,problemArea,roomName,assignedTo,createdAt,resolvedAt,feedbackRating,feedbackComment,feedbackAt,ticketNumber'
+            f'?select=id,status,priority,problemCategory,problemArea,roomName,assignedTo,createdAt,resolvedAt,feedbackRating,feedbackComment,feedbackAt,ticketNumber,workspace_id'
             f'&createdAt=gte.{quote(from_iso)}&createdAt=lte.{quote(to_iso)}'
         )
         filter_status = str(request.args.get('status') or '').strip()
