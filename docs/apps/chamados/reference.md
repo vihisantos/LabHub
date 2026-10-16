@@ -46,7 +46,7 @@ interface Ticket {
   archived: boolean
 }
 
-type TicketStatus = 'aberto' | 'a_caminho' | 'em_atendimento' | 'resolvido' | 'fechado'
+type TicketStatus = 'aberto' | 'a_caminho' | 'em_atendimento' | 'em_espera' | 'resolvido' | 'fechado' | 'indeferido'
 type TicketPriority = 'baixa' | 'normal' | 'alta' | 'urgente'
 ```
 

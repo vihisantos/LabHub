@@ -29,7 +29,7 @@ const TAB_ID = getGlobalTabId()
 /** Detect which app the user is currently in */
 function getAppInfo(pathname: string): { app: string; page: string } {
   if (pathname === '/' || pathname === '') return { app: 'launcher', page: 'Início' }
-  if (pathname.startsWith('/roadmap')) return { app: 'roadmap', page: 'Roadmap' }
+  if (pathname.startsWith('/changelog')) return { app: 'changelog', page: 'Novidades' }
   if (pathname.startsWith('/pc-care')) return { app: 'pc-care', page: 'PC Care' }
   if (pathname.startsWith('/stock') || pathname.startsWith('/general-stock')) return { app: 'stock', page: 'Estoque' }
   if (pathname.startsWith('/reservalab')) return { app: 'reservalab', page: 'ReservaLab' }

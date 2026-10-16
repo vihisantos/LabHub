@@ -47,7 +47,7 @@ Filtro por RLS (patrimonio.view / asset.create / asset.edit / asset.move)
 
 ## Segurança
 
-- **RLS** — `workspace_id IN (SELECT unnest(workspace_ids) FROM profiles WHERE id = auth.uid())`, com bypass para super admin
+- **RLS** — verifica membership ativa do usuário no workspace (função `user_belongs_to_workspace()`, migration 049), com bypass para super admin. A função lê `memberships` (não mais `profiles.workspace_ids`).
 - **Sincronização** — usa o cliente autenticado (JWT do usuário), não `service_role`
 - **Defesa em profundidade** — `workspaceStore.filter()` no frontend é a segunda barreira
 

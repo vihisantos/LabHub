@@ -18,13 +18,22 @@ Criado (aberto)
 A caminho (a_caminho)
     ↓  Técnico chega
 Em atendimento (em_atendimento)
+    ↓  Pausa com motivo (peça, fornecedor, autorização, etc.)
+Em espera (em_espera) ← retomável
+    ↓  Retomada
+Em atendimento (em_atendimento)
     ↓  Problema resolvido
 Resolvido (resolvido)
     ↓  Admin confirma
 Fechado (fechado)
 ```
 
-Um chamado também pode ser **arquivado** (retirado da visão ativa) sem alterar seu status.
+Dois estados saem da linha principal `resolvido → fechado`:
+
+- **`em_espera`** — pausa do atendimento: sai da fila ativa, permanece no histórico e é **retomável** (volta para `em_atendimento`).
+- **`indeferido`** — estado **final** próprio: sai da fila ativa, **não** é retomável, **não** conta como resolvido.
+
+Ambos exigem um **motivo predefinido**, validado no servidor. Um chamado também pode ser **arquivado** (retirado da visão ativa) sem alterar seu status.
 
 ## Propriedades principais
 
