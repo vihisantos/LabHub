@@ -197,6 +197,7 @@ export async function expectAll(page, checks, secrets = []) {
  */
 export async function runScenarioList(scenarios, runtime, log = console) {
   const results = []
+  const secrets = runtime?.config?.secrets ?? []
   for (const scenario of scenarios) {
     log.log(`[cenário ${scenario.id}] ${scenario.name}`)
     try {
@@ -205,7 +206,7 @@ export async function runScenarioList(scenarios, runtime, log = console) {
       log.log(`  ✓ cenário ${scenario.id} OK`)
     } catch (err) {
       results.push({ id: scenario.id, name: scenario.name, status: 'failed', error: err })
-      log.error(`  ✗ cenário ${scenario.id} FALHOU\n${indent(err?.message || String(err))}`)
+      logScenarioError(log, err, secrets, scenario.id, scenario.name)
     }
   }
   return results
@@ -234,10 +235,12 @@ function sanitizeError(err, secrets = []) {
 
 /**
  * Registra uma falha de cenário com a mensagem e o stack sanitizados.
+ * Preserva o identificador e o nome do cenário no diagnóstico.
  */
-function logScenarioError(log, err, secrets, scenarioId) {
+function logScenarioError(log, err, secrets, scenarioId, scenarioName) {
   const { message, stack } = sanitizeError(err, secrets)
-  log.error(`  ✗ cenário ${scenarioId} FALHOU\n${indent(message, '    ')}`)
+  const nome = scenarioName ? ` - ${scenarioName}` : ''
+  log.error(`  ✗ cenário ${scenarioId}${nome} FALHOU\n${indent(message, '    ')}`)
   if (stack) {
     log.error(`    ${indent(stack, '      ')}`)
   }

@@ -159,6 +159,102 @@ describe('verificação obrigatória', () => {
   })
 })
 
+// ────────── 2b. sanitização em runScenarioList ──────────
+
+describe('sanitização em runScenarioList', () => {
+  const secrets = ['super-secreta-senha', 'DEMO-ESPERA-2026']
+
+  it('não vaza senha nos logs quando um cenário falha', async () => {
+    const logger = captureLogger()
+    const runtime = {
+      config: { secrets },
+    }
+    const scenarios = [
+      {
+        id: 7,
+        name: 'cenário com senha',
+        async run() {
+          throw new Error(`erro com senha=${creds.pass} no caminho`)
+        },
+      },
+    ]
+    const results = await runScenarioList(scenarios, runtime, logger)
+    const errors = logger.getError()
+    expect(errors).not.toContain(creds.pass)
+    expect(errors).toContain('[redacted]')
+    expect(errors).toContain('cenário 7 - cenário com senha')
+    expect(results[0].status).toBe('failed')
+  })
+
+  it('não vaza token de acompanhamento nos logs', async () => {
+    const logger = captureLogger()
+    const runtime = {
+      config: { secrets },
+    }
+    const scenarios = [
+      {
+        id: 17,
+        name: 'acompanhamento público',
+        async run() {
+          throw new Error(`track?token=${secrets[1]} expirado`)
+        },
+      },
+    ]
+    const results = await runScenarioList(scenarios, runtime, logger)
+    const errors = logger.getError()
+    expect(errors).not.toContain(secrets[1])
+    expect(errors).toContain('[redacted]')
+    expect(errors).toContain('cenário 17 - acompanhamento público')
+    expect(results[0].status).toBe('failed')
+  })
+
+  it('não vaza JWT nos logs (JWT na lista de segredos)', async () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.abc123signature'
+    const logger = captureLogger()
+    const runtime = {
+      config: { secrets: [...secrets, jwt] },
+    }
+    const scenarios = [
+      {
+        id: 18,
+        name: 'jwt no erro',
+        async run() {
+          throw new Error(`inválido jwt=${jwt}`)
+        },
+      },
+    ]
+    const results = await runScenarioList(scenarios, runtime, logger)
+    const errors = logger.getError()
+    expect(errors).not.toContain(jwt)
+    expect(errors).toContain('[redacted]')
+    expect(errors).toContain('cenário 18 - jwt no erro')
+    expect(results[0].status).toBe('failed')
+  })
+
+  it('sanitiza JWT autodetectado (não na lista de segredos)', async () => {
+    const logger = captureLogger()
+    const runtime = {
+      config: { secrets: [...secrets] },
+    }
+    const jwtAutodetect = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.abc123signature'
+    const scenarios = [
+      {
+        id: 19,
+        name: 'jwt autodetectado',
+        async run() {
+          throw new Error(`inválido jwt=${jwtAutodetect}`)
+        },
+      },
+    ]
+    const results = await runScenarioList(scenarios, runtime, logger)
+    const errors = logger.getError()
+    expect(errors).not.toContain(jwtAutodetect)
+    expect(errors).toContain('[jwt]')
+    expect(errors).toContain('cenário 19 - jwt autodetectado')
+    expect(results[0].status).toBe('failed')
+  })
+})
+
 // ────────── 3. captura ──────────
 
 describe('captura', () => {
