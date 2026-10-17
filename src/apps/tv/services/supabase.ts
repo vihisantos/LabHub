@@ -5,6 +5,13 @@ import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement, T
 
 /* ── Helpers ── */
 
+export class TvServiceError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TvServiceError'
+  }
+}
+
 function workspaceId(): string | null {
   return workspaceStore.activeWorkspaceId
 }
@@ -16,12 +23,14 @@ function scoped<T extends { workspace_id?: string | null }>(rows: T[]): T[] {
 /* ── Events ── */
 
 export async function fetchEvents(deviceId?: string | null): Promise<TvEvent[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_events')
     .select('*')
     .eq('is_active', true)
     .order('sort_order', { ascending: true })
+  if (error) throw error
+  if (error) throw error
   const rows = scoped((data as TvEvent[]) || [])
   // Evento do campus (device_id NULL) aparece em todas as TVs; evento com
   // device_id aparece só na TV de destino.
@@ -30,11 +39,12 @@ export async function fetchEvents(deviceId?: string | null): Promise<TvEvent[]> 
 }
 
 export async function fetchAllEvents(): Promise<TvEvent[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_events')
     .select('*')
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return scoped((data as TvEvent[]) || [])
 }
 
@@ -42,7 +52,7 @@ export async function createEvent(values: Omit<TvEvent, 'id' | 'created_at'>): P
   if (!supabase) throw new Error('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_events').insert({ ...values, workspace_id: ws } as never)
+  const { error } = await supabase.from('tv_events').insert({ ...values, workspace_id: ws })
   if (error) throw error
 }
 
@@ -52,7 +62,7 @@ export async function updateEvent(id: string, values: Partial<TvEvent>): Promise
   if (!ws) throw new Error('Workspace não selecionado')
   const { error } = await supabase
     .from('tv_events')
-    .update(values as never)
+    .update(values)
     .eq('id', id)
     .eq('workspace_id', ws)
   if (error) throw error
@@ -104,7 +114,7 @@ function nowSaoPaulo(): { date: string; time: string } {
  * - Não faz leitura ampla em `tv_events`: busca somente o `event_id` retornado.
  */
 export async function fetchScheduledContent(deviceId?: string | null): Promise<TvEvent | null> {
-  if (!supabase) return null
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) return null
 
@@ -117,7 +127,7 @@ export async function fetchScheduledContent(deviceId?: string | null): Promise<T
       p_device_id: deviceId ?? null,
       p_date: date,
       p_time: time,
-    } as never,
+    },
   )
   if (resolveError || !resolution) return null
 
@@ -182,7 +192,7 @@ export async function reserveEventUpsert(input: ReserveEventInput): Promise<Rese
     p_target_device_ids: input.targetDeviceIds?.length ? input.targetDeviceIds : null,
     p_event_id: input.eventId ?? null,
     p_sort_order: 0,
-  } as never)
+  })
   if (error) throw error
   return data as ReserveEventResult
 }
@@ -190,21 +200,23 @@ export async function reserveEventUpsert(input: ReserveEventInput): Promise<Rese
 /* ── Playlists ── */
 
 export async function fetchPlaylists(): Promise<TvPlaylist[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_playlists')
     .select('*')
     .eq('is_active', true)
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return scoped((data as TvPlaylist[]) || [])
 }
 
 export async function fetchAllPlaylists(): Promise<TvPlaylist[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_playlists')
     .select('*')
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return scoped((data as TvPlaylist[]) || [])
 }
 
@@ -220,7 +232,7 @@ export async function updatePlaylist(id: string, values: Partial<TvPlaylist>): P
   if (!supabase) throw new Error('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_playlists').update(values as never).eq('id', id).eq('workspace_id', ws)
+  const { error } = await supabase.from('tv_playlists').update(values).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
@@ -235,29 +247,30 @@ export async function deletePlaylist(id: string): Promise<void> {
 /* ── Music Queues ── */
 
 export async function fetchQueues(): Promise<TvMusicQueue[]> {
-  if (!supabase) return []
-  const { data } = await supabase.from('tv_music_queues').select('*').order('created_at', { ascending: true })
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase.from('tv_music_queues').select('*').order('created_at', { ascending: true })
+  if (error) throw error
   return scoped((data as TvMusicQueue[]) || [])
 }
 
 export async function createQueue(values: Partial<TvMusicQueue>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_music_queues').insert({ ...values, workspace_id: ws } as never)
+  const { error } = await supabase.from('tv_music_queues').insert({ ...values, workspace_id: ws })
   if (error) throw error
 }
 
 export async function updateQueue(id: string, values: Partial<TvMusicQueue>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_music_queues').update(values as never).eq('id', id).eq('workspace_id', ws)
+  const { error } = await supabase.from('tv_music_queues').update(values).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function deleteQueue(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
   const { error } = await supabase.from('tv_music_queues').delete().eq('id', id).eq('workspace_id', ws)
@@ -267,30 +280,31 @@ export async function deleteQueue(id: string): Promise<void> {
 /* ── Music Tracks ── */
 
 export async function fetchTracks(queueId: string): Promise<TvMusicTrack[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_music_tracks')
     .select('*')
     .eq('queue_id', queueId)
     .order('position', { ascending: true })
+  if (error) throw error
   return (data as TvMusicTrack[]) || []
 }
 
 export async function createTrack(track: Omit<TvMusicTrack, 'id' | 'created_at'>): Promise<void> {
-  if (!supabase) return
-  const { error } = await supabase.from('tv_music_tracks').insert(track as never)
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { error } = await supabase.from('tv_music_tracks').insert(track)
   if (error) throw error
 }
 
 export async function createTracks(tracks: Omit<TvMusicTrack, 'id' | 'created_at'>[]): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   if (tracks.length === 0) return
-  const { error } = await supabase.from('tv_music_tracks').insert(tracks as never)
+  const { error } = await supabase.from('tv_music_tracks').insert(tracks)
   if (error) throw error
 }
 
 export async function deleteTrack(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const { error } = await supabase.from('tv_music_tracks').delete().eq('id', id)
   if (error) throw error
 }
@@ -298,42 +312,44 @@ export async function deleteTrack(id: string): Promise<void> {
 /* ── Announcements ── */
 
 export async function fetchAnnouncements(): Promise<TvAnnouncement[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_announcements')
     .select('*')
     .eq('is_active', true)
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return scoped((data as TvAnnouncement[]) || [])
 }
 
 export async function fetchAllAnnouncements(): Promise<TvAnnouncement[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_announcements')
     .select('*')
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return scoped((data as TvAnnouncement[]) || [])
 }
 
 export async function createAnnouncement(values: Omit<TvAnnouncement, 'id' | 'created_at'>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_announcements').insert({ ...values, workspace_id: ws } as never)
+  const { error } = await supabase.from('tv_announcements').insert({ ...values, workspace_id: ws })
   if (error) throw error
 }
 
 export async function updateAnnouncement(id: string, values: Partial<TvAnnouncement>): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_announcements').update(values as never).eq('id', id).eq('workspace_id', ws)
+  const { error } = await supabase.from('tv_announcements').update(values).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
 export async function deleteAnnouncement(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
   const { error } = await supabase.from('tv_announcements').delete().eq('id', id).eq('workspace_id', ws)
@@ -341,7 +357,7 @@ export async function deleteAnnouncement(id: string): Promise<void> {
 }
 
 export async function reorderTracks(_queueId: string, trackIds: string[]): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   for (const [idx, id] of trackIds.entries()) {
     const { error } = await supabase.from('tv_music_tracks').update({ position: idx }).eq('id', id)
     if (error) throw error
@@ -351,21 +367,23 @@ export async function reorderTracks(_queueId: string, trackIds: string[]): Promi
 /* ── Photo Galleries ── */
 
 export async function fetchActiveGalleries(): Promise<TvGallery[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_galleries')
     .select('*')
     .eq('is_active', true)
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return scoped((data as TvGallery[]) || [])
 }
 
 export async function fetchGalleries(): Promise<TvGallery[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_galleries')
     .select('*')
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return scoped((data as TvGallery[]) || [])
 }
 
@@ -373,7 +391,7 @@ export async function createGallery(title: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_galleries').insert({ title, sort_order: 0, workspace_id: ws } as never)
+  const { error } = await supabase.from('tv_galleries').insert({ title, sort_order: 0, workspace_id: ws })
   if (error) throw error
 }
 
@@ -413,12 +431,13 @@ export async function setGalleryOrder(ids: string[]): Promise<void> {
 }
 
 export async function fetchGalleryPhotos(galleryId: string): Promise<TvGalleryPhoto[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_gallery_photos')
     .select('*')
     .eq('gallery_id', galleryId)
     .order('sort_order', { ascending: true })
+  if (error) throw error
   return (data as TvGalleryPhoto[]) || []
 }
 
@@ -433,7 +452,7 @@ export async function addGalleryPhoto(galleryId: string, imageUrl: string): Prom
   const nextOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0
   const { error } = await supabase
     .from('tv_gallery_photos')
-    .insert({ gallery_id: galleryId, image_url: imageUrl, sort_order: nextOrder } as never)
+    .insert({ gallery_id: galleryId, image_url: imageUrl, sort_order: nextOrder })
   if (error) throw error
 }
 
@@ -488,7 +507,7 @@ export async function deleteGalleryPhoto(id: string, imageUrl?: string | null): 
 }
 
 export async function reorderGalleryPhotos(ids: string[]): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   for (const [idx, id] of ids.entries()) {
     const { error } = await supabase.from('tv_gallery_photos').update({ sort_order: idx }).eq('id', id)
     if (error) throw error
@@ -498,25 +517,29 @@ export async function reorderGalleryPhotos(ids: string[]): Promise<void> {
 /* ── TV Devices (desktop display) ── */
 
 export async function fetchDevices(): Promise<TvDevice[]> {
-  if (!supabase) return []
-  const { data } = await supabase.from('tv_devices').select('*').order('created_at', { ascending: true })
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase.from('tv_devices').select('*').order('created_at', { ascending: true })
+  if (error) throw error
   return scoped((data as TvDevice[]) || [])
 }
 
 /** TVs (dispositivos) registradas em um workspace específico. */
 export async function fetchWorkspaceDevices(workspaceId: string): Promise<TvDevice[]> {
-  if (!supabase || !workspaceId) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  if (!workspaceId) return []
+  const { data, error } = await supabase
     .from('tv_devices')
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: true })
+  if (error) throw error
   return (data as TvDevice[]) || []
 }
 
 export async function fetchDeviceById(id: string): Promise<TvDevice | null> {
-  if (!supabase) return null
-  const { data } = await supabase.from('tv_devices').select('*').eq('id', id).maybeSingle()
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase.from('tv_devices').select('*').eq('id', id).maybeSingle()
+  if (error) throw error
   return (data as TvDevice) || null
 }
 
@@ -529,27 +552,27 @@ export async function upsertDevice(device: {
   last_seen?: string | null
 }): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
-  const { error } = await supabase.from('tv_devices').upsert(device as never, { onConflict: 'id' })
+  const { error } = await supabase.from('tv_devices').upsert(device, { onConflict: 'id' })
   if (error) throw error
 }
 
 export async function heartbeatDevice(id: string): Promise<void> {
-  if (!supabase) return
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) return
   const { error } = await supabase
     .from('tv_devices')
-    .update({ last_seen: new Date().toISOString() } as never)
+    .update({ last_seen: new Date().toISOString() })
     .eq('id', id)
     .eq('workspace_id', ws)
-  if (error) console.warn('[TV] Heartbeat device failed:', error.message)
+  if (error) throw new TvServiceError(`Heartbeat device failed: ${error.message}`)
 }
 
 export async function updateDevice(id: string, values: Partial<TvDevice>): Promise<void> {
   if (!supabase) throw new Error('Supabase not initialized')
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_devices').update(values as never).eq('id', id).eq('workspace_id', ws)
+  const { error } = await supabase.from('tv_devices').update(values).eq('id', id).eq('workspace_id', ws)
   if (error) throw error
 }
 
@@ -564,11 +587,12 @@ export async function deleteDevice(id: string): Promise<void> {
 /* ── Music Requests (sugestões de música) ── */
 
 export async function fetchMusicRequests(): Promise<TvMusicRequest[]> {
-  if (!supabase) return []
-  const { data } = await supabase
+  if (!supabase) throw new TvServiceError('Supabase not initialized')
+  const { data, error } = await supabase
     .from('tv_music_requests')
     .select('*')
     .order('created_at', { ascending: false })
+  if (error) throw error
   return scoped((data as TvMusicRequest[]) || [])
 }
 
@@ -586,7 +610,7 @@ export async function createMusicRequest(values: {
     ...values,
     status: 'pending',
     workspace_id: ws,
-  } as never)
+  })
   if (error) throw error
 }
 
@@ -604,7 +628,7 @@ export async function reviewMusicRequest(
       status,
       reviewed_by: reviewedBy,
       reviewed_at: new Date().toISOString(),
-    } as never)
+    })
     .eq('id', id)
     .eq('workspace_id', ws)
   if (error) throw error

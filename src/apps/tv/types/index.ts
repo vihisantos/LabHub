@@ -121,6 +121,7 @@ export interface TvMusicRequest {
   requested_by: string
   requested_by_name: string | null
   status: MusicRequestStatus
+  source?: "admin" | "qr"
   reviewed_by: string | null
   reviewed_at: string | null
   workspace_id?: string | null

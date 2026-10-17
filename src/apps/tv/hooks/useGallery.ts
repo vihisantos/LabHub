@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
+import { isKiosk, kioskError } from '../utils/kiosk'
 import {
   fetchActiveGalleries,
   fetchGalleries,
@@ -56,7 +57,11 @@ export function useActiveGalleries() {
 export function useGalleries() {
   const [galleries, setGalleries] = useState<TvGallery[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async () => {
     try {
@@ -120,7 +125,11 @@ export function useGalleries() {
 /* ── Photos hook: managed inside GalleryManager ── */
 export function useGalleryPhotos(galleryId: string | null) {
   const [photos, setPhotos] = useState<TvGalleryPhoto[]>([])
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async () => {
     if (!galleryId) { setPhotos([]); return }

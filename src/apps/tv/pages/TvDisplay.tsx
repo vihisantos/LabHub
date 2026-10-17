@@ -22,6 +22,8 @@ import { WeatherSlide } from '../components/WeatherSlide'
 import { ScreenSaver } from '../components/ScreenSaver'
 import { SeasonalEffects } from '../components/SeasonalEffects'
 import { useYouTubeLive } from '../hooks/useYouTubeLive'
+import { isKiosk } from '../utils/kiosk'
+import { TvRequestQr } from '../components/TvRequestQr'
 
 type Phase =
   | { type: 'video' }
@@ -41,6 +43,25 @@ export function TvDisplay({ deviceName, deviceId }: { deviceName?: string; devic
 
   const [hasLoaded, setHasLoaded] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [failedGalleries, setFailedGalleries] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    if (!isKiosk()) return
+    let offlineSince: number | null = null
+    const onOffline = () => { offlineSince = Date.now(); console.warn('[TV kiosk] offline') }
+    const onOnline = () => {
+      if (offlineSince !== null) {
+        console.info(`[TV kiosk] reconnect after ${Math.round((Date.now() - offlineSince) / 1000)}s`)
+        offlineSince = null
+      }
+    }
+    window.addEventListener('offline', onOffline)
+    window.addEventListener('online', onOnline)
+    return () => {
+      window.removeEventListener('offline', onOffline)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [])
 
   /* ── Phase sequence: countdown / welcome → video → gallery[0] → events → weather ... ── */
   const phaseSequence = useMemo<Phase[]>(() => {
@@ -65,7 +86,7 @@ export function TvDisplay({ deviceName, deviceId }: { deviceName?: string; devic
 
     // 3. Main rotation
     seq.push({ type: 'video' })
-    for (const g of activeGalleries) {
+    for (const g of activeGalleries.filter(g => !failedGalleries.has(g.id))) {
       seq.push({ type: 'gallery', galleryId: g.id })
       seq.push({ type: 'events' })
     }
@@ -73,7 +94,7 @@ export function TvDisplay({ deviceName, deviceId }: { deviceName?: string; devic
     seq.push({ type: 'events' })
 
     return seq.length > 0 ? seq : [{ type: 'video' }]
-  }, [activeGalleries, events])
+  }, [activeGalleries, events, failedGalleries])
 
   const [phaseIdx, setPhaseIdx] = useState(0)
   const currentPhase = phaseSequence[phaseIdx] ?? { type: 'video' }
@@ -306,7 +327,7 @@ export function TvDisplay({ deviceName, deviceId }: { deviceName?: string; devic
             borderRadius: '1rem', overflow: 'hidden',
             boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
           }}>
-            <PhotoSlideshow photos={currentGalleryPhotos} title={currentGallery.title} />
+            <PhotoSlideshow photos={currentGalleryPhotos} title={currentGallery.title} onAllFailed={() => setFailedGalleries(prev => { const next = new Set(prev); next.add((currentPhase as { galleryId: string }).galleryId); return next })} />
           </div>
         </div>
       )}
@@ -486,6 +507,7 @@ export function TvDisplay({ deviceName, deviceId }: { deviceName?: string; devic
 
       {/* Live YouTube Indicator */}
       <TvLiveBadge />
+      <TvRequestQr />
 
       {/* Empty state → screensaver */}
       {hasLoaded && !hasContent && <ScreenSaver />}
