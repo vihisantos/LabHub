@@ -58,6 +58,15 @@ BASE_URL=http://localhost:5173 node scripts/browser-verify/chamados-espera-indef
 
 **Importante:** o backend Flask precisa estar em execução, porque o frontend busca os chamados na API.
 
+> **Sem ambiente local?** A execução E2E real também pode ser disparada sob demanda
+> no GitHub Actions: workflow **"E2E Browser (manual)"** (`workflow_dispatch`,
+> `.github/workflows/e2e-manual.yml`). Ele não é check obrigatório de PR — a
+> aprovação continua dependendo apenas dos checks determinísticos (lint, testes,
+> build, API Python e CodeQL). A escrita (seed) acontece **somente no modo
+> local** do workflow e **somente no Supabase de demonstração autorizado**
+> (allowlist em código + preflight fail-closed, environment `e2e-demo`); o modo
+> remoto (`base_url` de um preview) **não faz seed nem escreve dados**.
+
 ### Usuário de demonstração
 
 Os scripts internos autenticam com um usuário de demonstração com acesso ao
