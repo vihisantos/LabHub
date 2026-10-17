@@ -161,7 +161,7 @@ class TestProbeRestReadonly:
             captured["headers"] = dict(request.headers)
             return FakeResponse()
 
-        monkeypatch.setattr(vdt.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(vdt._OPENER, "open", fake_urlopen)
         ok, why = vdt.probe_rest_readonly("https://x.supabase.co", "service-key-mock")
         assert ok is True
         assert "limit=1" in captured["url"]  # somente leitura
@@ -172,7 +172,7 @@ class TestProbeRestReadonly:
         def fake_urlopen(request, timeout=0):
             raise urllib.error.HTTPError("https://x.supabase.co/rest/v1/...", 401, "Unauthorized", {}, None)
 
-        monkeypatch.setattr(vdt.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(vdt._OPENER, "open", fake_urlopen)
         ok, why = vdt.probe_rest_readonly("https://x.supabase.co", "service-key-mock")
         assert ok is False
         assert "service-key-mock" not in why
@@ -375,3 +375,101 @@ class TestSeedGuard:
         assert "INATIVO" in out
         # Uso local sem allowlist não pode vazar erro nem escrever nada aqui.
         assert "ERROR" not in out
+
+
+# ── Mitigações de SSRF (redirects bloqueados + scripts same-origin) ──────────
+
+
+class _RedirectOpener:
+    """Opener que responde 302 sem seguir — simula o handler _NoRedirect."""
+
+    def __init__(self, location="http://169.254.169.254/latest/meta-data/"):
+        self.location = location
+
+    def open(self, request, timeout=0):
+        raise urllib.error.HTTPError(request.full_url, 302, "Found", {"Location": self.location}, None)
+
+
+class _RecordingFetcher:
+    """Fetcher falso que registra URLs acessadas e simula páginas fixas."""
+
+    def __init__(self, pages):
+        self.pages = pages
+        self.fetched = []
+
+    def __call__(self, url, timeout=0):
+        self.fetched.append(url)
+        if url not in self.pages:
+            raise urllib.error.URLError("404")
+        return self.pages[url]
+
+
+class TestSSRFGuards:
+    def test_probe_rest_readonly_nao_segue_redirect(self, monkeypatch):
+        monkeypatch.setattr(vdt, "_OPENER", _RedirectOpener())
+        ok, why = vdt.probe_rest_readonly("https://x.supabase.co", "service-key-mock")
+        assert ok is False
+        assert "302" in why
+        assert "service-key-mock" not in why
+
+    def test_base_url_com_redirect_aborta_sem_acessar_destino(self):
+        def fetch(url, timeout=0):
+            raise urllib.error.HTTPError(
+                url, 302, "Found", {"Location": "http://169.254.169.254/latest/meta-data/"}, None
+            )
+
+        result = vdt.validate_remote_app(
+            {
+                "base_url": "https://preview-demo.vercel.app",
+                "demo_user": "demo",
+                "demo_pass": "fake-pass",
+                "allowed_refs": ALLOWED,
+            },
+            fetcher=fetch,
+        )
+        assert result.ok is False
+        assert "inacessível" in result.reason
+
+    def test_scripts_fora_da_origem_do_app_nunca_sao_buscados(self):
+        html = (
+            "<html>"
+            '<script src="/assets/app-demo.js"></script>'
+            '<script src="https://evil.example.com/inject.js"></script>'
+            '<script src="//evil.example.com/inject2.js"></script>'
+            '<script src="data:text/javascript,var%20x=1"></script>'
+            "</html>"
+        )
+        fetcher = _RecordingFetcher(
+            {
+                "https://preview-demo.vercel.app": html,
+                "https://preview-demo.vercel.app/assets/app-demo.js": f'var u="https://{STAGING}.supabase.co"',
+            }
+        )
+        refs = vdt.collect_remote_refs("https://preview-demo.vercel.app", fetcher)
+        assert refs == (STAGING,)
+        # Só o HTML de entrada + o script same-origin foram acessados.
+        assert fetcher.fetched == [
+            "https://preview-demo.vercel.app",
+            "https://preview-demo.vercel.app/assets/app-demo.js",
+        ]
+
+    def test_app_que_sofre_redirect_no_script_nao_vaza_refs_de_terceiros(self):
+        # Script same-origin que responde 302 é descartado (per-script continue);
+        # a validação segue fail-closed: só refs legítimos são considerados.
+        def fetch(url, timeout=0):
+            if url.endswith("app-demo.js"):
+                raise urllib.error.HTTPError(url, 302, "Found", {"Location": "https://evil.example.com/"}, None)
+            return '<html><script src="/assets/app-demo.js"></script></html>'
+
+        result = vdt.validate_remote_app(
+            {
+                "base_url": "https://preview-demo.vercel.app",
+                "demo_user": "demo",
+                "demo_pass": "fake-pass",
+                "allowed_refs": ALLOWED,
+            },
+            fetcher=fetch,
+        )
+        # Nenhum ref obtido → abort fail-closed (nunca segue o redirect).
+        assert result.ok is False
+        assert "nenhum ref Supabase" in result.reason

@@ -38,7 +38,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 # Hosts por projeto: `<ref>.supabase.co`. Um único label antes do domínio.
 _SUPABASE_HOST_RE = re.compile(r"^([a-z0-9][a-z0-9-]{1,38}[a-z0-9])\.supabase\.co$")
@@ -47,6 +47,22 @@ _SUPABASE_HOST_RE = re.compile(r"^([a-z0-9][a-z0-9-]{1,38}[a-z0-9])\.supabase\.c
 _MAX_BODY_BYTES = 2 * 1024 * 1024
 _MAX_SCRIPTS = 20
 _FETCH_TIMEOUT = 15.0
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Mitigação de SSRF: redirects NUNCA são seguidos automaticamente.
+
+    `urlopen` segue redirects por padrão — uma resposta 3xx poderia levar a
+    sonda ou a busca de bundles para endpoints internos/metadata. Com este
+    handler, qualquer 3xx vira `HTTPError` (fail-closed) e o destino do
+    redirect é descartado sem ser acessado.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # urllib.request levanta HTTPError(código 3xx)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 @dataclass(frozen=True)
@@ -118,12 +134,12 @@ def probe_rest_readonly(base_url: str, service_key: str, timeout: float = _FETCH
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _OPENER.open(request, timeout=timeout) as response:
             if response.status == 200:
                 return True, ""
             return False, f"HTTP {response.status} inesperado na sonda REST"
     except urllib.error.HTTPError as exc:
-        return False, f"REST respondeu HTTP {exc.code} (chave não pertence a este projeto ou tabela ausente)"
+        return False, f"REST respondeu HTTP {exc.code} (redirects não são seguidos; chave não pertence a este projeto ou tabela ausente)"
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return False, f"falha de rede na sonda REST ({type(exc).__name__})"
 
@@ -219,7 +235,7 @@ def _is_public_https_url(value: str) -> tuple[bool, str]:
 
 def _fetch_text(url: str, timeout: float = _FETCH_TIMEOUT) -> str:
     request = urllib.request.Request(url, headers={"Accept": "text/html,application/javascript,*/*"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with _OPENER.open(request, timeout=timeout) as response:
         if response.status != 200:
             raise urllib.error.HTTPError(url, response.status, "unexpected status", response.headers, None)
         return response.read(_MAX_BODY_BYTES).decode("utf-8", errors="replace")
@@ -237,18 +253,21 @@ def extract_supabase_refs(text: str) -> set[str]:
 def collect_remote_refs(base_url: str, fetcher: Callable[..., str] = _fetch_text) -> tuple[str, ...]:
     """Refs Supabase expostos pelo app: HTML de entrada + bundles de script.
 
-    Levanta exceção em falha de rede/HTTP — quem chama decide o abort.
+    SSRF: apenas scripts da MESMA ORIGEM do app (https + mesmo host:porta) são
+    buscados — `src` absolutos/protocol-relative de terceiros são descartados
+    sem acesso. Levanta exceção em falha de rede/HTTP — quem chama decide o
+    abort.
     """
     html = fetcher(base_url)
     refs = extract_supabase_refs(html)
 
-    base = base_url.rstrip("/")
+    base_netloc = (urlparse(base_url).netloc or "").lower()
     scripts: list[str] = []
     for src in _SCRIPT_SRC_RE.findall(html):
-        if src.startswith("https://") or src.startswith("http://"):
-            scripts.append(src)
-        elif src.startswith("/"):
-            scripts.append(f"{base}{src}")
+        candidate = urljoin(base_url, src)
+        parsed = urlparse(candidate)
+        if parsed.scheme == "https" and (parsed.netloc or "").lower() == base_netloc:
+            scripts.append(candidate)
     for script_url in scripts[:_MAX_SCRIPTS]:
         try:
             refs |= extract_supabase_refs(fetcher(script_url))
