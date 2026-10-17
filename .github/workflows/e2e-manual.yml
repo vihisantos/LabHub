@@ -1,22 +1,45 @@
 # Verificação E2E real em navegador — EXECUÇÃO MANUAL (workflow_dispatch).
 #
-# Este workflow NÃO roda em pull_request/push e NÃO é um check obrigatório:
-# ele nunca deve ser adicionado à branch protection. Ele existe para permitir
-# que a validação E2E real — que depende de aplicação em execução, backend
-# Flask, seed e credenciais de demonstração — seja disparada sob demanda,
-# sem exigir ambiente local. A aprovação/merge das PRs continua dependendo
-# apenas dos checks determinísticos (Lint, Test, Migration runner tests,
-# Build, Python API tests e CodeQL).
+# ⛔ NÃO é check obrigatório: não roda em pull_request/push e NUNCA deve ser
+#    adicionado à branch protection. Aprovação/merge das PRs continuam
+#    dependendo apenas dos checks determinísticos (Lint, Test, Migration
+#    runner tests, Build, Python API tests e CodeQL).
 #
-# Pré-requisitos (secrets do repositório):
-#   - VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — frontend (já usados pelo CI)
-#   - SUPABASE_URL / SUPABASE_SERVICE_KEY — projeto demo/staging usado pelo
-#     seed e pela API Flask (service role; NUNCA versionado)
-#   - DEMO_USER / DEMO_PASS — usuário demo com membership ativa no workspace
+# ── Segurança de escrita em banco ────────────────────────────────────────────
+# ⛔ Escrita SÓ no modo LOCAL e SÓ no Supabase de demonstração autorizado:
+#   1. Secrets EXCLUSIVOS do environment `e2e-demo` — este workflow NÃO
+#      referencia nenhum secret de nível de repositório (ex.: SUPABASE_URL de
+#      produção). Sem fallback, sem outro nome de secret.
+#   2. Allowlist de refs AUTORIZADOS fixada NESTE arquivo (abaixo). Mudar a
+#      lista exige PR revisada — não há configuração em runtime.
+#   3. Preflight fail-closed (`scripts/verify_demo_target.py`), ANTES de
+#      qualquer instalação/escrita: interpreta a URL real (`urlparse`), extrai
+#      o ref do host, compara com a allowlist, exige frontend e seed no MESMO
+#      projeto demo e prova o par URL+chave com uma sonda REST somente-leitura.
+#      Divergência → aborta com código != 0. Nada é escrito.
+#   4. `seed_chamados_demo.py` revalida o destino quando a allowlist está
+#      definida (defesa em profundidade) antes de tocar no banco.
+#
+# ── Modos (mutuamente exclusivos) ────────────────────────────────────────────
+#   LOCAL  (base_url vazio): seed + Flask + Vite + E2E. Escrita autorizada
+#           APENAS no projeto demo da allowlist, provado pelo preflight.
+#   REMOTE (base_url informado): `base_url` é apenas o endereço do app web
+#           (ex.: preview da Vercel) — NUNCA autorização de escrita. NÃO roda
+#           seed e NÃO altera dados. O preflight inspeciona o bundle público
+#           do app e só prossegue se TODOS os refs Supabase expostos
+#           pertencerem à allowlist demo; se nenhum ref for encontrado,
+#           aborta (fail-closed).
+#
+# ── Pré-requisitos (Settings → Environments → `e2e-demo` → secrets) ─────────
+#   E2E_DEMO_SUPABASE_URL           — https://<ref>.supabase.co do projeto DEMO
+#   E2E_DEMO_SUPABASE_SERVICE_KEY   — service role DO PROJETO DEMO
+#   E2E_DEMO_VITE_SUPABASE_URL      — MESMO projeto demo (frontend)
+#   E2E_DEMO_VITE_SUPABASE_ANON_KEY — anon key do projeto demo
+#   E2E_DEMO_DEMO_USER / E2E_DEMO_DEMO_PASS — usuário demo com membership em
 #     `demo-chamados` (o seed NÃO cria o usuário; ver
 #     docs/guides/chamados-demo-environment.md)
-#
-# Pré-requisitos ausentes → falha rápida e EXPLÍCITA (nunca verde falso).
+#   Ausentes → falha explícita no preflight, antes de qualquer operação
+#   (nunca verde falso).
 
 name: E2E Browser (manual)
 
@@ -24,23 +47,27 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: 'URL base de um app já implantado (ex.: preview da Vercel). Vazio = sobe a stack local (Flask + Vite).'
+        description: 'MODO REMOTO: URL do app (ex.: preview da Vercel no Supabase demo) — SEM seed/escrita. VAZIO = modo local completo (com seed).'
         required: false
         default: ''
+
+# Refs AUTORIZADOS do ambiente de demonstração/staging (LabHub Staging —
+# ver .env.example). Somente estes projetos podem receber seed ou ser usados
+# pelo app sob teste. Alterar esta lista exige PR neste arquivo.
+env:
+  E2E_DEMO_ALLOWED_PROJECT_REFS: 'obskpmnphevpaexooldg'
+
+permissions:
+  contents: read
 
 jobs:
   browser-verify:
     name: E2E real (Em espera / Indeferimento)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-      DEMO_USER: ${{ secrets.DEMO_USER }}
-      DEMO_PASS: ${{ secrets.DEMO_PASS }}
-      BASE_URL: ${{ inputs.base_url }}
+    # Secrets exclusivos do environment demo — nenhum secret de repositório
+    # (produção) é referenciado em nenhum step deste workflow.
+    environment: e2e-demo
     steps:
       - uses: actions/checkout@v7
 
@@ -53,28 +80,54 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Validar pré-requisitos (falha explícita, sem verde falso)
+      # ── Pré-voo fail-closed: roda ANTES de qualquer instalação/escrita ──
+      # (script só com stdlib: não precisa de pip/npm para validar o destino)
+      - name: Preflight — provar destino do banco (fail-closed)
+        env:
+          E2E_DEMO_SUPABASE_URL: ${{ secrets.E2E_DEMO_SUPABASE_URL }}
+          E2E_DEMO_SUPABASE_SERVICE_KEY: ${{ secrets.E2E_DEMO_SUPABASE_SERVICE_KEY }}
+          E2E_DEMO_VITE_SUPABASE_URL: ${{ secrets.E2E_DEMO_VITE_SUPABASE_URL }}
+          E2E_DEMO_VITE_SUPABASE_ANON_KEY: ${{ secrets.E2E_DEMO_VITE_SUPABASE_ANON_KEY }}
+          E2E_DEMO_DEMO_USER: ${{ secrets.E2E_DEMO_DEMO_USER }}
+          E2E_DEMO_DEMO_PASS: ${{ secrets.E2E_DEMO_DEMO_PASS }}
+          E2E_DEMO_BASE_URL: ${{ inputs.base_url }}
         run: |
-          missing=0
-          for var in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY SUPABASE_URL SUPABASE_SERVICE_KEY DEMO_USER DEMO_PASS; do
-            if [ -z "${!var}" ]; then
-              echo "::error::Secret ausente: ${var} — configure em Settings → Secrets and variables → Actions."
-              missing=1
-            fi
-          done
-          exit $missing
+          if [ -n "$E2E_DEMO_SUPABASE_SERVICE_KEY" ]; then
+            echo "::add-mask::$E2E_DEMO_SUPABASE_SERVICE_KEY"
+          fi
+          MODE=local
+          if [ -n "$E2E_DEMO_BASE_URL" ]; then MODE=remote; fi
+          python scripts/verify_demo_target.py \
+            --mode "$MODE" \
+            --allowed-refs "$E2E_DEMO_ALLOWED_PROJECT_REFS" \
+            --base-url "$E2E_DEMO_BASE_URL"
 
-      - name: Instalar dependências
-        run: |
-          npm ci
-          pip install -r requirements.txt
+      - name: Instalar dependências Node
+        run: npm ci
 
-      - name: Seed do ambiente demo (idempotente)
+      # Navegador instalado de forma DETERMINÍSTICA — a execução nunca depende
+      # de o Chrome já existir "por acaso" na imagem do runner.
+      - name: Instalar Chrome explicitamente (determinístico)
+        run: npx playwright install --with-deps chrome
+
+      # ══ MODO LOCAL: escrita autorizada, destino já provado pelo preflight ══
+      - name: Instalar dependências Python (modo local)
+        if: ${{ inputs.base_url == '' }}
+        run: pip install -r requirements.txt
+
+      - name: Seed do ambiente demo (destino validado; aborta se divergir)
+        if: ${{ inputs.base_url == '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.E2E_DEMO_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.E2E_DEMO_SUPABASE_SERVICE_KEY }}
         run: python scripts/seed_chamados_demo.py
 
-      - name: Subir API Flask (porta 5000)
+      - name: Subir API Flask (modo local)
         if: ${{ inputs.base_url == '' }}
         working-directory: api
+        env:
+          SUPABASE_URL: ${{ secrets.E2E_DEMO_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.E2E_DEMO_SUPABASE_SERVICE_KEY }}
         run: |
           python app.py > /tmp/flask.log 2>&1 &
           for i in $(seq 1 30); do
@@ -86,8 +139,11 @@ jobs:
             sleep 1
           done
 
-      - name: Subir frontend Vite (porta 5173)
+      - name: Subir frontend Vite (modo local, Supabase demo)
         if: ${{ inputs.base_url == '' }}
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.E2E_DEMO_VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.E2E_DEMO_VITE_SUPABASE_ANON_KEY }}
         run: |
           npm run dev -- --host 127.0.0.1 --port 5173 --strictPort > /tmp/vite.log 2>&1 &
           for i in $(seq 1 60); do
@@ -98,7 +154,12 @@ jobs:
             sleep 1
           done
 
+      # ══ MODO REMOTO: sem seed, sem escrita; destino do app já provado ══
       - name: Executar E2E real (chamados-espera-indeferido)
+        env:
+          DEMO_USER: ${{ secrets.E2E_DEMO_DEMO_USER }}
+          DEMO_PASS: ${{ secrets.E2E_DEMO_DEMO_PASS }}
+          BASE_URL: ${{ inputs.base_url }}
         run: node scripts/browser-verify/chamados-espera-indeferido.mjs
 
       - name: Upload das evidências (screenshots)

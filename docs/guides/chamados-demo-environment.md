@@ -62,7 +62,10 @@ BASE_URL=http://localhost:5173 node scripts/browser-verify/chamados-espera-indef
 > no GitHub Actions: workflow **"E2E Browser (manual)"** (`workflow_dispatch`,
 > `.github/workflows/e2e-manual.yml`). Ele não é check obrigatório de PR — a
 > aprovação continua dependendo apenas dos checks determinísticos (lint, testes,
-> build, API Python e CodeQL).
+> build, API Python e CodeQL). A escrita (seed) acontece **somente no modo
+> local** do workflow e **somente no Supabase de demonstração autorizado**
+> (allowlist em código + preflight fail-closed, environment `e2e-demo`); o modo
+> remoto (`base_url` de um preview) **não faz seed nem escreve dados**.
 
 ### Usuário de demonstração
 

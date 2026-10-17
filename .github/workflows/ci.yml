@@ -56,6 +56,10 @@ jobs:
         working-directory: scripts
         run: |
           python -m pytest tests/test_migrations.py -q
+      - name: Run E2E demo target guard tests (mocks only)
+        working-directory: scripts
+        run: |
+          python -m pytest tests/test_verify_demo_target.py -q
       - name: Static validation of TV station migration (039)
         run: |
           python -m pytest api/tests/test_tv_station_migration.py -q
