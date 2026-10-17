@@ -1,0 +1,117 @@
+# Verificação E2E real em navegador — EXECUÇÃO MANUAL (workflow_dispatch).
+#
+# Este workflow NÃO roda em pull_request/push e NÃO é um check obrigatório:
+# ele nunca deve ser adicionado à branch protection. Ele existe para permitir
+# que a validação E2E real — que depende de aplicação em execução, backend
+# Flask, seed e credenciais de demonstração — seja disparada sob demanda,
+# sem exigir ambiente local. A aprovação/merge das PRs continua dependendo
+# apenas dos checks determinísticos (Lint, Test, Migration runner tests,
+# Build, Python API tests e CodeQL).
+#
+# Pré-requisitos (secrets do repositório):
+#   - VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — frontend (já usados pelo CI)
+#   - SUPABASE_URL / SUPABASE_SERVICE_KEY — projeto demo/staging usado pelo
+#     seed e pela API Flask (service role; NUNCA versionado)
+#   - DEMO_USER / DEMO_PASS — usuário demo com membership ativa no workspace
+#     `demo-chamados` (o seed NÃO cria o usuário; ver
+#     docs/guides/chamados-demo-environment.md)
+#
+# Pré-requisitos ausentes → falha rápida e EXPLÍCITA (nunca verde falso).
+
+name: E2E Browser (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'URL base de um app já implantado (ex.: preview da Vercel). Vazio = sobe a stack local (Flask + Vite).'
+        required: false
+        default: ''
+
+jobs:
+  browser-verify:
+    name: E2E real (Em espera / Indeferimento)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      DEMO_USER: ${{ secrets.DEMO_USER }}
+      DEMO_PASS: ${{ secrets.DEMO_PASS }}
+      BASE_URL: ${{ inputs.base_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Validar pré-requisitos (falha explícita, sem verde falso)
+        run: |
+          missing=0
+          for var in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY SUPABASE_URL SUPABASE_SERVICE_KEY DEMO_USER DEMO_PASS; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Secret ausente: ${var} — configure em Settings → Secrets and variables → Actions."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Instalar dependências
+        run: |
+          npm ci
+          pip install -r requirements.txt
+
+      - name: Seed do ambiente demo (idempotente)
+        run: python scripts/seed_chamados_demo.py
+
+      - name: Subir API Flask (porta 5000)
+        if: ${{ inputs.base_url == '' }}
+        working-directory: api
+        run: |
+          python app.py > /tmp/flask.log 2>&1 &
+          for i in $(seq 1 30); do
+            # Qualquer resposta HTTP serve: só interessa saber que a porta responde.
+            if curl -s -o /dev/null http://127.0.0.1:5000/; then
+              echo "Flask no ar."
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Subir frontend Vite (porta 5173)
+        if: ${{ inputs.base_url == '' }}
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 5173 --strictPort > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null http://127.0.0.1:5173/; then
+              echo "Vite no ar."
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Executar E2E real (chamados-espera-indeferido)
+        run: node scripts/browser-verify/chamados-espera-indeferido.mjs
+
+      - name: Upload das evidências (screenshots)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chamados-e2e-screenshots
+          path: docs/chamados-demo/screenshots/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Logs da stack local (diagnóstico em falha)
+        if: failure()
+        run: |
+          tail -n 50 /tmp/flask.log 2>/dev/null || echo "(sem log do Flask)"
+          tail -n 50 /tmp/vite.log 2>/dev/null || echo "(sem log do Vite)"

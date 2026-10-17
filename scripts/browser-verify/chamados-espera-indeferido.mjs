@@ -267,15 +267,107 @@ async function closeOverlays(page) {
   }
 }
 
-export async function navigateToRoute(page, route) {
+// ── Validação exata de rotas ────────────────────────────────────────────────
+
+/**
+ * Base usada apenas para interpretar rotas relativas (ex.: "/chamados?x=1").
+ * Nenhum dado é derivado do host — só o pathname da rota interessa.
+ */
+const ROUTE_BASE = 'http://labhub.invalid'
+
+/**
+ * Normaliza um pathname para comparação exata de rotas:
+ *   - remove a barra final (ex.: "/chamados/" === "/chamados");
+ *   - caminho vazio é tratado como raiz ("/").
+ * Query strings e fragmentos NÃO fazem parte do pathname e são ignorados.
+ * Prefixos, sufixos ou segmentos extras sempre diferem (comparação exata).
+ */
+export function normalizePathname(pathname) {
+  let path = String(pathname ?? '')
+  if (path.length > 1 && path.endsWith('/')) {
+    const stripped = path.replace(/\/+$/, '')
+    if (stripped) path = stripped
+  }
+  return path || '/'
+}
+
+/**
+ * Pathname (normalizado) de uma rota, que pode ser relativa e conter query
+ * string (ex.: "/chamados-publico/track?token=..."). A query NÃO é comparada
+ * aqui — cenários que dependam de parâmetros de query devem validá-los
+ * separadamente (ex.: via expectText no conteúdo da tela).
+ * Retorna `null` quando a rota é vazia ou não pode ser interpretada como URL.
+ */
+export function resolveRoutePathname(route) {
+  if (route == null || String(route).trim() === '') return null
+  try {
+    return normalizePathname(new URL(String(route), ROUTE_BASE).pathname)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Pathname (normalizado) da URL atual, que deve ser absoluta. Não usa base:
+ * URL vazia, inválida ou não interpretável retorna `null` — ou seja, falha de
+ * validação, nunca correspondência silenciosa.
+ */
+export function resolveCurrentPathname(url) {
+  try {
+    return normalizePathname(new URL(String(url)).pathname)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Navega para `route` via history.pushState e valida que o pathname atual é
+ * EXATAMENTE o esperado: `new URL(page.url()).pathname` comparado com o
+ * pathname da rota — sem aceitar prefixos, sufixos ou segmentos extras.
+ * Query strings e fragmentos não participam da comparação do pathname.
+ * `route` pode conter query string; parâmetros de query dos quais um cenário
+ * dependa devem ser validados separadamente (ex.: via expectText).
+ *
+ * Diferenças legítimas normalizadas: apenas a barra final ("/chamados/" e
+ * "/chamados" são a mesma rota).
+ *
+ * Falha (Error) com mensagem clara mostrando a rota esperada e a URL atual
+ * quando:
+ *   - a rota é vazia ou não pode ser interpretada como URL;
+ *   - a URL atual é inválida;
+ *   - o pathname atual difere do esperado.
+ * A mensagem passa por `redact()` — tokens em query, JWTs e segredos
+ * informados em `secrets` nunca aparecem no diagnóstico.
+ */
+export async function navigateToRoute(page, route, { secrets = [] } = {}) {
+  const expectedPath = resolveRoutePathname(route)
+  if (expectedPath === null) {
+    const before = page?.url ? page.url() : ''
+    throw new Error(
+      `Navegação falhou: rota esperada inválida "${redact(route, secrets) || '(vazia)'}". ` +
+        `URL atual: ${redact(before, secrets) || '(desconhecida)'}`,
+    )
+  }
+
   await page.evaluate((r) => {
     window.history.pushState({}, '', r)
     window.dispatchEvent(new PopStateEvent('popstate'))
   }, route)
   await page.waitForTimeout(2000)
+
   const current = page.url ? page.url() : ''
-  if (!current.includes(route)) {
-    throw new Error(`Navegação para ${route} não corresponde à URL atual: ${current}`)
+  const currentPath = resolveCurrentPathname(current)
+  if (currentPath === null) {
+    throw new Error(
+      `Navegação para ${redact(route, secrets)} falhou: URL atual inválida ` +
+        `"${redact(current, secrets) || '(desconhecida)'}" (esperado pathname "${expectedPath}")`,
+    )
+  }
+  if (currentPath !== expectedPath) {
+    throw new Error(
+      `Navegação para ${redact(route, secrets)} não corresponde à URL atual: ` +
+        `esperado pathname "${expectedPath}", atual "${currentPath}" (URL: ${redact(current, secrets)})`,
+    )
   }
 }
 
@@ -372,7 +464,7 @@ export function createRuntime({ browser, config, log = console }) {
   async function openInternal(route) {
     const { page } = await ensureInternal()
     await closeOverlays(page)
-    await navigateToRoute(page, route)
+    await navigateToRoute(page, route, { secrets })
     await page.waitForTimeout(2500)
     await dismissTour(page)
     return { page }

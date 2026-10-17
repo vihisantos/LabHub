@@ -9,7 +9,10 @@ import {
   expectText,
   main,
   navigateToRoute,
+  normalizePathname,
   redact,
+  resolveCurrentPathname,
+  resolveRoutePathname,
   secureScreenshot,
   runScenarioList,
   snippet,
@@ -492,6 +495,121 @@ describe('navegação robusta', () => {
       url() { return 'http://localhost:5173/chamados/tickets/abc?x=1#top' },
     }
     await expect(navigateToRoute(page, '/chamados/tickets/abc?x=1#top')).resolves.toBeUndefined()
+  })
+})
+
+describe('validação exata de rotas (navigateToRoute)', () => {
+  /** Página falsa mínima: navigateToRoute só usa evaluate, waitForTimeout e url. */
+  function makeNavPage(url) {
+    return {
+      async evaluate() {},
+      async waitForTimeout() {},
+      url() {
+        return url
+      },
+    }
+  }
+
+  it('aceita correspondência exata de pathname', async () => {
+    const page = makeNavPage('http://localhost:5173/chamados/tickets/abc')
+    await expect(navigateToRoute(page, '/chamados/tickets/abc')).resolves.toBeUndefined()
+  })
+
+  it('rejeita sufixo inesperado (substring não é correspondência)', async () => {
+    // Com a validação antiga (current.includes(route)), '/chamados' passaria aqui.
+    const page = makeNavPage('http://localhost:5173/chamados-admin')
+    await expect(navigateToRoute(page, '/chamados')).rejects.toThrow(/não corresponde/i)
+  })
+
+  it('rejeita segmento adicional no pathname', async () => {
+    const page = makeNavPage('http://localhost:5173/chamados/tickets/abc/anexos')
+    await expect(navigateToRoute(page, '/chamados/tickets/abc')).rejects.toThrow(
+      /esperado pathname "\/chamados\/tickets\/abc", atual "\/chamados\/tickets\/abc\/anexos"/,
+    )
+  })
+
+  it('trata barra final como equivalente (política definida)', async () => {
+    const comBarra = makeNavPage('http://localhost:5173/chamados/')
+    await expect(navigateToRoute(comBarra, '/chamados')).resolves.toBeUndefined()
+    const semBarra = makeNavPage('http://localhost:5173/chamados')
+    await expect(navigateToRoute(semBarra, '/chamados/')).resolves.toBeUndefined()
+  })
+
+  it('rota com query string válida compara apenas o pathname', async () => {
+    // Query NÃO participa da comparação do pathname; parâmetros dos quais o
+    // cenário dependa são validados separadamente (ex.: expectText).
+    const page = makeNavPage('http://localhost:5173/chamados-publico/track?token=qualquer-valor')
+    await expect(
+      navigateToRoute(page, '/chamados-publico/track?token=DEMO-ESPERA-2026'),
+    ).resolves.toBeUndefined()
+  })
+
+  it('mensagem de erro mostra rota esperada e URL atual sem vazar token', async () => {
+    const page = makeNavPage('http://localhost:5173/login')
+    const err = await navigateToRoute(page, '/chamados-publico/track?token=DEMO-ESPERA-2026', {
+      secrets: ['DEMO-ESPERA-2026'],
+    }).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toContain('/chamados-publico/track')
+    expect(err.message).toContain('http://localhost:5173/login')
+    expect(err.message).not.toContain('DEMO-ESPERA-2026')
+    expect(err.message).toContain('[redacted]')
+  })
+
+  it('redige token de query no diagnóstico mesmo sem segredos explícitos', async () => {
+    const page = makeNavPage('http://localhost:5173/login')
+    const err = await navigateToRoute(page, '/chamados-publico/track?token=SEGREDO-NAO-VERSIONADO').catch(
+      (e) => e,
+    )
+    expect(err.message).not.toContain('SEGREDO-NAO-VERSIONADO')
+    expect(err.message).toContain('token=[redacted]')
+  })
+
+  it('URL atual inválida falha com mensagem clara', async () => {
+    const page = makeNavPage('')
+    await expect(navigateToRoute(page, '/chamados')).rejects.toThrow(/URL atual inválida/)
+  })
+
+  it('rota vazia/inválida falha antes de navegar', async () => {
+    let evaluated = false
+    const page = {
+      async evaluate() {
+        evaluated = true
+      },
+      async waitForTimeout() {},
+      url() {
+        return 'http://localhost:5173/'
+      },
+    }
+    await expect(navigateToRoute(page, '   ')).rejects.toThrow(/rota esperada inválida/i)
+    expect(evaluated).toBe(false)
+  })
+})
+
+describe('helpers de pathname', () => {
+  it('normalizePathname remove barra final e trata vazio como raiz', () => {
+    expect(normalizePathname('/chamados/')).toBe('/chamados')
+    expect(normalizePathname('/chamados')).toBe('/chamados')
+    expect(normalizePathname('/chamados/tickets/abc/')).toBe('/chamados/tickets/abc')
+    expect(normalizePathname('/')).toBe('/')
+    expect(normalizePathname('')).toBe('/')
+  })
+
+  it('resolveRoutePathname extrai pathname e ignora query/fragmento', () => {
+    expect(resolveRoutePathname('/chamados-publico/track?token=abc')).toBe('/chamados-publico/track')
+    expect(resolveRoutePathname('/chamados?x=1#top')).toBe('/chamados')
+  })
+
+  it('resolveRoutePathname retorna null para rota vazia', () => {
+    expect(resolveRoutePathname('')).toBeNull()
+    expect(resolveRoutePathname('   ')).toBeNull()
+    expect(resolveRoutePathname(null)).toBeNull()
+  })
+
+  it('resolveCurrentPathname retorna null para URL inválida', () => {
+    expect(resolveCurrentPathname('')).toBeNull()
+    expect(resolveCurrentPathname('não-é-url')).toBeNull()
+    expect(resolveCurrentPathname('http://localhost:5173/chamados/')).toBe('/chamados')
   })
 })
 
