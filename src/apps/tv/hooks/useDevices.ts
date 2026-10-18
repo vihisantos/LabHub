@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchDevices, updateDevice, deleteDevice } from '../services/supabase'
 import { useToast } from '../../../lib/ToastContext'
+import { isKiosk, kioskError } from '../utils/kiosk'
 import type { TvDevice } from '../types'
 
 export function useDevices() {
   const [devices, setDevices] = useState<TvDevice[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async (silent?: boolean) => {
     try {

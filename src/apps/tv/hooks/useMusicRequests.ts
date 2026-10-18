@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
+import { isKiosk, kioskError } from '../utils/kiosk'
 import {
   fetchMusicRequests,
   createMusicRequest,
@@ -24,7 +25,11 @@ export interface MusicRequestInput {
 export function useMusicRequests() {
   const [requests, setRequests] = useState<TvMusicRequest[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async (silent?: boolean) => {
     try {
