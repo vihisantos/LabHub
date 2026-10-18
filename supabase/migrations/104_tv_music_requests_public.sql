@@ -81,22 +81,36 @@ DECLARE
   v_groups integer;
   v_sample text;
 BEGIN
-  SELECT count(*),
+  -- Contagem TOTAL de grupos duplicados (sem LIMIT) + amostra de até 20 para exibição.
+  -- O LIMIT 20 se aplica apenas à amostra (string_agg), nunca à contagem total.
+  -- A contagem total vem de total_groups (sempre uma linha); a amostra é anexada
+  -- via LEFT JOIN LATERAL para que, sem duplicatas, a consulta ainda retorne
+  -- v_groups = 0 e v_sample = NULL em vez de eliminar a linha externa.
+  WITH dup_groups AS (
+    SELECT r.workspace_id, r.youtube_video_id, count(*) AS n
+      FROM public.tv_music_requests r
+     WHERE r.status = 'pending'
+       AND r.workspace_id IS NOT NULL
+       AND r.youtube_video_id IS NOT NULL
+     GROUP BY r.workspace_id, r.youtube_video_id
+    HAVING count(*) > 1
+  ),
+  total_groups AS (
+    SELECT count(*) AS total FROM dup_groups
+  )
+  SELECT t.total,
          coalesce(string_agg(
            format('%s | vídeo=%s | pendentes=%s', d.workspace_id, d.youtube_video_id, d.n),
            E'\n' ORDER BY d.n DESC, d.workspace_id, d.youtube_video_id), '')
     INTO v_groups, v_sample
-    FROM (
-      SELECT r.workspace_id, r.youtube_video_id, count(*) AS n
-        FROM public.tv_music_requests r
-       WHERE r.status = 'pending'
-         AND r.workspace_id IS NOT NULL
-         AND r.youtube_video_id IS NOT NULL
-       GROUP BY r.workspace_id, r.youtube_video_id
-      HAVING count(*) > 1
-       ORDER BY count(*) DESC, r.workspace_id, r.youtube_video_id
+    FROM total_groups t
+    LEFT JOIN LATERAL (
+      SELECT workspace_id, youtube_video_id, n
+        FROM dup_groups
+       ORDER BY n DESC, workspace_id, youtube_video_id
        LIMIT 20
-    ) d;
+    ) d ON true
+   GROUP BY t.total;
 
   IF v_groups > 0 THEN
     RAISE EXCEPTION
