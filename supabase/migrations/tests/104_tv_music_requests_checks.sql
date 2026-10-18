@@ -1,0 +1,160 @@
+-- =============================================================================
+-- tests/104_tv_music_requests_checks.sql
+-- =============================================================================
+-- Asserções ESTRUTURAIS e COMPORTAMENTAIS da migration 104 (pedidos públicos
+-- via QR: colunas source/requester_name/ip_hash, CHECKs e índice único de
+-- deduplicação de pendentes).
+--
+-- How to run: paste into the Supabase SQL Editor (or psql) AFTER 104 is applied
+-- (o CI roda este arquivo em PostgreSQL efêmero, STEP 6 da suíte).
+-- Every check raises an exception on drift; a clean run ends with
+-- "OK: 104 checks passed".
+--
+-- Cobertura do índice tv_music_requests_pending_dedupe_idx
+-- (workspace_id, youtube_video_id) WHERE status = 'pending':
+--   C1 unidades diferentes, mesmo vídeo      => sem colisão
+--   C2 mesma unidade, vídeos diferentes      => sem colisão
+--   C3 mesmo ws+vídeo, status diferente      => sem colisão (predicado)
+--   C4 vídeo NULL, dois pendentes            => sem colisão (NULLS DISTINCT)
+--   C5 mesmo ws+vídeo, dois pendentes        => 23505 (garantia anti-corrida)
+-- =============================================================================
+
+DO $$
+DECLARE
+  v_ws_a     uuid;
+  v_ws_b     uuid;
+  v_uid      uuid;
+  v_uniq     boolean;
+  v_partial  boolean;
+  v_checks   integer;
+  v_notnull  boolean;
+  v_default  text;
+  v_count    integer;
+BEGIN
+
+-- ── Fixture isolada (prefixo exclusivo; banco efêmero é descartável) ────────
+INSERT INTO auth.users (id, instance_id, aud, role, email, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, is_sso_user,
+                        is_anonymous, created_at, updated_at)
+VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000000',
+        'authenticated', 'authenticated', '104-checks@labhub.test', now(),
+        '{"provider":"email"}'::jsonb, '{}'::jsonb, false, false, now(), now())
+RETURNING id INTO v_uid;
+
+INSERT INTO public.profiles (id, email, name)
+VALUES (v_uid, '104-checks@labhub.test', '104 Checks')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.workspaces (slug, name)
+VALUES ('labhub_104_test_a_' || gen_random_uuid()::text, '104 WS A')
+RETURNING id INTO v_ws_a;
+INSERT INTO public.workspaces (slug, name)
+VALUES ('labhub_104_test_b_' || gen_random_uuid()::text, '104 WS B')
+RETURNING id INTO v_ws_b;
+
+-- ── 1. Índice único PARCIAL existe (UNIQUE + predicado status='pending') ────
+SELECT i.indisunique, (i.indpred IS NOT NULL)
+  INTO v_uniq, v_partial
+  FROM pg_index i
+  JOIN pg_class c ON c.oid = i.indexrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public'
+   AND c.relname = 'tv_music_requests_pending_dedupe_idx';
+
+IF v_uniq IS NULL THEN
+  RAISE EXCEPTION 'FAIL: índice tv_music_requests_pending_dedupe_idx ausente';
+END IF;
+IF NOT v_uniq OR NOT v_partial THEN
+  RAISE EXCEPTION 'FAIL: índice dedupe deveria ser UNIQUE e parcial (WHERE status=''pending''); indisunique=%, parcial=%', v_uniq, v_partial;
+END IF;
+
+-- ── 2. Colunas: source NOT NULL default 'admin'; requested_by nullable ──────
+SELECT attnotnull INTO v_notnull
+  FROM pg_attribute
+ WHERE attrelid = 'public.tv_music_requests'::regclass AND attname = 'source';
+IF v_notnull IS DISTINCT FROM true THEN
+  RAISE EXCEPTION 'FAIL: source deveria ser NOT NULL (attnotnull=%)', v_notnull;
+END IF;
+
+SELECT column_default INTO v_default
+  FROM information_schema.columns
+ WHERE table_schema = 'public' AND table_name = 'tv_music_requests'
+   AND column_name = 'source';
+IF v_default IS NULL OR v_default NOT LIKE '%admin%' THEN
+  RAISE EXCEPTION 'FAIL: default de source deveria ser ''admin''; encontrado %', v_default;
+END IF;
+
+SELECT a.attnotnull INTO v_notnull
+  FROM pg_attribute a
+ WHERE a.attrelid = 'public.tv_music_requests'::regclass AND a.attname = 'requested_by';
+IF v_notnull IS DISTINCT FROM false THEN
+  RAISE EXCEPTION 'FAIL: requested_by deveria ser nullable (pedido anônimo via QR)';
+END IF;
+
+-- ── 3. Os 3 CHECKs existem ──────────────────────────────────────────────────
+SELECT count(*) INTO v_checks
+  FROM pg_constraint
+ WHERE conrelid = 'public.tv_music_requests'::regclass
+   AND conname IN ('tv_music_requests_source_check',
+                   'tv_music_requests_requester_name_length',
+                   'tv_music_requests_anon_only_qr');
+IF v_checks <> 3 THEN
+  RAISE EXCEPTION 'FAIL: esperados 3 CHECK constraints em tv_music_requests; encontrados %', v_checks;
+END IF;
+
+-- ── C1. Unidades diferentes, mesmo vídeo: sem colisão ───────────────────────
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_a, 'https://youtu.be/vid104', 'vid104', v_uid, 'pending', 'qr');
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_b, 'https://youtu.be/vid104', 'vid104', v_uid, 'pending', 'qr');
+
+-- ── C2. Mesma unidade, vídeos diferentes: sem colisão ───────────────────────
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_a, 'https://youtu.be/vid104b', 'vid104b', v_uid, 'pending', 'qr');
+
+-- ── C3. Mesmo ws+vídeo, status diferente: sem colisão (predicado do índice) ─
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_a, 'https://youtu.be/vid104c', 'vid104c', v_uid, 'pending', 'qr');
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_a, 'https://youtu.be/vid104c', 'vid104c', v_uid, 'approved', 'qr');
+
+-- ── C4. Vídeo NULL nunca colide (NULLS DISTINCT) ────────────────────────────
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_a, 'https://youtu.be/watch?v=semvideo', NULL, v_uid, 'pending', 'qr');
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_a, 'https://youtu.be/watch?v=semvideo', NULL, v_uid, 'pending', 'qr');
+
+-- ── C5. Mesmo ws+vídeo, dois pendentes: 23505 (garantia anti-corrida) ───────
+-- O PRIMEIRO insert fica fora da subtransação: ele deve PERMANECER — só o
+-- segundo (concorrente) é rejeitado pelo índice.
+INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                      requested_by, status, source)
+VALUES (v_ws_a, 'https://youtu.be/vid104d', 'vid104d', v_uid, 'pending', 'qr');
+BEGIN
+  INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
+                                        requested_by, status, source)
+  VALUES (v_ws_a, 'https://youtu.be/vid104d', 'vid104d', v_uid, 'pending', 'qr');
+  RAISE EXCEPTION 'FAIL (dedupe): segundo pendente do mesmo vídeo deveria violar o índice único (23505)';
+EXCEPTION
+  WHEN unique_violation THEN
+    RAISE NOTICE 'OK (dedupe): segundo pendente do mesmo vídeo violou o índice único (23505); o primeiro foi preservado';
+END;
+
+-- ── Confirmação contábil: 8 linhas da fixture (escopadas aos 2 workspaces) ──
+SELECT count(*) INTO v_count
+  FROM public.tv_music_requests
+ WHERE workspace_id IN (v_ws_a, v_ws_b);
+IF v_count <> 8 THEN
+  RAISE EXCEPTION 'FAIL: esperadas 8 linhas da fixture da 104; encontradas %', v_count;
+END IF;
+
+RAISE NOTICE 'OK: 104 checks passed';
+END;
+$$;
