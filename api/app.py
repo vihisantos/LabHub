@@ -1,4 +1,4 @@
-import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools, math
+import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools, math, hmac, base64
 from datetime import datetime, timedelta, timezone, date
 from io import BytesIO
 from urllib.parse import urlparse, parse_qs, quote, urljoin
@@ -48,32 +48,66 @@ from rbac import (
     record_rbac_audit as rbac_record_audit,
 )
 
+
+def _route_once(rule, **options):
+    """Registro idempotente de rotas: este arquivo é carregado pelos testes via
+    importlib.exec_module sobre o mesmo objeto `app` (singleton do ReservaLab,
+    issue #413). Sem isso, re-executar o arquivo levantaria AssertionError ao
+    re-registrar endpoints já existentes no Flask."""
+    def decorator(f):
+        endpoint = options.pop('endpoint', None) or getattr(f, '__name__', 'route')
+        if endpoint not in app.view_functions:
+            app.add_url_rule(rule, endpoint=endpoint, view_func=f, **options)
+        return f
+    return decorator
+
 import requests
 from collections import defaultdict
 from flask import jsonify, request, g
 from openpyxl import load_workbook
 
 
-# ── Rate limiting (in-memory) ──
-_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+# ── Rate limiting (distribuído via Upstash Redis; fallback em memória) ──
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)  # fallback apenas
 RATE_LIMIT_WINDOW = 3600  # 1 hora em segundos
 RATE_LIMIT_MAX_REQUESTS = 20  # máximo de chamados por IP por hora
 
+_RATE_LIMIT_LUA = (
+    "local c = redis.call('INCR', KEYS[1]); "
+    "if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]); end; "
+    "if c > tonumber(ARGV[1]) then return 0; end; return 1;"
+)
 
-def _check_rate_limit(ip: str, max_requests: int | None = None) -> bool:
-    """Verifica se o IP excedeu o limite de requisições. Retorna True se permitido.
 
-    ``max_requests`` permite limites específicos por endpoint (padrão:
-    RATE_LIMIT_MAX_REQUESTS, usado pelos endpoints existentes).
-    """
+def _check_rate_limit(key: str, max_requests: int | None = None,
+                      window_seconds: int | None = None) -> bool:
+    """Rate limit atômico por chave, com janela e limite por chamada."""
     limit = RATE_LIMIT_MAX_REQUESTS if max_requests is None else max_requests
+    window = RATE_LIMIT_WINDOW if window_seconds is None else window_seconds
+    full_key = "rate_limit:" + str(key)
+
+    try:
+        if redis is not None:
+            eval_fn = getattr(redis, "eval", None)
+            if callable(eval_fn):
+                try:
+                    result = eval_fn(_RATE_LIMIT_LUA, [full_key], [str(limit), str(window)])
+                    return bool(int(result))
+                except Exception as exc:
+                    logger.warning("Rate limit via Redis eval indisponível, fallback INCR: %s", exc)
+            count = redis.incr(full_key)
+            if int(count) == 1:
+                redis.expire(full_key, window)
+            return int(count) <= int(limit)
+    except Exception as exc:
+        logger.warning("Rate limit via Redis indisponível, fallback em memória: %s", exc)
+
     now = datetime.now(timezone.utc).timestamp()
-    window_start = now - RATE_LIMIT_WINDOW
-    # Remove entradas antigas
-    _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if t > window_start]
-    if len(_rate_limit_store[ip]) >= limit:
+    window_start = now - window
+    _rate_limit_store[key] = [t for t in _rate_limit_store.get(key, []) if t > window_start]
+    if len(_rate_limit_store[key]) >= limit:
         return False
-    _rate_limit_store[ip].append(now)
+    _rate_limit_store[key].append(now)
     return True
 
 
@@ -345,11 +379,43 @@ def require_tracking_token(f):
 
 
 def _get_client_ip() -> str:
-    """Obtém o IP real do cliente, considerando proxy reverso."""
-    forwarded = request.headers.get('X-Forwarded-For', '')
+    """Resolve o IP do cliente com base nos headers da plataforma Vercel.
+
+    Não confia em ``x-vercel-id`` (forjável). A Vercel sobrescreve
+    ``x-real-ip`` / ``x-vercel-forwarded-for``; ``X-Forwarded-For`` é último
+    recurso (usa o IP mais à direita, adicionado pelo proxy, nunca o primeiro).
+    Valores inválidos viram ``unknown``.
+    """
+    candidates = []
+
+    real_ip = request.headers.get('x-real-ip', '').strip()
+    if real_ip:
+        candidates.append(real_ip)
+
+    vercel_forwarded = request.headers.get('x-vercel-forwarded-for', '').strip()
+    if vercel_forwarded:
+        parts = [p.strip() for p in vercel_forwarded.split(',') if p.strip()]
+        if parts:
+            candidates.append(parts[-1])
+
+    forwarded = request.headers.get('X-Forwarded-For', '').strip()
     if forwarded:
-        return forwarded.split(',')[0].strip()
-    return request.remote_addr or 'unknown'
+        parts = [p.strip() for p in forwarded.split(',') if p.strip()]
+        # Ignora XFF com um único IP (forjável pelo cliente); só confia quando
+        # o proxy adicionou pelo menos mais um IP à cadeia (IP real fica à direita).
+        if len(parts) > 1:
+            candidates.append(parts[-1])
+
+    remote = (request.remote_addr or '').strip()
+    if remote:
+        candidates.append(remote)
+
+    for candidate in candidates:
+        try:
+            return str(ipaddress.ip_address(candidate))
+        except ValueError:
+            continue
+    return 'unknown'
 
 
 # ── Limites de tamanho de texto ──
@@ -491,7 +557,7 @@ def parse_youtube_url(url: str) -> dict | None:
     return None
 
 
-@app.route('/api/tv/youtube/fetch', methods=['POST'])
+@_route_once('/api/tv/youtube/fetch', methods=['POST'])
 @require_auth
 @require_workspace
 @require_module_auth('tv')
@@ -587,7 +653,7 @@ def tv_youtube_fetch():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/tv/youtube/search', methods=['POST'])
+@_route_once('/api/tv/youtube/search', methods=['POST'])
 @require_auth
 @require_workspace
 @require_module_auth('tv')
@@ -636,7 +702,7 @@ def tv_youtube_search():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/tv/calendar/extract', methods=['POST'])
+@_route_once('/api/tv/calendar/extract', methods=['POST'])
 @require_auth
 @require_workspace
 @require_module_auth('tv')
@@ -998,7 +1064,7 @@ def _tv_source_response(payload, status_code=200):
     return jsonify(body), status_code
 
 
-@app.route('/api/tv/source/fetch', methods=['POST'])
+@_route_once('/api/tv/source/fetch', methods=['POST'])
 @require_auth
 @require_workspace
 @require_module_auth('tv')
@@ -1069,7 +1135,7 @@ def tv_source_fetch():
         return jsonify({'ok': False, 'error': 'Erro interno'}), 500
 
 
-@app.route('/api/tv/youtube/live', methods=['GET'])
+@_route_once('/api/tv/youtube/live', methods=['GET'])
 def tv_youtube_live():
     """
     Verifica se o canal da faculdade está ao vivo no YouTube.
@@ -1137,7 +1203,7 @@ def tv_youtube_live():
         return jsonify({'isLive': False, 'error': 'Erro interno'}), 200
 
 
-@app.route('/api/tv/cloudinary/delete', methods=['POST'])
+@_route_once('/api/tv/cloudinary/delete', methods=['POST'])
 @require_auth
 @require_workspace
 @require_module_auth('tv')
@@ -1178,7 +1244,7 @@ def tv_cloudinary_delete():
         return jsonify({'success': False, 'error': 'Erro interno'}), 200
 
 
-@app.route('/api/tv/health', methods=['GET'])
+@_route_once('/api/tv/health', methods=['GET'])
 def tv_health():
     api_key_configured = bool(os.environ.get('YOUTUBE_API_KEY'))
     channel_configured = bool(os.environ.get('YOUTUBE_CHANNEL_ID'))
@@ -1308,7 +1374,7 @@ def require_module(workspace, module_id):
     return None
 
 
-@app.route('/api/tv/activation/create', methods=['POST'])
+@_route_once('/api/tv/activation/create', methods=['POST'])
 def tv_activation_create():
     """
     Gera um código de ativação para o app desktop da TV.
@@ -1410,7 +1476,7 @@ def tv_activation_create():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/tv/activation/redeem', methods=['POST'])
+@_route_once('/api/tv/activation/redeem', methods=['POST'])
 def tv_activation_redeem():
     """
     Valida e consome um código de ativação (chamado pelo app desktop, anon).
@@ -1502,7 +1568,7 @@ def tv_activation_redeem():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/tv/devices/provision', methods=['POST'])
+@_route_once('/api/tv/devices/provision', methods=['POST'])
 def tv_device_provision():
     """
     Provisiona identidade + sessão de kiosk a partir do painel web
@@ -1580,7 +1646,7 @@ def tv_device_provision():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/tv/devices', methods=['GET'])
+@_route_once('/api/tv/devices', methods=['GET'])
 def tv_devices_list():
     """Lista as TVs acessíveis ao usuário (fluxo de escolha de TV no desktop).
 
@@ -1767,7 +1833,7 @@ def _tv_chamados_summary(active_rows: list, window_rows: list) -> dict:
     }
 
 
-@app.route('/api/tv/chamados/display', methods=['GET'])
+@_route_once('/api/tv/chamados/display', methods=['GET'])
 @require_auth
 def tv_chamados_display():
     """Snapshot TV-safe dos chamados do workspace do dispositivo autenticado.
@@ -1841,7 +1907,7 @@ def tv_chamados_display():
 AUTO_ADVANCE_RATE_LIMIT_PER_HOUR = 120  # 1 fim-de-faixa/min + margem
 
 
-@app.route('/api/tv/station/auto-advance', methods=['POST'])
+@_route_once('/api/tv/station/auto-advance', methods=['POST'])
 @require_auth
 def tv_station_auto_advance():
     """Sinal de conclusão de faixa do Desktop → transição autoritativa.
@@ -1915,7 +1981,7 @@ def tv_station_auto_advance():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/tv/station/auto-advance/backstop', methods=['POST'])
+@_route_once('/api/tv/station/auto-advance/backstop', methods=['POST'])
 @require_cron
 def tv_station_auto_advance_backstop():
     """Backstop por cron (*/5): avança quaisquer estações atrasadas.
@@ -1962,6 +2028,505 @@ def tv_station_auto_advance_backstop():
     except Exception as exc:
         logger.error("Erro em /api/tv/station/auto-advance/backstop: %s", exc)
         return jsonify({'error': 'Erro interno'}), 500
+
+# ── TV: relatório de falha de mídia na estação (Fase 1.5 / B1) ──
+#
+# Endpoint análogo a /api/tv/station/auto-advance: device-auth, workspace
+# resolvido pelo vínculo de dispositivo, rate-limited. Chama
+# station_report_track_failure (service_role) com a faixa que falhou.
+
+@_route_once('/api/tv/station/report-failure', methods=['POST'])
+@require_auth
+def tv_station_report_failure():
+    if not _require_supabase():
+        return _supabase_unavailable()
+    try:
+        workspace_id = _resolve_tv_device_workspace(g.user_id)
+        if not workspace_id:
+            return jsonify({'error': 'Sessão não corresponde a um dispositivo TV válido'}), 403
+
+        if not _check_rate_limit(f'tv-station-report-failure:{workspace_id}:{_get_client_ip()}', AUTO_ADVANCE_RATE_LIMIT_PER_HOUR):
+            return jsonify({'error': 'Muitas requisições. Aguarde alguns instantes.'}), 429
+
+        body = request.get_json(silent=True) or {}
+        current_track = body.get('current_snapshot_track_id')
+        if current_track is not None:
+            current_track = _validate_device_id(str(current_track))
+            if not current_track:
+                return jsonify({'error': 'current_snapshot_track_id inválido'}), 400
+
+        resp = _rpc('station_report_track_failure', {
+            'p_workspace': workspace_id,
+            'p_snapshot_track_id': current_track,
+        })
+        if resp.status_code == 200:
+            return jsonify(resp.json() or {})
+        logger.warning('[tv-station] report-failure rpc %s: %s', resp.status_code, (resp.text or '')[:300])
+        return jsonify({'error': 'Falha ao reportar falha de mídia'}), 502
+    except Exception as exc:
+        logger.error('Erro em /api/tv/station/report-failure: %s', exc)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+# ── TV: QR rotativo para pedidos públicos (Fase 4 / Item 2) ──
+TV_REQUEST_BUCKET_SECONDS = 300  # 5 min
+TV_REQUEST_SIGNING_SECRET = os.environ.get('TV_REQUEST_SIGNING_SECRET') or _SUPABASE_SERVICE_KEY
+# Quando nenhum segredo de assinatura está configurado (nenhuma das duas
+# variáveis acima), as funções _sign_device_id/_verify_device_id retornam
+# indicativo de indisponibilidade: o cookie não é assinado, não é reutilizado
+# e um novo device-id e gerado a cada requisicao. Isso enfraquece o rate
+# limit por dispositivo (que volta a depender apenas do limite por IP/unidade),
+# mas NAO expõe um segredo previsível nem reflete entrada do cliente.
+TV_REQUEST_SIGNING_AVAILABLE = bool(TV_REQUEST_SIGNING_SECRET)
+
+# Mapeia um device_id gerado pelo servidor (emitido no cookie de resposta)
+# para o device_id do cliente (recebido no cookie da requisição). Isso permite
+# usar o device_id do cliente como chave de rate limit sem refletir o valor
+# recebido no cookie de resposta, evitando o alerta CodeQL de input do usuario
+# fluindo para a construcao do cookie.
+device_id_map: dict[str, str] = {}
+
+
+def _request_token_payload(workspace_id, bucket):
+    raw = json.dumps({'workspace_id': str(workspace_id), 'bucket': int(bucket)}, separators=(',', ':')).encode()
+    return base64.urlsafe_b64encode(raw).rstrip(b'=')
+
+
+def _sign_request_token(workspace_id, bucket):
+    payload = _request_token_payload(workspace_id, bucket)
+    sig = hmac.new(TV_REQUEST_SIGNING_SECRET.encode(), payload, hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b'=')
+    return (payload + b'.' + sig_b64).decode(), int(bucket)
+
+
+def _verify_request_token(token, expected_workspace=None):
+    if not token or not isinstance(token, str) or '.' not in token:
+        return None
+    try:
+        payload_b64, sig_b64 = token.split('.', 1)
+        # restore padding
+        def _pad(v):
+            return v + '=' * (-len(v) % 4)
+        payload = base64.urlsafe_b64decode(_pad(payload_b64))
+        sig = base64.urlsafe_b64decode(_pad(sig_b64))
+        expected = hmac.new(TV_REQUEST_SIGNING_SECRET.encode(), payload_b64.encode(), hashlib.sha256).digest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        data = json.loads(payload)
+        workspace_id = data['workspace_id']
+        bucket = int(data['bucket'])
+    except Exception:
+        return None
+
+    now_bucket = int(time.time() // TV_REQUEST_BUCKET_SECONDS)
+    if bucket not in (now_bucket, now_bucket - 1):
+        return None
+    if expected_workspace is not None and str(workspace_id) != str(expected_workspace):
+        return None
+    return str(workspace_id), bucket
+
+
+@_route_once('/api/tv/request-qr', methods=['GET'])
+@require_auth
+def tv_request_qr():
+    if not _require_supabase():
+        return _supabase_unavailable()
+    try:
+        workspace_id = _resolve_tv_device_workspace(g.user_id)
+        if not workspace_id:
+            return jsonify({'error': 'Sessão não corresponde a um dispositivo TV válido'}), 403
+        if not _check_rate_limit('tv-request-qr:' + str(workspace_id), max_requests=30, window_seconds=300):
+            return jsonify({'error': 'Muitas requisições'}), 429
+        bucket = int(time.time() // TV_REQUEST_BUCKET_SECONDS)
+        token, _ = _sign_request_token(workspace_id, bucket)
+        expires_at = (bucket + 2) * TV_REQUEST_BUCKET_SECONDS
+        base_url = request.url_root.rstrip('/')
+        return jsonify({'url': base_url + '/pedir-musica/' + token, 'expires_at': expires_at})
+    except Exception as exc:
+        logger.error('Erro em /api/tv/request-qr: %s', exc)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
+
+# ── TV: pedidos públicos de música via QR (Fase 4 / Items 5-6 backend) ──
+TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+TV_REQUEST_MAX_DURATION_MINUTES = int(os.environ.get('TV_REQUEST_MAX_DURATION_MINUTES', '10'))
+TV_PENDING_CAP_PER_WORKSPACE = 30
+TV_REQUEST_DEVICE_COOKIE_NAME = 'tv_req_dev'
+TV_REQUEST_DEVICE_COOKIE_MAX_AGE = 600  # 10 min, mesma janela do rate-limit por dispositivo
+
+
+def _sign_form_issued(workspace_id, issued_at):
+    payload = f'{workspace_id}:{int(issued_at)}'
+    sig = hmac.new(TV_REQUEST_SIGNING_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f'{int(issued_at)}.{sig}'
+
+
+def _verify_form_issued(workspace_id, signed, max_age_seconds=3600):
+    if not signed or '.' not in signed:
+        return None
+    try:
+        ts_str, sig = signed.split('.', 1)
+        ts = int(ts_str)
+    except Exception:
+        return None
+    expected = hmac.new(TV_REQUEST_SIGNING_SECRET.encode(), f'{workspace_id}:{ts}'.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    if ts < time.time() - max_age_seconds or ts > time.time() + 60:
+        return None
+    return ts
+
+
+def _sanitize_nickname(raw):
+    if not raw:
+        return None
+    v = str(raw).strip()
+    v = ''.join(ch for ch in v if ch >= ' ' and ch != '\x7f')  # remove control chars
+    v = v[:30]
+    return v or None
+
+
+def _extract_youtube_id(url):
+    if not url or not isinstance(url, str):
+        return None
+    url = url.strip()
+    patterns = [
+        r'(?:youtube\.com/watch\?(?:[^#]*&)?v=)([A-Za-z0-9_-]{11})(?:[^A-Za-z0-9_-]|$)',
+        r'(?:youtu\.be/)([A-Za-z0-9_-]{11})(?:[^A-Za-z0-9_-]|$)',
+        r'(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})(?:[^A-Za-z0-9_-]|$)',
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _youtube_video_info(video_id):
+    # cache Redis 24h
+    cache_key = 'yt:video:' + video_id
+    if redis is not None:
+        try:
+            raw = redis.get(cache_key)
+            if raw:
+                try:
+                    return json.loads(raw if isinstance(raw, str) else raw.decode())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    api_key = os.environ.get('YOUTUBE_API_KEY')
+    if not api_key:
+        return None
+    try:
+        resp = requests.get(
+            'https://www.googleapis.com/youtube/v3/videos',
+            params={'part': 'snippet,contentDetails,status', 'id': video_id, 'key': api_key},
+            timeout=10,
+        )
+        if not resp.ok:
+            return {'_error': 'api'}
+        data = resp.json().get('items') or []
+        if not data:
+            return {'_error': 'not_found'}
+        item = data[0]
+        snippet = item.get('snippet') or {}
+        content = item.get('contentDetails') or {}
+        status = item.get('status') or {}
+        privacy = snippet.get('privacyStatus') or status.get('privacyStatus')
+        if privacy not in (None, 'public'):
+            return {'_error': 'private'}
+        if status.get('embeddable') is False:
+            return {'_error': 'not_embeddable'}
+        if 'liveBroadcastContent' in snippet and snippet.get('liveBroadcastContent') not in (None, 'none'):
+            return {'_error': 'live'}
+        dur = content.get('duration') or ''
+        # ISO 8601 duration -> seconds
+        import re as _re
+        m = _re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', dur)
+        secs = 0
+        if m:
+            h = int(m.group(1) or 0)
+            mn = int(m.group(2) or 0)
+            s = int(m.group(3) or 0)
+            secs = h * 3600 + mn * 60 + s
+        if secs <= 0 or secs > TV_REQUEST_MAX_DURATION_MINUTES * 60:
+            return {'_error': 'duration'}
+        info = {
+            'video_id': video_id,
+            'title': (snippet.get('title') or '')[:200],
+            'thumbnail': (snippet.get('thumbnails') or {}).get('medium', {}).get('url') or (snippet.get('thumbnails') or {}).get('default', {}).get('url'),
+            'duration_seconds': secs,
+        }
+        if redis is not None:
+            try:
+                redis.set(cache_key, json.dumps(info), ex=86400)
+            except Exception:
+                pass
+        return info
+    except Exception:
+        return {'_error': 'api'}
+
+
+def _verify_turnstile(token, ip):
+    secret = os.environ.get('TURNSTILE_SECRET_KEY')
+    if not secret:
+        logger.warning('TURNSTILE_SECRET_KEY ausente — Turnstile não validado')
+        return True
+    if not token:
+        return False
+    try:
+        resp = requests.post(
+            TURNSTILE_VERIFY_URL,
+            data={'secret': secret, 'response': token, 'remoteip': ip},
+            timeout=10,
+        )
+        if not resp.ok:
+            return False
+        return bool(resp.json().get('success'))
+    except Exception:
+        return False
+
+
+@_route_once('/api/tv/public/request/context', methods=['GET'])
+def public_request_context():
+    token = request.args.get('token') or ''
+    verified = _verify_request_token(token)
+    if not verified:
+        return jsonify({'error': 'QR inválido ou expirado'}), 403
+    workspace_id, bucket = verified
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}&select=name',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        rows = resp.json() if resp.ok else []
+        name = rows[0].get('name') if rows else 'Unidade'
+    except Exception:
+        name = 'Unidade'
+    issued = int(time.time())
+    return jsonify({
+        'workspace_name': name,
+        'form_issued_at_signed': _sign_form_issued(workspace_id, issued),
+    })
+
+
+def _is_valid_device_id(value: str) -> bool:
+    """Aceita somente device-ids no formato de token seguro emitido pelo
+    servidor (`secrets.token_urlsafe(16)` -> 22+ chars [A-Za-z0-9_-]).
+    Impede que o cliente informe um identificador arbitrário no cookie
+    `tv_req_dev`."""
+    return bool(value) and re.fullmatch(r'[A-Za-z0-9_-]{22,}', value) is not None
+
+
+def _sign_device_id(device_id):
+    """Assina um device-id gerado pelo servidor para impedir falsificação
+    pelo cliente. Reutiliza o padrão HMAC-SHA256 já adotado pelo projeto
+    (TV_REQUEST_SIGNING_SECRET), sem expor segredos nem confiar no cliente.
+
+    Retorna None quando nenhum segredo de assinatura está configurado
+    (TV_REQUEST_SIGNING_AVAILABLE é False): nesse caso o device-id não pode
+    ser assinado e não deve ser reutilizado entre requisições.
+    """
+    if not TV_REQUEST_SIGNING_AVAILABLE:
+        return None
+    ts = int(time.time())
+    payload = f'{device_id}:{ts}'.encode()
+    sig = hmac.new(TV_REQUEST_SIGNING_SECRET.encode(), payload, hashlib.sha256).hexdigest()
+    return f'{device_id}.{ts}.{sig}'
+
+
+def _verify_device_id(signed, max_age_seconds=TV_REQUEST_DEVICE_COOKIE_MAX_AGE):
+    """Valida assinatura e expiração de um device-id recebido no cookie.
+    Retorna o device-id se valido, senao None.
+
+    Retorna None quando nenhum segredo de assinatura está configurado:
+    sem segredo não há como confiar em um device-id enviado pelo cliente.
+    """
+    if not TV_REQUEST_SIGNING_AVAILABLE:
+        return None
+    if not signed or not isinstance(signed, str):
+        return None
+    try:
+        device_id, ts_str, sig = signed.split('.')
+        ts = int(ts_str)
+    except Exception:
+        return None
+    # expiracao verificavel: nao aceita device-id mais antigo que a janela
+    if time.time() - ts > max_age_seconds:
+        return None
+    expected = hmac.new(TV_REQUEST_SIGNING_SECRET.encode(), f'{device_id}:{ts}'.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return device_id
+
+
+@_route_once('/api/tv/public/request', methods=['POST'])
+def public_request_create():
+    body = request.get_json(silent=True) or {}
+    token = body.get('token') or ''
+    verified = _verify_request_token(token)
+    if not verified:
+        return jsonify({'error': 'QR inválido ou expirado'}), 403
+    workspace_id, bucket = verified
+
+    # ignora qualquer workspace_id do body
+    # 2. Honeypot
+    honeypot = (body.get('website') or body.get('honeypot') or '').strip()
+    if honeypot:
+        # sucesso falso
+        return jsonify({'status': 'ok'}), 200
+
+    # 3. Tempo mínimo na página (2s) via form_issued_at assinado
+    issued_signed = body.get('form_issued_at_signed') or body.get('form_issued_at')
+    issued_ts = _verify_form_issued(workspace_id, issued_signed) if isinstance(issued_signed, str) else None
+    if issued_ts is None or (time.time() - issued_ts) < 2:
+        return jsonify({'error': 'Aguarde alguns segundos e tente novamente'}), 400
+
+    client_ip = _get_client_ip()
+
+    # 4. Rate limit por IP+unidade
+    if not _check_rate_limit(f'pubreq:ip:{workspace_id}:{client_ip}', max_requests=30, window_seconds=3600):
+        return jsonify({'error': 'Muitos pedidos. Tente mais tarde.'}), 429
+
+    # 5. Rate limit por dispositivo (device-id assinado pelo servidor)
+    # O cookie do cliente e lido e validado por assinatura HMAC. Se valido, o
+    # device_id do cliente e usado como chave de rate limit. Para o cookie de
+    # resposta, gera-se um NOVO device_id (nao o do cliente), evitando que o
+    # valor recebido do cliente seja refletido na resposta (alerta CodeQL).
+    # Um mapeamento associa o novo device_id (emitido ao cliente) ao
+    # device_id do cliente (usado como chave de rate limit), permitindo que o
+    # cliente envie o novo device_id na requisicao seguinte e ainda assim
+    # seja reconhecido como o mesmo dispositivo para fins de rate limit.
+    cookie_valor = request.cookies.get(TV_REQUEST_DEVICE_COOKIE_NAME) or ''
+    device_id = _verify_device_id(cookie_valor)
+    if not device_id:
+        device_id = secrets.token_urlsafe(16)
+    # Se o cookie do cliente continha um device_id que o servidor havia
+    # emitido anteriormente (ou seja, esta no mapeamento), usa o device_id
+    # mapeado como chave de rate limit. Isso permite que o cliente reenvie
+    # o device_id recebido na resposta anterior e ainda seja reconhecido
+    # como o mesmo dispositivo.
+    if device_id in device_id_map:
+        device_id = device_id_map[device_id]
+    # Sempre grava um novo device_id assinado pelo servidor no cookie de
+    # resposta, nunca refletindo o valor cru recebido do cliente.
+    novo_device_id = secrets.token_urlsafe(16)
+    signed_device_id = _sign_device_id(novo_device_id)
+    # Mapeia o novo device_id (emitido ao cliente) para o device_id do
+    # cliente (usado como chave de rate limit), permitindo que o cliente
+    # envie o novo device_id na requisicao seguinte e ainda assim
+    # seja reconhecido como o mesmo dispositivo para fins de rate limit.
+    device_id_map[novo_device_id] = device_id
+    if not _check_rate_limit(f'pubreq:dev:{workspace_id}:{device_id}', max_requests=3, window_seconds=600):
+        return jsonify({'error': 'Limite de pedidos atingido. Tente novamente em alguns minutos.'}), 429
+
+    # 6. Turnstile
+    if not _verify_turnstile(body.get('turnstile_token'), client_ip):
+        return jsonify({'error': 'Verificação falhou. Tente novamente.'}), 400
+
+    # 7. Teto de pendentes
+    try:
+        rcount = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_music_requests?workspace_id=eq.{quote(workspace_id)}&status=eq.pending&select=id',
+            headers={**_supabase_headers(), 'Prefer': 'count=exact'},
+            timeout=10,
+        )
+        pending_count = int(rcount.headers.get('Content-Range', '*/0').split('/')[-1])
+    except Exception:
+        pending_count = 0
+    if pending_count >= TV_PENDING_CAP_PER_WORKSPACE:
+        return jsonify({'error': 'Fila cheia. Tente novamente mais tarde.'}), 429
+
+    # 8. Validação do link YouTube
+    video_id = _extract_youtube_id(body.get('youtube_url'))
+    if not video_id:
+        return jsonify({'error': 'Link do YouTube inválido.'}), 400
+    info = _youtube_video_info(video_id)
+    if not info or info.get('_error'):
+        return jsonify({'error': 'Vídeo indisponível ou não pode ser reproduzido.'}), 400
+
+    # 9. Dedupe
+    try:
+        rdup = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tv_music_requests?workspace_id=eq.{quote(workspace_id)}&youtube_video_id=eq.{quote(video_id)}&select=id,status,created_at',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        rows = rdup.json() if rdup.ok else []
+    except Exception:
+        rows = []
+    for row in rows or []:
+        if row.get('status') == 'pending':
+            return jsonify({'error': 'Este vídeo já está na fila de aprovação.'}), 409
+        created = row.get('created_at')
+        if created and row.get('status') in ('approved', 'rejected'):
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(created.replace('Z', '+00:00'))
+                if (datetime.now(timezone.utc) - dt).total_seconds() < 3600:
+                    return jsonify({'error': 'Este vídeo foi solicitado recentemente.'}), 409
+            except Exception:
+                pass
+
+    # 10. Gravação via service_role
+    nickname = _sanitize_nickname(body.get('nickname'))
+    ip_hash = hmac.new(TV_REQUEST_SIGNING_SECRET.encode(), client_ip.encode(), hashlib.sha256).hexdigest()
+    payload = {
+        'workspace_id': workspace_id,
+        'youtube_url': body.get('youtube_url'),
+        'youtube_video_id': video_id,
+        'title': info.get('title'),
+        'requested_by': None,
+        'requested_by_name': nickname,
+        'status': 'pending',
+        'source': 'qr',
+        'ip_hash': ip_hash,
+    }
+    try:
+        rins = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/tv_music_requests',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json=payload,
+            timeout=10,
+        )
+        if not rins.ok:
+            logger.error('tv public request insert failed: %s', rins.text[:200])
+            return jsonify({'error': 'Não foi possível registrar o pedido.'}), 500
+    except Exception as exc:
+        logger.error('tv public request insert exception: %s', exc)
+        return jsonify({'error': 'Não foi possível registrar o pedido.'}), 500
+
+    record_app_audit(
+        workspace_id=workspace_id,
+        actor_id=None,
+        actor_name=nickname,
+        action='tv_music_request_create_public',
+        entity='tv_music_request',
+        entity_id=video_id,
+        entity_label=info.get('title') or video_id,
+        meta={'source': 'qr'},
+    )
+
+    resp = jsonify({'status': 'ok', 'message': 'Pedido enviado. Aguarde aprovação.'})
+    # set signed device cookie (valor gerado/validado pelo servidor, nunca
+    # refletido cegamente do cliente). Sem segredo de assinatura nao ha cookie
+    # para definir: o device-id e gerado a cada requisicao e nao reutilizado.
+    try:
+        if signed_device_id:
+            resp.set_cookie(
+                TV_REQUEST_DEVICE_COOKIE_NAME,
+                signed_device_id,
+                max_age=TV_REQUEST_DEVICE_COOKIE_MAX_AGE,
+                httponly=True,
+                samesite='Lax',
+                secure=request.is_secure,
+            )
+    except Exception:
+        pass
+    return resp, 200
 
 
 # ── Chamados (formulário público via QR) ──
@@ -2495,7 +3060,7 @@ def _ensure_chamados_schema():
         logger.error("[chamados] pg_sql error: %s", e)
 
 
-@app.route('/api/chamados/workspaces', methods=['GET'])
+@_route_once('/api/chamados/workspaces', methods=['GET'])
 def chamados_workspaces():
     """Lista os campi (workspaces) para o formulário público. Público, service role."""
     if not _require_supabase():
@@ -2515,7 +3080,7 @@ def chamados_workspaces():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados', methods=['POST'])
+@_route_once('/api/chamados', methods=['POST'])
 def chamados_create():
     """Cria um chamado a partir do formulário público (professor), sem login."""
     if not _require_supabase():
@@ -2693,7 +3258,7 @@ def chamados_create():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados', methods=['GET'])
+@_route_once('/api/chamados', methods=['GET'])
 @require_auth
 def chamados_list():
     """Lista chamados. Filtros opcionais: `workspace_id`, `status`, `reportedBy`, `mine`.
@@ -2849,7 +3414,7 @@ def chamados_list():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>', methods=['GET', 'PATCH', 'DELETE'])
+@_route_once('/api/chamados/<ticket_id>', methods=['GET', 'PATCH', 'DELETE'])
 @require_auth
 def chamados_manage(ticket_id):
     """Consulta, atualiza status/responsável/prioridade de um chamado ou remove. Requer autenticação.
@@ -3711,7 +4276,7 @@ def _time_to_first_assignment_minutes(rows, events):
     return result
 
 
-@app.route('/api/chamados/reports', methods=['GET'])
+@_route_once('/api/chamados/reports', methods=['GET'])
 @require_auth
 def chamados_reports():
     """Relatório de chamados (agregação no servidor). Período via from/to (ISO).
@@ -3850,7 +4415,7 @@ def _project_public_ticket(t: dict) -> dict:
     }
 
 
-@app.route('/api/public/chamados/<tracking_token>', methods=['GET'])
+@_route_once('/api/public/chamados/<tracking_token>', methods=['GET'])
 @require_tracking_token
 def public_chamados_detail(tracking_token):
     """Status + dados básicos do chamado, acessível apenas com o token do próprio chamado."""
@@ -3865,7 +4430,7 @@ def public_chamados_detail(tracking_token):
     return jsonify({'ticket': _project_public_ticket(resp.json()[0])})
 
 
-@app.route('/api/public/chamados/<tracking_token>/events', methods=['GET'])
+@_route_once('/api/public/chamados/<tracking_token>/events', methods=['GET'])
 @require_tracking_token
 def public_chamados_events(tracking_token):
     """Timeline do chamado, acessível apenas com o token do próprio chamado."""
@@ -4005,7 +4570,7 @@ def _write_chamado_feedback(ticket_id, body):
     return rows[0], None
 
 
-@app.route('/api/public/chamados/<tracking_token>/feedback', methods=['POST'])
+@_route_once('/api/public/chamados/<tracking_token>/feedback', methods=['POST'])
 @require_tracking_token
 def public_chamados_feedback(tracking_token):
     """Registra feedback (1-5) do professor para o próprio chamado (caminho A).
@@ -4027,7 +4592,7 @@ def public_chamados_feedback(tracking_token):
     return jsonify({'ticket': _project_public_ticket(row)})
 
 
-@app.route('/api/public/chamados/<tracking_token>/subscribe', methods=['POST'])
+@_route_once('/api/public/chamados/<tracking_token>/subscribe', methods=['POST'])
 @require_tracking_token
 def public_chamados_subscribe(tracking_token):
     """Registra push do professor para o próprio chamado (escopo limitado ao token)."""
@@ -4051,7 +4616,7 @@ def public_chamados_subscribe(tracking_token):
     return jsonify({'status': 'ok', 'count': len(subs)})
 
 
-@app.route('/api/chamados/push/test', methods=['POST'])
+@_route_once('/api/chamados/push/test', methods=['POST'])
 @require_auth
 def chamados_push_test():
     """Envia uma push de teste para o próprio usuário logado (módulo chamados).
@@ -4089,7 +4654,7 @@ def chamados_push_test():
 
 # ── Notificações in-app (sino) bem-vindo do painel do admin ─────────────────
 
-@app.route('/api/app-notifications', methods=['POST'])
+@_route_once('/api/app-notifications', methods=['POST'])
 @require_auth
 @require_admin
 def app_notifications_persist():
@@ -4133,7 +4698,7 @@ def app_notifications_persist():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/app-notifications', methods=['GET'])
+@_route_once('/api/app-notifications', methods=['GET'])
 @require_auth
 def app_notifications_list():
     """Lista as notificações in-app recentes aplicáveis ao usuário logado.
@@ -4212,7 +4777,7 @@ WIPE_TABLES = [
 ]
 
 
-@app.route('/api/admin/wipe', methods=['POST'])
+@_route_once('/api/admin/wipe', methods=['POST'])
 @require_auth
 @require_admin
 @require_action_rbac('admin.system.wipe', scope='global')
@@ -4327,7 +4892,7 @@ def _supabase_unavailable():
     return jsonify({'error': 'Supabase não configurado'}), 503
 
 
-@app.route('/api/admin/app-data/describe', methods=['POST'])
+@_route_once('/api/admin/app-data/describe', methods=['POST'])
 @require_auth
 @require_workspace
 @require_module_auth('tv')
@@ -4368,7 +4933,7 @@ def admin_app_data_describe():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/app-data/purge', methods=['POST'])
+@_route_once('/api/admin/app-data/purge', methods=['POST'])
 @require_auth
 @require_workspace
 @require_module_auth('tv')
@@ -4448,7 +5013,7 @@ def admin_app_data_purge():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>/events', methods=['GET'])
+@_route_once('/api/chamados/<ticket_id>/events', methods=['GET'])
 @require_auth
 def chamados_events_list(ticket_id):
     """Histórico (timeline) de um chamado, do mais novo para o mais antigo.
@@ -4563,7 +5128,7 @@ def chamados_events_list(ticket_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>/events', methods=['POST'])
+@_route_once('/api/chamados/<ticket_id>/events', methods=['POST'])
 @require_auth
 def chamados_events_create(ticket_id):
     """Comentário/suporte visual no chamado (solicitante ou técnico), com até 2 fotos."""
@@ -4651,7 +5216,7 @@ def chamados_events_create(ticket_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>/feedback', methods=['POST'])
+@_route_once('/api/chamados/<ticket_id>/feedback', methods=['POST'])
 @require_auth
 def chamados_feedback(ticket_id):
     """AVALIAR ATENDIMENTO — caminho AUTENTICADO do feedback (issue #370).
@@ -4718,7 +5283,7 @@ def chamados_feedback(ticket_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>/claim', methods=['POST'])
+@_route_once('/api/chamados/<ticket_id>/claim', methods=['POST'])
 @require_auth
 def chamados_claim(ticket_id):
     """COMEÇAR ATENDIMENTO — técnico assume o chamado para si.
@@ -4895,7 +5460,7 @@ def chamados_claim(ticket_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>/resume', methods=['POST'])
+@_route_once('/api/chamados/<ticket_id>/resume', methods=['POST'])
 @require_auth
 def chamados_resume(ticket_id):
     """Retomada atômica de chamado em `em_espera` por outro técnico do mesmo
@@ -5052,7 +5617,7 @@ def chamados_resume(ticket_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/<ticket_id>/transfer', methods=['POST'])
+@_route_once('/api/chamados/<ticket_id>/transfer', methods=['POST'])
 @require_auth
 def chamados_transfer(ticket_id):
     """Transferência atômica de chamado em atendimento ATIVO (P3 #371).
@@ -5350,7 +5915,7 @@ def _build_weekly_report_html(report, workspace_name):
 """
 
 
-@app.route('/api/chamados/reports/weekly-email', methods=['POST'])
+@_route_once('/api/chamados/reports/weekly-email', methods=['POST'])
 @require_auth
 @require_admin
 @require_action_rbac('ticket.weeklyEmail', scope='global')
@@ -5409,7 +5974,7 @@ def chamados_reports_weekly_email():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/chamados/photos/purge', methods=['POST'])
+@_route_once('/api/chamados/photos/purge', methods=['POST'])
 @require_cron
 def chamados_photos_purge():
     """Cron diário: apaga do Cloudinary as fotos de chamados fechados há mais de 2 dias.
@@ -5510,7 +6075,7 @@ def _require_super_admin():
     return None
 
 
-@app.route('/api/admin/backups', methods=['GET'])
+@_route_once('/api/admin/backups', methods=['GET'])
 @require_auth
 def admin_backups_list():
     """List non-expired workspace backups. Super_admin only."""
@@ -5535,7 +6100,7 @@ def admin_backups_list():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/backups/prune', methods=['POST'])
+@_route_once('/api/admin/backups/prune', methods=['POST'])
 @require_auth
 @require_action_rbac('admin.backup.delete', scope='global')
 def admin_backups_prune():
@@ -5560,7 +6125,7 @@ def admin_backups_prune():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/backups/<backup_id>/restore', methods=['POST'])
+@_route_once('/api/admin/backups/<backup_id>/restore', methods=['POST'])
 @require_auth
 @require_action_rbac('admin.backup.restore', scope='global')
 def admin_backups_restore(backup_id):
@@ -5638,7 +6203,7 @@ def admin_backups_restore(backup_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/backups/<backup_id>', methods=['DELETE'])
+@_route_once('/api/admin/backups/<backup_id>', methods=['DELETE'])
 @require_auth
 @require_action_rbac('admin.backup.delete', scope='global')
 def admin_backups_delete(backup_id):
@@ -5664,7 +6229,7 @@ def admin_backups_delete(backup_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/audit-logs', methods=['GET'])
+@_route_once('/api/admin/audit-logs', methods=['GET'])
 @require_auth
 @require_action_rbac('admin.audit.view', scope='global')
 def admin_audit_logs_list():
@@ -5689,7 +6254,7 @@ def admin_audit_logs_list():
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/workspaces/<workspace_id>/delete', methods=['POST'])
+@_route_once('/api/admin/workspaces/<workspace_id>/delete', methods=['POST'])
 @require_auth
 @require_action_rbac('admin.workspace.delete', scope='global')
 def admin_workspace_delete_with_backup(workspace_id):
@@ -5818,7 +6383,7 @@ def _admin_membership_rpc_error(resp, log_tag):
     return msg
 
 
-@app.route('/api/admin/users/<user_id>/membership', methods=['POST'])
+@_route_once('/api/admin/users/<user_id>/membership', methods=['POST'])
 @require_auth
 @require_admin
 def admin_upsert_membership(user_id):
@@ -5861,7 +6426,7 @@ def admin_upsert_membership(user_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/users/<user_id>/membership', methods=['DELETE'])
+@_route_once('/api/admin/users/<user_id>/membership', methods=['DELETE'])
 @require_auth
 @require_admin
 def admin_remove_membership(user_id):
@@ -5896,7 +6461,7 @@ def admin_remove_membership(user_id):
         return jsonify({'error': 'Erro interno'}), 500
 
 
-@app.route('/api/admin/users/<user_id>/manager', methods=['POST'])
+@_route_once('/api/admin/users/<user_id>/manager', methods=['POST'])
 @require_auth
 @require_admin
 def admin_set_manager(user_id):
@@ -5971,7 +6536,7 @@ def admin_set_manager(user_id):
 # este módulo e o contrário criaria import circular. A semântica é idêntica.
 
 
-@app.route('/api/admin/users/<user_id>/reject', methods=['POST'])
+@_route_once('/api/admin/users/<user_id>/reject', methods=['POST'])
 @require_auth
 @require_admin
 def admin_reject_user(user_id):

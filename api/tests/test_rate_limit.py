@@ -1,8 +1,5 @@
 """Testes do rate limit distribuído (FASE 1, item 3)."""
-import importlib.util
 import os
-import sys
-from pathlib import Path
 
 import pytest
 
@@ -10,11 +7,9 @@ os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-testing-only-32chars!!")
 
-API_FILE = Path(__file__).resolve().parents[1] / "app.py"
-spec = importlib.util.spec_from_file_location("labhub_api_app_rl", API_FILE)
-appmod = importlib.util.module_from_spec(spec)
-sys.modules["labhub_api_app_rl"] = appmod
-spec.loader.exec_module(appmod)
+from _api_loader import load_api
+
+appmod = load_api()
 
 
 class FakeRedis:

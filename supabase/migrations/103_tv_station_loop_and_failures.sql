@@ -29,6 +29,15 @@ COMMENT ON COLUMN public.tv_station.stopped_reason IS
 -- ----------------------------------------------------------------------------
 -- 2. materialize_station_snapshot com shuffle opcional
 -- ----------------------------------------------------------------------------
+-- A nova assinatura (uuid, boolean) criaria um OVERLOAD da versão (uuid) da
+-- migration 039. Com os dois overloads coexistindo, chamadas com 1 argumento
+-- (feitas por ensure_station_row e station_queue_change em runtime e por
+-- migrations/tests/039_tv_station_checks.sql) ficariam ambíguas
+-- ("function public.materialize_station_snapshot(uuid) is not unique").
+-- A versão antiga é removida: chamadas de 1 argumento passam a resolver pela
+-- nova via DEFAULT (p_shuffle = false), preservando o contrato.
+DROP FUNCTION IF EXISTS public.materialize_station_snapshot(uuid);
+
 CREATE OR REPLACE FUNCTION public.materialize_station_snapshot(p_workspace uuid, p_shuffle boolean DEFAULT false)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -75,6 +84,12 @@ BEGIN
   RETURN v_snapshot;
 END;
 $$;
+
+-- Privilégios da nova assinatura: o CREATE recria o overload com os
+-- privilégios default (EXECUTE a PUBLIC). Repete o hardening da 039 para a
+-- assinatura nova (a 039 revogou apenas da assinatura antiga (uuid)).
+REVOKE ALL ON FUNCTION public.materialize_station_snapshot(uuid, boolean) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.materialize_station_snapshot(uuid, boolean) TO service_role;
 
 -- ----------------------------------------------------------------------------
 -- 3. nation_set_loop_mode
