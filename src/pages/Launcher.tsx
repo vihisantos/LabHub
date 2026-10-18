@@ -91,10 +91,10 @@ export function Launcher() {
       <footer className="relative z-10 flex flex-col items-center gap-2 pb-6">
         <button
           type="button"
-          onClick={() => navigate('/roadmap')}
+          onClick={() => navigate('/changelog')}
           className="text-xs font-medium text-emerald-500 hover:text-emerald-400 transition-colors"
         >
-          Roadmap
+          Novidades
         </button>
         <p className="text-[10px] text-fg-dim">Lab Hub v2.0</p>
       </footer>

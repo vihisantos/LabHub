@@ -8,6 +8,7 @@
 > `src/core/patrimonio/`, com schema real das migrations 091–096 (custódia via
 > `asset_movements`, fora do motor de sync). Ver
 > [`docs/patrimonio/data-layer.md`](../../patrimonio/data-layer.md).
+> **Não use este documento como referência de código atual.**
 
 O Registro Global de Ativos é uma capacidade da plataforma, não uma aplicação independente: ele fornece a visão unificada de bens físicos consumida pelas aplicações. O conceito está descrito em [Conceitos: Ativos](../concepts/assets.md).
 

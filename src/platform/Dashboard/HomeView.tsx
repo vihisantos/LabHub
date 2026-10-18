@@ -136,12 +136,12 @@ export function HomeView() {
         <footer className="text-center">
           <button
             type="button"
-            onClick={() => navigate('/roadmap')}
+            onClick={() => navigate('/changelog')}
             className="text-xs font-medium text-blue-500 hover:text-blue-400 transition-colors"
           >
-            Roadmap
+            Novidades
           </button>
-          <p className="mt-1 text-[10px] text-fg-dim">LabHub v2.1.0</p>
+          <p className="mt-1 text-[10px] text-fg-dim">LabHub v2.3.0</p>
         </footer>
       </div>
 

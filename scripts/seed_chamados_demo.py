@@ -83,6 +83,39 @@ def _headers(service_key: str) -> dict:
     }
 
 
+def _guard_demo_target(base: str) -> None:
+    """Defesa em profundidade: quando a allowlist do ambiente demo está
+    configurada (`E2E_DEMO_ALLOWED_PROJECT_REFS`), ABORTA antes de qualquer
+    operação se o destino (`SUPABASE_URL`) não pertencer a ela.
+
+    Sem a allowlist (uso local interativo), apenas avisa — o workflow manual
+    SEMPRE a define, e o preflight `verify_demo_target.py` já provou o destino
+    (allowlist + sonda REST) antes de chegar aqui.
+    """
+    raw = os.environ.get("E2E_DEMO_ALLOWED_PROJECT_REFS", "")
+    if not raw.strip():
+        print("AVISO: E2E_DEMO_ALLOWED_PROJECT_REFS não definida — guard de destino INATIVO (uso local).")
+        return
+    try:
+        from verify_demo_target import parse_allowed_refs, parse_project_ref
+    except ImportError:  # execução por caminho absoluto fora de scripts/
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from verify_demo_target import parse_allowed_refs, parse_project_ref
+
+    allowed = parse_allowed_refs(raw)
+    ref = parse_project_ref(base)
+    if ref is None:
+        print("ERROR: SUPABASE_URL não é um endpoint Supabase https reconhecível — escrita abortada.")
+        sys.exit(1)
+    if ref not in allowed:
+        print(
+            f"ERROR: destino do seed (ref {ref}) NÃO está na allowlist do ambiente demo "
+            f"({', '.join(sorted(allowed))}) — escrita abortada."
+        )
+        sys.exit(1)
+    print(f"Destino validado: projeto demo autorizado (ref {ref}).")
+
+
 # ── Placeholder photos (tiny colored SVGs encoded as base64 data URLs) ──────
 
 _SVG_COMPUTER = (
@@ -851,6 +884,8 @@ def main():
     args = parser.parse_args()
 
     base, svc = _get_config()
+    # Fail-closed: nenhum acesso ao banco (nem leitura) antes de provar o destino.
+    _guard_demo_target(base)
 
     print(f"Workspace ID (deterministic): {DEMO_WORKSPACE_ID}")
 

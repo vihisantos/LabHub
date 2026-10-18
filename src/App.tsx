@@ -15,7 +15,7 @@ import { ThemeProvider } from './lib/ThemeContext'
 const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('./platform/Dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })))
 const HomePage = lazy(() => import('./platform/Dashboard/HomePage').then(m => ({ default: m.HomePage })))
-const Roadmap = lazy(() => import('./pages/Roadmap').then(m => ({ default: m.Roadmap })))
+const Changelog = lazy(() => import('./pages/Changelog').then(m => ({ default: m.Changelog })))
 const MusicRequestPage = lazy(() => import('./pages/MusicRequest').then(m => ({ default: m.default })))
 const PublicMusicRequestPage = lazy(() => import('./pages/PublicMusicRequest').then(m => ({ default: m.default })))
 const PCCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCCareApp })))
@@ -64,9 +64,10 @@ function AppRoutes() {
           <HomePage />
         </AuthGuard>
       } />
-      <Route path="roadmap" element={
+      <Route path="roadmap" element={<Navigate to="/changelog" replace />} />
+      <Route path="changelog" element={
         <AuthGuard fallback={AUTH_FALLBACK}>
-          <Roadmap />
+          <Changelog />
         </AuthGuard>
       } />
       <Route path="pedir-musica/:token" element={
