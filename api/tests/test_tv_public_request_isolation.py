@@ -272,3 +272,74 @@ def test_contexto_publico_mostra_apenas_unidade_do_token(tv_client):
     assert res.status_code == 200
     assert res.json["workspace_name"] == "Unidade A"
     assert res.json["workspace_name"] != "Unidade B"
+
+
+# ── 6. Turnstile: política explícita do desafio ───────────────────────────────
+
+def test_turnstile_sem_segredo_compativel(tv_client, monkeypatch):
+    """Sem TURNSTILE_SECRET_KEY e sem TURNSTILE_REQUIRED: fail-open (desenvolvimento)."""
+    monkeypatch.delenv("TURNSTILE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("TURNSTILE_REQUIRED", raising=False)
+    assert appmod._verify_turnstile("tok", "1.2.3.4") is True
+
+
+def test_turnstile_sem_segredo_required_e_fail_closed(tv_client, monkeypatch):
+    """TURNSTILE_REQUIRED=1 sem secret: pedido rejeitado (produção sem chave por engano)."""
+    monkeypatch.delenv("TURNSTILE_SECRET_KEY", raising=False)
+    monkeypatch.setenv("TURNSTILE_REQUIRED", "1")
+    assert appmod._verify_turnstile("tok", "1.2.3.4") is False
+
+
+def test_turnstile_com_segredo_exige_token(tv_client, monkeypatch):
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "secret-x")
+    assert appmod._verify_turnstile("", "1.2.3.4") is False
+    assert appmod._verify_turnstile(None, "1.2.3.4") is False
+
+
+def test_turnstile_cloudflare_rejeita(tv_client, monkeypatch):
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "secret-x")
+    tv_client.route("POST", "challenges.cloudflare.com", FakeResponse({"success": False}))
+    assert appmod._verify_turnstile("tok", "1.2.3.4") is False
+
+
+def test_turnstile_cloudflare_erro_rejeita(tv_client, monkeypatch):
+    """Falha de rede/erro inesperado do siteverify: fail-closed."""
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "secret-x")
+    # sem rota configurada, o fake responde payload [] -> json().get falha -> except
+    assert appmod._verify_turnstile("tok", "1.2.3.4") is False
+
+
+def test_turnstile_cloudflare_aceita(tv_client, monkeypatch):
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "secret-x")
+    tv_client.route("POST", "challenges.cloudflare.com", FakeResponse({"success": True}))
+    assert appmod._verify_turnstile("tok", "1.2.3.4") is True
+
+
+def test_pedido_publico_rejeita_sem_turnstile_token(tv_client, monkeypatch):
+    """Proteção habilitada: POST sem turnstile_token => 400, nenhuma gravação."""
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "secret-x")
+    tv_client.route("GET", "rest/v1/tv_music_requests", FakeResponse([]))
+
+    res = _post_public_request(tv_client, _token_for(WS_A_ID), WS_A_ID)
+
+    assert res.status_code == 400
+    assert "Verificação falhou" in res.json["error"]
+    assert not [c for c in tv_client.calls
+                if c["method"] == "POST" and "rest/v1/tv_music_requests" in c["url"]]
+
+
+def test_pedido_publico_aceita_com_turnstile_valido(tv_client, monkeypatch):
+    """Proteção habilitada + token validado na Cloudflare => pedido gravado."""
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "secret-x")
+    tv_client.route("POST", "challenges.cloudflare.com", FakeResponse({"success": True}))
+    tv_client.route("GET", "rest/v1/tv_music_requests", FakeResponse([]))
+    tv_client.route("POST", "rest/v1/tv_music_requests", FakeResponse([], status_code=201))
+
+    res = _post_public_request(tv_client, _token_for(WS_A_ID), WS_A_ID,
+                               {"turnstile_token": "cf-token-123"})
+
+    assert res.status_code == 200
+    inserts = [c for c in tv_client.calls
+               if c["method"] == "POST" and "rest/v1/tv_music_requests" in c["url"]]
+    assert len(inserts) == 1
+    assert inserts[0]["kwargs"]["json"]["status"] == "pending"

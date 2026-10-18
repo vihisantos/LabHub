@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { tvApi } from '../apps/tv/utils/apiBase'
 
@@ -11,6 +11,54 @@ type Phase =
   | 'invalid'
   | 'success'
 
+// Estado do desafio Turnstile no formulário.
+type ChallengeState = 'loading' | 'ready' | 'expired' | 'error'
+
+// Tipagem mínima do widget oficial (developers.cloudflare.com/turnstile/).
+interface TurnstileApi {
+  render: (el: HTMLElement, opts: {
+    sitekey: string
+    theme?: 'light' | 'dark' | 'auto'
+    callback?: (token: string) => void
+    'expired-callback'?: () => void
+    'error-callback'?: () => void
+  }) => string
+  reset: (widgetId?: string) => void
+  remove: (widgetId?: string) => void
+}
+
+declare global {
+  interface Window {
+    turnstile?: TurnstileApi
+  }
+}
+
+const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+const TURNSTILE_SCRIPT_ID = 'cf-turnstile-api'
+
+/** Carrega a API do Turnstile uma única vez; resolve com o objeto global. */
+function loadTurnstile(): Promise<TurnstileApi> {
+  return new Promise((resolve, reject) => {
+    if (window.turnstile) return resolve(window.turnstile)
+    const existing = document.getElementById(TURNSTILE_SCRIPT_ID)
+    if (existing) {
+      existing.addEventListener('load', () =>
+        window.turnstile ? resolve(window.turnstile) : reject(new Error('Turnstile indisponível')))
+      existing.addEventListener('error', () => reject(new Error('Falha ao carregar Turnstile')))
+      return
+    }
+    const script = document.createElement('script')
+    script.id = TURNSTILE_SCRIPT_ID
+    script.src = TURNSTILE_SCRIPT_SRC
+    script.async = true
+    script.defer = true
+    script.onload = () =>
+      window.turnstile ? resolve(window.turnstile) : reject(new Error('Turnstile indisponível'))
+    script.onerror = () => reject(new Error('Falha ao carregar Turnstile'))
+    document.head.appendChild(script)
+  })
+}
+
 export function PublicMusicRequestPage() {
   const { token } = useParams<{ token?: string }>()
   const [phase, setPhase] = useState<Phase>('loading')
@@ -21,6 +69,15 @@ export function PublicMusicRequestPage() {
   const [hp, setHp] = useState('') // honeypot
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // Turnstile: a SITE KEY é PÚBLICA (frontend). A SECRET nunca chega aqui.
+  const siteKey = (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim() || ''
+  const turnstileEnabled = !!siteKey
+  const [tsToken, setTsToken] = useState<string | null>(null)
+  const [tsState, setTsState] = useState<ChallengeState>('loading')
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const widgetIdRef = useRef<string | undefined>(undefined)
+  const [tsGeneration, setTsGeneration] = useState(0) // bump => re-renderiza o desafio
 
   useEffect(() => {
     let cancelled = false
@@ -45,9 +102,45 @@ export function PublicMusicRequestPage() {
     return () => { cancelled = true }
   }, [token])
 
+  // Renderiza o desafio quando o formulário fica pronto (e a cada retry).
+  useEffect(() => {
+    if (phase !== 'ready' || !turnstileEnabled) return
+    let disposed = false
+    setTsState('loading')
+    loadTurnstile()
+      .then((ts) => {
+        if (disposed || !containerRef.current) return
+        widgetIdRef.current = ts.render(containerRef.current, {
+          sitekey: siteKey,
+          theme: 'dark',
+          callback: (t) => { setTsToken(t); setTsState('ready') },
+          'expired-callback': () => { setTsToken(null); setTsGeneration((g) => g + 1) },
+          'error-callback': () => { setTsToken(null); setTsState('error') },
+        })
+      })
+      .catch(() => { if (!disposed) setTsState('error') })
+    return () => {
+      disposed = true
+      const id = widgetIdRef.current
+      if (id !== undefined && window.turnstile) {
+        try { window.turnstile.remove(id) } catch { /* noop */ }
+        widgetIdRef.current = undefined
+      }
+    }
+  }, [phase, turnstileEnabled, siteKey, tsGeneration])
+
+  /** Invalida o token atual e solicita um desafio novo (retry/expiração). */
+  const resetChallenge = useCallback(() => {
+    setTsToken(null)
+    if (!turnstileEnabled) return
+    setTsGeneration((g) => g + 1)
+  }, [turnstileEnabled])
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!token || phase !== 'ready') return
+    // Fail-closed no cliente: sem desafio resolvido, não envia.
+    if (turnstileEnabled && !tsToken) return
     setSubmitting(true)
     setMessage('')
     try {
@@ -60,6 +153,7 @@ export function PublicMusicRequestPage() {
           nickname: nickname || undefined,
           honeypot: hp,
           form_issued_at_signed: issued,
+          turnstile_token: tsToken || undefined,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -68,6 +162,9 @@ export function PublicMusicRequestPage() {
         setMessage(String(data.message || 'Pedido enviado. Aguarde aprovação.'))
         return
       }
+      // Tokens Turnstile são de uso único: qualquer resposta de erro invalida
+      // o desafio atual — o usuário resolve um novo antes de tentar de novo.
+      resetChallenge()
       if (res.status === 429) {
         setPhase('full')
         setMessage(String(data.error || 'Fila cheia. Tente novamente mais tarde.'))
@@ -81,12 +178,15 @@ export function PublicMusicRequestPage() {
       setPhase('invalid')
       setMessage(String(data.error || 'Não foi possível registrar o pedido.'))
     } catch {
+      resetChallenge()
       setPhase('invalid')
       setMessage('Falha de rede. Tente novamente.')
     } finally {
       setSubmitting(false)
     }
   }
+
+  const challengePending = turnstileEnabled && (tsState !== 'ready' || !tsToken)
 
   return (
     <div className="min-h-dvh bg-slate-900 px-4 py-6 text-white">
@@ -155,9 +255,22 @@ export function PublicMusicRequestPage() {
                 />
               </label>
             </div>
+            {turnstileEnabled && (
+              <div>
+                <div ref={containerRef} data-testid="turnstile-container" />
+                {tsState === 'error' && (
+                  <p className="text-xs text-red-300">
+                    Não foi possível carregar o desafio.{' '}
+                    <button type="button" onClick={resetChallenge} className="underline">
+                      Tentar novamente
+                    </button>
+                  </p>
+                )}
+              </div>
+            )}
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || challengePending}
               className="w-full rounded-lg bg-emerald-600 py-2 text-sm font-semibold disabled:opacity-50"
             >
               {submitting ? 'Enviando…' : 'Enviar pedido'}

@@ -2296,9 +2296,28 @@ def _youtube_video_info(video_id):
 
 
 def _verify_turnstile(token, ip):
+    """Verifica o desafio Cloudflare Turnstile do pedido público de música.
+
+    Política EXPLÍCITA de proteção:
+      - TURNSTILE_SECRET_KEY configurada: o token é OBRIGATÓRIO e validado no
+        siteverify da Cloudflare. Ausente/inválido/expirado/erro de rede =>
+        False (o endpoint responde 400). Falha de rede é fail-closed: nunca
+        aceitar um desafio que não pôde ser verificado.
+      - TURNSTILE_SECRET_KEY ausente:
+          * TURNSTILE_REQUIRED ativo ('1'/'true'/'yes'/'on') => fail-closed
+            (False). Para produção que exige o desafio: levantar a secret e
+            deixar TURNSTILE_REQUIRED=1 impede subir sem a chave por engano.
+          * caso contrário => fail-open com aviso em log. Comportamento de
+            desenvolvimento/testes (o desafio é opcional quando desativado);
+            NÃO muda silenciosamente ambientes já existentes.
+    """
     secret = os.environ.get('TURNSTILE_SECRET_KEY')
     if not secret:
-        logger.warning('TURNSTILE_SECRET_KEY ausente — Turnstile não validado')
+        required = os.environ.get('TURNSTILE_REQUIRED', '').strip().lower() in ('1', 'true', 'yes', 'on')
+        if required:
+            logger.warning('TURNSTILE_REQUIRED ativo sem TURNSTILE_SECRET_KEY — pedido público rejeitado (fail-closed)')
+            return False
+        logger.warning('TURNSTILE_SECRET_KEY ausente — Turnstile desativado (pedido público aceito sem desafio)')
         return True
     if not token:
         return False
@@ -2312,6 +2331,7 @@ def _verify_turnstile(token, ip):
             return False
         return bool(resp.json().get('success'))
     except Exception:
+        logger.warning('Turnstile siteverify indisponível — pedido rejeitado (fail-closed)')
         return False
 
 
