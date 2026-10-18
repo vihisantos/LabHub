@@ -53,11 +53,27 @@ def _route_once(rule, **options):
     """Registro idempotente de rotas: este arquivo é carregado pelos testes via
     importlib.exec_module sobre o mesmo objeto `app` (singleton do ReservaLab,
     issue #413). Sem isso, re-executar o arquivo levantaria AssertionError ao
-    re-registrar endpoints já existentes no Flask."""
+    re-registrar endpoints já existentes no Flask.
+
+    Fail-loud preservado: se o MESMO endpoint aparecer em uma rota DIFERENTE
+    (colisão real, ex. erro de copy-paste), levanta AssertionError — o mesmo
+    comportamento do `@app.route` padrão. Só é tolerada a re-execução com a
+    MESMA rota e endpoint.
+    """
     def decorator(f):
         endpoint = options.pop('endpoint', None) or getattr(f, '__name__', 'route')
-        if endpoint not in app.view_functions:
-            app.add_url_rule(rule, endpoint=endpoint, view_func=f, **options)
+        if endpoint in app.view_functions:
+            same_rule = any(
+                r.endpoint == endpoint and r.rule == rule
+                for r in app.url_map.iter_rules()
+            )
+            if same_rule:
+                return f
+            raise AssertionError(
+                f'colisão de endpoint: {endpoint!r} já registrado em rota '
+                f'diferente (tentando registrar {rule!r})'
+            )
+        app.add_url_rule(rule, endpoint=endpoint, view_func=f, **options)
         return f
     return decorator
 
@@ -96,7 +112,10 @@ def _check_rate_limit(key: str, max_requests: int | None = None,
                 except Exception as exc:
                     logger.warning("Rate limit via Redis eval indisponível, fallback INCR: %s", exc)
             count = redis.incr(full_key)
-            if int(count) == 1:
+            # Se uma requisição anterior caiu entre INCR e EXPIRE (queda de
+            # processo), a chave fica sem TTL (-1) e bloquearia a chave para
+            # sempre; reaplica o TTL.
+            if int(count) == 1 or redis.ttl(full_key) == -1:
                 redis.expire(full_key, window)
             return int(count) <= int(limit)
     except Exception as exc:
@@ -2100,6 +2119,10 @@ def _sign_request_token(workspace_id, bucket):
 
 
 def _verify_request_token(token, expected_workspace=None):
+    # Sem segredo de assinatura, HMAC com chave vazia seria forjável por
+    # qualquer um; fail-closed (nenhum token é aceito).
+    if not TV_REQUEST_SIGNING_SECRET:
+        return None
     if not token or not isinstance(token, str) or '.' not in token:
         return None
     try:
@@ -2132,6 +2155,9 @@ def tv_request_qr():
     if not _require_supabase():
         return _supabase_unavailable()
     try:
+        # Sem segredo de assinatura o QR seria forjável; fail-closed (503).
+        if not TV_REQUEST_SIGNING_AVAILABLE:
+            return jsonify({'error': 'Assinatura de QR indisponível'}), 503
         workspace_id = _resolve_tv_device_workspace(g.user_id)
         if not workspace_id:
             return jsonify({'error': 'Sessão não corresponde a um dispositivo TV válido'}), 403
