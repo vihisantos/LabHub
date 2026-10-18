@@ -137,22 +137,72 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_st public.tv_station%ROWTYPE;
-  v_next public.tv_queue_snapshot_tracks%ROWTYPE;
+  v_st      public.tv_station%ROWTYPE;
+  v_next    public.tv_queue_snapshot_tracks%ROWTYPE;
   v_failures integer;
   v_new_snapshot uuid;
+  v_hash    text;
+  v_replay  jsonb;
 BEGIN
   IF p_workspace IS NULL THEN
     RAISE EXCEPTION 'WORKSPACE_REQUIRED' USING ERRCODE = '22023';
   END IF;
 
+  -- Serializa mutações concorrentes do mesmo workspace (mesmo mecanismo das
+  -- outras RPCs de estação: pg_advisory_xact_lock escopo workspace).
   PERFORM pg_advisory_xact_lock(hashtextextended('tv_station:' || p_workspace::text, 0));
 
+  -- Gate de acesso (consistente com as RPCs de estação via station_begin_mutation).
+  IF NOT public.can_access_tv_workspace(p_workspace) THEN
+    RAISE EXCEPTION 'ACCESS_DENIED' USING ERRCODE = '42501';
+  END IF;
+
+  -- Garante a linha da estação (backfill lazy idempotente).
   SELECT * INTO v_st FROM public.tv_station WHERE workspace_id = p_workspace;
   IF NOT FOUND THEN
     v_st := public.ensure_station_row(p_workspace);
   END IF;
 
+  -- Request hash canônico a partir dos parâmetros de entrada (workspace + track).
+  -- Permite detectar reuso de chave com payload diferente mesmo sem o cliente
+  -- enviar um request_hash explícito.
+  v_hash := encode(
+    sha256(convert_to(
+      p_workspace::text
+      || COALESCE(p_snapshot_track_id::text, '')
+      || 'report-failure',
+      'UTF8'
+    )),
+    'hex'
+  );
+
+  -- Replay idempotente ANTES da mutação (mesma ordem das outras RPCs: lock,
+  -- gate, ensure, depois replay). Mesma chave + mesmo hash => resultado original,
+  -- sem re-aplicar a mutação. Mesma chave + hash diferente => 40901.
+  IF p_idempotency_key IS NOT NULL AND p_idempotency_key <> '' THEN
+    v_replay := public.station_try_replay(p_workspace, p_idempotency_key, v_hash);
+    IF v_replay IS NOT NULL THEN
+      RETURN v_replay;
+    END IF;
+  END IF;
+
+  -- Valida que a faixa informada corresponde à faixa ainda ativa na estação.
+  -- Uma notificação atrasada de uma faixa antiga não incrementa o contador,
+  -- não avança a fila nem para a estação. O resultado TRACK_MISMATCH é
+  -- registrado para idempotência, de modo que repetições com a mesma chave
+  -- aproveitem o replay em vez de re-executar a validação.
+  IF p_snapshot_track_id IS NOT NULL
+     AND (v_st.current_snapshot_track_id IS NULL
+          OR v_st.current_snapshot_track_id <> p_snapshot_track_id) THEN
+    IF p_idempotency_key IS NOT NULL AND p_idempotency_key <> '' THEN
+      PERFORM public.station_record_idempotency(p_workspace, p_idempotency_key, v_hash,
+        jsonb_build_object('status', 'no_op', 'reason', 'TRACK_MISMATCH'));
+    END IF;
+    RETURN jsonb_build_object('status', 'no_op', 'reason', 'TRACK_MISMATCH');
+  END IF;
+
+  -- Lógica funcional existente (preservada): incremento de falhas consecutivas,
+  -- avanço para a próxima faixa, loop e parada após o limite configurado.
   v_failures := v_st.consecutive_failures + 1;
 
   IF v_failures >= 3 THEN
@@ -210,6 +260,12 @@ BEGIN
              updated_at = now()
        WHERE workspace_id = p_workspace;
     END IF;
+  END IF;
+
+  -- Registra o resultado para idempotência (após mutação bem-sucedida).
+  IF p_idempotency_key IS NOT NULL AND p_idempotency_key <> '' THEN
+    PERFORM public.station_record_idempotency(p_workspace, p_idempotency_key, v_hash,
+      jsonb_build_object('status','reported','failures',v_failures));
   END IF;
 
   RETURN jsonb_build_object('status','reported','failures',v_failures);
