@@ -537,7 +537,15 @@ def _is_spreadsheet_link_access_error(error):
 
 
 _SPREADSHEET_LINK_ERRORS = {}
+_SPREADSHEET_LINK_SUCCESSES = set()
+_SPREADSHEET_WORKSPACE_STATUS_KEYS = {}
 _SPREADSHEET_ALERT_ACTIVE = set()
+
+
+def _spreadsheet_status_key(spreadsheet_url):
+    # Só o hash fica em memória; a URL pode conter o token do compartilhamento.
+    digest = hashlib.sha256(str(spreadsheet_url or '').encode('utf-8')).hexdigest()[:24]
+    return f'reservalab:spreadsheet-status:{digest}'
 
 
 def _spreadsheet_alert_key(workspace_slug):
@@ -613,12 +621,12 @@ def _notify_super_admin_spreadsheet_link(workspace_slug, access_error):
         logger.error('Falha ao persistir alerta de link do ReservaLab')
 
 
-def _parse_spreadsheet(spreadsheet_url, lab_count=2, workspace_slug=None):
+def _parse_spreadsheet(spreadsheet_url, lab_count=2):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
     reservas_hoje = []
     reservas_semana = []
-    status_key = str(workspace_slug or 'default')
-    _SPREADSHEET_LINK_ERRORS.pop(status_key, None)
+    status_key = _spreadsheet_status_key(spreadsheet_url)
+    _SPREADSHEET_LINK_SUCCESSES.discard(status_key)
     if not spreadsheet_url:
         return reservas_hoje, reservas_semana
     # Só a representação segura: a URL original pode carregar token de
@@ -656,7 +664,7 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2, workspace_slug=None):
             wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
             logger.info("Planilha carregada!")
             _SPREADSHEET_LINK_ERRORS.pop(status_key, None)
-            _clear_spreadsheet_link_alert(workspace_slug)
+            _SPREADSHEET_LINK_SUCCESSES.add(status_key)
         except Exception as e:
             logger.error(f"Erro ao carregar planilha: {e}")
             return reservas_hoje, reservas_semana
@@ -753,7 +761,8 @@ def get_reservas(workspace_slug=None, spreadsheet_url=_UNSET, lab_count=2):
     # receber o cache de outro campus (nem do fallback global).
     cached = get_cached_reservas(cache_key)
     if cached:
-        link_error = _SPREADSHEET_LINK_ERRORS.get(str(workspace_slug or 'default'))
+        status_key = _SPREADSHEET_WORKSPACE_STATUS_KEYS.get(str(workspace_slug or 'default'))
+        link_error = _SPREADSHEET_LINK_ERRORS.get(status_key)
         if link_error:
             _notify_super_admin_spreadsheet_link(workspace_slug, link_error)
         return cached
@@ -764,12 +773,15 @@ def get_reservas(workspace_slug=None, spreadsheet_url=_UNSET, lab_count=2):
     if spreadsheet_url and workspace_slug:
         logger.info(f"Usando planilha do workspace '{workspace_slug}'")
     
-    reservas_hoje, reservas_semana = _parse_spreadsheet(
-        spreadsheet_url, lab_count=lab_count, workspace_slug=workspace_slug,
-    )
-    link_error = _SPREADSHEET_LINK_ERRORS.get(str(workspace_slug or 'default'))
+    reservas_hoje, reservas_semana = _parse_spreadsheet(spreadsheet_url, lab_count=lab_count)
+    status_key = _spreadsheet_status_key(spreadsheet_url)
+    _SPREADSHEET_WORKSPACE_STATUS_KEYS[str(workspace_slug or 'default')] = status_key
+    link_error = _SPREADSHEET_LINK_ERRORS.get(status_key)
     if link_error:
         _notify_super_admin_spreadsheet_link(workspace_slug, link_error)
+    if status_key in _SPREADSHEET_LINK_SUCCESSES:
+        _clear_spreadsheet_link_alert(workspace_slug)
+        _SPREADSHEET_LINK_SUCCESSES.discard(status_key)
     
     logger.info(f"Planilha[{cache_key}]: {len(reservas_hoje)} hoje, {len(reservas_semana)} semana")
     result = (reservas_hoje, reservas_semana)
