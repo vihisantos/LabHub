@@ -1216,8 +1216,65 @@ def test_falhas_temporarias_nao_disparam_alerta_de_link_expirado(legacy_module, 
     assert legacy_module._is_spreadsheet_link_access_error(erro) is False
 
 
-def test_resposta_html_de_login_nao_parece_arquivo_xlsx():
-    assert not b"<!DOCTYPE html>".startswith(b"PK")
+def test_resposta_html_de_login_e_classificada_sem_tratar_bytes_genericos_como_link_expirado(legacy_module):
+    assert legacy_module._is_spreadsheet_login_response(
+        b"<!DOCTYPE html><html><title>Sign in</title></html>"
+    ) is True
+    assert legacy_module._is_spreadsheet_login_response(b"conteudo invalido") is False
+    assert legacy_module._is_spreadsheet_login_response(b"") is False
     assert bytes((80, 75, 3, 4)).startswith(b"PK")
+
+
+def test_parse_nao_classifica_bytes_invalidos_genericos_como_link_expirado(
+    legacy_module, dns_allows, fake_get,
+):
+    fake_get(response=FakeResponse(content=b"conteudo invalido"))
+    legacy_module._parse_spreadsheet(VALID_URL)
+    key = legacy_module._spreadsheet_status_key(VALID_URL)
+    assert key not in legacy_module._SPREADSHEET_LINK_ERRORS
+
+
+def test_parse_classifica_html_de_login_como_possivel_problema_de_acesso(
+    legacy_module, dns_allows, fake_get,
+):
+    fake_get(response=FakeResponse(
+        content=b"<!DOCTYPE html><html><title>Sign in</title></html>"
+    ))
+    legacy_module._parse_spreadsheet(VALID_URL)
+    key = legacy_module._spreadsheet_status_key(VALID_URL)
+    assert "HTML" in legacy_module._SPREADSHEET_LINK_ERRORS[key]
+
+
+def test_alerta_super_admin_e_deduplicado_e_nao_contem_url_secreta(
+    legacy_module, monkeypatch,
+):
+    calls = []
+    class Response:
+        ok = True
+
+    monkeypatch.setattr(legacy_module, "_SUPABASE_URL", "https://supabase.example")
+    monkeypatch.setattr(legacy_module, "_SUPABASE_SERVICE_KEY", "test-service-key")
+    monkeypatch.setattr(legacy_module, "redis", None)
+    legacy_module._SPREADSHEET_ALERT_ACTIVE.clear()
+    monkeypatch.setattr(
+        legacy_module.requests, "post",
+        lambda *args, **kwargs: (calls.append((args, kwargs)) or Response()),
+    )
+    try:
+        legacy_module._notify_super_admin_spreadsheet_link(
+            "piracicaba", "HTTP 403"
+        )
+        legacy_module._notify_super_admin_spreadsheet_link(
+            "piracicaba", "HTTP 403"
+        )
+        assert len(calls) == 1
+        payload = calls[0][1]["json"]
+        assert payload["target_super_admin"] is True
+        assert payload["target_user_id"] is None
+        assert payload["module"] == "reservalab"
+        assert "test-service-key" not in repr(payload)
+        assert "share=" not in repr(payload)
+    finally:
+        legacy_module._SPREADSHEET_ALERT_ACTIVE.clear()
 
 
