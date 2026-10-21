@@ -1379,6 +1379,71 @@ class TestAppNotifications:
         ids = [n["id"] for n in resp.get_json()["notifications"]]
         assert set(ids) == {"a", "b"}
 
+    def test_list_oculta_target_super_admin_para_usuario_comum(self, root_client, fake_requests, monkeypatch):
+        """Cenário A: usuário comum NÃO deve ver notificação target_super_admin=true,
+        mesmo que seja global ou de um workspace autorizado."""
+        headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "exclusive", "workspace_id": None, "title": "Apenas super admin",
+                 "target_super_admin": True, "created_at": "2026-01-01T00:00:00Z"},
+                {"id": "global", "workspace_id": None, "title": "Global",
+                 "target_super_admin": False, "created_at": "2026-01-02T00:00:00Z"},
+                {"id": "workspace", "workspace_id": "ws-a", "title": "Minha",
+                 "target_super_admin": False, "created_at": "2026-01-03T00:00:00Z"},
+                {"id": "outro_ws", "workspace_id": "ws-b", "title": "Outro workspace",
+                 "target_super_admin": False, "created_at": "2026-01-04T00:00:00Z"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        ids = [n["id"] for n in resp.get_json()["notifications"]]
+        assert "exclusive" not in ids, "usuário comum não deve ver target_super_admin=true"
+        assert "global" in ids
+        assert "workspace" in ids
+        assert "outro_ws" not in ids
+
+    def test_list_oculta_target_super_admin_mesmo_no_proprio_workspace(self, root_client, fake_requests, monkeypatch):
+        """Regressão: target_super_admin=true do workspace do próprio usuário
+        continua oculto para usuário comum (segmentação não se sobrepõe ao workspace)."""
+        headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "exclusive_ws", "workspace_id": "ws-a", "title": "Apenas super admin",
+                 "target_super_admin": True, "created_at": "2026-01-01T00:00:00Z"},
+                {"id": "comum_ws", "workspace_id": "ws-a", "title": "Comum do workspace",
+                 "target_super_admin": False, "created_at": "2026-01-02T00:00:00Z"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        ids = [n["id"] for n in resp.get_json()["notifications"]]
+        assert "exclusive_ws" not in ids
+        assert "comum_ws" in ids
+
+    def test_list_mostra_target_super_admin_para_super_admin(self, root_client, fake_requests, monkeypatch):
+        """Cenário B: super admin DEVE ver notificação target_super_admin=true."""
+        headers = self._auth(fake_requests, monkeypatch, is_super=True)
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "exclusive", "workspace_id": None, "title": "Apenas super admin",
+                 "target_super_admin": True, "created_at": "2026-01-01T00:00:00Z"},
+                {"id": "global", "workspace_id": None, "title": "Global",
+                 "target_super_admin": False, "created_at": "2026-01-02T00:00:00Z"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        ids = [n["id"] for n in resp.get_json()["notifications"]]
+        assert "exclusive" in ids, "super admin deve ver target_super_admin=true"
+        assert "global" in ids
+
 
 # ── Tests: TV youtube + calendar/extract (Fase 0 hardening) ──────────────────
 
