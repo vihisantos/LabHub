@@ -533,7 +533,7 @@ def _safe_url_for_log(url):
 
 def _is_spreadsheet_link_access_error(error):
     """Só HTTP 401/403/404 é evidência suficiente para alertar sobre acesso."""
-    return bool(re.search(r'HTTP (401|403|404)\\b', str(error or '')))
+    return bool(re.search(r'HTTP (401|403|404)\b', str(error or '')))
 
 
 def _is_spreadsheet_login_response(content):
