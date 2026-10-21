@@ -2501,7 +2501,6 @@ def chamados_workspaces():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/workspaces?select=id,name,slug,location&order=name',
             headers=_supabase_headers(),
@@ -2526,7 +2525,6 @@ def chamados_create():
         if not _check_rate_limit(client_ip):
             return jsonify({'error': 'Muitas requisições. Tente novamente em mais de 1 hora.'}), 429
 
-        _ensure_chamados_schema()
         body = request.get_json() or {}
 
         workspace_id = str(body.get('workspace_id') or '').strip()
@@ -2730,7 +2728,6 @@ def chamados_list():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
         is_super_admin = bool(user.get('is_super_admin'))
@@ -2892,7 +2889,6 @@ def chamados_manage(ticket_id):
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
         user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
@@ -3722,7 +3718,6 @@ def chamados_reports():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
         user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
@@ -4467,7 +4462,6 @@ def chamados_events_list(ticket_id):
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         user = g.user
         is_super_admin = bool(user.get('is_super_admin'))
         user_ws_ids = set(str(w) for w in (user.get('workspace_ids') or []))
@@ -4570,7 +4564,6 @@ def chamados_events_create(ticket_id):
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         fetch = requests.get(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(ticket_id)}&select=id,workspace_id,status,assignedToUserId',
             headers=_supabase_headers(),
@@ -5359,7 +5352,6 @@ def chamados_reports_weekly_email():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         now = datetime.now(timezone.utc)
         from_iso = (now - timedelta(days=7)).isoformat()
         to_iso = now.isoformat()
@@ -5420,7 +5412,6 @@ def chamados_photos_purge():
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        _ensure_chamados_schema()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
