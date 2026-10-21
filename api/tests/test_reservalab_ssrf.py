@@ -1190,3 +1190,34 @@ class TestNoReadPrimitive:
         texto = ' '.join(m for _, m in logs_de)
         assert 'limite' in texto
         assert 'xxxx' not in texto
+
+
+# #422 — somente erros de acesso definitivos devem disparar o alerta.
+@pytest.mark.parametrize("status,expected", [
+    (401, True),
+    (403, True),
+    (404, True),
+    (429, False),
+    (500, False),
+])
+def test_status_http_classifica_link_inacessivel_sem_confundir_falha_temporaria(
+    legacy_module, status, expected,
+):
+    erro = f"A fonte respondeu HTTP {status}"
+    assert legacy_module._is_spreadsheet_link_access_error(erro) is expected
+
+
+@pytest.mark.parametrize("erro", [
+    "Tempo esgotado ao contatar a fonte",
+    "Falha de rede (ConnectionError)",
+    "URL inválida ou não permitida (proteção SSRF)",
+])
+def test_falhas_temporarias_nao_disparam_alerta_de_link_expirado(legacy_module, erro):
+    assert legacy_module._is_spreadsheet_link_access_error(erro) is False
+
+
+def test_resposta_html_de_login_nao_parece_arquivo_xlsx():
+    assert not b"<!DOCTYPE html>".startswith(b"PK")
+    assert bytes((80, 75, 3, 4)).startswith(b"PK")
+
+
