@@ -533,7 +533,19 @@ def _safe_url_for_log(url):
 
 def _is_spreadsheet_link_access_error(error):
     """Só HTTP 401/403/404 é evidência suficiente para alertar sobre acesso."""
-    return bool(re.search(r'HTTP (401|403|404)\b', str(error or '')))
+    return bool(re.search(r'HTTP (401|403|404)\\b', str(error or '')))
+
+
+def _is_spreadsheet_login_response(content):
+    """Reconhece HTML de login; bytes inválidos genéricos não provam link expirado."""
+    if not isinstance(content, (bytes, bytearray)):
+        return False
+    sample = bytes(content[:4096]).lstrip().lower()
+    return (
+        sample.startswith(b'<!doctype html')
+        or sample.startswith(b'<html')
+        or b'<html' in sample[:512]
+    )
 
 
 _SPREADSHEET_LINK_ERRORS = {}
@@ -655,11 +667,17 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
     try:
         try:
             # read_only + data_only: lê só os valores (sem fórmulas/render), bem mais rápido
-            # Link expirado pode redirecionar para HTML de login com HTTP 200.
+            # SharePoint pode devolver HTML com HTTP 200 quando exige autenticação.
+            # Bytes inválidos genéricos não provam que o link expirou.
             # Nunca registrar o corpo nem a URL completa, que pode conter token.
             if not content.startswith(b'PK'):
                 logger.error("A fonte não retornou um XLSX válido: %s", origem)
-                _SPREADSHEET_LINK_ERRORS[status_key] = 'resposta incompatível com XLSX (possível link expirado ou autenticação)'
+                if _is_spreadsheet_login_response(content):
+                    _SPREADSHEET_LINK_ERRORS[status_key] = (
+                        'resposta HTML inesperada (possível autenticação ou link de compartilhamento)'
+                    )
+                else:
+                    _SPREADSHEET_LINK_ERRORS.pop(status_key, None)
                 return reservas_hoje, reservas_semana
             wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
             logger.info("Planilha carregada!")
