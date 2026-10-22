@@ -221,23 +221,22 @@ def _extract_labs(raw_lab, lab_count):
 
 
 def _ensure_workspaces_lab_count():
-    """Cria a coluna lab_count em public.workspaces se ainda não existir."""
+    """Não executa DDL em runtime.
+
+    A criação e a evolução do schema são responsabilidade das migrations
+    versionadas do Supabase (000_bootstrap_baseline.sql linha 56 e
+    028_authorization_consolidation.sql linha 83). Esta função é mantida como
+    no-op por compatibilidade com chamadores existentes.
+    """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return
-    sql = 'ALTER TABLE public.workspaces ADD COLUMN IF NOT EXISTS lab_count SMALLINT NOT NULL DEFAULT 2;'
-    try:
-        headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
-        r = requests.post(f"{_SUPABASE_URL}/rest/v1/rpc/pg_sql", json={'query': sql}, headers=headers, timeout=10)
-        logger.info(f"pg_sql lab_count: {r.status_code}")
-    except Exception as e:
-        logger.info(f"pg_sql lab_count error: {e}")
+    logger.info("pg_sql lab_count: pulado (DDL coberto pelas migrations 000/028)")
 
 
 def _get_workspace_lab_count(workspace_slug):
     """Busca a quantidade de labs de um workspace (padrão 2).
 
-    Se a coluna lab_count ainda não existir no banco, garante a criação
-    (self-healing) e tenta de novo.
+    Não executa DDL nem tenta inicializar o schema em tempo de execução.
     """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return 2
@@ -251,11 +250,6 @@ def _get_workspace_lab_count(workspace_slug):
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.ok and resp.json():
             return int(resp.json()[0].get('lab_count') or 2)
-        if not resp.ok:
-            _ensure_workspaces_lab_count()
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.ok and resp.json():
-                return int(resp.json()[0].get('lab_count') or 2)
     except Exception as e:
         logger.error(f"Erro ao buscar lab_count do workspace '{workspace_slug}': {e}")
     return 2
@@ -1904,52 +1898,17 @@ def push_notify_return():
 
 
 def _ensure_stock_schema(supabase_url, supabase_key):
-    """Cria schema stock e tabelas se não existirem usando SQL direto no Postgres."""
+    """Não executa DDL em runtime.
+
+    A criação e a evolução do schema são responsabilidade das migrations
+    versionadas do Supabase (000_bootstrap_baseline.sql linhas 41-42,
+    009_workspace_isolation.sql linhas 38-39 e
+    016_notifications_stock_expiry.sql linha 12). Esta função é mantida como
+    no-op por compatibilidade com chamadores existentes.
+    """
     if not supabase_url or not supabase_key:
         return
-
-    h = {'apikey': supabase_key, 'Authorization': f'Bearer {supabase_key}'}
-
-    # Tenta criar via pg_sql RPC (colunas com aspas p/ preservar case)
-    sql = """CREATE SCHEMA IF NOT EXISTS stock;
-CREATE TABLE IF NOT EXISTS stock.stock_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL DEFAULT '', section TEXT NOT NULL DEFAULT '',
-    subcategory TEXT NOT NULL DEFAULT '', "serialNumber" TEXT NOT NULL DEFAULT '',
-    room TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'ativo',
-    condition TEXT NOT NULL DEFAULT 'Bom', notes TEXT DEFAULT '',
-    "linkedPcId" TEXT DEFAULT '', "linkedPcLabel" TEXT DEFAULT '',
-    "createdAt" TIMESTAMPTZ DEFAULT NOW(), "updatedAt" TIMESTAMPTZ DEFAULT NOW());
-CREATE TABLE IF NOT EXISTS stock.stock_movements (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "itemId" TEXT NOT NULL DEFAULT '', "itemName" TEXT NOT NULL DEFAULT '',
-    type TEXT NOT NULL DEFAULT '', "borrowedBy" TEXT DEFAULT '',
-    "borrowedAt" TIMESTAMPTZ DEFAULT NOW(), "expectedReturnAt" TIMESTAMPTZ,
-    "returnedAt" TIMESTAMPTZ, notes TEXT DEFAULT '',
-    "createdAt" TIMESTAMPTZ DEFAULT NOW());"""
-    try:
-        r = requests.post(f"{supabase_url}/rest/v1/rpc/pg_sql", json={'query': sql}, headers=h, timeout=10)
-        logger.info(f"pg_sql stock: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        logger.info(f"pg_sql stock error: {e}")
-
-    sql_p = """CREATE SCHEMA IF NOT EXISTS pcare;
-CREATE TABLE IF NOT EXISTS pcare.parts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL DEFAULT '', quantity INTEGER DEFAULT 0,
-    "minQuantity" INTEGER DEFAULT 0, unit TEXT DEFAULT 'un',
-    "createdAt" TIMESTAMPTZ DEFAULT NOW(), "updatedAt" TIMESTAMPTZ DEFAULT NOW());
-CREATE TABLE IF NOT EXISTS pcare.maintenance (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "pcNumber" TEXT DEFAULT '', "labName" TEXT DEFAULT '',
-    type TEXT DEFAULT '', description TEXT DEFAULT '',
-    completed BOOLEAN DEFAULT FALSE, "scheduledDate" DATE,
-    "createdAt" TIMESTAMPTZ DEFAULT NOW());"""
-    try:
-        r = requests.post(f"{supabase_url}/rest/v1/rpc/pg_sql", json={'query': sql_p}, headers=h, timeout=10)
-        logger.info(f"pg_sql pcare: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        logger.info(f"pg_sql pcare error: {e}")
+    logger.info("pg_sql stock/pcare: pulado (DDL coberto pelas migrations 000/009/016)")
 
 @app.route('/api/push/check-overdue', methods=['GET'])
 @require_cron
