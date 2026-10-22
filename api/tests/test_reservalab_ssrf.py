@@ -27,6 +27,7 @@ mockada for chamada — um teste que sairia para a rede falharia, não passaria.
 
 import importlib.util
 import io
+import json
 import socket
 import sys
 from datetime import timedelta
@@ -1276,5 +1277,659 @@ def test_alerta_super_admin_e_deduplicado_e_nao_contem_url_secreta(
         assert "share=" not in repr(payload)
     finally:
         legacy_module._SPREADSHEET_ALERT_ACTIVE.clear()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 10. #422 — do parse à notificação: o alerta de link inacessível
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# A seção acima prova as PEÇAS: como o classificador decide, como o HTML de
+# login é reconhecido, como o alerta é deduplicado. Falta o CAMINHO: planilha
+# → erro registrado → notificação criada → incidente resolvido → incidente novo.
+#
+# Estes testes exercitam `get_reservas()` — a função que a rota `/api/reservas`
+# chama — com o download, o Supabase e o Redis substituídos por doubles.
+# Nenhum acesso à rede, ao Supabase real ou à planilha da universidade.
+#
+# Aqui a pergunta não é "o classificador acertou?" (isso já está fixado acima),
+# e sim "o super admin é avisado uma vez, do jeito certo, e só quando é
+# preciso?"
+
+WORKSPACE_ALERTA = 'piracicaba'
+# URL de compartilhamento: carrega token no path/query, como o SharePoint
+# gera. O token é FICTÍCIO e existe só para provar que ele não aparece em
+# lugar nenhum do alerta.
+URL_COMPARTILHAMENTO = (
+    'https://tenant.sharepoint.com/:x:/g/personal/user/IQD5kZPM'
+    '?share=TOKEN-FICTICIO-123&download=1'
+)
+
+
+class _FakeRespostaJson:
+    """Resposta JSON mínima (leitura de workspace no Supabase)."""
+
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+        self.ok = 200 <= status_code < 400
+        self.headers = {}
+
+    def json(self):
+        return self._payload
+
+
+class FakeRequestsAlerta(FakeRequests):
+    """`requests` falso do fluxo do alerta: download, leitura de workspace e POST.
+
+    Herda de `FakeRequests` (mesma mecânica de sessão/cookies e `exceptions`
+    REAIS, para que os `except requests.exceptions.…` do código continuem
+    funcionando) e acrescenta o roteamento por URL e o registro de POST.
+
+    Falha alto, para que um teste que sairia para a rede falhe em vez de
+    passar:
+      * GET sem rota mockada ⇒ AssertionError — propaga, porque o download
+        só trata `requests.exceptions.…` e o erro chega ao pytest;
+      * POST para `/rpc/pg_sql` ⇒ a tentativa é REGISTRADA em `posts_rpc` e
+        verificada ao fim do teste (fixture `requests_alerta`). A exceção
+        sozinha não serviria: a aplicação engole `Exception` nesse caminho e o
+        AssertionError seria absorvido, deixando o teste passar limpo;
+      * `post` devolve `post_resposta` (padrão: 200) ou levanta `post_erro`.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.planilha = None
+        self.workspace = None
+        self.posts = []
+        self.posts_rpc = []
+        self.post_resposta = _FakeRespostaJson({})
+        self.post_erro = None
+
+    def get(self, url, **kwargs):
+        self.calls.append({"url": url, **kwargs})
+        if "/rest/v1/workspaces" in url:
+            return _FakeRespostaJson([self.workspace] if self.workspace else [])
+        if self.planilha is None:
+            raise AssertionError(f"sem resposta mockada para {url}")
+        return self.planilha
+
+    def post(self, url, **kwargs):
+        if "/rpc/pg_sql" in url:
+            # Registrar é o que torna o guard eficaz: a exceção pode ser
+            # absorvida pela aplicação, o registro não.
+            self.posts_rpc.append(url)
+            raise AssertionError("teste não pode chamar RPC de escrita no Supabase")
+        self.posts.append({"url": url, **kwargs})
+        if self.post_erro is not None:
+            raise self.post_erro
+        return self.post_resposta
+
+
+class FakeRedisNX:
+    """Redis falso com o contrato de `SET ... NX` que o código usa.
+
+    O código chama `redis.set(chave, '1', nx=True)` e trata como "alerta
+    criado" apenas as respostas `True`/`'OK'`/`'ok'`/`1`. O `SET NX` real do
+    Redis responde `None` quando a chave já existe — é esse contrato que o
+    double reproduz.
+
+    LIMITE: isto prova que o código USA a API `SET NX` e decide pelo
+    resultado. Não prova o comportamento do Upstash em produção (chave, TTL,
+    cluster) — isso é infraestrutura, não código.
+    """
+
+    def __init__(self):
+        self.store = {}
+        self.set_calls = []
+        self.deletes = []
+
+    def set(self, key, value, nx=False, ex=None):
+        self.set_calls.append({"key": key, "value": value, "nx": nx, "ex": ex})
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        return True
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def delete(self, key):
+        self.deletes.append(key)
+        return 1 if self.store.pop(key, None) is not None else 0
+
+
+@pytest.fixture()
+def requests_alerta(legacy_module, monkeypatch):
+    """Instala o double de `requests` NO módulo sob teste.
+
+    O patch é por atributo (`legacy_module.requests`), não pela string
+    'app.requests': o módulo legado é carregado sob a chave 'reservalab_api'
+    pelos testes, e o `api/app.py` importa o MESMO arquivo como 'app' — são
+    duas entradas do mesmo arquivo e, em memória, instâncias diferentes.
+    Patchar a string pode acertar a instância que o teste não exercita, e
+    então o download sairia para a rede de verdade.
+    """
+    fake = FakeRequestsAlerta()
+    monkeypatch.setattr(legacy_module, "requests", fake)
+    yield fake
+
+    # A garantia "nenhum teste toca a RPC de escrita" é verificada AQUI, e
+    # não pela exceção do mock: a aplicação engole `Exception` nesse caminho
+    # (o AssertionError seria absorvido e o teste passaria limpo). O registro
+    # não pode ser engolido, então ele é o que reprova o teste.
+    # A mensagem traz só a CONTAGEM, para não despejar URL na saída.
+    tentativas = len(fake.posts_rpc)
+    assert tentativas == 0, (
+        "nenhum teste pode chamar a RPC de escrita /rpc/pg_sql "
+        f"({tentativas} tentativa(s))"
+    )
+
+
+def _expirar_cache(legacy_module, cache_key):
+    """Marca a entrada de cache do workspace como EXPIRADA.
+
+    A entrada gravada pela aplicação (`{'data': ..., 'timestamp': ...}`) é
+    reescrita com `timestamp = 0` — que está sempre no passado. O cache se
+    comporta como expirado sem depender de `CACHE_TTL` (constante interna da
+    produção), sem relógio e sem espera: o resultado é determinístico.
+
+    Os dois backends da aplicação são tratados. Com Redis configurado,
+    `set_cached_reservas` grava nos dois e `get_cached_reservas` consulta o
+    Redis primeiro e o arquivo depois — então os dois precisam estar
+    expirados, senão o arquivo ainda atenderia a chamada.
+    """
+    chave_redis = f'cache:{cache_key}'
+    redis = getattr(legacy_module, 'redis', None)
+    if redis is not None:
+        try:
+            bruto = redis.get(chave_redis)
+        except Exception:
+            bruto = None
+        if bruto:
+            dados = json.loads(bruto)
+            dados['timestamp'] = 0
+            redis.set(chave_redis, json.dumps(dados))
+    caminho = Path(legacy_module._cache_path(cache_key))
+    if caminho.exists():
+        dados = json.loads(caminho.read_text(encoding='utf-8'))
+        dados['timestamp'] = 0
+        caminho.write_text(json.dumps(dados), encoding='utf-8')
+
+
+@pytest.fixture()
+def _ambiente_do_alerta(legacy_module, monkeypatch, tmp_path):
+    """Zera os estados globais do alerta, isola o cache em disco e desliga o Redis.
+
+    Os estados do alerta são globais de um módulo de sessão: sem esta limpeza,
+    um teste deixa resíduo para o próximo e a ordem de execução passa a
+    importar. O estado anterior é restaurado no fim, para não afetar os
+    demais testes do arquivo.
+    """
+    nomes = (
+        '_SPREADSHEET_LINK_ERRORS',
+        '_SPREADSHEET_LINK_SUCCESSES',
+        '_SPREADSHEET_WORKSPACE_STATUS_KEYS',
+        '_SPREADSHEET_ALERT_ACTIVE',
+    )
+    estado = {nome: getattr(legacy_module, nome) for nome in nomes}
+    copia = {
+        nome: (set(valor) if isinstance(valor, set) else dict(valor))
+        for nome, valor in estado.items()
+    }
+    for valor in estado.values():
+        valor.clear()
+
+    monkeypatch.setattr(legacy_module, 'redis', None)
+    monkeypatch.setattr(
+        legacy_module, '_cache_path',
+        lambda key: str(tmp_path / f'.cache_{key}.json'),
+    )
+    monkeypatch.setattr(legacy_module, '_SUPABASE_URL', 'https://supabase.example')
+    monkeypatch.setattr(legacy_module, '_SUPABASE_SERVICE_KEY', 'test-service-key')
+
+    yield
+
+    for nome, valor in estado.items():
+        valor.clear()
+        valor.update(copia[nome])
+
+
+@pytest.fixture()
+def alerta_limpo(_ambiente_do_alerta, legacy_module, monkeypatch):
+    """Ambiente do alerta em que o cache NUNCA atende (cache expirado).
+
+    O cache expirado é simulado reescrevendo o `timestamp` da entrada gravada
+    (ver `_expirar_cache`) — e não zerando `CACHE_TTL`. `CACHE_TTL` é uma
+    constante interna da produção: zerá-la acopla o teste a esse detalhe e
+    quebraria sozinho se a forma de checar a expiração mudasse. Com
+    `timestamp = 0` o cache está sempre no passado — determinístico, sem
+    relógio e sem espera artificial.
+
+    O efeito é o que os testes do alerta precisam: cada chamada re-consulta a
+    planilha, como na vida real depois que o cache expira.
+    """
+    gravar_cache = legacy_module.set_cached_reservas
+
+    def _grava_cache_expirado(cache_key, data):
+        gravar_cache(cache_key, data)
+        _expirar_cache(legacy_module, cache_key)
+
+    monkeypatch.setattr(legacy_module, 'set_cached_reservas', _grava_cache_expirado)
+
+
+@pytest.fixture()
+def alerta_cache_quente(_ambiente_do_alerta):
+    """Ambiente do alerta em que o cache VALE (gravação e validade de produção).
+
+    Usado pelo cenário de cache quente: aqui a entrada gravada é a real e a
+    validade é a de produção (`CACHE_TTL` > 0). Se a produção passar a
+    expirar o cache imediatamente, esse teste falha de forma explícita — que
+    é o comportamento correto para um teste que fixa "enquanto o cache vale,
+    a planilha não é re-consultada".
+    """
+
+
+# ── A: planilha válida não gera alerta ──────────────────────────────────────
+
+def test_planilha_valida_nao_gera_alerta_de_link_inacessivel(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, hoje,
+):
+    """Cenário A: XLSX válido ⇒ parse bem-sucedido, sem erro e sem notificação.
+
+    O falso positivo é o pior defeito possível aqui: um alerta por planilha
+    sadia spammando o super admin com incidentes que não existem.
+    """
+    corpo = _planilha([
+        ['Prof. A', 'Responsável A', 'a@test.com', hoje + timedelta(days=1),
+         '08:00-10:00', 30, 'Uso de aula', '', 'Lab 01 e 02'],
+    ])
+    requests_alerta.planilha = FakeResponse(content=corpo)
+
+    hoje_r, semana = legacy_module.get_reservas(
+        WORKSPACE_ALERTA,
+        spreadsheet_url=URL_COMPARTILHAMENTO,
+        lab_count=2,
+    )
+
+    assert len(hoje_r) + len(semana) == 1, "a planilha válida tem de produzir reservas"
+    status_key = legacy_module._spreadsheet_status_key(URL_COMPARTILHAMENTO)
+    assert status_key not in legacy_module._SPREADSHEET_LINK_ERRORS
+    assert requests_alerta.posts == [], "planilha válida não pode gerar notificação"
+
+
+# ── B: 401/403/404 → um alerta por incidente ────────────────────────────────
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_status_de_acesso_gera_um_unico_alerta_para_o_super_admin(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, status,
+):
+    """Cenário B: 401/403/404 ⇒ alerta de link inacessível, UMA vez por incidente.
+
+    Exercita o CAMINHO inteiro: download → classificação → registro do erro →
+    notificação. Três chamadas durante o mesmo incidente, uma notificação só.
+    """
+    requests_alerta.planilha = FakeResponse(status_code=status)
+
+    for _ in range(3):
+        legacy_module.get_reservas(
+            WORKSPACE_ALERTA,
+            spreadsheet_url=URL_COMPARTILHAMENTO,
+            lab_count=2,
+        )
+
+    assert len(requests_alerta.posts) == 1, (
+        "o mesmo incidente não pode gerar alertas duplicados"
+    )
+
+    post = requests_alerta.posts[0]
+    payload = post["json"]
+    assert post["url"].endswith("/rest/v1/app_notifications")
+    assert payload["target_super_admin"] is True
+    assert payload["target_user_id"] is None
+    assert payload["workspace_id"] is None
+    assert payload["module"] == "reservalab"
+    assert payload["severity"] == "critical"
+    assert payload["action_url"] == "/admin/workspaces"
+    assert f"HTTP {status}" in payload["body"]
+    assert WORKSPACE_ALERTA in payload["body"]
+    # A URL da planilha carrega token de compartilhamento: ela não pode
+    # aparecer em nenhum campo do alerta.
+    assert "TOKEN-FICTICIO-123" not in repr(payload)
+    assert URL_COMPARTILHAMENTO not in repr(payload)
+
+
+def test_rota_reservas_dispara_o_alerta_de_link_inacessivel(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo,
+):
+    """Cenário B (ponta a ponta): a rota pública `/api/reservas` aciona o alerta.
+
+    É a prova de que o alerta não depende de alguém chamar a função interna:
+    o caminho é rota → planilha → erro → notificação.
+    """
+    requests_alerta.workspace = {
+        'spreadsheet_url': URL_COMPARTILHAMENTO,
+        'lab_count': 2,
+    }
+    requests_alerta.planilha = FakeResponse(status_code=403)
+
+    cliente = legacy_module.app.test_client()
+    resp = cliente.get(f'/api/reservas?workspace={WORKSPACE_ALERTA}')
+
+    assert resp.status_code == 200
+    assert len(requests_alerta.posts) == 1
+    assert requests_alerta.posts[0]["json"]["target_super_admin"] is True
+
+
+# ── D: HTTP 200 com HTML de autenticação ────────────────────────────────────
+
+# As três formas que o classificador de login reconhece.
+#
+# O que cada uma exercita DE FATO em `_is_spreadsheet_login_response` — cujas
+# condições são `startswith('<!doctype html')`, `startswith('<html')` e
+# `'<html' in sample[:512]`, nessa ordem:
+#   * a 1ª (doctype) satisfaz a 1ª condição;
+#   * a 2ª (`<html>` no início) satisfaz a 2ª E a 3ª condição;
+#   * a 3ª (`<html>` só depois do redirect) satisfaz SOMENTE a 3ª.
+#
+# Ou seja: a 2ª condição é logicamente implicada pela 3ª (se o sample começa
+# com `<html`, então `<html` está nos primeiros 512 bytes) — a variante do
+# meio não a exercita sozinha. Isso é redundância da IMPLEMENTAÇÃO, não
+# lacuna de cobertura: o que este bloco fixa é o comportamento observável
+# (todo HTML de login é sinalizado), não a forma interna do classificador.
+HTML_DE_LOGIN = [
+    # começa com doctype
+    b'<!DOCTYPE html><html><head><title>Sign in</title></head></html>',
+    # começa com <html>
+    b'<html lang="pt-BR"><head><title>Entrar</title></head><body>Login</body></html>',
+    # o <html> só aparece depois de um redirecionamento em JS
+    b'Redirecting to sign in... <html><body>Acesso negado</body></html>',
+]
+
+
+@pytest.mark.parametrize("conteudo", HTML_DE_LOGIN)
+def test_html_de_autenticacao_e_sinalizado_sem_vazar_a_url_de_compartilhamento(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, conteudo,
+):
+    """Cenário D: HTTP 200 com HTML de login ⇒ possível problema de acesso.
+
+    O SharePoint devolve HTML de login com status 200 quando o link de
+    compartilhamento perdeu a sessão. Isso é sinal de acesso, não bytes
+    inválidos — mas o alerta não pode carregar a URL, que é o segredo.
+    """
+    requests_alerta.planilha = FakeResponse(content=conteudo)
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA,
+        spreadsheet_url=URL_COMPARTILHAMENTO,
+        lab_count=2,
+    )
+
+    assert len(requests_alerta.posts) == 1
+    payload = requests_alerta.posts[0]["json"]
+    assert payload["target_super_admin"] is True
+    assert "HTML" in payload["body"]
+    # O segredo é a URL de compartilhamento: ela não pode aparecer em NENHUM
+    # campo do payload. O `repr` do payload inteiro cobre todos os campos de
+    # uma vez (inclusive `title` e `body`) — um vazamento em qualquer outro
+    # campo também reprova o teste, e não só em `title`/`body`.
+    repr_payload = repr(payload)
+    assert "TOKEN-FICTICIO-123" not in repr_payload
+    assert "share=" not in repr_payload
+    assert "tenant.sharepoint.com" not in repr_payload
+    assert URL_COMPARTILHAMENTO not in repr_payload
+
+
+def test_resposta_nao_xlsx_sem_marca_de_login_nao_gera_alerta(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo,
+):
+    """Fronteira do cenário D: erro genérico da fonte NÃO é problema de acesso.
+
+    Nem toda resposta que não é XLSX é tela de login. Um erro genérico não
+    prova que o link de compartilhamento expirou, e alertar aqui seria alarme
+    falso. Este teste fixa a fronteira do que o classificador considera
+    "evidência de acesso".
+    """
+    requests_alerta.planilha = FakeResponse(
+        content=b'{"erro":"planilha nao encontrada"}'
+    )
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA,
+        spreadsheet_url=URL_COMPARTILHAMENTO,
+        lab_count=2,
+    )
+
+    assert requests_alerta.posts == [], (
+        "erro genérico da fonte não prova problema de acesso ao link"
+    )
+    status_key = legacy_module._spreadsheet_status_key(URL_COMPARTILHAMENTO)
+    assert status_key not in legacy_module._SPREADSHEET_LINK_ERRORS
+
+
+# ── F: deduplicação via Redis ───────────────────────────────────────────────
+
+def test_redis_set_nx_bem_sucedido_cria_o_alerta(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, monkeypatch,
+):
+    """Cenário F: com Redis, o `SET NX` bem-sucedido é o que autoriza o alerta."""
+    redis_falso = FakeRedisNX()
+    monkeypatch.setattr(legacy_module, 'redis', redis_falso)
+    requests_alerta.planilha = FakeResponse(status_code=403)
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+
+    assert len(requests_alerta.posts) == 1
+    chave = legacy_module._spreadsheet_alert_key(WORKSPACE_ALERTA)
+    chamadas = [c for c in redis_falso.set_calls if c["key"] == chave]
+    assert chamadas, "a chave do alerta tem de ser reservada no Redis"
+    assert all(c["nx"] is True for c in chamadas), (
+        "a reserva tem de ser NX — sobrescrever quebraria a deduplicação"
+    )
+    assert chave in redis_falso.store
+
+
+def test_redis_com_chave_existente_nao_cria_nova_notificacao(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, monkeypatch,
+):
+    """Cenário F: a chave já reservada (incidente em curso) ⇒ nada de novo."""
+    redis_falso = FakeRedisNX()
+    chave = legacy_module._spreadsheet_alert_key(WORKSPACE_ALERTA)
+    redis_falso.store[chave] = '1'
+    monkeypatch.setattr(legacy_module, 'redis', redis_falso)
+    requests_alerta.planilha = FakeResponse(status_code=403)
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+
+    assert requests_alerta.posts == [], (
+        "incidente em curso não pode gerar nova notificação"
+    )
+
+
+def test_dedup_entre_instancias_que_compartilham_o_mesmo_redis(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, monkeypatch,
+):
+    """Cenário F: duas instâncias (memórias locais distintas), um Redis.
+
+    Em serverless cada instância tem a sua própria memória, que se perde a
+    cada cold start. A deduplicação ENTRE instâncias só existe se o Redis for
+    o árbitro — é isso que este teste fixa.
+    """
+    redis_falso = FakeRedisNX()
+    monkeypatch.setattr(legacy_module, 'redis', redis_falso)
+    requests_alerta.planilha = FakeResponse(status_code=403)
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+    assert len(requests_alerta.posts) == 1
+
+    # "Nova instância": a memória local vai-se embora, o Redis não.
+    legacy_module._SPREADSHEET_ALERT_ACTIVE.clear()
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+    assert len(requests_alerta.posts) == 1, (
+        "sem o Redis como árbitro, o mesmo incidente geraria notificações "
+        "repetidas a cada instância"
+    )
+
+
+# ── G: recuperação e novo incidente ─────────────────────────────────────────
+
+def test_recuperacao_limpa_o_alerta_e_permite_um_novo_incidente(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, monkeypatch, hoje,
+):
+    """Cenário G: a planilha volta ⇒ o estado do alerta é limpo e o próximo
+    incidente pode alertar de novo.
+
+    Sem a limpeza, o segundo incidente do mesmo workspace passaria
+    despercebido: o sistema acreditaria que já tinha avisado.
+    """
+    redis_falso = FakeRedisNX()
+    monkeypatch.setattr(legacy_module, 'redis', redis_falso)
+    chave = legacy_module._spreadsheet_alert_key(WORKSPACE_ALERTA)
+
+    # 1. incidente
+    requests_alerta.planilha = FakeResponse(status_code=403)
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+    assert len(requests_alerta.posts) == 1
+    assert chave in redis_falso.store
+
+    # 2. recuperação: a planilha volta a responder
+    corpo = _planilha([
+        ['Prof. A', 'Resp', 'a@test.com', hoje + timedelta(days=1),
+         '08:00-09:00', 10, '', '', 'Lab 01'],
+    ])
+    requests_alerta.planilha = FakeResponse(content=corpo)
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+
+    assert chave in redis_falso.deletes, (
+        "a recuperação tem de liberar a chave no Redis"
+    )
+    assert chave not in redis_falso.store
+    assert chave not in legacy_module._SPREADSHEET_ALERT_ACTIVE
+    status_key = legacy_module._spreadsheet_status_key(URL_COMPARTILHAMENTO)
+    assert status_key not in legacy_module._SPREADSHEET_LINK_ERRORS
+
+    # 3. novo incidente
+    requests_alerta.planilha = FakeResponse(status_code=403)
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+
+    assert len(requests_alerta.posts) == 2, (
+        "um incidente novo tem de poder alertar de novo"
+    )
+
+
+def test_com_cache_quente_o_alerta_permanece_ativo_sem_novo_parse(
+    legacy_module, dns_allows, requests_alerta, alerta_cache_quente,
+):
+    """Comportamento real: enquanto o cache vale, a planilha não é re-consultada.
+
+    `get_reservas` serve o cache antes de qualquer parse. Com o cache quente,
+    a segunda chamada NÃO re-consulta a planilha e o estado do alerta não é
+    limpo — a recuperação só é percebida quando o cache expira.
+
+    Este teste fixa esse comportamento para que uma mudança nele, se vier,
+    seja deliberada (e não efeito colateral).
+    """
+    requests_alerta.planilha = FakeResponse(status_code=403)
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+    assert len(requests_alerta.posts) == 1
+    downloads = len(requests_alerta.calls)
+    chave = legacy_module._spreadsheet_alert_key(WORKSPACE_ALERTA)
+    assert chave in legacy_module._SPREADSHEET_ALERT_ACTIVE
+
+    # Segunda chamada com o cache ainda válido: nenhum download novo.
+    requests_alerta.planilha = FakeResponse(content=b'PK\x03\x04qualquer-coisa')
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+
+    assert len(requests_alerta.calls) == downloads, (
+        "com o cache quente a planilha não deve ser re-consultada"
+    )
+    assert len(requests_alerta.posts) == 1
+    # O cache quente serviu a resposta: o alerta segue ATIVO. A chave não foi
+    # liberada (o caminho de cache retorna antes de `_clear_spreadsheet_link_
+    # alert`), e nenhuma notificação nova foi disparada.
+    assert chave in legacy_module._SPREADSHEET_ALERT_ACTIVE, (
+        "com o cache quente o alerta tem de continuar ativo — a recuperação só "
+        "é percebida quando o cache expira"
+    )
+
+
+# ── I: falha ao persistir a notificação ─────────────────────────────────────
+
+def test_falha_http_ao_persistir_o_alerta_libera_a_tentativa_seguinte(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, logs_de,
+):
+    """Cenário I: o Supabase recusa o alerta ⇒ dedup liberado, nova tentativa.
+
+    Sem liberar o dedup, um incidente cujo alerta falhou ao ser gravado ficaria
+    mudo para sempre: o sistema acreditaria que já avisou.
+
+    O que existe é a LIBERAÇÃO do dedup — não há retry automático. A tentativa
+    seguinte acontece porque a próxima chamada re-entra na notificação.
+    """
+    requests_alerta.planilha = FakeResponse(status_code=403)
+    requests_alerta.post_resposta = _FakeRespostaJson({}, status_code=500)
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+
+    assert len(requests_alerta.posts) == 1
+    chave = legacy_module._spreadsheet_alert_key(WORKSPACE_ALERTA)
+    assert chave not in legacy_module._SPREADSHEET_ALERT_ACTIVE, (
+        "o dedup tem de ser liberado quando a gravação falha"
+    )
+    erros = [msg for nivel, msg in logs_de if nivel == 'error']
+    assert any('persistir' in msg for msg in erros), (
+        "a falha tem de ficar registrada — não pode passar como sucesso"
+    )
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+    assert len(requests_alerta.posts) == 2, "a chamada seguinte tem de tentar de novo"
+
+
+def test_excecao_de_rede_ao_persistir_o_alerta_tambem_libera_a_tentativa(
+    legacy_module, dns_allows, requests_alerta, alerta_limpo, logs_de,
+):
+    """Cenário I: a rede cai no meio da gravação ⇒ o mesmo caminho de limpeza."""
+    requests_alerta.planilha = FakeResponse(status_code=403)
+    requests_alerta.post_erro = requests_lib.exceptions.ConnectionError('sem rede')
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+
+    assert len(requests_alerta.posts) == 1
+    chave = legacy_module._spreadsheet_alert_key(WORKSPACE_ALERTA)
+    assert chave not in legacy_module._SPREADSHEET_ALERT_ACTIVE
+    erros = [msg for nivel, msg in logs_de if nivel == 'error']
+    assert any('persistir' in msg for msg in erros), (
+        "a falha tem de ficar registrada — não pode passar como sucesso"
+    )
+
+    legacy_module.get_reservas(
+        WORKSPACE_ALERTA, spreadsheet_url=URL_COMPARTILHAMENTO, lab_count=2,
+    )
+    assert len(requests_alerta.posts) == 2
 
 
