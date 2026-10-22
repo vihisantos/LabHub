@@ -235,8 +235,7 @@ def _ensure_workspaces_lab_count():
 def _get_workspace_lab_count(workspace_slug):
     """Busca a quantidade de labs de um workspace (padrão 2).
 
-    Se a coluna lab_count ainda não existir no banco, garante a criação
-    (self-healing) e tenta de novo.
+    Não executa DDL nem tenta inicializar o schema em runtime.
     """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return 2
@@ -250,11 +249,6 @@ def _get_workspace_lab_count(workspace_slug):
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.ok and resp.json():
             return int(resp.json()[0].get('lab_count') or 2)
-        if not resp.ok:
-            _ensure_workspaces_lab_count()
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.ok and resp.json():
-                return int(resp.json()[0].get('lab_count') or 2)
     except Exception as e:
         logger.error(f"Erro ao buscar lab_count do workspace '{workspace_slug}': {e}")
     return 2

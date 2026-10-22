@@ -159,15 +159,33 @@ def test_get_workspace_lab_count_returns_actual_value_when_present():
 # ---------------------------------------------------------------------------
 
 
-def test_get_workspace_lab_count_error_path_does_not_call_pg_sql():
-    """Quando a requisição falha, _ensure_workspaces_lab_count() é chamado
-    (no-op) e não resulta em POST para rpc/pg_sql."""
+def test_get_workspace_lab_count_network_error_does_not_call_pg_sql():
+    """Erro de rede não dispara _ensure_workspaces_lab_count() nem POST para rpc/pg_sql."""
     with patch.object(reservalab_app, "_SUPABASE_URL", "http://supabase"):
         with patch.object(reservalab_app, "_SUPABASE_SERVICE_KEY", "secret"):
             with patch.object(
                 reservalab_app.requests, "get", side_effect=TimeoutError("sem rede")
-            ):
+            ) as mock_get:
                 with patch.object(reservalab_app.requests, "post") as mock_post:
                     result = reservalab_app._get_workspace_lab_count("ws-1")
                     assert result == 2
                     mock_post.assert_not_called()
+                    # Uma única tentativa de GET; não há repetição após erro.
+                    mock_get.assert_called_once()
+
+
+def test_get_workspace_lab_count_http_error_no_second_get_request():
+    """Resposta HTTP não-OK não dispara segunda requisição GET nem _ensure_workspaces_lab_count()."""
+    with patch.object(reservalab_app, "_SUPABASE_URL", "http://supabase"):
+        with patch.object(reservalab_app, "_SUPABASE_SERVICE_KEY", "secret"):
+            with patch.object(
+                reservalab_app.requests,
+                "get",
+                return_value=_fake_response(ok=False),
+            ) as mock_get:
+                with patch.object(reservalab_app.requests, "post") as mock_post:
+                    result = reservalab_app._get_workspace_lab_count("ws-1")
+                    assert result == 2
+                    mock_post.assert_not_called()
+                    # Apenas uma requisição GET; não há repetição após resposta não-OK.
+                    mock_get.assert_called_once()
