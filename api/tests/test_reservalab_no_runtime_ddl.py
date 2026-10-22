@@ -175,7 +175,7 @@ def test_get_workspace_lab_count_network_error_does_not_call_pg_sql():
 
 
 def test_get_workspace_lab_count_http_error_no_second_get_request():
-    """Resposta HTTP não-OK não dispara segunda requisição GET nem _ensure_workspaces_lab_count()."""
+    """Resposta HTTP não-OK não dispara _ensure_workspaces_lab_count() nem segundo GET."""
     with patch.object(reservalab_app, "_SUPABASE_URL", "http://supabase"):
         with patch.object(reservalab_app, "_SUPABASE_SERVICE_KEY", "secret"):
             with patch.object(
@@ -187,5 +187,5 @@ def test_get_workspace_lab_count_http_error_no_second_get_request():
                     result = reservalab_app._get_workspace_lab_count("ws-1")
                     assert result == 2
                     mock_post.assert_not_called()
-                    # Apenas uma requisição GET; não há repetição após resposta não-OK.
+                    # Uma única requisição GET; não há repetição após resposta não-OK.
                     mock_get.assert_called_once()

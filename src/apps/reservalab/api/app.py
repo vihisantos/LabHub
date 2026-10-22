@@ -221,11 +221,12 @@ def _extract_labs(raw_lab, lab_count):
 
 
 def _ensure_workspaces_lab_count():
-    """Cria a coluna lab_count em public.workspaces se ainda não existir.
+    """Não executa DDL em runtime.
 
-    O DDL já é coberto pelas migrations 000_bootstrap_baseline.sql (linha 56)
-    e 028_authorization_consolidation.sql (linha 83), portanto não é executado
-    em runtime. Mantido como no-op para compatibilidade com chamadores.
+    A criação e a evolução do schema são responsabilidade das migrations
+    versionadas do Supabase (000_bootstrap_baseline.sql linha 56 e
+    028_authorization_consolidation.sql linha 83). Esta função é mantida como
+    no-op por compatibilidade com chamadores existentes.
     """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return
@@ -235,7 +236,7 @@ def _ensure_workspaces_lab_count():
 def _get_workspace_lab_count(workspace_slug):
     """Busca a quantidade de labs de um workspace (padrão 2).
 
-    Não executa DDL nem tenta inicializar o schema em runtime.
+    Não executa DDL nem tenta inicializar o schema em tempo de execução.
     """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return 2
@@ -1897,12 +1898,13 @@ def push_notify_return():
 
 
 def _ensure_stock_schema(supabase_url, supabase_key):
-    """Cria schema stock e tabelas se não existirem usando SQL direto no Postgres.
+    """Não executa DDL em runtime.
 
-    O DDL já é coberto pelas migrations 000_bootstrap_baseline.sql (linhas 41-42),
-    009_workspace_isolation.sql (linhas 38-39) e 016_notifications_stock_expiry.sql
-    (linha 12), portanto não é executado em runtime. Mantido como no-op para
-    compatibilidade com chamadores.
+    A criação e a evolução do schema são responsabilidade das migrations
+    versionadas do Supabase (000_bootstrap_baseline.sql linhas 41-42,
+    009_workspace_isolation.sql linhas 38-39 e
+    016_notifications_stock_expiry.sql linha 12). Esta função é mantida como
+    no-op por compatibilidade com chamadores existentes.
     """
     if not supabase_url or not supabase_key:
         return
