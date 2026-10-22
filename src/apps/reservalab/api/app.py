@@ -525,10 +525,114 @@ def _safe_url_for_log(url):
     return f'{scheme}://{host}' if not port else f'{scheme}://{host}:{port}'
 
 
+def _is_spreadsheet_link_access_error(error):
+    """Só HTTP 401/403/404 é evidência suficiente para alertar sobre acesso."""
+    return bool(re.search(r'HTTP (401|403|404)\b', str(error or '')))
+
+
+def _is_spreadsheet_login_response(content):
+    """Reconhece HTML de login; bytes inválidos genéricos não provam link expirado."""
+    if not isinstance(content, (bytes, bytearray)):
+        return False
+    sample = bytes(content[:4096]).lstrip().lower()
+    return (
+        sample.startswith(b'<!doctype html')
+        or sample.startswith(b'<html')
+        or b'<html' in sample[:512]
+    )
+
+
+_SPREADSHEET_LINK_ERRORS = {}
+_SPREADSHEET_LINK_SUCCESSES = set()
+_SPREADSHEET_WORKSPACE_STATUS_KEYS = {}
+_SPREADSHEET_ALERT_ACTIVE = set()
+
+
+def _spreadsheet_status_key(spreadsheet_url):
+    # Só o hash fica em memória; a URL pode conter o token do compartilhamento.
+    digest = hashlib.sha256(str(spreadsheet_url or '').encode('utf-8')).hexdigest()[:24]
+    return f'reservalab:spreadsheet-status:{digest}'
+
+
+def _spreadsheet_alert_key(workspace_slug):
+    safe_slug = str(workspace_slug or 'default').strip().lower()
+    digest = hashlib.sha256(safe_slug.encode('utf-8')).hexdigest()[:24]
+    return f'reservalab:spreadsheet-link-alert:{digest}'
+
+
+def _clear_spreadsheet_link_alert(workspace_slug):
+    key = _spreadsheet_alert_key(workspace_slug)
+    _SPREADSHEET_ALERT_ACTIVE.discard(key)
+    if redis:
+        try:
+            redis.delete(key)
+        except Exception:
+            pass
+
+
+def _notify_super_admin_spreadsheet_link(workspace_slug, access_error):
+    """Emite um único alerta por incidente de acesso, somente para super admin."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    key = _spreadsheet_alert_key(workspace_slug)
+    claimed = False
+    if redis:
+        try:
+            result = redis.set(key, '1', nx=True)
+            claimed = result in (True, 'OK', 'ok', 1)
+        except Exception:
+            claimed = key not in _SPREADSHEET_ALERT_ACTIVE
+            _SPREADSHEET_ALERT_ACTIVE.add(key)
+    else:
+        claimed = key not in _SPREADSHEET_ALERT_ACTIVE
+        _SPREADSHEET_ALERT_ACTIVE.add(key)
+    if not claimed:
+        return
+
+    workspace_label = str(workspace_slug or 'padrão')
+    notification_id = str(uuid.uuid4())
+    payload = {
+        'id': notification_id,
+        'workspace_id': None,
+        'title': 'ReservaLab: link da planilha precisa ser verificado',
+        'body': (
+            f'A planilha de reservas do workspace "{workspace_label}" está inacessível '
+            f'({access_error}). Verifique se o link do SharePoint expirou ou perdeu '
+            'permissão; gere um novo link e atualize a configuração do workspace.'
+        ),
+        'type': 'sync',
+        'severity': 'critical',
+        'module': 'reservalab',
+        'audience': 'role',
+        'target_role': None,
+        'target_super_admin': True,
+        'target_user_id': None,
+        'action_url': '/admin/workspaces',
+    }
+    try:
+        response = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/app_notifications',
+            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
+            json=payload,
+            timeout=10,
+        )
+        if not response.ok:
+            _clear_spreadsheet_link_alert(workspace_slug)
+            logger.error(
+                'Falha ao persistir alerta de link do ReservaLab (HTTP %s)',
+                response.status_code,
+            )
+    except Exception:
+        _clear_spreadsheet_link_alert(workspace_slug)
+        logger.error('Falha ao persistir alerta de link do ReservaLab')
+
+
 def _parse_spreadsheet(spreadsheet_url, lab_count=2):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
     reservas_hoje = []
     reservas_semana = []
+    status_key = _spreadsheet_status_key(spreadsheet_url)
+    _SPREADSHEET_LINK_SUCCESSES.discard(status_key)
     if not spreadsheet_url:
         return reservas_hoje, reservas_semana
     # Só a representação segura: a URL original pode carregar token de
@@ -548,14 +652,31 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
         # O detalhe técnico fica no log; o contrato de retorno é lista vazia, como
         # antes. `origem` já é a forma sanitizada — a URL crua nunca entra aqui.
         logger.error("Falha ao baixar a planilha de %s (%s)", origem, fetch_error)
+        if _is_spreadsheet_link_access_error(fetch_error):
+            status_match = re.search(r'HTTP (401|403|404)\b', str(fetch_error))
+            _SPREADSHEET_LINK_ERRORS[status_key] = f'HTTP {status_match.group(1)}'
         return reservas_hoje, reservas_semana
     # Daqui para baixo é o parser de antes, byte a byte: o `try` externo continua
     # sendo a rede de segurança do laço de linhas.
     try:
         try:
             # read_only + data_only: lê só os valores (sem fórmulas/render), bem mais rápido
+            # SharePoint pode devolver HTML com HTTP 200 quando exige autenticação.
+            # Bytes inválidos genéricos não provam que o link expirou.
+            # Nunca registrar o corpo nem a URL completa, que pode conter token.
+            if not content.startswith(b'PK'):
+                logger.error("A fonte não retornou um XLSX válido: %s", origem)
+                if _is_spreadsheet_login_response(content):
+                    _SPREADSHEET_LINK_ERRORS[status_key] = (
+                        'resposta HTML inesperada (possível autenticação ou link de compartilhamento)'
+                    )
+                else:
+                    _SPREADSHEET_LINK_ERRORS.pop(status_key, None)
+                return reservas_hoje, reservas_semana
             wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
             logger.info("Planilha carregada!")
+            _SPREADSHEET_LINK_ERRORS.pop(status_key, None)
+            _SPREADSHEET_LINK_SUCCESSES.add(status_key)
         except Exception as e:
             logger.error(f"Erro ao carregar planilha: {e}")
             return reservas_hoje, reservas_semana
@@ -652,6 +773,10 @@ def get_reservas(workspace_slug=None, spreadsheet_url=_UNSET, lab_count=2):
     # receber o cache de outro campus (nem do fallback global).
     cached = get_cached_reservas(cache_key)
     if cached:
+        status_key = _SPREADSHEET_WORKSPACE_STATUS_KEYS.get(str(workspace_slug or 'default'))
+        link_error = _SPREADSHEET_LINK_ERRORS.get(status_key)
+        if link_error:
+            _notify_super_admin_spreadsheet_link(workspace_slug, link_error)
         return cached
     
     if spreadsheet_url is _UNSET:
@@ -661,6 +786,14 @@ def get_reservas(workspace_slug=None, spreadsheet_url=_UNSET, lab_count=2):
         logger.info(f"Usando planilha do workspace '{workspace_slug}'")
     
     reservas_hoje, reservas_semana = _parse_spreadsheet(spreadsheet_url, lab_count=lab_count)
+    status_key = _spreadsheet_status_key(spreadsheet_url)
+    _SPREADSHEET_WORKSPACE_STATUS_KEYS[str(workspace_slug or 'default')] = status_key
+    link_error = _SPREADSHEET_LINK_ERRORS.get(status_key)
+    if link_error:
+        _notify_super_admin_spreadsheet_link(workspace_slug, link_error)
+    if status_key in _SPREADSHEET_LINK_SUCCESSES:
+        _clear_spreadsheet_link_alert(workspace_slug)
+        _SPREADSHEET_LINK_SUCCESSES.discard(status_key)
     
     logger.info(f"Planilha[{cache_key}]: {len(reservas_hoje)} hoje, {len(reservas_semana)} semana")
     result = (reservas_hoje, reservas_semana)

@@ -4160,6 +4160,10 @@ def app_notifications_list():
         rows = resp.json() if resp.ok else []
         out = []
         for r in rows or []:
+            # Notificações explicitamente restritas ao super admin não devem
+            # chegar sequer na resposta da API de usuários comuns.
+            if r.get('target_super_admin') is True and not is_super:
+                continue
             w = r.get('workspace_id')
             if is_super:
                 out.append(r)
