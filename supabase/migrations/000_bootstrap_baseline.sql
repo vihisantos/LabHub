@@ -497,8 +497,9 @@ CREATE INDEX IF NOT EXISTS idx_tv_activation_codes_code ON public.tv_activation_
 CREATE INDEX IF NOT EXISTS idx_tv_activation_codes_status ON public.tv_activation_codes(status, expires_at);
 
 -- ============================================================================
--- 6. CHAMADOS (DDL AUTORITATIVO = CHAMADOS_TABLE_SQL em api/app.py.
---    O arquivo antigo supa/chamados.sql estava defasado — arquivado.)
+-- 6. CHAMADOS (DDL AUTORITATIVO = este bloco da migração. A API Flask
+--    não executa DDL em runtime. O arquivo antigo supa/chamados.sql
+--    estava defasado — arquivado.)
 --    RLS habilitado SEM policies + REVOKE total: acesso somente via
 --    service_role da API Flask.
 -- ============================================================================
