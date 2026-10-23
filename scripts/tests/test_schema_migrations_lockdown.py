@@ -37,6 +37,12 @@ def db():
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
                 if cur.fetchone() is None:
                     cur.execute(f'CREATE ROLE "{role}" NOLOGIN')
+            # Replicates the Supabase platform: service_role carries BYPASSRLS.
+            # BYPASSRLS only bypasses RLS policies — it does NOT grant table
+            # privileges by itself, so the REVOKE in migration 102 still blocks
+            # this role. The SET ROLE assertions below prove exactly that: with
+            # BYPASSRLS and no table privileges, SELECT/INSERT still fail.
+            cur.execute('ALTER ROLE "service_role" BYPASSRLS')
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS public.schema_migrations (
                     version text PRIMARY KEY,
