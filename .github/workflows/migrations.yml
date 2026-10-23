@@ -94,6 +94,9 @@ jobs:
       - name: Suite de migrations em PostgreSQL efêmero
         working-directory: scripts
         run: python ci/ci_migration_suite.py
+      - name: Valida lockdown de schema_migrations (migration 102)
+        working-directory: scripts
+        run: python -m pytest tests/test_schema_migrations_lockdown.py -q
 
   # ─────────────────────────────────────────────────────────────────────────
   # 2) migrate — só após validate verde, e só fora de PR.
