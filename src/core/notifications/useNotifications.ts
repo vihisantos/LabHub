@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { AppNotification, NotificationFormData } from './types'
 import { notificationService, appNotificationFromRow } from './service'
 import { authService } from '../auth/service'
@@ -67,11 +67,118 @@ export function smartGroup(items: AppNotification[]): SmartGroupedNotification[]
   })
 }
 
+// ── Shared runtime to avoid redundant polling across multiple hook instances ──
+
+type NotifyListener = () => void
+
+const POLL_INTERVAL_MS = 10000
+const listeners = new Set<NotifyListener>()
+let refCount = 0
+let intervalId: ReturnType<typeof setInterval> | null = null
+let currentUser: User | null = authService.getCurrentUser()
+let pollInFlight: Promise<void> | null = null
+let cancelledGlobal = false
+
+let version = 0
+
+function notifyListeners() {
+  version++
+  for (const l of listeners) l()
+}
+
+async function pollRemoteOnce(): Promise<void> {
+  if (pollInFlight) return pollInFlight
+  if (cancelledGlobal) return
+  if (!currentUser) return
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return
+
+  const run = (async () => {
+    try {
+      if (!defaultDb) return
+      const { data } = await defaultDb.auth.getSession()
+      const token = data.session?.access_token
+      if (!token || cancelledGlobal) return
+      const res = await fetch('/api/app-notifications', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok || cancelledGlobal) return
+      const payload = await res.json()
+      const rows = (payload?.notifications ?? []) as Record<string, unknown>[]
+      let changed = false
+      for (const row of rows) {
+        if (notificationService.ingestRemote(appNotificationFromRow(row))) changed = true
+      }
+      if (changed) {
+        notifyListeners()
+      }
+    } catch {
+      // falha de rede não afeta o sino
+    }
+  })()
+
+  pollInFlight = run
+  try {
+    await run
+  } finally {
+    pollInFlight = null
+  }
+}
+
+function tick() {
+  void pollRemoteOnce()
+}
+
+function startGlobal() {
+  if (intervalId !== null) return
+  cancelledGlobal = false
+  // Initial poll
+  void pollRemoteOnce()
+  intervalId = setInterval(tick, POLL_INTERVAL_MS)
+}
+
+function stopGlobal() {
+  cancelledGlobal = true
+  if (intervalId !== null) {
+    clearInterval(intervalId)
+    intervalId = null
+  }
+}
+
+function subscribe(listener: NotifyListener) {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+const getSnapshot = () => version
+
+// Keep user in sync
+authService.onAuthChange((u) => {
+  currentUser = u
+  // Trigger a poll on auth change (somente se há consumidor montado).
+  if (u && refCount > 0) void pollRemoteOnce()
+})
+
+/**
+ * Apenas para testes: reseta o runtime compartilhado do polling.
+ */
+export function __resetNotificationsPollingForTests() {
+  stopGlobal()
+  listeners.clear()
+  refCount = 0
+  currentUser = null
+  pollInFlight = null
+  cancelledGlobal = true
+  version = 0
+}
+
 export function useNotifications() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
-  const [user, setUser] = useState<User | null>(() => authService.getCurrentUser())
+  const [user, setUser] = useState<User | null>(() => currentUser ?? authService.getCurrentUser())
   const [storeVersion, setStoreVersion] = useState(0)
   const [loading, setLoading] = useState(true)
+  const sharedVersion = useSyncExternalStore(subscribe, getSnapshot)
 
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true)
@@ -81,43 +188,28 @@ export function useNotifications() {
 
   useEffect(() => {
     load()
-    // Reload silencioso periódico — reflete notificações vindas do sync
-    const timer = setInterval(() => load(true), 10000)
+    // Reload silencioso periódico — reflete notificações vindas do sync/local changes
+    const timer = setInterval(() => load(true), POLL_INTERVAL_MS)
     return () => clearInterval(timer)
   }, [load])
 
-  // Polling do servidor: puxa notificações in-app enviadas por outros dispositivos.
+  // Recarrega o estado local quando o poll compartilhado insere notificações novas.
   useEffect(() => {
-    if (!user) return
-    let cancelled = false
-    async function pollRemote() {
-      try {
-        if (!defaultDb) return
-        const { data } = await defaultDb.auth.getSession()
-        const token = data.session?.access_token
-        if (!token || cancelled) return
-        const res = await fetch('/api/app-notifications', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!res.ok || cancelled) return
-        const payload = await res.json()
-        const rows = (payload?.notifications ?? []) as Record<string, unknown>[]
-        let changed = false
-        for (const row of rows) {
-          if (notificationService.ingestRemote(appNotificationFromRow(row))) changed = true
-        }
-        if (changed) load(true)
-      } catch {
-        // falha de rede não afeta o sino
-      }
-    }
-    pollRemote()
-    const timer = setInterval(pollRemote, 10000)
+    if (sharedVersion > 0) load(true)
+  }, [sharedVersion, load])
+
+  // Polling do servidor compartilhado: UMA execução por app/aba, não uma por
+  // instância do hook. Sem isso, cada componente que usa o sino (até ~10)
+  // disparava seu próprio GET /api/app-notifications a cada 10 s.
+  useEffect(() => {
+    currentUser = user
+    refCount++
+    if (refCount === 1) startGlobal()
     return () => {
-      cancelled = true
-      clearInterval(timer)
+      refCount = Math.max(0, refCount - 1)
+      if (refCount === 0) stopGlobal()
     }
-  }, [user, load])
+  }, [user])
 
   // Segue o usuário logado e o workspace ativo para re-aplicar o filtro
   useEffect(() => {
