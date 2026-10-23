@@ -15,9 +15,11 @@ import { renderHook, act } from '@testing-library/react'
  * (token do usuário, endpoint, ingestão com dedupe por id) não muda.
  */
 
+import type { AppNotification } from '../types'
+
 const mocks = vi.hoisted(() => ({
-  getAll: vi.fn(() => [] as any[]),
-  ingestRemote: vi.fn(() => false),
+  getAll: vi.fn(() => [] as AppNotification[]),
+  ingestRemote: vi.fn((_item: AppNotification): boolean => false),
   getCurrentUser: vi.fn(() => ({ id: 'user-1', is_super_admin: false }) as any),
   onAuthChange: vi.fn(() => () => {}),
   getSession: vi.fn(async () => ({
@@ -247,10 +249,13 @@ describe('useNotifications — polling remoto compartilhado', () => {
 
     // Cada linha é ingerida exatamente uma vez, mesmo com dois consumidores.
     expect(mocks.ingestRemote).toHaveBeenCalledTimes(2)
-    expect(mocks.ingestRemote.mock.calls.map((c) => c[0].id).sort()).toEqual([
-      'n1',
-      'n2',
-    ])
+    const ingestedIds = mocks.ingestRemote.mock.calls
+      .map((c) => {
+        const item = c[0] as AppNotification
+        return item.id
+      })
+      .sort()
+    expect(ingestedIds).toEqual(['n1', 'n2'])
 
     // O estado local é recarregado em todas as instâncias após a ingestão.
     // 2 no mount + 2 após o notify.
