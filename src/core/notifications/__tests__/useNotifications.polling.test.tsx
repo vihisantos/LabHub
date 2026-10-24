@@ -100,7 +100,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   __resetNotificationsPollingForTests()
   vi.clearAllMocks()
-  mocks.authListeners = []
   mocks.getCurrentUser.mockReturnValue({ id: 'user-1', is_super_admin: false } as any)
   mocks.getAll.mockReturnValue([])
   mocks.ingestRemote.mockReturnValue(false)
