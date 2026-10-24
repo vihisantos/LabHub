@@ -214,6 +214,7 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 | 033 | `033_workspace_isolation_hardening.sql` | Endurecimento do isolamento por workspace (zero-trust null guards) |
 | 034 | `034_drop_legacy_rls_policies.sql` | DROP de 14 policies legadas que burlavam o isolamento |
 | 035 | `035_tracking_token.sql` | Chamados: credencial anônima `tracking_token_hash` (acesso limitado a um chamado) + índice único |
+| 102 | `102_schema_migrations_lockdown.sql` | Segurança: remove privilégios de clientes da tabela de histórico e habilita RLS deny-by-default; acesso somente pelo runner via Management API |
 
 > `tests/036_schema_migrations_checks.sql` valida a tabela de histórico
 > do runner (não é uma migration de schema).

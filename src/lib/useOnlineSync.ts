@@ -117,6 +117,10 @@ function startGlobal() {
   window.addEventListener('offline', goOffline)
   window.addEventListener('storage', onStorage)
   intervalId = setInterval(tick, SYNC_INTERVAL_MS)
+  // Sincronização inicial UMA vez por sessão de runtime (primeiro consumidor).
+  // Consumidores que montam depois compartilham o MESMO estado global e não
+  // precisam forçar um novo ciclo: o intervalo de 30s já cobre a atualização.
+  void runSync()
 }
 
 function stopGlobal() {
@@ -167,14 +171,10 @@ export function useOnlineSync() {
     return blockedCollections
   }, [])
 
-  // Sync no mount de cada consumidor — o single-flight deduplica execuções
-  // simultâneas (várias instâncias montando juntas, StrictMode, remounts).
-  useEffect(() => {
-    if (navigator.onLine) void runSync()
-  }, [])
-
   // Listeners + intervalo globais: criados uma vez para o primeiro consumidor
   // e removidos quando o último desmonta (contagem de referência).
+  // A sincronização inicial é disparada pelo próprio runtime (startGlobal),
+  // não por cada consumidor — evita ciclos redundantes a cada mount/remount.
   useEffect(() => {
     refCount++
     if (refCount === 1) startGlobal()
