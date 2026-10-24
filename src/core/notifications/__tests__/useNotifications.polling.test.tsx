@@ -21,10 +21,13 @@ const mocks = vi.hoisted(() => ({
   getAll: vi.fn(() => [] as AppNotification[]),
   ingestRemote: vi.fn((_item: AppNotification): boolean => false),
   getCurrentUser: vi.fn(() => ({ id: 'user-1', is_super_admin: false }) as any),
-  authListener: null as null | ((user: any) => void),
+  authListeners: [] as Array<(user: any) => void>,
   onAuthChange: vi.fn((callback: (user: any) => void) => {
-    mocks.authListener = callback
-    return () => {}
+    mocks.authListeners.push(callback)
+    return () => {
+      const index = mocks.authListeners.indexOf(callback)
+      if (index >= 0) mocks.authListeners.splice(index, 1)
+    }
   }),
   getSession: vi.fn(async () => ({
     data: { session: { access_token: 'test-token' } },
