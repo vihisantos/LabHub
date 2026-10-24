@@ -1966,78 +1966,6 @@ def tv_station_auto_advance_backstop():
 
 # ── Chamados (formulário público via QR) ──
 
-CHAMADOS_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS public.chamados_tickets (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "workspace_id" UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
-    "roomId" TEXT NOT NULL DEFAULT '',
-    "roomName" TEXT NOT NULL DEFAULT '',
-    "assetId" TEXT DEFAULT '',
-    "assetSource" TEXT DEFAULT '',
-    "assetName" TEXT DEFAULT '',
-    "assetPatrimony" TEXT DEFAULT '',
-    "problemCategory" TEXT NOT NULL DEFAULT '',
-    "problemArea" TEXT NOT NULL DEFAULT '',
-    "problemDescription" TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'aberto',
-    "priority" TEXT NOT NULL DEFAULT 'normal',
-    "reportedBy" TEXT NOT NULL DEFAULT '',
-    "reportedByEmail" TEXT DEFAULT '',
-    "assignedTo" TEXT DEFAULT '',
-    "assignedToUserId" TEXT DEFAULT '',
-    "ticketNumber" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" TIMESTAMPTZ DEFAULT NOW(),
-    "updatedAt" TIMESTAMPTZ DEFAULT NOW(),
-    "resolvedAt" TIMESTAMPTZ,
-    "archived" BOOLEAN NOT NULL DEFAULT FALSE,
-    "closedAt" TIMESTAMPTZ,
-    "closedBy" TEXT DEFAULT '',
-    "statusNote" TEXT DEFAULT '',
-    "photos" TEXT DEFAULT ''
-);
-CREATE TABLE IF NOT EXISTS public.ticket_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "ticket_id" UUID NOT NULL REFERENCES public.chamados_tickets(id) ON DELETE CASCADE,
-    "workspace_id" UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
-    type TEXT NOT NULL DEFAULT 'comentario',
-    content TEXT NOT NULL DEFAULT '',
-    author TEXT NOT NULL DEFAULT '',
-    "photo_urls" TEXT DEFAULT '',
-    "createdAt" TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "ticket_id" UUID;
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "workspace_id" UUID;
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'comentario';
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS author TEXT NOT NULL DEFAULT '';
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "photo_urls" TEXT DEFAULT '';
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ DEFAULT NOW();
-ALTER TABLE public.ticket_events ADD COLUMN IF NOT EXISTS "newStatus" TEXT;
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "priority" TEXT DEFAULT 'normal';
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "archived" BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedAt" TIMESTAMPTZ;
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "closedBy" TEXT DEFAULT '';
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "statusNote" TEXT DEFAULT '';
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "assignedToUserId" TEXT DEFAULT '';
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "photos" TEXT DEFAULT '';
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "feedbackRating" INTEGER;
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "feedbackComment" TEXT DEFAULT '';
-ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "feedbackAt" TIMESTAMPTZ;
-DO $$ BEGIN
-  ALTER TABLE public.chamados_tickets ADD CONSTRAINT chk_feedback_rating
-    CHECK ("feedbackRating" IS NULL OR "feedbackRating" BETWEEN 1 AND 5);
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-CREATE INDEX IF NOT EXISTS idx_chamados_workspace ON public.chamados_tickets("workspace_id");
-CREATE INDEX IF NOT EXISTS idx_chamados_status ON public.chamados_tickets(status);
-CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON public.ticket_events("ticket_id");
--- RLS: acesso direto (anon/authenticated) bloqueado; a API acessa via service role.
-ALTER TABLE public.chamados_tickets ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC;
-ALTER TABLE public.ticket_events ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.ticket_events FROM anon, authenticated, PUBLIC;
-"""
-
 CHAMADOS_PRIORITIES = ('baixa', 'normal', 'alta', 'urgente')
 CHAMADOS_STATUSES = (
     'aberto', 'a_caminho', 'em_atendimento', 'em_espera', 'resolvido', 'indeferido', 'fechado',
@@ -2476,23 +2404,6 @@ def _is_true(value) -> bool:
     segunda forma de ativar um escopo.
     """
     return str(value or '').strip().lower() in ('1', 'true', 'yes')
-
-
-def _ensure_chamados_schema():
-    """Cria a tabela de chamados se não existir (mesmo padrão do _ensure_stock_schema)."""
-    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
-        return
-    headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
-    try:
-        resp = requests.post(
-            f'{_SUPABASE_URL}/rest/v1/rpc/pg_sql',
-            json={'query': CHAMADOS_TABLE_SQL},
-            headers=headers,
-            timeout=10,
-        )
-        print(f"[chamados] pg_sql: {resp.status_code} {resp.text[:200]}")
-    except Exception as e:
-        logger.error("[chamados] pg_sql error: %s", e)
 
 
 @app.route('/api/chamados/workspaces', methods=['GET'])
@@ -4155,6 +4066,10 @@ def app_notifications_list():
         rows = resp.json() if resp.ok else []
         out = []
         for r in rows or []:
+            # Notificações explicitamente restritas ao super admin não devem
+            # chegar sequer na resposta da API de usuários comuns.
+            if r.get('target_super_admin') is True and not is_super:
+                continue
             w = r.get('workspace_id')
             if is_super:
                 out.append(r)

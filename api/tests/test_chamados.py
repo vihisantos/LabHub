@@ -275,24 +275,6 @@ def _make_ticket(**overrides):
     return ticket
 
 
-# ── RLS / schema ──
-
-
-def test_chamados_table_sql_garante_rls(api_module):
-    sql = api_module.CHAMADOS_TABLE_SQL
-    assert "CREATE TABLE IF NOT EXISTS public.chamados_tickets" in sql
-    assert '"priority" TEXT NOT NULL DEFAULT' in sql
-    assert '"statusNote" TEXT DEFAULT' in sql
-    assert '"photos" TEXT DEFAULT' in sql
-    assert '"feedbackRating" INTEGER' in sql
-    assert '"feedbackComment" TEXT DEFAULT' in sql
-    assert '"feedbackAt" TIMESTAMPTZ' in sql
-    assert "chk_feedback_rating" in sql
-    assert "BETWEEN 1 AND 5" in sql
-    assert "ENABLE ROW LEVEL SECURITY" in sql
-    assert "REVOKE ALL ON public.chamados_tickets FROM anon, authenticated, PUBLIC" in sql
-
-
 # ── GET /api/chamados/workspaces ──
 
 
@@ -1193,11 +1175,6 @@ def test_patch_resolvido_mensagem_inclui_ticket_number(api_module, notify_client
 # -- Fase 5: atribuição de técnicos + relatórios --
 
 
-def test_schema_inclui_assigned_to_user_id(api_module):
-    assert "assignedToUserId" in api_module.CHAMADOS_TABLE_SQL
-    assert 'ALTER TABLE public.chamados_tickets ADD COLUMN IF NOT EXISTS "assignedToUserId"' in api_module.CHAMADOS_TABLE_SQL
-
-
 def test_create_ignora_assigned_to_do_corpo(client, fake_requests):
     """Criação pública NUNCA aceita responsável escolhido pelo cliente (P2-C).
 
@@ -1448,14 +1425,6 @@ def test_reports_erro_do_supabase_retorna_502(client, fake_requests, monkeypatch
     assert resp.status_code == 502
 
 # ── Fase 4: eventos (histórico/comentários) + fotos Cloudinary ──
-
-
-def test_chamados_table_sql_inclui_ticket_events(api_module):
-    sql = api_module.CHAMADOS_TABLE_SQL
-    assert "CREATE TABLE IF NOT EXISTS public.ticket_events" in sql
-    assert "REFERENCES public.chamados_tickets(id) ON DELETE CASCADE" in sql
-    assert "ticket_events" in sql
-    assert "idx_ticket_events_ticket" in sql
 
 
 def test_create_aceita_foto_cloudinary(client, fake_requests, monkeypatch):
