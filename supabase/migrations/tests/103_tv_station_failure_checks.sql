@@ -52,6 +52,7 @@ DECLARE
   v_st public.tv_station%ROWTYPE;
   v_res jsonb;
   v_failures integer;
+  v_failures_before integer;
   v_seq_before bigint;
   v_seq_after bigint;
 BEGIN
