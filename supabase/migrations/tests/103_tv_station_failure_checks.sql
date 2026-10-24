@@ -234,11 +234,21 @@ BEGIN
   SELECT current_snapshot_track_id INTO v_t1
     FROM public.tv_station WHERE workspace_id = v_ws_a;
   v_res := public.station_report_track_failure(v_ws_a, v_t1, 'idem-f5-1');
-  IF (v_res->>'failures')::integer <> 2 THEN
+  IF (v_res->>'status') IS DISTINCT FROM 'reported' THEN
+    RAISE EXCEPTION 'FAIL (F5): primeira falha deveria ser reported, obteve %', v_res->>'status';
+  END IF;
+  IF (v_res->>'failures')::integer IS DISTINCT FROM 2 THEN
     RAISE EXCEPTION 'FAIL (F5): esperado failures=2, obteve %', v_res->>'failures';
   END IF;
+
+  -- A primeira falha avanca a fila; a segunda precisa usar a faixa que ficou ativa.
+  SELECT current_snapshot_track_id INTO v_t1
+    FROM public.tv_station WHERE workspace_id = v_ws_a;
   v_res := public.station_report_track_failure(v_ws_a, v_t1, 'idem-f5-2');
-  IF (v_res->>'failures')::integer <> 3 THEN
+  IF (v_res->>'status') IS DISTINCT FROM 'reported' THEN
+    RAISE EXCEPTION 'FAIL (F5): segunda falha deveria ser reported, obteve %', v_res->>'status';
+  END IF;
+  IF (v_res->>'failures')::integer IS DISTINCT FROM 3 THEN
     RAISE EXCEPTION 'FAIL (F5): esperado failures=3, obteve %', v_res->>'failures';
   END IF;
   SELECT state, stopped_reason INTO v_st.state, v_st.stopped_reason
