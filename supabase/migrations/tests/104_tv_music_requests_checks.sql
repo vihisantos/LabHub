@@ -158,6 +158,9 @@ IF v_count <> 8 THEN
 END IF;
 
 -- ── C6. Preflight de duplicatas: 25+ grupos reporta total real, amostra ≤ 20 ──
+-- O índice é removido apenas no banco efêmero do teste para permitir construir
+-- duplicatas legadas; ele é recriado ao final, após limpar somente as fixtures C6.
+DROP INDEX public.tv_music_requests_pending_dedupe_idx;
 -- Insere 25 grupos duplicados distintos (mesmo workspace + mesmo vídeo, 2 pendentes cada)
 -- e verifica que a lógica de preflight da migration 104 reporta o TOTAL (25), não o
 -- LIMIT 20 da amostra, e que nenhum registro é removido ou alterado automaticamente.
@@ -245,6 +248,13 @@ SELECT count(*) INTO v_count
 IF v_count <> 50 THEN
   RAISE EXCEPTION 'FAIL (C6): após o preflight, esperado 50 registros intactos; encontradas %', v_count;
 END IF;
+
+-- Remove exclusivamente as fixtures C6 antes de restaurar a garantia única.
+DELETE FROM public.tv_music_requests
+ WHERE workspace_id = v_ws_a AND youtube_video_id LIKE 'dupgroup%';
+CREATE UNIQUE INDEX tv_music_requests_pending_dedupe_idx
+  ON public.tv_music_requests (workspace_id, youtube_video_id)
+  WHERE status = 'pending';
 
 RAISE NOTICE 'OK (C6): 25 grupos duplicados detectados; total real reportado (não amostra); amostra ≤ 20; nenhum registro alterado';
 
