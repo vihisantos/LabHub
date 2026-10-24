@@ -3018,22 +3018,6 @@ def _is_true(value) -> bool:
     return str(value or '').strip().lower() in ('1', 'true', 'yes')
 
 
-def _ensure_chamados_schema():
-    """Cria a tabela de chamados se não existir (mesmo padrão do _ensure_stock_schema)."""
-    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
-        return
-    headers = {'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}'}
-    try:
-        resp = requests.post(
-            f'{_SUPABASE_URL}/rest/v1/rpc/pg_sql',
-            json={'query': CHAMADOS_TABLE_SQL},
-            headers=headers,
-            timeout=10,
-        )
-        print(f"[chamados] pg_sql: {resp.status_code} {resp.text[:200]}")
-    except Exception as e:
-        logger.error("[chamados] pg_sql error: %s", e)
-
 
 @_route_once('/api/chamados/workspaces', methods=['GET'])
 def chamados_workspaces():
