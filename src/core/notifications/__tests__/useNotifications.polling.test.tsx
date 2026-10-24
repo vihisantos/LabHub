@@ -21,7 +21,11 @@ const mocks = vi.hoisted(() => ({
   getAll: vi.fn(() => [] as AppNotification[]),
   ingestRemote: vi.fn((_item: AppNotification): boolean => false),
   getCurrentUser: vi.fn(() => ({ id: 'user-1', is_super_admin: false }) as any),
-  onAuthChange: vi.fn(() => () => {}),
+  authListener: null as null | ((user: any) => void),
+  onAuthChange: vi.fn((callback: (user: any) => void) => {
+    mocks.authListener = callback
+    return () => {}
+  }),
   getSession: vi.fn(async () => ({
     data: { session: { access_token: 'test-token' } },
     error: null,
@@ -263,6 +267,57 @@ describe('useNotifications — polling remoto compartilhado', () => {
 
     a.unmount()
     b.unmount()
+  })
+
+
+  it('descarta resposta pendente da sessão anterior após troca de usuário', async () => {
+    const pending: Array<(value: any) => void> = []
+    mocks.fetchMock.mockImplementation(
+      () => new Promise((resolve) => { pending.push(resolve) }),
+    )
+
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    expect(pending).toHaveLength(1)
+
+    // Troca de identidade enquanto o GET do usuário anterior está pendente.
+    act(() => {
+      mocks.getCurrentUser.mockReturnValue({ id: 'user-2', is_super_admin: false } as any)
+      mocks.authListener?.({ id: 'user-2', is_super_admin: false })
+    })
+    await flushFetch()
+    expect(pending).toHaveLength(2)
+
+    pending[0]({ ok: true, json: async () => ({ notifications: [{ id: 'stale-user-1' }] }) })
+    await flushFetch()
+    expect(mocks.ingestRemote).not.toHaveBeenCalled()
+
+    pending[1]({ ok: true, json: async () => ({ notifications: [{ id: 'current-user-2' }] }) })
+    await flushFetch()
+    expect(mocks.ingestRemote).toHaveBeenCalledTimes(1)
+    expect(mocks.ingestRemote).toHaveBeenCalledWith({ id: 'current-user-2' })
+    unmount()
+  })
+
+  it('descarta resposta pendente após logout', async () => {
+    let resolveFetch!: (value: any) => void
+    mocks.fetchMock.mockImplementation(
+      () => new Promise((resolve) => { resolveFetch = resolve }),
+    )
+
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      mocks.getCurrentUser.mockReturnValue(null)
+      mocks.authListener?.(null)
+    })
+    resolveFetch({ ok: true, json: async () => ({ notifications: [{ id: 'after-logout' }] }) })
+    await flushFetch()
+
+    expect(mocks.ingestRemote).not.toHaveBeenCalled()
+    unmount()
   })
 
   it('resposta não-ok não ingere nada e não derruba o polling', async () => {
