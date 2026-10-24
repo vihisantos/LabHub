@@ -55,6 +55,7 @@ DECLARE
   v_failures_before integer;
   v_seq_before bigint;
   v_seq_after bigint;
+  v_f4_sqlstate text;
 BEGIN
   -- Impersona o usuário de teste nas claims do JWT (escopo transacional).
   PERFORM set_config('request.jwt.claim.sub', v_test_uid::text, true);
@@ -176,15 +177,16 @@ BEGIN
   ---------------------------------------------------------------------------
   -- F4: mesma chave com track diferente => IDEMPOTENCY_KEY_REUSE (40901).
   ---------------------------------------------------------------------------
+  v_f4_sqlstate := NULL;
   BEGIN
     PERFORM public.station_report_track_failure(v_ws_a, v_t2, 'idem-f1-1');
-    RAISE EXCEPTION 'FAIL (F4): esperado erro IDEMPOTENCY_KEY_REUSE para chave reusada com track diferente';
   EXCEPTION
     WHEN OTHERS THEN
-      IF SQLSTATE <> '40901' THEN
-        RAISE EXCEPTION 'FAIL (F4): SQLSTATE inesperado % (esperado 40901)', SQLSTATE;
-      END IF;
+      v_f4_sqlstate := SQLSTATE;
   END;
+  IF v_f4_sqlstate IS DISTINCT FROM '40901' THEN
+    RAISE EXCEPTION 'FAIL (F4): SQLSTATE inesperado % (esperado 40901)', COALESCE(v_f4_sqlstate, 'nenhum erro');
+  END IF;
 
   ---------------------------------------------------------------------------
   -- F6: repetição de TRACK_MISMATCH com mesma chave => replay, sem mutação.
