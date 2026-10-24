@@ -2527,6 +2527,7 @@ def public_request_create():
         'title': info.get('title'),
         'requested_by': None,
         'requested_by_name': nickname,
+        'requester_name': nickname,
         'status': 'pending',
         'source': 'qr',
         'ip_hash': ip_hash,
