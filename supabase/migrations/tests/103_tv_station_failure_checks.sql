@@ -131,6 +131,7 @@ BEGIN
   SELECT id INTO v_t2
     FROM public.tv_queue_snapshot_tracks
    WHERE snapshot_id = v_snap
+     AND id <> v_t1
      AND id <> (SELECT current_snapshot_track_id
                   FROM public.tv_station WHERE workspace_id = v_ws_a)
    ORDER BY position ASC LIMIT 1;
