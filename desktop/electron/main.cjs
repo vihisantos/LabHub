@@ -18,6 +18,7 @@ const RENDERER_DIR = path.join(__dirname, '..', 'renderer')
 
 let mainWindow = null
 let powerBlockerId = null
+let lastUiAlive = Date.now()
 
 /* ── Servidor local: YouTube (iframe) não funciona com origin file:// ── */
 const MIME = {
@@ -160,6 +161,17 @@ if (!gotLock) {
     registerStoreIpc()
     const rendererPort = await serveRenderer()
     createWindow(rendererPort)
+
+    // Watchdog: 120s sem sinal 'ui-alive' -> recarrega a janela
+    if (process.env.TV_DESKTOP_SMOKE_TEST !== '1') {
+      setInterval(() => {
+        if (mainWindow && !mainWindow.isDestroyed() && Date.now() - lastUiAlive > 120000) {
+          console.log('[LabHub TV] Watchdog: sem sinal UI, recarregando renderer')
+          lastUiAlive = Date.now()
+          mainWindow.reload()
+        }
+      }, 30000)
+    }
 
     if (app.isPackaged && process.env.TV_DESKTOP_SMOKE_TEST !== '1') {
       autoUpdater.checkForUpdates().catch((err) => {
@@ -305,6 +317,16 @@ function registerStoreIpc() {
   ipcMain.handle('store-set', (_event, key, value) => writeKv(key, value))
   ipcMain.handle('store-delete', (_event, key) => deleteKv(key))
 }
+
+/* ── Watchdog UI alive ── */
+ipcMain.on('ui-alive', () => {
+  lastUiAlive = Date.now()
+})
+ipcMain.on('reload-renderer', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.reload()
+  }
+})
 
 /* ── Auto-update (electron-updater → GitHub Releases) ──
    O feed é o app-update.yml gerado pelo electron-builder no build (publish.github).

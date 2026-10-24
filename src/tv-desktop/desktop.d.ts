@@ -7,6 +7,8 @@ declare global {
       isDesktop?: boolean
       openAdmin?: () => void
       quit?: () => void
+      reportAlive?: () => void
+      reloadRenderer?: () => void
       /** Store local (SQLite no userData) — substitui o localStorage no desktop */
       store?: {
         get: (key: string) => Promise<string | null>

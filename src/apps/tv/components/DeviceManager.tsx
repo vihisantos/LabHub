@@ -13,6 +13,7 @@ import {
 } from '../../../lib/components/ui'
 import type { TvDevice } from '../types'
 import type { Workspace } from '../../../core/workspaces/types'
+import { deviceStatus } from '../utils/deviceStatus'
 
 interface DeviceManagerProps {
   devices: TvDevice[]
@@ -51,7 +52,7 @@ export function DeviceManager({ devices, workspaces, onRename, onMoveWorkspace, 
     setEditing(null)
   }
 
-  const online = (d: TvDevice) => d.last_seen && Date.now() - new Date(d.last_seen).getTime() < 15 * 60 * 1000
+  const statusOf = (d: TvDevice) => deviceStatus(d.last_seen)
 
   return (
     <div>
@@ -141,8 +142,12 @@ export function DeviceManager({ devices, workspaces, onRename, onMoveWorkspace, 
                 )}
                 <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-dim">
                   <span className="flex items-center gap-1">
-                    <Power size={10} className={online(d) ? 'text-emerald-500' : 'text-fg-muted'} />
-                    {online(d) ? 'online' : `offline · ${timeAgo(d.last_seen)}`}
+                    <Power size={10} className={statusOf(d) === 'online' ? 'text-emerald-500' : statusOf(d) === 'unstable' ? 'text-amber-500' : 'text-fg-muted'} />
+                    {statusOf(d) === 'online'
+                      ? `online · visto há ${timeAgo(d.last_seen)}`
+                      : statusOf(d) === 'unstable'
+                        ? `instável · visto há ${timeAgo(d.last_seen)}`
+                        : `offline · visto há ${timeAgo(d.last_seen)}`}
                   </span>
                   <span className="flex items-center gap-1">
                     <select
