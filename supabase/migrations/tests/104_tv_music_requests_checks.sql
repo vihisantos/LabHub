@@ -164,8 +164,7 @@ DROP INDEX public.tv_music_requests_pending_dedupe_idx;
 -- Insere 25 grupos duplicados distintos (mesmo workspace + mesmo vídeo, 2 pendentes cada)
 -- e verifica que a lógica de preflight da migration 104 reporta o TOTAL (25), não o
 -- LIMIT 20 da amostra, e que nenhum registro é removido ou alterado automaticamente.
-BEGIN
-  FOR i IN 1..25 LOOP
+FOR i IN 1..25 LOOP
     INSERT INTO public.tv_music_requests (workspace_id, youtube_url, youtube_video_id,
                                           requested_by, status, source)
     VALUES (v_ws_a, 'https://youtu.be/dupgroup' || i, 'dupgroup' || i, v_uid, 'pending', 'qr');
@@ -182,8 +181,9 @@ BEGIN
     RAISE EXCEPTION 'FAIL (C6): esperado 50 registros dos 25 grupos antes do preflight; encontradas %', v_count;
   END IF;
 
-  -- Mesma lógica de preflight da migration 104 (CTE separa total da amostra de ≤ 20)
-  -- LEFT JOIN LATERAL garante v_groups = 0 e v_sample = NULL quando não há duplicatas.
+-- Mesma lógica de preflight da migration 104 (CTE separa total da amostra de ≤ 20)
+-- A subtransação abaixo captura apenas o abort do preflight, não os inserts das fixtures.
+BEGIN
   WITH dup_groups AS (
     SELECT r.workspace_id, r.youtube_video_id, count(*) AS n
       FROM public.tv_music_requests r
