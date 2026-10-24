@@ -78,6 +78,8 @@ let intervalId: ReturnType<typeof setInterval> | null = null
 let currentUser: User | null = authService.getCurrentUser()
 let pollInFlight: Promise<void> | null = null
 let cancelledGlobal = false
+// Invalida respostas assíncronas iniciadas sob outra sessão/identidade.
+let authGeneration = 0
 
 let version = 0
 
@@ -92,20 +94,24 @@ async function pollRemoteOnce(): Promise<void> {
   if (!currentUser) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
 
+  const generation = authGeneration
   const run = (async () => {
     try {
       if (!defaultDb) return
       const { data } = await defaultDb.auth.getSession()
       const token = data.session?.access_token
-      if (!token || cancelledGlobal) return
+      if (!token || cancelledGlobal || generation !== authGeneration || !currentUser) return
       const res = await fetch('/api/app-notifications', {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!res.ok || cancelledGlobal) return
+      if (!res.ok || cancelledGlobal || generation !== authGeneration || !currentUser) return
       const payload = await res.json()
+      if (cancelledGlobal || generation !== authGeneration || !currentUser) return
       const rows = (payload?.notifications ?? []) as Record<string, unknown>[]
       let changed = false
       for (const row of rows) {
+        // Sessão pode mudar enquanto a resposta está sendo processada.
+        if (cancelledGlobal || generation !== authGeneration || !currentUser) return
         if (notificationService.ingestRemote(appNotificationFromRow(row))) changed = true
       }
       if (changed) {
@@ -120,7 +126,8 @@ async function pollRemoteOnce(): Promise<void> {
   try {
     await run
   } finally {
-    pollInFlight = null
+    // Uma execução antiga não pode limpar a referência de uma nova sessão.
+    if (pollInFlight === run) pollInFlight = null
   }
 }
 
@@ -156,7 +163,11 @@ const getSnapshot = () => version
 // Keep user in sync
 authService.onAuthChange((u) => {
   currentUser = u
-  // Trigger a poll on auth change (somente se há consumidor montado).
+  authGeneration++
+  // Libera o single-flight antigo: uma sessão nova não deve esperar a resposta
+  // pendente da sessão anterior. A resposta antiga será descartada pela geração.
+  pollInFlight = null
+  // Logout invalida também qualquer resposta pendente; login troca para a nova sessão.
   if (u && refCount > 0) void pollRemoteOnce()
 })
 
@@ -168,6 +179,7 @@ export function __resetNotificationsPollingForTests() {
   listeners.clear()
   refCount = 0
   currentUser = null
+  authGeneration++
   pollInFlight = null
   cancelledGlobal = true
   version = 0
