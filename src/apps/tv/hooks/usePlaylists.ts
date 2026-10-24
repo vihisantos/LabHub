@@ -3,12 +3,17 @@ import { fetchPlaylists, fetchAllPlaylists, createPlaylist, updatePlaylist, dele
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
+import { isKiosk, kioskError } from '../utils/kiosk'
 import type { TvPlaylist } from '../types'
 
 export function usePlaylists() {
   const [playlists, setPlaylists] = useState<TvPlaylist[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async (silent?: boolean) => {
     try {
@@ -40,7 +45,11 @@ export function usePlaylists() {
 export function useAllPlaylists() {
   const [playlists, setPlaylists] = useState<TvPlaylist[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async () => {
     try {

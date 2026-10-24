@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Music, Check, X, ExternalLink, Loader2, Clock, User, ListMusic } from 'lucide-react'
+import { Tag } from 'lucide-react'
 import { useMusicRequests } from '../hooks/useMusicRequests'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useMusicPlayerCommand } from '../contexts/MusicPlayerCommandContext'
@@ -13,6 +14,7 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
   const { playNext } = useMusicPlayerCommand()
   const { addToast } = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [sourceFilter, setSourceFilter] = useState<'all'|'admin'|'qr'>('all')
 
   if (loading) {
     return (
@@ -71,6 +73,20 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
         )}
       </div>
 
+      {/* Filtro por origem */}
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-[11px] text-fg-dim">Origem:</span>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value as 'all'|'admin'|'qr')}
+          className="text-xs border border-line bg-card px-2 py-1 rounded"
+        >
+          <option value="all">Todas</option>
+          <option value="admin">Admin</option>
+          <option value="qr">QR</option>
+        </select>
+      </div>
+
       {requests.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line bg-card py-10 text-center">
           <Music size={28} className="text-fg-muted" />
@@ -79,7 +95,7 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
         </div>
       ) : (
         <div className="space-y-2">
-          {requests.map((req) => {
+          {(requests.filter(r => sourceFilter === 'all' || r.source === sourceFilter)).map((req) => {
             const busy = busyId === req.id
             const isPending = req.status === 'pending'
             return (
@@ -108,6 +124,11 @@ export function MusicRequestManager({ readOnly = false }: { readOnly?: boolean }
                     {req.requested_by_name && (
                       <span className="flex items-center gap-1">
                         <User size={10} /> {req.requested_by_name}
+                      </span>
+                    )}
+                    {req.source === 'qr' && (
+                      <span className="flex items-center gap-1 text-purple-500" title="Pedido via QR">
+                        <Tag size={10} /> QR
                       </span>
                     )}
                     {isPending && (

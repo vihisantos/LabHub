@@ -3,6 +3,7 @@ import { fetchScheduledContent, fetchAllEvents, createEvent, updateEvent, delete
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
+import { isKiosk, kioskError } from '../utils/kiosk'
 import type { TvEvent } from '../types'
 
 /**
@@ -15,7 +16,11 @@ import type { TvEvent } from '../types'
 export function useEvents(deviceId?: string | null) {
   const [events, setEvents] = useState<TvEvent[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async (silent?: boolean) => {
     try {
@@ -48,7 +53,11 @@ export function useEvents(deviceId?: string | null) {
 export function useAllEvents() {
   const [events, setEvents] = useState<TvEvent[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async () => {
     try {

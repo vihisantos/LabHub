@@ -2,13 +2,18 @@ import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
+import { isKiosk, kioskError } from '../utils/kiosk'
 import { fetchAllAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '../services/supabase'
 import type { TvAnnouncement } from '../types'
 
 export function useAnnouncements() {
   const [announcements, setAnnouncements] = useState<TvAnnouncement[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async () => {
     try {

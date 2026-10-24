@@ -15,6 +15,7 @@
 | `VITE_VAPID_PUBLIC_KEY` | Não | — | Chave pública de Web Push |
 | `VITE_CLOUDINARY_CLOUD_NAME` | Não | — | Nome da conta Cloudinary |
 | `VITE_CLOUDINARY_UPLOAD_PRESET` | Não | — | Preset de upload do Cloudinary |
+| `VITE_TURNSTILE_SITE_KEY` | Não | — | Chave **pública** do Cloudflare Turnstile (site key). Renderiza o desafio no formulário público `/pedir-musica/:token`; sem ela o formulário envia sem token e a política é decidida pelo backend |
 
 > Sem as variáveis do Supabase, a aplicação roda em modo somente local.
 
@@ -30,6 +31,8 @@
 | `VAPID_PRIVATE_KEY` | Não | Chave privada de Web Push |
 | `CRON_SECRET` | Sim | Protege os endpoints de cron |
 | `YOUTUBE_API_KEY` | Sim (TV) | YouTube Data API v3 |
+| `TURNSTILE_SECRET_KEY` | Não (TV) | Chave **secreta** do Cloudflare Turnstile (par com `VITE_TURNSTILE_SITE_KEY`). Com ela, o `turnstile_token` do POST `/api/tv/public/request` é obrigatório e validado no siteverify; ausente/inválido => 400 |
+| `TURNSTILE_REQUIRED` | Não (TV) | `1` = fail-closed quando `TURNSTILE_SECRET_KEY` estiver ausente (produção que exige o desafio). Sem ela, sem secret = fail-open com aviso em log (desenvolvimento/testes) |
 | `SHAREPOINT_URL` | Não | Planilha de reservas de fallback (legado) |
 | `SPREADSHEET_URL_<SLUG>` | Não | Preenche `workspaces.spreadsheet_url` em lote |
 | `PUSH_ADVANCE_MINUTES` | Não | Janela de aviso de reserva (padrão 30) |
