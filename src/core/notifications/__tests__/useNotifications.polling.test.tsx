@@ -100,6 +100,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   __resetNotificationsPollingForTests()
   vi.clearAllMocks()
+  mocks.authListeners = []
   mocks.getCurrentUser.mockReturnValue({ id: 'user-1', is_super_admin: false } as any)
   mocks.getAll.mockReturnValue([])
   mocks.ingestRemote.mockReturnValue(false)
@@ -283,7 +284,7 @@ describe('useNotifications — polling remoto compartilhado', () => {
     // Troca de identidade enquanto o GET do usuário anterior está pendente.
     act(() => {
       mocks.getCurrentUser.mockReturnValue({ id: 'user-2', is_super_admin: false } as any)
-      mocks.authListener?.({ id: 'user-2', is_super_admin: false })
+      mocks.authListeners.forEach((listener) => listener({ id: 'user-2', is_super_admin: false }))
     })
     await flushFetch()
     expect(pending).toHaveLength(2)
@@ -311,7 +312,7 @@ describe('useNotifications — polling remoto compartilhado', () => {
 
     act(() => {
       mocks.getCurrentUser.mockReturnValue(null)
-      mocks.authListener?.(null)
+      mocks.authListeners.forEach((listener) => listener(null))
     })
     resolveFetch({ ok: true, json: async () => ({ notifications: [{ id: 'after-logout' }] }) })
     await flushFetch()
