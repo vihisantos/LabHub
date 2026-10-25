@@ -84,6 +84,7 @@ export function Launcher() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                data-tour="notifications"
                 onClick={() => setNotificationsOpen(true)}
                 className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg"
               >
@@ -107,6 +108,7 @@ export function Launcher() {
               {user && (
                 <button
                   type="button"
+                  data-tour="profile"
                   onClick={() => setProfileOpen(true)}
                   title="Meu perfil"
                   className="flex h-10 w-10 items-center justify-center rounded-full bg-card p-1 transition-colors hover:bg-input"
@@ -154,8 +156,8 @@ export function Launcher() {
         )}
 
         {/* Cards dos apps — centralizados: 1 no centro, 2 em 2 colunas */}
-        <div className="mb-6">
-          <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Seus Apps</p>
+        <div className="mb-6" data-tour="modules-section">
+          <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Meus Módulos</p>
           <div className="flex flex-wrap justify-center gap-3">
             {/* Pedir Música: atalho fixo, mas só quando o campus tem a TV
                 ligada (mesma regra do QuickActions) — sem TV não há onde o
@@ -163,6 +165,7 @@ export function Launcher() {
             {!isAppDisabled('tv', workspace) && (
               <button
                 type="button"
+                data-tour="module-pedir-musica"
                 onClick={() => navigate('/pedir-musica')}
                 className="flex w-36 flex-col items-center gap-2.5 rounded-2xl bg-card p-4 text-center shadow-sm transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
               >
@@ -176,6 +179,7 @@ export function Launcher() {
             {accessibleApps.map((app) => (
               <button
                 key={app.id}
+                data-tour={`module-${app.id}`}
                 type="button"
                 onClick={() => navigate(app.route)}
                 className="flex w-36 flex-col items-center gap-2.5 rounded-2xl bg-card p-4 text-center shadow-sm transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"

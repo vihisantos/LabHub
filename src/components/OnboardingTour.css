@@ -19,22 +19,30 @@
   backdrop-filter: blur(3px);
 }
 
-/* ─── Highlighted cutout ─────────────────────────────────────────────────────── */
-.ot-highlight {
-  position: absolute;
+/* ─── Spotlight cutout (Item 2 - box-shadow 9999px) ─────────────────────────── */
+.ot-spotlight {
+  position: fixed;
   border: 2.5px solid var(--ot-accent);
-  border-radius: 10px;
+  border-radius: 14px;
   box-shadow:
-    0 0 0 4px rgba(0,0,0,0.4),
-    0 0 20px 6px color-mix(in srgb, var(--ot-accent) 60%, transparent);
-  animation: ot-pulse 2s ease-in-out infinite;
+    0 0 0 9999px rgba(0, 0, 0, 0.74),
+    0 0 20px 4px color-mix(in srgb, var(--ot-accent) 55%, transparent);
+  animation: ot-spotlight-pulse 2.2s ease-in-out infinite;
   pointer-events: none;
   z-index: 10000;
 }
 
-@keyframes ot-pulse {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(0,0,0,0.4), 0 0 16px 4px color-mix(in srgb, var(--ot-accent) 50%, transparent); }
-  50%       { box-shadow: 0 0 0 6px rgba(0,0,0,0.3), 0 0 28px 10px color-mix(in srgb, var(--ot-accent) 70%, transparent); }
+@keyframes ot-spotlight-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 9999px rgba(0, 0, 0, 0.74),
+      0 0 16px 2px color-mix(in srgb, var(--ot-accent) 45%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 9999px rgba(0, 0, 0, 0.74),
+      0 0 28px 8px color-mix(in srgb, var(--ot-accent) 70%, transparent);
+  }
 }
 
 /* ─── Arrow SVG ─────────────────────────────────────────────────────────────── */

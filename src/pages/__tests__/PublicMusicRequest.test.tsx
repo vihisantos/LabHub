@@ -100,7 +100,7 @@ describe('PublicMusicRequestPage — Turnstile habilitado', () => {
     await renderReady()
 
     expect(screen.getByTestId('turnstile-container')).toBeInTheDocument()
-    expect(lastOpts?.sitekey).toBe('site-key-x')
+    await waitFor(() => expect(lastOpts?.sitekey).toBe('site-key-x'))
 
     // botão bloqueado antes do desafio ser resolvido
     expect(screen.getByRole('button', { name: /Enviar pedido/ })).toBeDisabled()
@@ -137,6 +137,7 @@ describe('PublicMusicRequestPage — Turnstile habilitado', () => {
       expect(screen.getByRole('button', { name: /Enviar pedido/ })).toBeEnabled(),
     )
 
+    await waitFor(() => expect(lastOpts).not.toBeNull())
     lastOpts?.['expired-callback']?.()
     await waitFor(() =>
       expect(window.turnstile!.render).toHaveBeenCalledTimes(2),
@@ -148,6 +149,7 @@ describe('PublicMusicRequestPage — Turnstile habilitado', () => {
     vi.stubEnv('VITE_TURNSTILE_SITE_KEY', 'site-key-x')
     await renderReady()
 
+    await waitFor(() => expect(lastOpts).not.toBeNull())
     lastOpts?.['error-callback']?.()
     const retry = await screen.findByRole('button', { name: /Tentar novamente/ })
     expect(screen.getByRole('button', { name: /Enviar pedido/ })).toBeDisabled()
