@@ -59,14 +59,33 @@ function TourArrow({ rect, tipRef }: { rect: DOMRect; tipRef: React.RefObject<HT
 
   useEffect(() => {
     if (!tipRef.current) return
-    const tipRect = tipRef.current.getBoundingClientRect()
-    // Arrow from center of tooltip to center-top of highlight rect
-    setLine({
-      x1: tipRect.left + tipRect.width / 2,
-      y1: tipRect.top,
-      x2: rect.left + rect.width / 2,
-      y2: rect.bottom,
-    })
+    const update = () => {
+      if (!tipRef.current) return
+      const tipRect = tipRef.current.getBoundingClientRect()
+      const isTipAbove = tipRect.bottom <= rect.top
+
+      let y1: number
+      let y2: number
+
+      if (isTipAbove) {
+        y1 = tipRect.bottom
+        y2 = rect.top
+      } else {
+        y1 = tipRect.top
+        y2 = rect.bottom
+      }
+
+      setLine({
+        x1: Math.max(16, Math.min(window.innerWidth - 16, tipRect.left + tipRect.width / 2)),
+        y1,
+        x2: Math.max(16, Math.min(window.innerWidth - 16, rect.left + rect.width / 2)),
+        y2,
+      })
+    }
+
+    update()
+    const timer = setTimeout(update, 60)
+    return () => clearTimeout(timer)
   }, [rect, tipRef])
 
   if (!line) return null
@@ -113,9 +132,22 @@ export default function OnboardingTour() {
   const [current, setCurrent] = useState(0)
   const [show, setShow] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const [viewport, setViewport] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    height: typeof window !== 'undefined' ? window.innerHeight : 768,
+  })
   // Interactive mode: waiting for user to click the highlighted element
   const [waitingClick, setWaitingClick] = useState(false)
   const tipRef = useRef<HTMLDivElement>(null)
+
+  // Track viewport resize
+  useEffect(() => {
+    const handleResize = () => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight })
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   // Derive CSS accent variable from app accent
   const accentColor: Record<Accent, string> = {
@@ -139,11 +171,27 @@ export default function OnboardingTour() {
     const step = steps[current]
     if (step.selector === '__theme__') { setRect(null); return }
 
+    const updateRect = () => {
+      const el = document.querySelector(step.selector) as HTMLElement | null
+      if (el) {
+        setRect(el.getBoundingClientRect())
+      } else {
+        setRect(null)
+      }
+    }
+
     const el = document.querySelector(step.selector) as HTMLElement | null
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      setTimeout(() => setRect(el.getBoundingClientRect()), 300)
+      const timer = setTimeout(updateRect, 300)
       setWaitingClick(!!step.interactive)
+      window.addEventListener('resize', updateRect)
+      window.addEventListener('scroll', updateRect, true)
+      return () => {
+        clearTimeout(timer)
+        window.removeEventListener('resize', updateRect)
+        window.removeEventListener('scroll', updateRect, true)
+      }
     } else {
       setRect(null)
     }
@@ -192,19 +240,29 @@ export default function OnboardingTour() {
   const isThemeStep = step.selector === '__theme__'
   const isLast = current === steps.length - 1
   const accentVar = accentColor[accent]
+  const isMobile = viewport.width < 640
 
-  // Tooltip positioning: below element, or centered for theme step
-  const tipStyle: React.CSSProperties = rect
+  // On mobile, if element is in bottom half of screen, anchor tooltip to top; otherwise bottom
+  const placeAtTopOnMobile = rect ? rect.top > viewport.height / 2 : false
+
+  const tipStyle: React.CSSProperties = isMobile
     ? {
-        top: Math.min(rect.bottom + 16, window.innerHeight - 220),
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - 340)),
-        maxWidth: 320,
+        left: 12,
+        right: 12,
+        width: 'calc(100% - 24px)',
+        maxWidth: 420,
+        margin: '0 auto',
+        ...(placeAtTopOnMobile
+          ? { top: Math.max(12, Math.min(rect ? rect.top - 240 : 16, 24)) }
+          : { bottom: 16 }
+        )
       }
     : {
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        maxWidth: 360,
+        top: (rect && (rect.bottom + 250 > viewport.height && rect.top > 260))
+          ? Math.max(16, rect.top - 250 - 16)
+          : Math.min(rect ? rect.bottom + 16 : 100, viewport.height - 250),
+        left: Math.max(16, Math.min(rect ? rect.left : 100, viewport.width - 340)),
+        maxWidth: 320,
       }
 
   return (
@@ -230,50 +288,88 @@ export default function OnboardingTour() {
       {/* Arrow */}
       {rect && <TourArrow rect={rect} tipRef={tipRef} />}
 
-      {/* Tooltip */}
+      {/* Centered Modal for Theme Step or fallback when no element */}
       <AnimatePresence mode="wait">
-        <motion.div
-          key={`tooltip-${current}`}
-          ref={tipRef}
-          className="ot-tooltip"
-          style={tipStyle}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-        >
-          {/* Progress dots */}
-          <div className="ot-dots">
-            {steps.map((_, i) => (
-              <span key={i} className={`ot-dot ${i === current ? 'active' : ''}`} />
-            ))}
-          </div>
-
-          <h3 className="ot-title">{step.title}</h3>
-          <p className="ot-desc">{step.description}</p>
-
-          {/* Theme picker rendered inline */}
-          {isThemeStep && <ThemePickerStep />}
-
-          {/* Interactive hint */}
-          {waitingClick && (
-            <p className="ot-interactive-hint">👆 Clique no elemento destacado para continuar!</p>
-          )}
-
-          <div className="ot-controls">
-            {current > 0 && (
-              <button className="ot-btn secondary" onClick={goPrev}>← Anterior</button>
-            )}
-            <button
-              className="ot-btn primary"
-              onClick={isLast ? finish : goNext}
-              disabled={waitingClick}
+        {(isThemeStep || !rect) ? (
+          <div className="ot-modal-wrapper" key="modal-wrapper">
+            <motion.div
+              key={`modal-${current}`}
+              ref={tipRef}
+              className="ot-tooltip ot-modal"
+              initial={{ opacity: 0, scale: 0.94, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: -12 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
             >
-              {isLast ? '✅ Concluir' : 'Próximo →'}
-            </button>
-            <button className="ot-btn ghost" onClick={finish}>Pular</button>
+              {/* Progress dots */}
+              <div className="ot-dots">
+                {steps.map((_, i) => (
+                  <span key={i} className={`ot-dot ${i === current ? 'active' : ''}`} />
+                ))}
+              </div>
+
+              <h3 className="ot-title">{step.title}</h3>
+              <p className="ot-desc">{step.description}</p>
+
+              {/* Theme picker rendered inline */}
+              {isThemeStep && <ThemePickerStep />}
+
+              <div className="ot-controls">
+                {current > 0 && (
+                  <button className="ot-btn secondary" onClick={goPrev}>← Anterior</button>
+                )}
+                <button
+                  className="ot-btn primary"
+                  onClick={isLast ? finish : goNext}
+                >
+                  {isThemeStep ? 'Começar Tour →' : isLast ? '✅ Concluir' : 'Próximo →'}
+                </button>
+                <button className="ot-btn ghost" onClick={finish}>Pular</button>
+              </div>
+            </motion.div>
           </div>
-        </motion.div>
+        ) : (
+          /* Floating Tooltip pointing to highlighted element */
+          <motion.div
+            key={`tooltip-${current}`}
+            ref={tipRef}
+            className={`ot-tooltip ot-target-tip ${isMobile ? 'ot-mobile-tip' : ''}`}
+            style={tipStyle}
+            initial={{ opacity: 0, y: isMobile ? (placeAtTopOnMobile ? -12 : 12) : 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: isMobile ? (placeAtTopOnMobile ? -8 : 8) : -8 }}
+            transition={{ duration: 0.28, ease: 'easeOut' }}
+          >
+            {/* Progress dots */}
+            <div className="ot-dots">
+              {steps.map((_, i) => (
+                <span key={i} className={`ot-dot ${i === current ? 'active' : ''}`} />
+              ))}
+            </div>
+
+            <h3 className="ot-title">{step.title}</h3>
+            <p className="ot-desc">{step.description}</p>
+
+            {/* Interactive hint */}
+            {waitingClick && (
+              <p className="ot-interactive-hint">👆 Clique no elemento destacado para continuar!</p>
+            )}
+
+            <div className="ot-controls">
+              {current > 0 && (
+                <button className="ot-btn secondary" onClick={goPrev}>← Anterior</button>
+              )}
+              <button
+                className="ot-btn primary"
+                onClick={isLast ? finish : goNext}
+                disabled={waitingClick}
+              >
+                {isLast ? '✅ Concluir' : 'Próximo →'}
+              </button>
+              <button className="ot-btn ghost" onClick={finish}>Pular</button>
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   )
