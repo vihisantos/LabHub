@@ -663,6 +663,26 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                   </section>
                 )}
 
+                {/* Tour de onboarding */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    setTimeout(() => (window as any).__restartOnboardingTour?.(), 300)
+                  }}
+                  className={`${rowClass()} rounded-xl bg-card shadow-[var(--shadow-card)]`}
+                >
+                  <div className={tileClass('muted')}>
+                    <icons.ui.helpCircle size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-fg">Tour de onboarding</p>
+                    <p className="text-[11px] text-fg-muted">Rever o guia de introdução à plataforma</p>
+                  </div>
+                  <icons.ui.chevronRight size={16} className="shrink-0 text-fg-muted" />
+                </button>
+
                 {/* Sair — destrutivo, então fica sozinho, no fim, com folga */}
                 <button
                   id="btn-logout"
