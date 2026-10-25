@@ -1,0 +1,74 @@
+.onboarding-tour-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.onboarding-tour-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.onboarding-tour-highlight {
+  position: absolute;
+  border: 3px solid #00ffcc;
+  border-radius: 8px;
+  box-shadow: 0 0 12px 4px rgba(0, 255, 204, 0.5);
+  pointer-events: none;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 12px 4px rgba(0, 255, 204, 0.5); }
+  50% { box-shadow: 0 0 20px 8px rgba(0, 255, 204, 0.8); }
+}
+
+.onboarding-tour-tooltip {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  backdrop-filter: blur(6px);
+  color: #111;
+  font-family: 'Inter', system-ui, sans-serif;
+  pointer-events: auto;
+  transition: transform 0.3s ease;
+}
+
+.onboarding-tour-tooltip h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #00ffcc;
+}
+
+.onboarding-tour-tooltip p {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.onboarding-tour-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.onboarding-tour-btn {
+  background: #00ffcc;
+  border: none;
+  border-radius: 6px;
+  color: #111;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.onboarding-tour-btn:hover {
+  background: #00e6b8;
+}

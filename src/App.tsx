@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Analytics } from '@vercel/analytics/react'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
+import OnboardingTour from './components/OnboardingTour'
 import { MarkNotificationsReadOnVisit } from './core/notifications/MarkNotificationsReadOnVisit'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
 import { AuthProvider } from './core/auth/AuthContext'
@@ -162,6 +163,7 @@ export default function App() {
               <AppRoutes />
             </Suspense>
             <CommandPalette />
+            <OnboardingTour />
             <GlobalPresenceIndicator />
             <MarkNotificationsReadOnVisit />
           </WorkspaceProvider>
