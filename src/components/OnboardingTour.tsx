@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import './OnboardingTour.css'
-import { buildTourSteps, type TourStep } from './onboardingSteps'
+import { buildTourSteps } from './onboardingSteps'
 import { useAuth } from '../core/auth/AuthContext'
 import { useTheme } from '../lib/ThemeContext'
 import { useModuleVisibilities } from '../core/permissions/useModuleVisibility'
