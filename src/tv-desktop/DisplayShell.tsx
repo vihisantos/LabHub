@@ -66,6 +66,14 @@ export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
     return startHeartbeat(config.deviceId)
   }, [config.deviceId])
 
+  /* Sinal de vida para o watchdog do Electron */
+  useEffect(() => {
+    const send = () => { try { window.desktop?.reportAlive?.() } catch { /* noop */ } }
+    send()
+    const timer = setInterval(send, 30_000)
+    return () => clearInterval(timer)
+  }, [])
+
   /* Atalho mestre de manutenção */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

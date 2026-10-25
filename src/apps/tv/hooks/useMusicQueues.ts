@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
+import { isKiosk, kioskError } from '../utils/kiosk'
 import {
   fetchQueues,
   createQueue,
@@ -22,7 +23,11 @@ export interface QueueWithTracks extends TvMusicQueue {
 export function useMusicQueues() {
   const [queues, setQueues] = useState<QueueWithTracks[]>([])
   const [loading, setLoading] = useState(true)
-  const { addToast } = useToast()
+  const { addToast: rawAddToast } = useToast()
+  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
+    if (type === 'error' && isKiosk()) { kioskError(message); return }
+    rawAddToast(type, message)
+  }
 
   const load = useCallback(async (silent?: boolean) => {
     try {
