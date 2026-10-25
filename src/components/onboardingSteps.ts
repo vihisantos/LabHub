@@ -1,29 +1,79 @@
-// Mapping of user roles to onboarding steps
-// Adjust selectors, titles and descriptions to match your UI
+// Mapeamento de cargos para passos do tour de onboarding.
+// Ajuste os seletores CSS, títulos e descrições para os elementos reais do seu app.
+
 export type TourStep = {
-  selector: string;
-  title: string;
-  description: string;
-};
+  /** Seletor CSS do elemento a ser destacado. Use '__theme__' para o passo de tema. */
+  selector: string
+  title: string
+  description: string
+  /**
+   * Quando true, o tour aguarda o usuário clicar no elemento antes de avançar.
+   * Ativa o modo "tutorial guiado interativo".
+   */
+  interactive?: boolean
+}
 
 export const roleBasedSteps: Record<string, TourStep[]> = {
-  // Admin role – may have access to admin app
+  // ── Administrador ─────────────────────────────────────────────────────────
   admin: [
-    { selector: '#adminDashboard', title: 'Admin Dashboard', description: 'Painel de controle para administradores.' },
-    { selector: '#userManagement', title: 'Gerenciar Usuários', description: 'Adicione, edite ou remova usuários da plataforma.' }
+    {
+      selector: '[data-tour="admin-app"]',
+      title: '⚙️ Painel Admin',
+      description: 'Aqui você gerencia usuários, permissões e configurações globais da plataforma.',
+      interactive: true,
+    },
+    {
+      selector: '[data-tour="notifications"]',
+      title: '🔔 Notificações',
+      description: 'Fique por dentro de tudo que acontece na plataforma em tempo real.',
+    },
+    {
+      selector: '[data-tour="profile"]',
+      title: '👤 Seu Perfil',
+      description: 'Gerencie sua foto, nome e preferências. Você também pode reativar este tour aqui!',
+    },
   ],
-  // Technician role – acesso ao app de chamados
-  technician: [
-    { selector: '#chamadosApp', title: 'Chamados', description: 'Abra e gerencie chamados de suporte.' },
-    { selector: '#newTicketButton', title: 'Novo Chamado', description: 'Crie um novo chamado rapidamente.' }
-  ],
-  // Generic user – home page features
-  user: [
-    { selector: '#menuButton', title: 'Menu', description: 'Clique aqui para abrir o menu principal.' },
-    { selector: '.searchInput', title: 'Busca', description: 'Digite aqui o que deseja procurar.' },
-    { selector: '.profileLink', title: 'Perfil', description: 'Acesse seu perfil e configurações.' }
-  ]
-};
 
-// Fallback steps if role is unknown
-export const defaultSteps: TourStep[] = roleBasedSteps['user'];
+  // ── Técnico ───────────────────────────────────────────────────────────────
+  technician: [
+    {
+      selector: '[data-tour="chamados-app"]',
+      title: '🎫 Chamados',
+      description: 'Visualize e gerencie todos os chamados de suporte abertos para você.',
+      interactive: true,
+    },
+    {
+      selector: '[data-tour="pccare-app"]',
+      title: '💻 PC Care',
+      description: 'Registre e acompanhe manutenções de equipamentos.',
+    },
+    {
+      selector: '[data-tour="profile"]',
+      title: '👤 Seu Perfil',
+      description: 'Gerencie sua foto, nome e preferências. Você também pode reativar este tour aqui!',
+    },
+  ],
+
+  // ── Usuário genérico ──────────────────────────────────────────────────────
+  user: [
+    {
+      selector: '[data-tour="apps-grid"]',
+      title: '📱 Seus Apps',
+      description: 'Todos os aplicativos que você tem acesso aparecem aqui. Clique para abrir um.',
+      interactive: true,
+    },
+    {
+      selector: '[data-tour="notifications"]',
+      title: '🔔 Notificações',
+      description: 'Avisos importantes sobre o laboratório e seus aplicativos chegam aqui.',
+    },
+    {
+      selector: '[data-tour="profile"]',
+      title: '👤 Seu Perfil',
+      description: 'Gerencie sua foto, nome e preferências. Você também pode reativar este tour aqui!',
+    },
+  ],
+}
+
+// Fallback caso o roleId não tenha passos mapeados
+export const defaultSteps: TourStep[] = roleBasedSteps['user']
