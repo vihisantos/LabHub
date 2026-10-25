@@ -71,6 +71,7 @@ import {
   Star,
   BellRing,
   Mail,
+  HelpCircle,
   Music,
 } from 'lucide-react'
 
@@ -155,6 +156,7 @@ export const icons = {
     bellRing: BellRing,
     mail: Mail,
     music: Music,
+    helpCircle: HelpCircle,
   },
 } as const
 

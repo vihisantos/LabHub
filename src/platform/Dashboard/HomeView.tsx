@@ -77,6 +77,7 @@ export function HomeView() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
+              data-tour="notifications"
               onClick={() => setNotificationsOpen(true)}
               className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-card text-fg-dim transition-colors hover:bg-input hover:text-fg"
               title="Notificações"
@@ -102,6 +103,7 @@ export function HomeView() {
             {user && (
               <button
                 type="button"
+                data-tour="profile"
                 onClick={() => setProfileOpen(true)}
                 title="Meu perfil"
                 className="flex h-12 w-12 items-center justify-center rounded-full bg-card p-0.5 transition-colors hover:bg-input"

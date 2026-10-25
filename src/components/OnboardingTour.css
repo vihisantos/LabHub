@@ -1,0 +1,357 @@
+/* ─── Layout ─────────────────────────────────────────────────────────────────── */
+.ot-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.ot-backdrop *,
+.ot-backdrop *::before,
+.ot-backdrop *::after {
+  box-sizing: border-box;
+}
+
+.ot-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(3px);
+}
+
+/* ─── Spotlight cutout (Item 2 - box-shadow 9999px) ─────────────────────────── */
+.ot-spotlight {
+  position: fixed;
+  border: 2.5px solid var(--ot-accent);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.74),
+    0 0 20px 4px color-mix(in srgb, var(--ot-accent) 55%, transparent);
+  animation: ot-spotlight-pulse 2.2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 10000;
+}
+
+@keyframes ot-spotlight-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 9999px rgba(0, 0, 0, 0.74),
+      0 0 16px 2px color-mix(in srgb, var(--ot-accent) 45%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 9999px rgba(0, 0, 0, 0.74),
+      0 0 28px 8px color-mix(in srgb, var(--ot-accent) 70%, transparent);
+  }
+}
+
+/* ─── Arrow SVG ─────────────────────────────────────────────────────────────── */
+.ot-arrow-svg {
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 10001;
+}
+
+/* ─── Modal Wrapper (Centered modals like Theme step) ────────────────────────── */
+.ot-modal-wrapper {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 10002;
+  pointer-events: none;
+}
+
+/* ─── Tooltip ────────────────────────────────────────────────────────────────── */
+.ot-tooltip {
+  background: rgba(15, 15, 20, 0.94);
+  border: 1px solid color-mix(in srgb, var(--ot-accent) 40%, transparent);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, sans-serif;
+  pointer-events: auto;
+  z-index: 10002;
+  box-sizing: border-box;
+}
+
+.ot-tooltip.ot-modal {
+  position: relative;
+  width: 100%;
+  max-width: 390px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  margin: auto;
+}
+
+.ot-tooltip.ot-target-tip {
+  position: fixed;
+  min-width: 280px;
+}
+
+.ot-tooltip::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ot-tooltip::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+/* ─── Progress dots ─────────────────────────────────────────────────────────── */
+.ot-dots {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.ot-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  transition: all 0.3s;
+}
+
+.ot-dot.active {
+  width: 18px;
+  border-radius: 3px;
+  background: var(--ot-accent);
+}
+
+/* ─── Content ────────────────────────────────────────────────────────────────── */
+.ot-title {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ot-accent);
+  letter-spacing: -0.01em;
+}
+
+.ot-desc {
+  margin: 0 0 14px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #94a3b8;
+}
+
+.ot-interactive-hint {
+  background: color-mix(in srgb, var(--ot-accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ot-accent) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--ot-accent);
+  margin-bottom: 12px;
+  animation: ot-pulse-hint 1.2s ease-in-out infinite;
+}
+
+@keyframes ot-pulse-hint {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+/* ─── Controls ───────────────────────────────────────────────────────────────── */
+.ot-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.ot-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.ot-btn.primary {
+  background: var(--ot-accent);
+  color: #000;
+}
+
+.ot-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+.ot-btn.primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ot-btn.secondary {
+  background: rgba(255,255,255,0.08);
+  color: #cbd5e1;
+}
+
+.ot-btn.secondary:hover {
+  background: rgba(255,255,255,0.14);
+}
+
+.ot-btn.ghost {
+  background: transparent;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.ot-btn.ghost:hover {
+  color: #94a3b8;
+}
+
+/* ─── Theme picker ───────────────────────────────────────────────────────────── */
+.ot-theme-picker {
+  margin-bottom: 16px;
+  padding: 14px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.07);
+}
+
+.ot-theme-label {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.ot-theme-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ot-theme-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.ot-theme-btn.active {
+  border-color: var(--ot-accent);
+  background: color-mix(in srgb, var(--ot-accent) 15%, transparent);
+  color: var(--ot-accent);
+}
+
+.ot-theme-btn:hover:not(.active) {
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+}
+
+.ot-accent-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ot-accent-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  background: var(--accent-color);
+  cursor: pointer;
+  transition: all 0.2s;
+  outline: none;
+}
+
+.ot-accent-btn.active {
+  border-color: #fff;
+  transform: scale(1.2);
+  box-shadow: 0 0 10px var(--accent-color);
+}
+
+.ot-accent-btn:hover:not(.active) {
+  transform: scale(1.1);
+}
+
+/* ─── Mobile Responsiveness ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .ot-modal-wrapper {
+    padding: 12px;
+  }
+
+  .ot-tooltip {
+    padding: 16px 14px;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+  }
+
+  .ot-tooltip.ot-modal {
+    max-width: 100%;
+    max-height: calc(100dvh - 24px);
+  }
+
+  .ot-tooltip.ot-target-tip.ot-mobile-tip {
+    min-width: 0;
+  }
+
+  .ot-title {
+    font-size: 0.96rem;
+    margin-bottom: 6px;
+  }
+
+  .ot-desc {
+    font-size: 0.82rem;
+    line-height: 1.45;
+    margin-bottom: 12px;
+  }
+
+  .ot-theme-picker {
+    padding: 10px;
+    margin-bottom: 12px;
+  }
+
+  .ot-theme-row {
+    gap: 6px;
+  }
+
+  .ot-theme-btn {
+    padding: 6px 4px;
+    font-size: 0.72rem;
+    gap: 2px;
+  }
+
+  .ot-accent-row {
+    gap: 10px;
+  }
+
+  .ot-accent-btn {
+    width: 26px;
+    height: 26px;
+  }
+
+  .ot-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+
+  .ot-controls {
+    gap: 6px;
+  }
+}
+
