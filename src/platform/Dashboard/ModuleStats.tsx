@@ -110,7 +110,7 @@ export function ModuleStats() {
   }, [isVisible])
 
   return (
-    <section aria-labelledby="resumo-modulos-titulo">
+    <section aria-labelledby="resumo-modulos-titulo" data-tour="modules-section">
       <h3 id="resumo-modulos-titulo" className="mb-3 px-1 text-xs font-semibold text-fg-muted">
         Resumo por Módulo
       </h3>
@@ -123,6 +123,7 @@ export function ModuleStats() {
             <li key={mod.id}>
               <button
                 type="button"
+                data-tour={`module-${mod.id}`}
                 onClick={() => navigate(mod.route)}
                 className="group flex w-full items-center gap-3 rounded-2xl bg-module-card p-3.5 text-left shadow-[var(--shadow-card)] ring-1 ring-line transition-all hover:shadow-[var(--shadow-elevated)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98] motion-reduce:active:scale-100"
               >

@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import './OnboardingTour.css'
-import { roleBasedSteps, defaultSteps, type TourStep } from './onboardingSteps'
+import { buildTourSteps, type TourStep } from './onboardingSteps'
 import { useAuth } from '../core/auth/AuthContext'
 import { useTheme } from '../lib/ThemeContext'
+import { useModuleVisibilities } from '../core/permissions/useModuleVisibility'
 import type { ThemeVariant, Accent } from '../lib/ThemeContext'
 
 // ─── Theme picker step ─────────────────────────────────────────────────────────
@@ -109,11 +110,7 @@ function TourArrow({ rect, tipRef }: { rect: DOMRect; tipRef: React.RefObject<HT
 }
 
 // ─── Main component ─────────────────────────────────────────────────────────────
-const THEME_STEP: TourStep = {
-  selector: '__theme__',
-  title: '🎨 Personalize sua aparência',
-  description: 'Escolha o tema e cor de destaque da plataforma. Você pode mudar isso a qualquer momento no seu perfil.',
-}
+const ALL_MODULE_IDS = ['chamados', 'pc-care', 'stock', 'reservalab', 'tv', 'patrimonio', 'admin'] as const
 
 function storageKey(userId?: string) {
   return `onboardingCompleted_${userId ?? 'guest'}`
@@ -122,12 +119,15 @@ function storageKey(userId?: string) {
 export default function OnboardingTour() {
   const { user } = useAuth()
   const { accent } = useTheme()
+  const { isVisible } = useModuleVisibilities(ALL_MODULE_IDS)
 
-  const roleId = user?.roleId ?? 'user'
-  const steps: TourStep[] = [
-    THEME_STEP,
-    ...(roleBasedSteps[roleId] ?? defaultSteps),
-  ]
+  const accessibleModuleIds = useMemo(() => {
+    return ALL_MODULE_IDS.filter((id) => user?.is_super_admin || isVisible(id))
+  }, [user?.is_super_admin, isVisible])
+
+  const steps = useMemo(() => {
+    return buildTourSteps(accessibleModuleIds, user?.is_super_admin)
+  }, [accessibleModuleIds, user?.is_super_admin])
 
   const [current, setCurrent] = useState(0)
   const [show, setShow] = useState(false)
@@ -267,23 +267,28 @@ export default function OnboardingTour() {
 
   return (
     <div className="ot-backdrop" style={{ '--ot-accent': accentVar } as React.CSSProperties}>
-      {/* Overlay */}
-      <div className="ot-overlay" />
-
-      {/* Highlighted element cutout */}
-      <AnimatePresence mode="wait">
+      {/* Recorte do elemento com box-shadow de 9999px (Spotlight - item 2) */}
+      <AnimatePresence>
         {rect && (
           <motion.div
-            key={`highlight-${current}`}
-            className="ot-highlight"
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.25 }}
-            style={{ top: rect.top - 6, left: rect.left - 6, width: rect.width + 12, height: rect.height + 12 }}
+            key="spotlight-cutout"
+            className="ot-spotlight"
+            initial={{ opacity: 0 }}
+            animate={{
+              opacity: 1,
+              top: rect.top - 6,
+              left: rect.left - 6,
+              width: rect.width + 12,
+              height: rect.height + 12,
+            }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
           />
         )}
       </AnimatePresence>
+
+      {/* Overlay escuro de fallback apenas quando NÃO há elemento destacado (ex: passo de tema) */}
+      {!rect && <div className="ot-overlay" />}
 
       {/* Arrow */}
       {rect && <TourArrow rect={rect} tipRef={tipRef} />}
