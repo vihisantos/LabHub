@@ -1,6 +1,11 @@
 -- =============================================================================
 -- tests/107_profiles_access_optimization_checks.sql
 -- =============================================================================
+
+-- Garante que o papel authenticated possa exercer RLS no banco efêmero do CI
+-- (o stub não concede privilégios em public.profiles por padrão). A concessão
+-- é revertida ao final do arquivo.
+GRANT SELECT, UPDATE ON public.profiles TO authenticated;
 -- Pós-migration 107: valida funções/policies e comportamento básico de RLS.
 --
 -- CHECKS
@@ -107,3 +112,5 @@ DELETE FROM auth.users WHERE id = v_uid;
 
 RAISE NOTICE 'OK: 107 profiles access optimization checks passed';
 END $$;
+
+REVOKE SELECT, UPDATE ON public.profiles FROM authenticated;
