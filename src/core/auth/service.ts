@@ -275,6 +275,7 @@ export const authService = {
     if (!defaultDb) return
     // Invalida carregamentos em andamento para que uma resposta antiga não
     // restaure o usuário após o logout.
+    authLoadSeq++
     inFlightProfiles.clear()
     await defaultDb.auth.signOut()
     currentUser = null
