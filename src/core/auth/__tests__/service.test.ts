@@ -434,6 +434,75 @@ describe('authService.fetchUserProfile — deduplicação de consultas concorren
   })
 })
 
+describe('authService — invalidação por logout e troca de sessão', () => {
+  beforeEach(() => {
+    mockGetSession.mockReset()
+    mockSignIn.mockReset()
+    mockSignOut.mockReset()
+    mockFrom.mockReset()
+    mockGetByUser.mockReset()
+  })
+
+  it('um carregamento iniciado antes do signOut não restaura o usuário depois do logout', async () => {
+    const authService = await loadAuthService()
+
+    let resolveProfile!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferred = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveProfile = res
+    })
+
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => deferred,
+        }),
+      }),
+    })
+    mockGetByUser.mockResolvedValue([])
+    mockSignOut.mockResolvedValue({ error: null })
+
+    const loadPromise = authService.fetchUserProfile('u-logout')
+
+    // Logout enquanto a carga está em andamento.
+    await authService.signOut()
+
+    resolveProfile({
+      data: {
+        id: 'u-logout', email: 'l@labhub.com', name: 'L', role: 'role-viewer',
+        status: 'active', is_super_admin: false, workspace_ids: [],
+        accent: 'blue', theme_variant: 'dark',
+      },
+      error: null,
+    })
+    await loadPromise
+
+    // O logout invalidou a carga: currentUser permanece null.
+    expect(authService.getCurrentUser()).toBeNull()
+  })
+
+  it('eventos legítimos continuam atualizando o usuário (fetchUserProfile direto)', async () => {
+    const authService = await loadAuthService()
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: {
+              id: 'u-evt', email: 'e@labhub.com', name: 'E', role: 'role-viewer',
+              status: 'active', is_super_admin: false, workspace_ids: [],
+              accent: 'blue', theme_variant: 'dark',
+            },
+            error: null,
+          }),
+        }),
+      }),
+    })
+    mockGetByUser.mockResolvedValue([])
+
+    const user = await authService.fetchUserProfile('u-evt')
+    expect(user?.id).toBe('u-evt')
+  })
+})
+
 describe('authService.signIn — auto-heal de profile ausente (F1-B)', () => {
   beforeEach(() => {
     mockSignIn.mockReset()

@@ -105,6 +105,11 @@ EXCEPTION WHEN insufficient_privilege THEN
   RESET ROLE;
 END;
 
+-- Prova complementar: o valor permanece false (a elevação não ocorreu).
+IF EXISTS (SELECT 1 FROM public.profiles WHERE id = v_uid AND is_super_admin) THEN
+  RAISE EXCEPTION 'FAIL [8b]: is_super_admin foi elevado indevidamente';
+END IF;
+
 -- cleanup
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
 DELETE FROM public.profiles WHERE id = v_uid;

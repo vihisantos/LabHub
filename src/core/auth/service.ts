@@ -100,7 +100,11 @@ async function fetchUserProfileCached(userId: string): Promise<User | null> {
   const existing = inFlightProfiles.get(userId)
   if (existing) return existing
   const promise = loadUser(userId).finally(() => {
-    inFlightProfiles.delete(userId)
+    // Só remove a entrada se ela ainda for ESTA Promise; uma carga mais
+    // recente (nova identidade/sessão) não pode ser apagada por uma antiga.
+    if (inFlightProfiles.get(userId) === promise) {
+      inFlightProfiles.delete(userId)
+    }
   })
   inFlightProfiles.set(userId, promise)
   return promise
@@ -195,6 +199,9 @@ export const authService = {
 
       console.log('[Auth] Sign in successful, user ID:', data.user.id)
 
+      // Garante que o login não reutilize uma carga antiga em andamento para
+      // a mesma identidade.
+      inFlightProfiles.delete(data.user.id)
       let profile = await authService.fetchUserProfile(data.user.id)
       console.log('[Auth] Profile fetch result:', profile)
 
@@ -261,6 +268,9 @@ export const authService = {
 
   signOut: async (): Promise<void> => {
     if (!defaultDb) return
+    // Invalida carregamentos em andamento para que uma resposta antiga não
+    // restaure o usuário após o logout.
+    inFlightProfiles.clear()
     await defaultDb.auth.signOut()
     currentUser = null
     initialized = false
@@ -340,6 +350,7 @@ export const authService = {
   refreshProfile: async (): Promise<User | null> => {
     if (!defaultDb) return currentUser
 
+    const seq = ++authLoadSeq
     const prev = currentUser
 
     // No in-memory user (e.g., right after signUp) — bootstrap from the session
@@ -348,6 +359,7 @@ export const authService = {
       if (error || !session?.user) return currentUser
 
       const profile = await authService.fetchUserProfile(session.user.id)
+      if (seq !== authLoadSeq) return currentUser
       if (!profile) return currentUser
 
       currentUser = profile
@@ -357,6 +369,7 @@ export const authService = {
     }
 
     const profile = await authService.fetchUserProfile(prev.id)
+    if (seq !== authLoadSeq) return currentUser
     if (!profile) return currentUser
 
     // Detecção de mudança POR MEMBERSHIPS (design 9.2, §3.3): `workspace_ids` não é
