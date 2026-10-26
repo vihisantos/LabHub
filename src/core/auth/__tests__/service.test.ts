@@ -331,6 +331,109 @@ describe('authService.refreshProfile — detecção de mudança por memberships'
   })
 })
 
+describe('authService.fetchUserProfile — deduplicação de consultas concorrentes', () => {
+  beforeEach(() => {
+    mockGetSession.mockReset()
+    mockSignIn.mockReset()
+    mockFrom.mockReset()
+    mockGetByUser.mockReset()
+  })
+
+  it('reutiliza a mesma Promise para a mesma identidade (sem consulta duplicada)', async () => {
+    const authService = await loadAuthService()
+
+    let resolveProfile!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferred = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveProfile = res
+    })
+
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => deferred,
+        }),
+      }),
+    })
+    mockGetByUser.mockResolvedValue([])
+
+    const p1 = authService.fetchUserProfile('u-dedup')
+    const p2 = authService.fetchUserProfile('u-dedup')
+
+    // As duas chamadas compartilham a mesma Promise: mockFrom invocado uma vez.
+    expect(mockFrom).toHaveBeenCalledTimes(1)
+
+    resolveProfile({
+      data: {
+        id: 'u-dedup', email: 'd@labhub.com', name: 'D', role: 'role-viewer',
+        status: 'active', is_super_admin: false, workspace_ids: [],
+        accent: 'blue', theme_variant: 'dark',
+      },
+      error: null,
+    })
+
+    const [a, b] = await Promise.all([p1, p2])
+    expect(a).toBe(b)
+    expect(a?.id).toBe('u-dedup')
+  })
+
+  it('identidades distintas não compartilham a Promise', async () => {
+    const authService = await loadAuthService()
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: null, error: null }),
+        }),
+      }),
+    })
+    mockGetByUser.mockResolvedValue([])
+
+    await Promise.all([
+      authService.fetchUserProfile('u-a'),
+      authService.fetchUserProfile('u-b'),
+    ])
+
+    // Duas identidades distintas => duas consultas.
+    expect(mockFrom).toHaveBeenCalledTimes(2)
+  })
+
+  it('falha não bloqueia carregamentos futuros (Promise removida do mapa)', async () => {
+    const authService = await loadAuthService()
+
+    // Primeira chamada: perfil ausente -> null (loadUser retorna null).
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: null, error: null }),
+        }),
+      }),
+    })
+    mockGetByUser.mockResolvedValue([])
+    await authService.fetchUserProfile('u-fail')
+
+    // Segunda chamada deve consultar novamente (não reutilizar Promise antiga).
+    mockFrom.mockClear()
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: {
+              id: 'u-fail', email: 'f@labhub.com', name: 'F', role: 'role-viewer',
+              status: 'active', is_super_admin: false, workspace_ids: [],
+              accent: 'blue', theme_variant: 'dark',
+            },
+            error: null,
+          }),
+        }),
+      }),
+    })
+    mockGetByUser.mockResolvedValue([])
+    const user = await authService.fetchUserProfile('u-fail')
+
+    expect(mockFrom).toHaveBeenCalledTimes(1)
+    expect(user?.id).toBe('u-fail')
+  })
+})
+
 describe('authService.signIn — auto-heal de profile ausente (F1-B)', () => {
   beforeEach(() => {
     mockSignIn.mockReset()
