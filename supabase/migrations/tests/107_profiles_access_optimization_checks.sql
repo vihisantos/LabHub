@@ -23,6 +23,7 @@ DO $$
 DECLARE
   v_uid uuid := gen_random_uuid();
   v_txt text;
+  v_err text;
   v_n   integer;
 BEGIN
 
@@ -102,7 +103,12 @@ BEGIN
   RESET ROLE;
   RAISE EXCEPTION 'FAIL [8]: usuario comum elevou is_super_admin';
 EXCEPTION WHEN insufficient_privilege THEN
+  GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
   RESET ROLE;
+  -- Mecanismo esperado: trigger guard_profile_privileged_columns (067).
+  IF v_err NOT ILIKE '%alteracao de campo privilegiado%' THEN
+    RAISE EXCEPTION 'FAIL [8c]: excecao inesperada (nao e o guard 067): %', v_err;
+  END IF;
 END;
 
 -- Prova complementar: o valor permanece false (a elevação não ocorreu).
