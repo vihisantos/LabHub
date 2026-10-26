@@ -5,6 +5,7 @@ const { mockSignUp } = vi.hoisted(() => ({ mockSignUp: vi.fn() }))
 const { mockSignOut } = vi.hoisted(() => ({ mockSignOut: vi.fn() }))
 const { mockSignIn } = vi.hoisted(() => ({ mockSignIn: vi.fn() }))
 const { mockGetSession } = vi.hoisted(() => ({ mockGetSession: vi.fn() }))
+const { mockOnAuthStateChange } = vi.hoisted(() => ({ mockOnAuthStateChange: vi.fn() }))
 const { mockGetMine } = vi.hoisted(() => ({ mockGetMine: vi.fn() }))
 const { mockGetByUser } = vi.hoisted(() => ({ mockGetByUser: vi.fn() }))
 
@@ -16,6 +17,7 @@ vi.mock('../../../lib/supabase', () => ({
       signOut: mockSignOut,
       signInWithPassword: mockSignIn,
       getSession: mockGetSession,
+      onAuthStateChange: mockOnAuthStateChange,
     },
   },
 }))
@@ -500,6 +502,78 @@ describe('authService — invalidação por logout e troca de sessão', () => {
 
     const user = await authService.fetchUserProfile('u-evt')
     expect(user?.id).toBe('u-evt')
+  })
+})
+
+describe('authService.init — corrida entre restauração e login', () => {
+  beforeEach(() => {
+    mockGetSession.mockReset()
+    mockSignIn.mockReset()
+    mockSignOut.mockReset()
+    mockFrom.mockReset()
+    mockGetByUser.mockReset()
+    mockOnAuthStateChange.mockReset()
+  })
+
+  it('restauração antiga de A não sobrescreve B após login', async () => {
+    const authService = await loadAuthService()
+
+    let resolveA!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferredA = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveA = res
+    })
+
+    mockOnAuthStateChange.mockImplementation(() => ({ data: { subscription: { unsubscribe: vi.fn() } } }))
+
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { id: 'u-a', email: 'a@labhub.com' } } },
+      error: null,
+    })
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => {
+            callCount++
+            if (callCount === 1) return deferredA
+            return Promise.resolve({
+              data: {
+                id: 'u-b', email: 'b@labhub.com', name: 'B', role: 'role-viewer',
+                status: 'active', is_super_admin: false, workspace_ids: [],
+                accent: 'blue', theme_variant: 'dark',
+              },
+              error: null,
+            })
+          },
+        }),
+      }),
+    }))
+    mockGetByUser.mockResolvedValue([])
+
+    const initPromise = authService.init()
+    await vi.advanceTimersByTimeAsync(0)
+
+    mockSignIn.mockResolvedValue({
+      data: { user: { id: 'u-b', email: 'b@labhub.com' } },
+      error: null,
+    })
+    const userB = await authService.signIn({ email: 'b@labhub.com', password: 'secret' })
+    expect(userB.id).toBe('u-b')
+    expect(authService.getCurrentUser()?.id).toBe('u-b')
+
+    resolveA({
+      data: {
+        id: 'u-a', email: 'a@labhub.com', name: 'A', role: 'role-viewer',
+        status: 'active', is_super_admin: false, workspace_ids: [],
+        accent: 'blue', theme_variant: 'dark',
+      },
+      error: null,
+    })
+
+    await initPromise
+
+    expect(authService.getCurrentUser()?.id).toBe('u-b')
   })
 })
 

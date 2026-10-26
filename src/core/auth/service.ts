@@ -202,7 +202,12 @@ export const authService = {
       // Garante que o login não reutilize uma carga antiga em andamento para
       // a mesma identidade.
       inFlightProfiles.delete(data.user.id)
+      const seq = ++authLoadSeq
       let profile = await authService.fetchUserProfile(data.user.id)
+      if (seq !== authLoadSeq) {
+        // Uma operação mais recente já assumiu a sessão; não sobrescrever.
+        return profile ?? (currentUser as User)
+      }
       console.log('[Auth] Profile fetch result:', profile)
 
       // If profile doesn't exist (user created before trigger), create it
