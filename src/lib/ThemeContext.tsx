@@ -55,9 +55,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // o sync em tempo real também é coberto por esse polling leve (1 query por PK)
   useEffect(() => {
     if (!userId) return
+    // Polling de fallback aumentado para 60s: o realtime continua sendo o canal
+    // primário; 15s gerava consultas redundantes a profiles em sessões longas.
     const timer = setInterval(() => {
       authService.refreshProfile()
-    }, 15000)
+    }, 60000)
     return () => clearInterval(timer)
   }, [userId])
 

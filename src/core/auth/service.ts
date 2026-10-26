@@ -95,6 +95,12 @@ export const authService = {
       // Durante signIn(), o próprio signIn() notifica ao final — ignorar aqui
       // evita notificar o mesmo usuário duas vezes (callback + signIn).
       if (signInInFlight) return
+      // TOKEN_REFRESHED apenas renova tokens; não altera o perfil. Evita uma
+      // consulta redundante a public.profiles a cada renovação automática.
+      if (event === 'TOKEN_REFRESHED') return
+      // INITIAL_SESSION pode disparar depois que getSession() já carregou o
+      // perfil; não recarregar nesse caso.
+      if (event === 'INITIAL_SESSION' && currentUser?.id === session?.user?.id) return
       if (session?.user) {
         const profile = await authService.fetchUserProfile(session.user.id)
         // Só notifica quando o perfil mudou de verdade. Sem isso, INITIAL_SESSION
@@ -122,11 +128,14 @@ export const authService = {
       }
       if (session?.user) {
         console.log('[Auth] Session restored for:', session.user.email)
-        const profile = await authService.fetchUserProfile(session.user.id)
-        if (profile && !sameUser(currentUser, profile)) {
-          currentUser = profile
-          applyUserPreferences(profile)
-          notifyListeners()
+        // Evita fetch duplicado quando o listener INITIAL_SESSION já carregou.
+        if (!currentUser || currentUser.id !== session.user.id) {
+          const profile = await authService.fetchUserProfile(session.user.id)
+          if (profile && !sameUser(currentUser, profile)) {
+            currentUser = profile
+            applyUserPreferences(profile)
+            notifyListeners()
+          }
         }
       } else {
         console.log('[Auth] No active session')
