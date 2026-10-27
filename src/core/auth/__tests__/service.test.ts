@@ -946,11 +946,13 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
     })
     mockGetByUser.mockResolvedValue([])
 
+    // Garantir que A já esteja aguardando o perfil antes de iniciar B;
+    // caso contrário, B pode invalidar A antes de A alcançar esta query.
     const signInAPromise = authService.signIn({ email: 'a@labhub.com', password: 'secret' })
-    const signInBPromise = authService.signIn({ email: 'b@labhub.com', password: 'secret' })
+    await aQueryStarted
 
-    // Não liberar nenhum perfil até confirmar que A e B chegaram às consultas.
-    await Promise.all([aQueryStarted, bQueryStarted])
+    const signInBPromise = authService.signIn({ email: 'b@labhub.com', password: 'secret' })
+    await bQueryStarted
 
     // B termina primeiro; a conclusão de A não pode sobrescrever B.
     resolveB({
