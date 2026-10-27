@@ -914,7 +914,11 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
       .mockResolvedValueOnce({ data: { user: { id: 'u-a', email: 'a@labhub.com' } }, error: null })
       .mockResolvedValueOnce({ data: { user: { id: 'u-b', email: 'b@labhub.com' } }, error: null })
 
-    let aCalls = 0
+    let markAQueryStarted!: () => void
+    let markBQueryStarted!: () => void
+    const aQueryStarted = new Promise<void>((resolve) => { markAQueryStarted = resolve })
+    const bQueryStarted = new Promise<void>((resolve) => { markBQueryStarted = resolve })
+
     mockFrom.mockImplementation((table: string) => {
       if (table !== 'profiles') {
         return {
@@ -923,11 +927,18 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
       }
       return {
         select: () => ({
-          eq: () => ({
+          eq: (_column: string, userId: string) => ({
             maybeSingle: () => {
-              aCalls++
-              if (aCalls === 1) return deferredA
-              return deferredB
+              // Associar cada deferred pelo ID, nunca pela ordem de scheduling.
+              if (userId === 'u-a') {
+                markAQueryStarted()
+                return deferredA
+              }
+              if (userId === 'u-b') {
+                markBQueryStarted()
+                return deferredB
+              }
+              throw new Error(`ID de perfil inesperado no teste de concorrência: ${userId}`)
             },
           }),
         }),
@@ -937,7 +948,11 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
 
     const signInAPromise = authService.signIn({ email: 'a@labhub.com', password: 'secret' })
     const signInBPromise = authService.signIn({ email: 'b@labhub.com', password: 'secret' })
-    // B termina primeiro
+
+    // Não liberar nenhum perfil até confirmar que A e B chegaram às consultas.
+    await Promise.all([aQueryStarted, bQueryStarted])
+
+    // B termina primeiro; a conclusão de A não pode sobrescrever B.
     resolveB({
       data: {
         id: 'u-b', email: 'b@labhub.com', name: 'B', role: 'role-viewer',
@@ -959,11 +974,7 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
       error: null,
     })
 
-    const resA = await Promise.race([
-      signInAPromise.then(() => 'ok').catch((e: any) => e.message),
-      new Promise((r) => setTimeout(() => r('timeout'), 2000)),
-    ])
-    expect(String(resA)).toMatch(/login invalidado/)
+    await expect(signInAPromise).rejects.toThrow(/login invalidado/i)
     expect(authService.getCurrentUser()?.id).toBe('u-b')
   })
 })
