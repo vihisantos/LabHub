@@ -1072,6 +1072,15 @@ export function TicketDetail() {
 
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h3 className="mb-3 text-xs font-semibold text-fg-muted">Timeline</h3>
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-border/70 bg-input/30 px-3 py-2.5">
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fg-muted/10 text-fg-muted">
+            <icons.ui.calendar size={14} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">Chamado aberto em</p>
+            <p className="mt-0.5 text-sm font-semibold text-fg">{formatDate(ticket.createdAt)}</p>
+          </div>
+        </div>
         <div className="space-y-3">
           {currentIndex === -1 && (
             <div className="flex items-center gap-3">
@@ -1093,20 +1102,45 @@ export function TicketDetail() {
           {STATUS_FLOW.map((status, i) => {
             const isPast = i <= currentIndex
             const isCurrent = i === currentIndex
+            const isServiceStart = status === 'em_atendimento'
             return (
-              <div key={status} className="flex items-center gap-3">
-                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                  isCurrent ? 'bg-amber-500 text-white' : isPast ? 'bg-emerald-500/20 text-emerald-500' : 'bg-input text-fg-muted'
+              <div
+                key={status}
+                className={`flex items-start gap-3 rounded-lg px-2.5 py-2 transition-colors ${
+                  isCurrent && isServiceStart
+                    ? 'border border-blue-500/30 bg-blue-500/5'
+                    : isCurrent
+                      ? 'bg-input/40'
+                      : ''
+                }`}
+              >
+                <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                  isCurrent && isServiceStart
+                    ? 'bg-blue-600 text-white'
+                    : isCurrent
+                      ? 'bg-amber-500 text-white'
+                      : isPast
+                        ? 'bg-emerald-500/20 text-emerald-500'
+                        : 'bg-input text-fg-muted'
                 }`}>
-                  {isPast ? <icons.ui.check size={12} /> : i + 1}
+                  {isCurrent && isServiceStart
+                    ? <icons.ui.clock size={13} />
+                    : isPast
+                      ? <icons.ui.check size={12} />
+                      : i + 1}
                 </div>
-                <div className="flex-1">
-                  <p className={`text-xs font-medium ${isCurrent ? 'text-fg' : isPast ? 'text-fg-muted' : 'text-fg-dim'}`}>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-xs font-semibold ${isCurrent ? 'text-fg' : isPast ? 'text-fg-muted' : 'text-fg-dim'}`}>
                     {TICKET_STATUS_LABELS[status]}
                   </p>
+                  {isCurrent && isServiceStart && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-blue-600 dark:text-blue-400">
+                      A contagem do tempo de atendimento começa nesta etapa.
+                    </p>
+                  )}
                 </div>
                 {isCurrent && ticket.resolvedAt && status === 'resolvido' && (
-                  <span className="text-[10px] text-fg-dim">{formatDate(ticket.resolvedAt)}</span>
+                  <span className="shrink-0 text-[10px] text-fg-dim">{formatDate(ticket.resolvedAt)}</span>
                 )}
               </div>
             )
