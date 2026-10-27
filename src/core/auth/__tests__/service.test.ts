@@ -858,9 +858,16 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
     mockOnAuthStateChange.mockReset()
   })
 
-  it('login pendente seguido de logout → lança erro e não sobrescreve sessão', async () => {
+  it('login pendente seguido de logout → ignora evento tardio e não sobrescreve sessão', async () => {
     const authService = await loadAuthService()
-    mockOnAuthStateChange.mockImplementation(() => ({ data: { subscription: { unsubscribe: vi.fn() } } }))
+    let authCallback!: (event: string, session: unknown) => Promise<void> | void
+    mockOnAuthStateChange.mockImplementation((cb: typeof authCallback) => {
+      authCallback = cb
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null })
+    await authService.init()
+    expect(authCallback).toBeTypeOf('function')
 
     let resolveProfile!: (v: { data: Record<string, unknown> | null; error: null }) => void
     const deferred = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
@@ -882,6 +889,11 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
     for (let i = 0; i < 10; i++) await Promise.resolve()
     // Logout durante o fetch do perfil no login.
     await authService.signOut()
+    expect(authService.getCurrentUser()).toBeNull()
+
+    // Um SIGNED_IN atrasado enquanto a tentativa invalidada ainda está
+    // pendente não pode restaurar a sessão depois do logout.
+    await authCallback('SIGNED_IN', { user: { id: 'u-a', email: 'a@labhub.com' } })
     expect(authService.getCurrentUser()).toBeNull()
 
     resolveProfile({
