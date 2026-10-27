@@ -1,10 +1,14 @@
 -- =============================================================================
 -- tests/107_profiles_access_optimization_checks.sql
 -- =============================================================================
+-- Transação isolada: tudo (GRANT, dados de teste) é revertido pelo ROLLBACK
+-- final. Se uma asserção falhar no meio, o executor encerra a conexão e o
+-- PostgreSQL faz rollback automático, preservando os grants pré-existentes.
+BEGIN;
 
 -- Garante que o papel authenticated possa exercer RLS no banco efêmero do CI
--- (o stub não concede privilégios em public.profiles por padrão). A concessão
--- é revertida ao final do arquivo, inclusive em caso de falha.
+-- (o stub não concede privilégios em public.profiles por padrão). O GRANT é
+-- revertido pelo ROLLBACK final (ou rollback automático em falha).
 GRANT SELECT, UPDATE ON public.profiles TO authenticated;
 -- Pós-migration 107: valida funções/policies e comportamento básico de RLS.
 --
@@ -120,18 +124,9 @@ END IF;
 PERFORM set_config('request.jwt.claim.sub', NULL, true);
 DELETE FROM public.profiles WHERE id = v_uid;
 DELETE FROM auth.users WHERE id = v_uid;
-REVOKE SELECT, UPDATE ON public.profiles FROM authenticated;
 
 RAISE NOTICE 'OK: 107 profiles access optimization checks passed';
-EXCEPTION WHEN OTHERS THEN
-  -- Limpeza segura mesmo em caso de falha (não mascarar a exceção original).
-  BEGIN
-    PERFORM set_config('request.jwt.claim.sub', NULL, true);
-    DELETE FROM public.profiles WHERE id = v_uid;
-    DELETE FROM auth.users WHERE id = v_uid;
-    REVOKE SELECT, UPDATE ON public.profiles FROM authenticated;
-  EXCEPTION WHEN OTHERS THEN
-    NULL;
-  END;
-  RAISE;
 END $$;
+
+-- Reverte GRANT + dados de teste (rollback garante limpeza mesmo em falha).
+ROLLBACK;

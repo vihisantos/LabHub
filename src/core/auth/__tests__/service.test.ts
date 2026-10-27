@@ -720,6 +720,236 @@ describe('authService — corrida com listener real (init + signOut/signIn)', ()
   })
 })
 
+describe('authService — callback real de onAuthStateChange (corridas)', () => {
+  const ROW_A = {
+    id: 'u-a', email: 'a@labhub.com', name: 'A', role: 'role-viewer',
+    status: 'active', is_super_admin: false, workspace_ids: [],
+    accent: 'blue', theme_variant: 'dark',
+  }
+  const ROW_B = {
+    id: 'u-b', email: 'b@labhub.com', name: 'B', role: 'role-viewer',
+    status: 'active', is_super_admin: false, workspace_ids: [],
+    accent: 'blue', theme_variant: 'dark',
+  }
+
+  beforeEach(() => {
+    mockGetSession.mockReset()
+    mockSignIn.mockReset()
+    mockSignOut.mockReset()
+    mockFrom.mockReset()
+    mockGetByUser.mockReset()
+    mockOnAuthStateChange.mockReset()
+  })
+
+  it('INITIAL_SESSION(A pendente) + SIGNED_OUT não restaura A', async () => {
+    const authService = await loadAuthService()
+
+    let resolveA!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferredA = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveA = res
+    })
+
+    let callback!: (event: string, session: unknown) => Promise<void> | void
+    mockOnAuthStateChange.mockImplementation((cb: typeof callback) => {
+      callback = cb
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+
+    const listener = vi.fn()
+    authService.onAuthChange(listener)
+
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { id: 'u-a', email: 'a@labhub.com' } } },
+      error: null,
+    })
+    mockFrom.mockImplementation(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => deferredA }) }),
+    }))
+    mockGetByUser.mockResolvedValue([])
+
+    const initPromise = authService.init()
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Evento real do Supabase: logout (sessão nula) durante a carga pendente.
+    await callback('SIGNED_OUT', null)
+    expect(authService.getCurrentUser()).toBeNull()
+
+    resolveA({ data: ROW_A, error: null })
+    await initPromise
+
+    expect(authService.getCurrentUser()).toBeNull()
+    const calledWithA = listener.mock.calls.some(([u]) => (u as { id?: string } | null)?.id === 'u-a')
+    expect(calledWithA).toBe(false)
+  })
+
+  it('SIGNED_IN(B) durante restauração de A pendente mantém B', async () => {
+    const authService = await loadAuthService()
+
+    let resolveA!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferredA = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveA = res
+    })
+
+    let callback!: (event: string, session: unknown) => Promise<void> | void
+    mockOnAuthStateChange.mockImplementation((cb: typeof callback) => {
+      callback = cb
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+
+    const listener = vi.fn()
+    authService.onAuthChange(listener)
+
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { id: 'u-a', email: 'a@labhub.com' } } },
+      error: null,
+    })
+    let callCount = 0
+    mockFrom.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => {
+            callCount++
+            if (callCount === 1) return deferredA
+            return Promise.resolve({ data: ROW_B, error: null })
+          },
+        }),
+      }),
+    }))
+    mockGetByUser.mockResolvedValue([])
+
+    const initPromise = authService.init()
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Evento legítimo do Supabase: login de B enquanto A ainda está pendente.
+    await callback('SIGNED_IN', { user: { id: 'u-b', email: 'b@labhub.com' } })
+    expect(authService.getCurrentUser()?.id).toBe('u-b')
+
+    resolveA({ data: ROW_A, error: null })
+    await initPromise
+
+    expect(authService.getCurrentUser()?.id).toBe('u-b')
+    const calledWithA = listener.mock.calls.some(([u]) => (u as { id?: string } | null)?.id === 'u-a')
+    expect(calledWithA).toBe(false)
+  })
+
+  it('INITIAL_SESSION com sessão nula limpa currentUser', async () => {
+    const authService = await loadAuthService()
+    let callback!: (event: string, session: unknown) => Promise<void> | void
+    mockOnAuthStateChange.mockImplementation((cb: typeof callback) => {
+      callback = cb
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null })
+
+    await authService.init()
+    await callback('INITIAL_SESSION', null)
+
+    expect(authService.getCurrentUser()).toBeNull()
+  })
+})
+
+describe('authService.signIn — invalidação por logout/sessão mais recente', () => {
+  beforeEach(() => {
+    mockSignIn.mockReset()
+    mockGetSession.mockReset()
+    mockSignOut.mockReset()
+    mockFrom.mockReset()
+    mockGetByUser.mockReset()
+    mockOnAuthStateChange.mockReset()
+  })
+
+  it('login pendente seguido de logout → lança erro e não sobrescreve sessão', async () => {
+    const authService = await loadAuthService()
+    mockOnAuthStateChange.mockImplementation(() => ({ data: { subscription: { unsubscribe: vi.fn() } } }))
+
+    let resolveProfile!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferred = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveProfile = res
+    })
+
+    mockSignIn.mockResolvedValue({
+      data: { user: { id: 'u-a', email: 'a@labhub.com' } },
+      error: null,
+    })
+    mockFrom.mockImplementation(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => deferred }) }),
+    }))
+    mockGetByUser.mockResolvedValue([])
+    mockSignOut.mockResolvedValue({ error: null })
+
+    const signInPromise = authService.signIn({ email: 'a@labhub.com', password: 'secret' })
+    // Esperar até que signIn chegue em fetchUserProfile
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    // Logout durante o fetch do perfil no login.
+    await authService.signOut()
+    expect(authService.getCurrentUser()).toBeNull()
+
+    resolveProfile({
+      data: {
+        id: 'u-a', email: 'a@labhub.com', name: 'A', role: 'role-viewer',
+        status: 'active', is_super_admin: false, workspace_ids: [],
+        accent: 'blue', theme_variant: 'dark',
+      },
+      error: null,
+    })
+
+    await expect(signInPromise).rejects.toThrow(/login invalidado/i)
+    expect(authService.getCurrentUser()).toBeNull()
+  })
+
+  it('login pendente de A seguido de login válido de B', async () => {
+    const authService = await loadAuthService()
+    mockOnAuthStateChange.mockImplementation(() => ({ data: { subscription: { unsubscribe: vi.fn() } } }))
+
+    let resolveA!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferredA = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveA = res
+    })
+
+    mockSignIn
+      .mockResolvedValueOnce({ data: { user: { id: 'u-a', email: 'a@labhub.com' } }, error: null })
+      .mockResolvedValueOnce({ data: { user: { id: 'u-b', email: 'b@labhub.com' } }, error: null })
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => {
+            callCount++
+            if (callCount === 1) return deferredA
+            return Promise.resolve({
+              data: {
+                id: 'u-b', email: 'b@labhub.com', name: 'B', role: 'role-viewer',
+                status: 'active', is_super_admin: false, workspace_ids: [],
+                accent: 'blue', theme_variant: 'dark',
+              },
+              error: null,
+            })
+          },
+        }),
+      }),
+    }))
+    mockGetByUser.mockResolvedValue([])
+
+    const signInAPromise = authService.signIn({ email: 'a@labhub.com', password: 'secret' })
+    const userB = await authService.signIn({ email: 'b@labhub.com', password: 'secret' })
+    expect(userB.id).toBe('u-b')
+    expect(authService.getCurrentUser()?.id).toBe('u-b')
+
+    resolveA({
+      data: {
+        id: 'u-a', email: 'a@labhub.com', name: 'A', role: 'role-viewer',
+        status: 'active', is_super_admin: false, workspace_ids: [],
+        accent: 'blue', theme_variant: 'dark',
+      },
+      error: null,
+    })
+
+    await expect(signInAPromise).rejects.toThrow(/login invalidado/i)
+    expect(authService.getCurrentUser()?.id).toBe('u-b')
+  })
+})
+
 describe('authService.signIn — auto-heal de profile ausente (F1-B)', () => {
   beforeEach(() => {
     mockSignIn.mockReset()

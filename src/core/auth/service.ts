@@ -203,10 +203,15 @@ export const authService = {
       // a mesma identidade.
       inFlightProfiles.delete(data.user.id)
       const seq = ++authLoadSeq
+      console.log('[Auth][DEBUG] signIn seq start:', { seq, authLoadSeq })
       let profile = await authService.fetchUserProfile(data.user.id)
+      console.log('[Auth] signIn debug after fetch:', { seq, authLoadSeq, userId: data.user.id, hasProfile: !!profile, currentUserId: currentUser?.id })
       if (seq !== authLoadSeq) {
-        // Uma operação mais recente já assumiu a sessão; não sobrescrever.
-        return profile ?? (currentUser as User)
+        // O login perdeu validade (logout ou sessão mais recente assumiu).
+        // Não devolver o perfil como se o login fosse válido e não sobrescrever
+        // o usuário atual: propagar a invalidação de forma explícita.
+        console.log('[Auth][DEBUG] signIn seq invalid:', { seq, authLoadSeq, userId: data.user.id })
+        throw new Error('login invalidado por logout ou sessão mais recente')
       }
       console.log('[Auth] Profile fetch result:', profile)
 
