@@ -19,8 +19,10 @@ let authLoadSeq = 0
 // Sem isso, callback e signIn notificam o mesmo usuário 2x (corrida do
 // SIGNED_IN), o WorkspaceProvider re-executa o load e o gate remonta 2x.
 let signInInFlight = false
-// Marcador para detectar logout ocorrido durante signIn
-let signOutDuringSignIn = false
+// Identificador monotônico da tentativa de signIn atual
+let currentSignInId = 0
+// Contador global para gerar IDs únicos de tentativas
+let signInIdCounter = 0
 
 /** Coluna Supabase `role` (string legada ou id) → campo TS `roleId` (id estável). */
 function fromDbUser<T extends Record<string, unknown>>(row: T): Omit<T, 'role'> & { roleId: string } {
@@ -184,8 +186,10 @@ export const authService = {
   signIn: async (credentials: AuthCredentials): Promise<User> => {
     requireDb()
 
-    // Captura estado antes da operação assíncrona de login
-    signOutDuringSignIn = false
+    // Registra identidade desta tentativa antes de iniciar operações assíncronas
+    const signInId = ++signInIdCounter
+    currentSignInId = signInId
+    const isCurrent = () => currentSignInId === signInId
     signInInFlight = true
     try {
       const { data, error } = await defaultDb!.auth.signInWithPassword({
@@ -193,7 +197,7 @@ export const authService = {
         password: credentials.password,
       })
 
-      if (signOutDuringSignIn) {
+      if (!isCurrent()) {
         if (error) throw error
         throw new Error('login invalidado por logout ou sessão mais recente')
       }
@@ -202,7 +206,7 @@ export const authService = {
         throw error
       }
       if (!data.user) throw new Error('Usuário não retornado')
-      if (signOutDuringSignIn) {
+      if (!isCurrent()) {
         throw new Error('login invalidado por logout ou sessão mais recente')
       }
 
@@ -210,11 +214,11 @@ export const authService = {
       // a mesma identidade.
       inFlightProfiles.delete(data.user.id)
       const seq = ++authLoadSeq
-      if (signOutDuringSignIn) {
+      if (!isCurrent()) {
         throw new Error('login invalidado por logout ou sessão mais recente')
       }
       let profile = await authService.fetchUserProfile(data.user.id)
-      if (seq !== authLoadSeq || signOutDuringSignIn) {
+      if (seq !== authLoadSeq || !isCurrent()) {
         // O login perdeu validade (logout ou sessão mais recente assumiu).
         throw new Error('login invalidado por logout ou sessão mais recente')
       }
@@ -224,7 +228,7 @@ export const authService = {
         profile = await authService.createProfile(data.user.id, data.user.email || credentials.email, '')
       }
 
-      if (seq !== authLoadSeq || signOutDuringSignIn) {
+      if (seq !== authLoadSeq || !isCurrent()) {
         throw new Error('login invalidado por logout ou sessão mais recente')
       }
 
@@ -232,7 +236,7 @@ export const authService = {
         throw new Error('Não foi possível criar o perfil do usuário. Verifique se a tabela profiles existe no Supabase.')
       }
 
-      if (seq !== authLoadSeq || signOutDuringSignIn) {
+      if (seq !== authLoadSeq || !isCurrent()) {
         throw new Error('login invalidado por logout ou sessão mais recente')
       }
 
@@ -241,8 +245,11 @@ export const authService = {
       notifyListeners()
       return profile
     } finally {
-      signInInFlight = false
-      signOutDuringSignIn = false
+      // Só limpa flags se esta tentativa ainda for a atual
+      if (currentSignInId === signInId) {
+        signInInFlight = false
+      }
+      // Nunca limpar estado de tentativa mais recente
     }
   },
 
@@ -292,7 +299,8 @@ export const authService = {
     // Invalida carregamentos em andamento para que uma resposta antiga não
     // restaure o usuário após o logout.
     authLoadSeq++
-    signOutDuringSignIn = true
+    // Invalida todas as tentativas de signIn em andamento
+    currentSignInId = ++signInIdCounter
     inFlightProfiles.clear()
     await defaultDb.auth.signOut()
     currentUser = null

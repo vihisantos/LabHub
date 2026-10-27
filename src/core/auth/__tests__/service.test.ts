@@ -905,34 +905,48 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
     const deferredA = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
       resolveA = res
     })
+    let resolveB!: (v: { data: Record<string, unknown> | null; error: null }) => void
+    const deferredB = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
+      resolveB = res
+    })
 
     mockSignIn
       .mockResolvedValueOnce({ data: { user: { id: 'u-a', email: 'a@labhub.com' } }, error: null })
       .mockResolvedValueOnce({ data: { user: { id: 'u-b', email: 'b@labhub.com' } }, error: null })
 
-    let callCount = 0
-    mockFrom.mockImplementation(() => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: () => {
-            callCount++
-            if (callCount === 1) return deferredA
-            return Promise.resolve({
-              data: {
-                id: 'u-b', email: 'b@labhub.com', name: 'B', role: 'role-viewer',
-                status: 'active', is_super_admin: false, workspace_ids: [],
-                accent: 'blue', theme_variant: 'dark',
-              },
-              error: null,
-            })
-          },
+    let aCalls = 0
+    mockFrom.mockImplementation((table: string) => {
+      if (table !== 'profiles') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        }
+      }
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: () => {
+              aCalls++
+              if (aCalls === 1) return deferredA
+              return deferredB
+            },
+          }),
         }),
-      }),
-    }))
+      }
+    })
     mockGetByUser.mockResolvedValue([])
 
     const signInAPromise = authService.signIn({ email: 'a@labhub.com', password: 'secret' })
-    const userB = await authService.signIn({ email: 'b@labhub.com', password: 'secret' })
+    const signInBPromise = authService.signIn({ email: 'b@labhub.com', password: 'secret' })
+    // B termina primeiro
+    resolveB({
+      data: {
+        id: 'u-b', email: 'b@labhub.com', name: 'B', role: 'role-viewer',
+        status: 'active', is_super_admin: false, workspace_ids: [],
+        accent: 'blue', theme_variant: 'dark',
+      },
+      error: null,
+    })
+    const userB = await signInBPromise
     expect(userB.id).toBe('u-b')
     expect(authService.getCurrentUser()?.id).toBe('u-b')
 
@@ -945,7 +959,11 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
       error: null,
     })
 
-    await expect(signInAPromise).rejects.toThrow(/login invalidado/i)
+    const resA = await Promise.race([
+      signInAPromise.then(() => 'ok').catch((e: any) => e.message),
+      new Promise((r) => setTimeout(() => r('timeout'), 2000)),
+    ])
+    expect(String(resA)).toMatch(/login invalidado/)
     expect(authService.getCurrentUser()?.id).toBe('u-b')
   })
 })
