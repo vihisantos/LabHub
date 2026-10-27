@@ -899,7 +899,14 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
 
   it('login pendente de A seguido de login válido de B', async () => {
     const authService = await loadAuthService()
-    mockOnAuthStateChange.mockImplementation(() => ({ data: { subscription: { unsubscribe: vi.fn() } } }))
+    let authCallback!: (event: string, session: unknown) => Promise<void> | void
+    mockOnAuthStateChange.mockImplementation((cb: typeof authCallback) => {
+      authCallback = cb
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null })
+    await authService.init()
+    expect(authCallback).toBeTypeOf('function')
 
     let resolveA!: (v: { data: Record<string, unknown> | null; error: null }) => void
     const deferredA = new Promise<{ data: Record<string, unknown> | null; error: null }>((res) => {
@@ -953,6 +960,13 @@ describe('authService.signIn — invalidação por logout/sessão mais recente',
 
     const signInBPromise = authService.signIn({ email: 'b@labhub.com', password: 'secret' })
     await bQueryStarted
+
+    // Exercitar o callback realmente registrado pelo init enquanto ambas as
+    // tentativas estão em andamento. Eventos emitidos pelo Supabase durante
+    // signIn não podem competir com o resultado controlado pelo signIn atual.
+    await authCallback('SIGNED_IN', { user: { id: 'u-a', email: 'a@labhub.com' } })
+    await authCallback('SIGNED_IN', { user: { id: 'u-b', email: 'b@labhub.com' } })
+    expect(authService.getCurrentUser()).toBeNull()
 
     // B termina primeiro; a conclusão de A não pode sobrescrever B.
     resolveB({
