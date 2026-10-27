@@ -14,11 +14,10 @@ const inFlightProfiles = new Map<string, Promise<User | null>>()
 // Contador monotônico para descartar respostas de carregamentos antigos
 // quando uma sessão mais recente já foi iniciada.
 let authLoadSeq = 0
-// true enquanto signIn() está em andamento — o callback de auth pula a
-// notificação nesse intervalo, pois o próprio signIn() notifica ao final.
-// Sem isso, callback e signIn notificam o mesmo usuário 2x (corrida do
-// SIGNED_IN), o WorkspaceProvider re-executa o load e o gate remonta 2x.
-let signInInFlight = false
+// Número de tentativas signIn ainda não concluídas. Um contador, em vez de
+// booleano, evita que uma tentativa antiga deixe de limpar a flag após logout
+// ou apague a flag de uma tentativa concorrente mais recente.
+let signInInFlightCount = 0
 // Identificador monotônico da tentativa de signIn atual
 let currentSignInId = 0
 // Contador global para gerar IDs únicos de tentativas
@@ -125,7 +124,7 @@ export const authService = {
       console.log('[Auth] State change:', event)
       // Durante signIn(), o próprio signIn() notifica ao final — ignorar aqui
       // evita notificar o mesmo usuário duas vezes (callback + signIn).
-      if (signInInFlight) return
+      if (signInInFlightCount > 0) return
       // TOKEN_REFRESHED apenas renova tokens; não altera o perfil. Evita uma
       // consulta redundante a public.profiles a cada renovação automática.
       if (event === 'TOKEN_REFRESHED') return
@@ -190,7 +189,7 @@ export const authService = {
     const signInId = ++signInIdCounter
     currentSignInId = signInId
     const isCurrent = () => currentSignInId === signInId
-    signInInFlight = true
+    signInInFlightCount++
     try {
       const { data, error } = await defaultDb!.auth.signInWithPassword({
         email: credentials.email,
@@ -245,11 +244,10 @@ export const authService = {
       notifyListeners()
       return profile
     } finally {
-      // Só limpa flags se esta tentativa ainda for a atual
-      if (currentSignInId === signInId) {
-        signInInFlight = false
-      }
-      // Nunca limpar estado de tentativa mais recente
+      // Toda tentativa decrementa seu próprio contador, inclusive se foi
+      // invalidada por logout ou por outro login. Não altera a validade das
+      // tentativas mais recentes (controlada por currentSignInId).
+      signInInFlightCount = Math.max(0, signInInFlightCount - 1)
     }
   },
 
