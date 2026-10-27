@@ -19,6 +19,8 @@ let authLoadSeq = 0
 // Sem isso, callback e signIn notificam o mesmo usuário 2x (corrida do
 // SIGNED_IN), o WorkspaceProvider re-executa o load e o gate remonta 2x.
 let signInInFlight = false
+// Marcador para detectar logout ocorrido durante signIn
+let signOutDuringSignIn = false
 
 /** Coluna Supabase `role` (string legada ou id) → campo TS `roleId` (id estável). */
 function fromDbUser<T extends Record<string, unknown>>(row: T): Omit<T, 'role'> & { roleId: string } {
@@ -182,8 +184,8 @@ export const authService = {
   signIn: async (credentials: AuthCredentials): Promise<User> => {
     requireDb()
 
-    console.log('[Auth] Attempting sign in for:', credentials.email)
-
+    // Captura estado antes da operação assíncrona de login
+    signOutDuringSignIn = false
     signInInFlight = true
     try {
       const { data, error } = await defaultDb!.auth.signInWithPassword({
@@ -191,39 +193,47 @@ export const authService = {
         password: credentials.password,
       })
 
+      if (signOutDuringSignIn) {
+        if (error) throw error
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
+
       if (error) {
-        console.error('[Auth] Sign in error:', error.message)
         throw error
       }
       if (!data.user) throw new Error('Usuário não retornado')
-
-      console.log('[Auth] Sign in successful, user ID:', data.user.id)
+      if (signOutDuringSignIn) {
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
 
       // Garante que o login não reutilize uma carga antiga em andamento para
       // a mesma identidade.
       inFlightProfiles.delete(data.user.id)
       const seq = ++authLoadSeq
-      console.log('[Auth][DEBUG] signIn seq start:', { seq, authLoadSeq })
-      let profile = await authService.fetchUserProfile(data.user.id)
-      console.log('[Auth] signIn debug after fetch:', { seq, authLoadSeq, userId: data.user.id, hasProfile: !!profile, currentUserId: currentUser?.id })
-      if (seq !== authLoadSeq) {
-        // O login perdeu validade (logout ou sessão mais recente assumiu).
-        // Não devolver o perfil como se o login fosse válido e não sobrescrever
-        // o usuário atual: propagar a invalidação de forma explícita.
-        console.log('[Auth][DEBUG] signIn seq invalid:', { seq, authLoadSeq, userId: data.user.id })
+      if (signOutDuringSignIn) {
         throw new Error('login invalidado por logout ou sessão mais recente')
       }
-      console.log('[Auth] Profile fetch result:', profile)
+      let profile = await authService.fetchUserProfile(data.user.id)
+      if (seq !== authLoadSeq || signOutDuringSignIn) {
+        // O login perdeu validade (logout ou sessão mais recente assumiu).
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
 
       // If profile doesn't exist (user created before trigger), create it
       if (!profile) {
-        console.log('[Auth] Profile not found, creating...')
         profile = await authService.createProfile(data.user.id, data.user.email || credentials.email, '')
       }
 
+      if (seq !== authLoadSeq || signOutDuringSignIn) {
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
+
       if (!profile) {
-        console.error('[Auth] Failed to create or fetch profile')
         throw new Error('Não foi possível criar o perfil do usuário. Verifique se a tabela profiles existe no Supabase.')
+      }
+
+      if (seq !== authLoadSeq || signOutDuringSignIn) {
+        throw new Error('login invalidado por logout ou sessão mais recente')
       }
 
       currentUser = profile
@@ -232,6 +242,7 @@ export const authService = {
       return profile
     } finally {
       signInInFlight = false
+      signOutDuringSignIn = false
     }
   },
 
@@ -281,6 +292,7 @@ export const authService = {
     // Invalida carregamentos em andamento para que uma resposta antiga não
     // restaure o usuário após o logout.
     authLoadSeq++
+    signOutDuringSignIn = true
     inFlightProfiles.clear()
     await defaultDb.auth.signOut()
     currentUser = null
