@@ -7,11 +7,21 @@ import { membershipService, areMembershipsEqual } from '../memberships/service'
 let currentUser: User | null = null
 let authListeners: Array<(user: User | null) => void> = []
 let initialized = false
-// true enquanto signIn() está em andamento — o callback de auth pula a
-// notificação nesse intervalo, pois o próprio signIn() notifica ao final.
-// Sem isso, callback e signIn notificam o mesmo usuário 2x (corrida do
-// SIGNED_IN), o WorkspaceProvider re-executa o load e o gate remonta 2x.
-let signInInFlight = false
+// Deduplicação de carregamentos de perfil em andamento, por identidade.
+// Evita consultas concorrentes a public.profiles quando INITIAL_SESSION e
+// getSession() (ou outros eventos) disparam ao mesmo tempo para o mesmo usuário.
+const inFlightProfiles = new Map<string, Promise<User | null>>()
+// Contador monotônico para descartar respostas de carregamentos antigos
+// quando uma sessão mais recente já foi iniciada.
+let authLoadSeq = 0
+// Número de tentativas signIn ainda não concluídas. Um contador, em vez de
+// booleano, evita que uma tentativa antiga deixe de limpar a flag após logout
+// ou apague a flag de uma tentativa concorrente mais recente.
+let signInInFlightCount = 0
+// Identificador monotônico da tentativa de signIn atual
+let currentSignInId = 0
+// Contador global para gerar IDs únicos de tentativas
+let signInIdCounter = 0
 
 /** Coluna Supabase `role` (string legada ou id) → campo TS `roleId` (id estável). */
 function fromDbUser<T extends Record<string, unknown>>(row: T): Omit<T, 'role'> & { roleId: string } {
@@ -83,6 +93,26 @@ async function loadUser(userId: string): Promise<User | null> {
   return user
 }
 
+/**
+ * Carrega o perfil reutilizando uma Promise em andamento para a mesma
+ * identidade, evitando consultas concorrentes a public.profiles.
+ * A Promise é removida do mapa ao concluir (sucesso ou erro), de modo que
+ * falhas não bloqueiam carregamentos futuros.
+ */
+async function fetchUserProfileCached(userId: string): Promise<User | null> {
+  const existing = inFlightProfiles.get(userId)
+  if (existing) return existing
+  const promise = loadUser(userId).finally(() => {
+    // Só remove a entrada se ela ainda for ESTA Promise; uma carga mais
+    // recente (nova identidade/sessão) não pode ser apagada por uma antiga.
+    if (inFlightProfiles.get(userId) === promise) {
+      inFlightProfiles.delete(userId)
+    }
+  })
+  inFlightProfiles.set(userId, promise)
+  return promise
+}
+
 export const authService = {
   init: async (): Promise<User | null> => {
     if (!defaultDb) return null
@@ -94,9 +124,18 @@ export const authService = {
       console.log('[Auth] State change:', event)
       // Durante signIn(), o próprio signIn() notifica ao final — ignorar aqui
       // evita notificar o mesmo usuário duas vezes (callback + signIn).
-      if (signInInFlight) return
+      if (signInInFlightCount > 0) return
+      // TOKEN_REFRESHED apenas renova tokens; não altera o perfil. Evita uma
+      // consulta redundante a public.profiles a cada renovação automática.
+      if (event === 'TOKEN_REFRESHED') return
+      // INITIAL_SESSION pode disparar depois que getSession() já carregou o
+      // perfil; não recarregar nesse caso.
+      if (event === 'INITIAL_SESSION' && currentUser?.id === session?.user?.id) return
+      const seq = ++authLoadSeq
       if (session?.user) {
-        const profile = await authService.fetchUserProfile(session.user.id)
+        const profile = await fetchUserProfileCached(session.user.id)
+        // Descarta resposta de um carregamento antigo (sessão trocada no meio).
+        if (seq !== authLoadSeq) return
         // Só notifica quando o perfil mudou de verdade. Sem isso, INITIAL_SESSION
         // + getSession (e TOKEN_REFRESHED) criam objetos novos a cada evento e o
         // WorkspaceProvider re-roda o load, reabrindo o gate de seleção no meio
@@ -122,11 +161,16 @@ export const authService = {
       }
       if (session?.user) {
         console.log('[Auth] Session restored for:', session.user.email)
-        const profile = await authService.fetchUserProfile(session.user.id)
-        if (profile && !sameUser(currentUser, profile)) {
-          currentUser = profile
-          applyUserPreferences(profile)
-          notifyListeners()
+        // Evita fetch duplicado quando o listener INITIAL_SESSION já carregou.
+        if (!currentUser || currentUser.id !== session.user.id) {
+          const seq = ++authLoadSeq
+          const profile = await fetchUserProfileCached(session.user.id)
+          if (seq !== authLoadSeq) return currentUser
+          if (profile && !sameUser(currentUser, profile)) {
+            currentUser = profile
+            applyUserPreferences(profile)
+            notifyListeners()
+          }
         }
       } else {
         console.log('[Auth] No active session')
@@ -141,35 +185,58 @@ export const authService = {
   signIn: async (credentials: AuthCredentials): Promise<User> => {
     requireDb()
 
-    console.log('[Auth] Attempting sign in for:', credentials.email)
-
-    signInInFlight = true
+    // Registra identidade desta tentativa antes de iniciar operações assíncronas
+    const signInId = ++signInIdCounter
+    currentSignInId = signInId
+    const isCurrent = () => currentSignInId === signInId
+    signInInFlightCount++
     try {
       const { data, error } = await defaultDb!.auth.signInWithPassword({
         email: credentials.email,
         password: credentials.password,
       })
 
+      if (!isCurrent()) {
+        if (error) throw error
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
+
       if (error) {
-        console.error('[Auth] Sign in error:', error.message)
         throw error
       }
       if (!data.user) throw new Error('Usuário não retornado')
+      if (!isCurrent()) {
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
 
-      console.log('[Auth] Sign in successful, user ID:', data.user.id)
-
+      // Garante que o login não reutilize uma carga antiga em andamento para
+      // a mesma identidade.
+      inFlightProfiles.delete(data.user.id)
+      const seq = ++authLoadSeq
+      if (!isCurrent()) {
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
       let profile = await authService.fetchUserProfile(data.user.id)
-      console.log('[Auth] Profile fetch result:', profile)
+      if (seq !== authLoadSeq || !isCurrent()) {
+        // O login perdeu validade (logout ou sessão mais recente assumiu).
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
 
       // If profile doesn't exist (user created before trigger), create it
       if (!profile) {
-        console.log('[Auth] Profile not found, creating...')
         profile = await authService.createProfile(data.user.id, data.user.email || credentials.email, '')
       }
 
+      if (seq !== authLoadSeq || !isCurrent()) {
+        throw new Error('login invalidado por logout ou sessão mais recente')
+      }
+
       if (!profile) {
-        console.error('[Auth] Failed to create or fetch profile')
         throw new Error('Não foi possível criar o perfil do usuário. Verifique se a tabela profiles existe no Supabase.')
+      }
+
+      if (seq !== authLoadSeq || !isCurrent()) {
+        throw new Error('login invalidado por logout ou sessão mais recente')
       }
 
       currentUser = profile
@@ -177,7 +244,10 @@ export const authService = {
       notifyListeners()
       return profile
     } finally {
-      signInInFlight = false
+      // Toda tentativa decrementa seu próprio contador, inclusive se foi
+      // invalidada por logout ou por outro login. Não altera a validade das
+      // tentativas mais recentes (controlada por currentSignInId).
+      signInInFlightCount = Math.max(0, signInInFlightCount - 1)
     }
   },
 
@@ -224,6 +294,12 @@ export const authService = {
 
   signOut: async (): Promise<void> => {
     if (!defaultDb) return
+    // Invalida carregamentos em andamento para que uma resposta antiga não
+    // restaure o usuário após o logout.
+    authLoadSeq++
+    // Invalida todas as tentativas de signIn em andamento
+    currentSignInId = ++signInIdCounter
+    inFlightProfiles.clear()
     await defaultDb.auth.signOut()
     currentUser = null
     initialized = false
@@ -249,7 +325,7 @@ export const authService = {
   },
 
   fetchUserProfile: async (userId: string): Promise<User | null> => {
-    return loadUser(userId)
+    return fetchUserProfileCached(userId)
   },
 
   createProfile: async (userId: string, email: string, name: string): Promise<User | null> => {
@@ -303,6 +379,7 @@ export const authService = {
   refreshProfile: async (): Promise<User | null> => {
     if (!defaultDb) return currentUser
 
+    const seq = ++authLoadSeq
     const prev = currentUser
 
     // No in-memory user (e.g., right after signUp) — bootstrap from the session
@@ -311,6 +388,7 @@ export const authService = {
       if (error || !session?.user) return currentUser
 
       const profile = await authService.fetchUserProfile(session.user.id)
+      if (seq !== authLoadSeq) return currentUser
       if (!profile) return currentUser
 
       currentUser = profile
@@ -320,6 +398,7 @@ export const authService = {
     }
 
     const profile = await authService.fetchUserProfile(prev.id)
+    if (seq !== authLoadSeq) return currentUser
     if (!profile) return currentUser
 
     // Detecção de mudança POR MEMBERSHIPS (design 9.2, §3.3): `workspace_ids` não é
