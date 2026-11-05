@@ -27,6 +27,10 @@ import { SheetOrDialog } from '../../../responsive/SheetOrDialog'
 
 const STATUS_FLOW: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido', 'fechado']
 
+// A apresentação da timeline termina em Resolvido; o fluxo operacional acima
+// continua incluindo Fechado para preservar as transições existentes.
+const TIMELINE_FLOW: TicketStatus[] = ['aberto', 'a_caminho', 'em_atendimento', 'resolvido']
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', {
     day: '2-digit',
@@ -467,6 +471,7 @@ export function TicketDetail() {
   // `currentIndex` -1 ⇒ nextStatus null ⇒ sem botão de avanço (o backend
   // bloquearia a transição). As ações novas têm botões e modal próprios abaixo.
   const currentIndex = STATUS_FLOW.indexOf(ticket.status)
+  const timelineCurrentIndex = currentIndex < 0 ? -1 : Math.min(currentIndex, TIMELINE_FLOW.length - 1)
   const nextStatus =
     currentIndex >= 0 && currentIndex < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentIndex + 1] : null
 
@@ -1070,49 +1075,95 @@ export function TicketDetail() {
         )}
       </div>
 
-      <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
-        <h3 className="mb-3 text-xs font-semibold text-fg-muted">Timeline</h3>
-        <div className="space-y-3">
+      <section className="rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-fg">Timeline</h3>
+            <p className="mt-0.5 text-[11px] text-fg-dim">Acompanhe as etapas do chamado</p>
+          </div>
+          <span className="rounded-full bg-input px-2.5 py-1 text-[10px] font-semibold text-fg-muted">
+            {TIMELINE_FLOW.length} etapas
+          </span>
+        </div>
+
+        {ticket.createdAt && (
+          <div className="mb-5 flex items-center gap-3 rounded-xl border border-sky-500/20 bg-sky-500/[0.06] px-3.5 py-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <icons.ui.clock size={17} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+                Abertura do chamado
+              </p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums text-fg">
+                {formatDate(ticket.createdAt)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-fg-dim">Data e horário em que o professor registrou a solicitação</p>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-4">
           {currentIndex === -1 && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5">
               <div
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                  ticket.status === 'indeferido' ? 'bg-red-500/20 text-red-500' : 'bg-violet-500 text-white'
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                  ticket.status === 'indeferido' ? 'bg-red-500/15 text-red-500' : 'bg-violet-500/15 text-violet-500'
                 }`}
               >
-                {ticket.status === 'indeferido' ? <icons.ui.close size={12} /> : <icons.ui.clock size={12} />}
+                {ticket.status === 'indeferido' ? <icons.ui.close size={14} /> : <icons.ui.clock size={14} />}
               </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-fg">{TICKET_STATUS_LABELS[ticket.status]}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-fg">{TICKET_STATUS_LABELS[ticket.status]}</p>
                 {ticket.reasonLabel && (
                   <p className="mt-0.5 text-[10px] text-fg-dim">{ticket.reasonLabel}</p>
                 )}
               </div>
             </div>
           )}
-          {STATUS_FLOW.map((status, i) => {
-            const isPast = i <= currentIndex
-            const isCurrent = i === currentIndex
+          {TIMELINE_FLOW.map((status, i) => {
+            const isCurrent = i === timelineCurrentIndex && ticket.status !== 'fechado'
+            const isCompleted = i < timelineCurrentIndex || (i === timelineCurrentIndex && ticket.status === 'fechado')
+            const isLast = i === TIMELINE_FLOW.length - 1
             return (
-              <div key={status} className="flex items-center gap-3">
-                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                  isCurrent ? 'bg-amber-500 text-white' : isPast ? 'bg-emerald-500/20 text-emerald-500' : 'bg-input text-fg-muted'
-                }`}>
-                  {isPast ? <icons.ui.check size={12} /> : i + 1}
-                </div>
-                <div className="flex-1">
-                  <p className={`text-xs font-medium ${isCurrent ? 'text-fg' : isPast ? 'text-fg-muted' : 'text-fg-dim'}`}>
-                    {TICKET_STATUS_LABELS[status]}
-                  </p>
-                </div>
-                {isCurrent && ticket.resolvedAt && status === 'resolvido' && (
-                  <span className="text-[10px] text-fg-dim">{formatDate(ticket.resolvedAt)}</span>
+              <div key={status} className="relative flex items-start gap-3">
+                {!isLast && (
+                  <span className={`absolute left-[15px] top-8 h-5 w-px ${isCompleted ? 'bg-emerald-500/40' : 'bg-line'}`} />
                 )}
+                <span className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold transition-colors ${
+                  isCurrent
+                    ? 'bg-amber-500 text-white ring-4 ring-amber-500/10'
+                    : isCompleted
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-input text-fg-muted'
+                }`}>
+                  {isCurrent ? <icons.ui.clock size={14} /> : isCompleted ? <icons.ui.check size={14} /> : i + 1}
+                </span>
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <p className={`text-xs ${isCurrent ? 'font-bold text-fg' : isCompleted ? 'font-medium text-fg-muted' : 'font-medium text-fg-dim'}`}>
+                      {TICKET_STATUS_LABELS[status]}
+                    </p>
+                    {isCurrent && (
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                        Etapa atual
+                      </span>
+                    )}
+                    {status === 'resolvido' && ticket.resolvedAt && (
+                      <span className="text-[10px] tabular-nums text-fg-dim">{formatDate(ticket.resolvedAt)}</span>
+                    )}
+                  </div>
+                  {isCurrent && (
+                    <p className="mt-1 text-[10px] leading-relaxed text-fg-muted">
+                      {status === 'em_atendimento' ? 'Atendimento em andamento' : 'Chamado nesta etapa'}
+                    </p>
+                  )}
+                </div>
               </div>
             )
           })}
         </div>
-      </div>
+      </section>
 
       {lockedByOther && (
         <div className="flex items-center gap-2 rounded-xl bg-input/60 px-4 py-3">
