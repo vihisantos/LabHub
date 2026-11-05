@@ -512,14 +512,14 @@ describe('TicketDetail — retomada de em_espera (P3)', () => {
     render(<TicketDetail />)
     await act(async () => {})
 
-    expect(screen.getByRole('button', { name: 'Retomar atendimento' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Assumir e retomar atendimento' })).toBeInTheDocument()
   })
 
   it('retoma pelo endpoint atômico (POST /resume), não por PATCH de status', async () => {
     render(<TicketDetail />)
     await act(async () => {})
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retomar atendimento' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Assumir e retomar atendimento' }))
     await act(async () => {})
 
     expect(mockResume).toHaveBeenCalledWith('ticket-1')
@@ -542,7 +542,7 @@ describe('TicketDetail — retomada de em_espera (P3)', () => {
     render(<TicketDetail />)
     await act(async () => {})
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retomar atendimento' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Assumir e retomar atendimento' }))
     await act(async () => {})
 
     expect(
@@ -556,7 +556,7 @@ describe('TicketDetail — retomada de em_espera (P3)', () => {
     render(<TicketDetail />)
     await act(async () => {})
 
-    expect(screen.queryByRole('button', { name: 'Retomar atendimento' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Assumir e retomar atendimento' })).not.toBeInTheDocument()
   })
 })
 
