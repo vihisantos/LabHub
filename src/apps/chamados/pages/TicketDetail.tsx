@@ -1099,7 +1099,7 @@ export function TicketDetail() {
               <h3 className="mt-1 text-base font-bold text-fg">Etapas do chamado</h3>
               <p className="mt-0.5 text-xs text-fg-muted">Veja por onde sua solicitação passou</p>
             </div>
-            <span className={`rounded-full px-3 py-1.5 text-[10px] font-bold ${ticket.status === 'resolvido' || ticket.status === 'fechado' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : ticket.status === 'indeferido' ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+            <span className={`rounded-full px-3 py-1.5 text-[10px] font-bold ${ticket.status === 'resolvido' || ticket.status === 'fechado' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
               {TICKET_STATUS_LABELS[ticket.status]}
             </span>
           </div>
@@ -1120,22 +1120,7 @@ export function TicketDetail() {
           )}
 
           <div className="space-y-0">
-            {currentIndex === -1 && (
-              <div className="mb-5 flex items-start gap-3 rounded-xl border border-line bg-surface p-3.5">
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${ticket.status === 'indeferido' ? 'bg-red-500/15 text-red-500' : 'bg-violet-500/15 text-violet-500'}`}>
-                  {ticket.status === 'indeferido' ? <icons.ui.close size={17} /> : <icons.ui.clock size={17} />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-fg">{TICKET_STATUS_LABELS[ticket.status]}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-                    {ticket.reasonLabel || (ticket.status === 'em_espera' ? 'A solicitação aguarda a retomada do atendimento.' : 'Esta solicitação foi encerrada sem atendimento.')}
-                  </p>
-                  {ticket.reasonNote && <p className="mt-1 text-xs text-fg-dim">{ticket.reasonNote}</p>}
-                </div>
-              </div>
-            )}
-
-            {TIMELINE_FLOW.map((status, i) => {
+              {TIMELINE_FLOW.map((status, i) => {
               const isCurrent = i === timelineCurrentIndex && ticket.status !== 'fechado'
               const isCompleted = i < timelineCurrentIndex || (i === timelineCurrentIndex && ticket.status === 'fechado')
               const isLast = i === TIMELINE_FLOW.length - 1
