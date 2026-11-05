@@ -7,23 +7,32 @@
  * Pré-requisitos:
  *   - npm install (Playwright já é dependência do projeto)
  *   - aplicação e API disponíveis
- *   - usuário demo com acesso ao workspace demo-chamados
+ *   - credenciais demo e ID de chamado válidos
  *
- * Uso:
+ * Uso (PowerShell):
+ *   $env:DEMO_USER="..."; $env:DEMO_PASS="..."; $env:TICKET_ID="..."
  *   node scripts/browser-verify/chamados-timeline-448.mjs
  *
- * Variáveis opcionais:
- *   BASE_URL, DEMO_USER, DEMO_PASS, TICKET_ID, WORKSPACE_SLUG
+ * Variáveis:
+ *   DEMO_USER, DEMO_PASS e TICKET_ID são obrigatórias.
+ *   BASE_URL e WORKSPACE_SLUG são opcionais.
  */
 import { chromium } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+const required = ['DEMO_USER', 'DEMO_PASS', 'TICKET_ID']
+const missing = required.filter((name) => !process.env[name]?.trim())
+if (missing.length) {
+  console.error(`Configure as variáveis obrigatórias: ${missing.join(', ')}`)
+  process.exit(1)
+}
+
 const BASE = process.env.BASE_URL || 'http://localhost:5173'
-const USER = process.env.DEMO_USER || 'demo-screenshots'
-const PASS = process.env.DEMO_PASS || 'Demo2026Screenshots!'
+const USER = process.env.DEMO_USER
+const PASS = process.env.DEMO_PASS
 const WORKSPACE = process.env.WORKSPACE_SLUG || 'demo-chamados'
-const TICKET_ID = process.env.TICKET_ID || '3af0601a-a2b9-50ad-a256-f7ef8c8649b3'
+const TICKET_ID = process.env.TICKET_ID
 const OUTPUT = resolve('screenshots/timeline-448.png')
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
@@ -43,7 +52,6 @@ try {
   await page.locator('button[type="submit"]').click()
   await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 20000 })
 
-  // Mantém o workspace de demonstração usado pelo fluxo de screenshots do projeto.
   const activeWorkspace = await page.evaluate(() =>
     localStorage.getItem('labhub_active_workspace')
   )
@@ -54,7 +62,6 @@ try {
     await page.reload({ waitUntil: 'domcontentloaded' })
   }
 
-  // Fecha o tour inicial, caso apareça.
   const skipTour = page.getByRole('button', { name: /pular/i })
   if (await skipTour.isVisible({ timeout: 1500 }).catch(() => false)) {
     await skipTour.click()
@@ -67,7 +74,6 @@ try {
   const timelineHeading = page.getByRole('heading', { name: 'Timeline', exact: true })
   await timelineHeading.waitFor({ state: 'visible', timeout: 30000 })
 
-  // Captura somente o card/section da timeline — nunca a página inteira.
   const timeline = page.locator('section').filter({
     has: timelineHeading,
   }).first()
