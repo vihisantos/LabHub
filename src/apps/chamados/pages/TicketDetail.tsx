@@ -1075,93 +1075,125 @@ export function TicketDetail() {
         )}
       </div>
 
-      <section className="rounded-2xl border border-line bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-fg">Timeline</h3>
-            <p className="mt-0.5 text-[11px] text-fg-dim">Acompanhe as etapas do chamado</p>
+      <section
+        aria-label="Progresso do chamado"
+        className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-card)]"
+      >
+        <div className="border-b border-line bg-surface/70 px-4 py-4 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-fg-dim">Acompanhamento</p>
+              <h3 className="mt-1 text-base font-bold text-fg">Etapas do chamado</h3>
+              <p className="mt-0.5 text-xs text-fg-muted">Veja por onde sua solicitação passou</p>
+            </div>
+            <span className={`rounded-full px-3 py-1.5 text-[10px] font-bold ${ticket.status === 'resolvido' || ticket.status === 'fechado' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : ticket.status === 'indeferido' ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+              {TICKET_STATUS_LABELS[ticket.status]}
+            </span>
           </div>
-          <span className="rounded-full bg-input px-2.5 py-1 text-[10px] font-semibold text-fg-muted">
-            {TIMELINE_FLOW.length} etapas
-          </span>
         </div>
 
-        {ticket.createdAt && (
-          <div className="mb-5 flex items-center gap-3 rounded-xl border border-sky-500/20 bg-sky-500/[0.06] px-3.5 py-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
-              <icons.ui.clock size={17} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
-                Abertura do chamado
-              </p>
-              <p className="mt-0.5 text-sm font-semibold tabular-nums text-fg">
-                {formatDate(ticket.createdAt)}
-              </p>
-              <p className="mt-0.5 text-[10px] text-fg-dim">Data e horário em que o professor registrou a solicitação</p>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {currentIndex === -1 && (
-            <div className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5">
-              <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                  ticket.status === 'indeferido' ? 'bg-red-500/15 text-red-500' : 'bg-violet-500/15 text-violet-500'
-                }`}
-              >
-                {ticket.status === 'indeferido' ? <icons.ui.close size={14} /> : <icons.ui.clock size={14} />}
-              </div>
+        <div className="px-4 py-5 sm:px-5 sm:py-6">
+          {ticket.createdAt && (
+            <div className="mb-6 flex items-start gap-3 rounded-xl border border-sky-500/20 bg-sky-500/[0.06] p-3.5 sm:p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                <icons.ui.clock size={18} />
+              </span>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-fg">{TICKET_STATUS_LABELS[ticket.status]}</p>
-                {ticket.reasonLabel && (
-                  <p className="mt-0.5 text-[10px] text-fg-dim">{ticket.reasonLabel}</p>
-                )}
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700 dark:text-sky-300">Solicitação registrada</p>
+                <p className="mt-1 text-sm font-bold tabular-nums text-fg">{formatDate(ticket.createdAt)}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">Data e horário em que o professor abriu o chamado</p>
               </div>
             </div>
           )}
-          {TIMELINE_FLOW.map((status, i) => {
-            const isCurrent = i === timelineCurrentIndex && ticket.status !== 'fechado'
-            const isCompleted = i < timelineCurrentIndex || (i === timelineCurrentIndex && ticket.status === 'fechado')
-            const isLast = i === TIMELINE_FLOW.length - 1
-            return (
-              <div key={status} className="relative flex items-start gap-3">
-                {!isLast && (
-                  <span className={`absolute left-[15px] top-8 h-5 w-px ${isCompleted ? 'bg-emerald-500/40' : 'bg-line'}`} />
-                )}
-                <span className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold transition-colors ${
-                  isCurrent
-                    ? 'bg-amber-500 text-white ring-4 ring-amber-500/10'
-                    : isCompleted
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-input text-fg-muted'
-                }`}>
-                  {isCurrent ? <icons.ui.clock size={14} /> : isCompleted ? <icons.ui.check size={14} /> : i + 1}
+
+          <div className="space-y-0">
+            {currentIndex === -1 && (
+              <div className="mb-5 flex items-start gap-3 rounded-xl border border-line bg-surface p-3.5">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${ticket.status === 'indeferido' ? 'bg-red-500/15 text-red-500' : 'bg-violet-500/15 text-violet-500'}`}>
+                  {ticket.status === 'indeferido' ? <icons.ui.close size={17} /> : <icons.ui.clock size={17} />}
                 </span>
-                <div className="min-w-0 flex-1 pt-0.5">
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <p className={`text-xs ${isCurrent ? 'font-bold text-fg' : isCompleted ? 'font-medium text-fg-muted' : 'font-medium text-fg-dim'}`}>
-                      {TICKET_STATUS_LABELS[status]}
-                    </p>
-                    {isCurrent && (
-                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                        Etapa atual
-                      </span>
-                    )}
-                    {status === 'resolvido' && ticket.resolvedAt && (
-                      <span className="text-[10px] tabular-nums text-fg-dim">{formatDate(ticket.resolvedAt)}</span>
-                    )}
-                  </div>
-                  {isCurrent && (
-                    <p className="mt-1 text-[10px] leading-relaxed text-fg-muted">
-                      {status === 'em_atendimento' ? 'Atendimento em andamento' : 'Chamado nesta etapa'}
-                    </p>
-                  )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-fg">{TICKET_STATUS_LABELS[ticket.status]}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                    {ticket.reasonLabel || (ticket.status === 'em_espera' ? 'A solicitação aguarda a retomada do atendimento.' : 'Esta solicitação foi encerrada sem atendimento.')}
+                  </p>
+                  {ticket.reasonNote && <p className="mt-1 text-xs text-fg-dim">{ticket.reasonNote}</p>}
                 </div>
               </div>
-            )
-          })}
+            )}
+
+            {TIMELINE_FLOW.map((status, i) => {
+              const isCurrent = i === timelineCurrentIndex && ticket.status !== 'fechado'
+              const isCompleted = i < timelineCurrentIndex || (i === timelineCurrentIndex && ticket.status === 'fechado')
+              const isLast = i === TIMELINE_FLOW.length - 1
+              const stepDetails: Record<TicketStatus, string> = {
+                aberto: 'Solicitação recebida e registrada no sistema',
+                a_caminho: 'O técnico está se deslocando até o local',
+                em_atendimento: 'O técnico está trabalhando na solução',
+                resolvido: 'Atendimento concluído',
+                fechado: 'Chamado arquivado',
+                em_espera: 'Aguardando retomada do atendimento',
+                indeferido: 'Solicitação indeferida',
+              }
+              const StepIcon = status === 'a_caminho'
+                ? icons.ui.mapPin
+                : status === 'em_atendimento'
+                  ? icons.ui.userCheck
+                  : status === 'resolvido'
+                    ? icons.ui.check
+                    : icons.ui.clock
+              return (
+                <div key={status} className="relative flex gap-3.5 pb-5 last:pb-0 sm:gap-4">
+                  {!isLast && (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute bottom-0 left-[19px] top-10 w-0.5 -translate-x-1/2 ${isCompleted ? 'bg-emerald-500/60' : 'bg-line'}`}
+                    />
+                  )}
+                  <span className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                    isCurrent
+                      ? 'border-amber-500 bg-amber-500 text-white shadow-[0_0_0_5px_rgba(245,158,11,0.13)]'
+                      : isCompleted
+                        ? 'border-emerald-500 bg-emerald-500 text-white'
+                        : 'border-line bg-surface text-fg-dim'
+                  }`}>
+                    {isCompleted ? <icons.ui.check size={17} /> : <StepIcon size={17} />}
+                  </span>
+                  <div className={`min-w-0 flex-1 rounded-xl border px-3.5 py-3 transition-colors sm:px-4 ${
+                    isCurrent
+                      ? 'border-amber-500/40 bg-amber-500/[0.07]'
+                      : isCompleted
+                        ? 'border-emerald-500/20 bg-emerald-500/[0.035]'
+                        : 'border-line bg-surface/60'
+                  }`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className={`text-sm ${isCurrent ? 'font-bold text-fg' : isCompleted ? 'font-semibold text-fg' : 'font-medium text-fg-muted'}`}>
+                        {TICKET_STATUS_LABELS[status]}
+                      </p>
+                      {isCurrent ? (
+                        <span className="rounded-full bg-amber-500 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-white">Em andamento</span>
+                      ) : isCompleted ? (
+                        <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Concluída</span>
+                      ) : (
+                        <span className="text-[9px] font-semibold uppercase tracking-wide text-fg-dim">Pendente</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">{stepDetails[status]}</p>
+                    {status === 'resolvido' && ticket.resolvedAt && (
+                      <p className="mt-2 border-t border-line/70 pt-2 text-[10px] font-medium tabular-nums text-fg-dim">
+                        Concluído em {formatDate(ticket.resolvedAt)}
+                      </p>
+                    )}
+                    {isCurrent && (
+                      <p className="mt-2 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                        {status === 'em_atendimento' ? 'O atendimento está acontecendo agora' : 'O chamado está nesta etapa'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </section>
 
