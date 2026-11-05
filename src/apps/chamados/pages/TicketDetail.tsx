@@ -621,37 +621,49 @@ export function TicketDetail() {
         </div>
       )}
 
-      {ticket.status === 'indeferido' && ticket.reasonLabel && (
-        // Issue #367 — indeferimento NUNCA é apresentado como resolvido:
-        // card vermelho próprio com motivo estruturado + observação opcional.
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-600 dark:text-red-400">
-              <icons.ui.close size={13} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</p>
-              <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{ticket.reasonLabel}</p>
-              {ticket.reasonNote && <p className="mt-0.5 text-[11px] text-fg-muted">{ticket.reasonNote}</p>}
-              <p className="mt-1 text-[10px] text-fg-dim">Motivo visível para o solicitante</p>
+      {ticket.status === 'indeferido' && (
+        <section className="overflow-hidden rounded-2xl border border-red-500/30 bg-card shadow-[var(--shadow-card)]" aria-label="Chamado indeferido">
+          <div className="flex items-center gap-3 border-b border-red-500/20 bg-red-500/10 px-5 py-5">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500 text-white"><icons.ui.close size={24} /></span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-red-600 dark:text-red-400">Solicitação encerrada</p>
+              <h3 className="mt-1 text-lg font-bold text-fg">Chamado indeferido</h3>
             </div>
           </div>
-        </div>
+          <div className="px-5 py-5">
+            <p className="text-sm font-semibold text-fg">{ticket.reasonLabel || 'Solicitação não aprovada'}</p>
+            {ticket.reasonNote && <p className="mt-2 text-sm leading-relaxed text-fg-muted">{ticket.reasonNote}</p>}
+            <p className="mt-3 text-[11px] text-fg-dim">O motivo do indeferimento fica registrado neste chamado.</p>
+          </div>
+        </section>
       )}
 
-      {ticket.status === 'em_espera' && ticket.reasonLabel && (
-        // Issue #367 — espera é estado próprio (nem resolvido nem arquivado):
-        // card próprio com motivo estruturado + observação; retomável abaixo.
-        <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3">
-          <div className="flex items-start gap-2">
-            <icons.ui.clock size={16} className="mt-0.5 shrink-0 text-violet-500" />
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-violet-600 dark:text-violet-400">Em espera — {ticket.reasonLabel}</p>
-              {ticket.reasonNote && <p className="mt-0.5 text-[11px] text-fg-muted">{ticket.reasonNote}</p>}
-              <p className="mt-1 text-[10px] text-fg-dim">Motivo visível para o solicitante</p>
+      {ticket.status === 'em_espera' && (
+        <section className="overflow-hidden rounded-2xl border border-violet-500/30 bg-card shadow-[var(--shadow-card)]" aria-label="Chamado em espera">
+          <div className="flex items-center gap-3 border-b border-violet-500/20 bg-violet-500/10 px-5 py-5">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-600 dark:text-violet-400"><icons.ui.clock size={24} /></span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-violet-600 dark:text-violet-400">Atendimento pausado</p>
+              <h3 className="mt-1 text-lg font-bold text-fg">Chamado em espera</h3>
             </div>
           </div>
-        </div>
+          <div className="space-y-4 px-5 py-5">
+            <div>
+              <p className="text-sm font-semibold text-fg">{ticket.reasonLabel || 'Aguardando retomada do atendimento'}</p>
+              {ticket.reasonNote && <p className="mt-2 text-sm leading-relaxed text-fg-muted">{ticket.reasonNote}</p>}
+              <p className="mt-3 text-[11px] text-fg-dim">Um técnico poderá assumir novamente este chamado para continuar o atendimento.</p>
+            </div>
+            {canStatus && (
+              <div className="space-y-2">
+                <button type="button" onClick={handleResume} disabled={resuming} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50">
+                  <icons.ui.userCheck size={17} />
+                  {resuming ? 'Retomando atendimento...' : 'Assumir e retomar atendimento'}
+                </button>
+                {resumeError && <p className="text-center text-[11px] text-red-500">{resumeError}</p>}
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {ticket.reasonLabel && ticket.status !== 'indeferido' && ticket.status !== 'em_espera' && (
@@ -1075,6 +1087,7 @@ export function TicketDetail() {
         )}
       </div>
 
+      {ticket.status !== 'indeferido' && ticket.status !== 'em_espera' && (
       <section
         aria-label="Progresso do chamado"
         className="overflow-hidden rounded-2xl border border-line bg-card shadow-[var(--shadow-card)]"
@@ -1196,6 +1209,7 @@ export function TicketDetail() {
           </div>
         </div>
       </section>
+      )}
 
       {lockedByOther && (
         <div className="flex items-center gap-2 rounded-xl bg-input/60 px-4 py-3">
@@ -1263,26 +1277,6 @@ export function TicketDetail() {
           >
             Indeferir
           </button>
-        </div>
-      )}
-
-      {canStatus && ticket.status === 'em_espera' && (
-        // P3 #371 — retomada: única saída de Em espera (→ em_atendimento).
-        // Questão #367 deixava a retomada presa ao dono/leader; agora qualquer
-        // técnico com a Action `ticket.status` do workspace retoma de forma
-        // ATÔMICA no servidor (guarda `status=em_espera`). `409` = outro técnico
-        // retomou primeiro. O motivo anterior é preservado pelo backend.
-        <div className="space-y-2">
-          <button
-            type="button"
-            onClick={handleResume}
-            disabled={resuming}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <icons.ui.userCheck size={16} />
-            {resuming ? 'Retomando...' : 'Retomar atendimento'}
-          </button>
-          {resumeError && <p className="text-center text-[11px] text-red-500">{resumeError}</p>}
         </div>
       )}
 
