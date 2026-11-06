@@ -78,13 +78,14 @@ export function TicketList() {
       ? (param as TicketPriority)
       : ''
   })
-  const [slaFilter] = useState<'near' | 'overdue' | ''>(() => {
+  const [slaFilter, setSlaFilter] = useState<'near' | 'overdue' | ''>(() => {
     const param = searchParams.get('sla')
     return param === 'near' || param === 'overdue' ? param : ''
   })
   const [roomFilter, setRoomFilter] = useState('')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'recente' | 'prioridade' | 'sla' | 'sala' | 'numero'>('recente')
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [visibleCount, setVisibleCount] = useState(20)
 
   useEffect(() => { setVisibleCount(20) }, [statusFilter, assignedFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, sortBy])
@@ -225,136 +226,225 @@ export function TicketList() {
         </button>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        <button
-          type="button"
-          onClick={() => {
-            setStatusFilter('')
-            setAssignedFilter(false)
-            setUnassignedFilter(false)
-          }}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            statusFilter === '' && !assignedFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-          }`}
-        >
-          Ativos {statusCounts.ativos > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.ativos}</span>}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            // Lê o valor atual em vez de fazer efeitos dentro do updater:
-            // o updater pode ser reexecutado (StrictMode) e não deve ter
-            // efeitos colaterais.
-            if (!assignedFilter) {
-              setUnassignedFilter(false)
-              setStatusFilter('')
-            }
-            setAssignedFilter((v) => !v)
-          }}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            assignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-          }`}
-          title="Chamados atribuídos a você para atendimento"
-        >
-          Meus Atendimentos
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (!unassignedFilter) {
-              setAssignedFilter(false)
-              setStatusFilter('')
-            }
-            setUnassignedFilter((v) => !v)
-          }}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            unassignedFilter ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-          }`}
-        >
-          Sem responsável
-        </button>
-        {STATUS_CHIP_VALUES.map((status) => (
+      <section className="space-y-2.5" aria-label="Busca e filtros dos chamados">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Visualização</p>
+          <span className="text-[11px] text-fg-dim">{sortedTickets.length} {sortedTickets.length === 1 ? 'chamado' : 'chamados'}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
           <button
-            key={status}
             type="button"
             onClick={() => {
-              setStatusFilter(status)
-              // Chips de status refinam a DIMENSÃO DE STATUS; os filtros de
-              // fila (responsável) são o mesmo eixo e são zerados junto.
+              setStatusFilter('')
+              setAssignedFilter(false)
+              setUnassignedFilter(false)
+            }}
+            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              statusFilter === '' && !assignedFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
+            }`}
+          >
+            Ativos {statusCounts.ativos > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.ativos}</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!assignedFilter) {
+                setUnassignedFilter(false)
+                setStatusFilter('')
+              }
+              setAssignedFilter((v) => !v)
+            }}
+            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              assignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
+            }`}
+            title="Chamados atribuídos a você para atendimento"
+          >
+            Meus atendimentos
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!unassignedFilter) {
+                setAssignedFilter(false)
+                setStatusFilter('')
+              }
+              setUnassignedFilter((v) => !v)
+            }}
+            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              unassignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
+            }`}
+          >
+            Sem responsável
+          </button>
+          {STATUS_CHIP_VALUES.map((status) => (
+            <button
+              key={status}
+              type="button"
+              onClick={() => {
+                setStatusFilter(status)
+                clearQueueScope()
+              }}
+              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                statusFilter === status ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
+              }`}
+            >
+              {STATUS_CHIP_LABELS[status]} {statusCounts[status] > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts[status]}</span>}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setStatusFilter('arquivados')
               clearQueueScope()
             }}
-            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              statusFilter === status ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
             }`}
           >
-            {STATUS_CHIP_LABELS[status]} {statusCounts[status] > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts[status]}</span>}
+            Arquivados {statusCounts.arquivados > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.arquivados}</span>}
           </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => {
-            setStatusFilter('arquivados')
-            clearQueueScope()
-          }}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-          }`}
-        >
-          Arquivados {statusCounts.arquivados > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts.arquivados}</span>}
-        </button>
-      </div>
+        </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        <button
-          type="button"
-          onClick={() => setPriorityFilter('')}
-          className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-            priorityFilter === '' ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
-          }`}
-        >
-          Prioridades
-        </button>
-        {TICKET_PRIORITIES.map((priority) => (
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            key={priority}
             type="button"
-            onClick={() => setPriorityFilter(priority)}
-            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              priorityFilter === priority ? 'bg-amber-500 text-white' : 'bg-card text-fg-dim border border-line hover:text-fg'
+            onClick={() => setFiltersOpen((open) => !open)}
+            aria-expanded={filtersOpen}
+            aria-controls="ticket-list-filters"
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+              filtersOpen || priorityFilter || slaFilter || roomFilter
+                ? 'border-amber-500/50 bg-amber-500/10 text-amber-500'
+                : 'border-line bg-card text-fg hover:bg-input'
             }`}
           >
-            {TICKET_PRIORITY_LABELS[priority]}
+            <icons.ui.sliders size={14} />
+            Filtrar
+            {(Number(Boolean(priorityFilter)) + Number(Boolean(slaFilter)) + Number(Boolean(roomFilter))) > 0 && (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] text-white">
+                {Number(Boolean(priorityFilter)) + Number(Boolean(slaFilter)) + Number(Boolean(roomFilter))}
+              </span>
+            )}
+            <icons.ui.chevronDown size={13} className={filtersOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
           </button>
-        ))}
-      </div>
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-xs text-fg-muted">
+            <span className="shrink-0">Ordenar</span>
+            <select
+              aria-label="Ordenar chamados"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+              className="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none"
+            >
+              {SORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </label>
+        </div>
 
-      {uniqueRooms.length > 0 && (
-        <select
-          value={roomFilter}
-          onChange={(e) => setRoomFilter(e.target.value)}
-          className="w-full rounded-xl border border-line bg-card px-3 py-2 text-sm text-fg focus:border-amber-500 focus:outline-none"
-        >
-          <option value="">Todas as salas</option>
-          {uniqueRooms.map((room) => (
-            <option key={room} value={room}>{room}</option>
-          ))}
-        </select>
-      )}
+        {filtersOpen && (
+          <div id="ticket-list-filters" className="space-y-4 rounded-xl border border-line bg-card p-3.5">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-fg">Prioridade</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPriorityFilter('')}
+                  aria-pressed={priorityFilter === ''}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    priorityFilter === '' ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
+                  }`}
+                >
+                  Todas
+                </button>
+                {TICKET_PRIORITIES.map((priority) => (
+                  <button
+                    key={priority}
+                    type="button"
+                    onClick={() => setPriorityFilter(priority)}
+                    aria-pressed={priorityFilter === priority}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      priorityFilter === priority ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
+                    }`}
+                  >
+                    {TICKET_PRIORITY_LABELS[priority]}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
-        {SORT_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => setSortBy(opt.value)}
-            className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${
-              sortBy === opt.value ? 'bg-fg text-surface' : 'bg-card text-fg-dim border border-line hover:text-fg'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {uniqueRooms.length > 0 && (
+                <label className="space-y-1.5 text-xs font-medium text-fg">
+                  Sala
+                  <select
+                    value={roomFilter}
+                    onChange={(e) => setRoomFilter(e.target.value)}
+                    className="w-full rounded-lg border border-line bg-input px-3 py-2.5 text-sm text-fg focus:border-amber-500 focus:outline-none"
+                  >
+                    <option value="">Todas as salas</option>
+                    {uniqueRooms.map((room) => <option key={room} value={room}>{room}</option>)}
+                  </select>
+                </label>
+              )}
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-fg">SLA</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSlaFilter('')}
+                    aria-pressed={slaFilter === ''}
+                    className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                      slaFilter === '' ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSlaFilter('near')}
+                    aria-pressed={slaFilter === 'near'}
+                    className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                      slaFilter === 'near' ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
+                    }`}
+                  >
+                    Próximos do prazo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSlaFilter('overdue')}
+                    aria-pressed={slaFilter === 'overdue'}
+                    className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                      slaFilter === 'overdue' ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
+                    }`}
+                  >
+                    Em atraso
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setPriorityFilter('')
+                  setSlaFilter('')
+                  setRoomFilter('')
+                  setSortBy('recente')
+                }}
+                className="text-xs font-medium text-fg-muted transition-colors hover:text-fg"
+              >
+                Limpar filtros
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltersOpen(false)}
+                className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-600"
+              >
+                Aplicar e fechar
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       {sortedTickets.length === 0 ? (
         <div className="flex flex-col items-center py-12">
