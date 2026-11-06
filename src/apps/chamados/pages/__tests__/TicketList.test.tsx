@@ -326,6 +326,7 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
     expect(screen.queryByText('#4')).not.toBeInTheDocument()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
     const chip = screen.getByRole('button', { name: 'Sem responsável' }) as HTMLButtonElement
     expect(chip.className).toContain('bg-amber-500')
   })
@@ -568,6 +569,26 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Ativos/ }))
 
     expect(mockListMine).not.toHaveBeenCalled()
+  })
+
+  it('"Ativos" reúne somente os quatro status em fluxo', async () => {
+    mockTickets.push(
+      ticket({ id: 'a-caminho', ticketNumber: 92, status: 'a_caminho' }),
+      ticket({ id: 'em-atendimento', ticketNumber: 93, status: 'em_atendimento' }),
+      ticket({ id: 'resolvido', ticketNumber: 94, status: 'resolvido' }),
+      ticket({ id: 'em-espera', ticketNumber: 95, status: 'em_espera' }),
+      ticket({ id: 'indeferido', ticketNumber: 96, status: 'indeferido' }),
+    )
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByText('#90')).toBeInTheDocument()
+    expect(screen.getByText('#91')).toBeInTheDocument()
+    expect(screen.getByText('#92')).toBeInTheDocument()
+    expect(screen.getByText('#93')).toBeInTheDocument()
+    expect(screen.queryByText('#94')).not.toBeInTheDocument()
+    expect(screen.queryByText('#95')).not.toBeInTheDocument()
+    expect(screen.queryByText('#96')).not.toBeInTheDocument()
   })
 
   it('"Meus Atendimentos" continua na fila (é recorte de trabalho, não pessoal)', async () => {
