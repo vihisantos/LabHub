@@ -422,18 +422,69 @@ export function TicketList() {
       </section>
 
       {sortedTickets.length === 0 ? (
-        <div className="flex flex-col items-center py-12">
-          <icons.ui.inbox size={40} className="text-fg-muted" />
-          <p className="mt-3 text-sm text-fg-muted">
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-line bg-card/50 px-5 py-12 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-muted">
+            <icons.ui.inbox size={28} />
+          </div>
+          <p className="mt-4 text-sm font-semibold text-fg">
+            {search
+              ? 'Nenhum chamado encontrado'
+              : assignedFilter
+                ? 'Nenhum atendimento atribuído a você'
+                : unassignedFilter
+                  ? 'Nenhum chamado sem responsável'
+                  : statusFilter === 'arquivados'
+                    ? 'Nenhum chamado arquivado'
+                    : statusFilter === 'em_espera'
+                      ? 'Nenhum chamado em espera'
+                      : statusFilter === 'indeferido'
+                        ? 'Nenhum chamado indeferido'
+                        : statusFilter === 'resolvido'
+                          ? 'Nenhum chamado resolvido'
+                          : priorityFilter || slaFilter || roomFilter
+                            ? 'Nenhum chamado corresponde aos filtros'
+                            : tickets.length === 0
+                              ? 'A fila está vazia'
+                              : 'Nenhum chamado ativo'}
+          </p>
+          <p className="mt-1 max-w-md text-xs leading-relaxed text-fg-dim">
             {tickets.length === 0
-              ? 'Nenhum chamado encontrado na fila atual.'
-              : statusFilter === 'arquivados'
-                ? 'Nenhum chamado arquivado'
-                : 'Nenhum resultado encontrado'}
+              ? 'Quando um novo chamado for registrado, ele aparecerá aqui.'
+              : search
+                ? 'Tente conferir o número, a sala ou o termo pesquisado.'
+                : assignedFilter
+                  ? 'Quando um chamado for atribuído a você, ele aparecerá nesta visualização.'
+                  : unassignedFilter
+                    ? 'No momento, não há chamados ativos aguardando responsável.'
+                    : statusFilter === 'arquivados'
+                      ? 'Os chamados arquivados aparecerão aqui.'
+                      : statusFilter === 'em_espera'
+                        ? 'Os chamados colocados em espera aparecerão aqui.'
+                        : statusFilter === 'indeferido'
+                          ? 'Os chamados indeferidos aparecerão aqui.'
+                          : statusFilter === 'resolvido'
+                            ? 'Os chamados resolvidos aparecerão aqui.'
+                            : priorityFilter || slaFilter || roomFilter
+                              ? 'Tente remover ou alterar algum filtro para ampliar os resultados.'
+                              : 'Não há chamados em andamento nesta fila no momento.'}
           </p>
-          <p className="mt-1 text-[11px] text-fg-dim">
-            Procurando os chamados que você abriu? Eles ficam em &quot;Meus Chamados&quot;.
-          </p>
+          {(search || assignedFilter || unassignedFilter || statusFilter || priorityFilter || slaFilter || roomFilter) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('')
+                setStatusFilter('')
+                setAssignedFilter(false)
+                setUnassignedFilter(false)
+                setPriorityFilter('')
+                setSlaFilter('')
+                setRoomFilter('')
+              }}
+              className="mt-4 rounded-lg border border-line bg-card px-3 py-2 text-xs font-semibold text-fg transition-colors hover:bg-input"
+            >
+              Limpar busca e filtros
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
