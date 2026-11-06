@@ -293,8 +293,6 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.queryByText('#6')).not.toBeInTheDocument()
     expect(screen.queryByText('#3')).not.toBeInTheDocument()
 
-    const chip = screen.getByRole('button', { name: /^Aberto/ }) as HTMLButtonElement
-    expect(chip.className).toContain('bg-amber-500')
   })
 
   it('?status=em_andamento cobre os dois status existentes (a_caminho + em_atendimento)', async () => {
@@ -358,6 +356,7 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     render(<TicketList />)
     await act(async () => {})
 
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Sem responsável' }))
     expect(screen.getByText('#5')).toBeInTheDocument()
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
@@ -402,19 +401,7 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
   })
 
-  it('chip "Em andamento" cobre os dois status e o count soma os dois', async () => {
-    render(<TicketList />)
-    await act(async () => {})
 
-    const chip = screen.getByRole('button', { name: /Em andamento/ }) as HTMLButtonElement
-    expect(chip.className).not.toContain('bg-amber-500')
-
-    fireEvent.click(screen.getByRole('button', { name: /Em andamento/ }))
-    expect(screen.getByText('#5')).toBeInTheDocument()
-    expect(screen.getByText('#6')).toBeInTheDocument()
-    expect(screen.queryByText('#1')).not.toBeInTheDocument()
-    expect(screen.queryByText('#4')).not.toBeInTheDocument()
-  })
 })
 
 describe('TicketList — Fase 2.2: deep link ?sla= da Central (álertas de SLA)', () => {
@@ -602,6 +589,7 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     await act(async () => {})
 
     fireEvent.click(screen.getByRole('button', { name: 'Meus Atendimentos' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Sem responsável' }))
 
     const atendimentos = screen.getByRole('button', { name: 'Meus Atendimentos' })
@@ -620,8 +608,11 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     expect(screen.getByRole('button', { name: /^Ativos/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Arquivados/ })).toBeInTheDocument()
     for (const status of ['Aberto', 'Em andamento', 'A caminho', 'Em atendimento', 'Resolvido']) {
-      expect(screen.getByRole('button', { name: new RegExp(`^${status}`) })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: new RegExp(`^${status}`) })).not.toBeInTheDocument()
     }
+    expect(screen.getByRole('button', { name: /^Meus Atendimentos/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Em espera/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Indeferidos/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Filtrar' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Ordenar chamados' })).toHaveValue('recente')
 
@@ -630,6 +621,7 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     expect(screen.getByRole('button', { name: 'Urgente' })).toBeInTheDocument()
     expect(screen.getByText('SLA', { selector: 'p' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Sala' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sem responsável' })).toBeInTheDocument()
   })
 
   it('a pesquisa operacional continua funcionando (nº, sala, ativo, problema)', async () => {
@@ -643,18 +635,17 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     expect(screen.queryByText('#91')).not.toBeInTheDocument()
   })
 
-  it('resolvido continua na fila como antes; acompanhamento é outra tela', async () => {
+  it('resolvido fica fora de Ativos e continua acessível pelo filtro contextual', async () => {
     mockTickets.push(ticket({ id: 'resolvido', ticketNumber: 5, status: 'resolvido' }))
     render(<TicketList />)
     await act(async () => {})
 
-    // Comportamento operacional pré-existente: resolvido aparece na fila (não é
-    // arquivo), e o chip Arquivados o remove. A #337 não mexe nisso.
-    expect(screen.getByText('#5')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /^Arquivados/ }))
-
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
+
+    mockSearchParams.value = '?status=resolvido'
+    render(<TicketList />)
+    await act(async () => {})
+    expect(screen.getByText('#5')).toBeInTheDocument()
     expect(mockListMine).not.toHaveBeenCalled()
   })
 
