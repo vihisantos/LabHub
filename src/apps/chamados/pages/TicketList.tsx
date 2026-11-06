@@ -209,7 +209,7 @@ export function TicketList() {
           <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Visualização</p>
           <span className="text-[11px] text-fg-dim">{sortedTickets.length} {sortedTickets.length === 1 ? 'chamado' : 'chamados'}</span>
         </div>
-        <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:thin]">
+        <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:thin] [scrollbar-color:var(--color-line)_transparent] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-input [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line [&::-webkit-scrollbar-thumb:hover]:bg-fg-muted">
           <button
             type="button"
             onClick={() => {
