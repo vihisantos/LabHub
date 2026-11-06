@@ -366,10 +366,40 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Prioridades$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Urgente' }))
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
+  })
+
+  it('limpar filtros preserva a ordenação selecionada', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Ordenar chamados' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Ordenar chamados' }), { target: { value: 'prioridade' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Urgente' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar filtros' }))
+
+    expect(screen.getByRole('combobox', { name: 'Ordenar chamados' })).toHaveValue('prioridade')
+  })
+
+  it('agrupa filtros avançados em um painel recolhível sem alterar os cards', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'Filtrar' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: 'Urgente' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
+    expect(screen.getByRole('button', { name: 'Filtrar' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Urgente' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Ordenar chamados' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Urgente' }))
+    expect(screen.getByText('#6')).toBeInTheDocument()
+    expect(screen.queryByText('#1')).not.toBeInTheDocument()
   })
 
   it('chip "Em andamento" cobre os dois status e o count soma os dois', async () => {
@@ -592,10 +622,14 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     for (const status of ['Aberto', 'Em andamento', 'A caminho', 'Em atendimento', 'Resolvido']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${status}`) })).toBeInTheDocument()
     }
-    expect(screen.getByRole('button', { name: 'Prioridades' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mais recentes' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'SLA' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filtrar' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Ordenar chamados' })).toHaveValue('recente')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
+    expect(screen.getAllByText('Prioridade')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Urgente' })).toBeInTheDocument()
+    expect(screen.getByText('SLA', { selector: 'p' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Sala' })).toBeInTheDocument()
   })
 
   it('a pesquisa operacional continua funcionando (nº, sala, ativo, problema)', async () => {
