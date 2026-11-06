@@ -622,9 +622,13 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     for (const status of ['Aberto', 'Em andamento', 'A caminho', 'Em atendimento', 'Resolvido']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${status}`) })).toBeInTheDocument()
     }
-    expect(screen.getByRole('button', { name: 'Prioridades' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mais recentes' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'SLA' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filtrar' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Ordenar chamados' })).toHaveValue('recente')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
+    expect(screen.getByText('Prioridade')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Urgente' })).toBeInTheDocument()
+    expect(screen.getByText('SLA')).toBeInTheDocument()
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
