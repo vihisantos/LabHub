@@ -669,13 +669,39 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     expect(mockListMine).not.toHaveBeenCalled()
   })
 
-  it('o estado vazio da fila aponta para a área pessoal em vez de fingir ser ela', async () => {
+  it('mostra um estado vazio próprio quando a fila não tem chamados', async () => {
     mockTickets.length = 0
     render(<TicketList />)
     await act(async () => {})
 
-    expect(screen.getByText('Nenhum chamado encontrado na fila atual.')).toBeInTheDocument()
-    expect(screen.getByText(/Meus Chamados/)).toBeInTheDocument()
+    expect(screen.getByText('A fila está vazia')).toBeInTheDocument()
+    expect(screen.getByText('Quando um novo chamado for registrado, ele aparecerá aqui.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Limpar busca e filtros' })).not.toBeInTheDocument()
+  })
+
+  it('mostra um estado vazio contextual para cada visualização', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: /^Em espera/ }))
+    expect(screen.getByText('Nenhum chamado em espera')).toBeInTheDocument()
+    expect(screen.getByText('Os chamados colocados em espera aparecerão aqui.')).toBeInTheDocument()
+  })
+
+  it('permite limpar busca e filtros diretamente do estado vazio', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    fireEvent.change(screen.getByPlaceholderText('Buscar por #, sala, ativo ou problema...'), {
+      target: { value: 'termo que não existe' },
+    })
+
+    expect(screen.getByText('Nenhum chamado encontrado')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar busca e filtros' }))
+
+    expect(screen.getByText('#90')).toBeInTheDocument()
+    expect(screen.getByText('#91')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Limpar busca e filtros' })).not.toBeInTheDocument()
   })
 
   it('o botão de atualizar continua recarregando a FILA, não o escopo pessoal', async () => {
