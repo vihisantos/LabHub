@@ -372,6 +372,19 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
   })
 
+  it('limpar filtros preserva a ordenação selecionada', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Ordenar chamados' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Ordenar chamados' }), { target: { value: 'prioridade' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Urgente' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar filtros' }))
+
+    expect(screen.getByRole('combobox', { name: 'Ordenar chamados' })).toHaveValue('prioridade')
+  })
+
   it('agrupa filtros avançados em um painel recolhível sem alterar os cards', async () => {
     render(<TicketList />)
     await act(async () => {})
