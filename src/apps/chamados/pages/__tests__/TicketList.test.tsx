@@ -629,6 +629,9 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     const tabs = ativos.parentElement
     expect(tabs?.className).toContain('overflow-x-auto')
     expect(tabs?.className).toContain('whitespace-nowrap')
+    expect(tabs?.className).toContain('[&::-webkit-scrollbar]:h-1.5')
+    expect(tabs?.className).toContain('[&::-webkit-scrollbar-thumb]:rounded-full')
+    expect(tabs?.className).toContain('[scrollbar-color:var(--color-fg-dim)_transparent]')
     expect(ativos.className).toContain('shrink-0')
     expect(ativos.className).toContain('whitespace-nowrap')
 
