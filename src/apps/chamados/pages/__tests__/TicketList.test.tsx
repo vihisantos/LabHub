@@ -629,7 +629,7 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     expect(screen.getAllByText('Prioridade')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Urgente' })).toBeInTheDocument()
     expect(screen.getByText('SLA', { selector: 'p' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Sala' })).toBeInTheDocument()
   })
 
   it('a pesquisa operacional continua funcionando (nº, sala, ativo, problema)', async () => {
