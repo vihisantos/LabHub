@@ -366,10 +366,27 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Prioridades$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Urgente' }))
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
+  })
+
+  it('agrupa filtros avançados em um painel recolhível sem alterar os cards', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'Filtrar' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: 'Urgente' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
+    expect(screen.getByRole('button', { name: 'Filtrar' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Urgente' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Ordenar chamados' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Urgente' }))
+    expect(screen.getByText('#6')).toBeInTheDocument()
+    expect(screen.queryByText('#1')).not.toBeInTheDocument()
   })
 
   it('chip "Em andamento" cobre os dois status e o count soma os dois', async () => {
