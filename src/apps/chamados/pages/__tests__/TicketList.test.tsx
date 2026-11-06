@@ -621,6 +621,22 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     expect(screen.queryByText('#91')).not.toBeInTheDocument()
   })
 
+  it('mantém as visualizações em uma linha rolável e destaca o seletor de ordenação', async () => {
+    render(<TicketList />)
+    await act(async () => {})
+
+    const ativos = screen.getByRole('button', { name: /^Ativos/ })
+    const tabs = ativos.parentElement
+    expect(tabs?.className).toContain('overflow-x-auto')
+    expect(tabs?.className).toContain('whitespace-nowrap')
+    expect(ativos.className).toContain('shrink-0')
+    expect(ativos.className).toContain('whitespace-nowrap')
+
+    const sort = screen.getByRole('combobox', { name: 'Ordenar chamados' })
+    expect(sort.className).toContain('appearance-none')
+    expect(sort.parentElement?.className).toContain('shadow-sm')
+  })
+
   it('os chips de status, prioridade, sala e ordenação continuam na tela', async () => {
     render(<TicketList />)
     await act(async () => {})
