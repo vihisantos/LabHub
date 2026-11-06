@@ -9,7 +9,7 @@ import {
   TICKET_PRIORITY_COLORS,
 } from '../types'
 import { slaConfigService } from '../services/slaConfigService'
-import { getPriority, getSlaState, isSlaOverdue } from '../services/sla'
+import { getPriority, getSlaState, isSlaOverdue, isTicketOpen } from '../services/sla'
 import { useAuth } from '../../../core/auth/useAuth'
 import { icons } from '../../../lib/icons'
 import type { Ticket, TicketPriority, TicketStatus } from '../types'
@@ -25,21 +25,6 @@ const CONTEXTUAL_STATUS_FILTERS: TicketStatus[] = [
 // Fase 2.1: valor composto da Central ("Em andamento" = a_caminho + em_atendimento).
 // Continua sendo UM único statusFilter — sem segunda lógica de filtragem.
 type StatusFilterValue = TicketStatus | 'arquivados' | 'em_andamento' | ''
-
-const STATUS_CHIP_VALUES: Array<Exclude<StatusFilterValue, 'arquivados' | ''>> = [
-  'aberto',
-  'em_andamento',
-  'a_caminho',
-  'em_atendimento',
-  'em_espera',
-  'resolvido',
-  'indeferido',
-]
-
-const STATUS_CHIP_LABELS: Record<TicketStatus | 'em_andamento', string> = {
-  ...TICKET_STATUS_LABELS,
-  em_andamento: 'Em andamento',
-}
 
 /**
  * Chamados — a FILA OPERACIONAL da equipe de TI.
@@ -108,31 +93,23 @@ export function TicketList() {
     const slaByWorkspace = slaConfigService.getHoursForTickets()
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
-      // Issue #367 — em_espera/indeferido SAIEM da fila operacional ativa:
-      // têm segmentos próprios (chips) e não aparecem na fila de abertos.
-      const pausedOrDenied = t.status === 'em_espera' || t.status === 'indeferido'
       if (assignedFilter) {
-        if (archived) return false
+        if (archived || !isTicketOpen(t.status)) return false
         if (t.assignedToUserId !== user?.id) return false
       } else if (unassignedFilter) {
-        if (archived) return false
-        if (pausedOrDenied) return false
+        if (archived || !isTicketOpen(t.status)) return false
         if (t.assignedToUserId) return false
-      } else {
-        if (statusFilter === 'arquivados') {
-          if (!archived) return false
-        } else if (statusFilter === 'em_espera' || statusFilter === 'indeferido') {
-          // Segmento próprio (issue #367): fora da fila ativa, localizável.
-          if (archived || t.status !== statusFilter) return false
-        } else {
-          if (archived) return false
-          if (pausedOrDenied) return false
-          if (statusFilter === 'em_andamento') {
-            if (t.status !== 'a_caminho' && t.status !== 'em_atendimento') return false
-          } else if (statusFilter && t.status !== statusFilter) {
-            return false
-          }
-        }
+      } else if (statusFilter === 'arquivados') {
+        if (!archived) return false
+      } else if (statusFilter === 'em_espera' || statusFilter === 'indeferido') {
+        if (archived || t.status !== statusFilter) return false
+      } else if (statusFilter === 'em_andamento') {
+        if (archived || (t.status !== 'a_caminho' && t.status !== 'em_atendimento')) return false
+      } else if (statusFilter) {
+        if (archived || t.status !== statusFilter) return false
+      } else if (archived || !isTicketOpen(t.status)) {
+        // Visão padrão "Ativos": somente aberto, a_caminho e em_atendimento.
+        return false
       }
       if (slaFilter && getSlaState(t.createdAt, t.priority, t.status, slaByWorkspace[t.workspace_id ?? '']) !== slaFilter) return false
       if (priorityFilter && getPriority(t.priority) !== priorityFilter) return false
@@ -164,10 +141,11 @@ export function TicketList() {
         // Issue #367 — fora da fila operacional ativa (segmento próprio):
         // o contador do chip "Ativos" só reflete a fila de abertos.
         counts[t.status]++
-      } else {
+      } else if (isTicketOpen(t.status)) {
         counts.ativos++
-        if (t.status === 'a_caminho' || t.status === 'em_atendimento') counts.em_andamento++
         if (t.status in counts) counts[t.status]++
+      } else if (t.status in counts) {
+        counts[t.status]++
       }
     }
     return counts
@@ -248,35 +226,18 @@ export function TicketList() {
           <button
             type="button"
             onClick={() => {
-              if (!assignedFilter) {
-                setUnassignedFilter(false)
-                setStatusFilter('')
-              }
+              setUnassignedFilter(false)
+              setStatusFilter('')
               setAssignedFilter((v) => !v)
             }}
             className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
               assignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
             }`}
-            title="Chamados atribuídos a você para atendimento"
+            title="Chamados ativos atribuídos a você"
           >
             Meus Atendimentos
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!unassignedFilter) {
-                setAssignedFilter(false)
-                setStatusFilter('')
-              }
-              setUnassignedFilter((v) => !v)
-            }}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-              unassignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
-            }`}
-          >
-            Sem responsável
-          </button>
-          {STATUS_CHIP_VALUES.map((status) => (
+          {(['em_espera', 'indeferido'] as const).map((status) => (
             <button
               key={status}
               type="button"
@@ -288,7 +249,7 @@ export function TicketList() {
                 statusFilter === status ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
               }`}
             >
-              {STATUS_CHIP_LABELS[status]} {statusCounts[status] > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts[status]}</span>}
+              {status === 'em_espera' ? 'Em espera' : 'Indeferidos'} {statusCounts[status] > 0 && <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[9px]">{statusCounts[status]}</span>}
             </button>
           ))}
           <button
@@ -312,16 +273,16 @@ export function TicketList() {
             aria-expanded={filtersOpen}
             aria-controls="ticket-list-filters"
             className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
-              filtersOpen || priorityFilter || slaFilter || roomFilter
+              filtersOpen || unassignedFilter || priorityFilter || slaFilter || roomFilter
                 ? 'border-amber-500/50 bg-amber-500/10 text-amber-500'
                 : 'border-line bg-card text-fg hover:bg-input'
             }`}
           >
             <icons.ui.sliders size={14} />
             Filtrar
-            {(Number(Boolean(priorityFilter)) + Number(Boolean(slaFilter)) + Number(Boolean(roomFilter))) > 0 && (
+            {(Number(Boolean(unassignedFilter)) + Number(Boolean(priorityFilter)) + Number(Boolean(slaFilter)) + Number(Boolean(roomFilter))) > 0 && (
               <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] text-white">
-                {Number(Boolean(priorityFilter)) + Number(Boolean(slaFilter)) + Number(Boolean(roomFilter))}
+                {Number(Boolean(unassignedFilter)) + Number(Boolean(priorityFilter)) + Number(Boolean(slaFilter)) + Number(Boolean(roomFilter))}
               </span>
             )}
             <icons.ui.chevronDown size={13} className={filtersOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
@@ -341,6 +302,20 @@ export function TicketList() {
 
         {filtersOpen && (
           <div id="ticket-list-filters" className="space-y-4 rounded-xl border border-line bg-card p-3.5">
+            <button
+              type="button"
+              onClick={() => {
+                setAssignedFilter(false)
+                setStatusFilter('')
+                setUnassignedFilter((value) => !value)
+              }}
+              aria-pressed={unassignedFilter}
+              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                unassignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
+              }`}
+            >
+              Sem responsável
+            </button>
             <div className="space-y-2">
               <p className="text-xs font-semibold text-fg">Prioridade</p>
               <div className="flex flex-wrap gap-1.5">
@@ -425,6 +400,7 @@ export function TicketList() {
               <button
                 type="button"
                 onClick={() => {
+                  setUnassignedFilter(false)
                   setPriorityFilter('')
                   setSlaFilter('')
                   setRoomFilter('')
