@@ -259,7 +259,7 @@ export function TicketList() {
             }`}
             title="Chamados atribuídos a você para atendimento"
           >
-            Meus atendimentos
+            Meus Atendimentos
           </button>
           <button
             type="button"
