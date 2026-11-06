@@ -209,7 +209,7 @@ export function TicketList() {
           <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Visualização</p>
           <span className="text-[11px] text-fg-dim">{sortedTickets.length} {sortedTickets.length === 1 ? 'chamado' : 'chamados'}</span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:thin]">
           <button
             type="button"
             onClick={() => {
@@ -217,7 +217,7 @@ export function TicketList() {
               setAssignedFilter(false)
               setUnassignedFilter(false)
             }}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+            className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
               statusFilter === '' && !assignedFilter && !unassignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
             }`}
           >
@@ -230,7 +230,7 @@ export function TicketList() {
               setStatusFilter('')
               setAssignedFilter((v) => !v)
             }}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+            className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
               assignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
             }`}
             title="Chamados ativos atribuídos a você"
@@ -245,7 +245,7 @@ export function TicketList() {
                 setStatusFilter(status)
                 clearQueueScope()
               }}
-              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                 statusFilter === status ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
               }`}
             >
@@ -258,7 +258,7 @@ export function TicketList() {
               setStatusFilter('arquivados')
               clearQueueScope()
             }}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+            className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
               statusFilter === 'arquivados' ? 'bg-amber-500 text-white' : 'border border-line bg-card text-fg-dim hover:text-fg'
             }`}
           >
@@ -287,16 +287,17 @@ export function TicketList() {
             )}
             <icons.ui.chevronDown size={13} className={filtersOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
           </button>
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-xs text-fg-muted">
-            <span className="shrink-0">Ordenar</span>
+          <label className="flex min-h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-line bg-card px-3 py-2 text-xs text-fg-muted shadow-sm transition-colors focus-within:border-amber-500/60 focus-within:ring-2 focus-within:ring-amber-500/10 sm:w-auto sm:min-w-[220px] sm:max-w-[280px] sm:flex-1">
+            <span className="shrink-0 font-semibold text-fg">Ordenar</span>
             <select
               aria-label="Ordenar chamados"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="min-w-0 flex-1 bg-transparent text-xs text-fg outline-none"
+              className="min-w-0 flex-1 cursor-pointer appearance-none truncate bg-transparent text-xs font-medium text-fg outline-none"
             >
               {SORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
+            <icons.ui.chevronDown size={14} className="shrink-0 text-fg-muted" />
           </label>
         </div>
 
@@ -310,7 +311,7 @@ export function TicketList() {
                 setUnassignedFilter((value) => !value)
               }}
               aria-pressed={unassignedFilter}
-              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                 unassignedFilter ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
               }`}
             >
@@ -366,7 +367,7 @@ export function TicketList() {
                     type="button"
                     onClick={() => setSlaFilter('')}
                     aria-pressed={slaFilter === ''}
-                    className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                    className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                       slaFilter === '' ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
                     }`}
                   >
@@ -376,7 +377,7 @@ export function TicketList() {
                     type="button"
                     onClick={() => setSlaFilter('near')}
                     aria-pressed={slaFilter === 'near'}
-                    className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                    className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                       slaFilter === 'near' ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
                     }`}
                   >
@@ -386,7 +387,7 @@ export function TicketList() {
                     type="button"
                     onClick={() => setSlaFilter('overdue')}
                     aria-pressed={slaFilter === 'overdue'}
-                    className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                    className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                       slaFilter === 'overdue' ? 'bg-amber-500 text-white' : 'border border-line bg-input text-fg-dim hover:text-fg'
                     }`}
                   >
