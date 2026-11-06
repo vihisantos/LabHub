@@ -473,7 +473,7 @@ describe('TicketList — Fase 2.2: deep link ?sla= da Central (álertas de SLA)'
     expect(screen.getByText('#7')).toBeInTheDocument()
     expect(screen.getByText('#8')).toBeInTheDocument()
     expect(screen.getByText('#9')).toBeInTheDocument()
-    expect(screen.getByText('#10')).toBeInTheDocument()
+    expect(screen.queryByText('#10')).not.toBeInTheDocument()
   })
 
   it('sem ?sla mantém o comportamento atual (nenhum filtro SLA ativo)', async () => {
