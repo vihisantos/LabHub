@@ -326,7 +326,7 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
     expect(screen.queryByText('#4')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Filtrar/ }))
     const chip = screen.getByRole('button', { name: 'Sem responsável' }) as HTMLButtonElement
     expect(chip.className).toContain('bg-amber-500')
   })
@@ -366,7 +366,6 @@ describe('TicketList — Fase 2.1: query params da Central inicializam os filtro
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Filtrar' }))
     fireEvent.click(screen.getByRole('button', { name: 'Urgente' }))
     expect(screen.queryByText('#1')).not.toBeInTheDocument()
     expect(screen.queryByText('#5')).not.toBeInTheDocument()
