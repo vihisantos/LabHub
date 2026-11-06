@@ -485,7 +485,7 @@ describe('TicketList — Fase 2.2: deep link ?sla= da Central (álertas de SLA)'
     expect(screen.getByText('#7')).toBeInTheDocument()
     expect(screen.getByText('#8')).toBeInTheDocument()
     expect(screen.getByText('#9')).toBeInTheDocument()
-    expect(screen.getByText('#10')).toBeInTheDocument()
+    expect(screen.queryByText('#10')).not.toBeInTheDocument()
   })
 })
 
@@ -571,7 +571,7 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
     expect(mockListMine).not.toHaveBeenCalled()
   })
 
-  it('"Ativos" reúne somente os quatro status em fluxo', async () => {
+  it('"Ativos" reúne os três status reais em fluxo', async () => {
     mockTickets.push(
       ticket({ id: 'a-caminho', ticketNumber: 92, status: 'a_caminho' }),
       ticket({ id: 'em-atendimento', ticketNumber: 93, status: 'em_atendimento' }),
