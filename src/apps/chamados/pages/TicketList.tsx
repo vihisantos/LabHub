@@ -428,7 +428,6 @@ export function TicketList() {
                   setPriorityFilter('')
                   setSlaFilter('')
                   setRoomFilter('')
-                  setSortBy('recente')
                 }}
                 className="text-xs font-medium text-fg-muted transition-colors hover:text-fg"
               >
@@ -439,7 +438,7 @@ export function TicketList() {
                 onClick={() => setFiltersOpen(false)}
                 className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-600"
               >
-                Aplicar e fechar
+                Fechar
               </button>
             </div>
           </div>
