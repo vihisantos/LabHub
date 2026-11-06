@@ -94,10 +94,10 @@ export function TicketList() {
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
       if (assignedFilter) {
-        if (archived || !isTicketOpen(t.status)) return false
+        if (archived) return false
         if (t.assignedToUserId !== user?.id) return false
       } else if (unassignedFilter) {
-        if (archived || !isTicketOpen(t.status)) return false
+        if (archived || t.status === 'em_espera' || t.status === 'indeferido') return false
         if (t.assignedToUserId) return false
       } else if (statusFilter === 'arquivados') {
         if (!archived) return false
