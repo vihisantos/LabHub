@@ -40,7 +40,7 @@ Ponto de entrada da plataforma: [`platform/README.md`](platform/README.md).
 
 | Item | Status |
 |------|--------|
-| Versão mais recente | v2.3.0 (2026-09-16) — veja [CHANGELOG.md](../CHANGELOG.md) |
+| Versão mais recente | v2.4.0 (2026-11-10) — veja [CHANGELOG.md](../CHANGELOG.md) |
 | RBAC 2.0 | Ativo (ON-only, sem feature flag) |
 | Workspaces / Memberships | Fonte de verdade da autorização; `profiles.workspace_ids` em drift para `memberships` (Fase 9) |
 | Apps entregues | Chamados, ReservaLab, PC Care, Estoque, TV |

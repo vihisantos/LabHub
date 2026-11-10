@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.4.0] (2026-11-10)
+
+### Features
+
+* **chamados:** timeline mais clara com data e horário originais de abertura, acompanhamento das etapas e fila reorganizada.
+* **home:** aprimora busca, filtros, ordenação e orientações iniciais.
+* **plataforma:** atualiza a estrutura de dados preservando contas, acessos, chamados, históricos e configurações.
+
+### Performance Improvements
+
+* reduz operações desnecessárias para melhorar a estabilidade e a responsividade dos módulos.
+
+
+
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
 ## [2.3.0](https://github.com/vihisantos/LabHub/compare/v2.2.0...v2.3.0) (2026-09-16)
