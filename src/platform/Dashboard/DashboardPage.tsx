@@ -157,7 +157,7 @@ export function DashboardPage() {
           >
             Novidades
           </button>
-          <p className="mt-1 text-[10px] text-fg-dim">LabHub v2.3.0</p>
+          <p className="mt-1 text-[10px] text-fg-dim">LabHub v2.4.0</p>
         </footer>
       </div>
 
