@@ -18,6 +18,56 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    version: 'v2.4.0',
+    date: '10 de novembro de 2026',
+    title: 'Uma experiência mais clara e uma nova estrutura para o LabHub',
+    bugs: [],
+    melhorias: [
+      {
+        id: 'timeline-chamados-visual',
+        type: 'melhoria',
+        title: 'Acompanhamento visual dos chamados',
+        desc: 'A timeline foi reorganizada para mostrar com mais clareza a abertura, o andamento e a conclusão de cada atendimento, incluindo a data e o horário em que o chamado foi criado.',
+        done: true,
+      },
+      {
+        id: 'fila-chamados-organizada',
+        type: 'melhoria',
+        title: 'Fila de chamados mais organizada',
+        desc: 'As visualizações Ativos, Meus Atendimentos, Em espera, Indeferidos e Arquivados deixam mais simples encontrar e acompanhar cada solicitação.',
+        done: true,
+      },
+      {
+        id: 'filtros-chamados',
+        type: 'melhoria',
+        title: 'Busca e filtros aprimorados',
+        desc: 'A área de busca, os filtros e a ordenação foram reorganizados para facilitar a consulta, com melhor aproveitamento do espaço em telas menores.',
+        done: true,
+      },
+      {
+        id: 'onboarding-atualizado',
+        type: 'melhoria',
+        title: 'Orientações iniciais mais intuitivas',
+        desc: 'O guia de primeiros passos foi aprimorado para apresentar os recursos e módulos disponíveis de forma mais clara durante o primeiro acesso.',
+        done: true,
+      },
+      {
+        id: 'infraestrutura-atualizada',
+        type: 'melhoria',
+        title: 'Atualização da estrutura do LabHub',
+        desc: 'A plataforma passou por uma atualização importante na estrutura que mantém suas informações. Contas, acessos, chamados, históricos e configurações foram preservados, e o funcionamento foi conferido após a mudança.',
+        done: true,
+      },
+      {
+        id: 'estabilidade-plataforma',
+        type: 'melhoria',
+        title: 'Melhorias de estabilidade e desempenho',
+        desc: 'Ajustes internos reduzem tarefas desnecessárias e ajudam a manter a navegação e os módulos mais responsivos no uso diário.',
+        done: true,
+      },
+    ],
+  },
+  {
     version: 'v2.3.0',
     date: '16 de setembro de 2026',
     title: 'Tela de Novidades e correções de documentação',
