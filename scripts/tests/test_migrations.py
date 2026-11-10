@@ -807,7 +807,7 @@ def test_error_messages_never_leak_token_values():
 # baseline do staging em silêncio.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_PROD_REF = "ypkulvbllxgkjzhpzemf"
+_PROD_REF = "hvqxantwqwarqhymnyqb"
 _STAGING_REF = "obskpmnphevpaexooldg"
 _ENV_VARS = (
     "SUPABASE_PROJECT_REF",
