@@ -45,4 +45,4 @@ host = "127.0.0.1"
 enabled = true
 bucket_limit = 1000
 file_size_limit = 5242880
-image ResizeOptions: { resizeUpLimit: 10485760 }
+image_size_limit = 52428800
