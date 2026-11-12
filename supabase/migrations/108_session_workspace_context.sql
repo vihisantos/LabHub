@@ -152,6 +152,11 @@ DECLARE
   v_session_id uuid;
   v_is_super boolean;
   v_disabled_apps jsonb;
+  v_membership_id uuid;
+  v_role_id uuid;
+  v_override_effect text;
+  v_base_allowed boolean := false;
+  v_action_allowed boolean := false;
 BEGIN
   IF p_session_id IS NULL OR p_user_id IS NULL OR p_token_exp IS NULL
      OR p_token_exp <= extract(epoch FROM clock_timestamp())::bigint THEN
@@ -237,7 +242,8 @@ COMMIT;
   END IF;
 
   IF NOT v_is_super THEN
-    PERFORM 1
+    SELECT m.id, m.role_id
+      INTO v_membership_id, v_role_id
       FROM public.memberships AS m
      WHERE m.profile_id = p_user_id
        AND m.workspace_id = v_context.workspace_id
@@ -246,9 +252,44 @@ COMMIT;
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MEMBERSHIP_REQUIRED';
     END IF;
+
+    -- Mirror RBAC 2.0 for tv.manage at the database write boundary.
+    -- Lock each granting/overriding row so concurrent permission revocation
+    -- cannot race the activation INSERT.
+    IF v_role_id IS NOT NULL THEN
+      PERFORM 1
+        FROM public.role_permissions AS rp
+       WHERE rp.role_id = v_role_id
+         AND rp.action = 'tv.manage'
+         AND rp.scope = 'workspace'
+       FOR SHARE;
+      v_base_allowed := FOUND;
+    END IF;
+
+    SELECT mo.effect
+      INTO v_override_effect
+      FROM public.membership_overrides AS mo
+     WHERE mo.membership_id = v_membership_id
+       AND mo.action = 'tv.manage'
+     FOR SHARE;
+
+    IF v_override_effect = 'deny' THEN
+      v_action_allowed := false;
+    ELSIF v_override_effect = 'allow' THEN
+      v_action_allowed := true;
+    ELSE
+      v_action_allowed := v_base_allowed;
+    END IF;
+
+    IF NOT v_action_allowed THEN
+      RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'TV_MANAGE_PERMISSION_REQUIRED';
+    END IF;
   END IF;
 
-  v_disabled_apps := COALESCE(to_jsonb(v_workspace)->'disabled_apps', '[]'::jsonb);
+  v_disabled_apps := to_jsonb(v_workspace)->'disabled_apps';
+  IF v_disabled_apps IS NULL OR v_disabled_apps = 'null'::jsonb THEN
+    v_disabled_apps := '[]'::jsonb;
+  END IF;
   IF jsonb_typeof(v_disabled_apps) <> 'array' THEN
     RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MODULE_STATE_INVALID';
   END IF;
