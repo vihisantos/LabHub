@@ -26,6 +26,7 @@ const WS_COLORS = [
 
 interface WorkspaceGateProps {
   workspaces: Workspace[]
+  selectionError?: string | null
   onSelect: (workspace: Workspace, persist: boolean) => void
   canCreate?: boolean
   user?: Pick<Actor, 'id' | 'name'> | null
@@ -35,6 +36,7 @@ interface WorkspaceGateProps {
 
 export function WorkspaceGate({
   workspaces,
+  selectionError = null,
   onSelect,
   canCreate = false,
   user: _user,
@@ -129,6 +131,14 @@ export function WorkspaceGate({
           <p className="mx-auto mt-3 max-w-md text-sm text-fg-muted">
             Você tem acesso a mais de um ambiente. Selecione para continuar.
           </p>
+          {selectionError && (
+            <p
+              role="alert"
+              className="mx-auto mt-4 max-w-xl rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-left text-sm text-red-600 dark:text-red-400"
+            >
+              {selectionError}
+            </p>
+          )}
         </motion.div>
 
         <motion.button

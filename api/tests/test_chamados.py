@@ -1,15 +1,11 @@
 import base64
 import hashlib
 import hmac
-import importlib.util
 import json
 import sys
 import time
-from pathlib import Path
 
 import pytest
-
-API_FILE = Path(__file__).resolve().parents[1] / "app.py"
 
 SUPABASE_URL = "https://test.supabase.co"
 SUPABASE_JWT_SECRET = "test-jwt-secret-for-testing-only-32chars!!"
@@ -120,18 +116,9 @@ class FakeRequests:
 
 @pytest.fixture(scope="session")
 def api_module():
-    # Reaproveita o módulo da API já carregado por outro arquivo de teste
-    # (ex.: "root_api" em test_auth_layer.py): reexecutar app.py registraria
-    # rotas num app Flask que já atendeu requisições, o que quebra.
-    for existing in ("chamados_api", "root_api"):
-        if existing in sys.modules and getattr(sys.modules[existing], "app", None) is not None:
-            if Path(getattr(sys.modules[existing], "__file__", "")) == API_FILE:
-                return sys.modules[existing]
-    spec = importlib.util.spec_from_file_location("chamados_api", API_FILE)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["chamados_api"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    """Use the canonical loader shared by all tests over the Flask singleton."""
+    from _api_loader import load_api
+    return load_api()
 
 
 @pytest.fixture()
@@ -915,6 +902,7 @@ def test_patch_photos_vazio_remove(client, fake_requests, monkeypatch):
 
 def test_patch_troca_foto_destroi_antiga_no_cloudinary(client, fake_requests, monkeypatch, api_module):
     """A2: ao substituir a foto, apaga a foto antiga do Cloudinary (nunca a nova)."""
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
     old_url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"
     new_url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/b.jpg"
     headers = _setup_auth(fake_requests, monkeypatch)
@@ -942,6 +930,7 @@ def test_patch_troca_foto_destroi_antiga_no_cloudinary(client, fake_requests, mo
 
 def test_patch_mesma_foto_nao_destroi(client, fake_requests, monkeypatch, api_module):
     """A2: se a foto não mudou, não chama destroy (custo/uso desnecessário)."""
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
     url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"
     headers = _setup_auth(fake_requests, monkeypatch)
     _route_get_ticket(fake_requests, _make_ticket(status="aberto", photos=url))

@@ -138,15 +138,9 @@ def reservalab_module():
 
 @pytest.fixture(scope="session")
 def root_api_module():
-    """Load the root Flask API module (once per session)."""
-    key = "root_api"
-    if key in sys.modules:
-        return sys.modules[key]
-    spec = importlib.util.spec_from_file_location(key, ROOT_API)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    """Use the canonical loader shared by all tests over the Flask singleton."""
+    from _api_loader import load_api
+    return load_api()
 
 
 @pytest.fixture()
@@ -241,6 +235,43 @@ def root_client(root_api_module, fake_requests, monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
     root_api_module._rate_limit_store.clear()
     return root_api_module.app.test_client()
+
+
+@pytest.mark.parametrize(
+    ("module_id", "disabled_apps", "expected"),
+    [
+        ("tv", [], True),
+        ("tv", "[]", True),
+        ("tv", ["stock"], True),
+        ("tv", ["tv"], False),
+        ("tv", '["tv"]', False),
+        ("stock", ["tv"], True),
+        ("stock", ["stock"], False),
+        ("stock", '["stock"]', False),
+        ("tv", "not-json", False),
+        ("tv", {"tv": True}, False),
+        ("tv", 42, False),
+        ("tv", ["tv", 7], False),
+        ("tv", None, True),
+    ],
+)
+def test_module_availability_helper_fails_closed_for_invalid_settings(
+    root_api_module, module_id, disabled_apps, expected,
+):
+    auth_mod = sys.modules["auth"]
+    assert auth_mod._is_module_enabled({"disabled_apps": disabled_apps}, module_id) is expected
+
+
+def test_module_availability_helper_fails_closed_on_interpretation_error(root_api_module, monkeypatch):
+    auth_mod = sys.modules["auth"]
+    monkeypatch.setattr(auth_mod.json, "loads", lambda _value: (_ for _ in ()).throw(RuntimeError("bad json")))
+    assert auth_mod._is_module_enabled({"disabled_apps": "legacy-value"}, "tv") is False
+
+
+def test_module_availability_helper_fails_closed_without_workspace_or_module(root_api_module):
+    auth_mod = sys.modules["auth"]
+    assert auth_mod._is_module_enabled(None, "tv") is False
+    assert auth_mod._is_module_enabled({"disabled_apps": []}, "") is False
 
 
 # ── Tests: Authentication ────────────────────────────────────────────────────
