@@ -305,6 +305,13 @@ describe('WorkspaceContext — usuários e seus workspaces (fonte: memberships)'
     await waitFor(() => expect(screen.getByTestId('probe').dataset.workspace).toBe('ws-sjc'))
     expect(screen.getByTestId('probe').dataset.pending).toBe('false')
 
+    // O mock representa o contexto persistido no servidor após a seleção.
+    // Um refresh de auth deve recuperar esse mesmo workspace, não abrir o gate.
+    mockSessionContext.get.mockResolvedValue({
+      workspace: { id: WS[0].id, name: WS[0].name, slug: WS[0].slug },
+      revision: 1,
+    })
+
     // Simula evento do auth (ex.: TOKEN_REFRESHED): identidade nova, mesmos dados
     mockGateProps.current = null
     mockUseAuth.mockReturnValue({ user: makeUser({ is_super_admin: true }) })
