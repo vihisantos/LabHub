@@ -1,286 +1,305 @@
--- 108_session_workspace_context.sql
--- Contexto de workspace por sessão
--- 
--- Objetivo: rastrear e validar o workspace associado a cada sessão de autenticação.
--- Permite isolamento de dados entre sessões e contexto de workspace persistente
--- durante a vida da sessão.
---
--- Mudanças:
---   1. Tabela session_workspace_contexts para armazenar o mapping sessão↔workspace↔revisão
---   2. RPC labhub_auth_session_is_active — valida se sessão está ativa e retorna workspace
---   3. RPC labhub_set_session_workspace_context — atualiza workspace da sessão (incrementa revisão)
---   4. RPC labhub_get_session_workspace_context — recupera workspace atual da sessão
---   5. RPC labhub_create_tv_activation_for_context — gera código de ativação para o workspace da sessão
---
--- Segurança:
---   - Tabela com RLS habilitado (policies definidas em 108_rls_for_session_context.sql)
---   - RPCs SECURITY DEFINER com REVOKE ALL de anon/authenticated
---   - GRANT EXECUTE apenas para service_role
---
--- Depende: PostgreSQL 16+ (gen_random_uuid() nativo)
-
--- ============================================================================
--- 1. Tabela session_workspace_contexts
--- ============================================================================
+﻿-- Workspace efetivo por sessão Supabase autenticada.
+-- Aplicação posterior exige revisão e aprovação separadas; esta etapa não aplica DDL.
+BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.session_workspace_contexts (
-  session_id uuid NOT NULL PRIMARY KEY REFERENCES auth.sessions(id) ON DELETE CASCADE,
-  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  session_id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  revision bigint NOT NULL DEFAULT 1,
+  revision bigint NOT NULL CHECK (revision > 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Índice para consultas por user_id
-CREATE INDEX IF NOT EXISTS idx_session_workspace_contexts_user ON public.session_workspace_contexts(user_id);
-
--- Í�ndice para consultas por workspace_id
-CREATE INDEX IF NOT EXISTS idx_session_workspace_contexts_workspace ON public.session_workspace_contexts(workspace_id);
-
--- ============================================================================
--- 2. RPC: labhub_auth_session_is_active
--- ============================================================================
+ALTER TABLE public.session_workspace_contexts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.session_workspace_contexts FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.session_workspace_contexts TO service_role;
 
 CREATE OR REPLACE FUNCTION public.labhub_auth_session_is_active(
-  p_session_id uuid
-) RETURNS TABLE(
-  is_active boolean,
-  user_id uuid,
-  workspace_id uuid,
-  revision bigint
+  p_session_id uuid,
+  p_user_id uuid,
+  p_token_exp bigint
 )
-LANGUAGE sql
-STABLE SECURITY DEFINER
-SET search_path TO public
-AS $function$
-  SELECT 
-    s.is_active,
-    c.user_id,
-    c.workspace_id,
-    c.revision
-  FROM auth.sessions s
-  LEFT JOIN public.session_workspace_contexts c ON c.session_id = s.id
-  WHERE s.id = p_session_id
-    AND s.expires_at > now()
-    AND s.current_user_id IS NOT NULL
-$function$;
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF p_session_id IS NULL OR p_user_id IS NULL OR p_token_exp IS NULL
+     OR p_token_exp <= extract(epoch FROM clock_timestamp())::bigint THEN
+    RETURN false;
+  END IF;
 
--- ============================================================================
--- 3. RPC: labhub_set_session_workspace_context
--- ============================================================================
+  RETURN EXISTS (
+    SELECT 1
+    FROM auth.sessions AS s
+    WHERE s.id = p_session_id
+      AND s.user_id = p_user_id
+      AND (s.not_after IS NULL OR s.not_after > clock_timestamp())
+  );
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.labhub_set_session_workspace_context(
   p_session_id uuid,
-  p_workspace_id uuid
-) RETURNS TABLE(
-  success boolean,
-  new_revision bigint
+  p_user_id uuid,
+  p_workspace_id uuid,
+  p_token_exp bigint
 )
+RETURNS jsonb
 LANGUAGE plpgsql
-VOLATILE SECURITY DEFINER
-SET search_path TO public
-AS $function$
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
 DECLARE
-  v_existing_workspace uuid;
-  v_new_revision bigint;
+  v_is_super boolean;
+  v_revision bigint;
 BEGIN
-  -- Verificar se o workspace existe
-  IF NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = p_workspace_id) THEN
-    RETURN QUERY SELECT false, 0;
-    RETURN;
+  IF NOT public.labhub_auth_session_is_active(p_session_id, p_user_id, p_token_exp) THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'AUTH_SESSION_INACTIVE';
   END IF;
 
-  -- Verificar se a sessão existe e está ativa
-  IF NOT EXISTS (
-    SELECT 1 FROM auth.sessions 
-    WHERE id = p_session_id 
-      AND expires_at > now()
-      AND current_user_id IS NOT NULL
+  IF p_workspace_id IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'WORKSPACE_REQUIRED';
+  END IF;
+
+  SELECT COALESCE(p.is_super_admin, false)
+    INTO v_is_super
+    FROM public.profiles AS p
+   WHERE p.id = p_user_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'PROFILE_NOT_FOUND';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.workspaces AS w WHERE w.id = p_workspace_id) THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'WORKSPACE_NOT_FOUND';
+  END IF;
+
+  IF NOT v_is_super AND NOT EXISTS (
+    SELECT 1 FROM public.memberships AS m
+     WHERE m.profile_id = p_user_id
+       AND m.workspace_id = p_workspace_id
+       AND m.status = 'active'
   ) THEN
-    RETURN QUERY SELECT false, 0;
-    RETURN;
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MEMBERSHIP_REQUIRED';
   END IF;
 
-  -- Atualizar ou inserir o contexto
-  INSERT INTO public.session_workspace_contexts (session_id, user_id, workspace_id, revision)
-  SELECT 
-    p_session_id,
-    (SELECT current_user_id FROM auth.sessions WHERE id = p_session_id),
-    p_workspace_id,
-    1
-  ON CONFLICT (session_id) 
-  DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id,
-    revision = session_workspace_contexts.revision + 1,
-    updated_at = clock_timestamp()
-  RETURNING revision INTO v_new_revision;
+  INSERT INTO public.session_workspace_contexts AS existing
+    (session_id, user_id, workspace_id, revision, created_at, updated_at)
+  VALUES (p_session_id, p_user_id, p_workspace_id, 1, clock_timestamp(), clock_timestamp())
+  ON CONFLICT (session_id) DO UPDATE
+     SET workspace_id = EXCLUDED.workspace_id,
+         revision = existing.revision + 1,
+         updated_at = clock_timestamp()
+  WHERE existing.user_id = EXCLUDED.user_id
+  RETURNING revision INTO v_revision;
 
-  RETURN QUERY SELECT true, v_new_revision;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'SESSION_CONTEXT_OWNER_MISMATCH';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'session_id', p_session_id,
+    'workspace_id', p_workspace_id,
+    'revision', v_revision
+  );
 END;
-$function$;
-
--- ============================================================================
--- 4. RPC: labhub_get_session_workspace_context
--- ============================================================================
+$$;
 
 CREATE OR REPLACE FUNCTION public.labhub_get_session_workspace_context(
-  p_session_id uuid
-) RETURNS TABLE(
-  user_id uuid,
-  workspace_id uuid,
-  revision bigint,
-  created_at timestamptz,
-  updated_at timestamptz
+  p_session_id uuid,
+  p_user_id uuid,
+  p_token_exp bigint
 )
-LANGUAGE sql
-STABLE SECURITY DEFINER
-SET search_path TO public
-AS $function$
-  SELECT 
-    c.user_id,
-    c.workspace_id,
-    c.revision,
-    c.created_at,
-    c.updated_at
-  FROM public.session_workspace_contexts c
-  WHERE c.session_id = p_session_id
-$function$;
+RETURNS TABLE (workspace_id uuid, revision bigint)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF NOT public.labhub_auth_session_is_active(p_session_id, p_user_id, p_token_exp) THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'AUTH_SESSION_INACTIVE';
+  END IF;
 
--- ============================================================================
--- 5. RPC: labhub_create_tv_activation_for_context
--- ============================================================================
+  RETURN QUERY
+  SELECT c.workspace_id, c.revision
+    FROM public.session_workspace_contexts AS c
+   WHERE c.session_id = p_session_id
+     AND c.user_id = p_user_id;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.labhub_create_tv_activation_for_context(
-  p_session_id uuid
-) RETURNS TABLE(
-  success boolean,
-  code text,
-  expires_at timestamptz
+  p_session_id uuid,
+  p_user_id uuid,
+  p_token_exp bigint,
+  p_expected_workspace_id uuid,
+  p_expected_revision bigint,
+  p_code text,
+  p_device_name text,
+  p_expires_at timestamptz
 )
+RETURNS TABLE (code text, expires_at timestamptz, workspace_id uuid, device_name text)
 LANGUAGE plpgsql
-VOLATILE SECURITY DEFINER
-SET search_path TO public
-AS $function$
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
 DECLARE
-  v_user_id uuid;
-  v_workspace_id uuid;
-  v_device_name text := 'activation-flow';
-  v_expires_at timestamptz := now() + interval '24 hours';
-  v_code text;
+  v_context public.session_workspace_contexts%ROWTYPE;
+  v_profile public.profiles%ROWTYPE;
+  v_workspace public.workspaces%ROWTYPE;
+  v_session_id uuid;
+  v_is_super boolean;
+  v_disabled_apps jsonb;
+  v_membership_id uuid;
+  v_role_id uuid;
+  v_override_effect text;
+  v_base_allowed boolean := false;
+  v_action_allowed boolean := false;
 BEGIN
-  -- Verificar se o contexto da sessão existe
-  SELECT user_id, workspace_id INTO v_user_id, v_workspace_id
-  FROM public.session_workspace_contexts
-  WHERE session_id = p_session_id;
-
-  IF v_user_id IS NULL OR v_workspace_id IS NULL THEN
-    RETURN QUERY SELECT false, NULL, NULL;
-    RETURN;
+  IF p_session_id IS NULL OR p_user_id IS NULL OR p_token_exp IS NULL
+     OR p_token_exp <= extract(epoch FROM clock_timestamp())::bigint THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'AUTH_SESSION_INACTIVE';
   END IF;
 
-  -- Gerar código de ativação único
-  v_code := substr(md5(random()::text || clock_timestamp()::text), 1, 8);
+  -- Serialize against session revocation/expiry updates until the activation
+  -- insert commits. A prior EXISTS check alone leaves a revocation race.
+  SELECT s.id INTO v_session_id
+    FROM auth.sessions AS s
+   WHERE s.id = p_session_id
+     AND s.user_id = p_user_id
+     AND (s.not_after IS NULL OR s.not_after > clock_timestamp())
+   FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'AUTH_SESSION_INACTIVE';
+  END IF;
 
-  -- Inserir o código de ativação
-  INSERT INTO public.tv_activation_codes (
-    id,
-    code,
-    workspace_id,
-    user_id,
-    device_name,
-    expires_at
-  ) VALUES (
-    gen_random_uuid(),
-    v_code,
-    v_workspace_id,
-    v_user_id,
-    v_device_name,
-    v_expires_at
-  );
+  IF p_expected_workspace_id IS NULL OR p_expected_revision IS NULL OR p_expected_revision < 1 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'WORKSPACE_CONTEXT_REQUIRED';
+  END IF;
+  IF p_code IS NULL OR p_code !~ '^[A-HJ-NP-Z2-9]{6}$' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'INVALID_ACTIVATION_CODE';
+  END IF;
+  IF p_device_name IS NOT NULL AND length(p_device_name) > 60 THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'INVALID_DEVICE_NAME';
+  END IF;
+  IF p_expires_at IS NULL OR p_expires_at <= clock_timestamp()
+     OR p_expires_at > clock_timestamp() + interval '24 hours' THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'INVALID_ACTIVATION_EXPIRY';
+  END IF;
 
-  RETURN QUERY SELECT true, v_code, v_expires_at;
+  SELECT c.* INTO v_context
+    FROM public.session_workspace_contexts AS c
+   WHERE c.session_id = p_session_id
+     AND c.user_id = p_user_id
+     FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'WORKSPACE_CONTEXT_REQUIRED';
+  END IF;
+  IF v_context.workspace_id <> p_expected_workspace_id
+     OR v_context.revision <> p_expected_revision THEN
+    RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'WORKSPACE_CONTEXT_CHANGED';
+  END IF;
+
+  -- Revalidate the privilege and workspace access at the write boundary.
+  -- Locks make concurrent revocation/role changes wait for this transaction.
+  SELECT p.* INTO v_profile
+    FROM public.profiles AS p
+   WHERE p.id = p_user_id
+   FOR SHARE;
+  IF NOT FOUND OR v_profile.status IN ('blocked', 'rejected') THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'PROFILE_NOT_AUTHORIZED';
+  END IF;
+  v_is_super := COALESCE(v_profile.is_super_admin, false);
+
+  SELECT w.* INTO v_workspace
+    FROM public.workspaces AS w
+   WHERE w.id = v_context.workspace_id
+   FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'WORKSPACE_NOT_FOUND';
+  END IF;
+
+  IF NOT v_is_super THEN
+    SELECT m.id, m.role_id
+      INTO v_membership_id, v_role_id
+      FROM public.memberships AS m
+     WHERE m.profile_id = p_user_id
+       AND m.workspace_id = v_context.workspace_id
+       AND m.status = 'active'
+     FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MEMBERSHIP_REQUIRED';
+    END IF;
+
+    -- Mirror RBAC 2.0 for tv.manage at the database write boundary.
+    -- The membership lock also serializes FK-backed override insertion.
+    IF v_role_id IS NOT NULL THEN
+      PERFORM 1
+        FROM public.role_permissions AS rp
+       WHERE rp.role_id = v_role_id
+         AND rp.action = 'tv.manage'
+         AND rp.scope = 'workspace'
+       FOR SHARE;
+      v_base_allowed := FOUND;
+    END IF;
+
+    SELECT mo.effect
+      INTO v_override_effect
+      FROM public.membership_overrides AS mo
+     WHERE mo.membership_id = v_membership_id
+       AND mo.action = 'tv.manage'
+     FOR SHARE;
+
+    IF v_override_effect = 'deny' THEN
+      v_action_allowed := false;
+    ELSIF v_override_effect = 'allow' THEN
+      v_action_allowed := true;
+    ELSE
+      v_action_allowed := v_base_allowed;
+    END IF;
+
+    IF NOT v_action_allowed THEN
+      RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'TV_MANAGE_PERMISSION_REQUIRED';
+    END IF;
+  END IF;
+
+  v_disabled_apps := to_jsonb(v_workspace)->'disabled_apps';
+  IF v_disabled_apps IS NULL OR v_disabled_apps = 'null'::jsonb THEN
+    v_disabled_apps := '[]'::jsonb;
+  END IF;
+  IF jsonb_typeof(v_disabled_apps) <> 'array' THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MODULE_STATE_INVALID';
+  END IF;
+  IF v_disabled_apps ? 'tv' THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'TV_MODULE_DISABLED';
+  END IF;
+
+  RETURN QUERY
+  INSERT INTO public.tv_activation_codes
+    (code, workspace_id, user_id, device_name, status, expires_at)
+  VALUES
+    (p_code, v_context.workspace_id, p_user_id, p_device_name, 'pending', p_expires_at)
+  RETURNING tv_activation_codes.code, tv_activation_codes.expires_at,
+            tv_activation_codes.workspace_id, tv_activation_codes.device_name;
 END;
-$function$;
-
--- ============================================================================
--- 6. RLS e permissoes
--- ============================================================================
-
--- Habilitar RLS na tabela
-ALTER TABLE public.session_workspace_contexts ENABLE ROW LEVEL SECURITY;
-
--- Policy: usuario soh pode ver/editar seu proprio contexto
-DROP POLICY IF EXISTS "session_workspace_contexts_select" ON public.session_workspace_contexts;
-CREATE POLICY "session_workspace_contexts_select"
-  ON public.session_workspace_contexts
-  FOR SELECT
-  USING (
-    session_id = (SELECT id FROM auth.sessions WHERE current_user_id = auth.uid() AND expires_at > now() LIMIT 1)
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
-  );
-
-DROP POLICY IF EXISTS "session_workspace_contexts_insert" ON public.session_workspace_contexts;
-CREATE POLICY "session_workspace_contexts_insert"
-  ON public.session_workspace_contexts
-  FOR INSERT
-  WITH CHECK (
-    user_id = auth.uid()
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
-  );
-
-DROP POLICY IF EXISTS "session_workspace_contexts_update" ON public.session_workspace_contexts;
-CREATE POLICY "session_workspace_contexts_update"
-  ON public.session_workspace_contexts
-  FOR UPDATE
-  USING (
-    session_id = (SELECT id FROM auth.sessions WHERE current_user_id = auth.uid() AND expires_at > now() LIMIT 1)
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
-  )
-  WITH CHECK (true);
-
-DROP POLICY IF EXISTS "session_workspace_contexts_delete" ON public.session_workspace_contexts;
-CREATE POLICY "session_workspace_contexts_delete"
-  ON public.session_workspace_contexts
-  FOR DELETE
-  USING (
-    user_id = auth.uid()
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
-  );
-
--- Rebaixar permissoes de anon e authenticated
-REVOKE ALL ON public.session_workspace_contexts FROM anon;
-REVOKE ALL ON public.session_workspace_contexts FROM authenticated;
-REVOKE ALL ON TABLE public.session_workspace_contexts FROM anon;
-REVOKE ALL ON TABLE public.session_workspace_contexts FROM authenticated;
-
--- Conceder permissoes para service_role
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.session_workspace_contexts TO service_role;
-GRANT USAGE, SELECT ON SEQUENCE session_workspace_contexts_revision_seq TO service_role;
-
--- ============================================================================
--- 7. Log de auditoria
--- ============================================================================
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_tables 
-    WHERE schemaname = 'public' AND tablename = 'rbac_audit_logs'
-  ) THEN
-    RAISE NOTICE 'rbac_audit_logs table not found, skipping audit log creation';
-  ELSE
-    -- Log de criacao da tabela
-    INSERT INTO public.rbac_audit_logs (action, outcome, role_id, resource, details)
-    VALUES (
-      'table_create',
-      'success',
-      NULL,
-      'session_workspace_contexts',
-      '{"migration": "108", "purpose": "session-workspace-context"}'
-    );
-  END IF;
-EXCEPTION WHEN undefined_table THEN
-  RAISE NOTICE 'rbac_audit_logs table not available';
-END
 $$;
+
+REVOKE ALL ON FUNCTION public.labhub_auth_session_is_active(uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.labhub_set_session_workspace_context(uuid, uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.labhub_get_session_workspace_context(uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.labhub_auth_session_is_active(uuid, uuid, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION public.labhub_set_session_workspace_context(uuid, uuid, uuid, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION public.labhub_get_session_workspace_context(uuid, uuid, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) TO service_role;
+
+COMMENT ON TABLE public.session_workspace_contexts IS
+  'Backend-confirmed active workspace keyed by a verified Supabase Auth session, not by user_id alone.';
+COMMENT ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) IS
+  'Locks the active Auth session and workspace context, revalidates profile, membership, RBAC tv.manage and TV availability, then atomically inserts the activation code.';
+
+COMMIT;
