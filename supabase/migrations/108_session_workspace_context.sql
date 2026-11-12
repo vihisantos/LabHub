@@ -178,26 +178,7 @@ BEGIN
   IF p_expected_workspace_id IS NULL OR p_expected_revision IS NULL OR p_expected_revision < 1 THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'WORKSPACE_CONTEXT_REQUIRED';
   END IF;
-  IF p_code IS NULL OR p_code !~ '^[A-HJ-NP-Z2-9]{6}
-$$;
-
-REVOKE ALL ON FUNCTION public.labhub_auth_session_is_active(uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.labhub_set_session_workspace_context(uuid, uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.labhub_get_session_workspace_context(uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) FROM PUBLIC, anon, authenticated;
-
-GRANT EXECUTE ON FUNCTION public.labhub_auth_session_is_active(uuid, uuid, bigint) TO service_role;
-GRANT EXECUTE ON FUNCTION public.labhub_set_session_workspace_context(uuid, uuid, uuid, bigint) TO service_role;
-GRANT EXECUTE ON FUNCTION public.labhub_get_session_workspace_context(uuid, uuid, bigint) TO service_role;
-GRANT EXECUTE ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) TO service_role;
-
-COMMENT ON TABLE public.session_workspace_contexts IS
-  'Backend-confirmed active workspace keyed by a verified Supabase Auth session, not by user_id alone.';
-COMMENT ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) IS
-  'Locks the active Auth session and workspace context, revalidates profile and membership access plus TV availability, then atomically inserts the activation code.';
-
-COMMIT;
- THEN
+  IF p_code IS NULL OR p_code !~ '^[A-HJ-NP-Z2-9]{6}$' THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'INVALID_ACTIVATION_CODE';
   END IF;
   IF p_device_name IS NOT NULL AND length(p_device_name) > 60 THEN
@@ -223,7 +204,7 @@ COMMIT;
   END IF;
 
   -- Revalidate the privilege and workspace access at the write boundary.
-  -- SHARE locks make concurrent revocation/role changes wait for this txn.
+  -- Locks make concurrent revocation/role changes wait for this transaction.
   SELECT p.* INTO v_profile
     FROM public.profiles AS p
    WHERE p.id = p_user_id
@@ -254,8 +235,7 @@ COMMIT;
     END IF;
 
     -- Mirror RBAC 2.0 for tv.manage at the database write boundary.
-    -- Lock each granting/overriding row so concurrent permission revocation
-    -- cannot race the activation INSERT.
+    -- The membership lock also serializes FK-backed override insertion.
     IF v_role_id IS NOT NULL THEN
       PERFORM 1
         FROM public.role_permissions AS rp
@@ -320,6 +300,6 @@ GRANT EXECUTE ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, u
 COMMENT ON TABLE public.session_workspace_contexts IS
   'Backend-confirmed active workspace keyed by a verified Supabase Auth session, not by user_id alone.';
 COMMENT ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) IS
-  'Locks the session workspace context and atomically inserts a TV activation code only for its expected workspace revision.';
+  'Locks the active Auth session and workspace context, revalidates profile, membership, RBAC tv.manage and TV availability, then atomically inserts the activation code.';
 
 COMMIT;
