@@ -147,14 +147,52 @@ SET search_path = pg_catalog
 AS $$
 DECLARE
   v_context public.session_workspace_contexts%ROWTYPE;
+  v_profile public.profiles%ROWTYPE;
+  v_workspace public.workspaces%ROWTYPE;
+  v_session_id uuid;
+  v_is_super boolean;
+  v_disabled_apps jsonb;
 BEGIN
-  IF NOT public.labhub_auth_session_is_active(p_session_id, p_user_id, p_token_exp) THEN
+  IF p_session_id IS NULL OR p_user_id IS NULL OR p_token_exp IS NULL
+     OR p_token_exp <= extract(epoch FROM clock_timestamp())::bigint THEN
     RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'AUTH_SESSION_INACTIVE';
   END IF;
+
+  -- Serialize against session revocation/expiry updates until the activation
+  -- insert commits. A prior EXISTS check alone leaves a revocation race.
+  SELECT s.id INTO v_session_id
+    FROM auth.sessions AS s
+   WHERE s.id = p_session_id
+     AND s.user_id = p_user_id
+     AND (s.not_after IS NULL OR s.not_after > clock_timestamp())
+   FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'AUTH_SESSION_INACTIVE';
+  END IF;
+
   IF p_expected_workspace_id IS NULL OR p_expected_revision IS NULL OR p_expected_revision < 1 THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'WORKSPACE_CONTEXT_REQUIRED';
   END IF;
-  IF p_code IS NULL OR p_code !~ '^[A-HJ-NP-Z2-9]{6}$' THEN
+  IF p_code IS NULL OR p_code !~ '^[A-HJ-NP-Z2-9]{6}
+$$;
+
+REVOKE ALL ON FUNCTION public.labhub_auth_session_is_active(uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.labhub_set_session_workspace_context(uuid, uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.labhub_get_session_workspace_context(uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.labhub_auth_session_is_active(uuid, uuid, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION public.labhub_set_session_workspace_context(uuid, uuid, uuid, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION public.labhub_get_session_workspace_context(uuid, uuid, bigint) TO service_role;
+GRANT EXECUTE ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) TO service_role;
+
+COMMENT ON TABLE public.session_workspace_contexts IS
+  'Backend-confirmed active workspace keyed by a verified Supabase Auth session, not by user_id alone.';
+COMMENT ON FUNCTION public.labhub_create_tv_activation_for_context(uuid, uuid, bigint, uuid, bigint, text, text, timestamptz) IS
+  'Locks the active Auth session and workspace context, revalidates profile and membership access plus TV availability, then atomically inserts the activation code.';
+
+COMMIT;
+ THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'INVALID_ACTIVATION_CODE';
   END IF;
   IF p_device_name IS NOT NULL AND length(p_device_name) > 60 THEN
@@ -177,6 +215,45 @@ BEGIN
   IF v_context.workspace_id <> p_expected_workspace_id
      OR v_context.revision <> p_expected_revision THEN
     RAISE EXCEPTION USING ERRCODE = '40001', MESSAGE = 'WORKSPACE_CONTEXT_CHANGED';
+  END IF;
+
+  -- Revalidate the privilege and workspace access at the write boundary.
+  -- SHARE locks make concurrent revocation/role changes wait for this txn.
+  SELECT p.* INTO v_profile
+    FROM public.profiles AS p
+   WHERE p.id = p_user_id
+   FOR SHARE;
+  IF NOT FOUND OR v_profile.status IN ('blocked', 'rejected') THEN
+    RAISE EXCEPTION USING ERRCODE = '28000', MESSAGE = 'PROFILE_NOT_AUTHORIZED';
+  END IF;
+  v_is_super := COALESCE(v_profile.is_super_admin, false);
+
+  SELECT w.* INTO v_workspace
+    FROM public.workspaces AS w
+   WHERE w.id = v_context.workspace_id
+   FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE = 'WORKSPACE_NOT_FOUND';
+  END IF;
+
+  IF NOT v_is_super THEN
+    PERFORM 1
+      FROM public.memberships AS m
+     WHERE m.profile_id = p_user_id
+       AND m.workspace_id = v_context.workspace_id
+       AND m.status = 'active'
+     FOR SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MEMBERSHIP_REQUIRED';
+    END IF;
+  END IF;
+
+  v_disabled_apps := COALESCE(to_jsonb(v_workspace)->'disabled_apps', '[]'::jsonb);
+  IF jsonb_typeof(v_disabled_apps) <> 'array' THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MODULE_STATE_INVALID';
+  END IF;
+  IF v_disabled_apps ? 'tv' THEN
+    RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'TV_MODULE_DISABLED';
   END IF;
 
   RETURN QUERY
