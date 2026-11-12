@@ -68,15 +68,23 @@ def test_activation_rpc_serializes_session_and_revalidates_authorization_before_
     profile_lock = create.index("from public.profiles as p")
     workspace_lock = create.index("from public.workspaces as w")
     membership_lock = create.index("from public.memberships as m")
+    role_permission_lock = create.index("from public.role_permissions as rp")
+    override_lock = create.index("from public.membership_overrides as mo")
     insert = create.index("insert into public.tv_activation_codes")
 
-    assert session_lock < context_lock < profile_lock < workspace_lock < membership_lock < insert
+    assert session_lock < context_lock < profile_lock < workspace_lock
+    assert workspace_lock < membership_lock < role_permission_lock < override_lock < insert
     assert "s.id = p_session_id" in create
     assert "s.user_id = p_user_id" in create
     assert "for share" in create
     assert "v_profile.status in ('blocked', 'rejected')" in create
     assert "coalesce(v_profile.is_super_admin, false)" in create
     assert "m.status = 'active'" in create
+    assert "rp.action = 'tv.manage'" in create
+    assert "rp.scope = 'workspace'" in create
+    assert "mo.action = 'tv.manage'" in create
+    assert "v_override_effect = 'deny'" in create
+    assert "v_override_effect = 'allow'" in create
     assert "jsonb_typeof(v_disabled_apps) <> 'array'" in create
     assert "v_disabled_apps ? 'tv'" in create
 
