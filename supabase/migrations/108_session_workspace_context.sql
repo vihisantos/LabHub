@@ -248,7 +248,7 @@ COMMIT;
      WHERE m.profile_id = p_user_id
        AND m.workspace_id = v_context.workspace_id
        AND m.status = 'active'
-     FOR SHARE;
+     FOR UPDATE;
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'WORKSPACE_MEMBERSHIP_REQUIRED';
     END IF;
