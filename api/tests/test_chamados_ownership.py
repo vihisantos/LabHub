@@ -22,12 +22,15 @@ RBAC 2.0 são sempre avaliadas (não há flag OFF).
 import base64
 import hashlib
 import hmac
+import importlib.util
 import json
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
+API_FILE = Path(__file__).resolve().parents[1] / "app.py"
 SUPABASE_URL = "https://test.supabase.co"
 SUPABASE_JWT_SECRET = "test-jwt-secret-for-testing-only-32chars!!"
 
@@ -105,13 +108,17 @@ class FakeRequests:
         return [c for c in self.calls if c["method"] == method and url_part in c["url"]]
 
 
-# Use the canonical API loader to share the Flask app singleton across test files.
-# This prevents route conflicts when multiple test files load api/app.py.
 @pytest.fixture(scope="session")
 def api_module():
-    """Load the root API module once per session, shared with other test files."""
-    from _api_loader import load_api
-    return load_api()
+    for existing in ("chamados_api", "root_api"):
+        if existing in sys.modules and getattr(sys.modules[existing], "app", None) is not None:
+            if Path(getattr(sys.modules[existing], "__file__", "")) == API_FILE:
+                return sys.modules[existing]
+    spec = importlib.util.spec_from_file_location("chamados_ownership_api", API_FILE)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["chamados_ownership_api"] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 @pytest.fixture()
@@ -187,8 +194,13 @@ def _setup_as(client, fake_requests, monkeypatch, profile, actions=None):
         for w in (profile.get("workspace_ids") or [])
     ]))
     if actions is not None:
-        # Always use root_api since that's the canonical module key
-        mod = sys.modules.get("root_api")
+        mod = sys.modules.get("chamados_ownership_api")
+        if mod is None:
+            for key in ("chamados_api", "root_api"):
+                m = sys.modules.get(key)
+                if m is not None and getattr(m, "app", None) is not None:
+                    mod = m
+                    break
         monkeypatch.setattr(mod, "rbac_two_can", lambda *a: str(a[2]) in actions)
     return {"Authorization": f"Bearer {_make_jwt({'sub': profile['id']})}"}
 

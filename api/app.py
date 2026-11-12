@@ -33,8 +33,6 @@ from auth import (
     require_cron,
     require_admin,
     require_workspace,
-    require_active_supabase_session,
-    require_session_workspace,
     _verify_jwt,
     _get_token_from_request,
     _get_user_profile,
@@ -1290,14 +1288,6 @@ def _require_supabase():
     return True
 
 
-def _postgrest_error_code(response):
-    try:
-        payload = response.json()
-        return str(payload.get('code') or ''), str(payload.get('message') or '')
-    except Exception:
-        return '', str(getattr(response, 'text', '') or '')
-
-
 # ── TV: identidade do kiosk (usuário GoTrue sem senha + sessão via token_hash) ──
 
 _TV_DEVICE_EMAIL_DOMAIN = 'devices.labhub.local'
@@ -1404,84 +1394,91 @@ def require_module(workspace, module_id):
 
 
 @_route_once('/api/tv/activation/create', methods=['POST'])
-@require_auth
-@require_active_supabase_session
-@require_session_workspace
-@require_module_auth('tv')
-@require_action_rbac('tv.manage', scope='workspace')
 def tv_activation_create():
     """
     Gera um código de ativação para o app desktop da TV.
-    A cadeia valida JWT, sessão Supabase ativa, contexto por sessão, membership,
-    disponibilidade da TV e `tv.manage`, nessa ordem. O destino vem do contexto
-    carregado do backend e a RPC final trava a revisão e insere na mesma transação.
+    Requer o token de acesso do usuário logado (Supabase) via Bearer.
+    O código é vinculado ao primeiro workspace do usuário (ou ao escolhido,
+    se super admin), tem validade de 24h e uso único.
     """
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
     try:
-        body = request.get_json(silent=True)
-        if not isinstance(body, dict):
-            return jsonify({'error': 'Dados da solicitação inválidos'}), 400
-        workspace = getattr(g, 'workspace', None)
-        workspace_id = getattr(g, 'workspace_id', None)
-        user_id = getattr(g, 'user_id', None)
-        if not workspace or not workspace_id or not user_id:
-            return jsonify({'error': 'Workspace não disponível'}), 403
-        requested_workspace_id = body.get('workspace_id')
-        if requested_workspace_id is not None and requested_workspace_id != workspace_id:
-            return jsonify({'error': 'O campus solicitado não corresponde ao contexto validado'}), 403
-        revision = body.get('revision')
-        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
-            return jsonify({'error': 'Revisão do campus inválida ou ausente'}), 409
-        if revision != getattr(g, 'workspace_revision', None):
-            return jsonify({'error': 'O campus selecionado mudou. Atualize a tela e tente novamente.'}), 409
+        token = (request.headers.get('Authorization') or '').replace('Bearer ', '').strip()
+        if not token:
+            return jsonify({'error': 'Token de autenticação ausente'}), 401
 
-        raw_device_name = body.get('device_name')
-        if raw_device_name is not None and not isinstance(raw_device_name, str):
-            return jsonify({'error': 'Nome do dispositivo inválido'}), 400
-        device_name = (raw_device_name or '').strip()[:60] or None
+        # 1. Valida o JWT do usuário via Supabase Auth
+        auth_resp = requests.get(
+            f'{_SUPABASE_URL}/auth/v1/user',
+            headers={'apikey': _SUPABASE_SERVICE_KEY, 'Authorization': f'Bearer {token}'},
+            timeout=10,
+        )
+        if not auth_resp.ok:
+            return jsonify({'error': 'Sessão inválida ou expirada. Faça login novamente.'}), 401
+        auth_user = auth_resp.json()
+        user_id = auth_user.get('id')
+        if not user_id:
+            return jsonify({'error': 'Usuário não identificado'}), 401
 
-        # A RPC valida session_id + owner + workspace + revision sob lock e faz
-        # a inserção na mesma transação. Não substituir por POST direto ao REST.
+        # 2. Perfil do usuário (workspaces atribuídos)
+        prof_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles?id=eq.{quote(user_id)}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not prof_resp.ok or not prof_resp.json():
+            return jsonify({'error': 'Perfil não encontrado'}), 404
+        profile = prof_resp.json()[0]
+        is_super_admin = bool(profile.get('is_super_admin'))
+        # Workspaces pela mesma fonte membership-based do auth layer
+        # (9.2-D.1-TV); a coluna legada nunca decide. Fail-closed: vazio ⇒ 400.
+        member_ws_ids = _get_user_workspace_ids(user_id)
+
+        # 3. Workspace alvo
+        body = request.get_json() or {}
+        workspace_id = None
+        if is_super_admin and body.get('workspace_id'):
+            workspace_id = body.get('workspace_id')
+        elif member_ws_ids:
+            workspace_id = member_ws_ids[0]
+        if not workspace_id:
+            return jsonify({'error': 'Este usuário não tem workspace atribuído'}), 400
+
+        ws_resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces?id=eq.{quote(workspace_id)}',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not ws_resp.ok or not ws_resp.json():
+            return jsonify({'error': 'Workspace não encontrado'}), 400
+
+        device_name = str(body.get('device_name') or '').strip()[:60] or None
+
+        # 4. Gera código único (tentativas em caso de colisão)
         expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
         inserted = None
         for _ in range(5):
             code = _generate_activation_code()
             ins_resp = requests.post(
-                f'{_SUPABASE_URL}/rest/v1/rpc/labhub_create_tv_activation_for_context',
-                headers=_supabase_headers(),
+                f'{_SUPABASE_URL}/rest/v1/tv_activation_codes',
+                headers={**_supabase_headers(), 'Prefer': 'return=representation'},
                 json={
-                    'p_session_id': g.session_id,
-                    'p_user_id': user_id,
-                    'p_token_exp': g.session_exp,
-                    'p_expected_workspace_id': workspace_id,
-                    'p_expected_revision': revision,
-                    'p_code': code,
-                    'p_device_name': device_name,
-                    'p_expires_at': expires_at,
+                    'code': code,
+                    'workspace_id': workspace_id,
+                    'user_id': user_id,
+                    'device_name': device_name,
+                    'status': 'pending',
+                    'expires_at': expires_at,
                 },
                 timeout=10,
             )
             if ins_resp.ok:
-                payload = ins_resp.json()
-                inserted = payload[0] if isinstance(payload, list) and payload else payload if isinstance(payload, dict) else None
-                if not inserted:
-                    return jsonify({'error': 'Resposta inválida ao criar o código'}), 500
+                inserted = ins_resp.json()[0]
                 break
-            # Unique collision may be retried. Context/revision and authorization
-            # errors must fail immediately without any direct insert fallback.
-            rpc_error_code, rpc_error_message = _postgrest_error_code(ins_resp)
-            if rpc_error_code == '23505' or (ins_resp.status_code == 409 and 'duplicate key' in rpc_error_message.lower()):
-                continue
-            if rpc_error_code == '40001' or 'WORKSPACE_CONTEXT_CHANGED' in rpc_error_message or ins_resp.status_code == 409:
-                return jsonify({'error': 'O campus selecionado mudou. Atualize a tela e tente novamente.'}), 409
-            if rpc_error_code == '28000':
-                return jsonify({'error': 'Sessão inválida ou encerrada'}), 401
-            if rpc_error_code == '42501':
-                return jsonify({'error': 'A sessão não está autorizada para este campus'}), 403
-            if rpc_error_code == 'P0002':
-                return jsonify({'error': 'Contexto de campus não encontrado'}), 404
-            return jsonify({'error': 'Não foi possível criar o código'}), 500
+            # PostgREST devolve 409 em violação de unique (colisão de código)
+            if ins_resp.status_code != 409:
+                return jsonify({'error': f'Erro ao criar o código: {ins_resp.status_code}'}), 500
         if not inserted:
             return jsonify({'error': 'Não foi possível gerar um código único'}), 500
 
@@ -1489,81 +1486,13 @@ def tv_activation_create():
             'success': True,
             'code': inserted.get('code'),
             'expires_at': inserted.get('expires_at'),
-            'workspace_id': inserted.get('workspace_id'),
-            'device_name': inserted.get('device_name'),
-            'revision': revision,
+            'workspace_id': workspace_id,
+            'device_name': device_name,
         })
 
     except Exception as e:
-        logger.error("Erro interno ao criar código de ativação: %s", e)
+        logger.error("Erro interno na API: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
-
-
-@_route_once('/api/workspace/active-context', methods=['GET'])
-@require_auth
-@require_active_supabase_session
-@require_session_workspace
-def workspace_active_context_get():
-    """Return the backend-confirmed workspace bound to this Auth session."""
-    return jsonify({
-        'workspace': {
-            'id': g.workspace_id,
-            'name': g.workspace.get('name'),
-            'slug': g.workspace.get('slug'),
-        },
-        'revision': g.workspace_revision,
-    })
-
-
-@_route_once('/api/workspace/active-context', methods=['PUT'])
-@require_auth
-@require_active_supabase_session
-@require_workspace
-def workspace_active_context_set():
-    """Validate and persist a workspace selection for the current Auth session."""
-    if not _require_supabase():
-        return jsonify({'error': 'Contexto de workspace indisponível'}), 503
-    try:
-        resp = requests.post(
-            f'{_SUPABASE_URL}/rest/v1/rpc/labhub_set_session_workspace_context',
-            headers=_supabase_headers(),
-            json={
-                'p_session_id': g.session_id,
-                'p_user_id': str(g.user_id),
-                'p_workspace_id': str(g.workspace_id),
-                'p_token_exp': g.session_exp,
-            },
-            timeout=10,
-        )
-        if not resp.ok:
-            rpc_error_code, _ = _postgrest_error_code(resp)
-            if rpc_error_code == '28000':
-                return jsonify({'error': 'Sessão inválida ou encerrada'}), 401
-            if rpc_error_code == '42501':
-                return jsonify({'error': 'A conta não tem acesso a este campus'}), 403
-            if rpc_error_code == 'P0002':
-                return jsonify({'error': 'Campus não encontrado'}), 404
-            return jsonify({'error': 'Contexto de workspace indisponível'}), 503
-        result = resp.json()
-        if not isinstance(result, dict) or result.get('workspace_id') != g.workspace_id:
-            return jsonify({'error': 'Resposta inválida ao confirmar o campus'}), 503
-        try:
-            revision = int(result.get('revision'))
-        except (TypeError, ValueError):
-            return jsonify({'error': 'Resposta inválida ao confirmar o campus'}), 503
-        if revision < 1:
-            return jsonify({'error': 'Resposta inválida ao confirmar o campus'}), 503
-        return jsonify({
-            'workspace': {
-                'id': g.workspace_id,
-                'name': g.workspace.get('name'),
-                'slug': g.workspace.get('slug'),
-            },
-            'revision': revision,
-        })
-    except Exception:
-        logger.exception('Falha ao confirmar workspace ativo da sessão')
-        return jsonify({'error': 'Contexto de workspace indisponível'}), 503
 
 
 @_route_once('/api/tv/activation/redeem', methods=['POST'])
