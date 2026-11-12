@@ -57,3 +57,26 @@ def test_privileged_rpcs_are_not_executable_by_clients():
     for signature in functions:
         assert f"revoke all on function public.{signature} from public, anon, authenticated" in sql
         assert f"grant execute on function public.{signature} to service_role" in sql
+
+def test_activation_rpc_serializes_session_and_revalidates_authorization_before_insert():
+    sql = MIGRATION.read_text(encoding="utf-8").lower()
+    create = sql.split("create or replace function public.labhub_create_tv_activation_for_context", 1)[1]
+    create = create.split("revoke all on function", 1)[0]
+
+    session_lock = create.index("from auth.sessions as s")
+    context_lock = create.index("for update")
+    profile_lock = create.index("from public.profiles as p")
+    workspace_lock = create.index("from public.workspaces as w")
+    membership_lock = create.index("from public.memberships as m")
+    insert = create.index("insert into public.tv_activation_codes")
+
+    assert session_lock < context_lock < profile_lock < workspace_lock < membership_lock < insert
+    assert "s.id = p_session_id" in create
+    assert "s.user_id = p_user_id" in create
+    assert "for share" in create
+    assert "v_profile.status in ('blocked', 'rejected')" in create
+    assert "coalesce(v_profile.is_super_admin, false)" in create
+    assert "m.status = 'active'" in create
+    assert "jsonb_typeof(v_disabled_apps) <> 'array'" in create
+    assert "v_disabled_apps ? 'tv'" in create
+
