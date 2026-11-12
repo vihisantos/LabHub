@@ -107,9 +107,14 @@ def rbac_module():
 
 @pytest.fixture(scope="session")
 def root_api_module():
-    """Use the canonical API module shared with provisioning/auth tests."""
-    from _api_loader import load_api
-    return load_api()
+    key = "root_api"
+    if key in sys.modules:
+        return sys.modules[key]
+    spec = importlib.util.spec_from_file_location(key, ROOT_API)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[key] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 @pytest.fixture()

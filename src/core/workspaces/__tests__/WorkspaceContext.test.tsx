@@ -10,12 +10,6 @@ const { mockUseAuth } = vi.hoisted(() => ({ mockUseAuth: vi.fn() }))
 const { mockSync } = vi.hoisted(() => ({ mockSync: vi.fn() }))
 const { mockSyncState } = vi.hoisted(() => ({ mockSyncState: { current: [] as unknown[] } }))
 const { mockGateProps } = vi.hoisted(() => ({ mockGateProps: { current: null as unknown } }))
-const { mockSessionContext } = vi.hoisted(() => ({
-  mockSessionContext: {
-    get: vi.fn(),
-    select: vi.fn(),
-  },
-}))
 
 vi.mock('../../auth/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
@@ -30,11 +24,6 @@ vi.mock('../service', () => ({
 
 vi.mock('../store', () => ({
   workspaceStore: { set: vi.fn() },
-}))
-
-vi.mock('../sessionContext', () => ({
-  sessionWorkspaceContext: mockSessionContext,
-  broadcastWorkspaceContext: vi.fn(),
 }))
 
 vi.mock('../../../platform/WorkspaceGate/WorkspaceGate', () => ({
@@ -54,9 +43,6 @@ function Probe() {
       data-loading={String(loading)}
       data-pending={String(pendingSelection)}
       data-workspace={workspace?.id ?? ''}
-      data-active-workspace={useWorkspace().activeWorkspace?.id ?? ''}
-      data-active-revision={String(useWorkspace().activeWorkspaceRevision ?? '')}
-      data-active-error={useWorkspace().activeWorkspaceError ?? ''}
       data-assigned={(assignedWorkspaces ?? []).map((w) => w.id).join(',')}
     />
   )
@@ -154,11 +140,6 @@ beforeEach(() => {
     mockSyncState.current = WS
     return WS
   })
-  mockSessionContext.get.mockResolvedValue(null)
-  mockSessionContext.select.mockImplementation(async (workspaceId: string) => ({
-    workspace: { id: workspaceId, name: workspaceId, slug: workspaceId },
-    revision: 1,
-  }))
 })
 
 describe('WorkspaceContext — usuários e seus workspaces (fonte: memberships)', () => {
@@ -304,13 +285,6 @@ describe('WorkspaceContext — usuários e seus workspaces (fonte: memberships)'
     props.onSelect!(WS[0], false)
     await waitFor(() => expect(screen.getByTestId('probe').dataset.workspace).toBe('ws-sjc'))
     expect(screen.getByTestId('probe').dataset.pending).toBe('false')
-
-    // O mock representa o contexto persistido no servidor após a seleção.
-    // Um refresh de auth deve recuperar esse mesmo workspace, não abrir o gate.
-    mockSessionContext.get.mockResolvedValue({
-      workspace: { id: WS[0].id, name: WS[0].name, slug: WS[0].slug },
-      revision: 1,
-    })
 
     // Simula evento do auth (ex.: TOKEN_REFRESHED): identidade nova, mesmos dados
     mockGateProps.current = null

@@ -7,16 +7,15 @@ tv_devices, consumo single-use do código e autorização do fluxo com login.
 import base64
 import hashlib
 import hmac
+import importlib.util
 import json
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 API_FILE = Path(__file__).resolve().parents[1] / "app.py"
-SESSION_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 
 SUPABASE_URL = "https://test.supabase.co"
 SUPABASE_JWT_SECRET = "test-jwt-secret-for-testing-only-32chars!!"
@@ -84,10 +83,15 @@ class FakeRequests:
 
 @pytest.fixture(scope="session")
 def api_module():
-    # All API tests share the canonical root_api module because the Flask app
-    # imported by api/app.py is a process-wide singleton.
-    from _api_loader import load_api
-    return load_api()
+    for existing in ("chamados_api", "root_api"):
+        if existing in sys.modules and getattr(sys.modules[existing], "app", None) is not None:
+            if Path(getattr(sys.modules[existing], "__file__", "")) == API_FILE:
+                return sys.modules[existing]
+    spec = importlib.util.spec_from_file_location("chamados_api", API_FILE)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["chamados_api"] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 @pytest.fixture()
@@ -249,8 +253,7 @@ MEMBER_PROFILE = {
 
 
 def _setup_auth(fake_requests, monkeypatch, profile):
-    token_payload = {"sub": profile["id"], "session_id": SESSION_ID, "exp": int(time.time()) + 3600}
-    monkeypatch.setattr("auth._verify_jwt", lambda t: dict(token_payload))
+    monkeypatch.setattr("auth._verify_jwt", lambda t: {"sub": profile["id"]})
     fake_requests.route("GET", "/rest/v1/profiles", FakeResponse([profile]))
     fake_requests.route("GET", "/auth/v1/user", FakeResponse({"id": profile["id"]}))
     auth_mod = sys.modules.get("auth")
@@ -258,40 +261,7 @@ def _setup_auth(fake_requests, monkeypatch, profile):
         monkeypatch.setattr(auth_mod, "requests", fake_requests)
         monkeypatch.setattr(auth_mod, "_SUPABASE_URL", SUPABASE_URL)
         monkeypatch.setattr(auth_mod, "_SUPABASE_SERVICE_KEY", "test-service-key")
-    fake_requests.route("POST", "/rpc/labhub_auth_session_is_active", FakeResponse(True))
-    return {"Authorization": f"Bearer {_make_jwt(token_payload)}"}
-
-
-def _route_session_context(fake_requests, workspace_id="ws-a", revision=1):
-    fake_requests._routes.setdefault("POST", []).insert(0, (
-        "/rpc/labhub_get_session_workspace_context",
-        FakeResponse([{"workspace_id": workspace_id, "revision": revision}]),
-    ))
-
-
-def _route_activation_insert(fake_requests, workspace_id="ws-a", code="AB23CD"):
-    from datetime import datetime, timedelta, timezone
-    expires = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-    fake_requests._routes.setdefault("POST", []).insert(0, (
-        "/rpc/labhub_create_tv_activation_for_context",
-        FakeResponse([{
-            "code": code, "expires_at": expires,
-            "workspace_id": workspace_id, "device_name": None,
-        }]),
-    ))
-
-
-def _route_workspace(fake_requests, workspace_id="ws-a", disabled_apps=None):
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([{
-        "id": workspace_id, "name": workspace_id, "slug": workspace_id,
-        "disabled_apps": disabled_apps if disabled_apps is not None else [],
-    }]))
-
-
-def _route_session_active(fake_requests, active: bool):
-    fake_requests._routes.setdefault("POST", []).insert(0, (
-        "/rpc/labhub_auth_session_is_active", FakeResponse(active),
-    ))
+    return {"Authorization": f"Bearer {_make_jwt({'sub': profile['id']})}"}
 
 
 def _route_provision_backend(fake_requests):
@@ -404,257 +374,32 @@ def test_provision_sem_membership_nega_mesmo_com_coluna(client, fake_requests, m
     assert not fake_requests.calls_for("POST", "/auth/v1/admin/users")
 
 
-def test_activation_create_workspace_validado_por_membership(client, fake_requests, monkeypatch):
-    """O workspace da sessão é usado e o código mantém contrato desktop."""
+def test_activation_create_usa_primeira_membership_ativa(client, fake_requests, monkeypatch):
+    """Código vinculado ao workspace da membership, não ao da coluna."""
     profile = dict(MEMBER_PROFILE, workspace_ids=["ws-legado"])
     headers = _setup_auth(fake_requests, monkeypatch, profile)
     _memberships(fake_requests, profile["id"], ["ws-b"])
-    _route_session_context(fake_requests, "ws-b", 4)
-    _allow_tv_manage(monkeypatch)
     fake_requests.route(
         "GET", "/rest/v1/workspaces",
-        FakeResponse([{"id": "ws-b", "name": "WS B", "slug": "b", "disabled_apps": []}]),
+        FakeResponse([{"id": "ws-b", "name": "WS B", "slug": "b"}]),
     )
-    _route_activation_insert(fake_requests, "ws-b")
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-b", "revision": 4}, headers=headers)
+    fake_requests.route(
+        "POST", "/rest/v1/tv_activation_codes",
+        FakeResponse([{"code": "ABC123", "expires_at": "2026-01-01T00:00:00Z"}]),
+    )
+    res = client.post("/api/tv/activation/create", json={}, headers=headers)
     assert res.status_code == 200
     data = res.get_json()
     assert data["workspace_id"] == "ws-b"
-    assert data["code"] == "AB23CD"
-    assert len(data["code"]) == 6 and data["code"].upper() == data["code"]
-    expiry = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
-    assert 23 * 3600 < (expiry - datetime.now(timezone.utc)).total_seconds() <= 24 * 3600
-    posts = fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-    assert posts and posts[0]["kwargs"]["json"]["p_expected_workspace_id"] == "ws-b"
-    assert posts[0]["kwargs"]["json"]["p_expected_revision"] == 4
+    posts = fake_requests.calls_for("POST", "/rest/v1/tv_activation_codes")
+    assert posts and posts[0]["kwargs"]["json"]["workspace_id"] == "ws-b"
 
 
-def test_activation_create_sem_membership_retorna_403(client, fake_requests, monkeypatch):
+def test_activation_create_sem_membership_retorna_400(client, fake_requests, monkeypatch):
     headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 1)
-    _route_workspace(fake_requests)
     _memberships(fake_requests, MEMBER_PROFILE["id"], [])
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a"}, headers=headers)
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def _allow_tv_manage(monkeypatch, allowed=True):
-    rbac_module = sys.modules.get("rbac")
-    assert rbac_module is not None
-    # Exercita rbac_can real: só os leitores dos registros RBAC são dublados.
-    # Assim o decorator continua precisando resolver ação/scope, membership e
-    # a precedência de overrides definida pelo mecanismo central.
-    monkeypatch.setattr(
-        rbac_module, "_fetch_membership",
-        lambda _profile_id, _workspace_id: {
-            "id": "membership-test", "role_id": "role-test", "status": "active",
-        },
-    )
-    monkeypatch.setattr(
-        rbac_module, "_fetch_role_permissions",
-        lambda _role_id, _scope: {"tv.manage"} if allowed else set(),
-    )
-    monkeypatch.setattr(rbac_module, "_fetch_overrides", lambda _membership_id: {})
-    monkeypatch.setattr(rbac_module, "record_rbac_audit", lambda **_kwargs: None)
-
-
-def test_activation_create_requires_authentication(client):
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a"})
-    assert res.status_code == 401
-
-
-def test_activation_create_rejeita_sem_tv_manage(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 1)
-    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
-    _allow_tv_manage(monkeypatch, False)
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([dict(WORKSPACE, disabled_apps=[])]))
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a", "revision": 1}, headers=headers)
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_activation_create_rejeita_modulo_tv_desabilitado_inclusive_superadmin(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 1)
-    _allow_tv_manage(monkeypatch, True)
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([dict(WORKSPACE, disabled_apps=["tv"])]))
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a", "revision": 1}, headers=headers)
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_activation_create_falha_fechado_com_disabled_apps_invalido(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 1)
-    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
-    _allow_tv_manage(monkeypatch, True)
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([dict(WORKSPACE, disabled_apps="valor-invalido")]))
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a", "revision": 1}, headers=headers)
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_activation_create_member_nao_pode_escolher_outro_workspace(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _route_session_context(fake_requests, "ws-b", 2)
-    _route_workspace(fake_requests, "ws-b")
-    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-b"])
-    _allow_tv_manage(monkeypatch, True)
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a", "revision": 2}, headers=headers)
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_activation_create_member_com_multiplas_memberships_so_usa_contexto_ativo(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a", "ws-b"])
-    _route_session_context(fake_requests, "ws-b", 8)
-    _allow_tv_manage(monkeypatch, True)
-    _route_workspace(fake_requests, "ws-b")
-
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a", "revision": 8}, headers=headers)
-
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_activation_create_superadmin_com_tv_habilitada(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 1)
-    _allow_tv_manage(monkeypatch, True)
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([dict(WORKSPACE, disabled_apps=[])]))
-    _route_activation_insert(fake_requests, "ws-a")
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a", "revision": 1}, headers=headers)
-    assert res.status_code == 200
-    posts = fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-    assert posts[0]["kwargs"]["json"]["p_expected_workspace_id"] == "ws-a"
-
-
-def test_activation_create_superadmin_nao_pode_alterar_workspace_no_payload(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 6)
-    _route_workspace(fake_requests)
-    _allow_tv_manage(monkeypatch, True)
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-b", "revision": 6}, headers=headers)
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_activation_create_rejeita_revisao_divergente_sem_inserir(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 6)
-    _route_workspace(fake_requests)
-    _allow_tv_manage(monkeypatch, True)
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-a", "revision": 5}, headers=headers)
-    assert res.status_code == 409
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-@pytest.mark.parametrize("session_id", [None, "not-a-uuid"])
-def test_activation_create_rejeita_session_id_ausente_ou_invalido(client, fake_requests, monkeypatch, session_id):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    monkeypatch.setattr("auth._verify_jwt", lambda _token: {
-        "sub": SUPER_ADMIN_PROFILE["id"], "exp": int(time.time()) + 3600,
-        **({"session_id": session_id} if session_id is not None else {}),
-    })
-    res = client.post("/api/tv/activation/create", json={"revision": 1}, headers=headers)
-    assert res.status_code == 401
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_auth_session_is_active")
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_activation_create_rejeita_token_expirado_e_sessao_revogada(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    monkeypatch.setattr("auth._verify_jwt", lambda _token: {
-        "sub": SUPER_ADMIN_PROFILE["id"], "session_id": SESSION_ID,
-        "exp": int(time.time()) - 5,
-    })
-    _route_session_active(fake_requests, False)
-    res = client.post("/api/tv/activation/create", json={"revision": 1}, headers=headers)
-    assert res.status_code == 401
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_get_session_workspace_context")
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_contexto_e_isolado_por_duas_sessoes_do_mesmo_usuario(client, fake_requests, monkeypatch):
-    headers_a = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 2)
-    _allow_tv_manage(monkeypatch, True)
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([dict(WORKSPACE, disabled_apps=[])]))
-    _route_activation_insert(fake_requests, "ws-a", code="AB23CD")
-    first = client.post("/api/tv/activation/create", json={"revision": 2}, headers=headers_a)
-    assert first.status_code == 200
-
-    second_session = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
-    monkeypatch.setattr("auth._verify_jwt", lambda _token: {
-        "sub": SUPER_ADMIN_PROFILE["id"], "session_id": second_session,
-        "exp": int(time.time()) + 3600,
-    })
-    _route_session_context(fake_requests, "ws-a", 9)
-    _route_activation_insert(fake_requests, "ws-a", code="CD34EF")
-    headers_b = {"Authorization": f"Bearer {_make_jwt({'sub': SUPER_ADMIN_PROFILE['id'], 'session_id': second_session})}"}
-    second = client.post("/api/tv/activation/create", json={"revision": 9}, headers=headers_b)
-    assert second.status_code == 200
-
-    calls = fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-    assert [call["kwargs"]["json"]["p_session_id"] for call in calls] == [SESSION_ID, second_session]
-
-
-def test_activation_create_superadmin_sem_workspace_explicito_rejeitado(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    res = client.post("/api/tv/activation/create", json={"revision": 1}, headers=headers)
-    assert res.status_code == 404
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-
-
-def test_workspace_context_switch_persists_only_validated_session_and_returns_revision(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([dict(WORKSPACE)]))
-    fake_requests.route("POST", "/rpc/labhub_set_session_workspace_context", FakeResponse({
-        "session_id": SESSION_ID, "workspace_id": "ws-a", "revision": 11,
-    }))
-
-    res = client.put("/api/workspace/active-context", json={"workspace_id": "ws-a"}, headers=headers)
-
-    assert res.status_code == 200
-    assert res.get_json()["workspace"]["id"] == "ws-a"
-    assert res.get_json()["revision"] == 11
-    params = fake_requests.calls_for("POST", "/rpc/labhub_set_session_workspace_context")[0]["kwargs"]["json"]
-    assert params["p_session_id"] == SESSION_ID
-    assert params["p_user_id"] == MEMBER_PROFILE["id"]
-    assert params["p_workspace_id"] == "ws-a"
-
-
-def test_workspace_context_switch_rejeita_workspace_sem_membership(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-a"])
-    res = client.put("/api/workspace/active-context", json={"workspace_id": "ws-b"}, headers=headers)
-    assert res.status_code == 403
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_set_session_workspace_context")
-
-
-def test_activation_create_nao_aceita_workspace_somente_na_query(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, SUPER_ADMIN_PROFILE)
-    _route_session_context(fake_requests, "ws-a", 1)
-    _allow_tv_manage(monkeypatch, True)
-    fake_requests.route("GET", "/rest/v1/workspaces", FakeResponse([dict(WORKSPACE, disabled_apps=[])]))
-    _route_activation_insert(fake_requests, "ws-a")
-    res = client.post("/api/tv/activation/create?workspace_id=ws-b", json={"revision": 1}, headers=headers)
-    assert res.status_code == 200
-    insert = fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
-    assert insert[0]["kwargs"]["json"]["p_expected_workspace_id"] == "ws-a"
-
-
-def test_activation_create_workspace_inexistente_rejeitado(client, fake_requests, monkeypatch):
-    headers = _setup_auth(fake_requests, monkeypatch, MEMBER_PROFILE)
-    _route_session_context(fake_requests, "ws-missing", 1)
-    _memberships(fake_requests, MEMBER_PROFILE["id"], ["ws-missing"])
-    res = client.post("/api/tv/activation/create", json={"workspace_id": "ws-missing", "revision": 1}, headers=headers)
-    assert res.status_code == 404
-    assert not fake_requests.calls_for("POST", "/rpc/labhub_create_tv_activation_for_context")
+    res = client.post("/api/tv/activation/create", json={}, headers=headers)
+    assert res.status_code == 400
 
 
 # ── Lista de TVs por workspace ─────────────────────────────────────────────────

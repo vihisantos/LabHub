@@ -15,7 +15,6 @@ import hashlib
 import hmac
 import json
 import time
-import uuid
 
 import requests
 from flask import request, jsonify, g
@@ -276,21 +275,13 @@ def _user_in_workspace(profile: dict, workspace_id: str) -> bool:
 
 
 def _is_module_enabled(workspace: dict, module_id: str) -> bool:
-    """Check module availability, denying when the workspace setting is invalid."""
-    if not isinstance(workspace, dict) or not isinstance(module_id, str) or not module_id.strip():
-        return False
-    disabled = workspace.get('disabled_apps')
-    # Missing/NULL means the schema default (no disabled modules), preserving
-    # legacy workspace behavior. Any present value must parse as a list.
-    if disabled is None:
-        disabled = []
+    """Check if module is enabled in workspace (not in disabled_apps)."""
+    disabled = workspace.get('disabled_apps') or []
     if isinstance(disabled, str):
         try:
             disabled = json.loads(disabled)
         except Exception:
-            return False
-    if not isinstance(disabled, list) or any(not isinstance(app_id, str) for app_id in disabled):
-        return False
+            disabled = []
     return module_id not in disabled
 
 
@@ -355,123 +346,11 @@ def require_auth(f):
 
         g.user = profile
         g.user_id = user_id
-        # Keep verified token claims available for narrowly scoped session-aware
-        # endpoints. Never populate these from request JSON or headers.
-        g.jwt_payload = payload
         # Uniformização 9.2-B4: o campo segue no dict como compat, mas DERIVADO
         # de memberships ativas — todas as leituras abaixo (gates e regras de
         # negócio) passam a decidir por memberships sem mudar cada ponto.
         g.user['workspace_ids'] = _get_user_workspace_ids(user_id)
         return f(*args, **kwargs)
-    return wrapper
-
-
-def require_active_supabase_session(f):
-    """Require a live Supabase Auth session for sensitive session-scoped work.
-
-    `session_id` is taken only from claims returned by `_verify_jwt`, which has
-    already verified the JWT signature and expiration. The database RPC checks
-    that the session row still exists and belongs to the authenticated user.
-    """
-    @functools.wraps(f)
-    def wrapper(*args, **kwargs):
-        payload = getattr(g, 'jwt_payload', None)
-        raw_session_id = payload.get('session_id') if isinstance(payload, dict) else None
-        try:
-            session_id = str(uuid.UUID(str(raw_session_id)))
-        except (ValueError, TypeError, AttributeError):
-            return _auth_error('Invalid or missing session context')
-        raw_exp = payload.get('exp') if isinstance(payload, dict) else None
-        if isinstance(raw_exp, bool) or not isinstance(raw_exp, (int, float)) or raw_exp <= time.time():
-            return _auth_error('Invalid or expired session context')
-
-        user_id = getattr(g, 'user_id', None)
-        if not user_id or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
-            return jsonify({'error': 'Session validation unavailable'}), 503
-        try:
-            resp = requests.post(
-                f'{_SUPABASE_URL}/rest/v1/rpc/labhub_auth_session_is_active',
-                headers={
-                    'apikey': _SUPABASE_SERVICE_KEY,
-                    'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
-                    'Content-Type': 'application/json',
-                },
-                json={
-                    'p_session_id': session_id,
-                    'p_user_id': str(user_id),
-                    'p_token_exp': int(raw_exp),
-                },
-                timeout=5,
-            )
-            if not resp.ok:
-                return jsonify({'error': 'Session validation unavailable'}), 503
-            if resp.json() is not True:
-                return _auth_error('Session is no longer active')
-        except Exception:
-            return jsonify({'error': 'Session validation unavailable'}), 503
-
-        g.session_id = session_id
-        g.session_exp = int(raw_exp)
-        return f(*args, **kwargs)
-    return wrapper
-
-
-def require_session_workspace(f):
-    """Load the active workspace persisted for the verified Auth session."""
-    @functools.wraps(f)
-    def wrapper(*args, **kwargs):
-        session_id = getattr(g, 'session_id', None)
-        user_id = getattr(g, 'user_id', None)
-        token_exp = getattr(g, 'session_exp', None)
-        if not session_id or not user_id or not token_exp:
-            return _forbidden('Active workspace context required')
-        if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
-            return jsonify({'error': 'Workspace context unavailable'}), 503
-        try:
-            resp = requests.post(
-                f'{_SUPABASE_URL}/rest/v1/rpc/labhub_get_session_workspace_context',
-                headers={
-                    'apikey': _SUPABASE_SERVICE_KEY,
-                    'Authorization': f'Bearer {_SUPABASE_SERVICE_KEY}',
-                    'Content-Type': 'application/json',
-                },
-                json={
-                    'p_session_id': session_id,
-                    'p_user_id': str(user_id),
-                    'p_token_exp': token_exp,
-                },
-                timeout=5,
-            )
-            if not resp.ok:
-                return jsonify({'error': 'Workspace context unavailable'}), 503
-            rows = resp.json()
-            if isinstance(rows, list) and len(rows) == 0:
-                return _not_found('Active workspace context not found')
-            if not isinstance(rows, list) or len(rows) != 1:
-                return _forbidden('Active workspace context required')
-            row = rows[0]
-            workspace_id = row.get('workspace_id')
-            revision = row.get('revision')
-            if not isinstance(workspace_id, str) or not workspace_id:
-                return _forbidden('Invalid active workspace context')
-            try:
-                revision = int(revision)
-            except (TypeError, ValueError):
-                return _forbidden('Invalid active workspace context')
-            if revision < 1:
-                return _forbidden('Invalid active workspace context')
-
-            workspace = _get_workspace(workspace_id)
-            if not workspace:
-                return _not_found('Active workspace not found')
-            if not _user_in_workspace(g.user, workspace_id):
-                return _forbidden('Active workspace context is no longer authorized')
-            g.workspace = workspace
-            g.workspace_id = workspace_id
-            g.workspace_revision = revision
-            return f(*args, **kwargs)
-        except Exception:
-            return jsonify({'error': 'Workspace context unavailable'}), 503
     return wrapper
 
 
