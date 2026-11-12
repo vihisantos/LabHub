@@ -80,7 +80,7 @@ def test_activation_rpc_serializes_session_and_revalidates_authorization_before_
     assert "v_profile.status in ('blocked', 'rejected')" in create
     assert "coalesce(v_profile.is_super_admin, false)" in create
     assert "m.status = 'active'" in create
-    assert "m.status = 'active'\\n     for update" in create
+    assert "m.status = 'active'\n     for update" in create
     assert "rp.action = 'tv.manage'" in create
     assert "rp.scope = 'workspace'" in create
     assert "mo.action = 'tv.manage'" in create
