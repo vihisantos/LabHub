@@ -56,6 +56,7 @@ def validate_no_remote_config():
     
     Rejeita se SUPABASE_URL apontar para um host remoto,
     mesmo que DATABASE_URL esteja local.
+    É um erro fatal aceitar URLs remotas ou não-analisáveis.
     """
     supabase_url = os.environ.get("SUPABASE_URL", "")
     
@@ -69,7 +70,10 @@ def validate_no_remote_config():
                 print("Este script só pode executar em ambiente local.")
                 return False
         except Exception as e:
-            print(f"WARNING: Não foi possível analisar SUPABASE_URL: {e}")
+            # Qualquer falha no parsing deve ser rejeitada como erro fatal
+            print(f"ERROR: Falha ao analisar SUPABASE_URL: {e}")
+            print("URLs remotas são PROIBIDAS nesse ambiente.")
+            return False
     
     return True
 

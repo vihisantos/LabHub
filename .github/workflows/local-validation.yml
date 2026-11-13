@@ -55,7 +55,7 @@ jobs:
       
       - name: Start full Supabase stack locally
         run: |
-          supabase start --exclude-mailpit,studio
+          supabase start --exclude mailpit,studio
       
       - name: Wait for Supabase services
         run: |
@@ -98,6 +98,10 @@ jobs:
             exit 1
           fi
           echo "OK: PostgreSQL 17 verified"
+      
+      - name: Check Supabase status
+        run: |
+          supabase status
       
       - name: Run local validation with protection
         run: |

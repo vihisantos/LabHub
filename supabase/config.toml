@@ -1,48 +1,23 @@
 # Supabase local configuration - LabHub
 # NÃO usar supabase db push/reset - migrations gerenciadas pelo scripts/migrate.py
-
-[api]
-enabled = true
-port = 54321
-host = "127.0.0.1"
-external_hostname = "localhost"
-jwt_expiry = 3600
-anonymous_db_schema = "anon"
-authenticated_db_schema = "authenticated"
-editor_jwt_expiry = 604800
+# Compatível com Supabase CLI v2.50.0
 
 [db]
 port = 54322
 host = "127.0.0.1"
 major_version = 17
-database = "postgres"
 username = "postgres"
 password = "postgres"
-# backup_config = "supabase/backups"
+# database = "postgres"  # Usado apenas para conexão do próprio CLI
+
+[api]
+port = 54321
 
 [auth]
 port = 54324
-host = "127.0.0.1"
-enabled = true
-show_lists = false
-users_table = "public.profiles"
-external_enabled = false
-disable_signup = false
-is_password_configured = true
-phone_enabled = false
-external_mailer_config_disabled = true
 
 [realtime]
 port = 54325
-host = "127.0.0.1"
-enabled = true
-db_schema = "realtime"
-redis = false
 
 [storage]
 port = 54323
-host = "127.0.0.1"
-enabled = true
-bucket_limit = 1000
-file_size_limit = 5242880
-image_size_limit = 52428800
