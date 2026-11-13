@@ -8,12 +8,3 @@ major_version = 17
 
 [api]
 port = 54321
-
-[auth]
-port = 54324
-
-[realtime]
-port = 54325
-
-[storage]
-port = 54323

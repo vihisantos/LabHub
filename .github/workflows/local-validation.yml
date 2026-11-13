@@ -16,6 +16,9 @@ on:
 
 env:
   SUPABASE_CLI_VERSION: "2.50.0"
+  # Portas padrão do Supabase CLI
+  POSTGRES_PORT: 54322
+  API_PORT: 54321
 
 jobs:
   validate-local:
