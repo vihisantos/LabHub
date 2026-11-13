@@ -120,7 +120,7 @@ jobs:
             echo "Auth container found: $AUTH_CONTAINER (image: $AUTH_IMAGE)"
           else
             echo "WARNING: Auth (GoTrue) container not found by name pattern"
-            # Don't fail - Auth might be accessible through Kong
+            # Don't fail - Auth might be accessed through Kong
           fi
           echo "auth_container=$AUTH_CONTAINER" >> $GITHUB_OUTPUT
       
@@ -165,7 +165,7 @@ jobs:
             
             if [ "$KONG_HEALTH" = "healthy" ]; then
               echo "Kong container healthy: $KONG_HEALTH"
-              # Additional verification: try to reach the API
+              # Additional verification: try to reach the API status endpoint
               sleep 2
               break
             fi
@@ -190,18 +190,37 @@ jobs:
             sleep 2
           done
           
-          # Verify Kong is actually serving requests
-          echo "Verifying Kong is serving requests..."
-          for i in {1..10}; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:54321/ 2>/dev/null || echo "000")
-            if [ "$HTTP_CODE" != "000" ]; then
-              echo "Kong responding with HTTP $HTTP_CODE"
+          # Verify Kong is actually serving requests via /status endpoint
+          echo "Verifying Kong is serving requests via /status..."
+          KONG_HTTP_READY=false
+          for i in {1..30}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:54321/status 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Kong /status responding with HTTP $HTTP_CODE - OK"
+              KONG_HTTP_READY=true
               break
             fi
-            echo "Retry $i/10 - no response yet"
+            if [ $i -eq 30 ]; then
+              echo "ERROR: Kong did not respond correctly after 30 attempts (last HTTP code: $HTTP_CODE)"
+              echo "=== Debug Info ==="
+              echo "Docker containers:"
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+              echo "=== Kong container details ==="
+              docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
+              echo "=== Recent container logs ==="
+              docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
+              exit 1
+            fi
+            echo "Attempt $i/30... (HTTP status: $HTTP_CODE)"
             sleep 2
           done
-          echo "Kong API ready"
+          
+          if [ "$KONG_HTTP_READY" = "true" ]; then
+            echo "Kong API ready"
+          else
+            echo "ERROR: Kong API not ready"
+            exit 1
+          fi
       
       - name: Wait for Auth (GoTrue)
         run: |
@@ -209,18 +228,23 @@ jobs:
           echo "Auth container: $AUTH_CONTAINER"
           
           if [ -z "$AUTH_CONTAINER" ]; then
-            echo "WARNING: Auth container not found, will be accessed through Kong gateway"
-            echo "Skipping direct Auth health check"
-            exit 0
+            echo "ERROR: Auth (GoTrue) container not found"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            docker inspect --format='{{.Name}}: {{.Image}}' $(docker ps -q) 2>/dev/null || echo "no container details"
+            exit 1
           fi
           
           echo "Waiting for Auth (GoTrue)..."
+          AUTH_HEALTH_READY=false
           for i in {1..30}; do
             AUTH_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$AUTH_CONTAINER" 2>/dev/null || echo "no_health")
             AUTH_STATE=$(docker inspect --format='{{.State.Running}}' "$AUTH_CONTAINER" 2>/dev/null || echo "false")
             
             if [ "$AUTH_HEALTH" = "healthy" ]; then
               echo "Auth container healthy: $AUTH_HEALTH"
+              AUTH_HEALTH_READY=true
               sleep 1
               break
             fi
@@ -230,6 +254,7 @@ jobs:
                 echo "ERROR: Auth container not running after 30 attempts"
                 echo "Health: $AUTH_HEALTH, State: $AUTH_STATE"
                 echo "=== Debug Info ==="
+                echo "Docker containers:"
                 docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
                 echo "=== Auth container details ==="
                 docker inspect "$AUTH_CONTAINER" 2>/dev/null | head -80
@@ -243,6 +268,20 @@ jobs:
             fi
             sleep 2
           done
+          
+          if [ "$AUTH_HEALTH_READY" = "true" ]; then
+            echo "Auth service ready"
+          else
+            echo "ERROR: Auth service did not become healthy within timeout"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            echo "=== Auth container details ==="
+            docker inspect "$AUTH_CONTAINER" 2>/dev/null | head -80
+            echo "=== Recent container logs ==="
+            docker logs "$AUTH_CONTAINER" 2>/dev/null | tail -40
+            exit 1
+          fi
       
       - name: Verify PostgreSQL version
         run: |
@@ -287,4 +326,4 @@ jobs:
             echo "Status: SUCCESS"
           else
             echo "Status: ${{ job.status }}"
-          fi
+          fi)
