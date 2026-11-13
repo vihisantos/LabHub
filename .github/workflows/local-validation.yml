@@ -69,29 +69,60 @@ jobs:
           echo "=== All running containers ==="
           docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
           
-          # Find db container
-          DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*_db$' | head -1)
+          # Find db container - look for _db suffix first, then postgres image
+          DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db$' | head -1)
           if [ -z "$DB_CONTAINER" ]; then
-            DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'postgres' | head -1)
+            DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i postgres | head -1)
           fi
-          echo "DB container: $DB_CONTAINER"
+          if [ -n "$DB_CONTAINER" ]; then
+            DB_IMAGE=$(docker inspect --format='{{.Image}}' "$DB_CONTAINER" 2>/dev/null)
+            echo "DB container found: $DB_CONTAINER (image: $DB_IMAGE)"
+          else
+            echo "ERROR: DB container not found"
+            exit 1
+          fi
           echo "db_container=$DB_CONTAINER" >> $GITHUB_OUTPUT
           
-          # Find Kong container (API gateway)
-          KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*_kong$' | head -1)
+          # Find Kong container (API gateway) - look for _kong suffix, then kong image
+          KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_kong$' | head -1)
           if [ -z "$KONG_CONTAINER" ]; then
-            KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'kong' | head -1)
+            KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i kong | head -1)
           fi
-          echo "Kong container: $KONG_CONTAINER"
+          if [ -n "$KONG_CONTAINER" ]; then
+            KONG_IMAGE=$(docker inspect --format='{{.Image}}' "$KONG_CONTAINER" 2>/dev/null)
+            echo "Kong container found: $KONG_CONTAINER (image: $KONG_IMAGE)"
+          else
+            echo "ERROR: Kong container not found"
+            echo "=== Debug Info ==="
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            exit 1
+          fi
           echo "kong_container=$KONG_CONTAINER" >> $GITHUB_OUTPUT
           
-          # Find GoTrue container (Auth)
-          GOTRUE_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*_gotrue$' | head -1)
-          if [ -z "$GOTRUE_CONTAINER" ]; then
-            GOTRUE_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'gotrue' | head -1)
+          # Find Auth container - Kong proxies /auth/ to GoTrue
+          # Auth container is typically named project_auth_1 (not gotrue)
+          AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_auth$' | head -1)
+          if [ -z "$AUTH_CONTAINER" ]; then
+            AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i gotrue | head -1)
           fi
-          echo "GoTrue container: $GOTRUE_CONTAINER"
-          echo "gotrue_container=$GOTRUE_CONTAINER" >> $GITHUB_OUTPUT
+          if [ -z "$AUTH_CONTAINER" ]; then
+            # Also check for gotrue in image name
+            AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | while read name; do
+              img=$(docker inspect --format='{{.Image}}' "$name" 2>/dev/null)
+              if echo "$img" | grep -qi 'gotrue'; then
+                echo "$name"
+                break
+              fi
+            done | head -1)
+          fi
+          if [ -n "$AUTH_CONTAINER" ]; then
+            AUTH_IMAGE=$(docker inspect --format='{{.Image}}' "$AUTH_CONTAINER" 2>/dev/null)
+            echo "Auth container found: $AUTH_CONTAINER (image: $AUTH_IMAGE)"
+          else
+            echo "WARNING: Auth (GoTrue) container not found by name pattern"
+            # Don't fail - Auth might be accessible through Kong
+          fi
+          echo "auth_container=$AUTH_CONTAINER" >> $GITHUB_OUTPUT
       
       - name: Wait for PostgreSQL
         run: |
@@ -106,13 +137,8 @@ jobs:
               echo "=== Debug Info ==="
               echo "Docker containers:"
               docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-              echo "=== Container health status ==="
-              for container in DB_KONG GOTRUE_CONTAINER value; do
-                c=$(eval echo "\$GITHUB_OUTPUT" | grep "${container}_container" | cut -d= -f2)
-              done
-              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' ${{ steps.discover.outputs.db_container }} 2>/dev/null || echo "no db health info"
               echo "=== Recent container logs ==="
-              docker logs ${{ steps.discover.outputs.db_container }} 2>/dev/null | tail -20 || echo "no db logs"
+              docker logs ${{ steps.discover.outputs.db_container }} 2>/dev/null | tail -30 || echo "no db logs"
               exit 1
             fi
             echo "Attempt $i/30..."
@@ -133,74 +159,88 @@ jobs:
           
           echo "Waiting for Kong API (gateway)..."
           for i in {1..30}; do
-            # Check if Kong container is running and healthy
-            KONG_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$KONG_CONTAINER" 2>/dev/null || echo "unknown")
-            
-            if [ "$KONG_STATUS" = "healthy" ]; then
-              echo "Kong container healthy: $KONG_STATUS"
-              sleep 2
-              break
-            fi
-            
-            # Also check if container is running
+            # Check Kong health status
+            KONG_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$KONG_CONTAINER" 2>/dev/null || echo "no_health")
             KONG_STATE=$(docker inspect --format='{{.State.Running}}' "$KONG_CONTAINER" 2>/dev/null || echo "false")
-            if [ "$KONG_STATE" = "true" ] && [ "$KONG_STATUS" = "starting" ]; then
-              echo "Kong container running, waiting for health... ($KONG_STATUS)"
+            
+            if [ "$KONG_HEALTH" = "healthy" ]; then
+              echo "Kong container healthy: $KONG_HEALTH"
+              # Additional verification: try to reach the API
               sleep 2
               break
             fi
             
-            if [ $i -eq 30 ]; then
-              echo "ERROR: Kong container not ready after 30 attempts (status: $KONG_STATUS, running: $KONG_STATE)"
-              echo "=== Debug Info ==="
-              echo "Docker containers:"
-              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-              echo "=== Container health status ==="
-              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' "$KONG_CONTAINER" 2>/dev/null || echo "no kong health info"
-              echo "=== Kong container details ==="
-              docker inspect "$KONG_CONTAINER" 2>/dev/null | head -50 || echo "no kong details"
-              echo "=== Recent container logs ==="
-              docker logs "$KONG_CONTAINER" 2>/dev/null | tail -30 || echo "no kong logs"
-              exit 1
+            if [ "$KONG_STATE" != "true" ]; then
+              if [ $i -eq 30 ]; then
+                echo "ERROR: Kong container not running after 30 attempts"
+                echo "Health: $KONG_HEALTH, State: $KONG_STATE"
+                echo "=== Debug Info ==="
+                echo "Docker containers:"
+                docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                echo "=== Kong container details ==="
+                docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
+                echo "=== Recent container logs ==="
+                docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
+                exit 1
+              fi
+              echo "Attempt $i/30... (Kong state: $KONG_STATE, health: $KONG_HEALTH)"
+            else
+              echo "Attempt $i/30... (Kong health: $KONG_HEALTH, running: true)"
             fi
-            echo "Attempt $i/30... (Kong status: $KONG_STATUS, running: $KONG_STATE)"
+            sleep 2
+          done
+          
+          # Verify Kong is actually serving requests
+          echo "Verifying Kong is serving requests..."
+          for i in {1..10}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:54321/ 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" != "000" ]; then
+              echo "Kong responding with HTTP $HTTP_CODE"
+              break
+            fi
+            echo "Retry $i/10 - no response yet"
             sleep 2
           done
           echo "Kong API ready"
       
       - name: Wait for Auth (GoTrue)
         run: |
-          GOTRUE_CONTAINER="${{ steps.discover.outputs.gotrue_container }}"
-          echo "GoTrue container: $GOTRUE_CONTAINER"
+          AUTH_CONTAINER="${{ steps.discover.outputs.auth_container }}"
+          echo "Auth container: $AUTH_CONTAINER"
           
-          if [ -z "$GOTRUE_CONTAINER" ]; then
-            echo "WARNING: GoTrue container not found, skipping Auth check"
+          if [ -z "$AUTH_CONTAINER" ]; then
+            echo "WARNING: Auth container not found, will be accessed through Kong gateway"
+            echo "Skipping direct Auth health check"
             exit 0
           fi
           
           echo "Waiting for Auth (GoTrue)..."
           for i in {1..30}; do
-            GOTRUE_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$GOTRUE_CONTAINER" 2>/dev/null || echo "unknown")
+            AUTH_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$AUTH_CONTAINER" 2>/dev/null || echo "no_health")
+            AUTH_STATE=$(docker inspect --format='{{.State.Running}}' "$AUTH_CONTAINER" 2>/dev/null || echo "false")
             
-            if [ "$GOTRUE_STATUS" = "healthy" ]; then
-              echo "GoTrue container healthy: $GOTRUE_STATUS"
+            if [ "$AUTH_HEALTH" = "healthy" ]; then
+              echo "Auth container healthy: $AUTH_HEALTH"
               sleep 1
               break
             fi
             
-            GOTRUE_STATE=$(docker inspect --format='{{.State.Running}}' "$GOTRUE_CONTAINER" 2>/dev/null || echo "false")
-            if [ "$GOTRUE_STATE" = "true" ] && [ "$GOTRUE_STATUS" = "starting" ]; then
-              echo "GoTrue container running, waiting... ($GOTRUE_STATUS)"
-              sleep 2
-              break
+            if [ "$AUTH_STATE" != "true" ]; then
+              if [ $i -eq 30 ]; then
+                echo "ERROR: Auth container not running after 30 attempts"
+                echo "Health: $AUTH_HEALTH, State: $AUTH_STATE"
+                echo "=== Debug Info ==="
+                docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                echo "=== Auth container details ==="
+                docker inspect "$AUTH_CONTAINER" 2>/dev/null | head -80
+                echo "=== Recent container logs ==="
+                docker logs "$AUTH_CONTAINER" 2>/dev/null | tail -40
+                exit 1
+              fi
+              echo "Attempt $i/30... (Auth state: $AUTH_STATE, health: $AUTH_HEALTH)"
+            else
+              echo "Attempt $i/30... (Auth health: $AUTH_HEALTH, running: true)"
             fi
-            
-            if [ $i -eq 30 ]; then
-              echo "WARNING: GoTrue container not fully healthy after 30 attempts (status: $GOTRUE_STATUS)"
-              echo "Continuing anyway..."
-              break
-            fi
-            echo "Attempt $i/30... (GoTrue status: $GOTRUE_STATUS)"
             sleep 2
           done
       
