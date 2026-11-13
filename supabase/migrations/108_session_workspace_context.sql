@@ -1,4 +1,4 @@
-﻿-- Workspace efetivo por sessão Supabase autenticada.
+-- Workspace efetivo por sessão Supabase autenticada.
 -- Aplicação posterior exige revisão e aprovação separadas; esta etapa não aplica DDL.
 BEGIN;
 
