@@ -1,0 +1,7 @@
+# Supabase local configuration - LabHub
+# NÃO usar supabase db push/reset - migrations gerenciadas pelo scripts/migrate.py
+# Configuração mínima compatível com Supabase CLI v2.50.0
+
+[db]
+port = 54322
+major_version = 17

@@ -1,0 +1,372 @@
+name: Local Validation Suite
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/tests/**"
+      - "api/tests/**"
+      - "src/apps/reservalab/api/auth.py"
+      - "api/app.py"
+      - "scripts/migrate.py"
+      - "scripts/ci/**"
+      - "scripts/tests/**"
+      - ".github/workflows/local-validation.yml"
+
+env:
+  SUPABASE_CLI_VERSION: "2.50.0"
+  # Portas padrão do Supabase CLI
+  POSTGRES_PORT: 54322
+  API_PORT: 54321
+  # Desabilita migrations automáticas do CLI - gerenciadas pelo scripts/migrate.py
+  SUPABASE_DB_MIGRATIONS_ENABLED: "false"
+
+jobs:
+  validate-local:
+    name: Local Validation with Supabase CLI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: /home/runner/work/LabHub/LabHub
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:54322/postgres
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dotenv pytest psycopg[binary] jsonschema
+      
+      - name: Install Supabase CLI v2.50.0
+        run: |
+          npm install supabase@${{ env.SUPABASE_CLI_VERSION }}
+          echo "${{ github.workspace }}/node_modules/.bin" >> $GITHUB_PATH
+          npx supabase --version
+      
+      - name: Start full Supabase stack locally
+        run: |
+          supabase start --exclude mailpit,studio
+      
+      - name: Discover container names
+        id: discover
+        run: |
+          echo "Discovering Supabase containers..."
+          echo "=== All running containers ==="
+          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+          
+          # Find db container - look for _db pattern, _db_ pattern, then by image
+          DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db_' | head -1)
+          if [ -z "$DB_CONTAINER" ]; then
+            DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db$' | head -1)
+          fi
+          if [ -z "$DB_CONTAINER" ]; then
+            # Use docker inspect to find postgres image containers
+            DB_CONTAINER=$(docker ps --format '{{.Names}}' | while read name; do
+              IMG=$(docker inspect --format='{{.Image}}' "$name" 2>/dev/null)
+              if echo "$IMG" | grep -qi 'postgres'; then
+                echo "$name"
+                break
+              fi
+            done | head -1)
+          fi
+          if [ -n "$DB_CONTAINER" ]; then
+            DB_IMAGE=$(docker inspect --format='{{.Image}}' "$DB_CONTAINER" 2>/dev/null)
+            echo "DB container found: $DB_CONTAINER (image: $DB_IMAGE)"
+          else
+            echo "ERROR: DB container not found"
+            exit 1
+          fi
+          echo "db_container=$DB_CONTAINER" >> $GITHUB_OUTPUT
+          
+          # Find Kong container (API gateway) - look for _kong suffix, then kong image
+          KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_kong$' | head -1)
+          if [ -z "$KONG_CONTAINER" ]; then
+            KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i kong | head -1)
+          fi
+          if [ -n "$KONG_CONTAINER" ]; then
+            KONG_IMAGE=$(docker inspect --format='{{.Image}}' "$KONG_CONTAINER" 2>/dev/null)
+            echo "Kong container found: $KONG_CONTAINER (image: $KONG_IMAGE)"
+          else
+            echo "ERROR: Kong container not found"
+            echo "=== Debug Info ==="
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            exit 1
+          fi
+          echo "kong_container=$KONG_CONTAINER" >> $GITHUB_OUTPUT
+          
+          # Find Auth container - Kong proxies /auth/ to GoTrue
+          # Auth container names follow pattern: project_auth_1 or supabase_auth_<project>
+          AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_auth_' | head -1)
+          if [ -z "$AUTH_CONTAINER" ]; then
+            AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i gotrue | head -1)
+          fi
+          if [ -z "$AUTH_CONTAINER" ]; then
+            # Use docker inspect to find gotrue image containers
+            AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | while read name; do
+              IMG=$(docker inspect --format='{{.Config.Image}}' "$name" 2>/dev/null)
+              if echo "$IMG" | grep -qi 'gotrue'; then
+                echo "$name"
+                break
+              fi
+            done | head -1)
+          fi
+          if [ -n "$AUTH_CONTAINER" ]; then
+            AUTH_IMAGE=$(docker inspect --format='{{.Config.Image}}' "$AUTH_CONTAINER" 2>/dev/null)
+            echo "Auth container found: $AUTH_CONTAINER (image: $AUTH_IMAGE)"
+          else
+            echo "ERROR: Auth (GoTrue) container not found"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            docker inspect --format='{{.Name}}: {{.Config.Image}}' $(docker ps -q) 2>/dev/null || echo "no container details"
+            exit 1
+          fi
+          echo "auth_container=$AUTH_CONTAINER" >> $GITHUB_OUTPUT
+      
+      - name: Wait for PostgreSQL
+        run: |
+          echo "Waiting for PostgreSQL..."
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 54322 -U postgres 2>/dev/null; then
+              echo "PostgreSQL ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: PostgreSQL not responding after 30 attempts"
+              echo "=== Debug Info ==="
+              echo "Docker containers:"
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+              echo "=== Recent container logs ==="
+              docker logs ${{ steps.discover.outputs.db_container }} 2>/dev/null | tail -30 || echo "no db logs"
+              exit 1
+            fi
+            echo "Attempt $i/30..."
+            sleep 2
+          done
+      
+      - name: Wait for Kong API (Gateway)
+        run: |
+          KONG_CONTAINER="${{ steps.discover.outputs.kong_container }}"
+          echo "Kong container: $KONG_CONTAINER"
+          
+          if [ -z "$KONG_CONTAINER" ]; then
+            echo "ERROR: Kong container not found"
+            echo "=== Debug Info ==="
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            exit 1
+          fi
+          
+          echo "Waiting for Kong API (gateway)..."
+          KONG_HEALTHY_DONE=false
+          for i in {1..30}; do
+            # Check Kong health status
+            KONG_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$KONG_CONTAINER" 2>/dev/null || echo "no_health")
+            KONG_STATE=$(docker inspect --format='{{.State.Running}}' "$KONG_CONTAINER" 2>/dev/null || echo "false")
+            
+            if [ "$KONG_HEALTH" = "healthy" ]; then
+              echo "Kong container healthy: $KONG_HEALTH"
+              KONG_HEALTHY_DONE=true
+              break
+            fi
+            
+            if [ "$KONG_STATE" != "true" ]; then
+              echo "ERROR: Kong container not running"
+              echo "Health: $KONG_HEALTH, State: $KONG_STATE"
+              echo "=== Debug Info ==="
+              echo "Docker containers:"
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+              echo "=== Kong container details ==="
+              docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
+              echo "=== Recent container logs ==="
+              docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
+              exit 1
+            fi
+            echo "Attempt $i/30... (Kong health: $KONG_HEALTH, running: true)"
+            sleep 2
+          done
+          
+          # Fail if Kong container never became healthy
+          if [ "$KONG_HEALTHY_DONE" = "false" ]; then
+            echo "ERROR: Kong container did not become healthy after 30 attempts"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            echo "=== Kong container details ==="
+            docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
+            echo "=== Recent container logs ==="
+            docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
+            exit 1
+          fi
+          
+          # Verify Kong is actually serving requests
+          # Try /auth/v1/health first (GoTrue health endpoint proxied by Kong)
+          # Then fallback to /rest/v1/ (PostgREST health)
+          echo "Verifying Kong is serving requests..."
+          KONG_HTTP_READY=false
+          for i in {1..30}; do
+            # Try auth health endpoint first
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:54321/auth/v1/health 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Kong /auth/v1/health responding with HTTP $HTTP_CODE - OK"
+              KONG_HTTP_READY=true
+              break
+            fi
+            # Also try Rest endpoint (PostgREST)
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:54321/rest/v1/ 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
+              echo "Kong /rest/v1/ responding with HTTP $HTTP_CODE - OK"
+              KONG_HTTP_READY=true
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: Kong did not respond correctly after 30 attempts (last HTTP code: $HTTP_CODE)"
+              echo "=== Debug Info ==="
+              echo "Docker containers:"
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+              echo "=== Kong container details ==="
+              docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
+              echo "=== Recent container logs ==="
+              docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
+              exit 1
+            fi
+            echo "Attempt $i/30... (HTTP status: $HTTP_CODE)"
+            sleep 2
+          done
+          
+          if [ "$KONG_HTTP_READY" = "true" ]; then
+            echo "Kong API ready"
+          else
+            echo "ERROR: Kong API not ready"
+            exit 1
+          fi
+      
+      - name: Wait for Auth (GoTrue)
+        run: |
+          AUTH_CONTAINER="${{ steps.discover.outputs.auth_container }}"
+          echo "Auth container: $AUTH_CONTAINER"
+          
+          if [ -z "$AUTH_CONTAINER" ]; then
+            echo "ERROR: Auth (GoTrue) container not found"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            docker inspect --format='{{.Name}}: {{.Image}}' $(docker ps -q) 2>/dev/null || echo "no container details"
+            exit 1
+          fi
+          
+          echo "Waiting for Auth (GoTrue)..."
+          AUTH_HEALTH_READY=false
+          for i in {1..30}; do
+            AUTH_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$AUTH_CONTAINER" 2>/dev/null || echo "no_health")
+            AUTH_STATE=$(docker inspect --format='{{.State.Running}}' "$AUTH_CONTAINER" 2>/dev/null || echo "false")
+            
+            if [ "$AUTH_HEALTH" = "healthy" ]; then
+              echo "Auth container healthy: $AUTH_HEALTH"
+              AUTH_HEALTH_READY=true
+              sleep 1
+              break
+            fi
+            
+            if [ "$AUTH_STATE" != "true" ]; then
+              if [ $i -eq 30 ]; then
+                echo "ERROR: Auth container not running after 30 attempts"
+                echo "Health: $AUTH_HEALTH, State: $AUTH_STATE"
+                echo "=== Debug Info ==="
+                echo "Docker containers:"
+                docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                echo "=== Auth container details ==="
+                docker inspect "$AUTH_CONTAINER" 2>/dev/null | head -80
+                echo "=== Recent container logs ==="
+                docker logs "$AUTH_CONTAINER" 2>/dev/null | tail -40
+                exit 1
+              fi
+              echo "Attempt $i/30... (Auth state: $AUTH_STATE, health: $AUTH_HEALTH)"
+            else
+              echo "Attempt $i/30... (Auth health: $AUTH_HEALTH, running: true)"
+            fi
+            sleep 2
+          done
+          
+          if [ "$AUTH_HEALTH_READY" = "true" ]; then
+            echo "Auth service ready"
+          else
+            echo "ERROR: Auth service did not become healthy within timeout"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            echo "=== Auth container details ==="
+            docker inspect "$AUTH_CONTAINER" 2>/dev/null | head -80
+            echo "=== Recent container logs ==="
+            docker logs "$AUTH_CONTAINER" 2>/dev/null | tail -40
+            exit 1
+          fi
+      
+      - name: Verify PostgreSQL version
+        run: |
+          echo "=== Supabase Services Status ==="
+          echo "DB: [redacted]"
+          echo "API URL: http://localhost:54321"
+          echo "Auth URL: http://localhost:54324"
+          
+          PG_VERSION=$(psql "$DATABASE_URL" -t -c "SHOW server_version" 2>/dev/null | tr -d '[:space:]')
+          if [ -z "$PG_VERSION" ]; then
+            echo "ERROR: Failed to query PostgreSQL version"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            echo "=== Recent container logs ==="
+            docker logs ${{ steps.discover.outputs.db_container }} 2>/dev/null | tail -30 || echo "no db logs"
+            exit 1
+          fi
+          echo "PostgreSQL version: $PG_VERSION"
+          if [[ ! "$PG_VERSION" =~ ^17 ]]; then
+            echo "ERROR: PostgreSQL version should be 17.x, got $PG_VERSION"
+            exit 1
+          fi
+          echo "OK: PostgreSQL 17 verified"
+      
+      - name: Check Supabase status
+        run: |
+          supabase status
+      
+      - name: Run local validation with protection
+        run: |
+          echo "=== Running local validation script ==="
+          python scripts/ci/local_validate.py
+      
+      - name: Run migrations and tests
+        run: |
+          echo "=== Running migration tests ==="
+          python -m pytest scripts/tests/test_url_validation.py -v
+      
+      - name: Stop Supabase
+        if: always()
+        run: |
+          echo "=== Stopping Supabase services ==="
+          supabase stop || echo "Supabase stop completed or already stopped"
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "=== Validation Summary ==="
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "Status: SUCCESS"
+          else
+            echo "Status: ${{ job.status }}"
+          fi
+          echo "=== Job completed ==="
