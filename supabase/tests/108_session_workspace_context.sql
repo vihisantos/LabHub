@@ -101,34 +101,29 @@ $$;
 -- ============================================================================
 DO $$
 DECLARE
-  anon_has_access boolean;
-  auth_has_access boolean;
+  anon_has_execute boolean;
+  auth_has_table_priv boolean;
+  func_oid oid;
 BEGIN
-  -- Verificar se anon não tem acesso
-  SELECT EXISTS (
-    SELECT 1 FROM pg_roles r
-    JOIN pg_auth_members am ON r.oid = am.member
-    WHERE r.rolname = 'anon'
-    AND am.roleid IN (
-      SELECT oid FROM pg_proc p
-      JOIN pg_namespace n ON p.pronamespace = n.oid
-      WHERE n.nspname = 'public'
-      AND p.proname = 'labhub_auth_session_is_active'
-    )
-  ) INTO anon_has_access;
+  -- Obter OID da função específica
+  SELECT p.oid INTO func_oid
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE p.proname = 'labhub_auth_session_is_active'
+    AND n.nspname = 'public';
   
-  -- Verificar se authenticated não tem acesso direto
-  SELECT EXISTS (
-    SELECT 1 FROM information_schema.table_privileges tp
-    JOIN pg_roles r ON tp.grantee = r.rolname::regrole
-    WHERE r.rolname IN ('anon', 'authenticated')
-    AND tp.table_name = 'session_workspace_contexts'
-    AND tp.privilege_type IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE')
-    AND tp.table_schema = 'public'
-  ) INTO auth_has_access;
+  -- Verificar se anon tem privilégio EXECUTE na função usando has_function_privilege
+  SELECT has_function_privilege('anon', func_oid, 'EXECUTE') INTO anon_has_execute;
   
-  IF anon_has_access OR auth_has_access THEN
-    RAISE EXCEPTION 'FAIL: anon ou authenticated ainda tem permissoes - anon: %, auth: %', anon_has_access, auth_has_access;
+  -- Verificar se authenticated tem privilégios na tabela usando has_table_privilege
+  SELECT has_table_privilege('authenticated', 'public.session_workspace_contexts', 'SELECT') 
+    OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'INSERT')
+    OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'UPDATE')
+    OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'DELETE') 
+    INTO auth_has_table_priv;
+  
+  IF anon_has_execute OR auth_has_table_priv THEN
+    RAISE EXCEPTION 'FAIL: anon ou authenticated ainda tem permissoes - anon_execute: %, auth_table_priv: %', anon_has_execute, auth_has_table_priv;
   END IF;
   
   RAISE NOTICE 'OK: REVOKE ALL aplicado corretamente a anon e authenticated';
@@ -142,11 +137,10 @@ DO $$
 DECLARE
   grant_count int;
 BEGIN
+  -- Verificar EXECUTE usando has_function_privilege para cada função
   SELECT COUNT(*) INTO grant_count
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
-  JOIN pg_default_acl da ON da.classid = p.proname::regproc::oid
-  JOIN pg_roles ro ON da.defrole = ro.oid
   WHERE p.proname IN (
     'labhub_auth_session_is_active',
     'labhub_set_session_workspace_context',
@@ -154,7 +148,7 @@ BEGIN
     'labhub_create_tv_activation_for_context'
   )
   AND n.nspname = 'public'
-  AND ro.rolname = 'service_role';
+  AND has_function_privilege('service_role', p.oid, 'EXECUTE');
   
   IF grant_count != 4 THEN
     RAISE EXCEPTION 'FAIL: Grants para service_role incompletos - % de 4 RPCs', grant_count;
