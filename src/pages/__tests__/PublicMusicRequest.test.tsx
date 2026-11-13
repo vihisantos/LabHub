@@ -132,16 +132,31 @@ describe('PublicMusicRequestPage — Turnstile habilitado', () => {
     vi.stubEnv('VITE_TURNSTILE_SITE_KEY', 'site-key-x')
     await renderReady()
 
+    // Aguardar o widget estar renderizado antes de chamar resolveChallenge
+    await waitFor(() => expect(lastOpts).not.toBeNull())
+    expect(lastOpts?.sitekey).toBe('site-key-x')
+
+    // Botão bloqueado antes do desafio ser resolvido
+    expect(screen.getByRole('button', { name: /Enviar pedido/ })).toBeDisabled()
+
     resolveChallenge('tk-1')
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Enviar pedido/ })).toBeEnabled(),
     )
 
+    // Botão deve estar habilitado após o primeiro desafio
+    expect(screen.getByRole('button', { name: /Enviar pedido/ })).toBeEnabled()
+
+    // Chamar o callback de expiração
     await waitFor(() => expect(lastOpts).not.toBeNull())
     lastOpts?.['expired-callback']?.()
+
+    // Verificar que o widget foi renderizado novamente
     await waitFor(() =>
       expect(window.turnstile!.render).toHaveBeenCalledTimes(2),
     )
+    
+    // Botão deve estar bloqueado novamente após expiração
     expect(screen.getByRole('button', { name: /Enviar pedido/ })).toBeDisabled()
   })
 

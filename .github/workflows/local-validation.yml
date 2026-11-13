@@ -110,27 +110,31 @@ jobs:
           echo "kong_container=$KONG_CONTAINER" >> $GITHUB_OUTPUT
           
           # Find Auth container - Kong proxies /auth/ to GoTrue
-          # Auth container is typically named project_auth_1 (not gotrue)
-          AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_auth$' | head -1)
+          # Auth container names follow pattern: project_auth_1 or supabase_auth_<project>
+          AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_auth_' | head -1)
           if [ -z "$AUTH_CONTAINER" ]; then
             AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i gotrue | head -1)
           fi
           if [ -z "$AUTH_CONTAINER" ]; then
-            # Also check for gotrue in image name
+            # Use docker inspect to find gotrue image containers
             AUTH_CONTAINER=$(docker ps --format '{{.Names}}' | while read name; do
-              img=$(docker inspect --format='{{.Image}}' "$name" 2>/dev/null)
-              if echo "$img" | grep -qi 'gotrue'; then
+              IMG=$(docker inspect --format='{{.Config.Image}}' "$name" 2>/dev/null)
+              if echo "$IMG" | grep -qi 'gotrue'; then
                 echo "$name"
                 break
               fi
             done | head -1)
           fi
           if [ -n "$AUTH_CONTAINER" ]; then
-            AUTH_IMAGE=$(docker inspect --format='{{.Image}}' "$AUTH_CONTAINER" 2>/dev/null)
+            AUTH_IMAGE=$(docker inspect --format='{{.Config.Image}}' "$AUTH_CONTAINER" 2>/dev/null)
             echo "Auth container found: $AUTH_CONTAINER (image: $AUTH_IMAGE)"
           else
-            echo "WARNING: Auth (GoTrue) container not found by name pattern"
-            # Don't fail - Auth might be accessed through Kong
+            echo "ERROR: Auth (GoTrue) container not found"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            docker inspect --format='{{.Name}}: {{.Config.Image}}' $(docker ps -q) 2>/dev/null || echo "no container details"
+            exit 1
           fi
           echo "auth_container=$AUTH_CONTAINER" >> $GITHUB_OUTPUT
       
