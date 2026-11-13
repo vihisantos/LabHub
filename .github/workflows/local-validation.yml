@@ -62,6 +62,37 @@ jobs:
         run: |
           supabase start --exclude mailpit,studio
       
+      - name: Discover container names
+        id: discover
+        run: |
+          echo "Discovering Supabase containers..."
+          echo "=== All running containers ==="
+          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+          
+          # Find db container
+          DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*_db$' | head -1)
+          if [ -z "$DB_CONTAINER" ]; then
+            DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'postgres' | head -1)
+          fi
+          echo "DB container: $DB_CONTAINER"
+          echo "db_container=$DB_CONTAINER" >> $GITHUB_OUTPUT
+          
+          # Find Kong container (API gateway)
+          KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*_kong$' | head -1)
+          if [ -z "$KONG_CONTAINER" ]; then
+            KONG_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'kong' | head -1)
+          fi
+          echo "Kong container: $KONG_CONTAINER"
+          echo "kong_container=$KONG_CONTAINER" >> $GITHUB_OUTPUT
+          
+          # Find GoTrue container (Auth)
+          GOTRUE_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'supabase.*_gotrue$' | head -1)
+          if [ -z "$GOTRUE_CONTAINER" ]; then
+            GOTRUE_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E 'gotrue' | head -1)
+          fi
+          echo "GoTrue container: $GOTRUE_CONTAINER"
+          echo "gotrue_container=$GOTRUE_CONTAINER" >> $GITHUB_OUTPUT
+      
       - name: Wait for PostgreSQL
         run: |
           echo "Waiting for PostgreSQL..."
@@ -74,13 +105,14 @@ jobs:
               echo "ERROR: PostgreSQL not responding after 30 attempts"
               echo "=== Debug Info ==="
               echo "Docker containers:"
-              docker ps 2>/dev/null || echo "docker not available"
-              echo "Supabase status:"
-              supabase status 2>/dev/null || echo "supabase status failed"
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
               echo "=== Container health status ==="
-              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' supabase_db 2>/dev/null || echo "no db health info"
+              for container in DB_KONG GOTRUE_CONTAINER value; do
+                c=$(eval echo "\$GITHUB_OUTPUT" | grep "${container}_container" | cut -d= -f2)
+              done
+              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' ${{ steps.discover.outputs.db_container }} 2>/dev/null || echo "no db health info"
               echo "=== Recent container logs ==="
-              docker logs supabase_db 2>/dev/null | tail -20 || echo "no db logs"
+              docker logs ${{ steps.discover.outputs.db_container }} 2>/dev/null | tail -20 || echo "no db logs"
               exit 1
             fi
             echo "Attempt $i/30..."
@@ -89,47 +121,82 @@ jobs:
       
       - name: Wait for Kong API (Gateway)
         run: |
+          KONG_CONTAINER="${{ steps.discover.outputs.kong_container }}"
+          echo "Kong container: $KONG_CONTAINER"
+          
+          if [ -z "$KONG_CONTAINER" ]; then
+            echo "ERROR: Kong container not found"
+            echo "=== Debug Info ==="
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            exit 1
+          fi
+          
           echo "Waiting for Kong API (gateway)..."
           for i in {1..30}; do
             # Check if Kong container is running and healthy
-            KONG_STATUS=$(docker inspect --format='{{.State.Health.Status}}' supabase_kong 2>/dev/null || echo "unknown")
-            if [ "$KONG_STATUS" = "healthy" ] || [ "$KONG_STATUS" = "starting" ]; then
-              echo "Kong container status: $KONG_STATUS"
-              # Wait a moment for it to be fully ready
-              sleep 3
+            KONG_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$KONG_CONTAINER" 2>/dev/null || echo "unknown")
+            
+            if [ "$KONG_STATUS" = "healthy" ]; then
+              echo "Kong container healthy: $KONG_STATUS"
+              sleep 2
               break
             fi
+            
+            # Also check if container is running
+            KONG_STATE=$(docker inspect --format='{{.State.Running}}' "$KONG_CONTAINER" 2>/dev/null || echo "false")
+            if [ "$KONG_STATE" = "true" ] && [ "$KONG_STATUS" = "starting" ]; then
+              echo "Kong container running, waiting for health... ($KONG_STATUS)"
+              sleep 2
+              break
+            fi
+            
             if [ $i -eq 30 ]; then
-              echo "ERROR: Kong container not ready after 30 attempts (status: $KONG_STATUS)"
+              echo "ERROR: Kong container not ready after 30 attempts (status: $KONG_STATUS, running: $KONG_STATE)"
               echo "=== Debug Info ==="
               echo "Docker containers:"
-              docker ps 2>/dev/null || echo "docker not available"
-              echo "Supabase status:"
-              supabase status 2>/dev/null || echo "supabase status failed"
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
               echo "=== Container health status ==="
-              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' supabase_kong 2>/dev/null || echo "no kong health info"
-              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' supabase_gotrue 2>/dev/null || echo "no gotrue health info"
+              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' "$KONG_CONTAINER" 2>/dev/null || echo "no kong health info"
+              echo "=== Kong container details ==="
+              docker inspect "$KONG_CONTAINER" 2>/dev/null | head -50 || echo "no kong details"
               echo "=== Recent container logs ==="
-              docker logs supabase_kong 2>/dev/null | tail -20 || echo "no kong logs"
+              docker logs "$KONG_CONTAINER" 2>/dev/null | tail -30 || echo "no kong logs"
               exit 1
             fi
-            echo "Attempt $i/30... (Kong status: $KONG_STATUS)"
+            echo "Attempt $i/30... (Kong status: $KONG_STATUS, running: $KONG_STATE)"
             sleep 2
           done
           echo "Kong API ready"
       
       - name: Wait for Auth (GoTrue)
         run: |
+          GOTRUE_CONTAINER="${{ steps.discover.outputs.gotrue_container }}"
+          echo "GoTrue container: $GOTRUE_CONTAINER"
+          
+          if [ -z "$GOTRUE_CONTAINER" ]; then
+            echo "WARNING: GoTrue container not found, skipping Auth check"
+            exit 0
+          fi
+          
           echo "Waiting for Auth (GoTrue)..."
           for i in {1..30}; do
-            GOTRUE_STATUS=$(docker inspect --format='{{.State.Health.Status}}' supabase_gotrue 2>/dev/null || echo "unknown")
-            if [ "$GOTRUE_STATUS" = "healthy" ] || [ "$GOTRUE_STATUS" = "starting" ]; then
-              echo "GoTrue container status: $GOTRUE_STATUS"
+            GOTRUE_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$GOTRUE_CONTAINER" 2>/dev/null || echo "unknown")
+            
+            if [ "$GOTRUE_STATUS" = "healthy" ]; then
+              echo "GoTrue container healthy: $GOTRUE_STATUS"
+              sleep 1
+              break
+            fi
+            
+            GOTRUE_STATE=$(docker inspect --format='{{.State.Running}}' "$GOTRUE_CONTAINER" 2>/dev/null || echo "false")
+            if [ "$GOTRUE_STATE" = "true" ] && [ "$GOTRUE_STATUS" = "starting" ]; then
+              echo "GoTrue container running, waiting... ($GOTRUE_STATUS)"
               sleep 2
               break
             fi
+            
             if [ $i -eq 30 ]; then
-              echo "WARNING: GoTrue container not fully ready after 30 attempts (status: $GOTRUE_STATUS)"
+              echo "WARNING: GoTrue container not fully healthy after 30 attempts (status: $GOTRUE_STATUS)"
               echo "Continuing anyway..."
               break
             fi
