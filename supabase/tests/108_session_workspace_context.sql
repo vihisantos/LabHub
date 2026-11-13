@@ -102,28 +102,52 @@ $$;
 DO $$
 DECLARE
   anon_has_execute boolean;
+  auth_has_execute boolean;
   auth_has_table_priv boolean;
   func_oid oid;
+  func_name text;
 BEGIN
-  -- Obter OID da função específica
-  SELECT p.oid INTO func_oid
-  FROM pg_proc p
-  JOIN pg_namespace n ON p.pronamespace = n.oid
-  WHERE p.proname = 'labhub_auth_session_is_active'
-    AND n.nspname = 'public';
+  -- Inicializar variáveis
+  anon_has_execute := false;
+  auth_has_execute := false;
+  auth_has_table_priv := false;
   
-  -- Verificar se anon tem privilégio EXECUTE na função usando has_function_privilege
-  SELECT has_function_privilege('anon', func_oid, 'EXECUTE') INTO anon_has_execute;
+  -- Verificar EXECUTE para cada uma das 4 RPCs
+  FOR func_name IN 
+    SELECT unnest(ARRAY[
+      'labhub_auth_session_is_active',
+      'labhub_set_session_workspace_context',
+      'labhub_get_session_workspace_context',
+      'labhub_create_tv_activation_for_context'
+    ])
+  LOOP
+    SELECT p.oid INTO func_oid
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE p.proname = func_name
+      AND n.nspname = 'public';
+    
+    -- Verificar privilégio EXECUTE para anon
+    IF has_function_privilege('anon', func_oid, 'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: anon tem EXECUTE em RPC %', func_name;
+    END IF;
+    
+    -- Verificar privilégio EXECUTE para authenticated
+    IF has_function_privilege('authenticated', func_oid, 'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL: authenticated tem EXECUTE em RPC %', func_name;
+    END IF;
+  END LOOP;
   
-  -- Verificar se authenticated tem privilégios na tabela usando has_table_privilege
-  SELECT has_table_privilege('authenticated', 'public.session_workspace_contexts', 'SELECT') 
-    OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'INSERT')
-    OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'UPDATE')
-    OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'DELETE') 
-    INTO auth_has_table_priv;
-  
-  IF anon_has_execute OR auth_has_table_priv THEN
-    RAISE EXCEPTION 'FAIL: anon ou authenticated ainda tem permissoes - anon_execute: %, auth_table_priv: %', anon_has_execute, auth_has_table_priv;
+  -- Verificar se authenticated tem privilégios na tabela
+  IF has_table_privilege('authenticated', 'public.session_workspace_contexts', 'SELECT') 
+     OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'UPDATE')
+     OR has_table_privilege('authenticated', 'public.session_workspace_contexts', 'DELETE') 
+     OR has_table_privilege('anon', 'public.session_workspace_contexts', 'SELECT') 
+     OR has_table_privilege('anon', 'public.session_workspace_contexts', 'INSERT')
+     OR has_table_privilege('anon', 'public.session_workspace_contexts', 'UPDATE')
+     OR has_table_privilege('anon', 'public.session_workspace_contexts', 'DELETE') THEN
+    RAISE EXCEPTION 'FAIL: anon ou authenticated tem permissoes na tabela';
   END IF;
   
   RAISE NOTICE 'OK: REVOKE ALL aplicado corretamente a anon e authenticated';
