@@ -218,7 +218,8 @@ class TestRPCsExistenceAndSecurity:
                 result = cur.fetchone()
                 assert result is not None, f"Função {func_name} não encontrada"
                 assert result[1] == True, f"Função {func_name} não é SECURITY DEFINER"
-                assert result[0] == '{search_path=pg_catalog}', \
+                # psycopg retorna proconfig como lista, comparar o conteúdo
+                assert result[0] == ['search_path=pg_catalog'], \
                     f"Função {func_name} tem proconfig incorreto: {result[0]}"
     
     def test_no_explicit_grant_to_anon_for_rpcs(self, db_conn):
@@ -235,8 +236,8 @@ class TestRPCsExistenceAndSecurity:
                 CROSS JOIN LATERAL aclexplode(p.proacl) AS acl
                 WHERE p.proname LIKE 'labhub_%'
                   AND n.nspname = 'public'
-                  AND aclgrantee::regrole::text = 'anon'
-                  AND aclprivilege::text = 'EXECUTE'
+                  AND acl.grantee::regrole::text = 'anon'
+                  AND acl.privilege_type = 'EXECUTE'
             """)
             # Se houver GRANT explícito para anon, o teste falha
             count = cur.fetchone()[0]
@@ -256,8 +257,8 @@ class TestRPCsExistenceAndSecurity:
                 CROSS JOIN LATERAL aclexplode(p.proacl) AS acl
                 WHERE p.proname LIKE 'labhub_%'
                   AND n.nspname = 'public'
-                  AND aclgrantee::regrole::text = 'authenticated'
-                  AND aclprivilege::text = 'EXECUTE'
+                  AND acl.grantee::regrole::text = 'authenticated'
+                  AND acl.privilege_type = 'EXECUTE'
             """)
             # Se houver GRANT explícito para authenticated, o teste falha
             count = cur.fetchone()[0]
@@ -274,7 +275,7 @@ class TestConstraintVerification:
                 SELECT conname, contype
                 FROM pg_constraint
                 WHERE contype = 'c'
-                  AND conrelid = (SELECT oid FROM pg_class c 
+                  AND conrelid = (SELECT c.oid FROM pg_class c 
                                   JOIN pg_namespace n ON c.relnamespace = n.oid 
                                   WHERE c.relname = 'session_workspace_contexts' 
                                   AND n.nspname = 'public')
