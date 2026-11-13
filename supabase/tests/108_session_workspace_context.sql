@@ -337,7 +337,7 @@ BEGIN
   SELECT COUNT(*) INTO check_count
   FROM pg_constraint
   WHERE contype = 'c'
-    AND conrelid = (SELECT oid FROM pg_class c 
+    AND conrelid = (SELECT c.oid FROM pg_class c 
                     JOIN pg_namespace n ON c.relnamespace = n.oid 
                     WHERE c.relname = 'session_workspace_contexts' 
                     AND n.nspname = 'public')
