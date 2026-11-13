@@ -55,13 +55,19 @@ def ensure_local_only_env():
     """Configura variáveis de ambiente para modo local exclusivo.
     
     Garante que não haja vazamento para produção.
+    NÃO sobrescreve configurações remotas que já estão definidas.
     """
-    # Limpar qualquer chave de serviço que poderia apontar para remoto
-    os.environ["SUPABASE_URL"] = "http://localhost:54321"
-    os.environ["SUPABASE_ANON_KEY"] = ""
-    os.environ["SUPABASE_SERVICE_KEY"] = ""
-    os.environ["SUPABASE_PROJECT_REF"] = ""
-    os.environ["SUPABASE_ACCESS_TOKEN"] = ""
+    # Apenas definir localhost se não houver configuração remota
+    if "SUPABASE_URL" not in os.environ or not os.environ["SUPABASE_URL"]:
+        os.environ["SUPABASE_URL"] = "http://localhost:54321"
+    if "SUPABASE_ANON_KEY" not in os.environ or not os.environ["SUPABASE_ANON_KEY"]:
+        os.environ["SUPABASE_ANON_KEY"] = ""
+    if "SUPABASE_SERVICE_KEY" not in os.environ or not os.environ["SUPABASE_SERVICE_KEY"]:
+        os.environ["SUPABASE_SERVICE_KEY"] = ""
+    if "SUPABASE_PROJECT_REF" not in os.environ or not os.environ["SUPABASE_PROJECT_REF"]:
+        os.environ["SUPABASE_PROJECT_REF"] = ""
+    if "SUPABASE_ACCESS_TOKEN" not in os.environ or not os.environ["SUPABASE_ACCESS_TOKEN"]:
+        os.environ["SUPABASE_ACCESS_TOKEN"] = ""
 
 
 def run_migrations():
