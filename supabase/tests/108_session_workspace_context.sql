@@ -261,10 +261,17 @@ DO $$
 DECLARE
   fk_rec RECORD;
   check_count int;
+  user_id_fk_count int := 0;
+  workspace_id_fk_count int := 0;
 BEGIN
   -- Verificar FK user_id -> auth.users.id
   FOR fk_rec IN 
-    SELECT conname, conkey, confrelid, refn.nspname AS ref_schema, ref.relname AS ref_table
+    SELECT 
+      c.conname, 
+      c.conkey,
+      c.confkey,
+      refn.nspname AS ref_schema, 
+      ref.relname AS ref_table
     FROM pg_constraint c
     JOIN pg_class t ON c.conrelid = t.oid
     JOIN pg_namespace n ON t.relnamespace = n.oid
@@ -275,14 +282,28 @@ BEGIN
       AND c.contype = 'f'
       AND c.conkey = ARRAY[2]::smallint[]
   LOOP
+    user_id_fk_count := user_id_fk_count + 1;
     IF NOT (fk_rec.ref_schema = 'auth' AND fk_rec.ref_table = 'users') THEN
       RAISE EXCEPTION 'FAIL: FK user_id não referencia auth.users - referencia %.%', fk_rec.ref_schema, fk_rec.ref_table;
     END IF;
+    -- Verificar que confkey indica coluna id (primeira coluna da tabela auth.users)
+    IF fk_rec.confkey != ARRAY[1]::int2[] THEN
+      RAISE EXCEPTION 'FAIL: FK user_id não referencia coluna id de auth.users - confkey=%', fk_rec.confkey;
+    END IF;
   END LOOP;
+  
+  IF user_id_fk_count != 1 THEN
+    RAISE EXCEPTION 'FAIL: FK user_id não encontrada exatamente uma vez - encontrada % vez(es)', user_id_fk_count;
+  END IF;
   
   -- Verificar FK workspace_id -> public.workspaces.id
   FOR fk_rec IN 
-    SELECT conname, conkey, confrelid, refn.nspname AS ref_schema, ref.relname AS ref_table
+    SELECT 
+      c.conname, 
+      c.conkey,
+      c.confkey,
+      refn.nspname AS ref_schema, 
+      ref.relname AS ref_table
     FROM pg_constraint c
     JOIN pg_class t ON c.conrelid = t.oid
     JOIN pg_namespace n ON t.relnamespace = n.oid
@@ -293,10 +314,19 @@ BEGIN
       AND c.contype = 'f'
       AND c.conkey = ARRAY[3]::smallint[]
   LOOP
+    workspace_id_fk_count := workspace_id_fk_count + 1;
     IF NOT (fk_rec.ref_schema = 'public' AND fk_rec.ref_table = 'workspaces') THEN
       RAISE EXCEPTION 'FAIL: FK workspace_id não referencia public.workspaces - referencia %.%', fk_rec.ref_schema, fk_rec.ref_table;
     END IF;
+    -- Verificar que confkey indica coluna id (primeira coluna da tabela public.workspaces)
+    IF fk_rec.confkey != ARRAY[1]::int2[] THEN
+      RAISE EXCEPTION 'FAIL: FK workspace_id não referencia coluna id de public.workspaces - confkey=%', fk_rec.confkey;
+    END IF;
   END LOOP;
+  
+  IF workspace_id_fk_count != 1 THEN
+    RAISE EXCEPTION 'FAIL: FK workspace_id não encontrada exatamente uma vez - encontrada % vez(es)', workspace_id_fk_count;
+  END IF;
   
   -- Verificar que o CHECK (revision > 0) existe
   SELECT COUNT(*) INTO check_count

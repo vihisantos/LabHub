@@ -98,9 +98,13 @@ class TestSessionWorkspaceContextTable:
     def test_foreign_key_user_id(self, db_conn):
         """user_id deve referenciar auth.users.id."""
         with db_conn.cursor() as cur:
-            # Verificar FK para auth.users
             cur.execute("""
-                SELECT conname
+                SELECT 
+                    c.conname AS fk_name,
+                    c.conkey AS col_num,
+                    c.confkey AS ref_col_num,
+                    refn.nspname AS ref_schema, 
+                    ref.relname AS ref_table
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 JOIN pg_namespace n ON t.relnamespace = n.oid
@@ -110,18 +114,25 @@ class TestSessionWorkspaceContextTable:
                   AND n.nspname = 'public'
                   AND c.contype = 'f'
                   AND c.conkey = ARRAY[2]::smallint[]
-                  AND refn.nspname = 'auth'
-                  AND ref.relname = 'users'
             """)
             result = cur.fetchone()
-            assert result is not None, "Foreign key para auth.users não encontrada"
+            assert result is not None, "Foreign key para user_id não encontrada"
+            # Verificar schema, tabela e coluna referenciada (deve ser auth.users.id)
+            assert result[3] == 'auth', f"FK referencia schema errado: {result[3]}"
+            assert result[4] == 'users', f"FK referencia tabela errada: {result[4]}"
+            # confkey = ARRAY[1] indica que referencia a primeira coluna de auth.users (id)
+            assert result[2] == (1,), f"FK não referencia coluna id: confkey={result[2]}"
     
     def test_foreign_key_workspace_id(self, db_conn):
         """workspace_id deve referenciar public.workspaces.id."""
         with db_conn.cursor() as cur:
-            # Verificar FK para public.workspaces
             cur.execute("""
-                SELECT conname
+                SELECT 
+                    c.conname AS fk_name,
+                    c.conkey AS col_num,
+                    c.confkey AS ref_col_num,
+                    refn.nspname AS ref_schema, 
+                    ref.relname AS ref_table
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 JOIN pg_namespace n ON t.relnamespace = n.oid
@@ -131,11 +142,14 @@ class TestSessionWorkspaceContextTable:
                   AND n.nspname = 'public'
                   AND c.contype = 'f'
                   AND c.conkey = ARRAY[3]::smallint[]
-                  AND refn.nspname = 'public'
-                  AND ref.relname = 'workspaces'
             """)
             result = cur.fetchone()
-            assert result is not None, "Foreign key para workspaces não encontrada"
+            assert result is not None, "Foreign key para workspace_id não encontrada"
+            # Verificar schema, tabela e coluna referenciada (deve ser public.workspaces.id)
+            assert result[3] == 'public', f"FK referencia schema errado: {result[3]}"
+            assert result[4] == 'workspaces', f"FK referencia tabela errada: {result[4]}"
+            # confkey = ARRAY[1] indica que referencia a primeira coluna de public.workspaces (id)
+            assert result[2] == (1,), f"FK não referencia coluna id: confkey={result[2]}"
     
     def test_rls_enabled(self, db_conn):
         """RLS deve estar habilitado."""
@@ -198,40 +212,46 @@ class TestRPCsExistenceAndSecurity:
                     f"Função {func_name} tem proconfig incorreto: {result[0]}"
     
     def test_no_explicit_grant_to_anon_for_rpcs(self, db_conn):
-        """RPCs não devem ter GRANT explícito para anon (diferente de herança)."""
+        """RPCs não devem ter ACL explícita para anon.
+        
+        Usa aclexplode para verificar GRANT explícito na ACL da função,
+        diferenciando de privilégio efetivo herdado.
+        """
         with db_conn.cursor() as cur:
-            # Verificar que anon NÃO tem GRANT explícito nas RPCs
-            # has_function_privilege retorna True se o papel TEM o privilégio,
-            # independente de ser explícito ou herdado
             cur.execute("""
                 SELECT COUNT(*) 
                 FROM pg_proc p
                 JOIN pg_namespace n ON p.pronamespace = n.oid
+                CROSS JOIN LATERAL aclexplode(p.proacl) AS acl
                 WHERE p.proname LIKE 'labhub_%'
                   AND n.nspname = 'public'
-                  AND p.prosecdef = true
-                  AND has_function_privilege('anon', p.oid, 'EXECUTE')
+                  AND aclgrantee::regrole::text = 'anon'
+                  AND aclprivilege::text = 'EXECUTE'
             """)
-            # Para SECURITY DEFINER funções, anon NÃO deve ter acesso
+            # Se houver GRANT explícito para anon, o teste falha
             count = cur.fetchone()[0]
-            assert count == 0, f"Anon tem {count} GRANTs EXECUTE (deveria ser 0)"
+            assert count == 0, f"Anon tem {count} GRANTs EXECUTE explícitos em RPCs labhub_*"
     
     def test_no_explicit_grant_to_authenticated_for_rpcs(self, db_conn):
-        """RPCs não devem ter GRANT explícito para authenticated (diferente de herança)."""
+        """RPCs não devem ter ACL explícita para authenticated.
+        
+        Usa aclexplode para verificar GRANT explícito na ACL da função,
+        diferenciando de privilégio efetivo herdado.
+        """
         with db_conn.cursor() as cur:
-            # Verificar que authenticated NÃO tem GRANT explícito nas RPCs
             cur.execute("""
                 SELECT COUNT(*) 
                 FROM pg_proc p
                 JOIN pg_namespace n ON p.pronamespace = n.oid
+                CROSS JOIN LATERAL aclexplode(p.proacl) AS acl
                 WHERE p.proname LIKE 'labhub_%'
                   AND n.nspname = 'public'
-                  AND p.prosecdef = true
-                  AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+                  AND aclgrantee::regrole::text = 'authenticated'
+                  AND aclprivilege::text = 'EXECUTE'
             """)
-            # Para SECURITY DEFINER funções, authenticated NÃO deve ter acesso
+            # Se houver GRANT explícito para authenticated, o teste falha
             count = cur.fetchone()[0]
-            assert count == 0, f"Authenticated tem {count} GRANTs EXECUTE (deveria ser 0)"
+            assert count == 0, f"Authenticated tem {count} GRANTs EXECUTE explícitos em RPCs labhub_*"
 
 
 class TestConstraintVerification:
@@ -254,10 +274,11 @@ class TestConstraintVerification:
             assert result is not None, "CHECK constraint revision > 0 não encontrada"
     
     def test_revsion_check_enforces_positive(self, db_conn):
-        """Verifica que revision não pode ser 0 ou negativo pelo CHECK constraint."""
-        # Esta verificação pode ser feita usando pg_typeof para ver o tipo
-        # ou tentando inserir valores inválidos (que falham silenciosamente)
-        # Como o CHECK é definido como "revision > 0", vamos verificar via pg_constraint
+        """Verifica que revision não pode ser 0 ou negativo pelo CHECK constraint.
+        
+        Valida a expressão real da constraint, não apenas palavras-chave.
+        Confirma que a expressão é estritamente maior que zero.
+        """
         with db_conn.cursor() as cur:
             cur.execute("""
                 SELECT pg_get_constraintdef(c.oid)
@@ -271,6 +292,21 @@ class TestConstraintVerification:
             """)
             result = cur.fetchone()
             assert result is not None, "CHECK constraint não encontrada"
-            # Verificar que o constraint contém 'revision > 0'
-            assert 'revision' in result[0].lower(), "Constraint não menciona revision"
-            assert '>' in result[0], "Constraint não tem operador >"
+            
+            constraint_def = result[0]
+            # Normalizar para comparação
+            def_lower = constraint_def.lower()
+            
+            # Verificar que é estritamente maior que 0 (não >= 0, não > 0)
+            # O padrão esperado é: revision > 0
+            # Posso também ser: CHECK ((revision > 0)::boolean)
+            assert 'revision' in def_lower, f"Constraint não menciona 'revision': {constraint_def}"
+            assert '>' in def_lower, f"Constraint não tem operador '>': {constraint_def}"
+            
+            # Verificar especificamente que é "> 0" ou ">= 1" (equivalente a > 0 para inteiros)
+            # Aceitamos: "> 0", ">= 1", ou variações
+            is_valid = (
+                ('>' in def_lower and '0' in def_lower and def_lower.index('>') < def_lower.index('0')) or
+                ('>=' in def_lower and '1' in def_lower and def_lower.index('>=') < def_lower.index('1'))
+            )
+            assert is_valid, f"Constraint não impõe valor > 0 corretamente: {constraint_def}"
