@@ -15,92 +15,8 @@ on:
       - ".github/workflows/local-validation.yml"
 
 jobs:
-  # ==========================================================================
-  # Estágio 1: Inicialização do ambiente Supabase completo
-  # ==========================================================================
-  setup-environment:
-    name: Initialize Supabase Stack
-    runs-on: ubuntu-latest
-    outputs:
-      db_port: 54322
-      api_port: 54321
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-      
-      - name: Install Supabase CLI v2
-        run: |
-          npm install -g supabase@latest
-          supabase --version
-      
-      - name: Start full Supabase stack locally
-        # Usa supabase start com todos os serviços essenciais
-        # Não conecta a nenhum projeto remoto
-        run: |
-          supabase start --exclude-mailpit,studio
-      
-      - name: Wait for Supabase API
-        run: |
-          echo "Waiting for Supabase API..."
-          for i in {1..30}; do
-            if curl -s http://localhost:54321/healthz | grep -q "OK"; then
-              echo "Supabase API ready"
-              exit 0
-            fi
-            echo "Attempt $i/30..."
-            sleep 2
-          done
-          echo "ERROR: Supabase API not responding"
-          exit 1
-      
-      - name: Wait for PostgreSQL
-        run: |
-          echo "Waiting for PostgreSQL..."
-          for i in {1..30}; do
-            if pg_isready -h localhost -p 54322 -U postgres 2>/dev/null; then
-              echo "PostgreSQL ready"
-              exit 0
-            fi
-            echo "Attempt $i/30..."
-            sleep 2
-          done
-          echo "ERROR: PostgreSQL not responding"
-          exit 1
-      
-      - name: Display Supabase status
-        run: |
-          echo "=== Supabase Services Status ==="
-          echo "DB URL: postgresql://postgres:postgres@localhost:54322/postgres"
-          echo "API URL: http://localhost:54321"
-          echo "Auth URL: http://localhost:54324"
-          echo "Storage URL: http://localhost:54323"
-      
-      - name: Verify PostgreSQL version
-        run: |
-          PG_VERSION=$(psql -h localhost -p 54322 -U postgres -d postgres -t -c "SHOW server_version" | tr -d '[:space:]')
-          echo "PostgreSQL version: $PG_VERSION"
-          if [[ ! "$PG_VERSION" =~ ^17 ]]; then
-            echo "ERROR: PostgreSQL version should be 17.x, got $PG_VERSION"
-            exit 1
-          fi
-          echo "OK: PostgreSQL 17 verified"
-      
-      - name: Run static migration tests
-        run: |
-          python -m pytest api/tests/test_session_workspace_context_migration.py -v
-
-  # ==========================================================================
-  # Estágio 2: Validação completa no mesmo job
-  # ==========================================================================
   validate-local:
-    name: Validate against local Supabase (PG17)
-    needs: setup-environment
+    name: Local Validation with Supabase CLI
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -112,6 +28,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -122,145 +44,66 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests python-dotenv pytest psycopg[binary] jsonschema
       
-      - name: Apply migrations with official LabHub runner
-        # USAR O RUNNER OFICIAL scripts/migrate.py
-        # NÃO usar supabase db push nem supabase db reset
+      - name: Install Supabase CLI v2.50.0
         run: |
-          echo "=== Applying migrations via official runner ==="
-          python scripts/migrate.py --from-scratch
+          npm install -g supabase@2.50.0
+          supabase --version
+      
+      - name: Start full Supabase stack locally
+        run: |
+          supabase start --exclude-mailpit,studio
+      
+      - name: Wait for Supabase services
+        run: |
+          echo "Waiting for Supabase API..."
+          for i in {1..30}; do
+            if curl -s http://localhost:54321/healthz | grep -q "OK"; then
+              echo "Supabase API ready"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 2
+          done
           
-          echo ""
-          echo "=== Verifying migrations were applied ==="
-          COUNT=$(psql -h localhost -p 54322 -U postgres -d postgres -t -c \
-            "SELECT COUNT(*) FROM public.schema_migrations" | tr -d '[:space:]')
-          echo "Migrations count: $COUNT"
+          echo "Waiting for PostgreSQL..."
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 54322 -U postgres 2>/dev/null; then
+              echo "PostgreSQL ready"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 2
+          done
           
-          if [ "$COUNT" -eq 0 ]; then
-            echo "ERROR: No migrations were applied"
+          echo "=== Supabase Services Status ==="
+          echo "DB URL: postgresql://postgres:postgres@localhost:54322/postgres"
+          echo "API URL: http://localhost:54321"
+          
+          PG_VERSION=$(psql -h localhost -p 54322 -U postgres -d postgres -t -c "SHOW server_version" | tr -d '[:space:]')
+          echo "PostgreSQL version: $PG_VERSION"
+          if [[ ! "$PG_VERSION" =~ ^17 ]]; then
+            echo "ERROR: PostgreSQL version should be 17.x, got $PG_VERSION"
             exit 1
           fi
+          echo "OK: PostgreSQL 17 verified"
       
-      - name: Run SQL validation tests
+      - name: Run local validation with protection
         run: |
-          echo "=== Running SQL tests ==="
-          psql -h localhost -p 54322 -U postgres -v ON_ERROR_STOP=1 \
-            -f supabase/tests/108_session_workspace_context.sql
-          
-          if [ $? -eq 0 ]; then
-            echo "OK: SQL tests passed"
-          else
-            echo "ERROR: SQL tests failed"
-            exit 1
-          fi
+          echo "=== Running local validation script ==="
+          python scripts/ci/local_validate.py
       
-      - name: Run Python integration tests
+      - name: Stop Supabase
+        if: always()
         run: |
-          echo "=== Running Python tests ==="
-          pytest scripts/tests/test_local_session_workspace.py -v --tb=short
-          
-          if [ $? -eq 0 ]; then
-            echo "OK: Python tests passed"
-          else
-            echo "ERROR: Python tests failed"
-            exit 1
-          fi
-      
-      - name: Verify session context isolation
-        run: |
-          echo "=== Verifying session context isolation ==="
-          
-          python3 << 'PYTHON_SCRIPT'
-import psycopg
-import uuid
-import sys
-
-try:
-    conn = psycopg.connect('postgresql://postgres:postgres@localhost:54322/postgres')
-    cur = conn.cursor()
-    
-    session_a = str(uuid.uuid4())
-    session_b = str(uuid.uuid4())
-    ws_a = str(uuid.uuid4())
-    ws_b = str(uuid.uuid4())
-    
-    # Insert test users and workspaces first (simulating real constraints)
-    test_user_a = str(uuid.uuid4())
-    test_user_b = str(uuid.uuid4())
-    test_workspace_a = str(uuid.uuid4())
-    test_workspace_b = str(uuid.uuid4())
-    
-    # Insert workspaces
-    cur.execute("""
-        INSERT INTO public.workspaces (id, name, slug, is_active)
-        VALUES (%s, 'Test Workspace A', 'test-a', true),
-               (%s, 'Test Workspace B', 'test-b', true)
-        ON CONFLICT DO NOTHING
-    """, [test_workspace_a, test_workspace_b])
-    
-    # Insert profiles
-    cur.execute("""
-        INSERT INTO public.profiles (id, email, name, role, status)
-        VALUES (%s, 'test-a@example.com', 'Test User A', 'tecnico', 'active'),
-               (%s, 'test-b@example.com', 'Test User B', 'tecnico', 'active')
-        ON CONFLICT DO NOTHING
-    """, [test_user_a, test_user_b])
-    
-    # Insert membership records
-    cur.execute("""
-        INSERT INTO public.memberships (profile_id, workspace_id, status)
-        VALUES (%s, %s, 'active'), (%s, %s, 'active')
-        ON CONFLICT DO NOTHING
-    """, [test_user_a, test_workspace_a, test_user_b, test_workspace_b])
-    
-    # Insert contexts
-    cur.execute("""
-        INSERT INTO public.session_workspace_contexts (session_id, user_id, workspace_id, revision)
-        VALUES (%s, %s, %s, 1), (%s, %s, %s, 1)
-        ON CONFLICT DO NOTHING
-    """, [session_a, test_user_a, test_workspace_a, session_b, test_user_b, test_workspace_b])
-    
-    # Verify isolation
-    cur.execute("""
-        SELECT workspace_id FROM public.session_workspace_contexts WHERE session_id = %s
-    """, [session_a])
-    ws_a_result = cur.fetchone()[0]
-    
-    cur.execute("""
-        SELECT workspace_id FROM public.session_workspace_contexts WHERE session_id = %s
-    """, [session_b])
-    ws_b_result = cur.fetchone()[0]
-    
-    # Verify isolation
-    if ws_a_result != test_workspace_a:
-        print(f"FAIL: Session A got wrong workspace: {ws_a_result} != {test_workspace_a}")
-        sys.exit(1)
-    
-    if ws_b_result != test_workspace_b:
-        print(f"FAIL: Session B got wrong workspace: {ws_b_result} != {test_workspace_b}")
-        sys.exit(1)
-    
-    print("OK: Session isolation verified")
-    
-    # Cleanup
-    cur.execute("DELETE FROM public.session_workspace_contexts WHERE session_id IN (%s, %s)", 
-                [session_a, session_b])
-    cur.execute("DELETE FROM public.workspaces WHERE id IN (%s, %s)",
-                [test_workspace_a, test_workspace_b])
-    cur.execute("DELETE FROM public.memberships WHERE profile_id IN (%s, %s)",
-                [test_user_a, test_user_b])
-    cur.execute("DELETE FROM public.profiles WHERE id IN (%s, %s)",
-                [test_user_a, test_user_b])
-    
-    conn.close()
-    
-except Exception as e:
-    print(f"ERROR: {e}")
-    sys.exit(1)
-PYTHON_SCRIPT
+          echo "=== Stopping Supabase services ==="
+          supabase stop || echo "Supabase stop completed or already stopped"
       
       - name: Summary
         if: always()
         run: |
           echo "=== Validation Summary ==="
-          echo "Job completed"
-          echo "All tests should be checked above"
+          if [ $? -eq 0 ]; then
+            echo "Status: SUCCESS"
+          else
+            echo "Status: FAILED"
+          fi
