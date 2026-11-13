@@ -213,13 +213,27 @@ def run_sql_tests():
         print(f"ERROR: Arquivo de testes não encontrado: {test_file}")
         return False
 
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        print("ERROR: DATABASE_URL não está definida")
+        return False
+
+    try:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(db_url)
+        hostname = parsed.hostname or ""
+        if hostname not in ("localhost", "127.0.0.1"):
+            print(f"ERROR: DATABASE_URL aponta para remoto: {hostname}")
+            print("Testes SQL contra bancos remotos são PROIBIDOS")
+            return False
+    except Exception as e:
+        print(f"ERROR: Falha ao validar DATABASE_URL: {e}")
+        return False
+
     result = subprocess.run(
         [
             "psql",
-            "-h", "localhost",
-            "-p", "54322",
-            "-U", "postgres",
-            "-d", "postgres",
+            db_url,
             "-v", "ON_ERROR_STOP=1",
             "-f", test_file
         ],
