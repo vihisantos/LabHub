@@ -319,11 +319,20 @@ jobs:
       - name: Verify PostgreSQL version
         run: |
           echo "=== Supabase Services Status ==="
-          echo "DB URL: postgresql://postgres:postgres@localhost:54322/postgres"
+          echo "DB: [redacted]"
           echo "API URL: http://localhost:54321"
           echo "Auth URL: http://localhost:54324"
           
-          PG_VERSION=$(psql -h localhost -p 54322 -U postgres -d postgres -t -c "SHOW server_version" | tr -d '[:space:]')
+          PG_VERSION=$(psql "$DATABASE_URL" -t -c "SHOW server_version" 2>/dev/null | tr -d '[:space:]')
+          if [ -z "$PG_VERSION" ]; then
+            echo "ERROR: Failed to query PostgreSQL version"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            echo "=== Recent container logs ==="
+            docker logs ${{ steps.discover.outputs.db_container }} 2>/dev/null | tail -30 || echo "no db logs"
+            exit 1
+          fi
           echo "PostgreSQL version: $PG_VERSION"
           if [[ ! "$PG_VERSION" =~ ^17 ]]; then
             echo "ERROR: PostgreSQL version should be 17.x, got $PG_VERSION"
