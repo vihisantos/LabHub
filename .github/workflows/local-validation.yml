@@ -69,8 +69,11 @@ jobs:
           echo "=== All running containers ==="
           docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
           
-          # Find db container - look for _db suffix first, then postgres image
-          DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db$' | head -1)
+          # Find db container - look for _db suffix, _db_ pattern, postgres image
+          DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db_' | head -1)
+          if [ -z "$DB_CONTAINER" ]; then
+            DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db$' | head -1)
+          fi
           if [ -z "$DB_CONTAINER" ]; then
             DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i postgres | head -1)
           fi
@@ -326,4 +329,5 @@ jobs:
             echo "Status: SUCCESS"
           else
             echo "Status: ${{ job.status }}"
-          fi)
+          fi
+          echo "=== Job completed ===")
