@@ -1,14 +1,10 @@
 # Supabase local configuration - LabHub
 # NÃO usar supabase db push/reset - migrations gerenciadas pelo scripts/migrate.py
-# Compatível com Supabase CLI v2.50.0
+# Configuração mínima compatível com Supabase CLI v2.50.0
 
 [db]
 port = 54322
-host = "127.0.0.1"
 major_version = 17
-username = "postgres"
-password = "postgres"
-# database = "postgres"  # Usado apenas para conexão do próprio CLI
 
 [api]
 port = 54321

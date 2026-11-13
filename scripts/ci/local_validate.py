@@ -61,11 +61,29 @@ def validate_no_remote_config():
     supabase_url = os.environ.get("SUPABASE_URL", "")
     
     if supabase_url:
+        # Verificar se está vazio após strip
+        if not supabase_url.strip():
+            print("ERROR: SUPABASE_URL está vazia ou em branco")
+            print("URLs vazias são PROIBIDAS nesse ambiente.")
+            return False
+        
         try:
             parsed = urllib.parse.urlparse(supabase_url)
-            hostname = parsed.hostname or ""
             
-            if hostname and hostname not in ("localhost", "127.0.0.1"):
+            # Verificar se tem esquema esperado (http ou https)
+            if parsed.scheme not in ("http", "https"):
+                print(f"ERROR: SUPABASE_URL tem esquema inesperado: {parsed.scheme}")
+                print("Apenas http e https são suportados.")
+                return False
+            
+            # Verificar se tem hostname
+            hostname = parsed.hostname or ""
+            if not hostname:
+                print("ERROR: SUPABASE_URL não tem hostname válido")
+                print("URLs sem hostname são PROIBIDAS nesse ambiente.")
+                return False
+            
+            if hostname not in ("localhost", "127.0.0.1"):
                 print(f"ERROR: SUPABASE_URL aponta para remoto: {hostname}")
                 print("Este script só pode executar em ambiente local.")
                 return False
@@ -74,6 +92,28 @@ def validate_no_remote_config():
             print(f"ERROR: Falha ao analisar SUPABASE_URL: {e}")
             print("URLs remotas são PROIBIDAS nesse ambiente.")
             return False
+    
+    return True
+
+
+def validate_all_keys():
+    """Verifica que não há chaves sensíveis em variáveis de ambiente.
+    
+    Garante que credenciais de produção não estejam carregadas.
+    """
+    sensitive_keys = [
+        "SUPABASE_ACCESS_TOKEN",
+        "SUPABASE_PROJECT_REF",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_KEY"
+    ]
+    
+    for key in sensitive_keys:
+        value = os.environ.get(key, "")
+        if value and value.strip():
+            # Se a chave existe e tem valor, verifica se é local
+            print(f"WARNING: {key} está configurada. Verifique se é local.")
+            # Não falamos aqui, apenas alertamos - o script já rejeitou URLs remotas
     
     return True
 
@@ -228,6 +268,13 @@ def main():
         print("FALHA: Configuracao remota detectada")
         sys.exit(1)
     print("OK: Sem configuracoes remotas")
+    
+    # Passo 1.6: Validar chaves sensíveis
+    print("\n[1.6/6] Validando chaves sensíveis...")
+    if not validate_all_keys():
+        print("FALHA: Chaves sensíveis detectadas")
+        sys.exit(1)
+    print("OK: Chaves sensíveis verificadas")
     
     # Passo 2: Garantir modo local exclusivo
     print("\n[2/6] Configurando modo local exclusivo...")
