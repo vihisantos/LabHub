@@ -62,7 +62,7 @@ jobs:
         run: |
           supabase start --exclude mailpit,studio
       
-      - name: Wait for Supabase services
+      - name: Wait for PostgreSQL
         run: |
           echo "Waiting for PostgreSQL..."
           for i in {1..30}; do
@@ -77,6 +77,8 @@ jobs:
               docker ps 2>/dev/null || echo "docker not available"
               echo "Supabase status:"
               supabase status 2>/dev/null || echo "supabase status failed"
+              echo "=== Container health status ==="
+              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' supabase_db 2>/dev/null || echo "no db health info"
               echo "=== Recent container logs ==="
               docker logs supabase_db 2>/dev/null | tail -20 || echo "no db logs"
               exit 1
@@ -84,45 +86,59 @@ jobs:
             echo "Attempt $i/30..."
             sleep 2
           done
-          
-          echo "Waiting for Supabase API (Kong gateway)..."
+      
+      - name: Wait for Kong API (Gateway)
+        run: |
+          echo "Waiting for Kong API (gateway)..."
           for i in {1..30}; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:54321/healthz 2>/dev/null || echo "000")
-            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
-              echo "Supabase API ready (HTTP $HTTP_CODE)"
+            # Check if Kong container is running and healthy
+            KONG_STATUS=$(docker inspect --format='{{.State.Health.Status}}' supabase_kong 2>/dev/null || echo "unknown")
+            if [ "$KONG_STATUS" = "healthy" ] || [ "$KONG_STATUS" = "starting" ]; then
+              echo "Kong container status: $KONG_STATUS"
+              # Wait a moment for it to be fully ready
+              sleep 3
               break
             fi
             if [ $i -eq 30 ]; then
-              echo "ERROR: Supabase API not responding after 30 attempts (last HTTP code: $HTTP_CODE)"
+              echo "ERROR: Kong container not ready after 30 attempts (status: $KONG_STATUS)"
               echo "=== Debug Info ==="
               echo "Docker containers:"
               docker ps 2>/dev/null || echo "docker not available"
               echo "Supabase status:"
               supabase status 2>/dev/null || echo "supabase status failed"
+              echo "=== Container health status ==="
+              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' supabase_kong 2>/dev/null || echo "no kong health info"
+              docker inspect --format='{{.Name}}: {{.State.Health.Status}}' supabase_gotrue 2>/dev/null || echo "no gotrue health info"
               echo "=== Recent container logs ==="
-              docker logs supabase_db 2>/dev/null | tail -20 || echo "no db logs"
               docker logs supabase_kong 2>/dev/null | tail -20 || echo "no kong logs"
               exit 1
             fi
-            echo "Attempt $i/30... (HTTP $HTTP_CODE)"
+            echo "Attempt $i/30... (Kong status: $KONG_STATUS)"
             sleep 2
           done
-          
-          echo "Waiting for Auth service..."
+          echo "Kong API ready"
+      
+      - name: Wait for Auth (GoTrue)
+        run: |
+          echo "Waiting for Auth (GoTrue)..."
           for i in {1..30}; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:54324 -H "Host: localhost" 2>/dev/null || echo "000")
-            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
-              echo "Auth service ready (HTTP $HTTP_CODE)"
+            GOTRUE_STATUS=$(docker inspect --format='{{.State.Health.Status}}' supabase_gotrue 2>/dev/null || echo "unknown")
+            if [ "$GOTRUE_STATUS" = "healthy" ] || [ "$GOTRUE_STATUS" = "starting" ]; then
+              echo "GoTrue container status: $GOTRUE_STATUS"
+              sleep 2
               break
             fi
             if [ $i -eq 30 ]; then
-              echo "WARNING: Auth service not responding after 30 attempts (last HTTP code: $HTTP_CODE)"
+              echo "WARNING: GoTrue container not fully ready after 30 attempts (status: $GOTRUE_STATUS)"
+              echo "Continuing anyway..."
               break
             fi
-            echo "Attempt $i/30... (HTTP $HTTP_CODE)"
+            echo "Attempt $i/30... (GoTrue status: $GOTRUE_STATUS)"
             sleep 2
           done
-          
+      
+      - name: Verify PostgreSQL version
+        run: |
           echo "=== Supabase Services Status ==="
           echo "DB URL: postgresql://postgres:postgres@localhost:54322/postgres"
           echo "API URL: http://localhost:54321"
@@ -144,6 +160,11 @@ jobs:
         run: |
           echo "=== Running local validation script ==="
           python scripts/ci/local_validate.py
+      
+      - name: Run migrations and tests
+        run: |
+          echo "=== Running migration tests ==="
+          python -m pytest scripts/tests/test_url_validation.py -v
       
       - name: Stop Supabase
         if: always()
