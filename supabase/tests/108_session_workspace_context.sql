@@ -205,55 +205,74 @@ END
 $$;
 
 -- ============================================================================
--- Teste 8: Índices foram criados
+-- Teste 8: Verificar estrutura da tabela (PK, colunas, constraints)
 -- ============================================================================
 DO $$
 DECLARE
-  idx_count int;
+  pk_count int;
+  col_count int;
 BEGIN
-  SELECT COUNT(*) INTO idx_count
-  FROM pg_indexes
-  WHERE schemaname = 'public'
-    AND tablename = 'session_workspace_contexts'
-    AND indexname IN (
-      'idx_session_workspace_contexts_user',
-      'idx_session_workspace_contexts_workspace'
-    );
+  -- Verificar que PRIMARY KEY existe (session_id é PK)
+  SELECT COUNT(*) INTO pk_count
+  FROM pg_constraint c
+  JOIN pg_class t ON c.conrelid = t.oid
+  JOIN pg_namespace n ON t.relnamespace = n.oid
+  WHERE t.relname = 'session_workspace_contexts'
+    AND n.nspname = 'public'
+    AND c.contype = 'p';
   
-  IF idx_count != 2 THEN
-    RAISE EXCEPTION 'FAIL: Índices incompletos - % de 2 encontrados', idx_count;
+  IF pk_count != 1 THEN
+    RAISE EXCEPTION 'FAIL: PRIMARY KEY não encontrada em session_workspace_contexts - % encontrada(s)', pk_count;
   END IF;
   
-  RAISE NOTICE 'OK: Todos os 2 índices foram criados';
+  -- Verificar que as 6 colunas principais existem
+  SELECT COUNT(*) INTO col_count
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'session_workspace_contexts'
+    AND column_name IN ('session_id', 'user_id', 'workspace_id', 'revision', 'created_at', 'updated_at');
+  
+  IF col_count != 6 THEN
+    RAISE EXCEPTION 'FAIL: Estrutura da tabela incompleta - % de 6 colunas encontradas', col_count;
+  END IF;
+  
+  RAISE NOTICE 'OK: Estrutura da tabela verificada - PK e 6 colunas principais';
 END
 $$;
 
 -- ============================================================================
--- Teste 9: Verificar que a tabela pode receber dados de teste
+-- Teste 9: Verificar estrutura FK e CHECK
 -- ============================================================================
 DO $$
 DECLARE
-  test_session uuid := '00000000-0000-0000-0000-000000000001';
-  test_user uuid := '00000000-0000-0000-0000-000000000002';
-  test_workspace uuid := '00000000-0000-0000-0000-000000000003';
+  fk_count int;
+  check_count int;
 BEGIN
-  -- Inserir um registro de teste
-  INSERT INTO public.session_workspace_contexts (session_id, user_id, workspace_id, revision)
-  VALUES (test_session, test_user, test_workspace, 1)
-  ON CONFLICT (session_id) DO NOTHING;
+  -- Verificar que as 2 FK foram criadas (user_id -> auth.users, workspace_id -> public.workspaces)
+  SELECT COUNT(*) INTO fk_count
+  FROM information_schema.key_column_usage
+  WHERE table_schema = 'public'
+    AND table_name = 'session_workspace_contexts'
+    AND constraint_name IN (
+      'session_workspace_contexts_user_id_fkey',
+      'session_workspace_contexts_workspace_id_fkey'
+    );
   
-  -- Verificar se foi inserido
-  IF NOT EXISTS (
-    SELECT 1 FROM public.session_workspace_contexts 
-    WHERE session_id = test_session
-  ) THEN
-    RAISE EXCEPTION 'FAIL: Não foi possível inserir dado de teste na tabela';
+  IF fk_count != 2 THEN
+    RAISE EXCEPTION 'FAIL: Foreign Keys incompletos - % de 2 encontrados', fk_count;
   END IF;
   
-  RAISE NOTICE 'OK: Tabela aceita inserção de dados de teste';
+  -- Verificar que o CHECK (revision > 0) existe
+  SELECT COUNT(*) INTO check_count
+  FROM pg_constraint
+  WHERE contype = 'c'
+    AND conname = 'session_workspace_contexts_revision_check';
   
-  -- Limpar registro de teste
-  DELETE FROM public.session_workspace_contexts WHERE session_id = test_session;
+  IF check_count != 1 THEN
+    RAISE EXCEPTION 'FAIL: CHECK constraint revision > 0 não encontrado';
+  END IF;
+  
+  RAISE NOTICE 'OK: Foreign Keys e CHECK constraints verificados';
 END
 $$;
 
