@@ -69,13 +69,20 @@ jobs:
           echo "=== All running containers ==="
           docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
           
-          # Find db container - look for _db suffix, _db_ pattern, postgres image
+          # Find db container - look for _db pattern, _db_ pattern, then by image
           DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db_' | head -1)
           if [ -z "$DB_CONTAINER" ]; then
             DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -E '_db$' | head -1)
           fi
           if [ -z "$DB_CONTAINER" ]; then
-            DB_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i postgres | head -1)
+            # Use docker inspect to find postgres image containers
+            DB_CONTAINER=$(docker ps --format '{{.Names}}' | while read name; do
+              IMG=$(docker inspect --format='{{.Image}}' "$name" 2>/dev/null)
+              if echo "$IMG" | grep -qi 'postgres'; then
+                echo "$name"
+                break
+              fi
+            done | head -1)
           fi
           if [ -n "$DB_CONTAINER" ]; then
             DB_IMAGE=$(docker inspect --format='{{.Image}}' "$DB_CONTAINER" 2>/dev/null)
@@ -161,6 +168,7 @@ jobs:
           fi
           
           echo "Waiting for Kong API (gateway)..."
+          KONG_HEALTHY_DONE=false
           for i in {1..30}; do
             # Check Kong health status
             KONG_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$KONG_CONTAINER" 2>/dev/null || echo "no_health")
@@ -168,30 +176,38 @@ jobs:
             
             if [ "$KONG_HEALTH" = "healthy" ]; then
               echo "Kong container healthy: $KONG_HEALTH"
-              # Additional verification: try to reach the API status endpoint
-              sleep 2
+              KONG_HEALTHY_DONE=true
               break
             fi
             
             if [ "$KONG_STATE" != "true" ]; then
-              if [ $i -eq 30 ]; then
-                echo "ERROR: Kong container not running after 30 attempts"
-                echo "Health: $KONG_HEALTH, State: $KONG_STATE"
-                echo "=== Debug Info ==="
-                echo "Docker containers:"
-                docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-                echo "=== Kong container details ==="
-                docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
-                echo "=== Recent container logs ==="
-                docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
-                exit 1
-              fi
-              echo "Attempt $i/30... (Kong state: $KONG_STATE, health: $KONG_HEALTH)"
-            else
-              echo "Attempt $i/30... (Kong health: $KONG_HEALTH, running: true)"
+              echo "ERROR: Kong container not running"
+              echo "Health: $KONG_HEALTH, State: $KONG_STATE"
+              echo "=== Debug Info ==="
+              echo "Docker containers:"
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+              echo "=== Kong container details ==="
+              docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
+              echo "=== Recent container logs ==="
+              docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
+              exit 1
             fi
+            echo "Attempt $i/30... (Kong health: $KONG_HEALTH, running: true)"
             sleep 2
           done
+          
+          # Fail if Kong container never became healthy
+          if [ "$KONG_HEALTHY_DONE" = "false" ]; then
+            echo "ERROR: Kong container did not become healthy after 30 attempts"
+            echo "=== Debug Info ==="
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            echo "=== Kong container details ==="
+            docker inspect "$KONG_CONTAINER" 2>/dev/null | head -80
+            echo "=== Recent container logs ==="
+            docker logs "$KONG_CONTAINER" 2>/dev/null | tail -40
+            exit 1
+          fi
           
           # Verify Kong is actually serving requests
           # Try /auth/v1/health first (GoTrue health endpoint proxied by Kong)
@@ -340,4 +356,4 @@ jobs:
           else
             echo "Status: ${{ job.status }}"
           fi
-          echo "=== Job completed ===")
+          echo "=== Job completed ==="
