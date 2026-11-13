@@ -271,9 +271,9 @@ BEGIN
       c.conname, 
       c.conkey,
       c.confkey,
+      c.confrelid,
       refn.nspname AS ref_schema, 
-      ref.relname AS ref_table,
-      c.confkey[1] AS ref_attnum
+      ref.relname AS ref_table
     FROM pg_constraint c
     JOIN pg_class t ON c.conrelid = t.oid
     JOIN pg_namespace n ON t.relnamespace = n.oid
@@ -285,13 +285,13 @@ BEGIN
       AND c.conkey = ARRAY[2]::smallint[]
   LOOP
     user_id_fk_count := user_id_fk_count + 1;
-    -- Obter o nome real da coluna referenciada
+    -- Obter o nome real da coluna referenciada usando confrelid e confkey
     SELECT a.attname INTO ref_col_name
     FROM pg_attribute a
-    WHERE a.attrelid = fk_rec.ref_schema::regclass
-      AND a.attnum = fk_rec.ref_attnum;
+    WHERE a.attrelid = fk_rec.confrelid
+      AND a.attnum = fk_rec.confkey[1];
     IF NOT (fk_rec.ref_schema = 'auth' AND fk_rec.ref_table = 'users' AND ref_col_name = 'id') THEN
-      RAISE EXCEPTION 'FAIL: FK user_id não referencia auth.users.id - referencia %.%.%', fk_rec.ref_schema, fk_rec.ref_table, ref_col_name;
+      RAISE EXCEPTION 'FAIL: FK user_id não referencia auth.users.id - referencia %.%.%', fk_rec.ref_schema, fk_rec.ref_table, COALESCE(ref_col_name, 'NULL');
     END IF;
   END LOOP;
   
@@ -305,13 +305,13 @@ BEGIN
       c.conname, 
       c.conkey,
       c.confkey,
+      c.confrelid,
       refn.nspname AS ref_schema, 
-      ref.relname AS ref_table,
-      c.confkey[1] AS ref_attnum
+      ref.relname AS ref_table
     FROM pg_constraint c
     JOIN pg_class t ON c.conrelid = t.oid
     JOIN pg_namespace n ON t.relnamespace = n.oid
-    JOIN pg_class ref ON c.conrelid = ref.oid
+    JOIN pg_class ref ON c.confrelid = ref.oid
     JOIN pg_namespace refn ON ref.relnamespace = refn.oid
     WHERE t.relname = 'session_workspace_contexts'
       AND n.nspname = 'public'
@@ -319,13 +319,13 @@ BEGIN
       AND c.conkey = ARRAY[3]::smallint[]
   LOOP
     workspace_id_fk_count := workspace_id_fk_count + 1;
-    -- Obter o nome real da coluna referenciada
+    -- Obter o nome real da coluna referenciada usando confrelid e confkey
     SELECT a.attname INTO ref_col_name
     FROM pg_attribute a
-    WHERE a.attrelid = (fk_rec.ref_schema::text || '.' || fk_rec.ref_table)::regclass
-      AND a.attnum = fk_rec.ref_attnum;
+    WHERE a.attrelid = fk_rec.confrelid
+      AND a.attnum = fk_rec.confkey[1];
     IF NOT (fk_rec.ref_schema = 'public' AND fk_rec.ref_table = 'workspaces' AND ref_col_name = 'id') THEN
-      RAISE EXCEPTION 'FAIL: FK workspace_id não referencia public.workspaces.id - referencia %.%.%', fk_rec.ref_schema, fk_rec.ref_table, ref_col_name;
+      RAISE EXCEPTION 'FAIL: FK workspace_id não referencia public.workspaces.id - referencia %.%.%', fk_rec.ref_schema, fk_rec.ref_table, COALESCE(ref_col_name, 'NULL');
     END IF;
   END LOOP;
   

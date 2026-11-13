@@ -103,6 +103,7 @@ class TestSessionWorkspaceContextTable:
                     c.conname AS fk_name,
                     c.conkey AS col_num,
                     c.confkey AS ref_col_num,
+                    c.confrelid,
                     refn.nspname AS ref_schema, 
                     ref.relname AS ref_table
                 FROM pg_constraint c
@@ -118,12 +119,12 @@ class TestSessionWorkspaceContextTable:
             result = cur.fetchone()
             assert result is not None, "Foreign key para user_id não encontrada"
             # Verificar schema e tabela referenciada
-            assert result[3] == 'auth', f"FK referencia schema errado: {result[3]}"
-            assert result[4] == 'users', f"FK referencia tabela errada: {result[4]}"
-            # Verificar coluna referenciada usando pg_attribute
-            ref_oid = cur.execute("SELECT oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid WHERE c.relname = 'users' AND n.nspname = 'auth'").fetchone()[0]
+            assert result[4] == 'auth', f"FK referencia schema errado: {result[4]}"
+            assert result[5] == 'users', f"FK referencia tabela errada: {result[5]}"
+            # Verificar coluna referenciada usando confrelid diretamente
+            confrelid = result[3]
             ref_attnum = result[2][0]  # confkey is stored as int2[]
-            cur.execute("SELECT attname FROM pg_attribute WHERE attrelid = %s AND attnum = %s", [ref_oid, ref_attnum])
+            cur.execute("SELECT attname FROM pg_attribute WHERE attrelid = %s AND attnum = %s", [confrelid, ref_attnum])
             ref_col_name = cur.fetchone()[0]
             assert ref_col_name == 'id', f"FK user_id não referencia coluna id: {ref_col_name}"
     
@@ -135,6 +136,7 @@ class TestSessionWorkspaceContextTable:
                     c.conname AS fk_name,
                     c.conkey AS col_num,
                     c.confkey AS ref_col_num,
+                    c.confrelid,
                     refn.nspname AS ref_schema, 
                     ref.relname AS ref_table
                 FROM pg_constraint c
@@ -150,12 +152,12 @@ class TestSessionWorkspaceContextTable:
             result = cur.fetchone()
             assert result is not None, "Foreign key para workspace_id não encontrada"
             # Verificar schema e tabela referenciada
-            assert result[3] == 'public', f"FK referencia schema errado: {result[3]}"
-            assert result[4] == 'workspaces', f"FK referencia tabela errada: {result[4]}"
-            # Verificar coluna referenciada usando pg_attribute
-            ref_oid = cur.execute("SELECT oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid WHERE c.relname = 'workspaces' AND n.nspname = 'public'").fetchone()[0]
+            assert result[4] == 'public', f"FK referencia schema errado: {result[4]}"
+            assert result[5] == 'workspaces', f"FK referencia tabela errada: {result[5]}"
+            # Verificar coluna referenciada usando confrelid diretamente
+            confrelid = result[3]
             ref_attnum = result[2][0]  # confkey is stored as int2[]
-            cur.execute("SELECT attname FROM pg_attribute WHERE attrelid = %s AND attnum = %s", [ref_oid, ref_attnum])
+            cur.execute("SELECT attname FROM pg_attribute WHERE attrelid = %s AND attnum = %s", [confrelid, ref_attnum])
             ref_col_name = cur.fetchone()[0]
             assert ref_col_name == 'id', f"FK workspace_id não referencia coluna id: {ref_col_name}"
     
