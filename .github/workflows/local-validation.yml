@@ -193,13 +193,23 @@ jobs:
             sleep 2
           done
           
-          # Verify Kong is actually serving requests via /status endpoint
-          echo "Verifying Kong is serving requests via /status..."
+          # Verify Kong is actually serving requests
+          # Try /auth/v1/health first (GoTrue health endpoint proxied by Kong)
+          # Then fallback to /rest/v1/ (PostgREST health)
+          echo "Verifying Kong is serving requests..."
           KONG_HTTP_READY=false
           for i in {1..30}; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:54321/status 2>/dev/null || echo "000")
+            # Try auth health endpoint first
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:54321/auth/v1/health 2>/dev/null || echo "000")
             if [ "$HTTP_CODE" = "200" ]; then
-              echo "Kong /status responding with HTTP $HTTP_CODE - OK"
+              echo "Kong /auth/v1/health responding with HTTP $HTTP_CODE - OK"
+              KONG_HTTP_READY=true
+              break
+            fi
+            # Also try Rest endpoint (PostgREST)
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:54321/rest/v1/ 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
+              echo "Kong /rest/v1/ responding with HTTP $HTTP_CODE - OK"
               KONG_HTTP_READY=true
               break
             fi
