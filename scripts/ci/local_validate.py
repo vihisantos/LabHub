@@ -51,6 +51,29 @@ def validate_local_environment():
         return False
 
 
+def validate_no_remote_config():
+    """Verifica que não há configurações remotas ativas.
+    
+    Rejeita se SUPABASE_URL apontar para um host remoto,
+    mesmo que DATABASE_URL esteja local.
+    """
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    
+    if supabase_url:
+        try:
+            parsed = urllib.parse.urlparse(supabase_url)
+            hostname = parsed.hostname or ""
+            
+            if hostname and hostname not in ("localhost", "127.0.0.1"):
+                print(f"ERROR: SUPABASE_URL aponta para remoto: {hostname}")
+                print("Este script só pode executar em ambiente local.")
+                return False
+        except Exception as e:
+            print(f"WARNING: Não foi possível analisar SUPABASE_URL: {e}")
+    
+    return True
+
+
 def ensure_local_only_env():
     """Configura variáveis de ambiente para modo local exclusivo.
     
@@ -194,6 +217,13 @@ def main():
         print("FALHA: Ambiente inválido")
         sys.exit(1)
     print("OK: Ambiente local validado")
+    
+    # Passo 1.5: Validar que não há config remota
+    print("\n[1.5/6] Validando ausência de config remota...")
+    if not validate_no_remote_config():
+        print("FALHA: Configuracao remota detectada")
+        sys.exit(1)
+    print("OK: Sem configuracoes remotas")
     
     # Passo 2: Garantir modo local exclusivo
     print("\n[2/6] Configurando modo local exclusivo...")
