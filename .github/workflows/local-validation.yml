@@ -64,20 +64,6 @@ jobs:
       
       - name: Wait for Supabase services
         run: |
-          echo "Waiting for Supabase API..."
-          for i in {1..30}; do
-            if curl -s http://localhost:54321/healthz | grep -q "OK"; then
-              echo "Supabase API ready"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "ERROR: Supabase API not responding after 30 attempts"
-              exit 1
-            fi
-            echo "Attempt $i/30..."
-            sleep 2
-          done
-          
           echo "Waiting for PostgreSQL..."
           for i in {1..30}; do
             if pg_isready -h localhost -p 54322 -U postgres 2>/dev/null; then
@@ -86,15 +72,61 @@ jobs:
             fi
             if [ $i -eq 30 ]; then
               echo "ERROR: PostgreSQL not responding after 30 attempts"
+              echo "=== Debug Info ==="
+              echo "Docker containers:"
+              docker ps 2>/dev/null || echo "docker not available"
+              echo "Supabase status:"
+              supabase status 2>/dev/null || echo "supabase status failed"
+              echo "=== Recent container logs ==="
+              docker logs supabase_db 2>/dev/null | tail -20 || echo "no db logs"
               exit 1
             fi
             echo "Attempt $i/30..."
             sleep 2
           done
           
+          echo "Waiting for Supabase API (Kong gateway)..."
+          for i in {1..30}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:54321/healthz 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
+              echo "Supabase API ready (HTTP $HTTP_CODE)"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: Supabase API not responding after 30 attempts (last HTTP code: $HTTP_CODE)"
+              echo "=== Debug Info ==="
+              echo "Docker containers:"
+              docker ps 2>/dev/null || echo "docker not available"
+              echo "Supabase status:"
+              supabase status 2>/dev/null || echo "supabase status failed"
+              echo "=== Recent container logs ==="
+              docker logs supabase_db 2>/dev/null | tail -20 || echo "no db logs"
+              docker logs supabase_kong 2>/dev/null | tail -20 || echo "no kong logs"
+              exit 1
+            fi
+            echo "Attempt $i/30... (HTTP $HTTP_CODE)"
+            sleep 2
+          done
+          
+          echo "Waiting for Auth service..."
+          for i in {1..30}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:54324 -H "Host: localhost" 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
+              echo "Auth service ready (HTTP $HTTP_CODE)"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "WARNING: Auth service not responding after 30 attempts (last HTTP code: $HTTP_CODE)"
+              break
+            fi
+            echo "Attempt $i/30... (HTTP $HTTP_CODE)"
+            sleep 2
+          done
+          
           echo "=== Supabase Services Status ==="
           echo "DB URL: postgresql://postgres:postgres@localhost:54322/postgres"
           echo "API URL: http://localhost:54321"
+          echo "Auth URL: http://localhost:54324"
           
           PG_VERSION=$(psql -h localhost -p 54322 -U postgres -d postgres -t -c "SHOW server_version" | tr -d '[:space:]')
           echo "PostgreSQL version: $PG_VERSION"
