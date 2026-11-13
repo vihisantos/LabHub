@@ -6,9 +6,11 @@ on:
     paths:
       - "supabase/migrations/**"
       - "supabase/tests/**"
+      - "api/tests/**"
       - "src/apps/reservalab/api/auth.py"
       - "api/app.py"
       - "scripts/migrate.py"
+      - "scripts/ci/**"
       - "scripts/tests/**"
       - ".github/workflows/local-validation.yml"
 
@@ -78,6 +80,20 @@ jobs:
           echo "API URL: http://localhost:54321"
           echo "Auth URL: http://localhost:54324"
           echo "Storage URL: http://localhost:54323"
+      
+      - name: Verify PostgreSQL version
+        run: |
+          PG_VERSION=$(psql -h localhost -p 54322 -U postgres -d postgres -t -c "SHOW server_version" | tr -d '[:space:]')
+          echo "PostgreSQL version: $PG_VERSION"
+          if [[ ! "$PG_VERSION" =~ ^17 ]]; then
+            echo "ERROR: PostgreSQL version should be 17.x, got $PG_VERSION"
+            exit 1
+          fi
+          echo "OK: PostgreSQL 17 verified"
+      
+      - name: Run static migration tests
+        run: |
+          python -m pytest api/tests/test_session_workspace_context_migration.py -v
 
   # ==========================================================================
   # Estágio 2: Validação completa no mesmo job
