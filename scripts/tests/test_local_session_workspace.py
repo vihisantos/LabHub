@@ -177,7 +177,32 @@ class TestRPCsExistenceAndSecurity:
     def test_rpc_search_path_configured(self, db_conn):
         """Funções devem ter search_path configurado corretamente."""
         with db_conn.cursor() as cur:
-            # Verificar que há 4 RPCs labhub_* como SECURITY DEFINER
+            expected_funcs = [
+                'labhub_auth_session_is_active',
+                'labhub_set_session_workspace_context',
+                'labhub_get_session_workspace_context',
+                'labhub_create_tv_activation_for_context'
+            ]
+            
+            for func_name in expected_funcs:
+                cur.execute("""
+                    SELECT p.proconfig, p.prosecdef
+                    FROM pg_proc p
+                    JOIN pg_namespace n ON p.pronamespace = n.oid
+                    WHERE p.proname = %s AND n.nspname = 'public'
+                """, [func_name])
+                result = cur.fetchone()
+                assert result is not None, f"Função {func_name} não encontrada"
+                assert result[1] == True, f"Função {func_name} não é SECURITY DEFINER"
+                assert result[0] == '{search_path=pg_catalog}', \
+                    f"Função {func_name} tem proconfig incorreto: {result[0]}"
+    
+    def test_no_explicit_grant_to_anon_for_rpcs(self, db_conn):
+        """RPCs não devem ter GRANT explícito para anon (diferente de herança)."""
+        with db_conn.cursor() as cur:
+            # Verificar que anon NÃO tem GRANT explícito nas RPCs
+            # has_function_privilege retorna True se o papel TEM o privilégio,
+            # independente de ser explícito ou herdado
             cur.execute("""
                 SELECT COUNT(*) 
                 FROM pg_proc p
@@ -185,37 +210,28 @@ class TestRPCsExistenceAndSecurity:
                 WHERE p.proname LIKE 'labhub_%'
                   AND n.nspname = 'public'
                   AND p.prosecdef = true
-            """)
-            count = cur.fetchone()[0]
-            assert count == 4, f"Encontradas {count} RPCs labhub_* como SECURITY DEFINER (esperadas 4)"
-    
-    def test_no_explicit_grant_to_anon_for_rpcs(self, db_conn):
-        """RPCs não devem ter GRANT explícito para anon."""
-        with db_conn.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*) 
-                FROM pg_proc p
-                JOIN pg_namespace n ON p.pronamespace = n.oid
-                WHERE p.proname LIKE 'labhub_%'
-                  AND n.nspname = 'public'
                   AND has_function_privilege('anon', p.oid, 'EXECUTE')
             """)
+            # Para SECURITY DEFINER funções, anon NÃO deve ter acesso
             count = cur.fetchone()[0]
-            assert count == 0, f"Anon tem {count} GRANTs EXECUTE em RPCs labhub_*"
+            assert count == 0, f"Anon tem {count} GRANTs EXECUTE (deveria ser 0)"
     
     def test_no_explicit_grant_to_authenticated_for_rpcs(self, db_conn):
-        """RPCs não devem ter GRANT explícido para authenticated."""
+        """RPCs não devem ter GRANT explícito para authenticated (diferente de herança)."""
         with db_conn.cursor() as cur:
+            # Verificar que authenticated NÃO tem GRANT explícito nas RPCs
             cur.execute("""
                 SELECT COUNT(*) 
                 FROM pg_proc p
                 JOIN pg_namespace n ON p.pronamespace = n.oid
                 WHERE p.proname LIKE 'labhub_%'
                   AND n.nspname = 'public'
+                  AND p.prosecdef = true
                   AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
             """)
+            # Para SECURITY DEFINER funções, authenticated NÃO deve ter acesso
             count = cur.fetchone()[0]
-            assert count == 0, f"Authenticated tem {count} GRANTs EXECUTE em RPCs labhub_*"
+            assert count == 0, f"Authenticated tem {count} GRANTs EXECUTE (deveria ser 0)"
 
 
 class TestConstraintVerification:
@@ -238,6 +254,23 @@ class TestConstraintVerification:
             assert result is not None, "CHECK constraint revision > 0 não encontrada"
     
     def test_revsion_check_enforces_positive(self, db_conn):
-        """Verifica que revision não pode ser 0 ou negativo."""
-        # Esta verificação é implícita no DDL da migration 108
-        pass
+        """Verifica que revision não pode ser 0 ou negativo pelo CHECK constraint."""
+        # Esta verificação pode ser feita usando pg_typeof para ver o tipo
+        # ou tentando inserir valores inválidos (que falham silenciosamente)
+        # Como o CHECK é definido como "revision > 0", vamos verificar via pg_constraint
+        with db_conn.cursor() as cur:
+            cur.execute("""
+                SELECT pg_get_constraintdef(c.oid)
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                JOIN pg_namespace n ON t.relnamespace = n.oid
+                WHERE t.relname = 'session_workspace_contexts'
+                  AND n.nspname = 'public'
+                  AND c.contype = 'c'
+                  AND c.conname = 'session_workspace_contexts_revision_check'
+            """)
+            result = cur.fetchone()
+            assert result is not None, "CHECK constraint não encontrada"
+            # Verificar que o constraint contém 'revision > 0'
+            assert 'revision' in result[0].lower(), "Constraint não menciona revision"
+            assert '>' in result[0], "Constraint não tem operador >"

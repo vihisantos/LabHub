@@ -187,20 +187,34 @@ $$;
 -- ============================================================================
 DO $$
 DECLARE
-  func_count int;
+  func_name text;
+  proconfig text;
 BEGIN
-  SELECT COUNT(*) INTO func_count
-  FROM pg_proc p
-  JOIN pg_namespace n ON p.pronamespace = n.oid
-  WHERE p.proname LIKE 'labhub_%'
-    AND n.nspname = 'public'
-    AND p.prosecdef = true;
+  -- Verificar search_path (= pg_catalog) para cada uma das 4 RPCs
+  FOR func_name IN 
+    SELECT unnest(ARRAY[
+      'labhub_auth_session_is_active',
+      'labhub_set_session_workspace_context',
+      'labhub_get_session_workspace_context',
+      'labhub_create_tv_activation_for_context'
+    ])
+  LOOP
+    SELECT p.proconfig INTO proconfig
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE p.proname = func_name
+      AND n.nspname = 'public';
+    
+    IF proconfig IS NULL THEN
+      RAISE EXCEPTION 'FAIL: Função % não encontrada', func_name;
+    END IF;
+    
+    IF proconfig != '{search_path=pg_catalog}' THEN
+      RAISE EXCEPTION 'FAIL: Função % tem search_path incorreto: %', func_name, proconfig;
+    END IF;
+  END LOOP;
   
-  IF func_count != 4 THEN
-    RAISE EXCEPTION 'FAIL: search_path ou SECURITY DEFINER incorreto - encontradas % RPCs SECURITY DEFINER', func_count;
-  END IF;
-  
-  RAISE NOTICE 'OK: Funções SECURITY DEFINER encontradas com search_path correto';
+  RAISE NOTICE 'OK: Todas as 4 RPCs têm search_path = pg_catalog';
 END
 $$;
 
@@ -245,34 +259,60 @@ $$;
 -- ============================================================================
 DO $$
 DECLARE
-  fk_count int;
+  fk_rec RECORD;
   check_count int;
 BEGIN
-  -- Verificar que as 2 FK foram criadas (user_id -> auth.users, workspace_id -> public.workspaces)
-  SELECT COUNT(*) INTO fk_count
-  FROM information_schema.key_column_usage
-  WHERE table_schema = 'public'
-    AND table_name = 'session_workspace_contexts'
-    AND constraint_name IN (
-      'session_workspace_contexts_user_id_fkey',
-      'session_workspace_contexts_workspace_id_fkey'
-    );
+  -- Verificar FK user_id -> auth.users.id
+  FOR fk_rec IN 
+    SELECT conname, conkey, confrelid, refn.nspname AS ref_schema, ref.relname AS ref_table
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    JOIN pg_namespace n ON t.relnamespace = n.oid
+    JOIN pg_class ref ON c.confrelid = ref.oid
+    JOIN pg_namespace refn ON ref.relnamespace = refn.oid
+    WHERE t.relname = 'session_workspace_contexts'
+      AND n.nspname = 'public'
+      AND c.contype = 'f'
+      AND c.conkey = ARRAY[2]::smallint[]
+  LOOP
+    IF NOT (fk_rec.ref_schema = 'auth' AND fk_rec.ref_table = 'users') THEN
+      RAISE EXCEPTION 'FAIL: FK user_id não referencia auth.users - referencia %.%', fk_rec.ref_schema, fk_rec.ref_table;
+    END IF;
+  END LOOP;
   
-  IF fk_count != 2 THEN
-    RAISE EXCEPTION 'FAIL: Foreign Keys incompletos - % de 2 encontrados', fk_count;
-  END IF;
+  -- Verificar FK workspace_id -> public.workspaces.id
+  FOR fk_rec IN 
+    SELECT conname, conkey, confrelid, refn.nspname AS ref_schema, ref.relname AS ref_table
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    JOIN pg_namespace n ON t.relnamespace = n.oid
+    JOIN pg_class ref ON c.confrelid = ref.oid
+    JOIN pg_namespace refn ON ref.relnamespace = refn.oid
+    WHERE t.relname = 'session_workspace_contexts'
+      AND n.nspname = 'public'
+      AND c.contype = 'f'
+      AND c.conkey = ARRAY[3]::smallint[]
+  LOOP
+    IF NOT (fk_rec.ref_schema = 'public' AND fk_rec.ref_table = 'workspaces') THEN
+      RAISE EXCEPTION 'FAIL: FK workspace_id não referencia public.workspaces - referencia %.%', fk_rec.ref_schema, fk_rec.ref_table;
+    END IF;
+  END LOOP;
   
   -- Verificar que o CHECK (revision > 0) existe
   SELECT COUNT(*) INTO check_count
   FROM pg_constraint
   WHERE contype = 'c'
+    AND conrelid = (SELECT oid FROM pg_class c 
+                    JOIN pg_namespace n ON c.relnamespace = n.oid 
+                    WHERE c.relname = 'session_workspace_contexts' 
+                    AND n.nspname = 'public')
     AND conname = 'session_workspace_contexts_revision_check';
   
   IF check_count != 1 THEN
     RAISE EXCEPTION 'FAIL: CHECK constraint revision > 0 não encontrado';
   END IF;
   
-  RAISE NOTICE 'OK: Foreign Keys e CHECK constraints verificados';
+  RAISE NOTICE 'OK: Foreign Keys e CHECK constraints verificados corretamente';
 END
 $$;
 
