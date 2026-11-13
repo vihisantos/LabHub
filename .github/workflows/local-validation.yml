@@ -19,6 +19,8 @@ env:
   # Portas padrão do Supabase CLI
   POSTGRES_PORT: 54322
   API_PORT: 54321
+  # Desabilita migrations automáticas do CLI - gerenciadas pelo scripts/migrate.py
+  SUPABASE_DB_MIGRATIONS_ENABLED: "false"
 
 jobs:
   validate-local:
