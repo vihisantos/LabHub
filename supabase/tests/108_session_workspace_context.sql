@@ -263,6 +263,7 @@ DECLARE
   check_count int;
   user_id_fk_count int := 0;
   workspace_id_fk_count int := 0;
+  ref_col_name text;
 BEGIN
   -- Verificar FK user_id -> auth.users.id
   FOR fk_rec IN 
@@ -271,7 +272,8 @@ BEGIN
       c.conkey,
       c.confkey,
       refn.nspname AS ref_schema, 
-      ref.relname AS ref_table
+      ref.relname AS ref_table,
+      c.confkey[1] AS ref_attnum
     FROM pg_constraint c
     JOIN pg_class t ON c.conrelid = t.oid
     JOIN pg_namespace n ON t.relnamespace = n.oid
@@ -283,12 +285,13 @@ BEGIN
       AND c.conkey = ARRAY[2]::smallint[]
   LOOP
     user_id_fk_count := user_id_fk_count + 1;
-    IF NOT (fk_rec.ref_schema = 'auth' AND fk_rec.ref_table = 'users') THEN
-      RAISE EXCEPTION 'FAIL: FK user_id não referencia auth.users - referencia %.%', fk_rec.ref_schema, fk_rec.ref_table;
-    END IF;
-    -- Verificar que confkey indica coluna id (primeira coluna da tabela auth.users)
-    IF fk_rec.confkey != ARRAY[1]::int2[] THEN
-      RAISE EXCEPTION 'FAIL: FK user_id não referencia coluna id de auth.users - confkey=%', fk_rec.confkey;
+    -- Obter o nome real da coluna referenciada
+    SELECT a.attname INTO ref_col_name
+    FROM pg_attribute a
+    WHERE a.attrelid = fk_rec.ref_schema::regclass
+      AND a.attnum = fk_rec.ref_attnum;
+    IF NOT (fk_rec.ref_schema = 'auth' AND fk_rec.ref_table = 'users' AND ref_col_name = 'id') THEN
+      RAISE EXCEPTION 'FAIL: FK user_id não referencia auth.users.id - referencia %.%.%', fk_rec.ref_schema, fk_rec.ref_table, ref_col_name;
     END IF;
   END LOOP;
   
@@ -303,11 +306,12 @@ BEGIN
       c.conkey,
       c.confkey,
       refn.nspname AS ref_schema, 
-      ref.relname AS ref_table
+      ref.relname AS ref_table,
+      c.confkey[1] AS ref_attnum
     FROM pg_constraint c
     JOIN pg_class t ON c.conrelid = t.oid
     JOIN pg_namespace n ON t.relnamespace = n.oid
-    JOIN pg_class ref ON c.confrelid = ref.oid
+    JOIN pg_class ref ON c.conrelid = ref.oid
     JOIN pg_namespace refn ON ref.relnamespace = refn.oid
     WHERE t.relname = 'session_workspace_contexts'
       AND n.nspname = 'public'
@@ -315,12 +319,13 @@ BEGIN
       AND c.conkey = ARRAY[3]::smallint[]
   LOOP
     workspace_id_fk_count := workspace_id_fk_count + 1;
-    IF NOT (fk_rec.ref_schema = 'public' AND fk_rec.ref_table = 'workspaces') THEN
-      RAISE EXCEPTION 'FAIL: FK workspace_id não referencia public.workspaces - referencia %.%', fk_rec.ref_schema, fk_rec.ref_table;
-    END IF;
-    -- Verificar que confkey indica coluna id (primeira coluna da tabela public.workspaces)
-    IF fk_rec.confkey != ARRAY[1]::int2[] THEN
-      RAISE EXCEPTION 'FAIL: FK workspace_id não referencia coluna id de public.workspaces - confkey=%', fk_rec.confkey;
+    -- Obter o nome real da coluna referenciada
+    SELECT a.attname INTO ref_col_name
+    FROM pg_attribute a
+    WHERE a.attrelid = (fk_rec.ref_schema::text || '.' || fk_rec.ref_table)::regclass
+      AND a.attnum = fk_rec.ref_attnum;
+    IF NOT (fk_rec.ref_schema = 'public' AND fk_rec.ref_table = 'workspaces' AND ref_col_name = 'id') THEN
+      RAISE EXCEPTION 'FAIL: FK workspace_id não referencia public.workspaces.id - referencia %.%.%', fk_rec.ref_schema, fk_rec.ref_table, ref_col_name;
     END IF;
   END LOOP;
   
