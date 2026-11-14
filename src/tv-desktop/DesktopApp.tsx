@@ -67,6 +67,19 @@ export function DesktopApp() {
   )
 }
 
+/**
+ * Determina qual tela de desenvolvimento mostrar.
+ * Usado pelo modo preview/dev — não afeta a TV em produção.
+ */
+export function devScreenApp(persisted?: string | null): string {
+  const envScreen = typeof import.meta.env.VITE_DEV_SCREEN_APP === 'string' 
+    ? import.meta.env.VITE_DEV_SCREEN_APP 
+    : undefined
+  if (envScreen && envScreen.trim() !== '') return envScreen.trim()
+  if (persisted) return persisted
+  return 'tv-ambiente' // fallback seguro — a TV nunca fica sem tela
+}
+
 const splashStyle: CSSProperties = {
   width: '100vw', height: '100vh',
   display: 'flex', alignItems: 'center', justifyContent: 'center',

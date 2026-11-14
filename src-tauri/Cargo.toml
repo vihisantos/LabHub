@@ -1,0 +1,29 @@
+[package]
+name = "labhub-tv"
+version = "2.4.0"
+edition = "2021"
+description = "LabHub TV - Aplicação de reprodução de conteúdo acadêmico e institucional"
+license = "UNLICENSED"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
+
+[dependencies]
+tauri = { version = "2", features = ["default", "devtools", "custom-protocol"] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+dirs = "5"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
+
+[profile.release]
+strip = true
+opt-level = "s"
