@@ -460,6 +460,23 @@ async fn programming_state_reset() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn open_folder_dialog(default_path: Option<String>) -> Result<String, String> {
+    use tauri::api::dialog::spawn_folder_dialog;
+    
+    let initial_dir = default_path
+        .as_ref()
+        .and_then(|p| std::path::PathBuf::from(p).parent().map(|p| p.to_path_buf()))
+        .or_else(|| dirs::desktop_dir());
+    
+    // Use Tauri's async folder dialog
+    let result = spawn_folder_dialog(initial_dir, |path| {
+        path.map(|p| p.to_string_lossy().to_string())
+    }).await;
+    
+    Ok(result)
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -471,6 +488,7 @@ fn main() {
             programming_state_get,
             programming_state_set,
             programming_state_reset,
+            open_folder_dialog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

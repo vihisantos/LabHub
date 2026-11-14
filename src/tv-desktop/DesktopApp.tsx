@@ -67,16 +67,20 @@ export function DesktopApp() {
   )
 }
 
-/**
- * Determina qual tela de desenvolvimento mostrar.
+/** Determina qual tela de desenvolvimento mostrar.
  * Usado pelo modo preview/dev — não afeta a TV em produção.
+ * Valores desconhecidos caem no fallback 'tv-ambiente' — a TV nunca fica sem tela.
  */
+import { SCREEN_APP_OPTIONS } from './config'
+
+const VALID_DEV_SCREEN_APPS = new Set(SCREEN_APP_OPTIONS.map((o) => o.id)).add('tv-ambiente')
+
 export function devScreenApp(persisted?: string | null): string {
   const envScreen = typeof import.meta.env.VITE_DEV_SCREEN_APP === 'string' 
     ? import.meta.env.VITE_DEV_SCREEN_APP 
     : undefined
-  if (envScreen && envScreen.trim() !== '') return envScreen.trim()
-  if (persisted) return persisted
+  const candidate = envScreen?.trim() || persisted?.trim()
+  if (candidate && VALID_DEV_SCREEN_APPS.has(candidate)) return candidate
   return 'tv-ambiente' // fallback seguro — a TV nunca fica sem tela
 }
 
