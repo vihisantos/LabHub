@@ -6,8 +6,11 @@ import { localStoreGet, localStoreRemove, localStoreSet } from '../lib/localStor
  * app de exibição entra aqui somente quando ganhar implementação real.
  * Preferência LOCAL do dispositivo: nunca usar para autorização, identidade
  * nem acesso a dados (isso permanece Device Auth → workspace → backend/RLS).
+ * 
+ * Nota: 'tv-ambiente' é um valor especial apenas para modo desenvolvimento/preview,
+ * não deve ser usado em produção.
  */
-export type ScreenAppId = 'tv' | 'chamados-dashboard'
+export type ScreenAppId = 'tv' | 'chamados-dashboard' | 'tv-ambiente'
 
 /** Catálogo de módulos de exibição — a fonte para a UI de seleção.
  * `id` precisa ser estável (persistido no config); `label`/`description`

@@ -70,17 +70,22 @@ export function DesktopApp() {
 /** Determina qual tela de desenvolvimento mostrar.
  * Usado pelo modo preview/dev — não afeta a TV em produção.
  * Valores desconhecidos caem no fallback 'tv-ambiente' — a TV nunca fica sem tela.
+ * Retorna ScreenAppId para compatibilidade com as definições de tela.
  */
-import { SCREEN_APP_OPTIONS } from './config'
+import { type ScreenAppId } from './config'
 
-const VALID_DEV_SCREEN_APPS = new Set(SCREEN_APP_OPTIONS.map((o) => o.id)).add('tv-ambiente')
-
-export function devScreenApp(persisted?: string | null): string {
+export function devScreenApp(persisted?: string | null): ScreenAppId {
   const envScreen = typeof import.meta.env.VITE_DEV_SCREEN_APP === 'string' 
     ? import.meta.env.VITE_DEV_SCREEN_APP 
     : undefined
   const candidate = envScreen?.trim() || persisted?.trim()
-  if (candidate && VALID_DEV_SCREEN_APPS.has(candidate)) return candidate
+  
+  // Validate against known screen app IDs (including tv-ambiente for dev mode)
+  // Use a type guard to narrow the candidate
+  if (candidate === 'tv' || candidate === 'tv-ambiente' || candidate === 'chamados-dashboard') {
+    return candidate
+  }
+  // Unknown values fall back to tv-ambiente
   return 'tv-ambiente' // fallback seguro — a TV nunca fica sem tela
 }
 

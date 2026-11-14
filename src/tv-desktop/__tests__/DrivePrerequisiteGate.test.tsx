@@ -39,7 +39,7 @@ describe('DrivePrerequisiteGate', () => {
   it('só conclui após seleção, confirmação da conta e leitura bem-sucedida da pasta', async () => {
     const pending: Status = { installed: true, running: true, configured: false, accountConfirmed: false, folderPath: null, mediaCount: 0, ready: false, message: 'Confirme a conta e valide a pasta.' }
     const ready: Status = { installed: true, running: true, configured: true, accountConfirmed: true, folderPath: 'G:\\My Drive\\LabHub TV', mediaCount: 2, ready: true, message: 'Google Drive e pasta de mídia disponíveis.' }
-    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+    const invoke = vi.fn(async (command: string, _args?: Record<string, unknown>) => {
       if (command === 'drive_prerequisite_status') return invoke.mock.calls.filter(([name]) => name === command).length > 1 ? ready : pending
       if (command === 'configure_drive_folder') return { configured: true, folderPath: ready.folderPath }
       if (command === 'open_folder_dialog') return 'G:\\My Drive\\LabHub TV'
