@@ -474,18 +474,19 @@ async fn open_folder_dialog(default_path: Option<String>) -> Result<String, Stri
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "%userprofile%\\Desktop".to_string());
     
-    // Use PowerShell to open a folder picker dialog
+    // Use PowerShell to open a folder picker dialog with initial directory
     let ps_script = format!(r#"
         Add-Type -AssemblyName System.Windows.Forms
         $folder = New-Object System.Windows.Forms.FolderBrowserDialog
         $folder.Description = "Selecione a pasta sincronizada do Google Drive"
         $folder.RootFolder = "Desktop"
+        $folder.SelectedPath = "{}"
         if ($folder.ShowDialog() -eq 'OK') {{
             Write-Output $folder.SelectedPath
         }} else {{
             Write-Output ""
         }}
-    "#);
+    "#, dir_str.replace('\\', "\\\\"));
     
     let output = Command::new("powershell")
         .arg("-NoProfile")

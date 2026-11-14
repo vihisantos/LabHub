@@ -5,12 +5,26 @@ fn main() {
     // Tell cargo to rerun if this script changes
     println!("cargo:rerun-if-changed=build.rs");
     
-    let icon_path = Path::new("src-tauri/icons/icon.ico");
-    let png_path = Path::new("src-tauri/icons/1024x1024.png");
+    let icon_path = Path::new("icons/icon.ico");
+    let png_path = Path::new("icons/1024x1024.png");
     
     // Only generate icon.ico if it doesn't exist
-    if !icon_path.exists() && png_path.exists() {
-        if let Err(e) = convert_png_to_ico(png_path, icon_path) {
+    if !icon_path.exists() {
+        // Try to find the source PNG
+        let source_png = Path::new("../public/logo-512.png");
+        let png_to_use = if png_path.exists() {
+            png_path.to_path_buf()
+        } else if source_png.exists() {
+            // Copy the public logo as source
+            fs::create_dir_all("icons").ok();
+            fs::copy(source_png, "icons/1024x1024.png").ok();
+            png_path.to_path_buf()
+        } else {
+            println!("cargo:warning=No source PNG found for icon generation");
+            return;
+        };
+        
+        if let Err(e) = convert_png_to_ico(&png_to_use, icon_path) {
             eprintln!("Warning: Could not convert PNG to ICO: {}", e);
         } else {
             println!("cargo:warning=Generated icon.ico from 1024x1024.png");
@@ -33,23 +47,30 @@ fn convert_png_to_ico(png_path: &Path, ico_path: &Path) -> Result<(), Box<dyn st
         }
     }
     
-    // Get image dimensions from PNG IHDR chunk
-    let width = u32::from_be_bytes([png_data[16], png_data[17], png_data[18], png_data[19]]);
-    let height = u32::from_be_bytes([png_data[20], png_data[21], png_data[22], png_data[23]]);
-    
-    // Create ICO file
+    // Create ICO file - ICO format 3.00 is required by Windows Resource Compiler
     let mut ico = Vec::with_capacity(6 + 16 + png_data.len());
     
-    // ICO Header (6 bytes)
+    // ICO Header (6 bytes):
+    // 0-1: Reserved (0x0000)
+    // 2-3: Type (0x0001 = ICO)
+    // 4-5: Number of images (0x0001)
     ico.extend_from_slice(&[0x00, 0x00]); // Reserved
     ico.extend_from_slice(&[0x01, 0x00]); // Type: ICO (1)
     ico.extend_from_slice(&[0x01, 0x00]); // Number of images
     
-    // Directory Entry (16 bytes)
-    ico.push(if width >= 256 { 0 } else { width as u8 });
-    ico.push(if height >= 256 { 0 } else { height as u8 });
-    ico.push(0); // Color palette
-    ico.push(0); // Reserved
+    // Directory Entry (16 bytes):
+    // 0: Width (0 means 256)
+    // 1: Height (0 means 256)
+    // 2-3: Colors in palette
+    // 4: Reserved
+    // 5-6: Color planes
+    // 7-8: Bits per pixel
+    // 9-12: Size of image data (4 bytes little-endian)
+    // 13-16: Offset to image data (4 bytes little-endian)
+    ico.push(0x00); // Width = 256 (0 means 256)
+    ico.push(0x00); // Height = 256
+    ico.push(0x00); // Colors
+    ico.push(0x00); // Reserved
     ico.extend_from_slice(&[0x01, 0x00]); // Color planes = 1
     ico.extend_from_slice(&[0x20, 0x00]); // Bits per pixel = 32
     
@@ -62,9 +83,12 @@ fn convert_png_to_ico(png_path: &Path, ico_path: &Path) -> Result<(), Box<dyn st
     // Append PNG data
     ico.extend_from_slice(&png_data);
     
-    fs::write(ico_path, &ico)?;
+    // Ensure icons directory exists
+    if let Some(parent) = ico_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     
-    println!("cargo:warning=Generated icon.ico from 1024x1024.png");
+    fs::write(ico_path, &ico)?;
     
     Ok(())
 }
