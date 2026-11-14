@@ -462,19 +462,51 @@ async fn programming_state_reset() -> Result<(), String> {
 
 #[tauri::command]
 async fn open_folder_dialog(default_path: Option<String>) -> Result<String, String> {
-    use tauri::api::dialog::spawn_folder_dialog;
+    use std::path::PathBuf;
+    use std::process::Command;
     
     let initial_dir = default_path
         .as_ref()
-        .and_then(|p| std::path::PathBuf::from(p).parent().map(|p| p.to_path_buf()))
+        .and_then(|p| PathBuf::from(p).parent().map(|p| p.to_path_buf()))
         .or_else(|| dirs::desktop_dir());
     
-    // Use Tauri's async folder dialog
-    let result = spawn_folder_dialog(initial_dir, |path| {
-        path.map(|p| p.to_string_lossy().to_string())
-    }).await;
+    let dir_str = initial_dir
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "%userprofile%\\Desktop".to_string());
     
-    Ok(result)
+    // Use PowerShell to open a folder picker dialog
+    let ps_script = format!(r#"
+        Add-Type -AssemblyName System.Windows.Forms
+        $folder = New-Object System.Windows.Forms.FolderBrowserDialog
+        $folder.Description = "Selecione a pasta sincronizada do Google Drive"
+        $folder.RootFolder = "Desktop"
+        if ($folder.ShowDialog() -eq 'OK') {{
+            Write-Output $folder.SelectedPath
+        }} else {{
+            Write-Output ""
+        }}
+    "#);
+    
+    let output = Command::new("powershell")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(&ps_script)
+        .output();
+    
+    match output {
+        Ok(o) if o.status.success() => {
+            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if path.is_empty() { 
+                Err("No folder selected".to_string()) 
+            } else { 
+                Ok(path) 
+            }
+        }
+        Ok(o) => Err(format!("PowerShell error: {}", String::from_utf8_lossy(&o.stderr))),
+        Err(e) => Err(format!("Failed to run PowerShell: {}", e))
+    }
 }
 
 fn main() {

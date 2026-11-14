@@ -51,7 +51,10 @@ describe('DrivePrerequisiteGate', () => {
 
     await screen.findByText(pending.message)
     fireEvent.click(screen.getByRole('button', { name: /selecionar pasta/i }))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('open_folder_dialog'))
+    await waitFor(() => {
+      const calls = invoke.mock.calls
+      expect(calls.some(([cmd]) => cmd === 'open_folder_dialog')).toBe(true)
+    })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: /validar pasta e continuar/i }))
 
