@@ -107,6 +107,10 @@ export function TicketDetail() {
   const [autoClosePending, setAutoClosePending] = useState(false)
   const autoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const ticket = localTicket ?? remoteTicket
+  const ticketRef = useRef<Ticket | null>(ticket)
+  ticketRef.current = ticket
+
   useEffect(() => () => {
     if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current)
   }, [])
@@ -120,10 +124,6 @@ export function TicketDetail() {
       setAutoClosePending(false)
     }
   }, [autoClosePending, ticket?.status])
-
-  const ticket = localTicket ?? remoteTicket
-  const ticketRef = useRef<Ticket | null>(ticket)
-  ticketRef.current = ticket
 
   // Hoisted (null-safe): o dono do chamado também escolhe sucessor na
   // transferência (P3 #371), então o fetch de responsáveis e os handlers
