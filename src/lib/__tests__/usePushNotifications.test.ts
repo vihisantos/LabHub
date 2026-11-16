@@ -31,7 +31,7 @@ beforeEach(() => {
     requestPermission: vi.fn(),
   })
   vi.stubGlobal('PushManager', {})
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ sent: true }) }))
 })
 
 afterEach(() => {
