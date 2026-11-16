@@ -68,7 +68,7 @@ export function useTickets() {
   }, [load])
 
   // Checagem pontual de arquivamento: nunca é acoplada ao syncRemote,
-  // pois syncRemote também roda no fallback periódico de 15s.
+  // pois syncRemote também roda no fallback periódico de 30s.
   const checkAutoArchive = useCallback(async (): Promise<number> => {
     try {
       return await ticketService.autoArchiveResolved()
