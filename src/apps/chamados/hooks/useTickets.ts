@@ -101,14 +101,9 @@ export function useTickets() {
       void checkAutoArchive()
       void syncRemote()
     }
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void syncRemote()
-    }
     window.addEventListener('online', onOnline)
-    document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.removeEventListener('online', onOnline)
-      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [checkAutoArchive, syncRemote])
 
