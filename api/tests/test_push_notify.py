@@ -151,3 +151,40 @@ def test_push_notify_sem_redis_nao_quebra_em_410(rlab_module, monkeypatch):
     monkeypatch.setattr(rlab_module, "webpush", _raise_http(410))
 
     assert rlab_module.push_notify(FCM_SUB, "t", "b") is False
+
+
+def test_push_device_test_only_sends_to_the_authenticated_devices_subscription(rlab_module, monkeypatch):
+    sub = {**FCM_SUB, "user": {"id": "user-1"}}
+    calls = []
+    monkeypatch.setattr(rlab_module, "redis", object())
+    monkeypatch.setattr(rlab_module, "_get_subs", lambda: [sub])
+    monkeypatch.setattr(rlab_module, "push_notify", lambda *args, **kwargs: calls.append((args, kwargs)) or True)
+
+    with rlab_module.app.test_request_context(
+        "/api/push/test-device", method="POST", json={"endpoint": FCM_SUB["endpoint"]}
+    ):
+        rlab_module.g.user = {"id": "user-1"}
+        response = rlab_module.app.make_response(rlab_module.push_test_device.__wrapped__())
+
+    assert response.status_code == 200
+    assert response.get_json() == {"sent": True}
+    assert len(calls) == 1
+    assert calls[0][0][0] == sub
+
+
+def test_push_device_test_rejects_another_users_subscription(rlab_module, monkeypatch):
+    sub = {**FCM_SUB, "user": {"id": "user-2"}}
+    calls = []
+    monkeypatch.setattr(rlab_module, "redis", object())
+    monkeypatch.setattr(rlab_module, "_get_subs", lambda: [sub])
+    monkeypatch.setattr(rlab_module, "push_notify", lambda *args, **kwargs: calls.append(args) or True)
+
+    with rlab_module.app.test_request_context(
+        "/api/push/test-device", method="POST", json={"endpoint": FCM_SUB["endpoint"]}
+    ):
+        rlab_module.g.user = {"id": "user-1"}
+        response = rlab_module.app.make_response(rlab_module.push_test_device.__wrapped__())
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]
+    assert calls == []

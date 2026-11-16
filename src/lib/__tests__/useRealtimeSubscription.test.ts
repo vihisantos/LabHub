@@ -82,6 +82,16 @@ describe('useRealtimeSubscription', () => {
     expect(mockRemoveChannel).toHaveBeenCalled()
   })
 
+  it('informa a mudança de estado do canal ao consumidor', () => {
+    const onStatus = vi.fn()
+    renderHook(() => useRealtimeSubscription('tv_events', '*', vi.fn(), { onStatus }))
+    const subscribeCallback = mockChannelSubscribe.mock.calls[0][0]
+    act(() => subscribeCallback('SUBSCRIBED'))
+    act(() => subscribeCallback('CHANNEL_ERROR', new Error('socket caiu')))
+    expect(onStatus).toHaveBeenNthCalledWith(1, 'SUBSCRIBED', undefined)
+    expect(onStatus).toHaveBeenNthCalledWith(2, 'CHANNEL_ERROR', expect.any(Error))
+  })
+
   it('chama o callback quando o evento ocorre', () => {
     const callback = vi.fn()
 

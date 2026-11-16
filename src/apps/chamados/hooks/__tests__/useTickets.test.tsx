@@ -18,6 +18,7 @@ vi.mock('../../../../lib/supabase', () => ({
 const mockGetAll = vi.hoisted(() => vi.fn())
 const mockCachedTickets = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
 const mockPullRemote = vi.hoisted(() => vi.fn())
+const mockAutoArchiveResolved = vi.hoisted(() => vi.fn())
 const mockCreate = vi.hoisted(() => vi.fn())
 const mockUpdate = vi.hoisted(() => vi.fn())
 const mockRemove = vi.hoisted(() => vi.fn())
@@ -29,6 +30,7 @@ vi.mock('../../services/ticketService', () => ({
   ticketService: {
     getAll: mockGetAll,
     pullRemote: mockPullRemote,
+    autoArchiveResolved: mockAutoArchiveResolved,
     create: mockCreate,
     update: mockUpdate,
     remove: mockRemove,
@@ -73,9 +75,21 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockSyncAlerts.mockReturnValue([])
   mockPullRemote.mockResolvedValue(undefined)
+  mockAutoArchiveResolved.mockResolvedValue(0)
 })
 
 describe('useTickets — CRUD base', () => {
+  it('verifica o arquivamento automático uma vez na abertura, fora do polling', async () => {
+    mockGetAll.mockReturnValue([])
+    const { unmount } = renderHook(() => useTickets())
+    await act(async () => {})
+
+    expect(mockAutoArchiveResolved).toHaveBeenCalledTimes(1)
+    expect(mockPullRemote).not.toHaveBeenCalled()
+
+    unmount()
+  })
+
   it('carrega e ordena os chamados do mais novo ao mais antigo', async () => {
     mockGetAll.mockReturnValue([
       makeTicket({ id: 'a', createdAt: '2026-06-25T09:00:00Z' }),
@@ -200,7 +214,7 @@ describe('useTickets — CRUD base', () => {
     expect(result.current.tickets).toHaveLength(1)
   })
 
-  it('polling de 60s puxa o remoto', async () => {
+  it('polling de contingência sincroniza quando o Realtime não está conectado', async () => {
     mockGetAll.mockReturnValue([])
     const { result } = renderHook(() => useTickets())
     await act(async () => {})

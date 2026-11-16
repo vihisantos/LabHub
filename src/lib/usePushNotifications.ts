@@ -85,6 +85,8 @@ function userSegmentationKey(user?: PushUserInfo | null): string {
  * @param user          Payload de segmentação do usuário (via buildPushUser).
  */
 export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?: PushUserInfo | null) {
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
   const [state, setState] = useState<PushState>({
     supported: null,
     permission: null,
@@ -254,5 +256,43 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
     }
   }, [subscribeUrl, user, state.supported])
 
-  return { ...state, subscribe }
+  const testPush = useCallback(async () => {
+    setTesting(true)
+    setTestResult(null)
+    setState((s) => ({ ...s, error: null }))
+    try {
+      const registration = await ensureSw()
+      const subscription = await registration.pushManager.getSubscription()
+      if (!subscription) throw new Error('Este dispositivo não tem uma inscrição Push ativa. Ative as notificações novamente.')
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      try {
+        const { defaultDb } = await import('./supabase')
+        if (defaultDb) {
+          const { data } = await defaultDb.auth.getSession()
+          const token = data.session?.access_token
+          if (token) headers['Authorization'] = `Bearer ${token}`
+        }
+      } catch {
+        // Sem sessão: o backend responde 401 sem revelar dados da inscrição.
+      }
+
+      const response = await fetch('/api/push/test-device', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ endpoint: subscription.endpoint }),
+      })
+      const body = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(body.error || `Falha no teste de Push (${response.status})`)
+      setTestResult('Envio aceito pelo servidor. Confira se a notificação apareceu neste dispositivo.')
+      return true
+    } catch (err) {
+      setState((s) => ({ ...s, error: err instanceof Error ? err.message : 'Falha ao testar notificações' }))
+      return false
+    } finally {
+      setTesting(false)
+    }
+  }, [])
+
+  return { ...state, subscribe, testPush, testing, testResult }
 }

@@ -33,6 +33,9 @@ export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [realtimeConnected, setRealtimeConnected] = useState(false)
+  const realtimeConnectedRef = useRef(false)
+  const realtimeStatusSeenRef = useRef(false)
   const sanitizedRef = useRef(false)
 
   const load = useCallback((silent = false) => {
@@ -64,17 +67,65 @@ export function useTickets() {
     }
   }, [load])
 
-  useEffect(() => {
-    load()
-    // Polling a cada 15s como fallback (Realtime é o canal primário).
-    const timer = setInterval(() => syncRemote(), 15000)
-    return () => clearInterval(timer)
-  }, [load, syncRemote])
+  // Checagem pontual de arquivamento: nunca é acoplada ao syncRemote,
+  // pois syncRemote também roda no fallback periódico de 30s.
+  const checkAutoArchive = useCallback(async (): Promise<number> => {
+    try {
+      return await ticketService.autoArchiveResolved()
+    } catch {
+      // Falha temporária não bloqueia a fila; uma nova abertura/refresh/online tenta novamente.
+      return 0
+    }
+  }, [])
 
   useEffect(() => {
-    const onOnline = () => syncRemote()
+    load()
+    // Só refaz o pull inicial quando houve arquivamento; sem alterações,
+    // evita uma segunda leitura desnecessária e preserva o fluxo de carga local.
+    void checkAutoArchive().then((archivedCount) => {
+      if (archivedCount > 0) return syncRemote()
+    })
+  }, [load, checkAutoArchive, syncRemote])
+
+  // Realtime é o canal primário. Só consultamos periodicamente enquanto o
+  // WebSocket estiver indisponível, e pausamos o fallback com a aba oculta.
+  useEffect(() => {
+    if (realtimeConnected) return
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') void syncRemote()
+    }
+    const timer = window.setInterval(syncWhenVisible, 30000)
+    document.addEventListener('visibilitychange', syncWhenVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', syncWhenVisible)
+    }
+  }, [realtimeConnected, syncRemote])
+
+  useEffect(() => {
+    const onOnline = () => {
+      void checkAutoArchive().then(() => syncRemote())
+    }
     window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+    }
+  }, [checkAutoArchive, syncRemote])
+
+  const handleRealtimeStatus = useCallback((status: string) => {
+    const connected = status === 'SUBSCRIBED'
+    const wasConnected = realtimeConnectedRef.current
+    const isFirstStatus = !realtimeStatusSeenRef.current
+    realtimeStatusSeenRef.current = true
+    realtimeConnectedRef.current = connected
+    setRealtimeConnected(connected)
+
+    // Se a primeira resposta do canal já indicar falha, não esperamos o
+    // intervalo de 30s: buscamos o remoto imediatamente. Falhas posteriores
+    // só disparam novo pull quando representam uma transição de estado.
+    if (connected !== wasConnected || (isFirstStatus && !connected)) {
+      void syncRemote()
+    }
   }, [syncRemote])
 
   // ── Realtime: recebe inserções/atualizações do Supabase via WebSocket ──
@@ -123,7 +174,7 @@ export function useTickets() {
         )
       }
     },
-    { channelName: 'chamados:tickets:all' },
+    { channelName: 'chamados:tickets:all', onStatus: handleRealtimeStatus },
   )
 
   const create = useCallback(async (data: TicketFormData) => {
@@ -193,7 +244,17 @@ export function useTickets() {
     return ok
   }, [])
 
-  const reload = useCallback(() => syncRemote(false), [syncRemote])
+  const reload = useCallback(async () => {
+    // Sinaliza o refresh imediatamente, inclusive enquanto a checagem da RPC ocorre.
+    setSyncing(true)
+    try {
+      // O refresh explícito sempre atualiza a fila, após aplicar os fechamentos elegíveis.
+      await checkAutoArchive()
+      await syncRemote(false)
+    } catch {
+      setSyncing(false)
+    }
+  }, [checkAutoArchive, syncRemote])
 
-  return { tickets, loading, syncing, create, update, updateStatus, claim, resume, transfer, remove, reload }
+  return { tickets, loading, syncing, realtimeConnected, create, update, updateStatus, claim, resume, transfer, remove, reload }
 }

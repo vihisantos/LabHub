@@ -1022,6 +1022,47 @@ def push_subscribe():
         logger.error("Push subscribe error: %s", e)
         return jsonify({'error': 'Erro ao registrar inscrição de push'}), 500
 
+@app.route('/api/push/test-device', methods=['POST'])
+@require_auth
+def push_test_device():
+    """Envia um Push de diagnóstico somente à inscrição do próprio dispositivo.
+
+    O endpoint informado pelo cliente é validado contra a inscrição no Redis e
+    contra o user_id obtido da sessão autenticada; não permite testar dispositivos
+    de terceiros nem usa o endpoint administrativo de envio em massa.
+    """
+    if not redis:
+        return jsonify({'error': 'Serviço de notificações indisponível'}), 503
+    try:
+        body = request.get_json(silent=True) or {}
+        endpoint = str(body.get('endpoint') or '').strip()
+        user_id = str((g.user or {}).get('id') or '').strip()
+        if not endpoint:
+            return jsonify({'error': 'Inscrição do dispositivo não informada'}), 400
+        if not user_id:
+            return jsonify({'error': 'Sessão inválida'}), 401
+
+        subscription = next((
+            sub for sub in _get_subs()
+            if sub.get('endpoint') == endpoint
+            and str((sub.get('user') or {}).get('id') or '') == user_id
+        ), None)
+        if not subscription:
+            return jsonify({'error': 'Inscrição deste dispositivo não encontrada. Ative as notificações novamente.'}), 404
+
+        sent = push_notify(
+            subscription,
+            'Teste de notificações do LabHub',
+            'Se esta mensagem apareceu, o Push chegou a este dispositivo.',
+            url='/chamados/settings',
+        )
+        if not sent:
+            return jsonify({'error': 'O servidor não conseguiu enviar o Push. Verifique a configuração VAPID e a inscrição.'}), 502
+        return jsonify({'sent': True})
+    except Exception as e:
+        logger.error('Push device test error: %s', e)
+        return jsonify({'error': 'Não foi possível testar as notificações'}), 500
+
 def push_notify(sub, title, body, url='/', actions=None, user_id=None):
     try:
         data = {'title': title, 'body': body, 'url': url}

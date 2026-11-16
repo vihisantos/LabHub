@@ -104,7 +104,6 @@ export function TicketDetail() {
   const [detailError, setDetailError] = useState<{ status: number | null; message: string } | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [writeError, setWriteError] = useState('')
-
   const ticket = localTicket ?? remoteTicket
 
   // Hoisted (null-safe): o dono do chamado também escolhe sucessor na
@@ -500,8 +499,10 @@ export function TicketDetail() {
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket || !canOperate) return
     if (nextStatus === 'fechado') {
+      // O fechamento manual continua imediato; o fechamento automático é
+      // independente e executado pelo backend na verificação sob demanda.
       void applyUpdate({
-        status: nextStatus,
+        status: 'fechado',
         archived: true,
         closedAt: new Date().toISOString(),
         closedBy: user?.name,

@@ -10,7 +10,7 @@ export function PushStatusCard() {
   const { user } = useAuth()
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
 
-  const { supported, permission, subscribed, loading, error, subscribe } = usePushNotifications(
+  const { supported, permission, subscribed, loading, error, subscribe, testPush, testing, testResult } = usePushNotifications(
     '/api/push/subscribe',
     pushUser,
   )
@@ -77,6 +77,17 @@ export function PushStatusCard() {
           </button>
         )}
 
+        {active && (
+          <button
+            type="button"
+            onClick={() => void testPush()}
+            disabled={testing}
+            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-input disabled:opacity-60"
+          >
+            {testing ? 'Testando…' : 'Testar neste dispositivo'}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => navigate('/chamados/settings')}
@@ -87,6 +98,7 @@ export function PushStatusCard() {
         </button>
       </div>
 
+      {testResult && <p className="mt-2 text-[11px] text-emerald-600">{testResult}</p>}
       {error && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
     </div>
   )

@@ -4,6 +4,7 @@ import { PushStatusCard } from '../PushStatusCard'
 
 const mockNavigate = vi.hoisted(() => vi.fn())
 const mockSubscribe = vi.hoisted(() => vi.fn())
+const mockTestPush = vi.hoisted(() => vi.fn())
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
@@ -41,12 +42,16 @@ function mockHook(overrides: Record<string, unknown> = {}) {
     loading: false,
     error: null,
     subscribe: mockSubscribe,
+    testPush: mockTestPush,
+    testing: false,
+    testResult: null,
     ...overrides,
   })
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockTestPush.mockResolvedValue(true)
   mockHook()
 })
 
@@ -56,6 +61,13 @@ describe('PushStatusCard', () => {
     render(<PushStatusCard />)
     expect(screen.getByText('✅ Push ativo')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ativar' })).not.toBeInTheDocument()
+  })
+
+  it('permite testar a entrega no próprio dispositivo quando o Push está ativo', () => {
+    mockHook({ permission: 'granted', subscribed: true })
+    render(<PushStatusCard />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar neste dispositivo' }))
+    expect(mockTestPush).toHaveBeenCalledOnce()
   })
 
   it('mostra bloqueado pelo navegador quando permission=denied', () => {

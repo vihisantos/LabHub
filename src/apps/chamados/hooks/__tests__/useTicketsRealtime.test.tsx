@@ -19,6 +19,7 @@ vi.mock('../../../../lib/supabase', () => ({
 
 const mockGetAll = vi.hoisted(() => vi.fn())
 const mockPullRemote = vi.hoisted(() => vi.fn())
+const mockAutoArchiveResolved = vi.hoisted(() => vi.fn())
 const mockCreate = vi.hoisted(() => vi.fn())
 const mockUpdate = vi.hoisted(() => vi.fn())
 const mockRemove = vi.hoisted(() => vi.fn())
@@ -32,6 +33,7 @@ vi.mock('../../services/ticketService', () => ({
   ticketService: {
     getAll: mockGetAll,
     pullRemote: mockPullRemote,
+    autoArchiveResolved: mockAutoArchiveResolved,
     create: mockCreate,
     update: mockUpdate,
     remove: mockRemove,
@@ -85,9 +87,39 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockSyncAlerts.mockReturnValue([])
   mockPersistTickets.mockImplementation(() => {})
+  mockAutoArchiveResolved.mockResolvedValue(0)
 })
 
 describe('useTickets — Realtime (chamado criado em outro navegador aparece sem recarregar)', () => {
+  it('faz pull remoto imediatamente quando a primeira resposta do Realtime indica falha', async () => {
+    mockGetAll.mockReturnValue([])
+
+    renderHook(() => useTickets())
+    await act(async () => {})
+
+    // A checagem de arquivamento não deve ser confundida com o pull da fila.
+    expect(mockAutoArchiveResolved).toHaveBeenCalledTimes(1)
+    expect(mockPullRemote).not.toHaveBeenCalled()
+
+    const statusCallback = mockChannelSubscribe.mock.calls[0][0]
+    expect(statusCallback).toBeTypeOf('function')
+
+    await act(async () => {
+      statusCallback('CHANNEL_ERROR', new Error('Realtime indisponível'))
+      await Promise.resolve()
+    })
+
+    expect(mockPullRemote).toHaveBeenCalledTimes(1)
+
+    // Status de falha repetidos não geram pulls imediatos em sequência;
+    // o fallback periódico continua responsável pelas próximas tentativas.
+    await act(async () => {
+      statusCallback('CHANNEL_ERROR', new Error('Realtime ainda indisponível'))
+      await Promise.resolve()
+    })
+    expect(mockPullRemote).toHaveBeenCalledTimes(1)
+  })
+
   it('INSERT: adiciona o chamado novo do formulário público no topo da lista sem re-fetch', async () => {
     mockGetAll.mockReturnValue([makeTicket()])
 
@@ -335,14 +367,35 @@ describe('useTickets — syncRemote e reload', () => {
 
     expect(result.current.syncing).toBe(false)
 
+    // Isola a checagem do reload para controlar a ordem das operações.
+    mockAutoArchiveResolved.mockClear()
+    let resolveArchive!: (count: number) => void
+    mockAutoArchiveResolved.mockImplementationOnce(
+      () => new Promise<number>((resolve) => { resolveArchive = resolve }),
+    )
+
+    let reloadPromise!: Promise<void>
     act(() => {
-      result.current.reload()
+      reloadPromise = result.current.reload()
     })
 
-    // Durante a promise, syncing deve ser true
+    // O indicador deve ligar antes de a checagem terminar.
     expect(result.current.syncing).toBe(true)
+    expect(mockAutoArchiveResolved).toHaveBeenCalledTimes(1)
 
-    await act(async () => { resolvePull() })
+    // Libera a checagem; o reload então inicia o pull remoto.
+    await act(async () => {
+      resolveArchive(0)
+      await Promise.resolve()
+    })
+
+    expect(mockPullRemote).toHaveBeenCalledTimes(1)
+    expect(resolvePull).toBeTypeOf('function')
+
+    await act(async () => {
+      resolvePull()
+      await reloadPromise
+    })
 
     expect(result.current.syncing).toBe(false)
   })

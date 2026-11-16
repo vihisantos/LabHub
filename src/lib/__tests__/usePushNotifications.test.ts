@@ -31,7 +31,7 @@ beforeEach(() => {
     requestPermission: vi.fn(),
   })
   vi.stubGlobal('PushManager', {})
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ sent: true }) }))
 })
 
 afterEach(() => {
@@ -153,6 +153,23 @@ describe('usePushNotifications', () => {
     const { result } = renderHook(() => usePushNotifications())
     await flushDetect()
     expect(result.current.error).toBeNull()
+  })
+
+  it('testPush envia somente o endpoint da inscrição atual e confirma aceitação do servidor', async () => {
+    const subscription = { endpoint: 'https://fcm/send/device-1' }
+    mockGetSubscription.mockResolvedValue(subscription)
+    const { result } = renderHook(() => usePushNotifications())
+    await flushDetect()
+
+    await act(async () => {
+      await expect(result.current.testPush()).resolves.toBe(true)
+    })
+
+    expect(fetch).toHaveBeenCalledWith('/api/push/test-device', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    }))
+    expect(result.current.testResult).toContain('Envio aceito pelo servidor')
   })
 
   it('subscribe retorna erro quando not supported', async () => {
