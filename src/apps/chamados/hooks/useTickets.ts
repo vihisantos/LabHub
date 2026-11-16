@@ -33,6 +33,8 @@ export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [realtimeConnected, setRealtimeConnected] = useState(false)
+  const realtimeConnectedRef = useRef(false)
   const sanitizedRef = useRef(false)
 
   const load = useCallback((silent = false) => {
@@ -77,19 +79,46 @@ export function useTickets() {
   useEffect(() => {
     load()
     void checkAutoArchive()
-    // Polling preexistente permanece apenas como fallback de sincronização.
-    const timer = setInterval(() => syncRemote(), 15000)
-    return () => clearInterval(timer)
-  }, [load, syncRemote, checkAutoArchive])
+  }, [load, checkAutoArchive])
+
+  // Realtime é o canal primário. Só consultamos periodicamente enquanto o
+  // WebSocket estiver indisponível, e pausamos o fallback com a aba oculta.
+  useEffect(() => {
+    if (realtimeConnected) return
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') void syncRemote()
+    }
+    const timer = window.setInterval(syncWhenVisible, 30000)
+    document.addEventListener('visibilitychange', syncWhenVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', syncWhenVisible)
+    }
+  }, [realtimeConnected, syncRemote])
 
   useEffect(() => {
     const onOnline = () => {
       void checkAutoArchive()
       void syncRemote()
     }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void syncRemote()
+    }
     window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [checkAutoArchive, syncRemote])
+
+  const handleRealtimeStatus = useCallback((status: string) => {
+    const connected = status === 'SUBSCRIBED'
+    const wasConnected = realtimeConnectedRef.current
+    realtimeConnectedRef.current = connected
+    setRealtimeConnected(connected)
+    if (connected !== wasConnected) void syncRemote()
+  }, [syncRemote])
 
   // ── Realtime: recebe inserções/atualizações do Supabase via WebSocket ──
   useRealtimeSubscription<Ticket>(
@@ -137,7 +166,7 @@ export function useTickets() {
         )
       }
     },
-    { channelName: 'chamados:tickets:all' },
+    { channelName: 'chamados:tickets:all', onStatus: handleRealtimeStatus },
   )
 
   const create = useCallback(async (data: TicketFormData) => {
@@ -212,5 +241,5 @@ export function useTickets() {
     await syncRemote(false)
   }, [checkAutoArchive, syncRemote])
 
-  return { tickets, loading, syncing, create, update, updateStatus, claim, resume, transfer, remove, reload }
+  return { tickets, loading, syncing, realtimeConnected, create, update, updateStatus, claim, resume, transfer, remove, reload }
 }

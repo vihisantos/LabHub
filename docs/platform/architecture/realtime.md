@@ -62,13 +62,19 @@ useRealtimePresence(channelName, {
 })
 ```
 
-## Fallback por polling
+## Estado da conexão e fallback
 
-Quando o realtime não está disponível (offline ou navegador sem suporte):
+O hook `useRealtimeSubscription` expõe o estado do canal (`SUBSCRIBED`, `CHANNEL_ERROR`, `TIMED_OUT` e `CLOSED`) por `onStatus`. A fila de Chamados usa essa informação para manter o WebSocket como canal primário.
 
-- Polling a cada 15 segundos para os dados críticos
-- Polling a cada 60 segundos para as estatísticas do dashboard
-- Atualização manual por ação do usuário
+- Com o canal `SUBSCRIBED`, a fila não executa polling periódico.
+- Se o canal cair, a fila sincroniza imediatamente e ativa um fallback de 30 segundos enquanto a aba estiver visível.
+- Ao voltar para a aba, recuperar a rede ou restabelecer o Realtime, a fila sincroniza novamente para recuperar eventos perdidos.
+- O fallback é pausado enquanto a aba está oculta; não tenta competir com as limitações de execução em segundo plano do navegador.
+- O fechamento automático da issue #472 é uma verificação sob demanda na abertura/atualização, separada do fallback de sincronização.
+
+## Push não depende do polling da tela
+
+Notificações Web Push são enviadas pelo backend e tratadas pelo Service Worker (`src/sw.ts`). A inscrição ativa no navegador não comprova, sozinha, que a notificação foi entregue/exibida pelo sistema operacional. A validação ponta a ponta exige navegador/dispositivo real, permissão concedida, subscription válida, chaves VAPID configuradas e teste com a aba em segundo plano. O polling da fila não é mecanismo de entrega de Push.
 
 ## Convenção de nomes de canal
 

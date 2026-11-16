@@ -214,7 +214,7 @@ describe('useTickets — CRUD base', () => {
     expect(result.current.tickets).toHaveLength(1)
   })
 
-  it('polling de 60s puxa o remoto', async () => {
+  it('polling de contingência sincroniza quando o Realtime não está conectado', async () => {
     mockGetAll.mockReturnValue([])
     const { result } = renderHook(() => useTickets())
     await act(async () => {})

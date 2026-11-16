@@ -11,6 +11,8 @@ export interface UseRealtimeSubscriptionOptions {
   channelName?: string
   /** Enable/disable the subscription (default: true) */
   enabled?: boolean
+  /** Receives the channel lifecycle so callers can manage a fallback when disconnected. */
+  onStatus?: (status: string, error?: Error) => void
 }
 
 // Contador global para gerar IDs únicos de canal entre montagens/desmontagens
@@ -45,6 +47,7 @@ export function useRealtimeSubscription<T extends Record<string, any>>(
     schema = 'public',
     channelName: customChannelName,
     enabled = true,
+    onStatus,
   } = options
 
   // Gera um ID único por instância/montagem para evitar conflitos de nome de canal
@@ -56,6 +59,8 @@ export function useRealtimeSubscription<T extends Record<string, any>>(
   // Keep a ref to the latest callback to avoid re-subscribing on every render
   const callbackRef = useRef(callback)
   callbackRef.current = callback
+  const statusCallbackRef = useRef(onStatus)
+  statusCallbackRef.current = onStatus
 
   useEffect(() => {
     if (!enabled) return
@@ -72,8 +77,9 @@ export function useRealtimeSubscription<T extends Record<string, any>>(
           callbackRef.current(payload as RealtimePostgresChangesPayload<T>)
         },
       )
-      .subscribe((_status, err) => {
-        if (err) {
+      .subscribe((status, err) => {
+        statusCallbackRef.current?.(status, err || undefined)
+        if (status !== 'SUBSCRIBED' && err) {
           // channelName vai como argumento (nunca no texto do formato) para
           // evitar format-string injection no console
           console.warn('[Realtime] Erro no canal:', channelName, err?.message || err)
