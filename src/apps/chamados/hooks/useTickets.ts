@@ -68,19 +68,22 @@ export function useTickets() {
 
   // Checagem pontual de arquivamento: nunca é acoplada ao syncRemote,
   // pois syncRemote também roda no fallback periódico de 15s.
-  const checkAutoArchive = useCallback(async () => {
+  const checkAutoArchive = useCallback(async (): Promise<number> => {
     try {
-      await ticketService.autoArchiveResolved()
+      return await ticketService.autoArchiveResolved()
     } catch {
       // Falha temporária não bloqueia a fila; uma nova abertura/refresh/online tenta novamente.
+      return 0
     }
   }, [])
 
   useEffect(() => {
     load()
-    // Primeiro aplica o fechamento no servidor; depois busca a fila novamente
-    // para refletir os chamados que a RPC acabou de arquivar.
-    void checkAutoArchive().then(() => syncRemote())
+    // Só refaz o pull inicial quando houve arquivamento; sem alterações,
+    // evita uma segunda leitura desnecessária e preserva o fluxo de carga local.
+    void checkAutoArchive().then((archivedCount) => {
+      if (archivedCount > 0) return syncRemote()
+    })
   }, [load, checkAutoArchive, syncRemote])
 
   // Realtime é o canal primário. Só consultamos periodicamente enquanto o
@@ -233,9 +236,15 @@ export function useTickets() {
   }, [])
 
   const reload = useCallback(async () => {
-    // O refresh aguarda a checagem para buscar a fila já com os fechamentos aplicados.
-    await checkAutoArchive()
-    await syncRemote(false)
+    // Sinaliza o refresh imediatamente, inclusive enquanto a checagem da RPC ocorre.
+    setSyncing(true)
+    try {
+      // O refresh explícito sempre atualiza a fila, após aplicar os fechamentos elegíveis.
+      await checkAutoArchive()
+      await syncRemote(false)
+    } catch {
+      setSyncing(false)
+    }
   }, [checkAutoArchive, syncRemote])
 
   return { tickets, loading, syncing, realtimeConnected, create, update, updateStatus, claim, resume, transfer, remove, reload }
