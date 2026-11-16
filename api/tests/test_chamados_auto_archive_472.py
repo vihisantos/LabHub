@@ -96,7 +96,7 @@ def client(api_module, fake_requests, monkeypatch):
     return api_module.app.test_client()
 
 
-def _auth(client, fake_requests, monkeypatch, profile, allowed_actions):
+def _auth(api_module, fake_requests, monkeypatch, profile, allowed_actions):
     auth_module = sys.modules.get("auth")
     if auth_module is not None:
         monkeypatch.setattr(auth_module, "_verify_jwt", lambda token: {"sub": profile["id"]})
@@ -112,7 +112,7 @@ def _auth(client, fake_requests, monkeypatch, profile, allowed_actions):
         ]),
     )
     monkeypatch.setattr(
-        client.application.view_functions["chamados_auto_archive"].__globals__,
+        api_module,
         "rbac_two_can",
         lambda user, workspace_id, action, scope: action in allowed_actions,
     )
@@ -133,9 +133,9 @@ def _tech(**overrides):
     return profile
 
 
-def test_auto_archive_requires_view_and_close_actions(client, fake_requests, monkeypatch):
+def test_auto_archive_requires_view_and_close_actions(api_module, client, fake_requests, monkeypatch):
     profile = _tech()
-    headers = _auth(client, fake_requests, monkeypatch, profile, {"ticket.view"})
+    headers = _auth(api_module, fake_requests, monkeypatch, profile, {"ticket.view"})
     response = client.post("/api/chamados/auto-archive", headers=headers)
 
     assert response.status_code == 200
@@ -143,9 +143,9 @@ def test_auto_archive_requires_view_and_close_actions(client, fake_requests, mon
     assert not [call for call in fake_requests.calls if "/rpc/auto_archive_resolved_tickets" in call["url"]]
 
 
-def test_auto_archive_only_passes_workspaces_with_both_actions(client, fake_requests, monkeypatch):
+def test_auto_archive_only_passes_workspaces_with_both_actions(api_module, client, fake_requests, monkeypatch):
     profile = _tech()
-    headers = _auth(client, fake_requests, monkeypatch, profile, {"ticket.view", "ticket.close"})
+    headers = _auth(api_module, fake_requests, monkeypatch, profile, {"ticket.view", "ticket.close"})
     fake_requests.route(
         "POST",
         "/rest/v1/rpc/auto_archive_resolved_tickets",
@@ -154,7 +154,7 @@ def test_auto_archive_only_passes_workspaces_with_both_actions(client, fake_requ
     # A autorização por workspace é verificada pelo backend; o teste restringe
     # explicitamente a unidade B para simular override/permissão diferente.
     monkeypatch.setattr(
-        client.application.view_functions["chamados_auto_archive"].__globals__,
+        api_module,
         "rbac_two_can",
         lambda user, workspace_id, action, scope: (
             workspace_id == "ws-a" and action in {"ticket.view", "ticket.close"}
@@ -169,9 +169,9 @@ def test_auto_archive_only_passes_workspaces_with_both_actions(client, fake_requ
     assert rpc_calls[0]["kwargs"]["json"] == {"p_workspace_ids": ["ws-a"]}
 
 
-def test_super_admin_runs_system_check_without_client_workspace_scope(client, fake_requests, monkeypatch):
+def test_super_admin_runs_system_check_without_client_workspace_scope(api_module, client, fake_requests, monkeypatch):
     profile = _tech(is_super_admin=True, workspace_ids=[])
-    headers = _auth(client, fake_requests, monkeypatch, profile, set())
+    headers = _auth(api_module, fake_requests, monkeypatch, profile, set())
     fake_requests.route("POST", "/rest/v1/rpc/auto_archive_resolved_tickets", FakeResponse([]))
 
     response = client.post("/api/chamados/auto-archive", headers=headers)
@@ -182,9 +182,9 @@ def test_super_admin_runs_system_check_without_client_workspace_scope(client, fa
     assert rpc_calls[0]["kwargs"]["json"] == {"p_workspace_ids": None}
 
 
-def test_auto_archive_rpc_failure_returns_502(client, fake_requests, monkeypatch):
+def test_auto_archive_rpc_failure_returns_502(api_module, client, fake_requests, monkeypatch):
     profile = _tech()
-    headers = _auth(client, fake_requests, monkeypatch, profile, {"ticket.view", "ticket.close"})
+    headers = _auth(api_module, fake_requests, monkeypatch, profile, {"ticket.view", "ticket.close"})
     fake_requests.route(
         "POST",
         "/rest/v1/rpc/auto_archive_resolved_tickets",

@@ -3257,17 +3257,7 @@ def chamados_auto_archive():
             )
             return jsonify({'error': 'Não foi possível verificar os chamados resolvidos'}), 502
         rows = resp.json() or []
-        for ticket in rows:
-            record_app_audit(
-                workspace_id=ticket.get('workspace_id'),
-                actor_id=None,
-                actor_name='Sistema',
-                action='auto_archived',
-                entity='ticket',
-                entity_id=ticket.get('id') or '',
-                entity_label=f"#{ticket.get('ticketNumber') or ''} · {ticket.get('roomName') or ''}",
-                meta={'status': 'fechado', 'origin': 'auto_archive_resolved_30m'},
-            )
+        # A RPC grava timeline e auditoria imutável na mesma transação do UPDATE.
         return jsonify({'archivedCount': len(rows)})
     except Exception as e:
         logger.error('[chamados] auto-archive error: %s', e)

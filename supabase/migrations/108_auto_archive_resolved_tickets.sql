@@ -26,6 +26,7 @@ BEGIN
       AND t."resolvedAt" IS NOT NULL
       AND t."resolvedAt" <= (clock_timestamp() - INTERVAL '30 minutes')
       AND t.archived IS DISTINCT FROM TRUE
+      AND t.workspace_id IS NOT NULL
       AND (p_workspace_ids IS NULL OR t.workspace_id = ANY(p_workspace_ids))
     ORDER BY t."resolvedAt", t.id
     FOR UPDATE SKIP LOCKED
@@ -58,10 +59,27 @@ BEGIN
       'fechado'
     FROM updated AS u
     RETURNING "ticket_id"
+  ),
+  audit AS (
+    INSERT INTO public.app_audit_logs (
+      workspace_id, actor_id, actor_name, action, entity, entity_id, entity_label, meta
+    )
+    SELECT
+      u.workspace_id,
+      NULL,
+      'Sistema',
+      'auto_archived',
+      'ticket',
+      u.id::text,
+      format('#%s · %s', u."ticketNumber", COALESCE(u."roomName", '')),
+      jsonb_build_object('status', 'fechado', 'origin', 'auto_archive_resolved_30m')
+    FROM updated AS u
+    RETURNING entity_id
   )
   SELECT u.id, u.workspace_id, u."ticketNumber", u."roomName"
   FROM updated AS u
-  INNER JOIN events AS e ON e."ticket_id" = u.id;
+  INNER JOIN events AS e ON e."ticket_id" = u.id
+  INNER JOIN audit AS a ON a.entity_id = u.id::text;
 END;
 $$;
 
