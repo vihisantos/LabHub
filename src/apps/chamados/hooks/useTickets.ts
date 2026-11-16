@@ -64,18 +64,32 @@ export function useTickets() {
     }
   }, [load])
 
-  useEffect(() => {
-    load()
-    // Polling a cada 15s como fallback (Realtime é o canal primário).
-    const timer = setInterval(() => syncRemote(), 15000)
-    return () => clearInterval(timer)
-  }, [load, syncRemote])
+  // Checagem pontual de arquivamento: nunca é acoplada ao syncRemote,
+  // pois syncRemote também roda no fallback periódico de 15s.
+  const checkAutoArchive = useCallback(async () => {
+    try {
+      await ticketService.autoArchiveResolved()
+    } catch {
+      // Falha temporária não bloqueia a fila; uma nova abertura/refresh/online tenta novamente.
+    }
+  }, [])
 
   useEffect(() => {
-    const onOnline = () => syncRemote()
+    load()
+    void checkAutoArchive()
+    // Polling preexistente permanece apenas como fallback de sincronização.
+    const timer = setInterval(() => syncRemote(), 15000)
+    return () => clearInterval(timer)
+  }, [load, syncRemote, checkAutoArchive])
+
+  useEffect(() => {
+    const onOnline = () => {
+      void checkAutoArchive()
+      void syncRemote()
+    }
     window.addEventListener('online', onOnline)
     return () => window.removeEventListener('online', onOnline)
-  }, [syncRemote])
+  }, [checkAutoArchive, syncRemote])
 
   // ── Realtime: recebe inserções/atualizações do Supabase via WebSocket ──
   useRealtimeSubscription<Ticket>(
@@ -193,7 +207,10 @@ export function useTickets() {
     return ok
   }, [])
 
-  const reload = useCallback(() => syncRemote(false), [syncRemote])
+  const reload = useCallback(async () => {
+    await checkAutoArchive()
+    await syncRemote(false)
+  }, [checkAutoArchive, syncRemote])
 
   return { tickets, loading, syncing, create, update, updateStatus, claim, resume, transfer, remove, reload }
 }

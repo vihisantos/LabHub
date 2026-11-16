@@ -3215,6 +3215,65 @@ def chamados_create():
         return jsonify({'error': 'Erro interno'}), 500
 
 
+@_route_once('/api/chamados/auto-archive', methods=['POST'])
+@require_auth
+def chamados_auto_archive():
+    """Fecha chamados resolvidos há 30 minutos, uma única vez por acionamento.
+
+    A chamada é explícita e sob demanda (abertura/refresh da fila), nunca parte
+    do polling de sincronização. O RPC faz a transição e cria o evento de timeline
+    na mesma transação; concorrência é resolvida com FOR UPDATE SKIP LOCKED.
+    """
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    try:
+        user = g.user
+        is_super_admin = bool(user.get('is_super_admin'))
+        workspace_ids = None
+        if not is_super_admin:
+            # O escopo vem exclusivamente das memberships autenticadas. Além de
+            # ticket.view, exigimos ticket.close para que usuários somente leitura
+            # não possam disparar uma mutação sistêmica.
+            memberships = sorted({
+                str(w).strip() for w in (user.get('workspace_ids') or []) if str(w).strip()
+            })
+            workspace_ids = [
+                workspace_id for workspace_id in memberships
+                if rbac_two_can(user, workspace_id, 'ticket.view', 'workspace')
+                and rbac_two_can(user, workspace_id, 'ticket.close', 'workspace')
+            ]
+            if not workspace_ids:
+                return jsonify({'archivedCount': 0})
+        resp = requests.post(
+            f'{_SUPABASE_URL}/rest/v1/rpc/auto_archive_resolved_tickets',
+            headers=_supabase_headers(),
+            json={'p_workspace_ids': workspace_ids},
+            timeout=20,
+        )
+        if not resp.ok:
+            logger.error(
+                '[chamados] auto-archive RPC falhou: %s %s',
+                resp.status_code, (resp.text or '')[:300],
+            )
+            return jsonify({'error': 'Não foi possível verificar os chamados resolvidos'}), 502
+        rows = resp.json() or []
+        for ticket in rows:
+            record_app_audit(
+                workspace_id=ticket.get('workspace_id'),
+                actor_id=None,
+                actor_name='Sistema',
+                action='auto_archived',
+                entity='ticket',
+                entity_id=ticket.get('id') or '',
+                entity_label=f"#{ticket.get('ticketNumber') or ''} · {ticket.get('roomName') or ''}",
+                meta={'status': 'fechado', 'origin': 'auto_archive_resolved_30m'},
+            )
+        return jsonify({'archivedCount': len(rows)})
+    except Exception as e:
+        logger.error('[chamados] auto-archive error: %s', e)
+        return jsonify({'error': 'Erro interno'}), 500
+
+
 @_route_once('/api/chamados', methods=['GET'])
 @require_auth
 def chamados_list():

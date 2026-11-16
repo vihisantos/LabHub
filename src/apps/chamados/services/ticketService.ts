@@ -439,6 +439,18 @@ export const ticketService = {
     ).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
   },
 
+  /**
+   * Executa a verificação pontual de fechamento automático. Não é chamada
+   * pelo ciclo de polling; somente na abertura, refresh explícito ou retorno online.
+   */
+  autoArchiveResolved: async (): Promise<number> => {
+    const { archivedCount } = await request<{ archivedCount: number }>(`${API_BASE}/auto-archive`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    return archivedCount || 0
+  },
+
   /** Puxa os chamados do servidor e mescla no cache local (mais recente por updatedAt). */
   pullRemote: async (): Promise<void> => {
     const { tickets } = await request<{ tickets: Ticket[] }>(API_BASE)
