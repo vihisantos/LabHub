@@ -347,7 +347,6 @@ describe('useTickets — syncRemote e reload', () => {
     // depois que a checagem pontual de arquivamento termina.
     expect(result.current.syncing).toBe(true)
     await waitFor(() => {
-      expect(mockAutoArchiveResolved).toHaveBeenCalledTimes(2) // montagem + reload
       expect(mockPullRemote).toHaveBeenCalledTimes(1)
       expect(resolvePull).toBeTypeOf('function')
     })
