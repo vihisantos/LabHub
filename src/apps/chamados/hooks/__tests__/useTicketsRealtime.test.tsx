@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import type { Ticket } from '../../types'
 
 // Canal Realtime simulado (mesmo padrão de src/lib/__tests__/useRealtimeSubscription.test.ts)
@@ -19,6 +19,7 @@ vi.mock('../../../../lib/supabase', () => ({
 
 const mockGetAll = vi.hoisted(() => vi.fn())
 const mockPullRemote = vi.hoisted(() => vi.fn())
+const mockAutoArchiveResolved = vi.hoisted(() => vi.fn())
 const mockCreate = vi.hoisted(() => vi.fn())
 const mockUpdate = vi.hoisted(() => vi.fn())
 const mockRemove = vi.hoisted(() => vi.fn())
@@ -32,6 +33,7 @@ vi.mock('../../services/ticketService', () => ({
   ticketService: {
     getAll: mockGetAll,
     pullRemote: mockPullRemote,
+    autoArchiveResolved: mockAutoArchiveResolved,
     create: mockCreate,
     update: mockUpdate,
     remove: mockRemove,
@@ -85,6 +87,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockSyncAlerts.mockReturnValue([])
   mockPersistTickets.mockImplementation(() => {})
+  mockAutoArchiveResolved.mockResolvedValue(0)
 })
 
 describe('useTickets — Realtime (chamado criado em outro navegador aparece sem recarregar)', () => {
@@ -335,14 +338,24 @@ describe('useTickets — syncRemote e reload', () => {
 
     expect(result.current.syncing).toBe(false)
 
+    let reloadPromise!: Promise<void>
     act(() => {
-      result.current.reload()
+      reloadPromise = result.current.reload()
     })
 
-    // Durante a promise, syncing deve ser true
+    // O reload sinaliza syncing imediatamente, mas só inicia o pull
+    // depois que a checagem pontual de arquivamento termina.
     expect(result.current.syncing).toBe(true)
+    await waitFor(() => {
+      expect(mockAutoArchiveResolved).toHaveBeenCalledTimes(2) // montagem + reload
+      expect(mockPullRemote).toHaveBeenCalledTimes(1)
+      expect(resolvePull).toBeTypeOf('function')
+    })
 
-    await act(async () => { resolvePull() })
+    await act(async () => {
+      resolvePull()
+      await reloadPromise
+    })
 
     expect(result.current.syncing).toBe(false)
   })
