@@ -233,7 +233,6 @@ def step_behavioral_108_concurrency(dsn: str) -> None:
 
         # Sessão A adquire e mantém o lock da linha elegível.
         with psycopg.connect(dsn, row_factory=dict_row) as locker:
-            locker.execute("BEGIN")
             locker.execute(
                 "SELECT id FROM public.chamados_tickets WHERE id = %s FOR UPDATE",
                 (ticket_id,),
