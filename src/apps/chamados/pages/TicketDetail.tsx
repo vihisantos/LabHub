@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTicketsContext } from '../contexts/TicketsContext'
 import {
@@ -104,8 +104,26 @@ export function TicketDetail() {
   const [detailError, setDetailError] = useState<{ status: number | null; message: string } | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [writeError, setWriteError] = useState('')
+  const [autoClosePending, setAutoClosePending] = useState(false)
+  const autoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current)
+  }, [])
+
+  useEffect(() => {
+    // Se o Realtime ou outra sincronização fechar/mudar o chamado durante a
+    // espera, cancela o fechamento manual pendente.
+    if (autoClosePending && ticket?.status !== 'resolvido') {
+      if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current)
+      autoCloseTimer.current = null
+      setAutoClosePending(false)
+    }
+  }, [autoClosePending, ticket?.status])
 
   const ticket = localTicket ?? remoteTicket
+  const ticketRef = useRef<Ticket | null>(ticket)
+  ticketRef.current = ticket
 
   // Hoisted (null-safe): o dono do chamado também escolhe sucessor na
   // transferência (P3 #371), então o fetch de responsáveis e os handlers
@@ -500,12 +518,22 @@ export function TicketDetail() {
   function handleAdvanceStatus() {
     if (!nextStatus || !ticket || !canOperate) return
     if (nextStatus === 'fechado') {
-      void applyUpdate({
-        status: nextStatus,
-        archived: true,
-        closedAt: new Date().toISOString(),
-        closedBy: user?.name,
-      })
+      if (autoClosePending) return
+      setAutoClosePending(true)
+      autoCloseTimer.current = setTimeout(() => {
+        autoCloseTimer.current = null
+        // A rotina automática pode ter fechado o chamado durante os 5s.
+        // Nesse caso, não envia uma segunda atualização.
+        if (ticketRef.current?.status === 'resolvido') {
+          void applyUpdate({
+            status: 'fechado',
+            archived: true,
+            closedAt: new Date().toISOString(),
+            closedBy: user?.name,
+          })
+        }
+        setAutoClosePending(false)
+      }, 5000)
     } else if (hasLocal) {
       updateStatus(ticket.id, nextStatus)
     } else {
@@ -1230,16 +1258,25 @@ export function TicketDetail() {
 
       {canOperate && nextStatus && !lockedByOther && (nextStatus !== 'a_caminho' || claimedByMe) &&
         (nextStatus === 'fechado' ? canClose : canStatus) && (
-        <button
-          type="button"
-          onClick={handleAdvanceStatus}
-          className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400"
-        >
-          {nextStatus === 'a_caminho' && 'Ir ao local'}
-          {nextStatus === 'em_atendimento' && 'Iniciar Atendimento'}
-          {nextStatus === 'resolvido' && 'Marcar como Resolvido'}
-          {nextStatus === 'fechado' && 'Fechar Chamado'}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={handleAdvanceStatus}
+            disabled={nextStatus === 'fechado' && autoClosePending}
+            aria-live={nextStatus === 'fechado' ? 'polite' : undefined}
+            className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {nextStatus === 'a_caminho' && 'Ir ao local'}
+            {nextStatus === 'em_atendimento' && 'Iniciar Atendimento'}
+            {nextStatus === 'resolvido' && 'Marcar como Resolvido'}
+            {nextStatus === 'fechado' && (autoClosePending ? 'Fechamento automático em andamento…' : 'Fechar Chamado')}
+          </button>
+          {nextStatus === 'fechado' && autoClosePending && (
+            <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-center text-xs font-medium text-amber-700 dark:text-amber-300">
+              Este chamado será fechado automaticamente. Aguarde até 5 segundos.
+            </p>
+          )}
+        </>
       )}
 
       {canOperate && inOpenFlow && !lockedByOther && canStatus && (
