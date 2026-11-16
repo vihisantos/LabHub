@@ -236,9 +236,10 @@ export function useTickets() {
     return ok
   }, [])
 
-  const reload = useCallback(async () => {
-    await checkAutoArchive()
-    await syncRemote(false)
+  const reload = useCallback(() => {
+    // A checagem é independente: não deve atrasar o refresh nem o estado de syncing.
+    void checkAutoArchive()
+    return syncRemote(false)
   }, [checkAutoArchive, syncRemote])
 
   return { tickets, loading, syncing, realtimeConnected, create, update, updateStatus, claim, resume, transfer, remove, reload }
