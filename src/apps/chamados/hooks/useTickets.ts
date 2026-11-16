@@ -78,8 +78,10 @@ export function useTickets() {
 
   useEffect(() => {
     load()
-    void checkAutoArchive()
-  }, [load, checkAutoArchive])
+    // Primeiro aplica o fechamento no servidor; depois busca a fila novamente
+    // para refletir os chamados que a RPC acabou de arquivar.
+    void checkAutoArchive().then(() => syncRemote())
+  }, [load, checkAutoArchive, syncRemote])
 
   // Realtime é o canal primário. Só consultamos periodicamente enquanto o
   // WebSocket estiver indisponível, e pausamos o fallback com a aba oculta.
@@ -98,8 +100,7 @@ export function useTickets() {
 
   useEffect(() => {
     const onOnline = () => {
-      void checkAutoArchive()
-      void syncRemote()
+      void checkAutoArchive().then(() => syncRemote())
     }
     window.addEventListener('online', onOnline)
     return () => {
@@ -231,10 +232,10 @@ export function useTickets() {
     return ok
   }, [])
 
-  const reload = useCallback(() => {
-    // A checagem é independente: não deve atrasar o refresh nem o estado de syncing.
-    void checkAutoArchive()
-    return syncRemote(false)
+  const reload = useCallback(async () => {
+    // O refresh aguarda a checagem para buscar a fila já com os fechamentos aplicados.
+    await checkAutoArchive()
+    await syncRemote(false)
   }, [checkAutoArchive, syncRemote])
 
   return { tickets, loading, syncing, realtimeConnected, create, update, updateStatus, claim, resume, transfer, remove, reload }
