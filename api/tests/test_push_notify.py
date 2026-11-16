@@ -164,9 +164,9 @@ def test_push_device_test_only_sends_to_the_authenticated_devices_subscription(r
         "/api/push/test-device", method="POST", json={"endpoint": FCM_SUB["endpoint"]}
     ):
         rlab_module.g.user = {"id": "user-1"}
-        response, status = rlab_module.push_test_device.__wrapped__()
+        response = rlab_module.push_test_device.__wrapped__()
 
-    assert status == 200
+    assert response.status_code == 200
     assert response.get_json() == {"sent": True}
     assert len(calls) == 1
     assert calls[0][0][0] == sub
@@ -183,8 +183,8 @@ def test_push_device_test_rejects_another_users_subscription(rlab_module, monkey
         "/api/push/test-device", method="POST", json={"endpoint": FCM_SUB["endpoint"]}
     ):
         rlab_module.g.user = {"id": "user-1"}
-        response, status = rlab_module.push_test_device.__wrapped__()
+        response = rlab_module.push_test_device.__wrapped__()
 
-    assert status == 404
+    assert response.status_code == 404
     assert response.get_json()["error"]
     assert calls == []
