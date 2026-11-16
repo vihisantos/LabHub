@@ -255,7 +255,7 @@ def step_behavioral_108_concurrency(dsn: str) -> None:
 
         with psycopg.connect(dsn, row_factory=dict_row) as verifier:
             archived = verifier.execute(
-                "SELECT * FROM public.auto_archive_resolved_tickets(ARRAY[%s]::uuid[])",
+                "SELECT * FROM public.auto_archive_resolved_tickets(%s::uuid[])",
                 ([workspace_id],),
             ).fetchall()
             if len(archived) != 1 or archived[0]["id"] != ticket_id:
@@ -263,7 +263,7 @@ def step_behavioral_108_concurrency(dsn: str) -> None:
                     f"Após liberar o lock, esperava arquivar exatamente {ticket_id}; retornou {archived}"
                 )
             again = verifier.execute(
-                "SELECT * FROM public.auto_archive_resolved_tickets(ARRAY[%s]::uuid[])",
+                "SELECT * FROM public.auto_archive_resolved_tickets(%s::uuid[])",
                 ([workspace_id],),
             ).fetchall()
             if again:
