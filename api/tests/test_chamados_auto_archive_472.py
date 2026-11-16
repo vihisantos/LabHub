@@ -48,6 +48,11 @@ class FakeRequests:
         self.routes.append((method, url_part, response))
 
     def _match(self, method, url, kwargs):
+        params = kwargs.get("params")
+        if params:
+            query = "&".join(f"{key}={value}" for key, value in sorted(params.items()))
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}{query}"
         self.calls.append({"method": method, "url": url, "kwargs": kwargs})
         for expected_method, part, response in self.routes:
             if expected_method == method and part in url:
