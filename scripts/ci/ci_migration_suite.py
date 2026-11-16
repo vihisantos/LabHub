@@ -202,6 +202,106 @@ def step_behavioral_patrimonio(executor) -> None:
     )
 
 
+def step_behavioral_108_concurrency(dsn: str) -> None:
+    """Prova FOR UPDATE SKIP LOCKED com duas conexões PostgreSQL independentes.
+
+    A conexão A mantém o lock da linha; a conexão B chama a RPC e precisa
+    retornar sem processar essa linha. Depois do COMMIT de A, uma nova chamada
+    deve arquivar exatamente um ticket e gravar um único evento/auditoria.
+    """
+    import uuid
+    import psycopg
+    from psycopg.rows import dict_row
+
+    workspace_id = None
+    ticket_id = None
+    try:
+        with psycopg.connect(dsn, row_factory=dict_row) as setup:
+            row = setup.execute(
+                "INSERT INTO public.workspaces (name, slug) VALUES (%s, %s) RETURNING id",
+                ("CI auto archive concurrency", f"ci-auto-archive-concurrency-{uuid.uuid4()}"),
+            ).fetchone()
+            workspace_id = row["id"]
+            row = setup.execute(
+                '''INSERT INTO public.chamados_tickets
+                   (workspace_id, status, "resolvedAt", "ticketNumber", "roomName")
+                   VALUES (%s, 'resolvido', clock_timestamp() - interval '45 minutes', %s, %s)
+                   RETURNING id''',
+                (workspace_id, uuid.uuid4().int % 1000000, "CI concorrência"),
+            ).fetchone()
+            ticket_id = row["id"]
+
+        # Sessão A adquire e mantém o lock da linha elegível.
+        with psycopg.connect(dsn, row_factory=dict_row) as locker:
+            locker.execute("BEGIN")
+            locker.execute(
+                "SELECT id FROM public.chamados_tickets WHERE id = %s FOR UPDATE",
+                (ticket_id,),
+            ).fetchone()
+
+            # Sessão B executa a RPC enquanto A ainda mantém o lock.
+            with psycopg.connect(dsn, row_factory=dict_row) as contender:
+                contender.execute("SET LOCAL statement_timeout = '5s'")
+                skipped = contender.execute(
+                    "SELECT * FROM public.auto_archive_resolved_tickets(ARRAY[%s]::uuid[])",
+                    ([workspace_id],),
+                ).fetchall()
+                if skipped:
+                    raise AssertionError(
+                        f"RPC processou ticket bloqueado por outra sessão: {skipped}"
+                    )
+
+            # Libera o lock; agora a RPC deve processar exatamente esse ticket.
+            locker.commit()
+
+        with psycopg.connect(dsn, row_factory=dict_row) as verifier:
+            archived = verifier.execute(
+                "SELECT * FROM public.auto_archive_resolved_tickets(ARRAY[%s]::uuid[])",
+                ([workspace_id],),
+            ).fetchall()
+            if len(archived) != 1 or archived[0]["id"] != ticket_id:
+                raise AssertionError(
+                    f"Após liberar o lock, esperava arquivar exatamente {ticket_id}; retornou {archived}"
+                )
+            again = verifier.execute(
+                "SELECT * FROM public.auto_archive_resolved_tickets(ARRAY[%s]::uuid[])",
+                ([workspace_id],),
+            ).fetchall()
+            if again:
+                raise AssertionError(f"RPC duplicou arquivamento na repetição: {again}")
+
+            counts = verifier.execute(
+                '''SELECT
+                     (SELECT count(*) FROM public.ticket_events
+                      WHERE "ticket_id" = %s AND content = 'Arquivado pelo sistema') AS events,
+                     (SELECT count(*) FROM public.app_audit_logs
+                      WHERE entity_id = %s::text AND action = 'auto_archived') AS audits''',
+                (ticket_id, ticket_id),
+            ).fetchone()
+            if counts["events"] != 1 or counts["audits"] != 1:
+                raise AssertionError(
+                    f"Esperava 1 evento e 1 auditoria após concorrência; recebido {counts}"
+                )
+        report(
+            "STEP 9 - migration 108 concorrência real (2 sessões PostgreSQL)",
+            True,
+            "sessão B ignorou linha bloqueada; após COMMIT de A, uma execução arquivou; sem duplicatas",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail("STEP 9 - migration 108 concorrência real (2 sessões PostgreSQL)", exc)
+    finally:
+        # O banco é efêmero, mas removemos os fixtures mesmo em caso de falha.
+        if workspace_id is not None:
+            try:
+                with psycopg.connect(dsn) as cleanup:
+                    if ticket_id is not None:
+                        cleanup.execute("DELETE FROM public.ticket_events WHERE ticket_id = %s", (ticket_id,))
+                        cleanup.execute("DELETE FROM public.app_audit_logs WHERE entity_id = %s::text", (ticket_id,))
+                        cleanup.execute("DELETE FROM public.chamados_tickets WHERE id = %s", (ticket_id,))
+                    cleanup.execute("DELETE FROM public.workspaces WHERE id = %s", (workspace_id,))
+            except Exception as cleanup_exc:  # noqa: BLE001
+                report("STEP 9 cleanup", False, str(cleanup_exc)[:300])
+
 def main() -> int:
     dsn = os.environ.get("DATABASE_URL", "").strip()
     if not dsn:
@@ -217,6 +317,7 @@ def main() -> int:
     step_run_static_tests(executor)
     step_behavioral_072(executor)
     step_behavioral_patrimonio(executor)
+    step_behavioral_108_concurrency(dsn)
 
     failed = [n for n, ok, _ in _REPORT if not ok]
     print(f"[suite] RESULTADO: {len(_REPORT) - len(failed)}/{len(_REPORT)} PASS")
