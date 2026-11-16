@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import type { Ticket } from '../../types'
 
 // Canal Realtime simulado (mesmo padrão de src/lib/__tests__/useRealtimeSubscription.test.ts)
@@ -338,18 +338,30 @@ describe('useTickets — syncRemote e reload', () => {
 
     expect(result.current.syncing).toBe(false)
 
+    // Isola a checagem do reload para controlar a ordem das operações.
+    mockAutoArchiveResolved.mockClear()
+    let resolveArchive!: (count: number) => void
+    mockAutoArchiveResolved.mockImplementationOnce(
+      () => new Promise<number>((resolve) => { resolveArchive = resolve }),
+    )
+
     let reloadPromise!: Promise<void>
     act(() => {
       reloadPromise = result.current.reload()
     })
 
-    // O reload sinaliza syncing imediatamente, mas só inicia o pull
-    // depois que a checagem pontual de arquivamento termina.
+    // O indicador deve ligar antes de a checagem terminar.
     expect(result.current.syncing).toBe(true)
-    await waitFor(() => {
-      expect(mockPullRemote).toHaveBeenCalledTimes(1)
-      expect(resolvePull).toBeTypeOf('function')
+    expect(mockAutoArchiveResolved).toHaveBeenCalledTimes(1)
+
+    // Libera a checagem; o reload então inicia o pull remoto.
+    await act(async () => {
+      resolveArchive(0)
+      await Promise.resolve()
     })
+
+    expect(mockPullRemote).toHaveBeenCalledTimes(1)
+    expect(resolvePull).toBeTypeOf('function')
 
     await act(async () => {
       resolvePull()
