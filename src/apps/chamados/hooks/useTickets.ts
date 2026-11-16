@@ -35,6 +35,7 @@ export function useTickets() {
   const [syncing, setSyncing] = useState(false)
   const [realtimeConnected, setRealtimeConnected] = useState(false)
   const realtimeConnectedRef = useRef(false)
+  const realtimeStatusSeenRef = useRef(false)
   const sanitizedRef = useRef(false)
 
   const load = useCallback((silent = false) => {
@@ -114,9 +115,17 @@ export function useTickets() {
   const handleRealtimeStatus = useCallback((status: string) => {
     const connected = status === 'SUBSCRIBED'
     const wasConnected = realtimeConnectedRef.current
+    const isFirstStatus = !realtimeStatusSeenRef.current
+    realtimeStatusSeenRef.current = true
     realtimeConnectedRef.current = connected
     setRealtimeConnected(connected)
-    if (connected !== wasConnected) void syncRemote()
+
+    // Se a primeira resposta do canal já indicar falha, não esperamos o
+    // intervalo de 30s: buscamos o remoto imediatamente. Falhas posteriores
+    // só disparam novo pull quando representam uma transição de estado.
+    if (connected !== wasConnected || (isFirstStatus && !connected)) {
+      void syncRemote()
+    }
   }, [syncRemote])
 
   // ── Realtime: recebe inserções/atualizações do Supabase via WebSocket ──
