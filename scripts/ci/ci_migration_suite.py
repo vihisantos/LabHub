@@ -243,7 +243,7 @@ def step_behavioral_108_concurrency(dsn: str) -> None:
             with psycopg.connect(dsn, row_factory=dict_row) as contender:
                 contender.execute("SET LOCAL statement_timeout = '5s'")
                 skipped = contender.execute(
-                    "SELECT * FROM public.auto_archive_resolved_tickets(ARRAY[%s]::uuid[])",
+                    "SELECT * FROM public.auto_archive_resolved_tickets(%s::uuid[])",
                     ([workspace_id],),
                 ).fetchall()
                 if skipped:
