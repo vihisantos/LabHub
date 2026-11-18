@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/badge/Acessar-Aplica%C3%A7%C3%A3o-10b981?style=for-the-badge&logo=vercel&logoColor=white" alt="Acessar aplicação" />
   </a>
   <img src="https://img.shields.io/github/actions/workflow/status/vihisantos/LabHub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI" />
-  <img src="https://img.shields.io/badge/version-2.3.0-blue?style=for-the-badge" alt="Versão 2.3.0" />
+  <img src="https://img.shields.io/badge/version-2.4.0-blue?style=for-the-badge" alt="Versão 2.4.0" />
   <img src="https://img.shields.io/badge/license-All%20rights%20reserved-purple?style=for-the-badge" alt="Licença" />
 </p>
 
@@ -73,7 +73,6 @@ O LabHub reúne toda essa operação em uma plataforma única, modular e **offli
 | **PC Care** | `/pc-care` | Inventário, limpeza e manutenção preventiva de computadores |
 | **Estoque** | `/stock` | Materiais, movimentações, kits e inventário cíclico |
 | **ReservaLab** | `/reservalab` | Reservas de laboratório e tablets, com dashboard e lembretes |
-| **TV** | `/tv` · `/tv/display` | Murais digitais: eventos, vídeos, música, avisos e galerias |
 | **Patrimônio** | `/patrimonio` | Acervo institucional de TI com custódia e histórico de movimentações |
 
 Cada aplicação é habilitada por workspace e respeita o cargo do usuário. A documentação detalhada de cada uma está em [`docs/apps/`](docs/apps/README.md).
@@ -155,7 +154,9 @@ O Estoque controla níveis de inventário, movimentações, kits e contagens cí
 > Gestão de reservas de laboratórios e de tablets.  
 > **Cor:** índigo · **Rota:** `/reservalab` · **Código:** `src/apps/reservalab`
 
-O ReservaLab reúne a ocupação dos laboratórios e o empréstimo de tablets em um calendário único. As reservas de laboratório vêm de uma planilha Excel no SharePoint (somente leitura); as de tablet são gerenciadas no Supabase.
+O ReservaLab reúne a ocupação dos laboratórios e o empréstimo de tablets em um calendário único.
+
+**TV Integration Note:** O ReservaLab pode criar eventos na TV Desktop a partir de uma reserva, selecionando a TV do campus que deve exibi-lo.
 
 - **Reservas de laboratório** — visualização por dia e por semana.
 - **Reservas de tablet** — CRUD completo, com modal de cadastro e erros em linha.
@@ -169,22 +170,24 @@ O ReservaLab reúne a ocupação dos laboratórios e o empréstimo de tablets em
 
 [Documentação do ReservaLab →](docs/apps/reservalab/README.md)
 
-### TV
+### TV Desktop
 
-> Canal corporativo e murais digitais dos laboratórios.  
-> **Cor:** vermelho · **Rota:** `/tv` (admin) e `/tv/display` (tela cheia) · **Código:** `src/apps/tv`
+> Aplicativo de murais digitais para TVs dos laboratórios (instalação desktop).  
+> **Platform:** Windows Tauri Desktop · **Código:** `src/tv-desktop`
 
-A TV opera em dois modos: **admin**, para gestão de conteúdo, e **display**, para reprodução em tela cheia nos murais dos laboratórios.
+O TV Desktop opera em modo kiosk, exibindo eventos, vídeos, música, avisos e galerias de fotos em telas dos laboratórios.
 
-- **Eventos** — por campus, direcionados a uma TV específica ou a todas as TVs da unidade.
-- **Playlists de vídeo** — integração com o YouTube e busca de metadados.
-- **Música** — filas de reprodução em segundo plano e pedidos de música.
-- **Avisos** — mensagens em rolagem, incluindo alertas urgentes por severidade.
-- **Galerias de fotos** — carrosséis de imagens.
-- **Gestão de dispositivos** — códigos de ativação para as TVs.
-- **Fonte externa de eventos** — planilha do SharePoint/OneDrive, com validação de URL e cache por workspace.
+- **Eventos** — por campus, direcionados a uma TV específica ou a todas as TVs da unidade
+- **Playlists de vídeo** — integração com o YouTube e busca de metadados
+- **Música** — filas de reprodução em segundo plano e pedidos de música
+- **Avisos** — mensagens em rolagem, incluindo alertas urgentes por severidade
+- **Galerias de fotos** — carrosséis de imagens
+- **Gestão de dispositivos** — códigos de ativação via USB para as TVs
+- **Instalação** — baixar instalador do GitHub Releases e ativar com pendrive USB
 
-**Dados:** acesso direto ao Supabase, sem sincronização local, nas tabelas `tv_*`; metadados de vídeo e fonte externa passam pela API Flask (`/api/tv/*`).
+**Dados:** acesso direto ao Supabase, sem sincronização local.
+
+**Instalação:** O instalador é gerado com `npx tauri build` e disponibilizado nas [Releases do GitHub](https://github.com/vihisantos/LabHub-TV/releases). O processo de ativação exige um pendrive USB com chave de ativação fornecida pela equipe de TI.
 
 [Documentação da TV →](docs/apps/tv/README.md)
 
@@ -244,13 +247,16 @@ flowchart LR
         NOTIF["Notificações"]
     end
 
-    subgraph APPS["Aplicações"]
+    subgraph APPS["Aplicações Web"]
         CH["Chamados"]
         PC["PC Care"]
         ST["Estoque"]
         RL["ReservaLab"]
-        TV["TV"]
         PT["Patrimônio"]
+    end
+
+    subgraph DESKTOP["Aplicativos Desktop"]
+        TV["TV Desktop<br/>Tauri"]
     end
 
     subgraph SVC["Serviços"]
@@ -281,9 +287,10 @@ flowchart LR
 | Padrão | Aplicações | Caminho |
 |--------|------------|---------|
 | **Local-first com sincronização** | PC Care, Estoque | Interface → serviço → `localStorage` → engine de sync → Supabase |
-| **Mediado pela API** | Chamados, ReservaLab, TV | Interface → API Flask → Supabase / SharePoint / YouTube |
-| **Acesso remoto direto** | TV, tablets do ReservaLab, Patrimônio | Interface → cliente Supabase → RLS |
-| **Fonte externa** | ReservaLab, TV | Interface → API Flask → planilha no SharePoint → cache (Redis/arquivo) |
+| **Mediado pela API** | Chamados, ReservaLab | Interface → API Flask → Supabase / SharePoint / YouTube |
+| **Acesso remoto direto (Web)** | Patrimônio | Interface → cliente Supabase → RLS |
+| **Acesso remoto direto (Desktop)** | TV Desktop | Aplicativo Tauri → Supabase (via backend Rust) |
+| **Fonte externa** | ReservaLab, TV Desktop | Interface → API Flask → planilha no SharePoint → cache (Redis/arquivo) |
 
 ### Sincronização offline-first
 

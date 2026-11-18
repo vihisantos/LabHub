@@ -1,25 +1,24 @@
 # TV — Visão geral da aplicação
 
-> Canal corporativo e murais digitais.
+> Aplicativo de murais digitais para TVs dos laboratórios (instalação desktop).
 
-**Rota:** `/tv`
-**Cor:** `#ef4444` (vermelho)
+**Platform:** Windows Tauri Desktop · **Código:** `src/tv-desktop`
 
 > Este documento é **canônico**: é referenciado por código, migrations e testes, e por isso permanece neste caminho. O índice da aplicação está em [`../../apps/tv/README.md`](../../apps/tv/README.md).
 
 ## Propósito
 
-A TV alimenta os murais digitais dos laboratórios, exibindo eventos, vídeos, música e avisos. Opera em dois modos: **admin**, para gestão de conteúdo, e **display**, para reprodução em tela cheia.
+O TV Desktop alimenta os murais digitais dos laboratórios, exibindo eventos, vídeos, música, avisos e galerias de fotos. Ele funciona em modo kiosk (tela cheia) e requer ativação via pendrive USB.
 
 ## Principais funcionalidades
 
-- **Gestão de eventos** — criar, editar e ativar eventos do campus; um evento pode ser direcionado a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas). O **ReservaLab** cria um evento na TV corporativa direto de uma reserva (título, descrição e horários), com escolha da TV do campus que deve exibi-lo — grava em `tv_events` com `device_id` e `is_active: true`, sem vínculo com a planilha.
+- **Gestão de eventos** — criar, editar e ativar eventos do campus; um evento pode ser direcionado a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas). O **ReservaLab** cria um evento na TV Desktop direto de uma reserva (título, descrição e horários), com escolha da TV do campus que deve exibi-lo
 - **Playlists de vídeo** — integração com o YouTube, com busca de metadados
 - **Filas de música** — áudio em segundo plano para os displays
 - **Avisos** — mensagens em rolagem
 - **Alertas urgentes** — mensagens de emergência por severidade
 - **Galerias de fotos** — carrosséis de imagens
-- **Gestão de dispositivos** — códigos de ativação para as TVs
+- **Gestão de dispositivos** — códigos de ativação via USB para as TVs
 
 ## Modo display
 
@@ -27,19 +26,21 @@ Apresentação em tela cheia com:
 
 - Carrossel de eventos com transições
 - Player de vídeo do YouTube
-- Player de música com volume/mudo locais, persistidos no navegador do display
+- Player de música com volume/mudo locais, persistidos no dispositivo
 - Áudio de fundo
 - Layout otimizado para resoluções de TV
 
 ## Fonte de dados
 
-- **Acesso direto ao Supabase**, sem sincronização local
+- **Acesso direto ao Supabase via backend Tauri Rust**
 - Tabelas: `tv_events`, `tv_playlists`, `tv_music_*`, `tv_announcements`, `tv_galleries` etc.
 - API do YouTube para metadados de vídeo
 
 ## Configurações por workspace (`workspace_app_settings`)
 
-A TV registra `settings` e `SettingsPanel` no catálogo de aplicações. Admins configuram por workspace em **Workspace → Apps → TV → Gerenciar → Configurar** (`TvSettingsPanel`). As configurações são lidas e gravadas diretamente pelo frontend via RLS do Supabase (`workspace_app_settings`, migration 031) — **não há CRUD de configuração no Flask**.
+A TV Desktop registra `settings` e `SettingsPanel` no catálogo de aplicações. Admins configuram por workspace em **Workspace → Apps → TV → Gerenciar → Configurar** (`TvSettingsPanel`). As configurações são lidas e gravadas diretamente pelo frontend via RLS do Supabase (`workspace_app_settings`, migration 031) — **não há CRUD de configuração no Flask**.
+
+Estrutura (`app_id = 'tv'`): `eventSource` (habilitado/tipo/URL/nome da aba), `period` (semestre/data final), `display` (`refreshIntervalSeconds`, `weatherCities`, `tickerLabel`) e `syncedAt`. A validação é estrita e vive em `src/apps/tv/settings/definition.ts`; os padrões são seguros (fonte desabilitada, atualização a cada 300 s). Nenhum valor específico de campus é fixado como padrão global.
 
 Estrutura (`app_id = 'tv'`): `eventSource` (habilitado/tipo/URL/nome da aba), `period` (semestre/data final), `display` (`refreshIntervalSeconds`, `weatherCities`, `tickerLabel`) e `syncedAt`. A validação é estrita e vive em `src/apps/tv/settings/definition.ts`; os padrões são seguros (fonte desabilitada, atualização a cada 300 s). Nenhum valor específico de campus é fixado como padrão global.
 

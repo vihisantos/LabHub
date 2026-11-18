@@ -1,14 +1,12 @@
-# TV
+# TV Desktop
 
-> Canal corporativo e murais digitais dos laboratórios.
+> Aplicativo de murais digitais para TVs dos laboratórios (instalação desktop).
 
-**Rota:** `/tv` (admin) e `/tv/display` (exibição em tela cheia)
-**Cor:** `#ef4444` (vermelho)
-**Código:** `src/apps/tv`
+**Platform:** Windows Tauri Desktop · **Código:** `src/tv-desktop`
 
 ## Propósito
 
-A TV alimenta os murais digitais dos laboratórios, exibindo eventos, vídeos, música, avisos e galerias de fotos. Ela opera em dois modos: **admin**, para gestão de conteúdo, e **display**, para reprodução em tela cheia.
+O TV Desktop alimenta os murais digitais dos laboratórios, exibindo eventos, vídeos, música, avisos e galerias de fotos. Ele funciona em modo kiosk (tela cheia) e requer ativação via pendrive USB.
 
 ## O que resolve
 
@@ -18,13 +16,13 @@ A TV alimenta os murais digitais dos laboratórios, exibindo eventos, vídeos, m
 
 ## Principais funcionalidades
 
-- **Eventos** — criação, edição e ativação de eventos por campus; um evento pode ser direcionado a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas). O **ReservaLab** cria um evento diretamente na TV corporativa a partir de uma reserva, escolhendo a TV do campus que deve exibi-lo
+- **Eventos** — por campus, direcionados a uma TV específica (`tv_events.device_id`) ou a todo o campus (`NULL`, exibido em todas). O **ReservaLab** cria um evento diretamente na TV Desktop a partir de uma reserva, escolhendo a TV do campus que deve exibi-lo
 - **Playlists de vídeo** — integração com o YouTube, com busca de metadados
 - **Música** — filas de reprodução em segundo plano e pedidos de música
 - **Avisos** — mensagens em rolagem, incluindo alertas urgentes por severidade
 - **Galerias de fotos** — carrosséis de imagens
-- **Gestão de dispositivos** — códigos de ativação para as TVs
-- **Fonte externa de eventos** — planilha do SharePoint/OneDrive, com validação de URL e cache por workspace
+- **Gestão de dispositivos** — códigos de ativação via USB para as TVs
+- **Instalação** — baixar instalador do GitHub Releases e ativar com pendrive USB
 
 ## Modo display
 
@@ -32,55 +30,71 @@ Apresentação em tela cheia com:
 
 - Carrossel de eventos com transições
 - Player de vídeo do YouTube
-- Player de música com volume/mudo locais (persistidos no navegador do display)
-- Áudio de fundo configurável
+- Player de música com volume/mudo locais (persistidos no dispositivo)
+- Áudio de fundo
 - Layout otimizado para resoluções de TV
 
 ## Fluxo de conteúdo
 
 ```mermaid
 flowchart LR
-    ADMIN["Modo admin"] -->|grava e lê| SB["Supabase - tabelas tv_*"]
-    SB -->|leitura direta, sem sincronização local| DISP["Modo display"]
-    ADMIN -->|metadados de vídeo e fonte externa| FL["API Flask - /api/tv/*"]
+    DISP["Display"] -->|leitura direta| SB["Supabase - tabelas tv_*"]
+    SB --> DISP
+    ADMIN["Modo admin (web)] -->|metadados de vídeo| FL["API Flask - /api/*"]
     FL --> YT["YouTube API"]
-    FL --> SRC["Planilha SharePoint"]
 ```
+
+## Instalação
+
+O TV Desktop é distribuído como instalador `.msi` para Windows, gerado com Tauri:
+
+```bash
+npx tauri build
+```
+
+O instalador é publicado nas [Releases do labhub-tv](https://github.com/vihisantos/LabHub-TV/releases). O processo de ativação exige:
+
+1. Baixar e instalar o instalador
+2. Conectar pendrive USB com chave de ativação (fornecida pela equipe de TI)
+3. Seguir o fluxo de ativação automático
 
 ## Criar eventos a partir do ReservaLab
 
-No ReservaLab, uma reserva pode virar um evento na TV corporativa do campus: ao agendar ou visualizar uma reserva, o usuário escolhe **"Criar evento na TV"** e seleciona, entre as TVs ativadas do campus, qual deve exibi-lo. O evento é gravado em `tv_events` com `device_id` da TV escolhida e `is_active: true`, aparecendo no display no intervalo informado.
+No ReservaLab, uma reserva pode virar um evento na TV Desktop do campus: ao agendar ou visualizar uma reserva, o usuário escolhe **"Criar evento na TV"** e seleciona, entre as TVs ativadas do campus, qual deve exibi-lo. O evento é gravado em `tv_events` com `device_id` da TV escolhida e `is_active: true`, aparecendo no display no intervalo informado.
 
 - Escopo por campus: só aparecem as TVs do workspace da reserva (`fetchWorkspaceDevices`)
-- Se o campus não tem nenhuma TV ativada, o ReservaLab orienta a ativação pelo app TV (código de ativação)
-- O evento é independente da reserva na planilha — não há escrita nem vínculo de volta
+- Se o campus não tem nenhuma TV ativada, o ReservaLab orienta a ativação
+- O evento é independente da reserva na planilha
 
 ## Fonte de dados
 
-- **Acesso direto ao Supabase**, sem sincronização local
+- **Acesso direto ao Supabase** via backend Tauri Rust
 - Tabelas `tv_*` no schema `public` (eventos, playlists, música, avisos, galerias, dispositivos)
 - API do YouTube para metadados de vídeo
-- Configurações por workspace em `workspace_app_settings` (aplicação `tv`), lidas e gravadas pelo frontend via RLS
 
-## Documentação
+## Componentes do Desktop
 
-A visão geral detalhada da aplicação, incluindo configurações por workspace e a integração com a fonte externa de eventos, está no documento canônico:
+O código do TV Desktop está em `src/tv-desktop/`:
 
-| Documento | Conteúdo |
-|-----------|----------|
-| [`docs/modules/tv/overview.md`](../../modules/tv/overview.md) | Visão geral completa, configurações por workspace, fluxo da fonte externa, proteção contra SSRF e cache |
-| [Referência da API](../../reference/api.md) | Endpoints `/api/tv/*`, incluindo a projeção segura de chamados para a TV |
-| [Referência do banco](../../reference/database.md) | Tabelas `tv_*` |
-| [Referência de configuração](../../reference/configuration.md) | Variáveis de ambiente da TV |
+- `main.tsx` - Entrada da aplicação desktop
+- `DesktopApp.tsx` - Tela principal com gerenciamento de estado (loading, USB auth, recovery, ready)
+- `DisplayShell.tsx` - Kiosk que renderiza a tela escolhida
+- `ScreenRenderer.tsx` - Decisão de qual componente renderizar (TV Display ou CallsDashboardScreen)
+- `config.ts` - Persistência de configurações via Tauri Store
 
-> O caminho `docs/modules/tv/overview.md` é **canônico** e referenciado por migrations. Ele é mantido no local original por compatibilidade; a descoberta se dá por este índice.
+## Arquitetura Tauri
 
-## Backend
+O TV Desktop usa Tauri como backend nativo:
 
-A TV tem backend próprio para integração com o YouTube e com fontes externas de eventos: `src/apps/tv/api/app.py`. As rotas `/api/tv/*` são servidas pela aplicação Flask principal do projeto (ver [Arquitetura de backend](../../platform/architecture/backend.md)).
+| Recurso | Implementação |
+|---------|---------------|
+| USB Auth | `src-tauri/src/usb_auth.rs` - Validação de chave USB embarcada |
+| Drive Discovery | `src-tauri/src/main.rs` - Listagem de arquivos do Google Drive |
+| Config Storage | Tauri Store API - Persistência duradoura |
+| Commands | `invoke()` do frontend → handlers Rust |
 
 ## Relacionados
 
-- [Referência da API](../../reference/api.md)
+- [Visão geral da TV (módulo)](../../modules/tv/overview.md)
 - [Referência de eventos](../../reference/events.md)
 - [Glossário: Estação TV](../../glossary.md)
