@@ -16,6 +16,7 @@ from .core import (
 )
 from .environment import (
     LOCAL,
+    STAGING,
     PRODUCTION,
     TargetEnvironmentError,
     TargetPolicy,
@@ -26,6 +27,7 @@ from .runner import RunnerResult, run
 
 __all__ = [
     "LOCAL",
+    "STAGING",
     "MIGRATION_FILENAME_PATTERN",
     "PRODUCTION",
     "AppliedIdentityDivergence",
