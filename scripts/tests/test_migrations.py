@@ -456,7 +456,10 @@ def test_postgres_executor_returns_rows():
 
 from migrate.environment import (  # noqa: E402
     ENV_ALLOWED_REFS,
+    ENV_STAGING_ALLOWED_REFS,
+    ENV_STAGING_PROJECT_REF,
     LOCAL,
+    STAGING,
     PRODUCTION,
     TargetEnvironmentError,
     resolve_policy,
@@ -735,10 +738,16 @@ def test_dry_run_also_aborts_on_renumbered(migrations_dir):
 # #285 D5 — política de ambiente / destino fail-closed
 # ---------------------------------------------------------------------------
 
-def test_resolve_policy_rejects_unknown_target():
-    with pytest.raises(TargetEnvironmentError) as exc:
-        resolve_policy(target="staging")
-    assert "staging" in str(exc.value)
+def test_resolve_policy_accepts_staging_target():
+    """Staging é um target válido com regras próprias (allowlist obrigatória,
+    baseline opcional)."""
+    policy = resolve_policy(target=STAGING, allowed_refs=_REF)
+    assert policy.target == STAGING
+    assert policy.require_baseline is False
+    assert policy.enforce_allowlist is True
+    assert policy.allowed_project_refs == (_REF,)
+    assert policy.project_ref_env_var == ENV_STAGING_PROJECT_REF
+    assert policy.allowed_refs_env_var == ENV_STAGING_ALLOWED_REFS
 
 
 def test_resolve_policy_defaults_to_local():
@@ -762,6 +771,59 @@ def test_resolve_policy_production_reads_allowlist_from_env(monkeypatch):
     monkeypatch.setenv(ENV_ALLOWED_REFS, _REF)
     policy = resolve_policy(target=PRODUCTION)
     assert policy.allowed_project_refs == (_REF,)
+
+
+# ---------------------------------------------------------------------------
+# Staging policy tests
+# ---------------------------------------------------------------------------
+
+def test_resolve_policy_staging_requires_allowlist():
+    """Sem allowlist o destino de staging não é verificável => aborta."""
+    with pytest.raises(TargetEnvironmentError) as exc:
+        resolve_policy(target=STAGING)
+    assert ENV_STAGING_ALLOWED_REFS in str(exc.value)
+
+
+def test_resolve_policy_staging_reads_allowlist_from_env(monkeypatch):
+    monkeypatch.setenv(ENV_STAGING_ALLOWED_REFS, _REF)
+    policy = resolve_policy(target=STAGING)
+    assert policy.allowed_project_refs == (_REF,)
+    assert policy.allowed_refs_env_var == ENV_STAGING_ALLOWED_REFS
+    assert policy.project_ref_env_var == ENV_STAGING_PROJECT_REF
+
+
+def test_resolve_policy_staging_does_not_require_baseline():
+    """Staging não exige BASELINE_VERSION (pode ser recriado do zero)."""
+    policy = resolve_policy(target=STAGING, allowed_refs=_REF)
+    assert policy.require_baseline is False
+
+
+def test_resolve_policy_staging_enforces_allowlist():
+    """Staging exige allowlist configurada."""
+    policy = resolve_policy(target=STAGING, allowed_refs=_REF)
+    assert policy.enforce_allowlist is True
+
+
+def test_validate_project_ref_staging_accepts_allowed_ref():
+    """Staging aceita project_ref que consta na allowlist do staging."""
+    policy = resolve_policy(target=STAGING, allowed_refs=f"{_REF},{_OTHER_REF}")
+    validate_project_ref(_REF, policy)
+
+
+def test_validate_project_ref_staging_rejects_ref_outside_allowlist():
+    """Secret trocado apontando para outro projeto aborta antes de qualquer HTTP."""
+    policy = resolve_policy(target=STAGING, allowed_refs=_OTHER_REF)
+    with pytest.raises(TargetEnvironmentError) as exc:
+        validate_project_ref(_REF, policy)
+    assert _REF not in str(exc.value)
+
+
+def test_validate_project_ref_staging_error_messages_never_leak_token_values():
+    policy = resolve_policy(target=STAGING, allowed_refs=_OTHER_REF)
+    with pytest.raises(TargetEnvironmentError) as exc:
+        validate_project_ref(_REF, policy)
+    assert _REF not in str(exc.value)
+    assert _OTHER_REF not in str(exc.value)
 
 
 def test_validate_project_ref_rejects_empty():
@@ -800,7 +862,7 @@ def test_error_messages_never_leak_token_values():
 # ─────────────────────────────────────────────────────────────────────────────
 # Carregamento de .env por alvo (regressão #285)
 #
-# O .env do repositório aponta para STAGING (ref obskpmnphevpaexooldg,
+# O .env do repositório aponta para STAGING (ref pgmetdqsdjotdcifjivu,
 # BASELINE_VERSION=000). Como load_dotenv roda com override=False, o primeiro
 # arquivo a definir a variável vence. Sem carregar .env.production antes de .env
 # em --target production, uma execução local de produção herdaria o ref e o
@@ -808,12 +870,18 @@ def test_error_messages_never_leak_token_values():
 # ─────────────────────────────────────────────────────────────────────────────
 
 _PROD_REF = "hvqxantwqwarqhymnyqb"
-_STAGING_REF = "obskpmnphevpaexooldg"
+_STAGING_REF = "pgmetdqsdjotdcifjivu"
 _ENV_VARS = (
     "SUPABASE_PROJECT_REF",
     "BASELINE_VERSION",
     "SUPABASE_ACCESS_TOKEN",
     "SUPABASE_ALLOWED_PROJECT_REFS",
+    "MIGRATE_TARGET",
+)
+_ENV_VARS_STAGING = (
+    ENV_STAGING_PROJECT_REF,
+    ENV_STAGING_ALLOWED_REFS,
+    "SUPABASE_ACCESS_TOKEN",
     "MIGRATE_TARGET",
 )
 
@@ -831,17 +899,20 @@ def _load_cli():
 
 @pytest.fixture
 def env_home(tmp_path, monkeypatch):
-    """Raiz isolada, com .env/.env.local de staging e .env.production de prod."""
+    """Raiz isolada, com .env/.env.local de staging, .env.staging e .env.production de prod."""
     (tmp_path / ".env").write_text(
         f"SUPABASE_PROJECT_REF={_STAGING_REF}\nBASELINE_VERSION=000\n", encoding="utf-8"
     )
     (tmp_path / ".env.local").write_text(
         "SUPABASE_ACCESS_TOKEN=sbp_token_de_dev\n", encoding="utf-8"
     )
+    (tmp_path / ".env.staging").write_text(
+        f"{ENV_STAGING_PROJECT_REF}={_STAGING_REF}\n{ENV_STAGING_ALLOWED_REFS}={_REF},{_OTHER_REF}\n", encoding="utf-8"
+    )
     (tmp_path / ".env.production").write_text(
         f"SUPABASE_PROJECT_REF={_PROD_REF}\nBASELINE_VERSION=035\n", encoding="utf-8"
     )
-    for name in _ENV_VARS:
+    for name in _ENV_VARS + _ENV_VARS_STAGING:
         monkeypatch.delenv(name, raising=False)
     cli = _load_cli()
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
@@ -906,6 +977,38 @@ def test_load_env_production_honours_migrate_target_variable(env_home, monkeypat
     env_home._load_env(None)
     assert os.environ["SUPABASE_PROJECT_REF"] == _PROD_REF
     assert os.environ["BASELINE_VERSION"] == "035"
+
+
+def test_load_env_staging_uses_staging_env(env_home):
+    """Staging carrega SUPABASE_STAGING_PROJECT_REF de .env.staging."""
+    env_home._load_env("staging")
+    assert os.environ[ENV_STAGING_PROJECT_REF] == _STAGING_REF
+    assert os.environ[ENV_STAGING_ALLOWED_REFS] == f"{_REF},{_OTHER_REF}"
+    # .env (desenvolvimento) não deve vazar para staging.
+    assert os.environ.get("SUPABASE_PROJECT_REF") != _STAGING_REF
+
+
+def test_load_env_staging_blocks_production_ref(env_home, monkeypatch):
+    """Se .env.staging não define o ref, o de produção não pode vazar."""
+    (env_home.PROJECT_ROOT / ".env.staging").write_text(
+        f"{ENV_STAGING_ALLOWED_REFS}={_REF}\n", encoding="utf-8"
+    )
+    env_home._load_env("staging")
+    assert ENV_STAGING_PROJECT_REF not in os.environ
+    assert "SUPABASE_PROJECT_REF" not in os.environ
+
+
+def test_load_env_staging_blocks_baseline_from_env(env_home):
+    """BASELINE_VERSION de .env não vale para staging."""
+    (env_home.PROJECT_ROOT / ".env").write_text(
+        f"{ENV_STAGING_PROJECT_REF}={_STAGING_REF}\nBASELINE_VERSION=000\n", encoding="utf-8"
+    )
+    (env_home.PROJECT_ROOT / ".env.staging").write_text(
+        f"{ENV_STAGING_PROJECT_REF}={_STAGING_REF}\n", encoding="utf-8"
+    )
+    env_home._load_env("staging")
+    assert os.environ[ENV_STAGING_PROJECT_REF] == _STAGING_REF
+    assert "BASELINE_VERSION" not in os.environ
 
 
 def test_load_env_never_overrides_explicit_environment(env_home, monkeypatch):
