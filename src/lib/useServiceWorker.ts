@@ -24,10 +24,38 @@ function notifyUpdateAvailable(v: boolean) {
   _listeners.forEach((fn) => fn(v))
 }
 
+/* ── Module-level pushsubscriptionchange signal (SW → cliente) ── */
+
+type PushSubscriptionChangeListener = (payload: {
+  type: string
+  hasNewSubscription: boolean
+  endpoint: string | null
+}) => void
+
+const _pushSubChangeListeners: PushSubscriptionChangeListener[] = []
+
+/** Subscribe a mensagens de pushsubscriptionchange vindas do Service Worker. */
+export function onPushSubscriptionChange(fn: PushSubscriptionChangeListener): () => void {
+  _pushSubChangeListeners.push(fn)
+  return () => {
+    const idx = _pushSubChangeListeners.indexOf(fn)
+    if (idx >= 0) _pushSubChangeListeners.splice(idx, 1)
+  }
+}
+
+function notifyPushSubscriptionChange(payload: {
+  type: string
+  hasNewSubscription: boolean
+  endpoint: string | null
+}) {
+  _pushSubChangeListeners.forEach((fn) => fn(payload))
+}
+
 /** Reset module-level state (for testing only) */
 function __resetStateForTesting(): void {
   _updateAvailable = false
   _listeners.length = 0
+  _pushSubChangeListeners.length = 0
   _activeBlocks.clear()
   _blockListeners.length = 0
   _blockCounter = 0
@@ -187,6 +215,14 @@ export function useServiceWorker(options: { immediate?: boolean; onUpdate?: () =
 
     sw.addEventListener('controllerchange', onControllerChange)
 
+    // Escuta mensagens do Service Worker (ex.: pushsubscriptionchange)
+    const onMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'pushsubscriptionchange') {
+        notifyPushSubscriptionChange(event.data)
+      }
+    }
+    sw.addEventListener('message', onMessage)
+
     // Check if there's already an update waiting
     sw.ready.then((registration) => {
       registration.addEventListener('updatefound', () => {
@@ -225,6 +261,7 @@ export function useServiceWorker(options: { immediate?: boolean; onUpdate?: () =
       // Reset state on cleanup
       notifyUpdateAvailable(false)
       sw.removeEventListener('controllerchange', onControllerChange)
+      sw.removeEventListener('message', onMessage)
       unsubBlocked()
       if (reloadTimer) clearTimeout(reloadTimer)
     }

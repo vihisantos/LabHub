@@ -87,3 +87,50 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
     })
   )
 })
+
+/* ------------------------------------------------------------------ */
+/*  PushSubscriptionChange — recuperação complementar                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O navegador pode rotacionar ou remover a subscription do push fora do
+ * app (ex.: limpeza de dados, atualização do SW). Este evento é um
+ * mecanismo COMPLEMENTAR: o frontend não depende exclusivamente dele — a
+ * verificação principal ocorre via visibilitychange/focus no hook.
+ *
+ * Quando disparado, avisa os clientes ativos via postMessage para que o
+ * hook usePushNotifications re-verify getSubscription() e, se necessário,
+ * inicie a recuperação automática.
+ */
+self.addEventListener('pushsubscriptionchange', (event: PushSubscriptionChangeEvent) => {
+  const newSubscription = event.newSubscription
+
+  const promise = newSubscription
+    ? Promise.resolve(newSubscription)
+    : (async () => {
+        try {
+          const registration = await self.registration
+          return await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+          })
+        } catch {
+          return null
+        }
+      })()
+
+  event.waitUntil(
+    promise.then((subscription) => {
+      const payload = {
+        type: 'pushsubscriptionchange',
+        hasNewSubscription: !!subscription,
+        endpoint: subscription?.endpoint || null,
+      }
+
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        for (const client of clients) {
+          client.postMessage(payload)
+        }
+      })
+    })
+  )
+})

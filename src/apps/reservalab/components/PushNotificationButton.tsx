@@ -33,12 +33,20 @@ export function PushNotificationButton() {
     }
   })
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
-  const { supported, permission, subscribed, loading, error, subscribe } = usePushNotifications(
-    '/api/push/subscribe',
-    pushUser,
-  )
+  const {
+    supported,
+    permission,
+    subscribed,
+    loading,
+    error,
+    subscribe,
+    recoveryPending,
+    recoveryError,
+    attemptRecovery,
+  } = usePushNotifications('/api/push/subscribe', pushUser)
 
   const isDenied = permission === 'denied'
+  const isRecovery = permission === 'granted' && !subscribed
 
   const handleDismiss = () => {
     setDismissed(true)
@@ -51,7 +59,9 @@ export function PushNotificationButton() {
 
   const settingsUrl = browserSettingsUrl()
 
-  if (dismissed || !supported || permission === 'granted' || subscribed) return null
+  // Não ocultar quando a permissão está concedida mas não há subscription
+  // (cenário de perda de inscrição que precisa de recuperação).
+  if (dismissed || !supported || subscribed) return null
 
   return (
     <motion.div
@@ -86,17 +96,23 @@ export function PushNotificationButton() {
               }}
             >
               <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>
-                {loading ? '⏳' : isDenied ? '🔕' : '🔔'}
+                {loading ? '⏳' : isDenied ? '🔕' : isRecovery ? '🔄' : '🔔'}
               </span>
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-fg">
-                {isDenied ? 'Notificações bloqueadas' : 'Não perca nenhum aviso'}
+                {isDenied
+                  ? 'Notificações bloqueadas'
+                  : isRecovery
+                    ? 'Inscrição de notificações expirada'
+                    : 'Não perca nenhum aviso'}
               </p>
               <p className="mt-0.5 text-xs leading-snug text-fg-muted">
                 {isDenied
                   ? 'Você bloqueou as notificações neste navegador. Para receber os avisos, libere o acesso abaixo:'
-                  : 'Ative para receber os avisos do laboratório mesmo com o app fechado.'}
+                  : isRecovery
+                    ? 'O aplicativo detectou que sua inscrição de push não está mais ativa e está tentando recuperar automaticamente.'
+                    : 'Ative para receber os avisos do laboratório mesmo com o app fechado.'}
               </p>
             </div>
             {!loading && (
@@ -127,21 +143,46 @@ export function PushNotificationButton() {
 
           {/* Ações */}
           <div className="mt-3.5 flex gap-2">
-            <button
-              type="button"
-              onClick={subscribe}
-              disabled={loading}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-              style={{
-                background: isDenied
-                  ? 'linear-gradient(135deg, #ef4444, #f97316)'
-                  : 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))',
-                boxShadow: '0 6px 16px var(--accent-ring)',
-              }}
-            >
-              {loading ? 'Ativando...' : isDenied ? 'Reativar' : 'Ativar Notificações'}
-            </button>
-            {isDenied && settingsUrl && (
+            {recoveryPending ? (
+              <button
+                type="button"
+                disabled
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  background: 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))',
+                  boxShadow: '0 6px 16px var(--accent-ring)',
+                }}
+              >
+                {loading ? 'Ativando...' : 'Recuperando inscrição...'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={isRecovery ? attemptRecovery : subscribe}
+                disabled={loading}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  background: isDenied
+                    ? 'linear-gradient(135deg, #ef4444, #f97316)'
+                    : 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed))',
+                  boxShadow: '0 6px 16px var(--accent-ring)',
+                }}
+              >
+                {loading ? 'Ativando...' : isDenied ? 'Reativar' : isRecovery ? 'Recuperar agora' : 'Ativar Notificações'}
+              </button>
+            )}
+            {recoveryError && (
+              <button
+                type="button"
+                onClick={attemptRecovery}
+                disabled={loading}
+                className="flex items-center justify-center rounded-lg border border-red-500/30 px-3.5 py-2.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10"
+              >
+                <icons.ui.refreshCcw size={14} />
+                Tentar novamente
+              </button>
+            )}
+            {!recoveryError && isDenied && settingsUrl && (
               <a
                 href={settingsUrl}
                 target="_blank"
