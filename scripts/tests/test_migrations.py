@@ -544,6 +544,75 @@ def test_db_baseline_higher_than_repo_skips_everything(migrations_dir, monkeypat
     assert result.applied == []
 
 
+def test_baseline_source_applied_migrations_when_no_baseline_row(migrations_dir, monkeypatch):
+    """Historico com migrations aplicadas MAS sem linha __baseline__.
+
+    O baseline efetivo eh derivado da maior versao aplicada, fonte "applied_migrations",
+    NAO "database".
+    """
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(
+        applied_rows=[
+            {"version": "000", "filename": "000_boot.sql"},
+            {"version": "001", "filename": "001_create_a.sql"},
+        ],
+        table_exists=True,
+    )
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "applied_migrations"
+    assert result.db_baseline is None
+    assert result.env_baseline is None
+
+
+def test_baseline_source_database_when_baseline_row_exists(migrations_dir, monkeypatch):
+    """Historico com linha __baseline__ registrado: fonte "database", nao "applied_migrations"."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(
+        applied_rows=[
+            {"version": "002", "filename": "__baseline__"},
+            {"version": "000", "filename": "000_boot.sql"},
+            {"version": "001", "filename": "001_create_a.sql"},
+        ],
+        table_exists=True,
+    )
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "002"
+    assert result.baseline_source == "database"
+    assert result.db_baseline == "002"
+    assert result.env_baseline is None
+
+
+def test_baseline_source_env_when_table_empty_and_env_set(migrations_dir, monkeypatch):
+    """Tabela vazia + BASELINE_VERSION => fonte "env", precisa gravar."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "env"
+    assert result.env_baseline == "001"
+    assert result.db_baseline is None
+
+
+def test_dry_run_writes_nothing_even_with_env_baseline(migrations_dir, monkeypatch):
+    """Dry-run com BASELINE_VERSION configurado nao grava nada no banco."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, dry_run=True, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "env"
+    assert result.applied == []
+    # Prova de nao-mutacao: nenhum CREATE TABLE nem INSERT de baseline.
+    assert not any(
+        "CREATE TABLE IF NOT EXISTS public.schema_migrations" in q
+        for q in api.queries
+    )
+    assert not any(
+        "INSERT INTO public.schema_migrations" in q
+        for q in api.queries
+    )
+
+
 def test_resolve_baseline_requires_env_when_strict(migrations_dir):
     ms = core.discover_migrations(migrations_dir)
     with pytest.raises(core.BaselineConfigurationError):

@@ -122,10 +122,11 @@ class RunnerResult:
         self.already_applied = already_applied
         self.api_call_count = api_call_count
         # Origem do baseline utilizado para calcular migrations pendentes:
-        #   "env"       -> veio do secret BASELINE_VERSION (nao necessariamente registrado no banco)
-        #   "database"  -> veio de public.schema_migrations (linha __baseline__)
-        #   "implicit"  -> maior versao do repositorio (fallback, nao recomendado em producao)
-        #   "none"      -> nenhum baseline (tabela vazia, from_scratch, ou sem configuracao)
+        #   "env"               -> veio do secret BASELINE_VERSION (nao necessariamente registrado no banco)
+        #   "database"          -> veio de linha __baseline__ em public.schema_migrations
+        #   "applied_migrations"-> derivado da maior versao entre migrations aplicadas
+        #   "implicit"          -> maior versao do repositorio (fallback, nao recomendado em producao)
+        #   "none"              -> nenhum baseline (tabela vazia, from_scratch, ou sem configuracao)
         self.baseline_source = baseline_source
         self.db_baseline = db_baseline
         self.env_baseline = env_baseline
@@ -274,10 +275,12 @@ def _resolve_baseline(
     """Resolve o baseline, se precisa gravar e a origem do baseline.
 
     Retorna ``(baseline, precisa_gravar, fonte)`` onde ``fonte`` e uma de:
-      - "env"       -> veio do secret BASELINE_VERSION (nao necessariamente registrado no banco)
-      - "database"  -> veio de public.schema_migrations (linha __baseline__)
-      - "implicit"  -> maior versao do repositorio (fallback, nao recomendado em producao)
-      - "none"      -> nenhum baseline (tabela vazia, from_scratch, ou sem configuracao)
+      - "env"               -> veio do secret BASELINE_VERSION (nao necessariamente registrado no banco)
+      - "database"          -> veio de linha __baseline__ em public.schema_migrations
+      - "applied_migrations"-> derivado da maior versao entre migrations aplicadas
+                              (sem linha __baseline__ registrada no banco)
+      - "implicit"          -> maior versao do repositorio (fallback, nao recomendado em producao)
+      - "none"              -> nenhum baseline (tabela vazia, from_scratch, ou sem configuracao)
 
     Regras (preservadas do comportamento histórico, com uma exceção fechada):
       - ``from_scratch`` + tabela vazia -> baseline ``None`` (aplica TUDO, da
@@ -286,7 +289,9 @@ def _resolve_baseline(
       - tabela vazia + ``BASELINE_VERSION`` -> esse valor, grava a linha.
       - tabela vazia + sem env -> maior versão do repositório (baseline
         implícito, seguro p/ produção legada), grava a linha.
-      - tabela com linhas -> baseline do banco (ou a maior aplicada).
+      - tabela com linhas + linha __baseline__ -> baseline do banco ("database").
+      - tabela com linhas + sem __baseline__ -> maior versao entre as aplicadas
+        ("applied_migrations").
 
     #285 — fail-closed: quando ``require_baseline`` é verdadeiro (target de
     produção) e nada define o baseline, aborta em vez de cair no implícito. O
@@ -311,7 +316,11 @@ def _resolve_baseline(
             )
         implicit = latest_version(migrations)
         return implicit, implicit is not None, "implicit"
-    return (db_baseline if db_baseline is not None else sorted(applied_versions, key=int)[-1]), False, "database"
+    # Tabela com linhas: se existe linha __baseline__, usa "database";
+    # senao, deriva da maior versao aplicada ("applied_migrations").
+    if db_baseline is not None:
+        return db_baseline, False, "database"
+    return sorted(applied_versions, key=int)[-1], False, "applied_migrations"
 
 
 def run(
