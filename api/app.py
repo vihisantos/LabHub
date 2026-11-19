@@ -4002,6 +4002,13 @@ def chamados_manage(ticket_id):
                     reason_label=ev_reason_label,
                     new_status=ticket.get('status'),
                 )
+        # Grava o status terminal no Redis para detecção de reabertura futura.
+        # Best-effort: falha silenciosa se o Redis estiver indisponível.
+        if 'status' in updates:
+            _new_status = str(updates.get('status') or '')
+            if _new_status in ('resolvido', 'fechado', 'indeferido'):
+                _record_terminal_status(ticket_id, _new_status)
+
         # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
         # (Prefer: return=representation). Filtra pela allowlist interna antes
         # de responder — a linha crua não atravessa a API.
@@ -4727,6 +4734,31 @@ def _clear_sent_marks(ticket_id: str, subs: list) -> None:
             pass
 
 
+def _record_terminal_status(ticket_id: str, status: str) -> None:
+    """Grava o status terminal de um chamado no Redis para detecção de reabertura.
+
+    Chamado quando o chamado entra em estado terminal (resolvido, fechado,
+    indeferido) ou é assumido (a_caminho), mesmo que nenhum lembrete tenha
+    sido enviado. Isso permite que _is_reopening() detecte corretamente uma
+    reabertura posterior (aberto → estado terminal → aberto).
+
+    Best-effort: falha silenciosa se o Redis estiver indisponível.
+    """
+    if redis is None:
+        return
+    try:
+        state = _read_reminder_state(ticket_id) or {}
+        state['last_known_status'] = status
+        state['ticket_updated_at'] = ''
+        redis.setex(
+            _reminder_state_key(ticket_id),
+            REMINDER_STATE_TTL_SECONDS,
+            json.dumps(state, ensure_ascii=False),
+        )
+    except Exception:
+        pass
+
+
 def _is_reopening(ticket: dict, state: dict | None) -> bool:
     """Detecta reabertura real: transição de encerrado/indeferido para aberto.
 
@@ -4745,7 +4777,11 @@ def _is_reopening(ticket: dict, state: dict | None) -> bool:
     current_status = str(ticket.get('status') or '').strip()
     if current_status != 'aberto':
         return False
-    closed_statuses = {'resolvido', 'fechado', 'indeferido', 'em_espera'}
+    # Estados terminais que encerram o ciclo de lembretes.
+    # `em_espera` NÃO é um estado encerrado: é uma pausa do atendimento
+    # cuja única saída válida é a retomada (→ em_atendimento), conforme o
+    # fluxo de atendimento dos chamados. Não deve ser tratado como reabertura.
+    closed_statuses = {'resolvido', 'fechado', 'indeferido'}
     return last_status in closed_statuses
 
 
@@ -4859,14 +4895,20 @@ def _check_and_send_reminders() -> dict:
       - No máximo um envio por destinatário por ciclo.
       - Envio parcial não bloqueia: pendentes são reenviados no próximo ciclo.
       - Destinatários que já receberam não são notificados novamente no mesmo ciclo.
-      - Falha de persistência após envio: a marca de envio pode não ser gravada,
-        resultando em reenvio para aquele destinatário no próximo ciclo (até-least-once).
 
-    Limitações:
-      - Até-least-once: se o envio ao serviço Push falhar após a marca ser gravada,
-        o destinatário não será reenviado no ciclo atual (perda de entrega possível).
-      - Se a marca de envio não for gravada (falha Redis), o destinatário será
-        reenviado no próximo ciclo (duplicidade possível dentro do TTL da marca).
+    Limitações de entrega:
+      - Não há garantia de entrega exatamente uma vez.
+      - "Sucesso" de envio significa aceitação da notificação pelo serviço Web
+        Push (resposta HTTP 2xx), não confirmação de que o dispositivo exibiu
+        a notificação.
+      - Se push_notify() retornar True mas a gravação da marca individual no
+        Redis falhar, o destinatário poderá receber o lembrete novamente no
+        próximo ciclo (duplicidade possível dentro do TTL da marca).
+      - Se a marca individual for gravada mas o dispositivo não receber a
+        notificação (falha de rede entre o serviço Push e o dispositivo), o
+        lembrete não será reenviado no ciclo atual (perda de entrega possível).
+      - Se o estado geral não for gravado após o ciclo completo, o próximo ciclo
+        reavaliará o chamado com base em createdAt/intervalo.
 
     Não reenvia lembretes acumulados: execuções atrasadas processam apenas o
     ciclo atual, não compensam intervalos perdidos.
@@ -5825,6 +5867,10 @@ def chamados_claim(ticket_id):
             content=f'{claimer_name} assumiu o chamado e está a caminho',
             author=claimer_name,
         )
+
+        # Grava o status pós-claim no Redis para detecção de reabertura futura.
+        # Best-effort: falha silenciosa se o Redis estiver indisponível.
+        _record_terminal_status(ticket_id, 'a_caminho')
 
         # Auditoria do app (tabela 054): assunção — quem assumiu quando.
         record_app_audit(

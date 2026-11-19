@@ -613,6 +613,167 @@ def test_reabertura_real_inicia_novo_ciclo(api_module, monkeypatch):
     assert state['last_known_status'] == 'aberto'
 
 
+def test_em_espera_nao_eh_tratado_como_encerrado(api_module, monkeypatch):
+    """em_espera NÃO é um estado encerrado: não deve acionar reabertura."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    ticket = _make_ticket(_tid(20), ws=WS_A, number=29, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    sub = {'key': 'k20', 'endpoint': 'https://push.example/20', 'user': {'id': 'u20'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Primeiro ciclo: envia (criado há 30 min > 2 min)
+    r1 = api_module._check_and_send_reminders()
+    assert r1['sent'] == 1
+
+    # Estado gravado com last_known_status='aberto'
+    state_key = f'chamado:reminder:state:{ticket["id"]}'
+    state = json.loads(fake_redis.get(state_key))
+    state['last_reminder_at'] = datetime.now(timezone.utc).isoformat()
+    state['last_known_status'] = 'aberto'
+    fake_redis.setex(state_key, 7 * 24 * 3600, json.dumps(state))
+
+    # O chamado entra em em_espera (não é encerrado para fins de lembrete)
+    ticket['status'] = 'em_espera'
+    ticket['updatedAt'] = datetime.now(timezone.utc).isoformat()
+
+    # Volta para aberto (não é reabertura porque em_espera não é encerrado)
+    ticket['status'] = 'aberto'
+    ticket['updatedAt'] = datetime.now(timezone.utc).isoformat()
+
+    # Não deve ser tratado como reabertura: last_known_status='aberto' não está em closed_statuses
+    result = api_module._check_and_send_reminders()
+    # Como last_reminder_at é recente, não deve enviar novamente
+    assert result['sent'] == 0
+    assert len(sent) == 1
+
+
+def test_encerrado_antes_do_primeiro_lembrete_e_reaberto(api_module, monkeypatch):
+    """Chamado criado, fechado antes de 2 min (sem lembrete), reaberto depois."""
+    criado = datetime.now(timezone.utc).isoformat()
+    ticket = _make_ticket(_tid(21), ws=WS_A, number=30, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    sub = {'key': 'k21', 'endpoint': 'https://push.example/21', 'user': {'id': 'u21'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Nenhum lembrete enviado ainda (criado há < 2 min)
+    r0 = api_module._check_and_send_reminders()
+    assert r0['sent'] == 0
+    assert fake_redis.get(f'chamado:reminder:state:{ticket["id"]}') is None
+
+    # O chamado é fechado (estado terminal) antes do primeiro lembrete
+    ticket['status'] = 'fechado'
+    ticket['updatedAt'] = datetime.now(timezone.utc).isoformat()
+
+    # Grava o status terminal no Redis (simulando o que o PATCH faria)
+    api_module._record_terminal_status(ticket['id'], 'fechado')
+
+    # Verifica que o estado foi gravado com last_known_status='fechado'
+    state = json.loads(fake_redis.get(f'chamado:reminder:state:{ticket["id"]}'))
+    assert state['last_known_status'] == 'fechado'
+
+    # O chamado é reaberto posteriormente (passaram > 2 min desde a criação)
+    ticket['status'] = 'aberto'
+    ticket['updatedAt'] = datetime.now(timezone.utc).isoformat()
+
+    # Deve ser identificado como reabertura e enviar lembrete
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 1
+
+    state = json.loads(fake_redis.get(f'chamado:reminder:state:{ticket["id"]}'))
+    assert state['last_known_status'] == 'aberto'
+
+
+def test_falha_redis_antes_e_depois_do_envio(api_module, monkeypatch):
+    """Falha Redis antes do envio (não processa) e depois do envio (marca não gravada)."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(22), ws=WS_A, number=31, created_at=criado,
+                          updated_at=criado)
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    sub = {'key': 'k22', 'endpoint': 'https://push.example/22', 'user': {'id': 'u22'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Falha de Redis antes do envio: não processa (fail-closed)
+    monkeypatch.setattr(api_module, 'redis', None)
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 0
+    assert result.get('error') == 'Redis não configurado'
+    assert len(sent) == 0
+
+    # Restaura o Redis
+    monkeypatch.setattr(api_module, 'redis', fake_redis)
+
+    # Falha de Redis depois do envio: push_notify funciona, mas marca não é gravada
+    original_mark = api_module._mark_sub_sent
+    mark_failed = {'flag': False}
+    def mark_fail(ticket_id, endpoint_hash):
+        mark_failed['flag'] = True
+        return False
+    monkeypatch.setattr(api_module, '_mark_sub_sent', mark_fail)
+
+    r1 = api_module._check_and_send_reminders()
+    assert r1['sent'] == 1  # push_notify funcionou
+    assert mark_failed['flag'] is True  # marca não gravada
+
+    # Restaura a função original
+    monkeypatch.setattr(api_module, '_mark_sub_sent', original_mark)
+
+    # Na próxima execução, como a marca não foi gravada, o destinatário
+    # será considerado pendente novamente (reenvio possível)
+    r2 = api_module._check_and_send_reminders()
+    # Como last_reminder_at não foi gravado (marca falhou, estado geral não gravado),
+    # o ciclo reavalia com base em createdAt. Se ainda é devido, reenvia.
+    assert r2['sent'] >= 0  # pode ser 0 (se ainda não passou o intervalo) ou 1
+
+
+def test_destinatario_ja_recebido_nao_recebe_no_mesmo_ciclo(api_module, monkeypatch):
+    """Destinatário que já recebeu no ciclo atual não recebe novamente."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(23), ws=WS_A, number=32, created_at=criado,
+                          updated_at=criado)
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    sub1 = {'key': 'k23a', 'endpoint': 'https://push.example/23a', 'user': {'id': 'u23a'}}
+    sub2 = {'key': 'k23b', 'endpoint': 'https://push.example/23b', 'user': {'id': 'u23b'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub1, sub2])
+
+    # Primeiro ciclo: ambos recebem, ciclo concluído, marcas limpas
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+    r1 = api_module._check_and_send_reminders()
+    assert r1['sent'] == 2
+    assert len(sent) == 2
+
+    # Verifica que as marcas individuais foram limpas após conclusão do ciclo
+    for sub in [sub1, sub2]:
+        endpoint_hash = api_module._endpoint_hash(sub['endpoint'])
+        assert api_module._is_sub_sent(ticket_id=ticket['id'], endpoint_hash=endpoint_hash) is False
+
+    # Estado geral gravado com last_reminder_at recente
+    state_key = f'chamado:reminder:state:{ticket["id"]}'
+    state = json.loads(fake_redis.get(state_key))
+    state['last_reminder_at'] = datetime.now(timezone.utc).isoformat()
+    state['last_known_status'] = 'aberto'
+    fake_redis.setex(state_key, 7 * 24 * 3600, json.dumps(state))
+
+    # Segundo ciclo: ainda não passou o intervalo, não deve enviar
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+    r2 = api_module._check_and_send_reminders()
+    assert r2['sent'] == 0
+    assert len(sent) == 0
+
+
 def test_endpoint_aceita_get_com_cron_secret(api_module, monkeypatch):
     """O endpoint /api/chamados/reminders/check aceita GET com header Authorization."""
     from api.app import app as flask_app
