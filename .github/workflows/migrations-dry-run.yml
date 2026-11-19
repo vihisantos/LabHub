@@ -39,6 +39,20 @@ jobs:
       - name: Install minimal dependencies
         run: pip install requests python-dotenv
 
+      - name: Verificar destino de produção (fail-closed antes de qualquer requisicao)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          EXPECTED_REF="hvqxantwqwarqhymnyqb"
+          if [ "${SUPABASE_PROJECT_REF}" != "${EXPECTED_REF}" ]; then
+            echo "ERRO: Destino de produção incorreto."
+            echo "  Esperado: ${EXPECTED_REF}"
+            echo "  Obtido:   ${SUPABASE_PROJECT_REF}"
+            echo "  Nenhuma requisicao sera feita a Supabase Management API."
+            exit 1
+          fi
+          echo "Destino de produção confirmado: ${SUPABASE_PROJECT_REF}"
+
       - name: Dry-run em produção (read-only, fail-closed)
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}

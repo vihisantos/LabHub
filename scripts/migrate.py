@@ -244,7 +244,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"[migrate] alvo: {policy.describe()}")
-    print(f"[migrate] baseline: {result.baseline or '(nenhum)'}")
+    print(f"[migrate] baseline configurada (secret): {result.env_baseline or '(nenhuma)'}")
+    print(f"[migrate] baseline registrada no banco: {result.db_baseline or '(nenhuma)'}")
+    print(f"[migrate] tabela schema_migrations existe: {'sim' if result.schema_migrations_exists else 'nao'}")
+    print(f"[migrate] origem do baseline utilizado: {result.baseline_source}")
+    print(f"[migrate] baseline efetivo para calculo de pendentes: {result.baseline or '(nenhum)'}")
     if args.dry_run:
         print(f"[migrate] (dry-run) pendentes: {result.pending or 'nenhuma'}")
         print(f"[migrate] (dry-run) já aplicadas/atrasadas: {len(result.already_applied)}")

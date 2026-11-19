@@ -103,13 +103,33 @@ COMMIT;
 
 
 class RunnerResult:
-    def __init__(self, *, baseline: str | None, pending: list[str], applied: list[str],
-                 already_applied: list[str], api_call_count: int):
+    def __init__(
+        self,
+        *,
+        baseline: str | None,
+        pending: list[str],
+        applied: list[str],
+        already_applied: list[str],
+        api_call_count: int,
+        baseline_source: str = "none",
+        db_baseline: str | None = None,
+        env_baseline: str | None = None,
+        schema_migrations_exists: bool = False,
+    ):
         self.baseline = baseline
         self.pending = pending
         self.applied = applied
         self.already_applied = already_applied
         self.api_call_count = api_call_count
+        # Origem do baseline utilizado para calcular migrations pendentes:
+        #   "env"       -> veio do secret BASELINE_VERSION (nao necessariamente registrado no banco)
+        #   "database"  -> veio de public.schema_migrations (linha __baseline__)
+        #   "implicit"  -> maior versao do repositorio (fallback, nao recomendado em producao)
+        #   "none"      -> nenhum baseline (tabela vazia, from_scratch, ou sem configuracao)
+        self.baseline_source = baseline_source
+        self.db_baseline = db_baseline
+        self.env_baseline = env_baseline
+        self.schema_migrations_exists = schema_migrations_exists
 
 
 # ---------------------------------------------------------------------------
@@ -250,10 +270,14 @@ def _resolve_baseline(
     migrations: list[Migration],
     require_baseline: bool = False,
     policy=None,
-) -> tuple[str | None, bool]:
-    """Resolve o baseline e se ele precisa ser gravado (``__baseline__``).
+) -> tuple[str | None, bool, str]:
+    """Resolve o baseline, se precisa gravar e a origem do baseline.
 
-    Retorna ``(baseline, precisa_gravar)``.
+    Retorna ``(baseline, precisa_gravar, fonte)`` onde ``fonte`` e uma de:
+      - "env"       -> veio do secret BASELINE_VERSION (nao necessariamente registrado no banco)
+      - "database"  -> veio de public.schema_migrations (linha __baseline__)
+      - "implicit"  -> maior versao do repositorio (fallback, nao recomendado em producao)
+      - "none"      -> nenhum baseline (tabela vazia, from_scratch, ou sem configuracao)
 
     Regras (preservadas do comportamento histórico, com uma exceção fechada):
       - ``from_scratch`` + tabela vazia -> baseline ``None`` (aplica TUDO, da
@@ -273,12 +297,12 @@ def _resolve_baseline(
     if from_scratch and not applied_versions and db_baseline is None:
         # Banco novo/efêmero não tem nada que baselinar; `require_baseline`
         # não se aplica (não há histórico a reconciliar).
-        return None, False
+        return None, False, "none"
     if not applied_versions:
         if db_baseline is not None:
-            return db_baseline, False
+            return db_baseline, False, "database"
         if env_baseline is not None:
-            return env_baseline, True
+            return env_baseline, True, "env"
         if require_baseline:
             raise BaselineConfigurationError(
                 missing_baseline_message(
@@ -286,8 +310,8 @@ def _resolve_baseline(
                 )
             )
         implicit = latest_version(migrations)
-        return implicit, implicit is not None
-    return (db_baseline if db_baseline is not None else sorted(applied_versions, key=int)[-1]), False
+        return implicit, implicit is not None, "implicit"
+    return (db_baseline if db_baseline is not None else sorted(applied_versions, key=int)[-1]), False, "database"
 
 
 def run(
@@ -333,7 +357,7 @@ def run(
             api_call_count += 1
         else:
             applied_versions, db_baseline = set(), None
-        baseline, _ = _resolve_baseline(
+        baseline, _, baseline_source = _resolve_baseline(
             applied_versions=applied_versions,
             db_baseline=db_baseline,
             env_baseline=env_baseline,
@@ -354,6 +378,10 @@ def run(
             applied=[],
             already_applied=already_applied,
             api_call_count=api_call_count,
+            baseline_source=baseline_source,
+            db_baseline=db_baseline,
+            env_baseline=env_baseline,
+            schema_migrations_exists=table_exists,
         )
 
     # ── execução real ────────────────────────────────────────────────────────
@@ -383,7 +411,7 @@ def run(
 
     # 3. resolve o baseline. Com `require_baseline`, a falta de
     #    `BASELINE_VERSION` aborta AQUI — ainda sem nenhuma escrita no banco.
-    baseline, should_stamp = _resolve_baseline(
+    baseline, should_stamp, baseline_source = _resolve_baseline(
         applied_versions=applied_versions,
         db_baseline=db_baseline,
         env_baseline=env_baseline,
@@ -427,4 +455,8 @@ def run(
         applied=applied,
         already_applied=already_applied,
         api_call_count=api_call_count,
+        baseline_source=baseline_source,
+        db_baseline=db_baseline,
+        env_baseline=env_baseline,
+        schema_migrations_exists=table_exists,
     )

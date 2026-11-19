@@ -558,6 +558,96 @@ def test_resolve_baseline_requires_env_when_strict(migrations_dir):
 
 
 # ---------------------------------------------------------------------------
+# #285 D3 — Clareza da origem do baseline (env vs database vs implicit vs none)
+# ---------------------------------------------------------------------------
+
+def test_baseline_source_env_when_table_empty_and_env_set(migrations_dir, monkeypatch):
+    """Tabela vazia + BASELINE_VERSION => fonte "env", precisa gravar."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "env"
+    assert result.env_baseline == "001"
+    assert result.db_baseline is None
+    assert result.schema_migrations_exists is True
+
+
+def test_baseline_source_database_when_baseline_row_exists(migrations_dir, monkeypatch):
+    """Historico com linha __baseline__ => fonte "database", env nao sobrescreve."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(
+        applied_rows=[
+            {"version": "002", "filename": "__baseline__"},
+            {"version": "000", "filename": "000_boot.sql"},
+        ],
+        table_exists=True,
+    )
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "002"
+    assert result.baseline_source == "database"
+    assert result.env_baseline == "001"
+    assert result.db_baseline == "002"
+    assert result.schema_migrations_exists is True
+
+
+def test_baseline_source_implicit_when_no_env_no_db_no_require(migrations_dir, monkeypatch):
+    """Sem env, sem banco, sem require_baseline => fallback implicito, fonte "implicit"."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, require_baseline=False)
+    assert result.baseline == "002"
+    assert result.baseline_source == "implicit"
+    assert result.env_baseline is None
+    assert result.db_baseline is None
+    assert result.schema_migrations_exists is True
+
+
+def test_baseline_source_none_when_from_scratch_empty(migrations_dir, monkeypatch):
+    """from_scratch + tabela vazia => baseline None, fonte "none"."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=False)
+    result = run(migrations_dir, api, require_baseline=False, from_scratch=True)
+    assert result.baseline is None
+    assert result.baseline_source == "none"
+    assert result.env_baseline is None
+    assert result.db_baseline is None
+    assert result.schema_migrations_exists is False
+
+
+def test_baseline_source_none_when_table_does_not_exist(migrations_dir, monkeypatch):
+    """Tabela nao existe => schema_migrations_exists False, fonte "none" (ou erro se require)."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=False)
+    result = run(migrations_dir, api, require_baseline=False)
+    assert result.schema_migrations_exists is False
+    assert result.db_baseline is None
+    assert result.env_baseline is None
+
+
+def test_dry_run_writes_nothing_even_with_env_baseline(migrations_dir, monkeypatch):
+    """Dry-run com BASELINE_VERSION configurado nao grava nada no banco."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, dry_run=True, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "env"
+    assert result.env_baseline == "001"
+    assert result.db_baseline is None
+    # Prova de nao-mutacao: nenhum CREATE TABLE nem INSERT de baseline.
+    assert not any(
+        "CREATE TABLE IF NOT EXISTS public.schema_migrations" in q
+        for q in api.queries
+    )
+    assert not any(
+        "INSERT INTO public.schema_migrations" in q
+        for q in api.queries
+    )
+    # Dry-run nao aplica migrations.
+    assert result.applied == []
+
+
+# ---------------------------------------------------------------------------
 # #285 D2 — SQL: filename nunca é interpolado cru
 # ---------------------------------------------------------------------------
 
