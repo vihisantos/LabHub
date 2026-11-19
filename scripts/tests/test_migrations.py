@@ -607,9 +607,6 @@ def test_baseline_source_implicit_when_no_env_no_db_no_require(migrations_dir, m
     assert result.baseline_source == "implicit"
     assert result.env_baseline is None
     assert result.db_baseline is None
-    # Coerencia: sem db/env, fonte implicit, baseline == 002 (maior do repo)
-    assert result.db_baseline is None
-    assert result.env_baseline is None
 
 
 def test_baseline_source_none_when_from_scratch_empty(migrations_dir, monkeypatch):
