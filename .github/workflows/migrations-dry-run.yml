@@ -1,0 +1,48 @@
+name: Migrations Dry-run (Produção)
+
+# Execução manual exclusiva para validar o destino de produção do Supabase
+# SEM aplicar nenhuma migration (somente leitura).
+#
+# Objetivo: confirmar que o GitHub Actions aponta para o projeto de produção
+# correto (hvqxantwqwarqhymnyqb), que a baseline efetiva está configurada e
+# listar migrations pendentes e eventuais divergências de identidade.
+#
+# Segurança:
+#   - Somente `workflow_dispatch` (execução manual).
+#   - Executa exclusivamente `python scripts/migrate.py --target production --dry-run`.
+#   - Nenhuma etapa aplica migrations ou grava no banco de produção.
+#   - Não altera `migrations.yml`, scripts, banco ou configurações do Supabase.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-production-dry-run:
+    name: Validate production migrations (dry-run, read-only)
+    runs-on: ubuntu-latest
+    # Registra a execução no log do GitHub Environment "production" para
+    # rastreabilidade, sem exigir revisão manual (não há deployment).
+    environment: production
+    concurrency:
+      group: migrations-dry-run-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install minimal dependencies
+        run: pip install requests python-dotenv
+
+      - name: Dry-run em produção (read-only, fail-closed)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
+          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
+        run: python scripts/migrate.py --target production --dry-run
