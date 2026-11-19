@@ -5,10 +5,9 @@ name: Migrations
 #   PR    -> validate (PostgreSQL 16 efêmero) -> migrate-staging (Supabase Staging)
 #   main  -> validate (PostgreSQL 16 efêmero) -> migrate-staging + migrate (produção)
 #
-#   workflow_dispatch -> execução manual em qualquer branch.
-#     - target=staging: aplica no staging apenas se for branch main (ou via
-#                       workflow_dispatch explícito na main).
-#     - target=production: aplica em produção apenas se for branch main.
+#   workflow_dispatch -> execução manual com seletor de destino.
+#     - target=staging (padrão): aplica no Staging apenas se for branch main.
+#     - target=production: aplica em Produção apenas se for branch main.
 #
 # A aplicação em produção depende (`needs: validate`) da validação efêmera
 # ter passado: se a cadeia de migrations não aplica em um banco descartável,
@@ -49,6 +48,15 @@ on:
       - "scripts/tests/**"
       - ".github/workflows/migrations.yml"
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Ambiente de destino para aplicação manual de migrations.'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 permissions:
   contents: read
@@ -103,16 +111,24 @@ jobs:
       - name: Valida lockdown de schema_migrations (migration 102)
         working-directory: scripts
         run: python -m pytest tests/test_schema_migrations_lockdown.py -q
+      - name: Workflow security validation
+        working-directory: scripts
+        run: python -m pytest tests/test_workflow_security.py -q
 
   # ─────────────────────────────────────────────────────────────────────────
   # 2) migrate-staging — aplica no Supabase Staging após validate verde.
-  #    Dispara em PR e push para main. Nunca toca em produção.
+  #    Dispara em PR, push para main e workflow_dispatch com target=staging.
+  #    Nunca toca em produção.
   # ─────────────────────────────────────────────────────────────────────────
   migrate-staging:
     name: Apply pending migrations to Staging
     needs: validate
     runs-on: ubuntu-latest
-    # Serializa as aplicações no staging para evitar concorrência.
+    # Só roda se o alvo for staging (ou workflow_dispatch com target=staging).
+    # Em PR e push/main roda sempre; em workflow_dispatch só se target=staging.
+    if: github.event_name == 'pull_request' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     concurrency:
       group: migrations-apply-staging
       cancel-in-progress: false
@@ -129,17 +145,17 @@ jobs:
 
       - name: Dry-run em staging (read-only, fail-closed)
         env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
-          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
-        run: python scripts/migrate.py --target staging --dry-run
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: python scripts/migrate.py --target staging --from-scratch --dry-run
 
       - name: Apply pending migrations to Staging
         env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
-          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
-        run: python scripts/migrate.py --target staging
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: python scripts/migrate.py --target staging --from-scratch
 
   # ─────────────────────────────────────────────────────────────────────────
   # 3) migrate — só após validate verde, e só em push para main (produção).
@@ -149,9 +165,9 @@ jobs:
     name: Apply pending migrations to Production
     needs: validate
     # A aplicação em produção só ocorre em push para main (merge) ou via
-    # workflow_dispatch explicitamente na main. Nunca em PR.
+    # workflow_dispatch explicitamente na main com target=production.
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+        (github.event_name == 'workflow_dispatch' && inputs.target == 'production' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     # Habilita as protection rules do GitHub Environment (revisão/aprovação
     # manual opcional) e registra a aplicação no log do environment.
