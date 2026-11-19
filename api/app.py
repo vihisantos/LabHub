@@ -4761,22 +4761,14 @@ def _record_terminal_status(ticket_id: str, status: str) -> None:
         pass
 
 
-def _get_last_terminal_status(ticket_id: str) -> str | None:
-    """Recupera o último status terminal de um chamado a partir de ticket_events.
+def _fetch_ticket_status_events(ticket_id: str) -> list[dict] | None:
+    """Busca eventos de status de um chamado no Supabase.
 
-    ticket_events já persiste todas as transições de status com newStatus e
-    createdAt (migração 101 adicionou a coluna newStatus). É usada como fonte
-    da verdade quando o Redis está indisponível ou não tem last_known_status,
-    permitindo detectar reabertura mesmo após falha de gravação no Redis.
-
-    A interpretação é cronológica: se o último evento de status for uma
-    reabertura (newStatus='aberto') e o evento imediatamente anterior for um
-    status terminal (resolvido/fechado/indeferido), o status terminal do ciclo
-    anterior é retornado. Caso contrário, retorna o newStatus do evento mais
-    recente.
-
-    Retorna o status terminal, ou None se não houver evento de status para o
-    chamado.
+    Retorna None quando a consulta não é conclusiva (Supabase não
+    configurado, erro HTTP ou exceção) e uma lista (possivelmente vazia)
+    quando a consulta foi concluída. A consulta traz os eventos mais
+    recentes primeiro, com desempate determinístico por id; a lista é
+    invertida aqui para que os chamadores percorram cronologicamente.
     """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return None
@@ -4785,9 +4777,9 @@ def _get_last_terminal_status(ticket_id: str) -> str | None:
             f'{_SUPABASE_URL}/rest/v1/ticket_events'
             f'?ticket_id=eq.{quote(ticket_id)}'
             f'&type=eq.status'
-            f'&select=newStatus,createdAt'
-            f'&order=createdAt.desc'
-            f'&limit=3',
+            f'&select=id,newStatus,createdAt'
+            f'&order=createdAt.desc,id.desc'
+            f'&limit=100',
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -4796,29 +4788,78 @@ def _get_last_terminal_status(ticket_id: str) -> str | None:
                 f"[chamados-reminder] falha ao consultar ticket_events {ticket_id}: {resp.status_code}"
             )
             return None
-        rows = resp.json() or []
-        if not rows:
-            return None
-
-        # Último evento de status (mais recente)
-        last = str(rows[0].get('newStatus') or '').strip() or None
-
-        # Se o último evento é uma reabertura, verificar o evento anterior
-        # para identificar o status terminal que foi encerrado.
-        if last == 'aberto' and len(rows) >= 2:
-            previous = str(rows[1].get('newStatus') or '').strip() or None
-            closed_statuses = {'resolvido', 'fechado', 'indeferido'}
-            if previous in closed_statuses:
-                return previous
-            # Reabertura de um estado não-terminal (ex.: aberto → aberto por
-            # edição de descrição): não é reabertura de ciclo.
-            return None
-
-        # Último evento é terminal ou não-terminal não-reabertura.
-        return last
+        rows = list(resp.json() or [])
+        rows.reverse()
+        return rows
     except Exception as e:
         logger.warning(f"[chamados-reminder] erro ao consultar ticket_events {ticket_id}: {e}")
         return None
+
+
+def _reopened_terminal_from_events(rows: list[dict]) -> str | None:
+    """Retorna o terminal encerrado pela reabertura mais recente dos eventos."""
+    closed_statuses = {'resolvido', 'fechado', 'indeferido'}
+    last_terminal: str | None = None
+    reopened_from: str | None = None
+
+    # 'rows' já vem em ordem cronológica (mais antigo primeiro).
+    for row in rows:
+        status = str(row.get('newStatus') or '').strip() or None
+        if status in closed_statuses:
+            # Um novo terminal encerra o ciclo vigente e descarta qualquer
+            # reabertura anterior.
+            last_terminal = status
+            reopened_from = None
+        elif status == 'aberto' and last_terminal is not None:
+            # Reabertura real: terminal → aberto. Guarda o terminal que foi
+            # encerrado para detectar o novo ciclo mesmo havendo eventos
+            # posteriores (em_espera, em_atendimento, etc.).
+            reopened_from = last_terminal
+            last_terminal = None
+        # Outros status (aberto sem terminal prévio, a_caminho, em_espera,
+        # etc.) não alteram a reabertura registrada.
+
+    return reopened_from
+
+
+def _get_last_terminal_status(ticket_id: str) -> str | None:
+    """Recupera o último status terminal encerrado por uma reabertura, a partir de ticket_events.
+
+    ticket_events já persiste todas as transições de status com newStatus e
+    createdAt (migração 101 adicionou a coluna newStatus). É usada como fonte
+    da verdade quando o Redis está indisponível ou não tem last_known_status,
+    permitindo detectar reabertura mesmo após falha de gravação no Redis.
+
+    A interpretação é cronológica e robusta a eventos posteriores à reabertura:
+    - Percorre os eventos de status do mais antigo para o mais recente.
+    - Guarda o último status terminal encontrado (resolvido/fechado/indeferido).
+    - Quando encontra uma reabertura (newStatus='aberto' após um terminal),
+      registra qual terminal foi encerrado e reinicia a busca.
+    - Eventos posteriores que não são terminais (em_espera, em_atendimento,
+      a_caminho ou outro 'aberto') não apagam essa informação.
+    - Um novo terminal apaga a reabertura anterior, pois encerra o ciclo.
+      Se esse terminal for seguido de outra reabertura, o novo terminal é
+      registrado.
+
+    Isso cobre sequências como:
+      - aberto → resolvido → aberto                    → 'resolvido'
+      - aberto → resolvido → aberto → em_espera        → 'resolvido'
+      - aberto → resolvido → aberto → em_atendimento   → 'resolvido'
+      - aberto → resolvido → aberto → aberto           → 'resolvido'
+      - aberto → fechado → aberto → em_espera          → 'fechado'
+      - aberto → indeferido → aberto                   → 'indeferido'
+      - aberto → resolvido → aberto → resolvido        → None (ciclo encerrado)
+      - aberto → resolvido → aberto → resolvido → aberto → 'resolvido'
+      - aberto → em_espera → em_atendimento            → None (sem reabertura)
+      - aberto → a_caminho                             → None (sem reabertura)
+
+    Retorna o status terminal encerrado pela reabertura mais recente, ou None
+    se não houver evento de status para o chamado ou se não houver reabertura.
+    """
+    rows = _fetch_ticket_status_events(ticket_id)
+    if not rows:
+        return None
+    return _reopened_terminal_from_events(rows)
 
 
 def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
@@ -4832,33 +4873,42 @@ def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
     reabertura ocorrem no mesmo timestamp (createdAt), evitando colisão de
     ciclo entre execuções concorrentes.
 
+    A interpretação é cronológica: percorre todos os eventos de status e
+    identifica o último evento com newStatus='aberto' que sucede um status
+    terminal (resolvido/fechado/indeferido), mesmo que existam eventos
+    posteriores como em_espera ou em_atendimento. Esse UUID é o
+    identificador do ciclo vigente.
+
     Isso garante que marcas individuais de um ciclo anterior não interfiram
     no ciclo atual.
     """
-    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
-        # Sem Supabase, usa o createdAt do chamado como fallback.
+    rows = _fetch_ticket_status_events(ticket_id)
+    if not rows:
+        # Sem histórico consultável, usa o createdAt do chamado como fallback.
         return str(ticket.get('createdAt') or '')
-    try:
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/ticket_events'
-            f'?ticket_id=eq.{quote(ticket_id)}'
-            f'&type=eq.status'
-            f'&newStatus=eq.aberto'
-            f'&select=id,createdAt'
-            f'&order=createdAt.desc'
-            f'&limit=1',
-            headers=_supabase_headers(),
-            timeout=10,
-        )
-        if not resp.ok:
-            return str(ticket.get('createdAt') or '')
-        rows = resp.json() or []
-        if rows:
-            return str(rows[0].get('id') or rows[0].get('createdAt') or ticket.get('createdAt') or '')
-        return str(ticket.get('createdAt') or '')
-    except Exception as e:
-        logger.warning(f"[chamados-reminder] erro ao calcular cycle_id {ticket_id}: {e}")
-        return str(ticket.get('createdAt') or '')
+
+    closed_statuses = {'resolvido', 'fechado', 'indeferido'}
+    last_reopening_event_id: str | None = None
+    last_terminal: str | None = None
+
+    # 'rows' já vem em ordem cronológica (mais antigo primeiro).
+    for row in rows:
+        status = str(row.get('newStatus') or '').strip() or None
+        event_id = str(row.get('id') or '')
+
+        if status in closed_statuses:
+            # Encontrou um terminal: pode ser encerrado por uma reabertura futura.
+            last_terminal = status
+        elif status == 'aberto' and last_terminal is not None:
+            # Reabertura real: terminal → aberto. Este evento inicia um novo ciclo.
+            last_reopening_event_id = event_id
+            last_terminal = None  # O terminal foi encerrado pela reabertura
+        # Outros status (aberto sem terminal prévio, a_caminho, em_espera,
+        # etc.) não alteram o estado do terminal pendente.
+
+    if last_reopening_event_id:
+        return last_reopening_event_id
+    return str(ticket.get('createdAt') or '')
 
 
 def _is_reopening(ticket: dict, state: dict | None) -> bool:
@@ -4866,10 +4916,12 @@ def _is_reopening(ticket: dict, state: dict | None) -> bool:
 
     Regras:
       - O status atual deve ser 'aberto'.
-      - Deve haver estado prévio com last_known_status.
-      - O last_known_status deve ser um status encerrado (resolvido, fechado,
-        indeferido, em_espera) — transição real de reabertura.
-      - Alterações de descrição, comentários ou outros campos NÃO reiniciam o ciclo.
+      - A fonte da verdade é o histórico em ticket_events: só é reabertura
+        se houver uma transição terminal → aberto.
+      - O Redis (last_known_status) é usado como fallback apenas quando o
+        histórico não pôde ser consultado ou está vazio.
+      - `em_espera` não é terminal e não caracteriza reabertura.
+      - Alterações de descrição, comentários ou atribuições NÃO reiniciam o ciclo.
 
     Retorna True se for reabertura real.
     """
@@ -4878,11 +4930,17 @@ def _is_reopening(ticket: dict, state: dict | None) -> bool:
         return False
 
     # Fonte da verdade para o último status terminal: ticket_events (Supabase,
-    # persistente mesmo se Redis falhar). O Redis (last_known_status) é usado
-    # apenas como fallback quando não há evento de status consultável.
-    terminal_status = _get_last_terminal_status(str(ticket.get('id') or ''))
-    if terminal_status is None:
-        # Sem evento de status consultável: usa o Redis como fallback.
+    # persistente mesmo se Redis falhar).
+    rows = _fetch_ticket_status_events(str(ticket.get('id') or ''))
+    if rows:
+        terminal_status = _reopened_terminal_from_events(rows)
+        if terminal_status is None:
+            # O histórico foi consultado com sucesso e não contém reabertura.
+            # Não usamos o Redis aqui para evitar falso positivo com estado
+            # antigo/deixado por uma execução anterior.
+            return False
+    else:
+        # Sem histórico consultável: usa o Redis como fallback.
         if not state:
             return False
         terminal_status = str(state.get('last_known_status') or '').strip()

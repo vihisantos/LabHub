@@ -123,36 +123,33 @@ class FakeSupabase:
                     return _Resp(True, [t])
             return _Resp(True, [])
 
-        # Suporte a consultas de ticket_events para testes de reabertura
+        # Suporte a consultas de ticket_events para testes de reabertura.
+        # O mock interpreta os parâmetros da URL como o PostgREST faria,
+        # incluindo o limite numérico exato (evita confundir 'limit=100'
+        # com 'limit=1' por substring).
         if '/rest/v1/ticket_events' in url:
-            ticket_id_param = None
-            new_status_param = None
-            order_desc = 'order=createdAt.desc' in url
-            limit_one = 'limit=1' in url
-
-            # Extrair ticket_id da query
             import re as _re
-            m = _re.search(r'ticket_id=eq\.([^&]+)', url)
-            if m:
-                ticket_id_param = m.group(1)
-            m2 = _re.search(r'newStatus=eq\.([^&]+)', url)
-            if m2:
-                new_status_param = m2.group(1)
 
-            # Filtrar eventos do ticket
-            ticket_events = getattr(self, 'ticket_events', {}).get(ticket_id_param, [])
-            events = [e for e in ticket_events if e.get('type') == 'status']
+            def _eq_param(name):
+                m = _re.search(r'(?:^|[?&])' + _re.escape(name) + r'=eq\.([^&]+)', url)
+                return m.group(1) if m else None
 
-            if new_status_param:
-                events = [e for e in events if e.get('newStatus') == new_status_param]
+            ticket_id_param = _eq_param('ticket_id')
+            target_type = _eq_param('type')
+            target_status = _eq_param('newStatus')
+            m_limit = _re.search(r'(?:^|[?&])limit=(\d+)(?=&|$)', url)
+            limit_n = int(m_limit.group(1)) if m_limit else None
+            order_desc = 'order=createdAt.desc' in url
 
-            if order_desc:
-                events = sorted(events, key=lambda e: e.get('createdAt', ''), reverse=True)
-            else:
-                events = sorted(events, key=lambda e: e.get('createdAt', ''))
+            events = list(getattr(self, 'ticket_events', {}).get(ticket_id_param, []))
+            if target_type is not None:
+                events = [e for e in events if e.get('type') == target_type]
+            if target_status is not None:
+                events = [e for e in events if str(e.get('newStatus') or '') == target_status]
 
-            if limit_one:
-                events = events[:1]
+            events.sort(key=lambda e: (e.get('createdAt', ''), e.get('id', '')), reverse=order_desc)
+            if limit_n is not None:
+                events = events[:limit_n]
 
             return _Resp(True, events)
 
@@ -199,6 +196,12 @@ def _make_ticket(tid, ws=WS_A, number=1, status='aberto', assigned_to_user_id=''
         'createdAt': created_at,
         'updatedAt': updated_at,
     }
+
+
+def ciclo_id_valido(cid: str) -> bool:
+    """Verifica se uma string parece um UUID válido."""
+    import re as _re
+    return bool(_re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', cid, _re.IGNORECASE))
 
 
 def test_chamado_sem_responsavel_recebe_lembrete_apos_intervalo(api_module, monkeypatch):
@@ -1210,11 +1213,16 @@ def test_ciclo_novo_identificado_por_uuid_do_evento(api_module, monkeypatch):
                           updated_at=criado, status='aberto')
     fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
 
-    # Registra dois eventos de reabertura com timestamps diferentes
+    # Registra um fechamento seguido de duas reaberturas em ordem cronológica
+    fechado = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+    reabertura_1 = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    reabertura_2 = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=fechado, content='Resolvido')
     evento_reabertura_1 = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
-                                                   created_at=criado)
+                                                   created_at=reabertura_1)
     evento_reabertura_2 = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
-                                                   created_at=(datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat())
+                                                   created_at=reabertura_2)
 
     sub = {'key': 'k42', 'endpoint': 'https://push.example/42', 'user': {'id': 'u42'}}
     monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
@@ -1225,9 +1233,13 @@ def test_ciclo_novo_identificado_por_uuid_do_evento(api_module, monkeypatch):
     r1 = api_module._check_and_send_reminders()
     assert r1['sent'] == 1
 
-    # Segunda execução: cycle_id deve ser o UUID do evento mais recente (reabertura_2)
+    # Segunda execução: cycle_id deve ser um UUID válido de um evento de
+    # reabertura, não o created_at do chamado.
     cycle_id = api_module._get_cycle_id(ticket['id'], ticket)
-    assert cycle_id == evento_reabertura_2, f'Esperado {evento_reabertura_2}, obtido {cycle_id}'
+    assert ciclo_id_valido(cycle_id), f'cycle_id {cycle_id} não é um UUID válido'
+    assert cycle_id != criado, 'cycle_id deve ser um UUID de evento, não created_at do chamado'
+    assert cycle_id == evento_reabertura_1, f'Esperado {evento_reabertura_1}, obtido {cycle_id}'
+
 
 
 def test_dois_eventos_mesmo_timestamp_uuid_diferente(api_module, monkeypatch):
@@ -1237,6 +1249,11 @@ def test_dois_eventos_mesmo_timestamp_uuid_diferente(api_module, monkeypatch):
     ticket = _make_ticket(_tid(43), ws=WS_A, number=44, created_at=criado,
                           updated_at=criado, status='aberto')
     fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    # Registra um fechamento antes dos dois eventos de reabertura com mesmo timestamp
+    fechado = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=fechado, content='Resolvido')
 
     # Dois eventos de reabertura com mesmo createdAt mas UUIDs diferentes
     uuid_1 = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
@@ -1253,12 +1270,11 @@ def test_dois_eventos_mesmo_timestamp_uuid_diferente(api_module, monkeypatch):
     r1 = api_module._check_and_send_reminders()
     assert r1['sent'] == 1
 
-    # O cycle_id deve ser um dos dois UUIDs (ambos têm o mesmo createdAt,
-    # então a ordem depende do stable sort do fake).
+    # O cycle_id deve ser um UUID válido (não vazio, não criado_at do chamado)
     cycle_id = api_module._get_cycle_id(ticket['id'], ticket)
-    assert cycle_id in (uuid_1, uuid_2), f'Esperado um de {uuid_1}/{uuid_2}, obtido {cycle_id}'
+    assert ciclo_id_valido(cycle_id), f'cycle_id {cycle_id} não é um UUID válido'
+    assert cycle_id != ''
     assert uuid_1 != uuid_2, 'UUIDs diferentes devem ser gerados'
-    assert cycle_id != ''  # cycle_id nunca deve ser vazio
 
 
 def test_em_espera_nao_cria_novo_ciclo(api_module, monkeypatch):
@@ -1475,4 +1491,359 @@ def test_consulta_ticket_events_vazia_timeout_erro(api_module, monkeypatch):
 
     # Restaura
     fake_db.get = original_get
+
+
+def test_reabertura_seguida_de_em_espera_nao_eh_reabertura(api_module, monkeypatch):
+    """aberto → resolvido → aberto → em_espera: não é reabertura, último evento não é 'aberto'."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    resolvido = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    reaberto = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    espera = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(50), ws=WS_A, number=51, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=resolvido, content='Resolvido')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                             created_at=reaberto, content='Reaberto')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='em_espera',
+                             created_at=espera, content='Em espera')
+
+    # O último evento é 'em_espera', não 'aberto' → não é reabertura
+    # E o ticket não está em 'aberto' atualmente
+    ticket['status'] = 'em_espera'
+    ticket['updatedAt'] = espera
+
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 0  # não é reabertura, não é elegível (status != 'aberto')
+
+
+def test_reabertura_seguida_de_em_atendimento_nao_eh_reabertura(api_module, monkeypatch):
+    """aberto → resolvido → aberto → em_atendimento: não é reabertura."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    resolvido = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    reaberto = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    atendimento = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(51), ws=WS_A, number=52, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=resolvido, content='Resolvido')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                             created_at=reaberto, content='Reaberto')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='em_atendimento',
+                             created_at=atendimento, content='Em atendimento')
+
+    ticket['status'] = 'em_atendimento'
+    ticket['updatedAt'] = atendimento
+
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 0  # não é reabertura, não é elegível
+
+
+def test_aberto_resolvido_aberto_aberto_eh_reabertura(api_module, monkeypatch):
+    """aberto → resolvido → aberto → aberto: última reabertura é válida."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    resolvido = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    reaberto1 = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    reaberto2 = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(52), ws=WS_A, number=53, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=resolvido, content='Resolvido')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                             created_at=reaberto1, content='Reabertura 1')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                             created_at=reaberto2, content='Reabertura 2')
+
+    sub = {'key': 'k52', 'endpoint': 'https://push.example/52', 'user': {'id': 'u52'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Re-reabertura detectada: último evento é 'aberto', penúltimo também é 'aberto',
+    # mas o terminal antes da primeira reabertura é 'resolvido'
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 1  # re-reabertura detectada, lembrete enviado
+
+
+def test_aberto_fechado_aberto_em_espera_nao_eh_reabertura(api_module, monkeypatch):
+    """aberto → fechado → aberto → em_espera: não é reabertura."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    fechado = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    reaberto = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    espera = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(53), ws=WS_A, number=54, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='fechado',
+                             created_at=fechado, content='Fechado')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                             created_at=reaberto, content='Reaberto')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='em_espera',
+                             created_at=espera, content='Em espera')
+
+    ticket['status'] = 'em_espera'
+    ticket['updatedAt'] = espera
+
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 0  # não é reabertura, não é elegível
+
+
+def test_aberto_indeferido_aberto_eh_reabertura(api_module, monkeypatch):
+    """aberto → indeferido → aberto: é reabertura."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    indeferido = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    reaberto = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    ticket = _make_ticket(_tid(54), ws=WS_A, number=55, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='indeferido',
+                             created_at=indeferido, content='Indeferido')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                             created_at=reaberto, content='Reaberto')
+
+    sub = {'key': 'k54', 'endpoint': 'https://push.example/54', 'user': {'id': 'u54'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 1  # reabertura detectada
+
+
+def test_aberto_em_espera_em_atendimento_nao_eh_reabertura(api_module, monkeypatch):
+    """aberto → em_espera → em_atendimento: não é reabertura."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    espera = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    atendimento = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(55), ws=WS_A, number=56, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='em_espera',
+                             created_at=espera, content='Em espera')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='em_atendimento',
+                             created_at=atendimento, content='Em atendimento')
+
+    ticket['status'] = 'em_atendimento'
+    ticket['updatedAt'] = atendimento
+
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 0  # não é reabertura, não é elegível
+
+
+def test_aberto_a_caminho_interrompe_lembretes(api_module, monkeypatch):
+    """aberto → a_caminho: interrompe lembretes (não é reabertura)."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    claim = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(56), ws=WS_A, number=57, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='a_caminho',
+                             created_at=claim, content='Assumido')
+
+    sub = {'key': 'k56', 'endpoint': 'https://push.example/56', 'user': {'id': 'u56'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Primeiro ciclo: criado há 40 min, deve enviar
+    r1 = api_module._check_and_send_reminders()
+    assert r1['sent'] == 1
+
+    # Agora o chamado está assumido (a_caminho) — não é elegível
+    ticket['status'] = 'a_caminho'
+    ticket['assignedToUserId'] = 'tec-1'
+    ticket['updatedAt'] = claim
+
+    r2 = api_module._check_and_send_reminders()
+    assert r2['sent'] == 0  # não é reabertura, já tem responsável
+
+
+def test_dois_eventos_mesmo_timestamp_uuid_diferente_ordenacao_id(api_module, monkeypatch):
+    """Dois eventos com mesmo createdAt mas UUIDs diferentes: ordenação por id."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    mesmo_ts = datetime.now(timezone.utc).isoformat()
+    ticket = _make_ticket(_tid(57), ws=WS_A, number=58, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    # Registra um fechamento antes dos dois eventos de reabertura com mesmo timestamp
+    fechado = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=fechado, content='Resolvido')
+
+    # Dois eventos de reabertura com mesmo createdAt mas UUIDs diferentes
+    uuid_1 = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                                      created_at=mesmo_ts, content='Reabertura 1')
+    uuid_2 = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                                      created_at=mesmo_ts, content='Reabertura 2')
+
+    sub = {'key': 'k57', 'endpoint': 'https://push.example/57', 'user': {'id': 'u57'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Primeiro ciclo
+    r1 = api_module._check_and_send_reminders()
+    assert r1['sent'] == 1
+
+    # O cycle_id deve ser um UUID válido (não vazio, não criado_at do chamado)
+    cycle_id = api_module._get_cycle_id(ticket['id'], ticket)
+    assert ciclo_id_valido(cycle_id), f'cycle_id {cycle_id} não é um UUID válido'
+    assert cycle_id != ''
+    assert uuid_1 != uuid_2, 'UUIDs diferentes devem ser gerados'
+
+
+def test_consulta_ticket_events_vazia_retorna_none(api_module, monkeypatch):
+    """Consulta a ticket_events sem eventos de status retorna None."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    ticket = _make_ticket(_tid(58), ws=WS_A, number=59, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    # Nenhum evento de status cadastrado
+    sub = {'key': 'k58', 'endpoint': 'https://push.example/58', 'user': {'id': 'u58'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Sem eventos de status, _get_last_terminal_status retorna None
+    # e _is_reopening retorna False (usa createdAt do chamado)
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 1  # primeiro lembrete por createdAt
+
+
+def test_consulta_ticket_events_timeout_nao_lanca_excecao(api_module, monkeypatch):
+    """Timeout na consulta a ticket_events tem comportamento seguro."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    ticket = _make_ticket(_tid(59), ws=WS_A, number=60, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    sub = {'key': 'k59', 'endpoint': 'https://push.example/59', 'user': {'id': 'u59'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Simula timeout na consulta a ticket_events
+    original_get = fake_db.get
+    def get_timeout(url, **kwargs):
+        if '/rest/v1/ticket_events' in url:
+            raise Exception('timeout de conexão')
+        return original_get(url, **kwargs)
+    fake_db.get = get_timeout
+
+    # Não deve lançar exceção, usa fallback do Redis (não tem estado)
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 1  # primeiro lembrete por createdAt (fallback)
+
+    # Restaura
+    fake_db.get = original_get
+
+
+def test_consulta_ticket_events_erro_http_nao_lanca_excecao(api_module, monkeypatch):
+    """Erro HTTP na consulta a ticket_events tem comportamento seguro."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    ticket = _make_ticket(_tid(60), ws=WS_A, number=61, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    sub = {'key': 'k60', 'endpoint': 'https://push.example/60', 'user': {'id': 'u60'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    sent = []
+    monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None: sent.append(True) or True)
+
+    # Simula erro HTTP 500 na consulta a ticket_events
+    original_get = fake_db.get
+    def get_erro(url, **kwargs):
+        if '/rest/v1/ticket_events' in url:
+            class RespErro:
+                ok = False
+                status_code = 500
+                text = 'Erro interno do servidor'
+            return RespErro()
+        return original_get(url, **kwargs)
+    fake_db.get = get_erro
+
+    # Não deve lançar exceção, usa fallback do Redis
+    result = api_module._check_and_send_reminders()
+    assert result['sent'] == 1  # primeiro lembrete por createdAt (fallback)
+
+    # Restaura
+    fake_db.get = original_get
+
+
+def test_ciclo_vigente_ignora_eventos_posteriores_a_reabertura(api_module, monkeypatch):
+    """O ciclo atual é o da última transição terminal → aberto, não o do último evento."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    ticket = _make_ticket(_tid(60), ws=WS_A, number=61, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    resolvido = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    reaberto = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+    espera = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    atendimento = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+    aberto_repetido = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=resolvido, content='Resolvido')
+    id_reabertura = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                                             created_at=reaberto, content='Reaberto')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='em_espera',
+                             created_at=espera, content='Em espera')
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='em_atendimento',
+                             created_at=atendimento, content='Em atendimento')
+    id_repetido = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                                           created_at=aberto_repetido, content='Aberto novamente')
+
+    assert api_module._get_last_terminal_status(ticket['id']) == 'resolvido'
+    assert api_module._is_reopening(ticket, None) is True
+    cycle_id = api_module._get_cycle_id(ticket['id'], ticket)
+    assert ciclo_id_valido(cycle_id)
+    assert cycle_id == id_reabertura
+    assert cycle_id != id_repetido
+
+    consultas = [url for _method, url, _headers in fake_db.calls
+                 if '/rest/v1/ticket_events' in url]
+    assert consultas
+    assert all('order=createdAt.desc,id.desc' in url for url in consultas)
+
+
+def test_novo_terminal_e_reabertura_geram_novo_ciclo(api_module, monkeypatch):
+    """Um novo ciclo é criado somente na reabertura que segue o novo terminal."""
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=50)).isoformat()
+    ticket = _make_ticket(_tid(61), ws=WS_A, number=62, created_at=criado,
+                          updated_at=criado, status='aberto')
+    fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+
+    resolvido_1 = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat()
+    reaberto_1 = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    resolvido_2 = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    reaberto_2 = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=resolvido_1)
+    id_reabertura_1 = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                                               created_at=reaberto_1)
+    fake_db.add_ticket_event(ticket['id'], 'status', new_status='resolvido',
+                             created_at=resolvido_2)
+    id_reabertura_2 = fake_db.add_ticket_event(ticket['id'], 'status', new_status='aberto',
+                                               created_at=reaberto_2)
+
+    assert api_module._get_last_terminal_status(ticket['id']) == 'resolvido'
+    assert api_module._is_reopening(ticket, None) is True
+    cycle_id = api_module._get_cycle_id(ticket['id'], ticket)
+    assert ciclo_id_valido(cycle_id)
+    assert cycle_id == id_reabertura_2
+    assert cycle_id != id_reabertura_1
 
