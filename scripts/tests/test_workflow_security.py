@@ -75,52 +75,150 @@ def test_workflow_dispatch_uses_inputs_target_not_github_inputs_target():
     )
 
 
-def test_staging_job_uses_staging_project_ref_secret():
-    """O job migrate-staging deve usar SUPABASE_STAGING_PROJECT_REF, não SUPABASE_PROJECT_REF."""
-    content = _read_workflow()
-    staging_section = _extract_job_section(content, "migrate-staging")
-    assert staging_section is not None, "Job migrate-staging não encontrado"
-
-    # Deve conter SUPABASE_STAGING_PROJECT_REF (secret correto do staging)
-    assert "SUPABASE_STAGING_PROJECT_REF" in staging_section, (
-        "Job migrate-staging deve usar SUPABASE_STAGING_PROJECT_REF"
-    )
-    assert "secrets.SUPABASE_STAGING_PROJECT_REF" in staging_section, (
-        "Job migrate-staging deve ler SUPABASE_STAGING_PROJECT_REF do secrets"
-    )
-    # NÃO deve conter secrets.SUPABASE_PROJECT_REF (produção) no job de staging
-    assert "secrets.SUPABASE_PROJECT_REF" not in staging_section, (
-        "Job migrate-staging NÃO deve usar secrets.SUPABASE_PROJECT_REF (produção)"
-    )
-
-
-def test_staging_job_uses_staging_access_token_secret():
-    """O job migrate-staging deve usar SUPABASE_STAGING_ACCESS_TOKEN, não SUPABASE_ACCESS_TOKEN."""
-    content = _read_workflow()
-    staging_section = _extract_job_section(content, "migrate-staging")
-    assert staging_section is not None
-
-    # O token de staging deve ser injetado como SUPABASE_ACCESS_TOKEN (genérico)
-    assert "SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}" in staging_section, (
-        "Job migrate-staging deve injetar SUPABASE_ACCESS_TOKEN com secrets.SUPABASE_STAGING_ACCESS_TOKEN"
-    )
-    # NÃO deve conter secrets.SUPABASE_ACCESS_TOKEN (produção) no job de staging
-    assert "secrets.SUPABASE_ACCESS_TOKEN" not in staging_section, (
-        "Job migrate-staging NÃO deve usar secrets.SUPABASE_ACCESS_TOKEN (produção)"
-    )
+def _staging_env_lines(staging_section: str) -> list[str]:
+    """Extrai as linhas de env do job migrate-staging (ambos os steps)."""
+    lines = staging_section.split("\n")
+    env_lines = []
+    in_env = False
+    env_indent = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "env:":
+            in_env = True
+            env_indent = len(line) - len(line.lstrip())
+            continue
+        if in_env:
+            if not stripped:
+                continue
+            line_indent = len(line) - len(line.lstrip())
+            if line_indent <= env_indent:
+                in_env = False
+                continue
+            env_lines.append(line)
+    return env_lines
 
 
-def test_staging_job_uses_staging_allowed_refs_variable():
-    """O job migrate-staging deve usar SUPABASE_STAGING_ALLOWED_PROJECT_REFS, não SUPABASE_ALLOWED_PROJECT_REFS."""
+def test_staging_env_project_ref_exact_mapping_dry_run():
+    """O step dry-run do staging deve mapear SUPABASE_STAGING_PROJECT_REF -> secrets.SUPABASE_STAGING_PROJECT_REF."""
     content = _read_workflow()
     staging_section = _extract_job_section(content, "migrate-staging")
     assert staging_section is not None
 
-    assert "vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS" in staging_section, (
-        "Job migrate-staging deve ler SUPABASE_STAGING_ALLOWED_PROJECT_REFS das vars"
+    dry_run_section = _extract_step_section(staging_section, "Dry-run em staging")
+    assert dry_run_section is not None, "Step 'Dry-run em staging' não encontrado"
+
+    # Mapeamento exato: chave de ambiente = SUPABASE_STAGING_PROJECT_REF, valor = secrets.SUPABASE_STAGING_PROJECT_REF
+    expected = "SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}"
+    assert expected in dry_run_section, (
+        f"Dry-run do staging deve conter '{expected}'"
     )
-    assert "vars.SUPABASE_ALLOWED_PROJECT_REFS" not in staging_section, (
-        "Job migrate-staging NÃO deve usar vars.SUPABASE_ALLOWED_PROJECT_REFS (produção)"
+
+    # Rejeitar a chave incorreta SUPABASE_PROJECT_REF (produção) como variável de ambiente
+    assert "SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}" not in dry_run_section, (
+        "Dry-run do staging NÃO deve usar SUPABASE_PROJECT_REF como chave de ambiente"
+    )
+    assert "secrets.SUPABASE_PROJECT_REF" not in dry_run_section, (
+        "Dry-run do staging NÃO deve ler secrets.SUPABASE_PROJECT_REF (produção)"
+    )
+
+
+def test_staging_env_project_ref_exact_mapping_apply():
+    """O step apply do staging deve mapear SUPABASE_STAGING_PROJECT_REF -> secrets.SUPABASE_STAGING_PROJECT_REF."""
+    content = _read_workflow()
+    staging_section = _extract_job_section(content, "migrate-staging")
+    assert staging_section is not None
+
+    apply_section = _extract_step_section(staging_section, "Apply pending migrations to Staging")
+    assert apply_section is not None, "Step 'Apply pending migrations to Staging' não encontrado"
+
+    # Mapeamento exato
+    expected = "SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}"
+    assert expected in apply_section, (
+        f"Apply do staging deve conter '{expected}'"
+    )
+
+    # Rejeitar a chave incorreta SUPABASE_PROJECT_REF (produção) como variável de ambiente
+    assert "SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}" not in apply_section, (
+        "Apply do staging NÃO deve usar SUPABASE_PROJECT_REF como chave de ambiente"
+    )
+    assert "secrets.SUPABASE_PROJECT_REF" not in apply_section, (
+        "Apply do staging NÃO deve ler secrets.SUPABASE_PROJECT_REF (produção)"
+    )
+
+
+def test_staging_env_access_token_exact_mapping():
+    """Os steps do staging devem mapear SUPABASE_ACCESS_TOKEN -> secrets.SUPABASE_STAGING_ACCESS_TOKEN."""
+    content = _read_workflow()
+    staging_section = _extract_job_section(content, "migrate-staging")
+    assert staging_section is not None
+
+    for step_name in ("Dry-run em staging", "Apply pending migrations to Staging"):
+        step_section = _extract_step_section(staging_section, step_name)
+        assert step_section is not None, f"Step '{step_name}' não encontrado"
+
+        expected = "SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}"
+        assert expected in step_section, (
+            f"Step '{step_name}' do staging deve conter '{expected}'"
+        )
+
+        # NÃO deve conter secrets.SUPABASE_ACCESS_TOKEN (produção) como valor
+        assert "secrets.SUPABASE_ACCESS_TOKEN" not in step_section, (
+            f"Step '{step_name}' do staging NÃO deve ler secrets.SUPABASE_ACCESS_TOKEN (produção)"
+        )
+
+
+def test_staging_env_allowed_refs_exact_mapping():
+    """Os steps do staging devem mapear SUPABASE_STAGING_ALLOWED_PROJECT_REFS -> vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS."""
+    content = _read_workflow()
+    staging_section = _extract_job_section(content, "migrate-staging")
+    assert staging_section is not None
+
+    for step_name in ("Dry-run em staging", "Apply pending migrations to Staging"):
+        step_section = _extract_step_section(staging_section, step_name)
+        assert step_section is not None, f"Step '{step_name}' não encontrado"
+
+        expected = "SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}"
+        assert expected in step_section, (
+            f"Step '{step_name}' do staging deve conter '{expected}'"
+        )
+
+        # NÃO deve conter vars.SUPABASE_ALLOWED_PROJECT_REFS (produção)
+        assert "vars.SUPABASE_ALLOWED_PROJECT_REFS" not in step_section, (
+            f"Step '{step_name}' do staging NÃO deve ler vars.SUPABASE_ALLOWED_PROJECT_REFS (produção)"
+        )
+
+
+def test_staging_env_has_exactly_three_vars_per_step():
+    """Cada step do staging deve injetar exatamente 3 variáveis de ambiente (fail-closed)."""
+    content = _read_workflow()
+    staging_section = _extract_job_section(content, "migrate-staging")
+    assert staging_section is not None
+
+    for step_name in ("Dry-run em staging", "Apply pending migrations to Staging"):
+        step_section = _extract_step_section(staging_section, step_name)
+        assert step_section is not None, f"Step '{step_name}' não encontrado"
+
+        env_lines = _staging_env_lines(step_section)
+        assert len(env_lines) == 3, (
+            f"Step '{step_name}' do staging deve injetar exatamente 3 variáveis de ambiente, "
+            f"encontrou {len(env_lines)}: {env_lines}"
+        )
+
+
+def test_production_env_no_staging_credentials():
+    """O job de Produção nunca deve usar credenciais de Staging."""
+    content = _read_workflow()
+    production_section = _extract_job_section(content, "migrate")
+    assert production_section is not None
+
+    assert "SUPABASE_STAGING_PROJECT_REF" not in production_section, (
+        "Job migrate NÃO deve conter SUPABASE_STAGING_PROJECT_REF"
+    )
+    assert "secrets.SUPABASE_STAGING_ACCESS_TOKEN" not in production_section, (
+        "Job migrate NÃO deve ler secrets.SUPABASE_STAGING_ACCESS_TOKEN"
+    )
+    assert "vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS" not in production_section, (
+        "Job migrate NÃO deve ler vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS"
     )
 
 
@@ -288,7 +386,8 @@ def _extract_step_section(job_section: str, step_name: str) -> str | None:
     lines = job_section[start:].split("\n")
     section_lines = [lines[0]]
     for line in lines[1:]:
-        if line.startswith("- name:"):
+        stripped = line.lstrip()
+        if stripped.startswith("- name:"):
             break
         section_lines.append(line)
     return "\n".join(section_lines)
