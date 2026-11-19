@@ -145,14 +145,14 @@ jobs:
 
       - name: Dry-run em staging (read-only, fail-closed)
         env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
           SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
         run: python scripts/migrate.py --target staging --from-scratch --dry-run
 
       - name: Apply pending migrations to Staging
         env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
           SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
         run: python scripts/migrate.py --target staging --from-scratch

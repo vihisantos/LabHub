@@ -65,7 +65,7 @@ def test_workflow_dispatch_has_staging_and_production_options():
 
 
 def test_workflow_dispatch_uses_inputs_target_not_github_inputs_target():
-    """O workflow_dispatch deve usar github.inputs.target, não github.event.inputs.target."""
+    """O workflow_dispatch deve usar inputs.target, não github.inputs.target."""
     content = _read_workflow()
     assert "github.inputs.target" not in content, (
         "workflow_dispatch NÃO deve usar github.inputs.target (não é válido no GitHub Actions)"
@@ -207,7 +207,7 @@ def test_workflow_dispatch_staging_never_runs_production():
     production_section = _extract_job_section(content, "migrate")
     assert production_section is not None
 
-    # A condição do job migrate deve exigir inputs.target == production
+    # A condição do job migrate deve exigir target=production
     assert "inputs.target == 'production'" in production_section, (
         "Job migrate deve exigir inputs.target == 'production'"
     )
@@ -244,15 +244,33 @@ def test_push_main_runs_both_jobs():
     )
 
 
+def test_no_references_to_old_staging_project():
+    """Nenhuma referência operacional ao projeto antigo obskpmnphevpaexooldg."""
+    content = _read_workflow()
+    assert "obskpmnphevpaexooldg" not in content, (
+        "Workflow não deve conter referências ao projeto antigo obskpmnphevpaexooldg"
+    )
+
+
+def test_staging_new_project_ref():
+    """O staging deve referenciar o novo projeto pgmetdqsdjotdcifjivu."""
+    content = _read_workflow()
+    assert "pgmetdqsdjotdcifjivu" not in content, (
+        "Não deve conter referências hardcoded ao project ref no workflow (usar secrets)"
+    )
+
+
 def _extract_job_section(content: str, job_name: str) -> str | None:
     """Extrai a seção de um job específico do workflow YAML."""
+    # Procurar por "  job_name:" (com indentação de 2 espaços)
     pattern = rf"^  {re.escape(job_name)}:"
     match = re.search(pattern, content, re.MULTILINE)
     if not match:
         return None
     start = match.start()
+    # Encontrar o próximo job (linha que começa com 2 espaços e não é um passo)
     lines = content[start:].split("\n")
-    section_lines = [lines[0]]
+    section_lines = [lines[0]]  # Primeira linha (nome do job)
     for line in lines[1:]:
         if line.startswith("  ") and not line.startswith("    ") and line.strip():
             break
@@ -280,7 +298,7 @@ def _extract_section(content: str, section_name: str) -> str | None:
     """Extrai uma seção genérica do workflow.
 
     Suporta seções em qualquer nível de indentação. Encontra a linha que
-    começa com `section_name:` (possivelmente precedida por espaços) e
+    começa com ``section_name:`` (possivelmente precedida por espaços) e
     coleta todas as linhas subsequentes até encontrar outra chave no mesmo
     nível de indentação.
     """
