@@ -563,9 +563,6 @@ def test_baseline_source_applied_migrations_when_no_baseline_row(migrations_dir,
     assert result.baseline_source == "applied_migrations"
     assert result.db_baseline is None
     assert result.env_baseline is None
-    # Coerencia: db_baseline None + baseline_source applied_migrations + baseline == 001
-    assert result.db_baseline is None
-    assert result.baseline_source == "applied_migrations"
 
 
 def test_baseline_source_database_when_baseline_row_exists(migrations_dir, monkeypatch):
@@ -627,7 +624,7 @@ def test_baseline_source_none_when_from_scratch_empty(migrations_dir, monkeypatc
     assert result.schema_migrations_exists is False
 
 
-def test_baseline_source_none_when_table_does_not_exist(migrations_dir, monkeypatch):
+def test_baseline_source_implicit_when_table_does_not_exist(migrations_dir, monkeypatch):
     """Tabela nao existe => schema_migrations_exists False, sem db/env baseline.
 
     Sem require_baseline, cai no fallback implicito do repositorio.
