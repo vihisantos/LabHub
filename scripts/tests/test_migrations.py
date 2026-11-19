@@ -862,7 +862,7 @@ def test_error_messages_never_leak_token_values():
 # ─────────────────────────────────────────────────────────────────────────────
 # Carregamento de .env por alvo (regressão #285)
 #
-# O .env do repositório aponta para STAGING (ref obskpmnphevpaexooldg,
+# O .env do repositório aponta para STAGING (ref pgmetdqsdjotdcifjivu,
 # BASELINE_VERSION=000). Como load_dotenv roda com override=False, o primeiro
 # arquivo a definir a variável vence. Sem carregar .env.production antes de .env
 # em --target production, uma execução local de produção herdaria o ref e o

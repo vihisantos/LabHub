@@ -55,7 +55,7 @@ on:
 # ver .env.example). Somente estes projetos podem receber seed ou ser usados
 # pelo app sob teste. Alterar esta lista exige PR neste arquivo.
 env:
-  E2E_DEMO_ALLOWED_PROJECT_REFS: 'obskpmnphevpaexooldg'
+  E2E_DEMO_ALLOWED_PROJECT_REFS: 'pgmetdqsdjotdcifjivu'
 
 permissions:
   contents: read
