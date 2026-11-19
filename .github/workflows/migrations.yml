@@ -128,7 +128,7 @@ jobs:
     # Em PR e push/main roda sempre; em workflow_dispatch só se target=staging.
     if: github.event_name == 'pull_request' ||
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'workflow_dispatch' && github.inputs.target == 'staging')
+        (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     concurrency:
       group: migrations-apply-staging
       cancel-in-progress: false
@@ -145,16 +145,16 @@ jobs:
 
       - name: Dry-run em staging (read-only, fail-closed)
         env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
-          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
         run: python scripts/migrate.py --target staging --from-scratch --dry-run
 
       - name: Apply pending migrations to Staging
         env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
-          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
         run: python scripts/migrate.py --target staging --from-scratch
 
   # ─────────────────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ jobs:
     # A aplicação em produção só ocorre em push para main (merge) ou via
     # workflow_dispatch explicitamente na main com target=production.
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'workflow_dispatch' && github.inputs.target == 'production' && github.ref == 'refs/heads/main')
+        (github.event_name == 'workflow_dispatch' && inputs.target == 'production' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     # Habilita as protection rules do GitHub Environment (revisão/aprovação
     # manual opcional) e registra a aplicação no log do environment.
