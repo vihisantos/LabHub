@@ -4769,8 +4769,14 @@ def _get_last_terminal_status(ticket_id: str) -> str | None:
     da verdade quando o Redis está indisponível ou não tem last_known_status,
     permitindo detectar reabertura mesmo após falha de gravação no Redis.
 
-    Retorna o newStatus do evento de status mais recente, ou None se não houver
-    evento de status para o chamado.
+    A interpretação é cronológica: se o último evento de status for uma
+    reabertura (newStatus='aberto') e o evento imediatamente anterior for um
+    status terminal (resolvido/fechado/indeferido), o status terminal do ciclo
+    anterior é retornado. Caso contrário, retorna o newStatus do evento mais
+    recente.
+
+    Retorna o status terminal, ou None se não houver evento de status para o
+    chamado.
     """
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return None
@@ -4781,7 +4787,7 @@ def _get_last_terminal_status(ticket_id: str) -> str | None:
             f'&type=eq.status'
             f'&select=newStatus,createdAt'
             f'&order=createdAt.desc'
-            f'&limit=1',
+            f'&limit=3',
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -4793,7 +4799,23 @@ def _get_last_terminal_status(ticket_id: str) -> str | None:
         rows = resp.json() or []
         if not rows:
             return None
-        return str(rows[0].get('newStatus') or '').strip() or None
+
+        # Último evento de status (mais recente)
+        last = str(rows[0].get('newStatus') or '').strip() or None
+
+        # Se o último evento é uma reabertura, verificar o evento anterior
+        # para identificar o status terminal que foi encerrado.
+        if last == 'aberto' and len(rows) >= 2:
+            previous = str(rows[1].get('newStatus') or '').strip() or None
+            closed_statuses = {'resolvido', 'fechado', 'indeferido'}
+            if previous in closed_statuses:
+                return previous
+            # Reabertura de um estado não-terminal (ex.: aberto → aberto por
+            # edição de descrição): não é reabertura de ciclo.
+            return None
+
+        # Último evento é terminal ou não-terminal não-reabertura.
+        return last
     except Exception as e:
         logger.warning(f"[chamados-reminder] erro ao consultar ticket_events {ticket_id}: {e}")
         return None
@@ -4803,8 +4825,12 @@ def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
     """Retorna o identificador de ciclo de um chamado.
 
     O ciclo muda quando há uma reabertura real (status terminal → aberto).
-    O cycle_id é o createdAt do evento de status de reabertura em
+    O cycle_id é o UUID do evento de status de reabertura em
     ticket_events, ou o createdAt do chamado se nunca houve reabertura.
+
+    Usar o UUID do evento garante unicidade mesmo quando dois eventos de
+    reabertura ocorrem no mesmo timestamp (createdAt), evitando colisão de
+    ciclo entre execuções concorrentes.
 
     Isso garante que marcas individuais de um ciclo anterior não interfiram
     no ciclo atual.
@@ -4818,7 +4844,7 @@ def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
             f'?ticket_id=eq.{quote(ticket_id)}'
             f'&type=eq.status'
             f'&newStatus=eq.aberto'
-            f'&select=createdAt'
+            f'&select=id,createdAt'
             f'&order=createdAt.desc'
             f'&limit=1',
             headers=_supabase_headers(),
@@ -4828,7 +4854,7 @@ def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
             return str(ticket.get('createdAt') or '')
         rows = resp.json() or []
         if rows:
-            return str(rows[0].get('createdAt') or ticket.get('createdAt') or '')
+            return str(rows[0].get('id') or rows[0].get('createdAt') or ticket.get('createdAt') or '')
         return str(ticket.get('createdAt') or '')
     except Exception as e:
         logger.warning(f"[chamados-reminder] erro ao calcular cycle_id {ticket_id}: {e}")
@@ -6111,6 +6137,7 @@ def chamados_resume(ticket_id):
             'status',
             content=f'{actor_name} retomou o atendimento',
             author=actor_name,
+            new_status='em_atendimento',
         )
 
         # Auditoria do app (mudou de responsável).
