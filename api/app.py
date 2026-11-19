@@ -4606,6 +4606,252 @@ def chamados_push_test():
         return jsonify({'error': 'Erro interno'}), 500
 
 
+# ── Lembretes de chamados não assumidos ──────────────────────────────────────
+
+# Intervalo fixo entre lembretes: 2 minutos (120 segundos).
+# Preparado para futura configuração por workspace (sem tela de configuração ainda).
+REMINDER_INTERVAL_SECONDS = 120
+
+# TTL da chave de estado do lembrete no Redis: limpa automaticamente chamados antigos.
+REMINDER_STATE_TTL_SECONDS = 7 * 24 * 3600  # 7 dias
+
+# TTL do lock de concorrência: evita que duas execuções processem o mesmo chamado.
+REMINDER_LOCK_TTL_SECONDS = 30
+
+# Máximo de lembretes por chamado antes de parar (evita notificações infinitas).
+REMINDER_MAX_COUNT = 10
+
+
+def _reminder_state_key(ticket_id: str) -> str:
+    return f'chamado:reminder:state:{ticket_id}'
+
+
+def _reminder_lock_key(ticket_id: str) -> str:
+    return f'chamado:reminder:lock:{ticket_id}'
+
+
+def _read_reminder_state(ticket_id: str) -> dict | None:
+    """Lê o estado do lembrete de um chamado no Redis."""
+    if redis is None:
+        return None
+    try:
+        raw = redis.get(_reminder_state_key(ticket_id))
+        if not raw:
+            return None
+        return json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] falha ao ler estado {ticket_id}: {e}")
+        return None
+
+
+def _write_reminder_state(ticket_id: str, state: dict) -> None:
+    """Escreve o estado do lembrete de um chamado no Redis (com TTL)."""
+    if redis is None:
+        return
+    try:
+        redis.setex(
+            _reminder_state_key(ticket_id),
+            REMINDER_STATE_TTL_SECONDS,
+            json.dumps(state, ensure_ascii=False),
+        )
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] falha ao escrever estado {ticket_id}: {e}")
+
+
+def _acquire_reminder_lock(ticket_id: str) -> bool:
+    """Tenta adquirir lock atômico para processar o lembrete de um chamado.
+
+    Retorna True se o lock foi adquirido (esta instância processa).
+    Retorna False se outra instância já está processando (esta pula).
+    """
+    if redis is None:
+        return True  # Sem Redis: processa sem lock (fallback para dev local)
+    try:
+        acquired = redis.setnx(_reminder_lock_key(ticket_id), '1')
+        if acquired:
+            redis.expire(_reminder_lock_key(ticket_id), REMINDER_LOCK_TTL_SECONDS)
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] falha ao adquirir lock {ticket_id}: {e}")
+        return True  # Em caso de falha do Redis, processa (fail-open)
+
+
+def _release_reminder_lock(ticket_id: str) -> None:
+    """Libera o lock de processamento do lembrete."""
+    if redis is None:
+        return
+    try:
+        redis.delete(_reminder_lock_key(ticket_id))
+    except Exception:
+        pass  # Lock expira sozinho pelo TTL
+
+
+def _is_ticket_eligible_for_reminder(ticket: dict) -> bool:
+    """Verifica se o chamado ainda é elegível para receber lembretes.
+
+    Elegível:
+      - status == 'aberto'
+      - assignedToUserId vazio (não assumido)
+      - Não está resolvido/fechado/indeferido
+    """
+    status = str(ticket.get('status') or '').strip()
+    assigned_to_user_id = str(ticket.get('assignedToUserId') or '').strip()
+    if status != 'aberto':
+        return False
+    if assigned_to_user_id != '':
+        return False
+    return True
+
+
+def _check_and_send_reminders() -> dict:
+    """Verifica chamados não assumidos e envia lembretes de push quando devido.
+
+    Lógica:
+      1. Lista chamados `aberto` sem `assignedToUserId`.
+      2. Para cada chamado, adquire lock atômico (evita execução duplicada).
+      3. Lê o estado do lembrete no Redis.
+      4. Se nunca houve lembrete ou passou REMINDER_INTERVAL_SECONDS, envia.
+      5. Destinatários via _target_subs(module='chamados', workspace_id=..., min_level='full').
+      6. Atualiza o estado no Redis após o envio.
+      7. Interrompe se o chamado deixou de ser elegível (assumido/resolvido/etc).
+
+    Não reenvia lembretes acumulados: execuções atrasadas processam apenas o
+    ciclo atual, não compensam intervalos perdidos.
+    """
+    if not _require_supabase():
+        return {'error': 'Supabase não configurado', 'sent': 0, 'checked': 0}
+
+    try:
+        # Busca chamados abertos sem responsável (assignedToUserId vazio).
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+            f'?status=eq.aberto'
+            f'&assignedToUserId=eq.'
+            f'&select=id,workspace_id,ticketNumber,roomName,problemCategory,createdAt,updatedAt'
+            f'&order=createdAt.asc',
+            headers=_supabase_headers(),
+            timeout=30,
+        )
+        if not resp.ok:
+            logger.error(f"[chamados-reminder] erro ao listar chamados: {resp.status_code}")
+            return {'error': 'Erro ao listar chamados', 'sent': 0, 'checked': 0}
+
+        tickets = resp.json() or []
+        now = datetime.now(timezone.utc)
+        sent_total = 0
+        checked_total = 0
+
+        for ticket in tickets:
+            ticket_id = str(ticket.get('id') or '')
+            if not ticket_id:
+                continue
+
+            # Re-verifica elegibilidade no banco (pode ter mudado entre a listagem e agora).
+            if not _is_ticket_eligible_for_reminder(ticket):
+                continue
+
+            # Lock atômico: apenas uma instância processa cada chamado.
+            if not _acquire_reminder_lock(ticket_id):
+                continue  # outra instância já está processando este chamado
+
+            try:
+                checked_total += 1
+
+                # Lê estado prévio no Redis.
+                state = _read_reminder_state(ticket_id) or {}
+                last_reminder_at = state.get('last_reminder_at')
+                reminder_count = int(state.get('reminder_count', 0) or 0)
+
+                # Verifica se já atingiu o máximo de lembretes.
+                if reminder_count >= REMINDER_MAX_COUNT:
+                    continue
+
+                # Verifica se já passou o intervalo desde o último lembrete.
+                due = False
+                if not last_reminder_at:
+                    due = True  # primeiro lembrete
+                else:
+                    try:
+                        last_dt = datetime.fromisoformat(str(last_reminder_at).replace('Z', '+00:00'))
+                        elapsed = (now - last_dt).total_seconds()
+                        if elapsed >= REMINDER_INTERVAL_SECONDS:
+                            due = True
+                    except Exception:
+                        due = True  # se não conseguir parsear, envia
+
+                if not due:
+                    continue
+
+                # Destinatários: técnicos elegíveis do workspace (RBAC2 + preferências).
+                workspace_id = str(ticket.get('workspace_id') or '')
+                subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='full')
+                if not subs:
+                    # Sem destinatários elegíveis: não envia, não conta como lembrete.
+                    continue
+
+                num = ticket.get('ticketNumber')
+                title = f"Lembrete: chamado #{num} sem responsável"
+                body = ' · '.join(
+                    str(part) for part in (
+                        ticket.get('roomName'),
+                        ticket.get('problemCategory'),
+                    ) if part
+                )
+                url = f"/chamados/tickets/{ticket.get('id')}"
+
+                sent = 0
+                for sub in subs:
+                    if push_notify(sub, title, body, url=url):
+                        sent += 1
+
+                if sent > 0:
+                    # Atualiza estado no Redis somente se pelo menos um foi enviado.
+                    new_state = {
+                        'ticket_id': ticket_id,
+                        'workspace_id': workspace_id,
+                        'last_reminder_at': now.isoformat(),
+                        'reminder_count': reminder_count + 1,
+                    }
+                    _write_reminder_state(ticket_id, new_state)
+                    sent_total += sent
+                    logger.info(
+                        f"[chamados-reminder] lembrete #{new_state['reminder_count']} "
+                        f"enviado para chamado #{num} ({sent}/{len(subs)}) ws={workspace_id}"
+                    )
+
+            finally:
+                _release_reminder_lock(ticket_id)
+
+        print(f"[chamados-reminder] verificação: {checked_total} checados, {sent_total} enviados")
+        return {
+            'ok': True,
+            'checked': checked_total,
+            'sent': sent_total,
+        }
+
+    except Exception as e:
+        logger.error(f"[chamados-reminder] erro interno: {e}")
+        return {'error': 'Erro interno', 'sent': 0, 'checked': 0}
+
+
+@_route_once('/api/chamados/reminders/check', methods=['POST'])
+@require_cron
+def chamados_reminders_check():
+    """Endpoint de verificação de lembretes de chamados não assumidos.
+
+    Protegido por require_cron: exige header Authorization: Bearer <CRON_SECRET>.
+    Destinado a ser chamado por um cron job externo (Vercel Cron não suporta
+    intervalos de 2 minutos no plano atual — ver nota de arquitetura).
+
+    Não cria lembrete duplicado: usa lock atômico no Redis por chamado.
+    """
+    result = _check_and_send_reminders()
+    if 'error' in result:
+        return jsonify(result), 503
+    return jsonify(result)
+
+
 # ── Notificações in-app (sino) bem-vindo do painel do admin ─────────────────
 
 @_route_once('/api/app-notifications', methods=['POST'])

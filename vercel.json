@@ -7,6 +7,10 @@
     {
       "path": "/api/push/tablets/cleanup",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/chamados/reminders/check",
+      "schedule": "*/5 * * * *"
     }
   ],
   "routes": [
