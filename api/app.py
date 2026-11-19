@@ -4631,7 +4631,10 @@ def _reminder_lock_key(ticket_id: str) -> str:
 
 
 def _read_reminder_state(ticket_id: str) -> dict | None:
-    """Lê o estado do lembrete de um chamado no Redis."""
+    """Lê o estado do lembrete de um chamado no Redis.
+
+    Retorna None se não houver estado ou se o Redis estiver indisponível.
+    """
     if redis is None:
         return None
     try:
@@ -4644,28 +4647,36 @@ def _read_reminder_state(ticket_id: str) -> dict | None:
         return None
 
 
-def _write_reminder_state(ticket_id: str, state: dict) -> None:
-    """Escreve o estado do lembrete de um chamado no Redis (com TTL)."""
+def _write_reminder_state(ticket_id: str, state: dict) -> bool:
+    """Escreve o estado do lembrete de um chamado no Redis (com TTL).
+
+    Retorna True se gravado com sucesso, False se o Redis estiver indisponível.
+    """
     if redis is None:
-        return
+        return False
     try:
         redis.setex(
             _reminder_state_key(ticket_id),
             REMINDER_STATE_TTL_SECONDS,
             json.dumps(state, ensure_ascii=False),
         )
+        return True
     except Exception as e:
         logger.warning(f"[chamados-reminder] falha ao escrever estado {ticket_id}: {e}")
+        return False
 
 
 def _acquire_reminder_lock(ticket_id: str) -> bool:
     """Tenta adquirir lock atômico para processar o lembrete de um chamado.
 
     Retorna True se o lock foi adquirido (esta instância processa).
-    Retorna False se outra instância já está processando (esta pula).
+    Retorna False se outra instância já está processando (esta pula)
+    ou se o Redis estiver indisponível (fail-closed: não processa sem lock).
     """
     if redis is None:
-        return True  # Sem Redis: processa sem lock (fallback para dev local)
+        # Fail-closed: sem Redis não há lock atômico, não processamos
+        # para evitar duplicidade em condições de concorrência.
+        return False
     try:
         acquired = redis.setnx(_reminder_lock_key(ticket_id), '1')
         if acquired:
@@ -4674,7 +4685,7 @@ def _acquire_reminder_lock(ticket_id: str) -> bool:
         return False
     except Exception as e:
         logger.warning(f"[chamados-reminder] falha ao adquirir lock {ticket_id}: {e}")
-        return True  # Em caso de falha do Redis, processa (fail-open)
+        return False  # falha do Redis ⇒ não processa (fail-closed)
 
 
 def _release_reminder_lock(ticket_id: str) -> None:
@@ -4704,23 +4715,76 @@ def _is_ticket_eligible_for_reminder(ticket: dict) -> bool:
     return True
 
 
+def _is_reminder_due(
+    ticket: dict,
+    state: dict | None,
+    now: datetime,
+) -> bool:
+    """Verifica se o lembrete está devido para envio.
+
+    Regras:
+      - Se não há estado prévio: o primeiro lembrete só é devido após
+        REMINDER_INTERVAL_SECONDS contados a partir de createdAt do chamado.
+        Chamados antigos sem estado Redis não recebem lembrete imediato.
+      - Se há estado prévio: devido se passou REMINDER_INTERVAL_SECONDS desde
+        last_reminder_at.
+      - Reabertura: se updatedAt do chamado mudou desde o último lembrete
+        gravado, considera reabertura e reseta (devido imediatamente).
+    """
+    ticket_updated_at = str(ticket.get('updatedAt') or '')
+    state_updated_at = str(state.get('ticket_updated_at', '')) if state else ''
+
+    # Reabertura: o chamado mudou desde o último registro de lembrete.
+    if state and state_updated_at and ticket_updated_at != state_updated_at:
+        return True
+
+    last_reminder_at = state.get('last_reminder_at') if state else None
+
+    if not last_reminder_at:
+        # Primeiro lembrete: usa createdAt como referência de início.
+        created_at = str(ticket.get('createdAt') or '')
+        if not created_at:
+            return True  # sem createdAt, não podemos calcular; envia para não travar
+        try:
+            created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            elapsed = (now - created_dt).total_seconds()
+            return elapsed >= REMINDER_INTERVAL_SECONDS
+        except Exception:
+            return True  # se não conseguir parsear, envia para não travar
+    else:
+        # Lembretes recorrentes: intervalo desde o último envio.
+        try:
+            last_dt = datetime.fromisoformat(str(last_reminder_at).replace('Z', '+00:00'))
+            elapsed = (now - last_dt).total_seconds()
+            return elapsed >= REMINDER_INTERVAL_SECONDS
+        except Exception:
+            return True  # se não conseguir parsear, envia
+
+
 def _check_and_send_reminders() -> dict:
     """Verifica chamados não assumidos e envia lembretes de push quando devido.
 
     Lógica:
-      1. Lista chamados `aberto` sem `assignedToUserId`.
-      2. Para cada chamado, adquire lock atômico (evita execução duplicada).
-      3. Lê o estado do lembrete no Redis.
-      4. Se nunca houve lembrete ou passou REMINDER_INTERVAL_SECONDS, envia.
+      1. Exige Redis configurado (fail-closed sem lock atômico).
+      2. Lista chamados `aberto` sem `assignedToUserId`.
+      3. Para cada chamado, adquire lock atômico (evita execução duplicada).
+      4. Verifica se o lembrete está devido (respeita createdAt para o primeiro).
       5. Destinatários via _target_subs(module='chamados', workspace_id=..., min_level='full').
-      6. Atualiza o estado no Redis após o envio.
-      7. Interrompe se o chamado deixou de ser elegível (assumido/resolvido/etc).
+      6. Só considera o ciclo concluído se TODOS os destinatários receberam
+         (envio parcial não grava estado; tenta novamente no próximo ciclo).
+      7. Detecta reabertura via updatedAt e reseta o contador.
+      8. Interrompe se o chamado deixou de ser elegível.
 
     Não reenvia lembretes acumulados: execuções atrasadas processam apenas o
     ciclo atual, não compensam intervalos perdidos.
     """
     if not _require_supabase():
         return {'error': 'Supabase não configurado', 'sent': 0, 'checked': 0}
+
+    # Fail-closed: sem Redis não há lock atômico nem estado persistente.
+    if redis is None:
+        logger.error("[chamados-reminder] Redis não configurado — recusando processamento")
+        return {'error': 'Redis não configurado', 'sent': 0, 'checked': 0}
 
     try:
         # Busca chamados abertos sem responsável (assignedToUserId vazio).
@@ -4760,27 +4824,14 @@ def _check_and_send_reminders() -> dict:
 
                 # Lê estado prévio no Redis.
                 state = _read_reminder_state(ticket_id) or {}
-                last_reminder_at = state.get('last_reminder_at')
-                reminder_count = int(state.get('reminder_count', 0) or 0)
 
                 # Verifica se já atingiu o máximo de lembretes.
+                reminder_count = int(state.get('reminder_count', 0) or 0)
                 if reminder_count >= REMINDER_MAX_COUNT:
                     continue
 
-                # Verifica se já passou o intervalo desde o último lembrete.
-                due = False
-                if not last_reminder_at:
-                    due = True  # primeiro lembrete
-                else:
-                    try:
-                        last_dt = datetime.fromisoformat(str(last_reminder_at).replace('Z', '+00:00'))
-                        elapsed = (now - last_dt).total_seconds()
-                        if elapsed >= REMINDER_INTERVAL_SECONDS:
-                            due = True
-                    except Exception:
-                        due = True  # se não conseguir parsear, envia
-
-                if not due:
+                # Verifica se o lembrete está devido.
+                if not _is_reminder_due(ticket, state, now):
                     continue
 
                 # Destinatários: técnicos elegíveis do workspace (RBAC2 + preferências).
@@ -4805,20 +4856,24 @@ def _check_and_send_reminders() -> dict:
                     if push_notify(sub, title, body, url=url):
                         sent += 1
 
-                if sent > 0:
-                    # Atualiza estado no Redis somente se pelo menos um foi enviado.
+                # Só considera o ciclo concluído se TODOS os destinatários receberam.
+                # Envio parcial não grava estado: o próximo ciclo tentará novamente.
+                if sent == len(subs) and sent > 0:
                     new_state = {
                         'ticket_id': ticket_id,
                         'workspace_id': workspace_id,
                         'last_reminder_at': now.isoformat(),
                         'reminder_count': reminder_count + 1,
+                        'ticket_updated_at': str(ticket.get('updatedAt') or ''),
                     }
-                    _write_reminder_state(ticket_id, new_state)
-                    sent_total += sent
-                    logger.info(
-                        f"[chamados-reminder] lembrete #{new_state['reminder_count']} "
-                        f"enviado para chamado #{num} ({sent}/{len(subs)}) ws={workspace_id}"
-                    )
+                    if _write_reminder_state(ticket_id, new_state):
+                        sent_total += sent
+                        logger.info(
+                            f"[chamados-reminder] lembrete #{new_state['reminder_count']} "
+                            f"enviado para chamado #{num} ({sent}/{len(subs)}) ws={workspace_id}"
+                        )
+                    # Se falhou ao gravar no Redis, não conta como enviado
+                    # (o próximo ciclo tentará novamente).
 
             finally:
                 _release_reminder_lock(ticket_id)
@@ -4835,14 +4890,19 @@ def _check_and_send_reminders() -> dict:
         return {'error': 'Erro interno', 'sent': 0, 'checked': 0}
 
 
-@_route_once('/api/chamados/reminders/check', methods=['POST'])
+@_route_once('/api/chamados/reminders/check', methods=['GET', 'POST'])
 @require_cron
 def chamados_reminders_check():
     """Endpoint de verificação de lembretes de chamados não assumidos.
 
     Protegido por require_cron: exige header Authorization: Bearer <CRON_SECRET>.
-    Destinado a ser chamado por um cron job externo (Vercel Cron não suporta
-    intervalos de 2 minutos no plano atual — ver nota de arquitetura).
+    Aceita GET (Vercel Cron usa GET) e POST (compatibilidade com chamadas manuais).
+
+    NOTA DE ARQUITETURA: o intervalo de 2 minutos NÃO é garantido pelo
+    cron do Vercel (planos gratuitos/Hobby permitem apenas 1 execução por dia).
+    Este endpoint deve ser chamado por um cron job externo com a frequência
+    desejada (ex.: a cada 2 minutos). Não introduzimos novo serviço pago
+    nem nova dependência.
 
     Não cria lembrete duplicado: usa lock atômico no Redis por chamado.
     """
