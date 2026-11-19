@@ -4676,14 +4676,16 @@ def _write_reminder_state(ticket_id: str, state: dict) -> bool:
         return False
 
 
-def _reminder_sent_mark_key(ticket_id: str, endpoint_hash: str) -> str:
+def _reminder_sent_mark_key(ticket_id: str, cycle_id: str, endpoint_hash: str) -> str:
     """
-    Chave de marca de envio individual por destinatário.
+    Chave de marca de envio individual por destinatário, escopada por ciclo.
 
-    Usa hash SHA-256 do endpoint (não o endpoint em texto aberto) para não
-    armazenar dados sensíveis nas chaves do Redis.
+    O cycle_id impede que marcas de um ciclo anterior (ex.: antes de um
+    fechamento/reabertura) interfiram no ciclo atual. Usa hash SHA-256 do
+    endpoint (não o endpoint em texto aberto) para não armazenar dados
+    sensíveis nas chaves do Redis.
     """
-    return f'chamado:reminder:sent:{ticket_id}:{endpoint_hash}'
+    return f'chamado:reminder:sent:{ticket_id}:{cycle_id}:{endpoint_hash}'
 
 
 def _endpoint_hash(endpoint: str) -> str:
@@ -4692,13 +4694,13 @@ def _endpoint_hash(endpoint: str) -> str:
     return _hashlib.sha256(endpoint.encode('utf-8')).hexdigest()[:16]
 
 
-def _mark_sub_sent(ticket_id: str, endpoint_hash: str) -> bool:
+def _mark_sub_sent(ticket_id: str, cycle_id: str, endpoint_hash: str) -> bool:
     """Marca que um destinatário específico já recebeu o lembrete no ciclo atual."""
     if redis is None:
         return False
     try:
         redis.setex(
-            _reminder_sent_mark_key(ticket_id, endpoint_hash),
+            _reminder_sent_mark_key(ticket_id, cycle_id, endpoint_hash),
             REMINDER_SENT_MARK_TTL_SECONDS,
             '1',
         )
@@ -4708,19 +4710,19 @@ def _mark_sub_sent(ticket_id: str, endpoint_hash: str) -> bool:
         return False
 
 
-def _is_sub_sent(ticket_id: str, endpoint_hash: str) -> bool:
+def _is_sub_sent(ticket_id: str, cycle_id: str, endpoint_hash: str) -> bool:
     """Verifica se um destinatário específico já recebeu o lembrete no ciclo atual."""
     if redis is None:
         return False
     try:
-        raw = redis.get(_reminder_sent_mark_key(ticket_id, endpoint_hash))
+        raw = redis.get(_reminder_sent_mark_key(ticket_id, cycle_id, endpoint_hash))
         return raw is not None
     except Exception as e:
         logger.warning(f"[chamados-reminder] falha ao verificar envio {ticket_id}:{endpoint_hash}: {e}")
         return False  # Em dúvida, considera não enviado (retry seguro)
 
 
-def _clear_sent_marks(ticket_id: str, subs: list) -> None:
+def _clear_sent_marks(ticket_id: str, cycle_id: str, subs: list) -> None:
     """Remove as marcas de envio individual de um chamado (ciclo concluído)."""
     if redis is None:
         return
@@ -4729,7 +4731,7 @@ def _clear_sent_marks(ticket_id: str, subs: list) -> None:
         if not endpoint:
             continue
         try:
-            redis.delete(_reminder_sent_mark_key(ticket_id, _endpoint_hash(endpoint)))
+            redis.delete(_reminder_sent_mark_key(ticket_id, cycle_id, _endpoint_hash(endpoint)))
         except Exception:
             pass
 
@@ -4759,6 +4761,80 @@ def _record_terminal_status(ticket_id: str, status: str) -> None:
         pass
 
 
+def _get_last_terminal_status(ticket_id: str) -> str | None:
+    """Recupera o último status terminal de um chamado a partir de ticket_events.
+
+    ticket_events já persiste todas as transições de status com newStatus e
+    createdAt (migração 101 adicionou a coluna newStatus). É usada como fonte
+    da verdade quando o Redis está indisponível ou não tem last_known_status,
+    permitindo detectar reabertura mesmo após falha de gravação no Redis.
+
+    Retorna o newStatus do evento de status mais recente, ou None se não houver
+    evento de status para o chamado.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/ticket_events'
+            f'?ticket_id=eq.{quote(ticket_id)}'
+            f'&type=eq.status'
+            f'&select=newStatus,createdAt'
+            f'&order=createdAt.desc'
+            f'&limit=1',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not resp.ok:
+            logger.warning(
+                f"[chamados-reminder] falha ao consultar ticket_events {ticket_id}: {resp.status_code}"
+            )
+            return None
+        rows = resp.json() or []
+        if not rows:
+            return None
+        return str(rows[0].get('newStatus') or '').strip() or None
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] erro ao consultar ticket_events {ticket_id}: {e}")
+        return None
+
+
+def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
+    """Retorna o identificador de ciclo de um chamado.
+
+    O ciclo muda quando há uma reabertura real (status terminal → aberto).
+    O cycle_id é o createdAt do evento de status de reabertura em
+    ticket_events, ou o createdAt do chamado se nunca houve reabertura.
+
+    Isso garante que marcas individuais de um ciclo anterior não interfiram
+    no ciclo atual.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        # Sem Supabase, usa o createdAt do chamado como fallback.
+        return str(ticket.get('createdAt') or '')
+    try:
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/ticket_events'
+            f'?ticket_id=eq.{quote(ticket_id)}'
+            f'&type=eq.status'
+            f'&newStatus=eq.aberto'
+            f'&select=createdAt'
+            f'&order=createdAt.desc'
+            f'&limit=1',
+            headers=_supabase_headers(),
+            timeout=10,
+        )
+        if not resp.ok:
+            return str(ticket.get('createdAt') or '')
+        rows = resp.json() or []
+        if rows:
+            return str(rows[0].get('createdAt') or ticket.get('createdAt') or '')
+        return str(ticket.get('createdAt') or '')
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] erro ao calcular cycle_id {ticket_id}: {e}")
+        return str(ticket.get('createdAt') or '')
+
+
 def _is_reopening(ticket: dict, state: dict | None) -> bool:
     """Detecta reabertura real: transição de encerrado/indeferido para aberto.
 
@@ -4771,18 +4847,28 @@ def _is_reopening(ticket: dict, state: dict | None) -> bool:
 
     Retorna True se for reabertura real.
     """
-    if not state:
-        return False
-    last_status = str(state.get('last_known_status') or '').strip()
     current_status = str(ticket.get('status') or '').strip()
     if current_status != 'aberto':
         return False
+
+    # Fonte da verdade para o último status terminal: ticket_events (Supabase,
+    # persistente mesmo se Redis falhar). O Redis (last_known_status) é usado
+    # apenas como fallback quando não há evento de status consultável.
+    terminal_status = _get_last_terminal_status(str(ticket.get('id') or ''))
+    if terminal_status is None:
+        # Sem evento de status consultável: usa o Redis como fallback.
+        if not state:
+            return False
+        terminal_status = str(state.get('last_known_status') or '').strip()
+        if not terminal_status:
+            return False
+
     # Estados terminais que encerram o ciclo de lembretes.
     # `em_espera` NÃO é um estado encerrado: é uma pausa do atendimento
     # cuja única saída válida é a retomada (→ em_atendimento), conforme o
     # fluxo de atendimento dos chamados. Não deve ser tratado como reabertura.
     closed_statuses = {'resolvido', 'fechado', 'indeferido'}
-    return last_status in closed_statuses
+    return terminal_status in closed_statuses
 
 
 def _acquire_reminder_lock(ticket_id: str) -> bool:
@@ -4960,6 +5046,9 @@ def _check_and_send_reminders() -> dict:
                 # Lê estado prévio no Redis.
                 state = _read_reminder_state(ticket_id) or {}
 
+                # Calcula o ciclo atual (muda em reabertura real).
+                cycle_id = _get_cycle_id(ticket_id, ticket)
+
                 # Verifica se já atingiu o máximo de lembretes.
                 reminder_count = int(state.get('reminder_count', 0) or 0)
                 if reminder_count >= REMINDER_MAX_COUNT:
@@ -4986,7 +5075,7 @@ def _check_and_send_reminders() -> dict:
                         pending_subs.append(sub)
                         continue
                     endpoint_hash = _endpoint_hash(endpoint)
-                    if _is_sub_sent(ticket_id, endpoint_hash):
+                    if _is_sub_sent(ticket_id, cycle_id, endpoint_hash):
                         # Já recebeu neste ciclo, pula.
                         continue
                     pending_subs.append(sub)
@@ -4994,13 +5083,14 @@ def _check_and_send_reminders() -> dict:
                 if not pending_subs:
                     # Todos já receberam neste ciclo: ciclo concluído.
                     # Limpa marcas individuais e grava estado final.
-                    _clear_sent_marks(ticket_id, subs)
+                    _clear_sent_marks(ticket_id, cycle_id, subs)
                     new_state = {
                         'ticket_id': ticket_id,
                         'workspace_id': workspace_id,
                         'last_reminder_at': state.get('last_reminder_at') or now.isoformat(),
                         'reminder_count': reminder_count,
                         'last_known_status': str(ticket.get('status') or 'aberto'),
+                        'cycle_id': cycle_id,
                     }
                     _write_reminder_state(ticket_id, new_state)
                     continue
@@ -5020,7 +5110,7 @@ def _check_and_send_reminders() -> dict:
                     if push_notify(sub, title, body, url=url):
                         endpoint = str(sub.get('endpoint') or '')
                         if endpoint:
-                            _mark_sub_sent(ticket_id, _endpoint_hash(endpoint))
+                            _mark_sub_sent(ticket_id, cycle_id, _endpoint_hash(endpoint))
                         sent_in_cycle += 1
 
                 # Conta envios individuais bem-sucedidos, mesmo em ciclos incompletos.
@@ -5033,19 +5123,20 @@ def _check_and_send_reminders() -> dict:
                     if not endpoint:
                         continue
                     endpoint_hash = _endpoint_hash(endpoint)
-                    if not _is_sub_sent(ticket_id, endpoint_hash):
+                    if not _is_sub_sent(ticket_id, cycle_id, endpoint_hash):
                         all_sent = False
                         break
 
                 if all_sent and sent_in_cycle > 0:
                     # Ciclo concluído: todos os destinatários receberam.
-                    _clear_sent_marks(ticket_id, subs)
+                    _clear_sent_marks(ticket_id, cycle_id, subs)
                     new_state = {
                         'ticket_id': ticket_id,
                         'workspace_id': workspace_id,
                         'last_reminder_at': now.isoformat(),
                         'reminder_count': reminder_count + 1,
                         'last_known_status': str(ticket.get('status') or 'aberto'),
+                        'cycle_id': cycle_id,
                     }
                     if _write_reminder_state(ticket_id, new_state):
                         logger.info(
