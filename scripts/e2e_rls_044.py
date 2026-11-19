@@ -5,7 +5,7 @@ Executa a matriz de testes da etapa 044-C contra o DEV Supabase com um
 CLIENTE AUTENTICADO real (GoTrue login password + REST com anon key), SEM
 service key â€” exatamente o caminho que o frontend usa (RLS se aplica).
 
-Fixtures criadas via scripts/e2e_db.py (DEV obskpmnphevpaexooldg):
+Fixtures criadas via scripts/e2e_db.py (DEV pgmetdqsdjotdcifjivu):
   sa   (super admin, is_super_admin=true, sem memberships, role admin)
   a1   (viewer, membership ACTIVE em WS-A)        <- ator principal sout
   a2   (viewer, membership ACTIVE em WS-A e WS-C) <- multi-workspace
