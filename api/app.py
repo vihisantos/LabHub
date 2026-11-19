@@ -4621,6 +4621,9 @@ REMINDER_LOCK_TTL_SECONDS = 30
 # Máximo de lembretes por chamado antes de parar (evita notificações infinitas).
 REMINDER_MAX_COUNT = 10
 
+# TTL da marca de envio individual por destinatário (para controle de envio parcial).
+REMINDER_SENT_MARK_TTL_SECONDS = 24 * 3600  # 24 horas
+
 
 def _reminder_state_key(ticket_id: str) -> str:
     return f'chamado:reminder:state:{ticket_id}'
@@ -4664,6 +4667,86 @@ def _write_reminder_state(ticket_id: str, state: dict) -> bool:
     except Exception as e:
         logger.warning(f"[chamados-reminder] falha ao escrever estado {ticket_id}: {e}")
         return False
+
+
+def _reminder_sent_mark_key(ticket_id: str, endpoint_hash: str) -> str:
+    """
+    Chave de marca de envio individual por destinatário.
+
+    Usa hash SHA-256 do endpoint (não o endpoint em texto aberto) para não
+    armazenar dados sensíveis nas chaves do Redis.
+    """
+    return f'chamado:reminder:sent:{ticket_id}:{endpoint_hash}'
+
+
+def _endpoint_hash(endpoint: str) -> str:
+    """Identificador estável e seguro de um endpoint de push (hash SHA-256 truncado)."""
+    import hashlib as _hashlib
+    return _hashlib.sha256(endpoint.encode('utf-8')).hexdigest()[:16]
+
+
+def _mark_sub_sent(ticket_id: str, endpoint_hash: str) -> bool:
+    """Marca que um destinatário específico já recebeu o lembrete no ciclo atual."""
+    if redis is None:
+        return False
+    try:
+        redis.setex(
+            _reminder_sent_mark_key(ticket_id, endpoint_hash),
+            REMINDER_SENT_MARK_TTL_SECONDS,
+            '1',
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] falha ao marcar envio {ticket_id}:{endpoint_hash}: {e}")
+        return False
+
+
+def _is_sub_sent(ticket_id: str, endpoint_hash: str) -> bool:
+    """Verifica se um destinatário específico já recebeu o lembrete no ciclo atual."""
+    if redis is None:
+        return False
+    try:
+        raw = redis.get(_reminder_sent_mark_key(ticket_id, endpoint_hash))
+        return raw is not None
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] falha ao verificar envio {ticket_id}:{endpoint_hash}: {e}")
+        return False  # Em dúvida, considera não enviado (retry seguro)
+
+
+def _clear_sent_marks(ticket_id: str, subs: list) -> None:
+    """Remove as marcas de envio individual de um chamado (ciclo concluído)."""
+    if redis is None:
+        return
+    for sub in subs:
+        endpoint = str(sub.get('endpoint') or '')
+        if not endpoint:
+            continue
+        try:
+            redis.delete(_reminder_sent_mark_key(ticket_id, _endpoint_hash(endpoint)))
+        except Exception:
+            pass
+
+
+def _is_reopening(ticket: dict, state: dict | None) -> bool:
+    """Detecta reabertura real: transição de encerrado/indeferido para aberto.
+
+    Regras:
+      - O status atual deve ser 'aberto'.
+      - Deve haver estado prévio com last_known_status.
+      - O last_known_status deve ser um status encerrado (resolvido, fechado,
+        indeferido, em_espera) — transição real de reabertura.
+      - Alterações de descrição, comentários ou outros campos NÃO reiniciam o ciclo.
+
+    Retorna True se for reabertura real.
+    """
+    if not state:
+        return False
+    last_status = str(state.get('last_known_status') or '').strip()
+    current_status = str(ticket.get('status') or '').strip()
+    if current_status != 'aberto':
+        return False
+    closed_statuses = {'resolvido', 'fechado', 'indeferido', 'em_espera'}
+    return last_status in closed_statuses
 
 
 def _acquire_reminder_lock(ticket_id: str) -> bool:
@@ -4723,19 +4806,14 @@ def _is_reminder_due(
     """Verifica se o lembrete está devido para envio.
 
     Regras:
-      - Se não há estado prévio: o primeiro lembrete só é devido após
-        REMINDER_INTERVAL_SECONDS contados a partir de createdAt do chamado.
-        Chamados antigos sem estado Redis não recebem lembrete imediato.
+      - Reabertura real (encerrado→aberto): devido imediatamente.
+      - Se não há estado prévio: primeiro lembrete só após
+        REMINDER_INTERVAL_SECONDS contados a partir de createdAt.
       - Se há estado prévio: devido se passou REMINDER_INTERVAL_SECONDS desde
         last_reminder_at.
-      - Reabertura: se updatedAt do chamado mudou desde o último lembrete
-        gravado, considera reabertura e reseta (devido imediatamente).
     """
-    ticket_updated_at = str(ticket.get('updatedAt') or '')
-    state_updated_at = str(state.get('ticket_updated_at', '')) if state else ''
-
-    # Reabertura: o chamado mudou desde o último registro de lembrete.
-    if state and state_updated_at and ticket_updated_at != state_updated_at:
+    # Reabertura real reseta o ciclo.
+    if _is_reopening(ticket, state):
         return True
 
     last_reminder_at = state.get('last_reminder_at') if state else None
@@ -4758,22 +4836,37 @@ def _is_reminder_due(
             elapsed = (now - last_dt).total_seconds()
             return elapsed >= REMINDER_INTERVAL_SECONDS
         except Exception:
-            return True  # se não conseguir parsear, envia
+            return True  # se não conseguir parsear, envia para não travar
 
 
 def _check_and_send_reminders() -> dict:
     """Verifica chamados não assumidos e envia lembretes de push quando devido.
 
-    Lógica:
+    Lógica de envio com controle individual por destinatário:
       1. Exige Redis configurado (fail-closed sem lock atômico).
       2. Lista chamados `aberto` sem `assignedToUserId`.
       3. Para cada chamado, adquire lock atômico (evita execução duplicada).
       4. Verifica se o lembrete está devido (respeita createdAt para o primeiro).
       5. Destinatários via _target_subs(module='chamados', workspace_id=..., min_level='full').
-      6. Só considera o ciclo concluído se TODOS os destinatários receberam
-         (envio parcial não grava estado; tenta novamente no próximo ciclo).
-      7. Detecta reabertura via updatedAt e reseta o contador.
-      8. Interrompe se o chamado deixou de ser elegível.
+      6. Filtra destinatários que já receberam no ciclo atual (marca individual).
+      7. Envia somente para os pendentes.
+      8. Marca cada destinatário como enviado após confirmação de push_notify.
+      9. Ciclo concluído apenas quando TODOS os destinatários foram marcados.
+      10. Detecta reabertura real (encerrado→aberto) via last_known_status.
+      11. Interrompe se o chamado deixou de ser elegível.
+
+    Garantias:
+      - No máximo um envio por destinatário por ciclo.
+      - Envio parcial não bloqueia: pendentes são reenviados no próximo ciclo.
+      - Destinatários que já receberam não são notificados novamente no mesmo ciclo.
+      - Falha de persistência após envio: a marca de envio pode não ser gravada,
+        resultando em reenvio para aquele destinatário no próximo ciclo (até-least-once).
+
+    Limitações:
+      - Até-least-once: se o envio ao serviço Push falhar após a marca ser gravada,
+        o destinatário não será reenviado no ciclo atual (perda de entrega possível).
+      - Se a marca de envio não for gravada (falha Redis), o destinatário será
+        reenviado no próximo ciclo (duplicidade possível dentro do TTL da marca).
 
     Não reenvia lembretes acumulados: execuções atrasadas processam apenas o
     ciclo atual, não compensam intervalos perdidos.
@@ -4792,7 +4885,7 @@ def _check_and_send_reminders() -> dict:
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
             f'?status=eq.aberto'
             f'&assignedToUserId=eq.'
-            f'&select=id,workspace_id,ticketNumber,roomName,problemCategory,createdAt,updatedAt'
+            f'&select=id,workspace_id,ticketNumber,roomName,problemCategory,createdAt,updatedAt,status'
             f'&order=createdAt.asc',
             headers=_supabase_headers(),
             timeout=30,
@@ -4841,6 +4934,35 @@ def _check_and_send_reminders() -> dict:
                     # Sem destinatários elegíveis: não envia, não conta como lembrete.
                     continue
 
+                # Filtra destinatários que já receberam no ciclo atual (controle individual).
+                pending_subs = []
+                for sub in subs:
+                    endpoint = str(sub.get('endpoint') or '')
+                    if not endpoint:
+                        # Sem endpoint, não há como controlar individualmente;
+                        # considera pendente para não perder a entrega.
+                        pending_subs.append(sub)
+                        continue
+                    endpoint_hash = _endpoint_hash(endpoint)
+                    if _is_sub_sent(ticket_id, endpoint_hash):
+                        # Já recebeu neste ciclo, pula.
+                        continue
+                    pending_subs.append(sub)
+
+                if not pending_subs:
+                    # Todos já receberam neste ciclo: ciclo concluído.
+                    # Limpa marcas individuais e grava estado final.
+                    _clear_sent_marks(ticket_id, subs)
+                    new_state = {
+                        'ticket_id': ticket_id,
+                        'workspace_id': workspace_id,
+                        'last_reminder_at': state.get('last_reminder_at') or now.isoformat(),
+                        'reminder_count': reminder_count,
+                        'last_known_status': str(ticket.get('status') or 'aberto'),
+                    }
+                    _write_reminder_state(ticket_id, new_state)
+                    continue
+
                 num = ticket.get('ticketNumber')
                 title = f"Lembrete: chamado #{num} sem responsável"
                 body = ' · '.join(
@@ -4851,29 +4973,46 @@ def _check_and_send_reminders() -> dict:
                 )
                 url = f"/chamados/tickets/{ticket.get('id')}"
 
-                sent = 0
-                for sub in subs:
+                sent_in_cycle = 0
+                for sub in pending_subs:
                     if push_notify(sub, title, body, url=url):
-                        sent += 1
+                        endpoint = str(sub.get('endpoint') or '')
+                        if endpoint:
+                            _mark_sub_sent(ticket_id, _endpoint_hash(endpoint))
+                        sent_in_cycle += 1
 
-                # Só considera o ciclo concluído se TODOS os destinatários receberam.
-                # Envio parcial não grava estado: o próximo ciclo tentará novamente.
-                if sent == len(subs) and sent > 0:
+                # Conta envios individuais bem-sucedidos, mesmo em ciclos incompletos.
+                sent_total += sent_in_cycle
+
+                # Verifica se todos os destinatários foram marcados como enviados.
+                all_sent = True
+                for sub in subs:
+                    endpoint = str(sub.get('endpoint') or '')
+                    if not endpoint:
+                        continue
+                    endpoint_hash = _endpoint_hash(endpoint)
+                    if not _is_sub_sent(ticket_id, endpoint_hash):
+                        all_sent = False
+                        break
+
+                if all_sent and sent_in_cycle > 0:
+                    # Ciclo concluído: todos os destinatários receberam.
+                    _clear_sent_marks(ticket_id, subs)
                     new_state = {
                         'ticket_id': ticket_id,
                         'workspace_id': workspace_id,
                         'last_reminder_at': now.isoformat(),
                         'reminder_count': reminder_count + 1,
-                        'ticket_updated_at': str(ticket.get('updatedAt') or ''),
+                        'last_known_status': str(ticket.get('status') or 'aberto'),
                     }
                     if _write_reminder_state(ticket_id, new_state):
-                        sent_total += sent
                         logger.info(
                             f"[chamados-reminder] lembrete #{new_state['reminder_count']} "
-                            f"enviado para chamado #{num} ({sent}/{len(subs)}) ws={workspace_id}"
+                            f"concluído para chamado #{num} "
+                            f"({sent_in_cycle}/{len(subs)}) ws={workspace_id}"
                         )
-                    # Se falhou ao gravar no Redis, não conta como enviado
-                    # (o próximo ciclo tentará novamente).
+                    # Se falhou ao gravar o estado, as marcas individuais permanecem
+                    # e o próximo ciclo retomará para os pendentes.
 
             finally:
                 _release_reminder_lock(ticket_id)
@@ -4899,12 +5038,14 @@ def chamados_reminders_check():
     Aceita GET (Vercel Cron usa GET) e POST (compatibilidade com chamadas manuais).
 
     NOTA DE ARQUITETURA: o intervalo de 2 minutos NÃO é garantido pelo
-    cron do Vercel (planos gratuitos/Hobby permitem apenas 1 execução por dia).
+    cron do Vercel (planos Hobby permitem no máximo 1 execução por dia;
+    expressões mais frequentes que uma vez ao dia podem falhar durante o deploy).
     Este endpoint deve ser chamado por um cron job externo com a frequência
     desejada (ex.: a cada 2 minutos). Não introduzimos novo serviço pago
-    nem nova dependência.
+    nem nova dependência sem autorização.
 
-    Não cria lembrete duplicado: usa lock atômico no Redis por chamado.
+    Não cria lembrete duplicado: usa lock atômico no Redis por chamado
+    e controle individual de envio por destinatário.
     """
     result = _check_and_send_reminders()
     if 'error' in result:
