@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from .core import MigrationError
 
 LOCAL = "local"
+STAGING = "staging"
 PRODUCTION = "production"
 
 # Formato canônico de um project ref da Supabase: 20 caracteres alfanuméricos
@@ -59,6 +60,14 @@ _PROJECT_REF_RE = re.compile(r"^[a-z0-9]{20}$")
 ENV_TARGET = "MIGRATE_TARGET"
 ENV_ALLOWED_REFS = "SUPABASE_ALLOWED_PROJECT_REFS"
 ENV_BASELINE = "BASELINE_VERSION"
+
+# Variáveis específicas do ambiente STAGING.
+# SUPABASE_STAGING_PROJECT_REF é um secret (credencial de Management API).
+# SUPABASE_STAGING_ALLOWED_PROJECT_REFS é uma variável de repositório
+# (project ref não é credencial) com a allowlist de destinos autorizados
+# para staging.
+ENV_STAGING_PROJECT_REF = "SUPABASE_STAGING_PROJECT_REF"
+ENV_STAGING_ALLOWED_REFS = "SUPABASE_STAGING_ALLOWED_PROJECT_REFS"
 
 
 class TargetEnvironmentError(MigrationError):
@@ -77,10 +86,22 @@ class TargetPolicy:
     require_baseline: bool = False
     allowed_project_refs: tuple[str, ...] = ()
     enforce_allowlist: bool = False
+    # Nome da variável de ambiente que deve conter o SUPABASE_PROJECT_REF
+    # para este target. Em produção: SUPABASE_PROJECT_REF. Em staging:
+    # SUPABASE_STAGING_PROJECT_REF. Em local: "" (não usado).
+    project_ref_env_var: str = ""
+    # Nome da variável de repositório que deve conter a allowlist para
+    # este target. Em produção: SUPABASE_ALLOWED_PROJECT_REFS. Em staging:
+    # SUPABASE_STAGING_ALLOWED_PROJECT_REFS. Em local: "" (não usado).
+    allowed_refs_env_var: str = ""
 
     @property
     def is_production(self) -> bool:
         return self.target == PRODUCTION
+
+    @property
+    def is_staging(self) -> bool:
+        return self.target == STAGING
 
     def describe(self) -> str:
         refs = ",".join(self.allowed_project_refs) if self.allowed_project_refs else "(nao configurada)"
@@ -108,53 +129,75 @@ def resolve_policy(
     """Deriva a :class:`TargetPolicy` do CLI e do ambiente.
 
     Precedência: argumento explícito > variável de ambiente > default.
+
+    Suporta três targets:
+      - ``local``: desenvolvimento, CI efêmero, testes. Sem restrições.
+      - ``staging``: aplicações no ambiente de staging. Exige
+        ``SUPABASE_STAGING_PROJECT_REF`` (secret) e
+        ``SUPABASE_STAGING_ALLOWED_PROJECT_REFS`` (variável de repositório,
+        allowlist). BASELINE_VERSION é opcional (staging pode ser recriado).
+      - ``production``: aplicações no ambiente de produção. Exige
+        ``SUPABASE_PROJECT_REF`` (secret), ``BASELINE_VERSION`` (secret,
+        obrigatório) e ``SUPABASE_ALLOWED_PROJECT_REFS`` (variável de
+        repositório, allowlist).
     """
     source = os.environ if env is None else env
 
     resolved_target = (target or source.get(ENV_TARGET, "") or LOCAL).strip().lower()
-    if resolved_target not in (LOCAL, PRODUCTION):
+    if resolved_target not in (LOCAL, STAGING, PRODUCTION):
         raise TargetEnvironmentError(
             f"ambiente de destino desconhecido: {resolved_target!r}. "
-            f"use '{LOCAL}' ou '{PRODUCTION}'."
+            f"use '{LOCAL}', '{STAGING}' ou '{PRODUCTION}'."
         )
 
-    raw_refs = allowed_refs if allowed_refs is not None else source.get(ENV_ALLOWED_REFS)
+    # Determina quais variáveis de ambiente usar com base no target.
+    if resolved_target == STAGING:
+        project_ref_env_var = ENV_STAGING_PROJECT_REF
+        allowed_refs_env_var = ENV_STAGING_ALLOWED_REFS
+    elif resolved_target == PRODUCTION:
+        project_ref_env_var = "SUPABASE_PROJECT_REF"
+        allowed_refs_env_var = ENV_ALLOWED_REFS
+    else:
+        project_ref_env_var = ""
+        allowed_refs_env_var = ""
+
+    # Se o chamador passou allowed_refs explicitamente, usa esse valor.
+    # Caso contrário, lê da variável de ambiente apropriada ao target.
+    if allowed_refs is not None:
+        raw_refs = allowed_refs
+    else:
+        raw_refs = source.get(allowed_refs_env_var) if allowed_refs_env_var else None
     refs = parse_allowed_refs(raw_refs)
 
+    # Determina se o baseline é obrigatório com base no target.
     if require_baseline is not None:
         baseline_required = require_baseline
     elif source.get("MIGRATE_REQUIRE_BASELINE", "").strip() in ("1", "true", "yes"):
         baseline_required = True
     else:
-        # Produção exige baseline por definição; local preserva o comportamento
-        # histórico (fallback implícito) para não quebrar o uso de desenvolvimento.
+        # Apenas produção exige baseline por definição. Staging pode ser
+        # recriado do zero (--from-scratch) e local usa fallback implícito.
         baseline_required = resolved_target == PRODUCTION
 
-    # Fail-closed do destino (#285). Em produção a allowlist é OBRIGATÓRIA:
-    # sem ela, o único guardio contra um secret trocado seria o formato do ref
-    # (20 chars minúsculos), que um valor de outro projeto também satisfaz. O
-    # modo anterior — "exigir allowlist só se estiver configurada" — deixava
-    # `--target production` funcionando com destino não verificável, e a falha
-    # só apareceria tarde, já com DDL em andamento.
-    #
-    # A allowlist NÃO é um secret novo: é uma variável de repositório
-    # (`SUPABASE_ALLOWED_PROJECT_REFS`), pois um project ref não é credencial.
-    # Se ela faltar, a execução aborta dizendo o que criar.
-    if resolved_target == PRODUCTION and not refs:
+    # Fail-closed do destino. Tanto staging quanto produção exigem allowlist
+    # configurada; local não.
+    if resolved_target in (STAGING, PRODUCTION) and not refs:
         raise TargetEnvironmentError(
-            f"target=production exige {ENV_ALLOWED_REFS} configurada (a "
+            f"target={resolved_target} exige {allowed_refs_env_var} configurada (a "
             "configuracao explicita do destino). Sem ela nao ha como provar que "
-            "SUPABASE_PROJECT_REF aponta para o projeto de producao, entao a "
-            f"execucao aborta. Configure a variavel de repositorio {ENV_ALLOWED_REFS} "
-            f"(ou passe --allowed-project-refs), e tambem o secret {ENV_BASELINE}."
+            "SUPABASE_PROJECT_REF aponta para o projeto correto, entao a "
+            "execucao aborta. Configure a variavel de repositorio "
+            f"{allowed_refs_env_var} (ou passe --allowed-project-refs)."
         )
 
     return TargetPolicy(
         target=resolved_target,
         require_baseline=baseline_required,
         allowed_project_refs=refs,
-        # Só há enforcement em produção; em local a allowlist é informativa.
-        enforce_allowlist=resolved_target == PRODUCTION,
+        project_ref_env_var=project_ref_env_var,
+        allowed_refs_env_var=allowed_refs_env_var,
+        # Enforcement da allowlist em staging e produção; em local é informativa.
+        enforce_allowlist=resolved_target in (STAGING, PRODUCTION),
     )
 
 
@@ -187,16 +230,16 @@ def validate_project_ref(project_ref: str, policy: TargetPolicy) -> None:
 
 
 def warn_unenforced_allowlist(policy: TargetPolicy) -> str | None:
-    """Mensagem de advertência quando a allowlist existe mas o alvo não é produção.
+    """Mensagem de advertência quando a allowlist existe mas o alvo não é produção nem staging.
 
-    Existe para o log de produção dizer explicitamente que a checagem de destino
+    Existe para o log dizer explicitamente que a checagem de destino
     está em modo parcial, em vez de dar a impressão de uma garantia completa.
     """
-    if not policy.allowed_project_refs or policy.is_production:
+    if not policy.allowed_project_refs or policy.is_production or policy.is_staging:
         return None
     return (
         f"{ENV_ALLOWED_REFS} esta configurada mas o alvo e '{policy.target}'; "
-        "a allowlist so e exigida em target=production."
+        "a allowlist so e exigida em target=production ou target=staging."
     )
 
 
@@ -214,10 +257,13 @@ def missing_baseline_message(policy: TargetPolicy) -> str:
 
 __all__ = [
     "LOCAL",
+    "STAGING",
     "PRODUCTION",
     "ENV_ALLOWED_REFS",
     "ENV_BASELINE",
     "ENV_TARGET",
+    "ENV_STAGING_PROJECT_REF",
+    "ENV_STAGING_ALLOWED_REFS",
     "TargetEnvironmentError",
     "TargetPolicy",
     "missing_baseline_message",
