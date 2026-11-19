@@ -113,8 +113,9 @@ jobs:
     needs: validate
     # Em PR não há como (e não deve) tocar em produção.
     # Push/merge na main só executa o job de validação (validate).
-    # A aplicação em produção só ocorre por gatilho manual (workflow_dispatch).
-    if: github.event_name == 'workflow_dispatch'
+    # A aplicação em produção só ocorre por gatilho manual (workflow_dispatch)
+    # na branch main. Nunca permite execução em branches de feature.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Habilita as protection rules do GitHub Environment (revisão/aprovação
     # manual opcional) e registra a aplicação no log do environment.
