@@ -3,11 +3,18 @@ name: Migrations
 # Cadeia ÚNICA de migrations (Issue #285).
 #
 #   PR   -> validate  (PostgreSQL 16 efêmero, NUNCA toca em DEV/PROD)
-#   main -> validate  -> migrate (produção, via Supabase Management API)
+#   main -> validate  (apenas validação; NUNCA aplica em produção automaticamente)
+#   workflow_dispatch -> validate -> migrate (produção, via Supabase Management API,
+#                        apenas execução manual explícita)
 #
 # A aplicação em produção depende (`needs: validate`) da validação efêmera
 # ter passado: se a cadeia de migrations não aplica em um banco descartável,
 # ela não é submetida ao banco real.
+#
+# A aplicação em produção NUNCA acontece por push/merge automático. Só ocorre
+# via workflow_dispatch (execução manual explícita), podendo estar sujeita às
+# protection rules do GitHub Environment "production" (revisão/aprovação manual),
+# se configuradas.
 #
 # Segredos e variáveis (Settings -> Secrets and variables -> Actions):
 #   secrets.SUPABASE_PROJECT_REF   -> project ref de produção
@@ -105,7 +112,9 @@ jobs:
     name: Apply pending migrations
     needs: validate
     # Em PR não há como (e não deve) tocar em produção.
-    if: github.event_name != 'pull_request'
+    # Push/merge na main só executa o job de validação (validate).
+    # A aplicação em produção só ocorre por gatilho manual (workflow_dispatch).
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Habilita as protection rules do GitHub Environment (revisão/aprovação
     # manual opcional) e registra a aplicação no log do environment.
