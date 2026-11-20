@@ -189,6 +189,29 @@ def test_geracao_e_fencing_da_escrita_de_onda(pg, tickets):
     assert stale["last_known_status"] == "aberto"
 
 
+def test_transition_sem_onda_persistida_devolve_estado_inicial(pg, tickets):
+    """Um terminal registrado antes do primeiro envio não é estado malformado.
+
+    `chamado_reminder_transition()` grava `last_known_status` mas não
+    `last_reminder_at`. A RPC deve continuar devolvendo `state: null` para que
+    o worker trate o chamado como estado inicial (e use o histórico para
+    detectar o terminal), em vez de descartar a leitura como corrompida.
+    """
+    _workspace, ticket, _other = tickets
+    token = str(uuid.uuid4())
+    assert _acquire(pg, ticket, _workspace, token) is True
+    generation = _scalar(pg, f"""
+        SELECT public.chamado_reminder_transition({_sql_literal(ticket)}::uuid, 'resolvido');
+    """)
+    assert generation == 1
+    envelope = _q(pg, f"""
+        SELECT public.chamado_reminder_read({_sql_literal(ticket)}::uuid,
+          {_sql_literal(token)}::uuid);
+    """)[0]["chamado_reminder_read"]
+    assert envelope["ok"] is True
+    assert envelope["state"] is None
+
+
 def test_marcas_por_onda_e_guarda_de_ciclo_terminal(pg, tickets):
     _workspace, ticket, _other = tickets
     token = str(uuid.uuid4())

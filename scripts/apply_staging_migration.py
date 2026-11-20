@@ -1,4 +1,4 @@
-"""Aplica a migration 111 de lembretes/Push no Supabase STAGING.
+"""Aplica migrations de lembretes/Push no Supabase STAGING (padrão: 111).
 
 Este script existe porque `scripts/migrate.py` só conhece os targets
 `local`/`production`. Ele NÃO altera o runner nem o workflow de produção.
@@ -31,8 +31,8 @@ from migrate.core import Migration, discover_migrations
 from migrate.environment import TargetEnvironmentError, TargetPolicy, validate_project_ref
 from migrate.runner import apply_migration
 
-MIGRATION_VERSION = "111"
-MIGRATION_FILENAME = "111_chamado_reminder_postgres.sql"
+DEFAULT_VERSION = "111"
+DEFAULT_FILENAME = "111_chamado_reminder_postgres.sql"
 _REF_RE = re.compile(r"^[a-z0-9]{20}$")
 
 
@@ -49,6 +49,10 @@ def main() -> int:
                         help="valida destino e mostra o que seria aplicado, sem escrever")
     parser.add_argument("--allowed-ref", action="append", default=[],
                         help="ref permitido, fixado no workflow (repetível)")
+    parser.add_argument("--version", default=DEFAULT_VERSION,
+                        help=f"versão da migration a aplicar (padrão: {DEFAULT_VERSION})")
+    parser.add_argument("--filename", default=DEFAULT_FILENAME,
+                        help=f"arquivo da migration (padrão: {DEFAULT_FILENAME})")
     args = parser.parse_args()
 
     ref = _required("SUPABASE_STAGING_PROJECT_REF")
@@ -86,11 +90,11 @@ def main() -> int:
     migrations_dir = Path(__file__).resolve().parents[1] / "supabase" / "migrations"
     migration = next(
         (m for m in discover_migrations(migrations_dir)
-         if m.version == MIGRATION_VERSION and m.filename == MIGRATION_FILENAME),
+         if m.version == args.version and m.filename == args.filename),
         None,
     )
     if migration is None:
-        raise SystemExit(f"Migration {MIGRATION_FILENAME} não encontrada no repositório.")
+        raise SystemExit(f"Migration {args.filename} não encontrada no repositório.")
 
     if args.dry_run:
         exists = api.query("SELECT to_regclass('public.schema_migrations') AS t")
@@ -109,19 +113,19 @@ def main() -> int:
     """)
     rows = api.query(
         "SELECT version, filename FROM public.schema_migrations "
-        f"WHERE version = '{MIGRATION_VERSION}';"
+        f"WHERE version = '{args.version}';"
     ) or []
     if rows:
         applied_filename = rows[0].get("filename")
-        if applied_filename != MIGRATION_FILENAME:
+        if applied_filename != args.filename:
             raise SystemExit(
-                f"Versão {MIGRATION_VERSION} já registrada com outro filename; abortando."
+                f"Versão {args.version} já registrada com outro filename; abortando."
             )
-        print(f"[staging] {MIGRATION_FILENAME} já aplicada; nada a fazer.")
+        print(f"[staging] {args.filename} já aplicada; nada a fazer.")
         return 0
 
     apply_migration(api, migration)
-    print(f"[staging] {MIGRATION_FILENAME} aplicada e registrada com sucesso.")
+    print(f"[staging] {args.filename} aplicada e registrada com sucesso.")
     return 0
 
 
