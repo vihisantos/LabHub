@@ -1073,6 +1073,23 @@ PUSH_ACCEPTED = 'accepted'
 PUSH_REJECTED = 'rejected'
 PUSH_UNKNOWN = 'unknown'
 
+
+class _PushRejectedExpired(str):
+    """`PUSH_REJECTED` com evidência documentada de inscrição inválida.
+
+    É um `str` para preservar o contrato público de `push_notify` (comparações
+    com `PUSH_REJECTED` continuam valendo). O atributo distingue HTTP 404/410 —
+    endpoint removido/expirado — de uma rejeição genérica, que NÃO autoriza
+    remover a inscrição de listas por chamado.
+    """
+    invalid_subscription = True
+
+
+def _push_rejected_expired():
+    """Resultado rejeitado com evidência suficiente para remover a inscrição."""
+    return _PushRejectedExpired(PUSH_REJECTED)
+
+
 # Limite por envio nos callers em massa (cron/endpoints), para que uma
 # requisição travada não mantenha o processo preso indefinidamente.
 PUSH_BULK_TIMEOUT_SECONDS = 20
@@ -1182,6 +1199,9 @@ def push_notify(sub, title, body, url='/', actions=None, user_id=None, timeout=N
                 logger.info("[push] inscrição removida do Redis (HTTP 404/410)")
             except Exception as rm_err:
                 logger.error(f"Push: falha ao remover inscrição do Redis: {rm_err}")
+        if outcome == PUSH_REJECTED and remove_sub:
+            logger.warning("[push] rejeitado: inscrição inválida (404/410): %s", e)
+            return _push_rejected_expired()
         if outcome == PUSH_REJECTED:
             logger.warning("[push] rejeitado: %s", e)
         else:

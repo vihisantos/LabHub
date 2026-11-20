@@ -124,7 +124,9 @@ def test_push_notify_remove_inscricao_410_do_redis(rlab_module, monkeypatch):
     monkeypatch.setattr(rlab_module, "redis", fake)
     monkeypatch.setattr(rlab_module, "webpush", _raise_http(410))
 
-    assert rlab_module.push_notify(FCM_SUB, "t", "b") == rlab_module.PUSH_REJECTED
+    resultado = rlab_module.push_notify(FCM_SUB, "t", "b")
+    assert resultado == rlab_module.PUSH_REJECTED
+    assert getattr(resultado, "invalid_subscription", False) is True
     assert fake.removed == [json.dumps(FCM_SUB, ensure_ascii=False)]
     assert fake.members == set()
 
@@ -135,7 +137,9 @@ def test_push_notify_remove_inscricao_404_do_redis(rlab_module, monkeypatch):
     monkeypatch.setattr(rlab_module, "redis", fake)
     monkeypatch.setattr(rlab_module, "webpush", _raise_http(404))
 
-    assert rlab_module.push_notify(FCM_SUB, "t", "b") == rlab_module.PUSH_REJECTED
+    resultado = rlab_module.push_notify(FCM_SUB, "t", "b")
+    assert resultado == rlab_module.PUSH_REJECTED
+    assert getattr(resultado, "invalid_subscription", False) is True
     assert fake.removed == [json.dumps(FCM_SUB, ensure_ascii=False)]
 
 
@@ -145,7 +149,9 @@ def test_push_notify_nao_remove_em_erro_nao_410(rlab_module, monkeypatch):
     monkeypatch.setattr(rlab_module, "redis", fake)
     monkeypatch.setattr(rlab_module, "webpush", _raise_http(403))
 
-    assert rlab_module.push_notify(FCM_SUB, "t", "b") == rlab_module.PUSH_REJECTED
+    resultado = rlab_module.push_notify(FCM_SUB, "t", "b")
+    assert resultado == rlab_module.PUSH_REJECTED
+    assert getattr(resultado, "invalid_subscription", False) is False
     assert fake.removed == []
     assert fake.members == {json.dumps(FCM_SUB, ensure_ascii=False)}
 
@@ -155,7 +161,9 @@ def test_push_notify_sem_redis_nao_quebra_em_410(rlab_module, monkeypatch):
     monkeypatch.setattr(rlab_module, "redis", None)
     monkeypatch.setattr(rlab_module, "webpush", _raise_http(410))
 
-    assert rlab_module.push_notify(FCM_SUB, "t", "b") == rlab_module.PUSH_REJECTED
+    resultado = rlab_module.push_notify(FCM_SUB, "t", "b")
+    assert resultado == rlab_module.PUSH_REJECTED
+    assert getattr(resultado, "invalid_subscription", False) is True
 
 
 def _fake_post_raise(exc):

@@ -382,18 +382,40 @@ def test_notify_ticket_status_somente_para_subs_do_chamado(api_module, monkeypat
     assert sent == ["https://fcm/target-1"]
 
 
-def test_notify_ticket_status_remove_subs_com_falha(api_module, monkeypatch):
-    """Subscriptions que falham no push são removidas do Redis."""
+@pytest.mark.parametrize(
+    "resultado, esperados",
+    [
+        ("accepted", ["https://fcm/ok", "https://fcm/alvo"]),
+        ("unknown", ["https://fcm/ok", "https://fcm/alvo"]),
+        ("rejected", ["https://fcm/ok", "https://fcm/alvo"]),
+        ("expired", ["https://fcm/ok"]),
+    ],
+)
+def test_notify_ticket_status_lista_final_de_anonimos_por_resultado(
+    api_module, monkeypatch, resultado, esperados
+):
+    """Só HTTP 404/410 remove; accepted, unknown e rejeição genérica preservam."""
     redis = FakeRedis()
     monkeypatch.setattr(api_module, "redis", redis)
 
     api_module._save_chamado_subs("ticket-1", [
         _sub("https://fcm/ok"),
-        _sub("https://fcm/fail"),
+        _sub("https://fcm/alvo"),
     ])
 
+    if resultado == "expired":
+        # Espelha o sinal que `push_notify` emite para HTTP 404/410.
+        class _RejeitadoExpirado(str):
+            invalid_subscription = True
+
+        retorno_alvo = _RejeitadoExpirado(api_module.PUSH_REJECTED)
+    else:
+        retorno_alvo = getattr(api_module, f"PUSH_{resultado.upper()}")
+
     def fake_push(sub, title, body, url="/"):
-        return sub["endpoint"] != "https://fcm/fail"
+        if sub["endpoint"] == "https://fcm/alvo":
+            return retorno_alvo
+        return api_module.PUSH_ACCEPTED
 
     monkeypatch.setattr(api_module, "push_notify", fake_push)
 
@@ -408,9 +430,8 @@ def test_notify_ticket_status_remove_subs_com_falha(api_module, monkeypatch):
 
     api_module._notify_ticket_status(ticket)
 
-    remaining = api_module._chamado_subs("ticket-1")
-    assert len(remaining) == 1
-    assert remaining[0]["endpoint"] == "https://fcm/ok"
+    restantes = [s["endpoint"] for s in api_module._chamado_subs("ticket-1")]
+    assert sorted(restantes) == sorted(esperados)
 
 
 def test_notify_ticket_status_sem_subs_nao_envia(api_module, monkeypatch):

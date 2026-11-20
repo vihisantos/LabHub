@@ -3339,6 +3339,54 @@ def test_historico_completo_lido_uma_unica_vez_por_chamado(api_module, monkeypat
     assert tip_calls['n'] == len(subs)  # uma consulta leve por destinatário
 
 
+def _evento_raw_para_tip(eid, status, minuto):
+    instante = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=minuto)
+    return {'id': eid, 'newStatus': status, 'createdAt': instante.isoformat()}
+
+
+def _historico_para_tip(api_module, raws):
+    linhas = [api_module._normalize_event_row(raw, 'ticket-tip') for raw in raws]
+    assert all(linha is not None for linha in linhas)
+    return api_module._TicketEventHistory(api_module._TICKET_HISTORY_AVAILABLE, linhas)
+
+
+def test_verify_history_tip_rejeita_ponta_vazia_com_snapshot_nao_vazio(api_module, monkeypatch):
+    """Consulta vazia não pode confirmar um snapshot que tinha eventos."""
+    history = _historico_para_tip(api_module, [
+        _evento_raw_para_tip('e1', 'aberto', 0),
+        _evento_raw_para_tip('e2', 'a_caminho', 1),
+    ])
+    monkeypatch.setattr(api_module, '_fetch_ticket_events_page', lambda *a, **k: [])
+
+    assert api_module._verify_history_tip('ticket-tip', history) is False
+
+
+def test_verify_history_tip_aceita_ponta_vazia_com_snapshot_vazio(api_module, monkeypatch):
+    """Histórico originalmente vazio continua sendo um estado válido."""
+    history = api_module._TicketEventHistory(api_module._TICKET_HISTORY_EMPTY)
+    monkeypatch.setattr(api_module, '_fetch_ticket_events_page', lambda *a, **k: [])
+
+    assert api_module._verify_history_tip('ticket-tip', history) is True
+
+
+def test_verify_history_tip_detecta_alteracao_normal_da_ponta(api_module, monkeypatch):
+    """Mudança no evento mais recente aborta mesmo com a mesma quantidade de linhas."""
+    history = _historico_para_tip(api_module, [
+        _evento_raw_para_tip('e1', 'aberto', 0),
+        _evento_raw_para_tip('e2', 'a_caminho', 1),
+        _evento_raw_para_tip('e3', 'em_atendimento', 2),
+    ])
+    ponta_alterada = [
+        _evento_raw_para_tip('e3', 'em_espera', 2),
+        _evento_raw_para_tip('e2', 'a_caminho', 1),
+    ]
+    monkeypatch.setattr(
+        api_module, '_fetch_ticket_events_page', lambda *a, **k: ponta_alterada,
+    )
+
+    assert api_module._verify_history_tip('ticket-tip', history) is False
+
+
 def test_duplicata_limpeza_parcial_de_marcas_nao_reenvia(api_module, monkeypatch):
     """A limpeza parcial de ondas antigas não reabre a onda corrente."""
     db, redis, ticket, subs = _setup_simples(api_module, monkeypatch, 2001)

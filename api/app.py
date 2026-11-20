@@ -2884,7 +2884,17 @@ def _notify_ticket_status(ticket):
         subs = _chamado_subs(ticket_id)
         keep = []
         for sub in subs:
-            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
+            raw = push_notify(sub, title, body, url=url)
+            outcome = _push_outcome(raw)
+            if outcome == PUSH_ACCEPTED:
+                keep.append(sub)
+            elif outcome == PUSH_REJECTED and getattr(raw, 'invalid_subscription', False):
+                # Evidência documentada (HTTP 404/410): endpoint removido ou
+                # expirado. Somente esse caso autoriza remover a inscrição.
+                continue
+            else:
+                # `PUSH_UNKNOWN` e rejeição genérica não provam que a inscrição
+                # seja inválida: removê-la aqui causaria perda silenciosa.
                 keep.append(sub)
         _save_chamado_subs(ticket_id, keep)
 
@@ -5663,7 +5673,10 @@ def _verify_history_tip(ticket_id: str, history: _TicketEventHistory | None,
             return False
         tip_rows.append(row)
 
-    expected = list(reversed(history.rows[-len(tip_rows):])) if tip_rows else []
+    # O esperado vem SEMPRE do snapshot original. Derivá-lo de `tip_rows`
+    # permitia que uma consulta vazia "confirmasse" um histórico que tinha
+    # eventos: o esperado virava [] e a diferença de tamanho desaparecia.
+    expected = list(reversed(history.rows[-REMINDER_TIP_PAGE_SIZE:]))
     if len(tip_rows) != len(expected):
         return False
     for atual, esperado in zip(tip_rows, expected):
