@@ -11,7 +11,7 @@ import os
 import re
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -65,6 +65,15 @@ def _q(pg, sql):
 def _scalar(pg, sql):
     rows = _q(pg, sql)
     return next(iter(rows[0].values())) if rows else None
+
+
+def _as_utc(value) -> datetime:
+    """A REST do Supabase devolve timestamptz como string ISO."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _fixture_rows(pg, workspace: str, ticket: str) -> None:
@@ -195,7 +204,9 @@ def test_import_snapshot_no_staging(pg, tmp_path):
         assert state["transition_generation"] == 4
         assert state["lock_token"] is None
         assert state["lock_expires_at"] is None
-        assert state["expires_at"] > datetime.now(timezone.utc)
+        remaining = _as_utc(state["expires_at"]) - datetime.now(timezone.utc)
+        assert timedelta(0) < remaining <= timedelta(seconds=604800)
+        assert remaining > timedelta(seconds=604800 - 600)  # TTL de 7 dias preservado
 
         mark = _q(pg, f"""
             SELECT wave, identity FROM public.chamado_reminder_sent_marks
