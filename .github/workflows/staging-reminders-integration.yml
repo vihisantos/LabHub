@@ -28,6 +28,11 @@ on:
         required: true
         type: boolean
         default: true
+      run_redis_import:
+        description: 'Validar o importador Redis -> PostgreSQL com snapshot sintético?'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -121,3 +126,13 @@ jobs:
           SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
         run: |
           python -m pytest api/tests/test_postgres_reminders_integration.py -q --tb=short
+
+      - name: Importador Redis -> PostgreSQL (snapshot sintético no Staging)
+        if: ${{ inputs.run_redis_import }}
+        env:
+          LABHUB_TEST_SUPABASE_STAGING: '1'
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python -m pytest scripts/tests/test_redis_import_staging.py -q --tb=short
