@@ -1,4 +1,4 @@
-import { defaultDb, stockDb } from '../../lib/supabase'
+import { defaultDb } from '../../lib/supabase'
 import type { User } from './types'
 import type { Membership } from '../permissions/membership'
 import { resolveRoleId } from '../permissions/types'
@@ -21,24 +21,33 @@ function toDbUser(data: Record<string, unknown>): Record<string, unknown> {
 }
 
 async function notifyUser(userId: string, title: string, body: string, actionUrl = '/'): Promise<void> {
-  if (!stockDb) return
+  if (!defaultDb) return
   try {
-    await stockDb.from('notifications').insert({
-      id: crypto.randomUUID(),
-      title,
-      body,
-      type: 'approval',
-      severity: 'info',
-      module: 'auth',
-      // A notificação da conta aprovada vai para o USUÁRIO (que não acessa
-      // /admin): sem ?pending= não há botões inline de aprovar/recusar
-      // (NotificationItem) — o clique entra no LabHub.
-      actionUrl,
-      read: false,
-      createdAt: new Date().toISOString(),
-      audience: 'user',
-      targetUserId: userId,
+    // Usa a mesma fonte cross-device do sino principal. O endpoint valida
+    // sessão + perfil administrativo no backend antes de aceitar a escrita.
+    const { data: { session } } = await defaultDb.auth.getSession()
+    if (!session) return
+    const response = await fetch('/api/app-notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        id: crypto.randomUUID(),
+        title,
+        body,
+        type: 'approval',
+        severity: 'info',
+        module: 'auth',
+        audience: 'user',
+        targetUserId: userId,
+        actionUrl,
+      }),
     })
+    if (!response.ok) {
+      console.warn('[Admin] Failed to persist account notification:', response.status)
+    }
   } catch (e) {
     console.warn('[Admin] Failed to notify user:', e)
   }
