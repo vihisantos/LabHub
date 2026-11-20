@@ -333,7 +333,7 @@ O `tracking_token` é o identificador de acompanhamento do chamado e substitui o
 
 ## Dependências Python
 
-`flask`, `flask-cors`, `openpyxl` (leitura de planilhas), `requests`, `python-dotenv`, `upstash_redis`, `pywebpush`, `resend` (e-mails).
+`flask`, `flask-cors`, `openpyxl` (leitura de planilhas), `requests`, `python-dotenv`, `pywebpush`, `resend` (e-mails). Lembretes e Push usam PostgreSQL via Supabase; `upstash-redis` não é dependência.
 
 ## Relacionados
 

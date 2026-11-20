@@ -37,7 +37,7 @@ flowchart TD
     AC -->|negado| E403B["403 Permissão insuficiente"]
     AC -->|permitido| H["Handler"]
     H --> SB["Supabase (service_role)"]
-    H --> RD["Upstash Redis (push e cache)"]
+    H --> RD["Upstash Redis (cache legado)"]
     H --> SP["SharePoint (reservas)"]
     H --> YT["YouTube API (TV)"]
     H --> RESP["Resposta JSON"]
@@ -178,7 +178,7 @@ Os dois mecanismos são *fail-closed*: qualquer erro na engine de autorização 
 ```mermaid
 flowchart LR
     FLASK["API Flask"] --> SUPABASE["Supabase"]
-    FLASK --> UPSTASH["Upstash Redis"]
+    FLASK --> UPSTASH["Upstash Redis (cache legado)"]
     FLASK --> SHAREPOINT["SharePoint Excel"]
     FLASK --> CLOUDINARY["Cloudinary"]
     FLASK --> YOUTUBE["API do YouTube"]

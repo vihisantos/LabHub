@@ -68,6 +68,6 @@ Gestão de reservas de tablet.
 - **Backend Flask** — o ReservaLab é a única aplicação com backend próprio; todas as rotas `/api/*` do projeto vivem em `src/apps/reservalab/api/app.py`
 - **TV corporativa** — o fluxo "Criar evento na TV" (`CreateTvEventModal`) publica um evento na TV do campus, gravando em `tv_events` a TV escolhida (`device_id`)
 - **SharePoint** — planilha de reservas por campus, configurada em `workspaces.spreadsheet_url`
-- **Upstash Redis** — cache de reservas e inscrições de push
+- **Upstash Redis** — cache de reservas (legado); inscrições de push ficam no Supabase PostgreSQL
 - **Supabase** — tabela `tablet_reservations`
 - **Web Push (VAPID)** — lembretes de reserva
