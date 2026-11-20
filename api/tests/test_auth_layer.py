@@ -1379,6 +1379,28 @@ class TestAppNotifications:
         ids = [n["id"] for n in resp.get_json()["notifications"]]
         assert set(ids) == {"a", "b"}
 
+    def test_list_oculta_notificacao_direcionada_a_outro_usuario(self, root_client, fake_requests, monkeypatch):
+        """Notificações audience=user não podem vazar conteúdo entre contas."""
+        headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "mine", "workspace_id": None, "target_user_id": "user-1",
+                 "title": "Minha aprovação", "created_at": "2026-01-01T00:00:00Z"},
+                {"id": "other", "workspace_id": None, "target_user_id": "user-2",
+                 "title": "Aprovação privada de outra pessoa", "created_at": "2026-01-02T00:00:00Z"},
+                {"id": "global", "workspace_id": None, "title": "Aviso global",
+                 "created_at": "2026-01-03T00:00:00Z"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        ids = [n["id"] for n in resp.get_json()["notifications"]]
+        assert "mine" in ids
+        assert "global" in ids
+        assert "other" not in ids
+
     def test_list_oculta_target_super_admin_para_usuario_comum(self, root_client, fake_requests, monkeypatch):
         """Cenário A: usuário comum NÃO deve ver notificação target_super_admin=true,
         mesmo que seja global ou de um workspace autorizado."""
