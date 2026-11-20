@@ -94,7 +94,7 @@ def _snapshot(workspace: str, ticket: str) -> contract.Snapshot:
     suffix = uuid.uuid4().hex[:12]
     endpoint = f"https://push.example.invalid/staging/{suffix}"
     chamado_endpoint = f"https://push.example.invalid/staging-chamado/{suffix}"
-    token = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+    token = uuid.uuid4().hex  # 32 hex: formato canônico do contrato de dedup
     identity = uuid.uuid4().hex[:16]
     cycle_id = "cycle-" + suffix
     dedup_key = f"push:sent:{suffix}:{identity}"

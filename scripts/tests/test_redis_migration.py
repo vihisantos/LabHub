@@ -221,6 +221,8 @@ def test_artifacto_protegido_sem_credenciais(snapshot, tmp_path, capsys):
         os.environ.pop("UPSTASH_REDIS_REST_TOKEN", None)
     printed = capsys.readouterr().out
     assert ENDPOINT not in printed
+    assert "p256dh-secret" not in printed
+    assert "auth-secret" not in printed
     assert "super-secret-token" not in printed
     assert "scanned=" in printed
 
@@ -271,6 +273,15 @@ def test_reimportacao_e_idempotente(snapshot):
     assert first["applied"] and second["applied"]
     assert second["inserted"]["reminder_states"] == 0
     assert second["destination_counts_after"]["reminder_states"] == first["destination_counts_after"]["reminder_states"]
+
+
+def test_protecao_contra_importacao_concorrente(snapshot):
+    api = FakeAPI()
+    importer.import_snapshot(snapshot, api, apply=True, ref=importer.STAGING_REF)
+    sql = next(q for q in api.queries if q.startswith("BEGIN;"))
+    assert sql.startswith("BEGIN;")
+    assert sql.rstrip().endswith("COMMIT;")
+    assert sql.count("pg_advisory_xact_lock") >= 2  # global + por ticket
 
 
 def test_dry_run_nao_escreve(snapshot):
