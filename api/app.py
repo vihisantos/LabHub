@@ -4728,6 +4728,11 @@ def app_notifications_list():
         rows = resp.json() if resp.ok else []
         out = []
         for r in rows or []:
+            # Notificações direcionadas a uma pessoa são privadas no backend;
+            # não confiar no filtro visual do cliente para proteger o conteúdo.
+            target_user_id = r.get('target_user_id')
+            if target_user_id and str(target_user_id) != str(g.user_id):
+                continue
             # Notificações explicitamente restritas ao super admin não devem
             # chegar sequer na resposta da API de usuários comuns.
             if r.get('target_super_admin') is True and not is_super:
