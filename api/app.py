@@ -11,6 +11,10 @@ from app import (
     _supabase_headers,
     _target_subs,
     push_notify,
+    _push_outcome,
+    PUSH_ACCEPTED,
+    PUSH_REJECTED,
+    PUSH_UNKNOWN,
     redis,
     logger,
     _is_safe_url,
@@ -2873,14 +2877,14 @@ def _notify_ticket_status(ticket):
         sent_reporter = 0
         if reporter_id:
             for sub in _target_subs(module='chamados', user_id=reporter_id):
-                if push_notify(sub, title, body, url=url):
+                if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
                     sent_reporter += 1
 
         # b) Inscrições anônimas por-chamado (professor sem login).
         subs = _chamado_subs(ticket_id)
         keep = []
         for sub in subs:
-            if push_notify(sub, title, body, url=url):
+            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
                 keep.append(sub)
         _save_chamado_subs(ticket_id, keep)
 
@@ -2922,7 +2926,7 @@ def _notify_ticket_assigned(ticket):
         url = f"/chamados/tickets/{ticket.get('id')}"
         sent = 0
         for sub in subs:
-            if push_notify(sub, title, body, url=url):
+            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
                 sent += 1
         print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
     except Exception as e:
@@ -2954,7 +2958,10 @@ def _notify_ticket_claimed(ticket, claimer_name):
         )
         sent_own = 0
         for sub in (own_subs or []):
-            if push_notify(sub, own_title, own_body, url=url, user_id=claimer_id):
+            outcome = _push_outcome(
+                push_notify(sub, own_title, own_body, url=url, user_id=claimer_id)
+            )
+            if outcome == PUSH_ACCEPTED:
                 sent_own += 1
 
         # 2. Demais técnicos do workspace: informação de indisponibilidade.
@@ -2968,7 +2975,9 @@ def _notify_ticket_claimed(ticket, claimer_name):
             u = (sub.get('user') or {})
             if u.get('id') == claimer_id:
                 continue
-            if push_notify(sub, other_title, other_body, url=url):
+            if _push_outcome(
+                push_notify(sub, other_title, other_body, url=url)
+            ) == PUSH_ACCEPTED:
                 sent_other += 1
         print(
             f"[chamados] push claim #{num}: {sent_own} p/ responsável, {sent_other} p/ demais técnicos"
@@ -3000,7 +3009,7 @@ def _notify_new_ticket(ticket):
         url = f"/chamados/tickets/{ticket.get('id')}"
         sent = 0
         for sub in subs:
-            if push_notify(sub, title, body, url=url):
+            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
                 sent += 1
         print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
     except Exception as e:
@@ -4604,7 +4613,9 @@ def chamados_push_test():
         body = 'Push funcionando! Você receberá avisos de novos chamados. 🔔'
         sent = 0
         for sub in subs:
-            if push_notify(sub, title, body, url='/chamados'):
+            if _push_outcome(
+                push_notify(sub, title, body, url='/chamados')
+            ) == PUSH_ACCEPTED:
                 sent += 1
         print(f"[chamados] push de teste: {sent}/{len(subs)} enviados (user={user_id})")
         return jsonify({'sent': sent, 'total': len(subs)})
@@ -4622,14 +4633,343 @@ REMINDER_INTERVAL_SECONDS = 120
 # TTL da chave de estado do lembrete no Redis: limpa automaticamente chamados antigos.
 REMINDER_STATE_TTL_SECONDS = 7 * 24 * 3600  # 7 dias
 
-# TTL do lock de concorrência: evita que duas execuções processem o mesmo chamado.
-REMINDER_LOCK_TTL_SECONDS = 30
+# TTL do lock de concorrência. Não é assumido que 30s bastam para percorrer
+# todo o histórico: o lock é renovado antes de cada operação externa e cada
+# escrita/leitura de estado é "fenciada" pelo token de posse.
+REMINDER_LOCK_TTL_SECONDS = 120
+
+# Teto real de processamento por chamado. O lock é renovado durante o ciclo,
+# mas nenhum worker pode ficar ativo além deste limite: assim a chamada externa
+# mais longa (push) tampouco pode consumir o TTL inteiro sem renovação.
+REMINDER_MAX_EXECUTION_SECONDS = 90
+
+# Timeout explícito do Web Push. A biblioteca aceita `timeout`; passá-lo evita
+# que uma única requisição travada mantenha o worker ativo indefinidamente.
+REMINDER_PUSH_TIMEOUT_SECONDS = 20
 
 # Máximo de lembretes por chamado antes de parar (evita notificações infinitas).
+# Os scripts Lua abaixo replicam este teto como literal `10`; manter sincronizado.
 REMINDER_MAX_COUNT = 10
 
-# TTL da marca de envio individual por destinatário (para controle de envio parcial).
-REMINDER_SENT_MARK_TTL_SECONDS = 24 * 3600  # 24 horas
+# TTL da marca individual: nunca menor que o TTL do estado/ciclo, senão um
+# ciclo incompleto poderia "esquecer" sucessos antigos e reenviá-los. As marcas
+# não são apagadas como parte da lógica — a limpeza é apenas manutenção.
+REMINDER_SENT_MARK_TTL_SECONDS = 7 * 24 * 3600  # 7 dias (mesmo TTL do estado)
+
+# Status conhecidos do módulo de chamados. Qualquer `newStatus` fora desta
+# allowlist invalida o histórico (fail-closed) em vez de ser ignorado.
+REMINDER_KNOWN_STATUSES = frozenset(CHAMADOS_STATUSES)
+
+# Fallback conservador para eventos gravados antes da migration 101, que
+# preenchiam apenas `content`. Espelha o mapa usado pelo relatório de chamados
+# (`_service_minutes_by_ticket`); texto arbitrário NÃO vira status.
+REMINDER_LEGACY_STATUS_BY_CONTENT = {
+    'Aguardando técnico': 'aberto',
+    'Técnico a caminho': 'a_caminho',
+    'Atendendo agora': 'em_atendimento',
+    'Em espera': 'em_espera',
+    'Chamado resolvido': 'resolvido',
+    'Chamado indeferido': 'indeferido',
+    'Chamado concluído': 'fechado',
+}
+
+# Scripts Lua atômicos: comparam o token de posse antes de excluir/renovar.
+# Assim um worker cujo lock expirou não apaga o lock adquirido por outro.
+_REMINDER_LOCK_RELEASE_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
+
+_REMINDER_LOCK_RENEW_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('expire', KEYS[1], ARGV[2])
+end
+return 0
+"""
+
+# Escritas e leituras de estado/marcas também são fenciadas pelo token. Um
+# worker que perdeu a posse — ou cujo lock expirou — não consegue sobrescrever
+# nem consultar dados do ciclo, mesmo que a expiração ocorra entre uma
+# renovação e a operação seguinte.
+_REMINDER_FENCED_SETEX_SCRIPT = """
+-- fenced-setex
+if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('setex', KEYS[2], ARGV[2], ARGV[3])
+return 1
+"""
+
+_REMINDER_FENCED_GET_SCRIPT = """
+-- fenced-get
+if redis.call('get', KEYS[1]) ~= ARGV[1] then return {0, ''} end
+local value = redis.call('get', KEYS[2])
+if not value then return {1, ''} end
+return {1, value}
+"""
+
+_REMINDER_FENCED_DELETE_SCRIPT = """
+-- fenced-delete
+if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end
+-- DEL retorna 0 quando a marca já expirou; isso NÃO é perda de lock.
+redis.call('del', KEYS[2])
+return 1
+"""
+
+# Teto de segurança da geração de transição. Valores acima disso são corrupção
+# ou abuso e devem falhar fechado — nunca ser normalizados para zero.
+REMINDER_GENERATION_MAX = 1_000_000_000
+
+# Transições HTTP (terminal e assunção) atualizam apenas metadados na MESMA
+# chave de estado, sem lock do worker. A leitura, o incremento da geração e a
+# escrita acontecem em um único EVAL: nenhum snapshot obsoleto pode apagar
+# `reminder_count`, `cycle_id` ou `last_reminder_at` mais recentes.
+_REMINDER_TRANSITION_SCRIPT = """
+-- transition-status
+local status = ARGV[1]
+local ttl = tonumber(ARGV[2])
+local raw = redis.call('get', KEYS[1])
+
+-- Lua 5.1 (Redis) não distingue inteiro de float integral depois do
+-- cjson.decode. Validar o token textual ANTES do decode para rejeitar
+-- `2.0`, `2e0`, `"2"`, `true`, `null`, etc., exatamente como o Python.
+local function raw_reminder_count_valid(raw_value)
+    if not raw_value then return true end
+    local token = string.match(raw_value, '"reminder_count"%s*:%s*([^,}]+)')
+    if not token then return true end
+    token = string.gsub(token, '^%s+', '')
+    token = string.gsub(token, '%s+$', '')
+    return string.match(token, '^%-?%d+$') ~= nil
+end
+if not raw_reminder_count_valid(raw) then return 0 end
+
+local state
+if not raw then
+    state = {
+        last_known_status = status,
+        ticket_updated_at = '',
+        transition_generation = 1,
+        reminder_count = 0,
+        cycle_id = ''
+    }
+else
+    local ok, decoded = pcall(cjson.decode, raw)
+    -- state-object-required: um array JSON também é `table` em Lua. Exigir
+    -- chaves conhecidas COM os tipos corretos evita sobrescrever estado
+    -- corrompido (arrays ou objetos com campos inválidos).
+    local function valid_state(value)
+        if type(value) ~= 'table' then return false end
+        local known = false
+        if value['reminder_count'] ~= nil then
+            local count = value['reminder_count']
+            -- reminder-count-strict: inteiro finito no intervalo [0, 10].
+            -- Nunca usar tonumber() como validação: string/bool/float são corrupção.
+            if count == cjson.null or type(count) ~= 'number' then return false end
+            if count ~= count or count ~= math.floor(count) then return false end
+            if count < 0 or count > 10 then return false end
+            known = true
+        end
+        if value['cycle_id'] ~= nil then
+            if type(value['cycle_id']) ~= 'string' then return false end
+            known = true
+        end
+        if value['last_reminder_at'] ~= nil then
+            if type(value['last_reminder_at']) ~= 'string' then return false end
+            known = true
+        end
+        if value['last_known_status'] ~= nil then
+            if type(value['last_known_status']) ~= 'string' then return false end
+            known = true
+        end
+        return known
+    end
+    if not ok or not valid_state(decoded) then return 0 end
+    state = decoded
+
+    -- generation-validated: NUNCA use `tonumber(...) or 0`. Um valor presente
+    -- mas corrompido (string, null, booleano, array, objeto, negativo,
+    -- fracionário ou acima do teto) é rejeitado e o estado é preservado.
+    local generation = decoded['transition_generation']
+    -- cjson.null é lightuserdata, NÃO é nil: JSON null é valor presente/inválido.
+    if generation == cjson.null then return 0 end
+    if generation == nil then
+        -- Migração legada explícita: estados gravados antes do fencing não têm
+        -- geração. A ausência é promovida a 0 UMA única vez, com marcador
+        -- persistido no mesmo EVAL. Se o marcador já existe e a geração
+        -- desapareceu, houve corrupção: falha fechada.
+        if decoded['legacy_generation_migrated'] ~= nil then return 0 end
+        decoded['legacy_generation_migrated'] = 1
+        generation = 0
+    else
+        if type(generation) ~= 'number' then return 0 end
+        if generation ~= generation then return 0 end
+        if generation ~= math.floor(generation) then return 0 end
+        if generation < 0 or generation > 1000000000 then return 0 end
+    end
+    if generation >= 1000000000 then return 0 end
+    state['transition_generation'] = generation + 1
+    state['last_known_status'] = status
+    state['ticket_updated_at'] = ''
+end
+redis.call('setex', KEYS[1], ttl, cjson.encode(state))
+return state['transition_generation']
+"""
+
+# O worker grava a onda inteira somente se ainda possuir o lock E se a geração
+# observada na leitura continuar sendo a atual. Um terminal/assunção concorrente
+# incrementa a geração e faz esta escrita falhar. O guarda de ciclo impede que
+# um worker com ticket staleness restaure `aberto` sobre um ciclo encerrado;
+# uma reabertura legítima produz cycle_id diferente (via ticket_events).
+_REMINDER_FENCED_STATE_WRITE_SCRIPT = """
+-- fenced-state-write
+if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end
+local ttl = tonumber(ARGV[2])
+local payload = ARGV[3]
+
+-- generation-validated: ARGV chega como string; converter e validar SEM
+-- fallback para zero. Uma geração ausente/inválida aqui impede a escrita.
+local expected_generation = tonumber(ARGV[4])
+if expected_generation == nil then return 0 end
+if expected_generation ~= expected_generation then return 0 end
+if expected_generation ~= math.floor(expected_generation) then return 0 end
+if expected_generation < 0 or expected_generation > 1000000000 then return 0 end
+
+local incoming_status = ARGV[5] or ''
+local incoming_cycle = ARGV[6] or ''
+local legacy_migrated = false
+
+-- Lua 5.1 não distingue inteiro de float integral após cjson.decode: validar
+-- o token textual de `reminder_count` antes do decode, no estado e no payload.
+local function raw_reminder_count_valid(raw_value)
+    if not raw_value then return true end
+    local token = string.match(raw_value, '"reminder_count"%s*:%s*([^,}]+)')
+    if not token then return true end
+    token = string.gsub(token, '^%s+', '')
+    token = string.gsub(token, '%s+$', '')
+    return string.match(token, '^%-?%d+$') ~= nil
+end
+if not raw_reminder_count_valid(payload) then return 0 end
+
+-- state-object-required: mesmo critério do transition-status, aplicado ao
+-- estado vigente e ao payload recebido do worker. Declarado no escopo do
+-- script (não dentro do `if raw`): em Lua um `local` de bloco não existe
+-- depois do `end`, e usá-lo no payload faria o EVAL falhar em Redis real.
+local function valid_state(value)
+    if type(value) ~= 'table' then return false end
+    local known = false
+    if value['reminder_count'] ~= nil then
+        local count = value['reminder_count']
+        -- reminder-count-strict: mesmo critério do transition-status.
+        if count == cjson.null or type(count) ~= 'number' then return false end
+        if count ~= count or count ~= math.floor(count) then return false end
+        if count < 0 or count > 10 then return false end
+        known = true
+    end
+    if value['cycle_id'] ~= nil then
+        if type(value['cycle_id']) ~= 'string' then return false end
+        known = true
+    end
+    if value['last_reminder_at'] ~= nil then
+        if type(value['last_reminder_at']) ~= 'string' then return false end
+        known = true
+    end
+    if value['last_known_status'] ~= nil then
+        if type(value['last_known_status']) ~= 'string' then return false end
+        known = true
+    end
+    return known
+end
+
+local raw = redis.call('get', KEYS[2])
+if raw and not raw_reminder_count_valid(raw) then return 0 end
+if raw then
+    local ok, current = pcall(cjson.decode, raw)
+    if not ok or not valid_state(current) then return 0 end
+    -- generation-validated: mesma regra do transition-status. Estado legado
+    -- sem geração é migrado uma vez para 0; valor presente e inválido falha.
+    local current_generation = current['transition_generation']
+    if current_generation == cjson.null then return 0 end
+    if current_generation == nil then
+        if current['legacy_generation_migrated'] ~= nil then return 0 end
+        current['legacy_generation_migrated'] = 1
+        legacy_migrated = true
+        current_generation = 0
+    else
+        if type(current_generation) ~= 'number' then return 0 end
+        if current_generation ~= current_generation then return 0 end
+        if current_generation ~= math.floor(current_generation) then return 0 end
+        if current_generation < 0 or current_generation > 1000000000 then return 0 end
+    end
+    if current_generation ~= expected_generation then return 0 end
+    local current_status = tostring(current['last_known_status'] or '')
+    local current_cycle = tostring(current['cycle_id'] or '')
+    local terminal = { resolvido = true, fechado = true, indeferido = true }
+    if terminal[current_status]
+       and current_status ~= incoming_status
+       and current_cycle == incoming_cycle
+       and ARGV[7] == '1' then
+        return 0
+    end
+end
+local ok_payload, incoming = pcall(cjson.decode, payload)
+if not ok_payload or not valid_state(incoming) then return 0 end
+-- generation-validated: o payload do worker também precisa carregar uma
+-- geração válida. Nunca aceitar payload sem geração e deixar o script inventar.
+local payload_generation = incoming['transition_generation']
+if payload_generation == cjson.null then return 0 end
+if type(payload_generation) ~= 'number' then return 0 end
+if payload_generation ~= payload_generation then return 0 end
+if payload_generation ~= math.floor(payload_generation) then return 0 end
+if payload_generation < 0 or payload_generation > 1000000000 then return 0 end
+if payload_generation ~= expected_generation then return 0 end
+incoming['transition_generation'] = expected_generation
+if legacy_migrated then incoming['legacy_generation_migrated'] = 1 end
+redis.call('setex', KEYS[2], ttl, cjson.encode(incoming))
+return 1
+"""
+
+# Limitação do schema atual: ticket_events não tem coluna sequencial
+# confiável (createdAt vem de NOW() e id é UUID aleatório). O UUID é usado
+# apenas como cursor de paginação/identificador de ciclo, nunca como relógio.
+# Quando um terminal e sua reabertura compartilham o mesmo createdAt, a
+# consulta é considerada inconclusiva. Proposta separada (NÃO executada):
+# migration com seq BIGINT IDENTITY, previousStatus e is_reopening.
+#
+# Paginação da consulta a ticket_events. O tamanho da página é apenas um
+# parâmetro de transporte: a busca percorre todas as páginas necessárias.
+REMINDER_EVENT_PAGE_SIZE = 100
+REMINDER_EVENT_MAX_PAGES = 1000  # teto de segurança (100 mil eventos)
+
+# Verificação leve por destinatário: uma única página com os eventos mais
+# recentes basta para detectar novo terminal/reabertura durante a onda, sem
+# repetir a leitura completa por destinatário. O snapshot completo (duas
+# passagens) é feito UMA vez por chamado, antes do loop de envio.
+REMINDER_TIP_PAGE_SIZE = 2
+
+# Estados possíveis da consulta ao histórico de status.
+# São distintos de propósito: `[]` (consulta válida e vazia) não pode ser
+# tratado como falha, e falha não pode ser tratada como histórico vazio.
+_TICKET_HISTORY_EMPTY = 'empty'
+_TICKET_HISTORY_AVAILABLE = 'available'
+_TICKET_HISTORY_INCONCLUSIVE = 'inconclusive'
+
+
+class _TicketEventHistory:
+    """Resultado explícito da consulta ao histórico de status de um chamado."""
+
+    __slots__ = ('state', 'rows')
+
+    def __init__(self, state: str, rows=None):
+        self.state = state
+        self.rows = tuple(rows or ())
+
+    @property
+    def available(self) -> bool:
+        return self.state == _TICKET_HISTORY_AVAILABLE
+
+    @property
+    def inconclusive(self) -> bool:
+        return self.state == _TICKET_HISTORY_INCONCLUSIVE
 
 
 def _reminder_state_key(ticket_id: str) -> str:
@@ -4640,52 +4980,203 @@ def _reminder_lock_key(ticket_id: str) -> str:
     return f'chamado:reminder:lock:{ticket_id}'
 
 
-def _read_reminder_state(ticket_id: str) -> dict | None:
-    """Lê o estado do lembrete de um chamado no Redis.
+def _valid_reminder_count(value) -> bool:
+    """Validação estrita de `reminder_count` (espelho do Lua `reminder-count-strict`).
 
-    Retorna None se não houver estado ou se o Redis estiver indisponível.
+    Aceita somente `int` não-booleano em [0, REMINDER_MAX_COUNT]. Strings
+    numéricas, floats (mesmo integrais), booleanos, negativos e valores acima
+    do teto são rejeitados — `int()` nunca é usado como validação.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return False
+    return 0 <= value <= REMINDER_MAX_COUNT
+
+
+def _valid_reminder_state_shape(state) -> bool:
+    """Formato mínimo aceito pelos scripts Lua para o estado do lembrete.
+
+    Espelho de `valid_state` nos scripts Lua: um objeto vazio ou com apenas
+    campos desconhecidos NÃO é estado válido — é exigido pelo menos um dos
+    campos conhecidos (`reminder_count`, `cycle_id`, `last_reminder_at`,
+    `last_known_status`) com o tipo correto. Campos adicionais são ignorados,
+    como no Lua.
+
+    A geração também é validada aqui — antes de qualquer push — para que um
+    estado corrompido nunca seja descoberto apenas na escrita final. A regra
+    espelha os scripts: geração presente e válida, ou geração ausente apenas
+    no formato legado (sem marcador de migração).
+    """
+    if not isinstance(state, dict):
+        return False
+
+    known = False
+    if 'reminder_count' in state:
+        if not _valid_reminder_count(state['reminder_count']):
+            return False
+        known = True
+    for campo in ('cycle_id', 'last_reminder_at', 'last_known_status'):
+        if campo in state:
+            if not isinstance(state[campo], str):
+                return False
+            known = True
+    if not known:
+        return False
+
+    if 'transition_generation' in state:
+        if not _valid_reminder_generation(state['transition_generation']):
+            return False
+    elif 'legacy_generation_migrated' in state:
+        # O marcador só pode existir acompanhado da geração migrada. Geração
+        # ausente após a migração é corrupção nos scripts Lua e também aqui.
+        return False
+    return True
+
+
+def _read_reminder_state_result(ticket_id: str, lock_token: str | None = None) -> tuple[dict | None, bool]:
+    """Lê o estado e distingue "sem estado" de "falha na leitura".
+
+    O segundo elemento é True apenas quando a leitura foi conclusiva
+    (inclusive quando a chave não existe). Estado malformado é tratado como
+    falha: nunca é convertido em `{}` e reescrito, para não destruir contador,
+    intervalo ou cycle_id válidos. Com `lock_token`, a leitura é fenciada:
+    perder a posse do lock é falha de leitura (fail-closed).
     """
     if redis is None:
-        return None
+        return None, False
     try:
-        raw = redis.get(_reminder_state_key(ticket_id))
+        if lock_token:
+            result = redis.eval(
+                _REMINDER_FENCED_GET_SCRIPT,
+                keys=[_reminder_lock_key(ticket_id), _reminder_state_key(ticket_id)],
+                args=[lock_token],
+            )
+            if not result or result[0] != 1:
+                logger.warning("[chamados-reminder] lock perdido ao ler estado de %s", ticket_id)
+                return None, False
+            raw = result[1] or None
+        else:
+            raw = redis.get(_reminder_state_key(ticket_id))
         if not raw:
-            return None
-        return json.loads(raw) if isinstance(raw, str) else raw
+            return None, True
+        state = json.loads(raw) if isinstance(raw, str) else raw
+        if not _valid_reminder_state_shape(state):
+            logger.warning("[chamados-reminder] estado malformado de %s", ticket_id)
+            return None, False
+        return state, True
     except Exception as e:
         logger.warning(f"[chamados-reminder] falha ao ler estado {ticket_id}: {e}")
-        return None
+        return None, False
 
 
-def _write_reminder_state(ticket_id: str, state: dict) -> bool:
-    """Escreve o estado do lembrete de um chamado no Redis (com TTL).
+def _read_reminder_state(ticket_id: str, lock_token: str | None = None) -> dict | None:
+    """Lê o estado do lembrete; None significa ausência ou falha de leitura."""
+    state, _ok = _read_reminder_state_result(ticket_id, lock_token=lock_token)
+    return state
 
-    Retorna True se gravado com sucesso, False se o Redis estiver indisponível.
+
+def _valid_reminder_generation(value) -> bool:
+    """Espelho Python da validação `valid_generation` dos scripts Lua.
+
+    Aceita apenas inteiros (ou floats integralmente representáveis) no
+    intervalo [0, REMINDER_GENERATION_MAX]. Booleanos, strings, arrays,
+    objetos, negativos, fracionários e NaN são rejeitados.
     """
-    if redis is None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if value != value:  # NaN
+        return False
+    if isinstance(value, float) and not value.is_integer():
+        return False
+    return 0 <= value <= REMINDER_GENERATION_MAX
+
+
+def _reminder_transition_generation(state: dict | None) -> int:
+    """Geração do estado, sem fallback silencioso para zero.
+
+    Estado sem geração é o formato legado: é promovido a 0 uma única vez, com
+    o mesmo marcador usado no Lua. Qualquer valor presente e inválido levanta
+    exceção — a operação falha fechada em vez de normalizar corrupção.
+    """
+    if not isinstance(state, dict):
+        raise ValueError('estado inválido para leitura de geração')
+    # JSON `null` é valor presente e inválido — não é o mesmo que chave ausente.
+    if 'transition_generation' not in state:
+        if 'legacy_generation_migrated' in state:
+            raise ValueError('geração ausente após migração legada')
+        return 0
+    value = state['transition_generation']
+    if not _valid_reminder_generation(value):
+        raise ValueError('geração de transição inválida')
+    return int(value)
+
+
+def _write_reminder_state(ticket_id: str, state: dict, lock_token: str,
+                          expected_generation: int | None = None,
+                          terminal_confirmed: bool = False) -> bool:
+    """Escreve a onda somente com lock válido E geração não sobrescrita.
+
+    Não existe caminho sem token: uma escrita direta (`SET`) escaparia do
+    fencing e poderia restaurar um ciclo encerrado por uma requisição HTTP.
+    Retorna True apenas quando o Redis confirmou a gravação atômica.
+    """
+    if redis is None or not lock_token:
+        return False
+    if not _valid_reminder_state_shape(state):
+        logger.warning("[chamados-reminder] payload de estado inválido em %s", ticket_id)
         return False
     try:
-        redis.setex(
-            _reminder_state_key(ticket_id),
-            REMINDER_STATE_TTL_SECONDS,
-            json.dumps(state, ensure_ascii=False),
+        generation = (
+            _reminder_transition_generation(state)
+            if expected_generation is None else expected_generation
         )
+    except (TypeError, ValueError) as e:
+        logger.warning("[chamados-reminder] geração inválida ao gravar estado de %s: %s",
+                       ticket_id, e)
+        return False
+    if not _valid_reminder_generation(generation):
+        logger.warning("[chamados-reminder] geração inválida ao gravar estado de %s", ticket_id)
+        return False
+    generation = int(generation)
+    # O payload enviado ao Lua SEMPRE carrega a geração validada. Assim o
+    # script pode exigir um payload íntegro sem depender de fallback.
+    payload_state = dict(state)
+    payload_state['transition_generation'] = generation
+    payload = json.dumps(payload_state, ensure_ascii=False)
+    try:
+        result = redis.eval(
+            _REMINDER_FENCED_STATE_WRITE_SCRIPT,
+            keys=[_reminder_lock_key(ticket_id), _reminder_state_key(ticket_id)],
+            args=[
+                lock_token,
+                str(REMINDER_STATE_TTL_SECONDS),
+                payload,
+                str(generation),
+                str(state.get('last_known_status') or ''),
+                str(state.get('cycle_id') or ''),
+                '1' if terminal_confirmed else '0',
+            ],
+        )
+        if result != 1:
+            logger.warning(
+                "[chamados-reminder] lock perdido, geração alterada ou ciclo encerrado "
+                "ao gravar estado de %s", ticket_id,
+            )
+            return False
         return True
     except Exception as e:
         logger.warning(f"[chamados-reminder] falha ao escrever estado {ticket_id}: {e}")
         return False
 
 
-def _reminder_sent_mark_key(ticket_id: str, cycle_id: str, endpoint_hash: str) -> str:
-    """
-    Chave de marca de envio individual por destinatário, escopada por ciclo.
+def _reminder_sent_mark_key(ticket_id: str, cycle_id: str, wave: int, identity: str) -> str:
+    """Marca de envio escopada por (chamado, ciclo, onda, destinatário).
 
-    O cycle_id impede que marcas de um ciclo anterior (ex.: antes de um
-    fechamento/reabertura) interfiram no ciclo atual. Usa hash SHA-256 do
-    endpoint (não o endpoint em texto aberto) para não armazenar dados
-    sensíveis nas chaves do Redis.
+    `cycle_id` separa reaberturas; `wave` separa os lembretes recorrentes
+    dentro do mesmo ciclo. Assim a marca não depende de limpeza posterior:
+    a onda seguinte usa namespace distinto e falha parcial de manutenção não
+    reabre destinatários já processados.
     """
-    return f'chamado:reminder:sent:{ticket_id}:{cycle_id}:{endpoint_hash}'
+    return f'chamado:reminder:sent:{ticket_id}:{cycle_id}:{int(wave)}:{identity}'
 
 
 def _endpoint_hash(endpoint: str) -> str:
@@ -4694,106 +5185,470 @@ def _endpoint_hash(endpoint: str) -> str:
     return _hashlib.sha256(endpoint.encode('utf-8')).hexdigest()[:16]
 
 
-def _mark_sub_sent(ticket_id: str, cycle_id: str, endpoint_hash: str) -> bool:
-    """Marca que um destinatário específico já recebeu o lembrete no ciclo atual."""
-    if redis is None:
+def _sub_identity(sub: dict) -> str:
+    """Identificador de dedup de um destinatário.
+
+    Prefere o endpoint (hash). Se o endpoint estiver ausente, usa o id do
+    usuário/key do subscriber para ainda conseguir marcar o envio.
+    """
+    endpoint = str(sub.get('endpoint') or '').strip()
+    if endpoint:
+        return _endpoint_hash(endpoint)
+    uid = str((sub.get('user') or {}).get('id') or sub.get('key') or '').strip()
+    return 'uid:' + _endpoint_hash(uid) if uid else ''
+
+
+def _mark_sub_sent(ticket_id: str, cycle_id: str, wave: int, identity: str,
+                   lock_token: str) -> bool:
+    """Registra a evidência individual de envio da onda atual.
+
+    `lock_token` é obrigatório: não existe gravação de marca sem fencing. Um
+    worker que perdeu a posse não consegue marcar (nem desmarcar) destinatário.
+    """
+    if redis is None or not lock_token:
         return False
+    key = _reminder_sent_mark_key(ticket_id, cycle_id, wave, identity)
     try:
-        redis.setex(
-            _reminder_sent_mark_key(ticket_id, cycle_id, endpoint_hash),
-            REMINDER_SENT_MARK_TTL_SECONDS,
-            '1',
+        result = redis.eval(
+            _REMINDER_FENCED_SETEX_SCRIPT,
+            keys=[_reminder_lock_key(ticket_id), key],
+            args=[lock_token, str(REMINDER_SENT_MARK_TTL_SECONDS), '1'],
         )
+        if result != 1:
+            logger.warning("[chamados-reminder] lock perdido ao marcar envio de %s", ticket_id)
+            return False
         return True
     except Exception as e:
-        logger.warning(f"[chamados-reminder] falha ao marcar envio {ticket_id}:{endpoint_hash}: {e}")
+        logger.warning(f"[chamados-reminder] falha ao marcar envio {ticket_id}:{identity}: {e}")
         return False
 
 
-def _is_sub_sent(ticket_id: str, cycle_id: str, endpoint_hash: str) -> bool:
-    """Verifica se um destinatário específico já recebeu o lembrete no ciclo atual."""
+def _is_sub_sent(ticket_id: str, cycle_id: str, wave: int, identity: str,
+                 lock_token: str | None = None) -> bool:
+    """Verifica se o destinatário já tem marca na onda atual.
+
+    Falha de leitura OU perda do lock LEVANTA exceção: o chamador isolado por
+    chamado deve pular o envio. Interpretar erro como "sem marca" transformaria
+    uma falha transitória do Redis em duplicata de push.
+    """
     if redis is None:
-        return False
+        raise RuntimeError('Redis indisponível para verificar marca de envio')
+    key = _reminder_sent_mark_key(ticket_id, cycle_id, wave, identity)
     try:
-        raw = redis.get(_reminder_sent_mark_key(ticket_id, cycle_id, endpoint_hash))
+        if lock_token:
+            result = redis.eval(
+                _REMINDER_FENCED_GET_SCRIPT,
+                keys=[_reminder_lock_key(ticket_id), key],
+                args=[lock_token],
+            )
+            if not result or result[0] != 1:
+                raise RuntimeError('lock perdido ao verificar marca de envio')
+            return bool(result[1])
+        raw = redis.get(key)
         return raw is not None
     except Exception as e:
-        logger.warning(f"[chamados-reminder] falha ao verificar envio {ticket_id}:{endpoint_hash}: {e}")
-        return False  # Em dúvida, considera não enviado (retry seguro)
+        logger.warning(f"[chamados-reminder] falha ao verificar envio {ticket_id}:{identity}: {e}")
+        raise
 
 
-def _clear_sent_marks(ticket_id: str, cycle_id: str, subs: list) -> None:
-    """Remove as marcas de envio individual de um chamado (ciclo concluído)."""
-    if redis is None:
+def _clear_sent_marks(ticket_id: str, cycle_id: str, wave: int, subs: list,
+                      lock_token: str) -> None:
+    """Manutenção: remove marcas de ondas ANTIGAS do mesmo ciclo.
+
+    Esta função nunca participa da decisão de envio: a onda atual permanece
+    marcada até o TTL natural. Uma falha parcial/total aqui é odor de log, não
+    reabre nenhum destinatário da onda corrente. `lock_token` é obrigatório e a
+    exclusão é feita por Lua fenciado — não existe `DEL` direto.
+    """
+    if redis is None or not lock_token or wave <= 1:
         return
-    for sub in subs:
-        endpoint = str(sub.get('endpoint') or '')
-        if not endpoint:
-            continue
-        try:
-            redis.delete(_reminder_sent_mark_key(ticket_id, cycle_id, _endpoint_hash(endpoint)))
-        except Exception:
-            pass
+    identities = [identity for identity in (_sub_identity(s) for s in subs) if identity]
+    for old_wave in range(1, int(wave)):
+        for identity in identities:
+            key = _reminder_sent_mark_key(ticket_id, cycle_id, old_wave, identity)
+            try:
+                result = redis.eval(
+                    _REMINDER_FENCED_DELETE_SCRIPT,
+                    keys=[_reminder_lock_key(ticket_id), key],
+                    args=[lock_token],
+                )
+                if result != 1:
+                    logger.warning(
+                        "[chamados-reminder] lock perdido ao limpar marca antiga %s:%s",
+                        ticket_id, identity,
+                    )
+                    return
+            except Exception as e:
+                # Best-effort por definição: não aborta nem altera elegibilidade.
+                logger.warning("[chamados-reminder] falha ao limpar marca antiga %s:%s: %s",
+                               ticket_id, identity, e)
 
 
 def _record_terminal_status(ticket_id: str, status: str) -> None:
-    """Grava o status terminal de um chamado no Redis para detecção de reabertura.
+    """Registra no Redis o último status conhecido do chamado (best-effort).
+
+    Esse valor é apenas metadado do estado do lembrete: a detecção de
+    reabertura usa exclusivamente o histórico persistente em ticket_events,
+    pois o Redis é volátil e pode ficar stale.
 
     Chamado quando o chamado entra em estado terminal (resolvido, fechado,
     indeferido) ou é assumido (a_caminho), mesmo que nenhum lembrete tenha
-    sido enviado. Isso permite que _is_reopening() detecte corretamente uma
-    reabertura posterior (aberto → estado terminal → aberto).
-
-    Best-effort: falha silenciosa se o Redis estiver indisponível.
+    sido enviado. Falha silenciosa se o Redis estiver indisponível.
     """
     if redis is None:
         return
     try:
-        state = _read_reminder_state(ticket_id) or {}
-        state['last_known_status'] = status
-        state['ticket_updated_at'] = ''
-        redis.setex(
-            _reminder_state_key(ticket_id),
-            REMINDER_STATE_TTL_SECONDS,
-            json.dumps(state, ensure_ascii=False),
+        # Um único EVAL lê, incrementa a geração e grava. Não há snapshot no
+        # cliente: uma escrita HTTP concorrente nunca apaga contador/ciclo mais
+        # recentes, nem um worker com leitura antiga consegue desfazê-la.
+        result = redis.eval(
+            _REMINDER_TRANSITION_SCRIPT,
+            keys=[_reminder_state_key(ticket_id)],
+            args=[status, str(REMINDER_STATE_TTL_SECONDS)],
         )
-    except Exception:
-        pass
+        if not result:
+            # Estado corrompido ou geração inválida: diagnóstico sem expor valor.
+            logger.warning(
+                "[chamados-reminder] transição recusada para %s (estado/guarda inválidos)",
+                ticket_id,
+            )
+    except Exception as e:
+        # Best-effort: falha de Redis não pode quebrar PATCH/claim nem gravar
+        # parcialmente o estado.
+        logger.warning("[chamados-reminder] falha ao registrar transição de %s: %s",
+                       ticket_id, e)
 
 
-def _fetch_ticket_status_events(ticket_id: str) -> list[dict] | None:
-    """Busca eventos de status de um chamado no Supabase.
+def _parse_event_datetime(value) -> datetime | None:
+    """Converte createdAt de um evento em `datetime` aware em UTC.
 
-    Retorna None quando a consulta não é conclusiva (Supabase não
-    configurado, erro HTTP ou exceção) e uma lista (possivelmente vazia)
-    quando a consulta foi concluída. A consulta traz os eventos mais
-    recentes primeiro, com desempate determinístico por id; a lista é
-    invertida aqui para que os chamadores percorram cronologicamente.
+    A comparação cronológica de eventos é feita SEMPRE entre objetos
+    `datetime` aware: strings ISO permanecem apenas em persistência/transporte
+    (inclusive no cursor do PostgREST). Isso preserva microssegundos e evita
+    que formatos como `...00+00:00` e `...00.500000+00:00` sejam comparados
+    como texto. Valores ausentes, sem timezone ou corruptos retornam None.
     """
-    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+    if not isinstance(value, str) or not value.strip():
         return None
     try:
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/ticket_events'
-            f'?ticket_id=eq.{quote(ticket_id)}'
-            f'&type=eq.status'
-            f'&select=id,newStatus,createdAt'
-            f'&order=createdAt.desc,id.desc'
-            f'&limit=100',
-            headers=_supabase_headers(),
-            timeout=10,
+        dt = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        # Sem timezone não há como comparar com segurança contra o relógio
+        # dos demais eventos/servidores.
+        return None
+    return dt.astimezone(timezone.utc)
+
+
+def _status_tie_is_ambiguous(rows: list[dict]) -> bool:
+    """Detecta empate de createdAt que possa definir o ciclo vigente.
+
+    Quando um status terminal e um `aberto` compartilham o mesmo instante, o
+    schema atual não oferece sequência para dizer qual veio primeiro — e o
+    UUID não é relógio. A verificação é independente da ordem de retorno:
+
+      · empate NÃO sucedido por um terminal posterior ⇒ inconclusivo (pode
+        ser a reabertura vigente);
+      · empate antigo, sucedido por um terminal posterior ⇒ irrelevante,
+        pois esse ciclo já foi encerrado.
+
+    Assim um empate antigo não contamina um ciclo atual inequívoco (M1), sem
+    transformar a ordem arbitrária de UUIDs em uma decisão cronológica.
+    """
+    closed_statuses = {'resolvido', 'fechado', 'indeferido'}
+    kinds_by_timestamp: dict[datetime, set[str]] = {}
+
+    for row in rows:
+        status = str(row.get('newStatus') or '').strip() or None
+        at = row.get('createdAt')
+        if not isinstance(at, datetime) or at.tzinfo is None:
+            continue
+        if status in closed_statuses:
+            kinds_by_timestamp.setdefault(at, set()).add('terminal')
+        elif status == 'aberto':
+            kinds_by_timestamp.setdefault(at, set()).add('aberto')
+
+    for at, kinds in kinds_by_timestamp.items():
+        if kinds != {'terminal', 'aberto'}:
+            continue
+        # Um terminal posterior encerra inequivocamente aquele ciclo, mesmo que
+        # a ordem interna do empate seja ambígua. Sem terminal posterior, o
+        # empate ainda pode definir o ciclo vigente ⇒ inconclusivo.
+        if any(
+            later_at > at and 'terminal' in later_kinds
+            for later_at, later_kinds in kinds_by_timestamp.items()
+        ):
+            continue
+        return True
+    return False
+
+
+def _interpret_event_status(raw: dict) -> str | None:
+    """Interpreta `newStatus` de um evento de status de forma conservadora.
+
+    Eventos anteriores à migration 101 gravavam apenas `content`. Só um
+    rótulo presente na allowlist explícita é convertido em status; texto
+    arbitrário e valores desconhecidos retornam None (histórico inconclusivo).
+    """
+    status_raw = raw.get('newStatus')
+    if status_raw is None:
+        content = str(raw.get('content') or '').strip()
+        return REMINDER_LEGACY_STATUS_BY_CONTENT.get(content)
+    if not isinstance(status_raw, str):
+        return None
+    status = status_raw.strip().lower()
+    return status if status in REMINDER_KNOWN_STATUSES else None
+
+
+def _normalize_event_row(raw: dict, ticket_id: str) -> dict | None:
+    """Valida e normaliza uma linha de ticket_events; None ⇒ inconclusivo."""
+    if not isinstance(raw, dict):
+        return None
+    event_id = raw.get('id')
+    created_at = _parse_event_datetime(raw.get('createdAt'))
+    if not isinstance(event_id, str) or not event_id or created_at is None:
+        return None
+    status = _interpret_event_status(raw)
+    if status is None:
+        logger.warning(
+            "[chamados-reminder] status de evento não interpretável em %s: %r",
+            ticket_id, raw.get('newStatus'),
         )
+        return None
+    return {'id': event_id, 'newStatus': status, 'createdAt': created_at}
+
+
+def _fetch_ticket_events_page(ticket_id: str, cursor_at: datetime | None = None,
+                              cursor_id: str | None = None,
+                              limit: int | None = None) -> list | None:
+    """Busca uma página de ticket_events; None indica falha de transporte.
+
+    `limit` permite a verificação leve da ponta do histórico sem paginar tudo.
+    """
+    page_size = REMINDER_EVENT_PAGE_SIZE if limit is None else int(limit)
+    if page_size <= 0:
+        return None
+    params = [
+        f'ticket_id=eq.{quote(str(ticket_id))}',
+        'type=eq.status',
+        'select=id,newStatus,content,createdAt',
+        'order=createdAt.desc,id.desc',
+        f'limit={page_size}',
+    ]
+    if cursor_at is not None and cursor_id is not None:
+        # Keyset: eventos estritamente mais antigos que o último da página
+        # anterior. Evita offset (que sofre drift com inserts). O UUID é
+        # apenas desempate de transporte dentro do mesmo createdAt.
+        # `createdAt` volta a string apenas no transporte (query do PostgREST).
+        at = quote(cursor_at.isoformat(), safe='')
+        eid = quote(cursor_id, safe='')
+        params.append(f'or=(createdAt.lt.{at},and(createdAt.eq.{at},id.lt.{eid}))')
+
+    url = f'{_SUPABASE_URL}/rest/v1/ticket_events?' + '&'.join(params)
+    try:
+        resp = requests.get(url, headers=_supabase_headers(), timeout=10)
         if not resp.ok:
             logger.warning(
-                f"[chamados-reminder] falha ao consultar ticket_events {ticket_id}: {resp.status_code}"
+                "[chamados-reminder] falha ao consultar ticket_events %s: %s",
+                ticket_id, resp.status_code,
             )
             return None
-        rows = list(resp.json() or [])
-        rows.reverse()
-        return rows
+        payload = resp.json()
     except Exception as e:
-        logger.warning(f"[chamados-reminder] erro ao consultar ticket_events {ticket_id}: {e}")
+        logger.warning("[chamados-reminder] erro ao consultar ticket_events %s: %s",
+                       ticket_id, e)
         return None
+    if not isinstance(payload, list):
+        logger.warning("[chamados-reminder] payload inesperado de ticket_events %s: %s",
+                       ticket_id, type(payload).__name__)
+        return None
+    return payload
+
+
+def _fetch_ticket_status_events(ticket_id: str, lock_renew=None) -> _TicketEventHistory:
+    """Busca TODO o histórico de status de um chamado, com paginação keyset.
+
+    A paginação usa `(createdAt, id)` apenas como cursor de transporte, com
+    `order=createdAt.desc,id.desc`. O UUID nunca é tratado como relógio: a
+    interpretação cronológica usa somente objetos `datetime` aware.
+
+    Consistência: as migrações versionadas criam `ticket_events` sem coluna
+    sequencial e SEM garantia de append-only/imutabilidade (service_role pode
+    atualizar/excluir linhas). Portanto NÃO basta reler a primeira página:
+    o snapshot completo é coletado duas vezes e comparado por
+    `(id, newStatus, createdAt)`. Inserção, exclusão, alteração de status ou
+    de timestamp durante a leitura tornam o resultado inconclusivo — nunca um
+    snapshot parcial classificado como completo. `lock_renew` é chamado antes
+    de cada página para manter a posse do lock durante consultas longas.
+
+    O resultado distingue explicitamente `empty`, `available` e
+    `inconclusive`. Nunca transforma erro em histórico vazio.
+    """
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return _TicketEventHistory(_TICKET_HISTORY_INCONCLUSIVE)
+
+    inconclusive = lambda: _TicketEventHistory(_TICKET_HISTORY_INCONCLUSIVE)
+
+    def _collect_snapshot() -> list[dict] | None:
+        """Uma passada completa; None = inconclusivo, [] = histórico vazio."""
+        rows: list[dict] = []
+        seen_ids: set[str] = set()
+        cursor_at: datetime | None = None
+        cursor_id: str | None = None
+
+        for page in range(REMINDER_EVENT_MAX_PAGES):
+            if lock_renew is not None and not lock_renew():
+                logger.warning("[chamados-reminder] lock perdido durante histórico de %s", ticket_id)
+                return None
+
+            payload = _fetch_ticket_events_page(ticket_id, cursor_at, cursor_id)
+            if payload is None:
+                return None
+
+            page_rows: list[dict] = []
+            for raw in payload:
+                row = _normalize_event_row(raw, ticket_id)
+                if row is None:
+                    return None
+                if row['id'] in seen_ids:
+                    logger.warning(
+                        "[chamados-reminder] evento duplicado na paginação de %s: %s",
+                        ticket_id, row['id'],
+                    )
+                    return None
+                seen_ids.add(row['id'])
+                page_rows.append(row)
+
+            if not page_rows:
+                if not rows:
+                    return []
+                break
+
+            rows.extend(page_rows)
+            if len(page_rows) < REMINDER_EVENT_PAGE_SIZE:
+                break
+
+            last = page_rows[-1]
+            cursor_at, cursor_id = last['createdAt'], last['id']
+        else:
+            logger.warning(
+                "[chamados-reminder] histórico de %s excedeu %s páginas — inconclusivo",
+                ticket_id, REMINDER_EVENT_MAX_PAGES,
+            )
+            return None
+
+        # Ordem estritamente decrescente garante que não houve lacuna,
+        # duplicação ou reordenação entre páginas (datas como datetime aware).
+        for newer, older in zip(rows, rows[1:]):
+            if (older['createdAt'], older['id']) >= (newer['createdAt'], newer['id']):
+                logger.warning(
+                    "[chamados-reminder] ordem inconsistente em ticket_events %s", ticket_id
+                )
+                return None
+        return rows
+
+    first = _collect_snapshot()
+    if first is None:
+        return inconclusive()
+
+    # Mesmo o resultado "vazio" precisa da segunda passada: uma inserção
+    # concorrente entre a consulta e a decisão não pode virar histórico vazio.
+    second = _collect_snapshot()
+    if second is None or len(second) != len(first):
+        logger.warning("[chamados-reminder] histórico de %s mudou durante a paginação", ticket_id)
+        return inconclusive()
+    if not first:
+        return _TicketEventHistory(_TICKET_HISTORY_EMPTY)
+
+    for antes, depois in zip(first, second):
+        fingerprint_antes = (antes['id'], antes['newStatus'], antes['createdAt'])
+        fingerprint_depois = (depois['id'], depois['newStatus'], depois['createdAt'])
+        if fingerprint_antes != fingerprint_depois:
+            logger.warning(
+                "[chamados-reminder] evento alterado durante a paginação de %s: %s",
+                ticket_id, antes['id'],
+            )
+            return inconclusive()
+
+    all_rows = list(reversed(first))  # cronológico (mais antigo primeiro)
+
+    if _status_tie_is_ambiguous(all_rows):
+        logger.warning(
+            "[chamados-reminder] empate ambíguo de timestamp em ticket_events %s", ticket_id
+        )
+        return inconclusive()
+
+    return _TicketEventHistory(_TICKET_HISTORY_AVAILABLE, all_rows)
+
+
+def _verify_history_tip(ticket_id: str, history: _TicketEventHistory | None,
+                        lock_renew=None) -> bool:
+    """Confirma, com UMA consulta leve, que a ponta do histórico não mudou.
+
+    O snapshot completo é obtido uma vez por chamado (duas passagens). Antes
+    de cada push basta comparar os eventos mais recentes com aquele snapshot:
+    um novo terminal, uma reabertura ou uma alteração do evento mais recente
+    muda o `(id, newStatus, createdAt)` da ponta e aborta o envio.
+
+    Não é cache: os dados são relidos do PostgREST a cada destinatário. A
+    verificação cobre apenas a ponta (inclusive empate ambíguo nela); a
+    consistência integral do restante do histórico já foi garantida pela
+    dupla leitura inicial. Qualquer falha/valor não interpretável falha
+    fechado.
+    """
+    if history is None or history.inconclusive:
+        return False
+    if lock_renew is not None and not lock_renew():
+        logger.warning("[chamados-reminder] lock perdido ao verificar ponta de %s", ticket_id)
+        return False
+
+    payload = _fetch_ticket_events_page(ticket_id, limit=REMINDER_TIP_PAGE_SIZE)
+    if payload is None:
+        return False
+
+    tip_rows: list[dict] = []
+    for raw in payload:
+        row = _normalize_event_row(raw, ticket_id)
+        if row is None:
+            return False
+        tip_rows.append(row)
+
+    expected = list(reversed(history.rows[-len(tip_rows):])) if tip_rows else []
+    if len(tip_rows) != len(expected):
+        return False
+    for atual, esperado in zip(tip_rows, expected):
+        fingerprint_atual = (atual['id'], atual['newStatus'], atual['createdAt'])
+        fingerprint_esperado = (esperado['id'], esperado['newStatus'], esperado['createdAt'])
+        if fingerprint_atual != fingerprint_esperado:
+            logger.warning("[chamados-reminder] ponta do histórico de %s mudou antes do envio", ticket_id)
+            return False
+
+    # `tip_rows` vem em ordem decrescente; a checagem de empate espera crescer.
+    if _status_tie_is_ambiguous(list(reversed(tip_rows))):
+        logger.warning("[chamados-reminder] empate ambíguo na ponta de %s", ticket_id)
+        return False
+    return True
+
+
+def _history_has_unreopened_terminal(history: _TicketEventHistory | None) -> bool:
+    """True se ticket_events mostra um terminal ainda não reaberto.
+
+    Usado apenas como evidência persistente para impedir que o worker reescreva
+    `last_known_status='aberto'` sobre um ciclo encerrado. Redis sozinho não
+    autoriza nem bloqueia reabertura: o histórico é a fonte da verdade.
+    """
+    if history is None or not history.available:
+        return False
+    closed_statuses = {'resolvido', 'fechado', 'indeferido'}
+    pending_terminal = False
+    for row in history.rows:
+        status = str(row.get('newStatus') or '').strip() or None
+        if status in closed_statuses:
+            pending_terminal = True
+        elif status == 'aberto' and pending_terminal:
+            pending_terminal = False
+    return pending_terminal
 
 
 def _reopened_terminal_from_events(rows: list[dict]) -> str | None:
@@ -4822,13 +5677,13 @@ def _reopened_terminal_from_events(rows: list[dict]) -> str | None:
     return reopened_from
 
 
-def _get_last_terminal_status(ticket_id: str) -> str | None:
+def _get_last_terminal_status(ticket_id: str, history: _TicketEventHistory | None = None) -> str | None:
     """Recupera o último status terminal encerrado por uma reabertura, a partir de ticket_events.
 
-    ticket_events já persiste todas as transições de status com newStatus e
-    createdAt (migração 101 adicionou a coluna newStatus). É usada como fonte
-    da verdade quando o Redis está indisponível ou não tem last_known_status,
-    permitindo detectar reabertura mesmo após falha de gravação no Redis.
+    ticket_events é a fonte da verdade para transições de status. O estado
+    do Redis (last_known_status) NÃO é usado para autorizar reabertura: ele
+    é volátil e pode estar desatualizado. Se a consulta ao histórico for
+    inconclusiva, o chamado é ignorado pelo fluxo de envio (fail-closed).
 
     A interpretação é cronológica e robusta a eventos posteriores à reabertura:
     - Percorre os eventos de status do mais antigo para o mais recente.
@@ -4854,24 +5709,26 @@ def _get_last_terminal_status(ticket_id: str) -> str | None:
       - aberto → a_caminho                             → None (sem reabertura)
 
     Retorna o status terminal encerrado pela reabertura mais recente, ou None
-    se não houver evento de status para o chamado ou se não houver reabertura.
+    se não houver reabertura ou se o histórico não estiver disponível.
     """
-    rows = _fetch_ticket_status_events(ticket_id)
-    if not rows:
+    if history is None:
+        history = _fetch_ticket_status_events(ticket_id)
+    if not history.available:
+        # Histórico vazio ou inconclusivo não autoriza reabertura.
         return None
-    return _reopened_terminal_from_events(rows)
+    return _reopened_terminal_from_events(history.rows)
 
 
-def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
+def _get_cycle_id(ticket_id: str, ticket: dict, history: _TicketEventHistory | None = None) -> str:
     """Retorna o identificador de ciclo de um chamado.
 
     O ciclo muda quando há uma reabertura real (status terminal → aberto).
     O cycle_id é o UUID do evento de status de reabertura em
     ticket_events, ou o createdAt do chamado se nunca houve reabertura.
 
-    Usar o UUID do evento garante unicidade mesmo quando dois eventos de
-    reabertura ocorrem no mesmo timestamp (createdAt), evitando colisão de
-    ciclo entre execuções concorrentes.
+    O UUID é um identificador opaco do evento: garante unicidade entre
+    ciclos, mas NÃO é usado como relógio. Empates entre um terminal e a
+    reabertura seguinte tornam a consulta inconclusiva (fail-closed).
 
     A interpretação é cronológica: percorre todos os eventos de status e
     identifica o último evento com newStatus='aberto' que sucede um status
@@ -4882,11 +5739,16 @@ def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
     Isso garante que marcas individuais de um ciclo anterior não interfiram
     no ciclo atual.
     """
-    rows = _fetch_ticket_status_events(ticket_id)
-    if not rows:
-        # Sem histórico consultável, usa o createdAt do chamado como fallback.
+    if history is None:
+        history = _fetch_ticket_status_events(ticket_id)
+    if history.inconclusive:
+        # Nunca inventar cycle_id a partir de createdAt quando a consulta
+        # falhou: isso reaproveitaria marcas de um ciclo anterior.
+        return ''
+    if not history.available:
         return str(ticket.get('createdAt') or '')
 
+    rows = history.rows
     closed_statuses = {'resolvido', 'fechado', 'indeferido'}
     last_reopening_event_id: str | None = None
     last_terminal: str | None = None
@@ -4897,8 +5759,10 @@ def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
         event_id = str(row.get('id') or '')
 
         if status in closed_statuses:
-            # Encontrou um terminal: pode ser encerrado por uma reabertura futura.
+            # Novo terminal encerra o ciclo anterior: descarta a reabertura
+            # que o iniciou até que uma nova reabertura apareça.
             last_terminal = status
+            last_reopening_event_id = None
         elif status == 'aberto' and last_terminal is not None:
             # Reabertura real: terminal → aberto. Este evento inicia um novo ciclo.
             last_reopening_event_id = event_id
@@ -4911,80 +5775,94 @@ def _get_cycle_id(ticket_id: str, ticket: dict) -> str:
     return str(ticket.get('createdAt') or '')
 
 
-def _is_reopening(ticket: dict, state: dict | None) -> bool:
-    """Detecta reabertura real: transição de encerrado/indeferido para aberto.
+def _is_reopening(ticket: dict, state: dict | None = None,
+                  history: _TicketEventHistory | None = None,
+                  cycle_id: str | None = None) -> bool:
+    """Detecta uma reabertura AINDA NÃO processada (terminal → aberto).
 
-    Regras:
-      - O status atual deve ser 'aberto'.
-      - A fonte da verdade é o histórico em ticket_events: só é reabertura
-        se houver uma transição terminal → aberto.
-      - O Redis (last_known_status) é usado como fallback apenas quando o
-        histórico não pôde ser consultado ou está vazio.
-      - `em_espera` não é terminal e não caracteriza reabertura.
-      - Alterações de descrição, comentários ou atribuições NÃO reiniciam o ciclo.
+    O estado do Redis NÃO autoriza reabertura; ele apenas registra qual
+    cycle_id já foi processado. Assim a mesma transição não dispara lembretes
+    em todas as execuções seguintes: se `state['cycle_id'] == cycle_id`, a
+    reabertura já foi consumida e o intervalo de 2 minutos volta a valer.
 
-    Retorna True se for reabertura real.
+    `em_espera` não é terminal. Comentários, edições e atribuições não criam
+    ciclos. Histórico vazio/inconclusivo nunca autoriza reabertura.
     """
     current_status = str(ticket.get('status') or '').strip()
     if current_status != 'aberto':
         return False
 
-    # Fonte da verdade para o último status terminal: ticket_events (Supabase,
-    # persistente mesmo se Redis falhar).
-    rows = _fetch_ticket_status_events(str(ticket.get('id') or ''))
-    if rows:
-        terminal_status = _reopened_terminal_from_events(rows)
-        if terminal_status is None:
-            # O histórico foi consultado com sucesso e não contém reabertura.
-            # Não usamos o Redis aqui para evitar falso positivo com estado
-            # antigo/deixado por uma execução anterior.
-            return False
-    else:
-        # Sem histórico consultável: usa o Redis como fallback.
-        if not state:
-            return False
-        terminal_status = str(state.get('last_known_status') or '').strip()
-        if not terminal_status:
-            return False
+    if history is None:
+        history = _fetch_ticket_status_events(str(ticket.get('id') or ''))
+    if not history.available:
+        return False
 
-    # Estados terminais que encerram o ciclo de lembretes.
-    # `em_espera` NÃO é um estado encerrado: é uma pausa do atendimento
-    # cuja única saída válida é a retomada (→ em_atendimento), conforme o
-    # fluxo de atendimento dos chamados. Não deve ser tratado como reabertura.
-    closed_statuses = {'resolvido', 'fechado', 'indeferido'}
-    return terminal_status in closed_statuses
+    reopening = _reopened_terminal_from_events(history.rows)
+    if reopening is None:
+        return False
+
+    if state and cycle_id and state.get('cycle_id') == cycle_id:
+        return False
+    return True
 
 
-def _acquire_reminder_lock(ticket_id: str) -> bool:
-    """Tenta adquirir lock atômico para processar o lembrete de um chamado.
+def _acquire_reminder_lock(ticket_id: str) -> str | None:
+    """Adquire o lock com SET NX EX atômico e devolve o token de posse.
 
-    Retorna True se o lock foi adquirido (esta instância processa).
-    Retorna False se outra instância já está processando (esta pula)
-    ou se o Redis estiver indisponível (fail-closed: não processa sem lock).
+    None significa "não processa": outro worker já possui o lock ou o Redis
+    falhou (fail-closed). O token é usado para renovação e liberação seguras.
     """
     if redis is None:
-        # Fail-closed: sem Redis não há lock atômico, não processamos
-        # para evitar duplicidade em condições de concorrência.
-        return False
+        return None
+    token = secrets.token_hex(16)
     try:
-        acquired = redis.setnx(_reminder_lock_key(ticket_id), '1')
-        if acquired:
-            redis.expire(_reminder_lock_key(ticket_id), REMINDER_LOCK_TTL_SECONDS)
-            return True
-        return False
+        acquired = redis.set(
+            _reminder_lock_key(ticket_id),
+            token,
+            nx=True,
+            ex=REMINDER_LOCK_TTL_SECONDS,
+        )
+        if not acquired:
+            return None
+        return token
     except Exception as e:
         logger.warning(f"[chamados-reminder] falha ao adquirir lock {ticket_id}: {e}")
-        return False  # falha do Redis ⇒ não processa (fail-closed)
+        return None
 
 
-def _release_reminder_lock(ticket_id: str) -> None:
-    """Libera o lock de processamento do lembrete."""
-    if redis is None:
+def _renew_reminder_lock(ticket_id: str, token: str) -> bool:
+    """Renova o TTL somente se este worker ainda for o dono do lock."""
+    if redis is None or not token:
+        return False
+    try:
+        result = redis.eval(
+            _REMINDER_LOCK_RENEW_SCRIPT,
+            keys=[_reminder_lock_key(ticket_id)],
+            args=[token, str(REMINDER_LOCK_TTL_SECONDS)],
+        )
+        return bool(result)
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] falha ao renovar lock {ticket_id}: {e}")
+        return False
+
+
+def _release_reminder_lock(ticket_id: str, token: str) -> None:
+    """Libera o lock somente se o token de posse ainda corresponder.
+
+    Um worker cujo TTL expirou não pode apagar o lock de quem o sucedeu.
+    Falha de Redis na liberação é logada, nunca propagada: o lock expira
+    sozinho pelo TTL.
+    """
+    if redis is None or not token:
         return
     try:
-        redis.delete(_reminder_lock_key(ticket_id))
-    except Exception:
-        pass  # Lock expira sozinho pelo TTL
+        redis.eval(
+            _REMINDER_LOCK_RELEASE_SCRIPT,
+            keys=[_reminder_lock_key(ticket_id)],
+            args=[token],
+        )
+    except Exception as e:
+        logger.warning(f"[chamados-reminder] falha ao liberar lock {ticket_id}: {e}")
 
 
 def _is_ticket_eligible_for_reminder(ticket: dict) -> bool:
@@ -4993,7 +5871,8 @@ def _is_ticket_eligible_for_reminder(ticket: dict) -> bool:
     Elegível:
       - status == 'aberto'
       - assignedToUserId vazio (não assumido)
-      - Não está resolvido/fechado/indeferido
+      - workspace_id válido (UUID). Um workspace vazio faria `_target_subs`
+        remover o filtro e entregar o push a todas as organizações.
     """
     status = str(ticket.get('status') or '').strip()
     assigned_to_user_id = str(ticket.get('assignedToUserId') or '').strip()
@@ -5001,87 +5880,264 @@ def _is_ticket_eligible_for_reminder(ticket: dict) -> bool:
         return False
     if assigned_to_user_id != '':
         return False
+
+    workspace_id = str(ticket.get('workspace_id') or '').strip()
+    if not workspace_id:
+        return False
+    try:
+        from uuid import UUID
+        UUID(workspace_id)
+    except (ValueError, TypeError, AttributeError):
+        return False
     return True
+
+
+def _fetch_ticket_by_id(ticket_id: str) -> dict | None:
+    """Relê o chamado no banco para revalidar elegibilidade antes do envio."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return None
+    url = (
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+        f'?id=eq.{quote(str(ticket_id))}'
+        f'&select=id,workspace_id,ticketNumber,roomName,problemCategory,createdAt,updatedAt,status,assignedToUserId'
+        f'&limit=1'
+    )
+    try:
+        resp = requests.get(url, headers=_supabase_headers(), timeout=15)
+        if not resp.ok:
+            logger.warning("[chamados-reminder] falha ao reler chamado %s: %s",
+                           ticket_id, resp.status_code)
+            return None
+        rows = resp.json()
+        if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+            return None
+        return rows[0]
+    except Exception as e:
+        logger.warning("[chamados-reminder] erro ao reler chamado %s: %s", ticket_id, e)
+        return None
+
+
+def _revalidate_super_admin_subs(subs: list) -> list:
+    """Remove inscrições cujo `is_super_admin` snapshot não é confirmado.
+
+    `_target_subs` confia no snapshot gravado no Redis quando o usuário era
+    super admin. Aqui, apenas no fluxo de lembretes, o valor é reconfirmado
+    contra `profiles`. Em erro de consulta, as inscrições com Snapshot de
+    super admin são descartadas (fail-closed) — sem alterar o comportamento
+    dos outros módulos de push.
+    """
+    privileged = [s for s in subs if (s.get('user') or {}).get('is_super_admin')]
+    if not privileged:
+        return subs
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return [s for s in subs if not (s.get('user') or {}).get('is_super_admin')]
+
+    ids = sorted({str((s.get('user') or {}).get('id') or '') for s in privileged} - {''})
+    if not ids:
+        return [s for s in subs if not (s.get('user') or {}).get('is_super_admin')]
+    in_filter = ','.join(quote(uid, safe='') for uid in ids)
+    url = (
+        f'{_SUPABASE_URL}/rest/v1/profiles'
+        f'?id=in.({in_filter})&select=id,is_super_admin'
+    )
+    confirmed: set[str] = set()
+    try:
+        resp = requests.get(url, headers=_supabase_headers(), timeout=10)
+        if resp.ok:
+            rows = resp.json()
+            if isinstance(rows, list):
+                confirmed = {
+                    str(row.get('id')) for row in rows
+                    if isinstance(row, dict) and row.get('is_super_admin')
+                }
+    except Exception as e:
+        logger.warning("[chamados-reminder] falha ao revalidar super admins: %s", e)
+
+    return [
+        s for s in subs
+        if not (s.get('user') or {}).get('is_super_admin')
+        or str((s.get('user') or {}).get('id') or '') in confirmed
+    ]
+
+
+def _eligible_reminder_subs(workspace_id: str) -> list:
+    """Destinatários elegíveis no workspace, sem duplicatas de identidade."""
+    subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='full')
+    subs = _revalidate_super_admin_subs(subs)
+    out = []
+    seen = set()
+    for sub in subs:
+        identity = _sub_identity(sub)
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+        out.append(sub)
+    return out
+
+
+def _revalidate_reminder_target(ticket_id: str, expected_cycle_id: str,
+                                expected_workspace_id: str, identity: str,
+                                lock_token: str, renew_lock,
+                                history: _TicketEventHistory) -> str:
+    """Revalida o contexto completo imediatamente antes de um push.
+
+    Retorna:
+      · 'ok'     — pode enviar;
+      · 'skip'   — este destinatário perdeu a elegibilidade;
+      · 'abort'  — chamado/histórico/lock mudou: interrompe os demais envios.
+
+    O snapshot completo do histórico é feito UMA vez por chamado e recebido
+    aqui por parâmetro. Por destinatário há apenas uma verificação leve da
+    ponta do histórico (`_verify_history_tip`), que detecta novo
+    terminal/reabertura sem repetir a paginação inteira. Não é cache: a ponta
+    é relida do Supabase a cada envio. O restante das validações (linha do
+    chamado, workspace, ciclo, lock e preferências) continua intacto.
+    """
+    if not renew_lock():
+        return 'abort'
+
+    if not _verify_history_tip(ticket_id, history, lock_renew=renew_lock):
+        logger.warning("[chamados-reminder] histórico mudou antes do envio de %s", ticket_id)
+        return 'abort'
+    # Estado Redis expirado não autoriza "ressuscitar" um ciclo encerrado:
+    # o histórico persistente é a fonte da verdade para terminal/reabertura.
+    if _history_has_unreopened_terminal(history):
+        logger.warning("[chamados-reminder] terminal sem reabertura antes do envio de %s", ticket_id)
+        return 'abort'
+
+    fresh = _fetch_ticket_by_id(ticket_id)
+    if fresh is None or not _is_ticket_eligible_for_reminder(fresh):
+        return 'abort'
+    if str(fresh.get('workspace_id') or '').strip() != expected_workspace_id:
+        logger.warning("[chamados-reminder] workspace de %s mudou antes do envio", ticket_id)
+        return 'abort'
+
+    cycle_id = _get_cycle_id(ticket_id, fresh, history=history)
+    if not cycle_id or cycle_id != expected_cycle_id:
+        logger.warning("[chamados-reminder] ciclo de %s mudou antes do envio", ticket_id)
+        return 'abort'
+
+    if not renew_lock():
+        return 'abort'
+    if not any(_sub_identity(s) == identity
+               for s in _eligible_reminder_subs(expected_workspace_id)):
+        return 'skip'
+    return 'ok'
+
+
+def _parse_aware_iso(value) -> datetime | None:
+    """Parse ISO-8601 exigindo timezone explícito; None se inválido."""
+    return _parse_event_datetime(value)
 
 
 def _is_reminder_due(
     ticket: dict,
     state: dict | None,
     now: datetime,
+    history: _TicketEventHistory | None = None,
+    cycle_id: str | None = None,
 ) -> bool:
     """Verifica se o lembrete está devido para envio.
 
     Regras:
-      - Reabertura real (encerrado→aberto): devido imediatamente.
-      - Se não há estado prévio: primeiro lembrete só após
-        REMINDER_INTERVAL_SECONDS contados a partir de createdAt.
-      - Se há estado prévio: devido se passou REMINDER_INTERVAL_SECONDS desde
+      - Reabertura AINDA não processada: devido imediatamente (uma vez).
+      - Sem estado prévio: primeiro lembrete só após REMINDER_INTERVAL_SECONDS
+        contados a partir de createdAt.
+      - Com estado prévio: devido se passou REMINDER_INTERVAL_SECONDS desde
         last_reminder_at.
+      - Timestamp ausente/inválido/sem timezone: NÃO devido (fail-closed),
+        nunca "envia para não travar".
     """
-    # Reabertura real reseta o ciclo.
-    if _is_reopening(ticket, state):
+    # Reabertura reseta o ciclo apenas quando ainda não foi processada.
+    if _is_reopening(ticket, state, history=history, cycle_id=cycle_id):
         return True
 
     last_reminder_at = state.get('last_reminder_at') if state else None
 
     if not last_reminder_at:
-        # Primeiro lembrete: usa createdAt como referência de início.
-        created_at = str(ticket.get('createdAt') or '')
-        if not created_at:
-            return True  # sem createdAt, não podemos calcular; envia para não travar
-        try:
-            created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-            elapsed = (now - created_dt).total_seconds()
-            return elapsed >= REMINDER_INTERVAL_SECONDS
-        except Exception:
-            return True  # se não conseguir parsear, envia para não travar
+        created_dt = _parse_aware_iso(ticket.get('createdAt'))
+        if created_dt is None:
+            return False
+        return (now - created_dt).total_seconds() >= REMINDER_INTERVAL_SECONDS
+
+    last_dt = _parse_aware_iso(last_reminder_at)
+    if last_dt is None:
+        return False
+    return (now - last_dt).total_seconds() >= REMINDER_INTERVAL_SECONDS
+
+
+def _finalize_reminder_cycle(ticket_id: str, ticket: dict, state: dict,
+                             subs: list, cycle_id: str, wave: int,
+                             now: datetime, workspace_id: str,
+                             lock_token: str,
+                             terminal_confirmed: bool = False) -> bool:
+    """Persiste o estado da onda concluída e só depois faz manutenção das marcas.
+
+    As marcas da onda atual NÃO são apagadas: elas expiram naturalmente e são a
+    defesa contra duplicidade se o estado não puder ser gravado. A limpeza
+    remove apenas ondas antigas e é best-effort; falha parcial não altera a
+    elegibilidade de ninguém na onda corrente.
+    """
+    generation = _reminder_transition_generation(state)
+    new_state = {
+        'ticket_id': ticket_id,
+        'workspace_id': workspace_id,
+        'last_reminder_at': now.isoformat(),
+        'reminder_count': int(wave),
+        'last_known_status': str(ticket.get('status') or 'aberto'),
+        'cycle_id': cycle_id,
+        'transition_generation': generation,
+    }
+    if terminal_confirmed:
+        written = _write_reminder_state(
+            ticket_id, new_state, lock_token=lock_token, terminal_confirmed=True,
+        )
     else:
-        # Lembretes recorrentes: intervalo desde o último envio.
-        try:
-            last_dt = datetime.fromisoformat(str(last_reminder_at).replace('Z', '+00:00'))
-            elapsed = (now - last_dt).total_seconds()
-            return elapsed >= REMINDER_INTERVAL_SECONDS
-        except Exception:
-            return True  # se não conseguir parsear, envia para não travar
+        written = _write_reminder_state(ticket_id, new_state, lock_token=lock_token)
+    if not written:
+        return False
+    _clear_sent_marks(ticket_id, cycle_id, int(wave), subs, lock_token=lock_token)
+    return True
 
 
 def _check_and_send_reminders() -> dict:
     """Verifica chamados não assumidos e envia lembretes de push quando devido.
 
-    Lógica de envio com controle individual por destinatário:
-      1. Exige Redis configurado (fail-closed sem lock atômico).
-      2. Lista chamados `aberto` sem `assignedToUserId`.
-      3. Para cada chamado, adquire lock atômico (evita execução duplicada).
-      4. Verifica se o lembrete está devido (respeita createdAt para o primeiro).
-      5. Destinatários via _target_subs(module='chamados', workspace_id=..., min_level='full').
-      6. Filtra destinatários que já receberam no ciclo atual (marca individual).
-      7. Envia somente para os pendentes.
-      8. Marca cada destinatário como enviado após confirmação de push_notify.
-      9. Ciclo concluído apenas quando TODOS os destinatários foram marcados.
-      10. Detecta reabertura real (encerrado→aberto) via last_known_status.
-      11. Interrompe se o chamado deixou de ser elegível.
+    Modelo de entrega: at-least-once com deduplicação por destinatário, ciclo
+    e onda. HTTP 2xx do Web Push é apenas aceitação para entrega (2xx), não
+    confirmação de exibição no dispositivo. `push_notify` distingue `accepted`,
+    `rejected` e `unknown`: timeout/queda de conexão e resposta perdida são
+    `unknown`, contabilizados em `ambiguous` SEM marca confirmada. Se a marca
+    Redis falhar após aceitação, o envio também é ambíguo e pode haver
+    duplicidade na execução seguinte. Redis indisponível bloqueia o
+    processamento quando a integridade não pode ser garantida.
 
-    Garantias:
-      - No máximo um envio por destinatário por ciclo.
-      - Envio parcial não bloqueia: pendentes são reenviados no próximo ciclo.
-      - Destinatários que já receberam não são notificados novamente no mesmo ciclo.
+    Sequência por chamado:
+      1. lock atômico `SET NX EX` com token de posse e deadline de execução;
+      2. histórico completo — UMA vez por chamado, com duas passagens para
+         detectar mutação durante a leitura — inconclusivo ⇒ nenhum envio;
+      3. refetch do chamado e validação de elegibilidade/workspace;
+      4. estado lido com token: falha/perda de posse ⇒ nenhum envio;
+      5. `cycle_id` e `wave` derivados do histórico e do contador persistido;
+      6. antes de CADA push: lock, ponta do histórico (consulta leve, sem
+         repaginar), chamado, ciclo, workspace, destinatário, preferências e
+         marca são revalidados;
+      7. push com timeout explícito, marca individual fenciada e estado da
+         onda persistido somente se todas as marcas existirem;
+      8. limpeza de marcas antigas é manutenção best-effort, nunca lógica.
 
-    Limitações de entrega:
-      - Não há garantia de entrega exatamente uma vez.
-      - "Sucesso" de envio significa aceitação da notificação pelo serviço Web
-        Push (resposta HTTP 2xx), não confirmação de que o dispositivo exibiu
-        a notificação.
-      - Se push_notify() retornar True mas a gravação da marca individual no
-        Redis falhar, o destinatário poderá receber o lembrete novamente no
-        próximo ciclo (duplicidade possível dentro do TTL da marca).
-      - Se a marca individual for gravada mas o dispositivo não receber a
-        notificação (falha de rede entre o serviço Push e o dispositivo), o
-        lembrete não será reenviado no ciclo atual (perda de entrega possível).
-      - Se o estado geral não for gravado após o ciclo completo, o próximo ciclo
-        reavaliará o chamado com base em createdAt/intervalo.
+    Consultas Supabase esperadas: por CHAMADO, 1 listagem + 2 passagens do
+    histórico + 1 refetch do chamado + 1 consulta de subs (mais páginas
+    adicionais se o histórico exceder `REMINDER_EVENT_PAGE_SIZE`). Por
+    DESTINATÁRIO, 1 consulta leve de `ticket_events` (`REMINDER_TIP_PAGE_SIZE`),
+    1 refetch do chamado e as consultas de elegibilidade de subs. Antes da
+    correção eram 2 passagens completas do histórico POR destinatário — a
+    amplificação crescia com o número de eventos e de inscritos.
 
-    Não reenvia lembretes acumulados: execuções atrasadas processam apenas o
-    ciclo atual, não compensam intervalos perdidos.
+    `sent` conta pushes aceitos (2xx); `confirmed` conta os aceitos que também
+    receberam marca de deduplicação; `ambiguous` conta aceitos sem marca mais
+    tentativas com resultado indeterminado (`unknown`). Rejeições confirmadas
+    não entram em nenhum dos três contadores.
     """
     if not _require_supabase():
         return {'error': 'Supabase não configurado', 'sent': 0, 'checked': 0}
@@ -5092,7 +6148,6 @@ def _check_and_send_reminders() -> dict:
         return {'error': 'Redis não configurado', 'sent': 0, 'checked': 0}
 
     try:
-        # Busca chamados abertos sem responsável (assignedToUserId vazio).
         resp = requests.get(
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
             f'?status=eq.aberto'
@@ -5107,8 +6162,9 @@ def _check_and_send_reminders() -> dict:
             return {'error': 'Erro ao listar chamados', 'sent': 0, 'checked': 0}
 
         tickets = resp.json() or []
-        now = datetime.now(timezone.utc)
         sent_total = 0
+        confirmed_total = 0
+        ambiguous_total = 0
         checked_total = 0
 
         for ticket in tickets:
@@ -5116,67 +6172,115 @@ def _check_and_send_reminders() -> dict:
             if not ticket_id:
                 continue
 
-            # Re-verifica elegibilidade no banco (pode ter mudado entre a listagem e agora).
+            # Primeira checagem usa apenas a linha da listagem; a definitiva
+            # acontece depois da consulta ao histórico (ver abaixo).
             if not _is_ticket_eligible_for_reminder(ticket):
                 continue
 
-            # Lock atômico: apenas uma instância processa cada chamado.
-            if not _acquire_reminder_lock(ticket_id):
-                continue  # outra instância já está processando este chamado
+            lock_token = _acquire_reminder_lock(ticket_id)
+            if not lock_token:
+                continue
+
+            started_at = time.monotonic()
+
+            def renew_lock():
+                if time.monotonic() - started_at > REMINDER_MAX_EXECUTION_SECONDS:
+                    logger.warning(
+                        "[chamados-reminder] limite de %ss excedido em %s",
+                        REMINDER_MAX_EXECUTION_SECONDS, ticket_id,
+                    )
+                    return False
+                return _renew_reminder_lock(ticket_id, lock_token)
 
             try:
                 checked_total += 1
 
-                # Lê estado prévio no Redis.
-                state = _read_reminder_state(ticket_id) or {}
+                history = _fetch_ticket_status_events(ticket_id, lock_renew=renew_lock)
+                if history.inconclusive:
+                    logger.warning(
+                        "[chamados-reminder] histórico inconclusivo; pulando chamado %s",
+                        ticket_id,
+                    )
+                    continue
+                # Item 6: chave de estado expirada NÃO pode restaurar um ciclo
+                # antigo. Terminal sem reabertura no histórico bloqueia o envio
+                # mesmo que a linha do chamado ainda diga 'aberto'.
+                if _history_has_unreopened_terminal(history):
+                    logger.warning(
+                        "[chamados-reminder] terminal sem reabertura; pulando chamado %s",
+                        ticket_id,
+                    )
+                    continue
 
-                # Calcula o ciclo atual (muda em reabertura real).
-                cycle_id = _get_cycle_id(ticket_id, ticket)
+                fresh_ticket = _fetch_ticket_by_id(ticket_id)
+                if fresh_ticket is None or not _is_ticket_eligible_for_reminder(fresh_ticket):
+                    continue
+                ticket = fresh_ticket
 
-                # Verifica se já atingiu o máximo de lembretes.
-                reminder_count = int(state.get('reminder_count', 0) or 0)
+                state, state_ok = _read_reminder_state_result(ticket_id, lock_token=lock_token)
+                if not state_ok:
+                    continue
+                state = state or {}
+
+                cycle_id = _get_cycle_id(ticket_id, ticket, history=history)
+                if not cycle_id:
+                    continue
+
+                # Anti-coerção: `int()` transformaria '2', 2.0, True e até
+                # `None or 0` em contadores válidos. O estado é validado na
+                # leitura; aqui a ausência da chave é o único fallback seguro
+                # para 0 (espelhando os scripts Lua). Qualquer valor presente
+                # e inválido fail-closed, sem reescrita do estado.
+                raw_count = state.get('reminder_count', 0)
+                if not _valid_reminder_count(raw_count):
+                    logger.warning(
+                        "[chamados-reminder] reminder_count inválido em %s; pulando",
+                        ticket_id,
+                    )
+                    continue
+                reminder_count = raw_count
                 if reminder_count >= REMINDER_MAX_COUNT:
                     continue
+                wave = reminder_count + 1
 
-                # Verifica se o lembrete está devido.
-                if not _is_reminder_due(ticket, state, now):
+                if not renew_lock():
                     continue
 
-                # Destinatários: técnicos elegíveis do workspace (RBAC2 + preferências).
-                workspace_id = str(ticket.get('workspace_id') or '')
-                subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='full')
+                # `now` é lido aqui — depois do histórico — e novamente ao
+                # persistir: lotes longos não encurtam o intervalo de 2 min.
+                if not _is_reminder_due(
+                    ticket, state, datetime.now(timezone.utc),
+                    history=history, cycle_id=cycle_id,
+                ):
+                    continue
+
+                workspace_id = str(ticket.get('workspace_id') or '').strip()
+                if not workspace_id:
+                    continue  # defesa em profundidade (já validado na elegibilidade)
+
+                subs = _eligible_reminder_subs(workspace_id)
                 if not subs:
-                    # Sem destinatários elegíveis: não envia, não conta como lembrete.
                     continue
 
-                # Filtra destinatários que já receberam no ciclo atual (controle individual).
                 pending_subs = []
                 for sub in subs:
-                    endpoint = str(sub.get('endpoint') or '')
-                    if not endpoint:
-                        # Sem endpoint, não há como controlar individualmente;
-                        # considera pendente para não perder a entrega.
-                        pending_subs.append(sub)
+                    identity = _sub_identity(sub)
+                    if not identity:
                         continue
-                    endpoint_hash = _endpoint_hash(endpoint)
-                    if _is_sub_sent(ticket_id, cycle_id, endpoint_hash):
-                        # Já recebeu neste ciclo, pula.
+                    if _is_sub_sent(ticket_id, cycle_id, wave, identity, lock_token=lock_token):
                         continue
                     pending_subs.append(sub)
 
                 if not pending_subs:
-                    # Todos já receberam neste ciclo: ciclo concluído.
-                    # Limpa marcas individuais e grava estado final.
-                    _clear_sent_marks(ticket_id, cycle_id, subs)
-                    new_state = {
-                        'ticket_id': ticket_id,
-                        'workspace_id': workspace_id,
-                        'last_reminder_at': state.get('last_reminder_at') or now.isoformat(),
-                        'reminder_count': reminder_count,
-                        'last_known_status': str(ticket.get('status') or 'aberto'),
-                        'cycle_id': cycle_id,
-                    }
-                    _write_reminder_state(ticket_id, new_state)
+                    # Todas as marcas da onda existem, mas o estado não foi
+                    # gravado (ex.: falha no commit). Persistir uma vez, sem
+                    # reenvio; a limpeza de ondas antigas é best-effort.
+                    if _finalize_reminder_cycle(
+                        ticket_id, ticket, state, subs, cycle_id, wave,
+                        datetime.now(timezone.utc), workspace_id, lock_token=lock_token,
+                        terminal_confirmed=_history_has_unreopened_terminal(history),
+                    ):
+                        logger.info("[chamados-reminder] estado recuperado para %s", ticket_id)
                     continue
 
                 num = ticket.get('ticketNumber')
@@ -5189,56 +6293,115 @@ def _check_and_send_reminders() -> dict:
                 )
                 url = f"/chamados/tickets/{ticket.get('id')}"
 
-                sent_in_cycle = 0
+                accepted_in_wave = 0
+                confirmed_in_wave = 0
+                ambiguous_in_wave = 0
+                skipped_identities: set[str] = set()
+
                 for sub in pending_subs:
-                    if push_notify(sub, title, body, url=url):
-                        endpoint = str(sub.get('endpoint') or '')
-                        if endpoint:
-                            _mark_sub_sent(ticket_id, cycle_id, _endpoint_hash(endpoint))
-                        sent_in_cycle += 1
+                    identity = _sub_identity(sub)
 
-                # Conta envios individuais bem-sucedidos, mesmo em ciclos incompletos.
-                sent_total += sent_in_cycle
-
-                # Verifica se todos os destinatários foram marcados como enviados.
-                all_sent = True
-                for sub in subs:
-                    endpoint = str(sub.get('endpoint') or '')
-                    if not endpoint:
+                    status = _revalidate_reminder_target(
+                        ticket_id, cycle_id, workspace_id, identity, lock_token, renew_lock,
+                        history=history,
+                    )
+                    if status == 'abort':
+                        break
+                    if status == 'skip':
+                        skipped_identities.add(identity)
                         continue
-                    endpoint_hash = _endpoint_hash(endpoint)
-                    if not _is_sub_sent(ticket_id, cycle_id, endpoint_hash):
+                    if not renew_lock():
+                        logger.warning("[chamados-reminder] lock perdido durante envio de %s", ticket_id)
+                        break
+
+                    # A marca é relida depois de todas as validações e
+                    # imediatamente antes do push.
+                    if _is_sub_sent(ticket_id, cycle_id, wave, identity, lock_token=lock_token):
+                        continue
+
+                    push_result = _push_outcome(push_notify(
+                        sub, title, body, url=url,
+                        timeout=REMINDER_PUSH_TIMEOUT_SECONDS,
+                    ))
+                    if push_result == PUSH_ACCEPTED:
+                        accepted_in_wave += 1
+                        if _mark_sub_sent(ticket_id, cycle_id, wave, identity, lock_token=lock_token):
+                            confirmed_in_wave += 1
+                        else:
+                            ambiguous_in_wave += 1
+                            logger.warning(
+                                "[chamados-reminder] push aceito mas marca falhou em %s:%s — "
+                                "resultado ambíguo; duplicidade possível",
+                                ticket_id, identity,
+                            )
+                    elif push_result == PUSH_UNKNOWN:
+                        # O provedor pode ter aceito e a resposta ter se perdido:
+                        # indeterminado, sem marca confirmada e sem `sent`.
+                        ambiguous_in_wave += 1
+                        logger.warning(
+                            "[chamados-reminder] resultado desconhecido no push de %s:%s — "
+                            "contabilizado como ambíguo; nenhuma marca confirmada gravada",
+                            ticket_id, identity,
+                        )
+                    else:
+                        logger.info(
+                            "[chamados-reminder] push rejeitado para %s:%s; nenhum contador incrementado",
+                            ticket_id, identity,
+                        )
+
+                sent_total += accepted_in_wave
+                confirmed_total += confirmed_in_wave
+                ambiguous_total += ambiguous_in_wave
+                if accepted_in_wave == 0:
+                    continue
+
+                wave_subs = [
+                    s for s in subs if _sub_identity(s) not in skipped_identities
+                ]
+                all_sent = True
+                for sub in wave_subs:
+                    identity = _sub_identity(sub)
+                    if not identity or not _is_sub_sent(
+                        ticket_id, cycle_id, wave, identity, lock_token=lock_token
+                    ):
                         all_sent = False
                         break
 
-                if all_sent and sent_in_cycle > 0:
-                    # Ciclo concluído: todos os destinatários receberam.
-                    _clear_sent_marks(ticket_id, cycle_id, subs)
-                    new_state = {
-                        'ticket_id': ticket_id,
-                        'workspace_id': workspace_id,
-                        'last_reminder_at': now.isoformat(),
-                        'reminder_count': reminder_count + 1,
-                        'last_known_status': str(ticket.get('status') or 'aberto'),
-                        'cycle_id': cycle_id,
-                    }
-                    if _write_reminder_state(ticket_id, new_state):
+                if all_sent:
+                    if _finalize_reminder_cycle(
+                        ticket_id, ticket, state, wave_subs, cycle_id, wave,
+                        datetime.now(timezone.utc), workspace_id, lock_token=lock_token,
+                        terminal_confirmed=_history_has_unreopened_terminal(history),
+                    ):
                         logger.info(
-                            f"[chamados-reminder] lembrete #{new_state['reminder_count']} "
-                            f"concluído para chamado #{num} "
-                            f"({sent_in_cycle}/{len(subs)}) ws={workspace_id}"
+                            "[chamados-reminder] onda %s concluída para chamado #%s "
+                            "(%s/%s) ws=%s",
+                            wave, num, accepted_in_wave, len(subs), workspace_id,
                         )
-                    # Se falhou ao gravar o estado, as marcas individuais permanecem
-                    # e o próximo ciclo retomará para os pendentes.
+                    else:
+                        logger.warning(
+                            "[chamados-reminder] estado da onda %s não persistido em %s; "
+                            "marcas preservadas", wave, ticket_id,
+                        )
 
+            except Exception as e:
+                # Isola a falha no chamado atual: um estado corrompido ou uma
+                # falha transitória de Redis não aborta os demais do lote.
+                logger.warning("[chamados-reminder] falha ao processar %s: %s", ticket_id, e)
             finally:
-                _release_reminder_lock(ticket_id)
+                _release_reminder_lock(ticket_id, lock_token)
 
-        print(f"[chamados-reminder] verificação: {checked_total} checados, {sent_total} enviados")
+        print(
+            f"[chamados-reminder] verificação: {checked_total} checados, "
+            f"{sent_total} enviados, {confirmed_total} confirmados, "
+            f"{ambiguous_total} ambíguos"
+        )
         return {
             'ok': True,
             'checked': checked_total,
             'sent': sent_total,
+            'confirmed': confirmed_total,
+            'ambiguous': ambiguous_total,
         }
 
     except Exception as e:
@@ -5261,8 +6424,9 @@ def chamados_reminders_check():
     desejada (ex.: a cada 2 minutos). Não introduzimos novo serviço pago
     nem nova dependência sem autorização.
 
-    Não cria lembrete duplicado: usa lock atômico no Redis por chamado
-    e controle individual de envio por destinatário.
+    Usa lock atômico no Redis por chamado e deduplicação por
+    (chamado, ciclo, onda, destinatário). A entrega é at-least-once: uma falha
+    ambígua do Web Push pode gerar duplicidade; 2xx não prova exibição.
     """
     result = _check_and_send_reminders()
     if 'error' in result:
