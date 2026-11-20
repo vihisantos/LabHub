@@ -445,7 +445,7 @@ Procurar operações onde duas pessoas agem sobre a mesma entidade.
 | Evento | Destinatário atual | Regra atual | Uso futuro sugerido |
 |---|---|---|---|
 | Novo chamado | push TI (`module='chamados'`); `_notify_new_ticket` `api/app.py:1739` | assinaturas módulo | `requester`, `assigned user`, `leader`, `workspace admin` |
-| Mudança de status de chamado | push professor por assinatura `push:chamado:{id}` | cap 10 | `requester` |
+| Mudança de status de chamado | push professor por assinatura em `public.chamado_push_subscriptions` (antiga chave Redis `push:chamado:{id}`) | cap 10 | `requester` |
 | Atribuição de chamado | push direto ao técnico (user_id) | — | `assigned user` |
 | Relatório semanal | e-mail admin (Resend) | — | `workspace admin` |
 | Pedido/aprovação de música | **NÃO EXISTE hoje** | — | futuramente `requester`/`moderator` |

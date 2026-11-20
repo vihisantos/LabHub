@@ -14,14 +14,23 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_store_fakes import PgStoreFakeMixin
+
 API_FILE = Path(__file__).resolve().parents[1] / "app.py"
 
 
 # ── Fake Redis com suporte a keys individuais ──────────────────────────────
 
 
-class FakeRedis:
-    """Fake Redis que diferencia entre keys (necessário para testes de isolamento)."""
+class FakeRedis(PgStoreFakeMixin):
+    """Fake do store que diferencia entre keys (isolamento por ticket).
+
+    Também expõe a linguagem do ``pg_store`` (``chamado_subs_*``). O legado
+    ``expire`` continua registrando em ``expires`` e espelha a chamada em
+    ``chamado_subs_expire_calls`` para que o teste sirva antes e depois da
+    migração do chamador para a RPC PostgreSQL.
+    """
 
     def __init__(self):
         self._store: dict[str, set[str]] = {}
@@ -50,6 +59,10 @@ class FakeRedis:
 
     def expire(self, key: str, seconds: int) -> bool:
         self.expires.append((key, seconds))
+        if (key.startswith("push:chamado:")
+                and not getattr(self, "_pg_fake_expire_context", False)):
+            ticket_id = key[len("push:chamado:"):]
+            self.chamado_subs_expire_calls.append((ticket_id, int(seconds)))
         return True
 
 
@@ -538,4 +551,5 @@ def test_notify_ticket_status_revoga_anonimos_apos_conclusao(api_module, monkeyp
 
     api_module._notify_ticket_status(ticket)
 
-    assert redis.expires == [("push:chamado:ticket-y", 600)]
+    # A expiração passa a ser feita por `chamado_subs_expire` no pg_store.
+    assert redis.chamado_subs_expire_calls == [("ticket-y", 600)]

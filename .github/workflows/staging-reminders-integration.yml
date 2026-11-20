@@ -1,0 +1,112 @@
+# Integração REAL de lembretes/Push contra o Supabase STAGING autorizado.
+#
+# ⛔ Execução MANUAL (workflow_dispatch). Nunca roda em push/PR, nunca é check
+#    de branch protection e NUNCA referencia secrets de produção.
+#
+# Barreiras de destino (fail-closed, antes de qualquer escrita):
+#   1. secrets.SUPABASE_STAGING_PROJECT_REF — ref do projeto Staging;
+#   2. secrets.SUPABASE_STAGING_ACCESS_TOKEN — PAT da Management API;
+#   3. vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS — allowlist do repositório;
+#   4. STAGING_PROJECT_REFS abaixo — allowlist FIXA revisada nesta PR.
+# As quatro precisam concordar. Qualquer divergência aborta sem request.
+#
+# A aplicação da migration 111 usa o mesmo mecanismo do runner de produção:
+# transação única + pg_advisory_xact_lock + registro em schema_migrations.
+# Os testes criam apenas UUIDs aleatórios e removem tudo ao final.
+
+name: Staging — lembretes PostgreSQL (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite STAGING para autorizar a aplicação da migration e os testes reais.'
+        required: true
+        default: ''
+      apply_migration:
+        description: 'Aplicar a migration 111 antes dos testes?'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  STAGING_PROJECT_REFS: 'pgmetdqsdjotdcifjivu'
+
+jobs:
+  integration:
+    name: Validar e testar no Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: staging-reminders-integration
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependências mínimas
+        run: pip install requests pytest python-dotenv
+
+      - name: Confirmção explícita
+        if: ${{ inputs.confirm != 'STAGING' }}
+        run: |
+          echo "Confirmação inválida: informe exatamente STAGING."
+          exit 1
+
+      - name: Preflight — provar destino Staging (fail-closed)
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+          ref = os.environ.get("SUPABASE_STAGING_PROJECT_REF", "").strip()
+          token = os.environ.get("SUPABASE_STAGING_ACCESS_TOKEN", "").strip()
+          allowed = {p.strip() for p in os.environ.get("SUPABASE_STAGING_ALLOWED_PROJECT_REFS", "").split(",") if p.strip()}
+          fixed = {p.strip() for p in os.environ.get("STAGING_PROJECT_REFS", "").split(",") if p.strip()}
+          if token:
+              print("::add-mask::" + token)
+          if not re.fullmatch(r"[a-z0-9]{20}", ref):
+              sys.exit("SUPABASE_STAGING_PROJECT_REF inválido")
+          if not allowed or not fixed or ref not in allowed or ref not in fixed:
+              sys.exit("Ref de Staging divergente do allowlist; abortando")
+          if not token:
+              sys.exit("SUPABASE_STAGING_ACCESS_TOKEN ausente")
+          print("Destino Staging autorizado.")
+          PY
+
+      - name: Dry-run da migration 111 (read-only)
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py --dry-run \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 111 no Staging
+        if: ${{ inputs.apply_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Testes reais PostgreSQL (Staging)
+        env:
+          LABHUB_TEST_SUPABASE_STAGING: '1'
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python -m pytest api/tests/test_postgres_reminders_integration.py -q --tb=short

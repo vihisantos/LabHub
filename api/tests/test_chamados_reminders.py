@@ -28,6 +28,8 @@ API_FILE = Path(__file__).resolve().parents[1] / 'app.py'
 WS_A = '25257d4b-9ec9-4119-be5b-88901ce7d94c'
 WS_B = '5ee618dd-8f8d-44c5-b0c3-bbf6f0fa8cdf'
 
+ERRO_STORE_INDISPONIVEL = 'Store PostgreSQL não configurado'
+
 
 def _tid(n):
     return f'{n:08x}-0000-4000-8000-{n:012x}'
@@ -274,6 +276,8 @@ class FakeRedis:
                     return 0
                 if not _geracao_valida_para_teste(expected):
                     return 0
+                if expected >= 1_000_000_000:
+                    return 0
                 expected = int(expected)
                 legacy_migrated = False
                 raw = self._evict_if_expired(state_key)
@@ -310,6 +314,8 @@ class FakeRedis:
                     return 0
                 payload_generation = incoming.get('transition_generation')
                 if not _geracao_valida_para_teste(payload_generation):
+                    return 0
+                if payload_generation >= 1_000_000_000:
                     return 0
                 if int(payload_generation) != expected:
                     return 0
@@ -348,6 +354,156 @@ class FakeRedis:
                 self.expires[key] = self.now + float(args[1])
                 return 1
             return 0
+
+    # ── Store PostgreSQL em memória ────────────────────────────────────────
+    # Os métodos abaixo implementam o contrato de `pg_store` sobre o MESMO
+    # estado do fake (chaves `chamado:reminder:*` e `push:chamado:*`). Assim as
+    # assertions existentes continuam valendo sem reescrever os cenários.
+
+    _RENEW_SCRIPT = '-- expire lock-renew'
+    _RELEASE_SCRIPT = '-- del lock-release'
+    _SETEX_SCRIPT = '-- fenced-setex'
+    _GET_SCRIPT = '-- fenced-get'
+    _DELETE_SCRIPT = '-- fenced-delete'
+    _TRANSITION_SCRIPT = '-- transition-status'
+    _STATE_WRITE_SCRIPT = '-- fenced-state-write'
+
+    @staticmethod
+    def _ck(ticket_id):
+        return f'chamado:reminder:lock:{ticket_id}'
+
+    @staticmethod
+    def _sk(ticket_id):
+        return f'chamado:reminder:state:{ticket_id}'
+
+    @classmethod
+    def _mk(cls, ticket_id, cycle_id, wave, identity):
+        return f'chamado:reminder:sent:{ticket_id}:{cycle_id}:{int(wave)}:{identity}'
+
+    def reminder_acquire(self, ticket_id, workspace_id, token, lock_seconds):
+        # Reusa SET NX EX: mesmo token, expiração por relógio falso e falhas
+        # seletivas por prefixo de chave.
+        return bool(self.set(
+            self._ck(ticket_id), token, nx=True, ex=int(lock_seconds),
+        ))
+
+    def reminder_renew(self, ticket_id, token, lock_seconds):
+        return bool(self.eval(
+            self._RENEW_SCRIPT,
+            keys=[self._ck(ticket_id)],
+            args=[token, int(lock_seconds)],
+        ))
+
+    def reminder_release(self, ticket_id, token):
+        return bool(self.eval(
+            self._RELEASE_SCRIPT,
+            keys=[self._ck(ticket_id)],
+            args=[token],
+        ))
+
+    def reminder_read(self, ticket_id, token=None):
+        with self._lock:
+            if token:
+                result = self.eval(
+                    self._GET_SCRIPT,
+                    keys=[self._ck(ticket_id), self._sk(ticket_id)],
+                    args=[token],
+                )
+                if not result or result[0] != 1:
+                    return {'ok': False, 'state': None}
+                raw = result[1]
+            else:
+                raw = self.get(self._sk(ticket_id))
+            if not raw:
+                return {'ok': True, 'state': None}
+            try:
+                state = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                return {'ok': False, 'state': None}
+            if not _estado_valido_para_teste(state):
+                return {'ok': False, 'state': None}
+            if 'transition_generation' in state:
+                if not _geracao_valida_para_teste(state['transition_generation']):
+                    return {'ok': False, 'state': None}
+            elif 'legacy_generation_migrated' in state:
+                return {'ok': False, 'state': None}
+            return {'ok': True, 'state': state}
+
+    def reminder_write(self, ticket_id, token, expected_generation, state,
+                       terminal_confirmed=False):
+        payload = state if isinstance(state, str) else json.dumps(state, ensure_ascii=False)
+        return bool(self.eval(
+            self._STATE_WRITE_SCRIPT,
+            keys=[self._ck(ticket_id), self._sk(ticket_id)],
+            args=[
+                token,
+                str(7 * 24 * 3600),
+                payload,
+                str(expected_generation),
+                str((state or {}).get('last_known_status') or '')
+                if isinstance(state, dict) else '',
+                str((state or {}).get('cycle_id') or '')
+                if isinstance(state, dict) else '',
+                '1' if terminal_confirmed else '0',
+            ],
+        ))
+
+    def reminder_mark_sent(self, ticket_id, cycle_id, wave, identity, token):
+        return bool(self.eval(
+            self._SETEX_SCRIPT,
+            keys=[self._ck(ticket_id), self._mk(ticket_id, cycle_id, wave, identity)],
+            args=[token, str(7 * 24 * 3600), '1'],
+        ))
+
+    def reminder_is_marked(self, ticket_id, cycle_id, wave, identity, token=None):
+        key = self._mk(ticket_id, cycle_id, wave, identity)
+        with self._lock:
+            if token:
+                result = self.eval(
+                    self._GET_SCRIPT,
+                    keys=[self._ck(ticket_id), key],
+                    args=[token],
+                )
+                if not result or result[0] != 1:
+                    return {'ok': False, 'marked': False}
+                return {'ok': True, 'marked': bool(result[1])}
+            return {'ok': True, 'marked': self.get(key) is not None}
+
+    def reminder_clear_marks(self, ticket_id, cycle_id, wave, identities, token):
+        with self._lock:
+            for old_wave in range(1, int(wave)):
+                for identity in identities:
+                    result = self.eval(
+                        self._DELETE_SCRIPT,
+                        keys=[self._ck(ticket_id),
+                              self._mk(ticket_id, cycle_id, old_wave, identity)],
+                        args=[token],
+                    )
+                    if result != 1:
+                        return
+
+    def reminder_transition(self, ticket_id, status):
+        return self.eval(
+            self._TRANSITION_SCRIPT,
+            keys=[self._sk(ticket_id)],
+            args=[status, str(7 * 24 * 3600)],
+        )
+
+    def chamado_subs_list(self, ticket_id):
+        with self._lock:
+            return list(self.sets.get(f'push:chamado:{ticket_id}', set()))
+
+    def chamado_subs_save(self, ticket_id, subs):
+        with self._lock:
+            key = f'push:chamado:{ticket_id}'
+            self.sets.pop(key, None)
+            for sub in subs:
+                self.sets.setdefault(key, set()).add(
+                    sub if isinstance(sub, str) else json.dumps(sub, ensure_ascii=False)
+                )
+
+    def chamado_subs_expire(self, ticket_id, seconds):
+        return self.expire(f'push:chamado:{ticket_id}', seconds)
 
 
 class FakeSupabase:
@@ -753,7 +909,7 @@ def test_redis_indisponivel_nao_processa(api_module, monkeypatch):
     fake_db, _ = _env(api_module, monkeypatch, [ticket])
 
     monkeypatch.setattr(api_module, 'redis', None)
-
+    monkeypatch.setattr(api_module.pg_store, 'is_configured', lambda: False)
     monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [{'key': 'k', 'endpoint': 'x', 'user': {'id': 'u'}}])
     sent = []
     monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None, **kw: sent.append(True) or True)
@@ -761,7 +917,7 @@ def test_redis_indisponivel_nao_processa(api_module, monkeypatch):
     result = api_module._check_and_send_reminders()
 
     assert result['sent'] == 0
-    assert result.get('error') == 'Redis não configurado'
+    assert result.get('error') == ERRO_STORE_INDISPONIVEL
     assert len(sent) == 0
 
 
@@ -1069,11 +1225,12 @@ def test_falha_redis_antes_e_depois_do_envio(api_module, monkeypatch):
     sent = []
     monkeypatch.setattr(api_module, 'push_notify', lambda s, t, b, url=None, **kw: sent.append(True) or True)
 
-    # Falha de Redis antes do envio: não processa (fail-closed)
+    # Falha do store antes do envio: não processa (fail-closed)
     monkeypatch.setattr(api_module, 'redis', None)
+    monkeypatch.setattr(api_module.pg_store, 'is_configured', lambda: False)
     result = api_module._check_and_send_reminders()
     assert result['sent'] == 0
-    assert result.get('error') == 'Redis não configurado'
+    assert result.get('error') == ERRO_STORE_INDISPONIVEL
     assert len(sent) == 0
 
     # Restaura o Redis
@@ -1152,8 +1309,9 @@ def test_redis_indisponivel_durante_transicao_terminal(api_module, monkeypatch):
                           updated_at=criado, status='aberto')
     fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
 
-    # Remove o Redis: _record_terminal_status é best-effort e não pode levantar.
+    # Remove o store: _record_terminal_status é best-effort e não pode levantar.
     monkeypatch.setattr(api_module, 'redis', None)
+    monkeypatch.setattr(api_module.pg_store, 'is_configured', lambda: False)
     api_module._record_terminal_status(ticket['id'], 'fechado')
     assert fake_redis.get(f'chamado:reminder:state:{ticket["id"]}') is None
 
@@ -2872,19 +3030,32 @@ def test_record_terminal_status_preserva_contador_e_ciclo(api_module, monkeypatc
         assert redis.get(state_key) == malformado
 
 
-def test_scripts_lua_exigem_objeto_de_estado(api_module):
-    """Os scripts Lua rejeitam arrays e objetos com campos de tipo inválido."""
-    for script in (
-        api_module._REMINDER_TRANSITION_SCRIPT,
-        api_module._REMINDER_FENCED_STATE_WRITE_SCRIPT,
+def test_store_exige_objeto_de_estado(api_module, monkeypatch):
+    """Transição e escrita fenciada rejeitam arrays/objetos com tipo inválido."""
+    _db, redis = _env(api_module, monkeypatch, [])
+    tid = _tid(2040)
+    state_key = f'chamado:reminder:state:{tid}'
+    payload = {
+        'reminder_count': 1, 'cycle_id': 'ciclo',
+        'last_known_status': 'aberto', 'transition_generation': 0,
+    }
+    for malformado in (
+        '[]',
+        '{"campo_desconhecido":"x"}',
+        '{"cycle_id":7}',
+        '{"reminder_count":"2"}',
+        '{"last_known_status":null}',
     ):
-        assert '-- state-object-required' in script
-        assert 'local function valid_state(value)' in script
-        assert 'raw_reminder_count_valid' in script
-        assert "type(count) ~= 'number'" in script
-        assert "type(value['cycle_id']) ~= 'string'" in script
-        assert "type(value['last_reminder_at']) ~= 'string'" in script
-        assert "type(value['last_known_status']) ~= 'string'" in script
+        redis.setex(state_key, 600, malformado)
+        # Transição HTTP (sem token) não pode reparar estado corrompido.
+        assert api_module._record_terminal_status(tid, 'fechado') is None
+        assert redis.get(state_key) == malformado
+
+        token = api_module._acquire_reminder_lock(tid)
+        assert token
+        assert redis.reminder_write(tid, token, 0, payload) is False
+        assert redis.get(state_key) == malformado
+        redis.reminder_release(tid, token)
 
 
 @pytest.mark.parametrize('state, esperado', [
@@ -2931,27 +3102,34 @@ def test_leitura_estado_rejeita_formato_invalido_antes_do_envio(api_module, monk
 _AUSENTE = object()
 
 
-def test_scripts_lua_validam_transition_generation(api_module):
-    """Nenhum script pode converter geração inválida em zero com `or 0`."""
-    for script in (
-        api_module._REMINDER_TRANSITION_SCRIPT,
-        api_module._REMINDER_FENCED_STATE_WRITE_SCRIPT,
-    ):
-        assert '-- generation-validated' in script
-        assert 'math.floor' in script
-        assert '1000000000' in script
-        assert 'legacy_generation_migrated' in script
-        assert 'cjson.null' in script  # null é presente/inválido, não ausente
-        assert "tonumber(state['transition_generation']) or 0" not in script
-        assert "tonumber(current['transition_generation']) or 0" not in script
-    escrita = api_module._REMINDER_FENCED_STATE_WRITE_SCRIPT
-    assert 'tonumber(ARGV[4])' in escrita
-    assert 'payload_generation' in escrita
-    assert 'payload_generation ~= expected_generation' in escrita
-    # `valid_state` é usado no payload, fora do `if raw`: precisa estar no
-    # escopo do script, senão o EVAL falha em Redis real.
-    assert escrita.index('local function valid_state') < escrita.index('if raw then')
+def test_store_valida_geracao_sem_fallback_para_zero(api_module, monkeypatch):
+    """Transição e escrita fenciada nunca convertem geração inválida em zero."""
     assert api_module.REMINDER_GENERATION_MAX == 1_000_000_000
+    for generation in (-1, 1.5, '5', 'abc', None, True, [], {'x': 1}, 1_000_000_000):
+        _db, redis = _env(api_module, monkeypatch, [])
+        tid = _tid(2041)
+        state_key = f'chamado:reminder:state:{tid}'
+        state = {
+            'reminder_count': 3, 'cycle_id': 'ciclo',
+            'last_known_status': 'aberto', 'transition_generation': generation,
+        }
+        original = json.dumps(state)
+        redis.setex(state_key, 600, original)
+
+        # Transição HTTP preserva o estado corrompido.
+        api_module._record_terminal_status(tid, 'fechado')
+        assert redis.get(state_key) == original
+
+        # A RPC de escrita também recusa a geração corrompida/fora do teto.
+        token = api_module._acquire_reminder_lock(tid)
+        assert token
+        assert redis.reminder_write(
+            tid, token, generation,
+            {'reminder_count': 4, 'cycle_id': 'ciclo',
+             'last_known_status': 'aberto', 'transition_generation': generation},
+        ) is False
+        assert redis.get(state_key) == original
+        redis.reminder_release(tid, token)
 
 
 @pytest.mark.parametrize('generation,esperado_ok,geracao_final', [
@@ -3044,12 +3222,10 @@ def test_fenced_state_write_valida_geracao_do_payload(
     if payload_generation is not _AUSENTE:
         payload['transition_generation'] = payload_generation
 
-    resultado = redis.eval(
-        api_module._REMINDER_FENCED_STATE_WRITE_SCRIPT,
-        keys=[f'chamado:reminder:lock:{tid}', state_key],
-        args=[token, '600', json.dumps(payload), '7', 'aberto', 'ciclo', '0'],
+    resultado = redis.reminder_write(
+        tid, token, 7, payload, terminal_confirmed=False,
     )
-    assert resultado == esperado
+    assert resultado is (esperado == 1)
 
 
 def test_worker_com_geracao_invalida_nao_escreve_nem_gera_confirmacao(api_module, monkeypatch):
@@ -4233,213 +4409,3 @@ def test_historico_com_evento_alterado_entre_passagens_e_inconclusivo(api_module
     db.history_hooks[2] = mutar_durante_segunda_passagem
 
     assert api_module._fetch_ticket_status_events(ticket['id']).inconclusive
-
-
-@pytest.fixture(scope='module')
-def lua_real():
-    """Redis real EXPLÍCITO para validar os scripts Lua sem FakeRedis.
-
-    Só executa se `LABHUB_TEST_UPSTASH_REDIS_REST_URL` e
-    `LABHUB_TEST_UPSTASH_REDIS_REST_TOKEN` apontarem para um Redis de TESTE.
-    Nunca lê as variáveis de produção do app.
-    """
-    import os
-    import uuid
-
-    url = os.environ.get('LABHUB_TEST_UPSTASH_REDIS_REST_URL')
-    token = os.environ.get('LABHUB_TEST_UPSTASH_REDIS_REST_TOKEN')
-    if not url or not token:
-        pytest.skip(
-            'Redis/Lua real não configurado: defina LABHUB_TEST_UPSTASH_REDIS_REST_URL '
-            'e LABHUB_TEST_UPSTASH_REDIS_REST_TOKEN para um Redis de teste'
-        )
-    from upstash_redis import Redis
-
-    client = Redis(url=url, token=token)
-    prefix = f'labhub:lua-test:{uuid.uuid4().hex}:'
-    keys = []
-
-    def key(nome):
-        k = prefix + nome
-        keys.append(k)
-        return k
-
-    try:
-        client.set(key('ping'), 'ok', ex=30)
-    except Exception as exc:
-        pytest.skip(f'Redis de teste indisponível: {exc}')
-
-    yield client, key
-
-    for k in set(keys):
-        try:
-            client.delete(k)
-        except Exception:
-            pass
-
-
-def test_lua_real_fenced_delete_ausencia_nao_significa_perda_de_lock(lua_real):
-    client, key = lua_real
-    lock = key('lock')
-    mark = key('mark')
-    token = 'dono-atual'
-    client.set(lock, token, ex=60)
-
-    # Marca inexistente: lock é válido => 1 (contrato do script), não 0.
-    assert client.eval(
-        api_module._REMINDER_FENCED_DELETE_SCRIPT,
-        keys=[lock, mark], args=[token],
-    ) == 1
-    assert client.get(lock) == token
-    assert client.get(mark) is None
-
-    # Token alheio nunca apaga nem confirma posse.
-    assert client.eval(
-        api_module._REMINDER_FENCED_DELETE_SCRIPT,
-        keys=[lock, mark], args=['outro-token'],
-    ) == 0
-
-
-@pytest.mark.parametrize(
-    'valor_count, esperado',
-    [
-        ('2', 1),        # inteiro JSON válido
-        ('"2"', 0),      # string
-        ('2.0', 0),      # decimal (cjson perde a distinção sem validação textual)
-        ('2e0', 0),      # notação exponencial
-        ('true', 0),     # booleano
-        ('null', 0),     # nulo
-        ('-1', 0),       # fora do intervalo
-        ('11', 0),       # acima de REMINDER_MAX_COUNT
-    ],
-)
-def test_lua_real_reminder_count_strito_transition(lua_real, valor_count, esperado):
-    client, key = lua_real
-    state_key = key(f'transition-{valor_count}')
-    raw = json.dumps({
-        'reminder_count': None,
-        'last_known_status': 'aberto',
-        'cycle_id': 'ciclo',
-        'transition_generation': 0,
-    }).replace('"reminder_count": null', f'"reminder_count": {valor_count}')
-    client.set(state_key, raw, ex=60)
-
-    resultado = client.eval(
-        api_module._REMINDER_TRANSITION_SCRIPT,
-        keys=[state_key], args=['fechado', '60'],
-    )
-    assert resultado == esperado
-    if esperado == 0:
-        assert client.get(state_key) == raw
-    else:
-        gravado = json.loads(client.get(state_key))
-        assert gravado['reminder_count'] == 2
-        assert gravado['last_known_status'] == 'fechado'
-        assert gravado['transition_generation'] == 1
-
-
-def test_lua_real_fenced_setex_get_renovacao_e_liberacao(lua_real):
-    """Escrita/leitura de estado, renovação e liberação exigem o token atual."""
-    client, key = lua_real
-    lock = key('fenced-lock')
-    state = key('fenced-state')
-    token = 'dono-atual'
-    client.set(lock, token, ex=60)
-
-    assert client.eval(
-        api_module._REMINDER_FENCED_SETEX_SCRIPT,
-        keys=[lock, state], args=[token, '60', 'valor-fenciado'],
-    ) == 1
-    assert client.eval(
-        api_module._REMINDER_FENCED_GET_SCRIPT,
-        keys=[lock, state], args=[token],
-    ) == [1, 'valor-fenciado']
-    # Token alheio não lê estado algum.
-    assert client.eval(
-        api_module._REMINDER_FENCED_GET_SCRIPT,
-        keys=[lock, state], args=['outro-token'],
-    ) == [0, '']
-
-    # Renovação pertence apenas ao dono. TTL é consultado por Lua real.
-    assert client.eval(
-        api_module._REMINDER_LOCK_RENEW_SCRIPT,
-        keys=[lock], args=[token, '120'],
-    ) == 1
-    ttl = client.eval(
-        "return redis.call('ttl', KEYS[1])", keys=[lock], args=[],
-    )
-    assert ttl > 60
-    assert client.eval(
-        api_module._REMINDER_LOCK_RENEW_SCRIPT,
-        keys=[lock], args=['outro-token', '120'],
-    ) == 0
-
-    # Liberação fenciada: só o dono remove; depois a leitura falha.
-    assert client.eval(
-        api_module._REMINDER_LOCK_RELEASE_SCRIPT,
-        keys=[lock], args=['outro-token'],
-    ) == 0
-    assert client.eval(
-        api_module._REMINDER_LOCK_RELEASE_SCRIPT,
-        keys=[lock], args=[token],
-    ) == 1
-    assert client.get(lock) is None
-    assert client.eval(
-        api_module._REMINDER_FENCED_GET_SCRIPT,
-        keys=[lock, state], args=[token],
-    ) == [0, '']
-
-
-def test_lua_real_fenced_state_write_geracao_e_guardas(lua_real):
-    """Fenced-state-write valida token, geração, payload e ciclo terminal."""
-    client, key = lua_real
-    lock = key('state-write-lock')
-    state = key('state-write-state')
-    token = 'worker-atual'
-    client.set(lock, token, ex=60)
-
-    atual = {
-        'reminder_count': 2,
-        'last_known_status': 'aberto',
-        'cycle_id': 'ciclo',
-        'last_reminder_at': '2026-01-01T00:02:00+00:00',
-        'transition_generation': 0,
-    }
-    client.set(state, json.dumps(atual), ex=60)
-    payload = dict(atual, reminder_count=3,
-                   last_reminder_at='2026-01-01T00:04:00+00:00')
-
-    def escrever(raw_payload, generation, status='aberto', ciclo='ciclo',
-                 terminal='0', dono=token):
-        return client.eval(
-            api_module._REMINDER_FENCED_STATE_WRITE_SCRIPT,
-            keys=[lock, state],
-            args=[dono, '60', raw_payload, str(generation), status, ciclo, terminal],
-        )
-
-    assert escrever(json.dumps(payload), 0) == 1
-    assert json.loads(client.get(state))['reminder_count'] == 3
-
-    # Uma transição HTTP concorrente incrementa a geração: snapshot antigo falha.
-    assert client.eval(
-        api_module._REMINDER_TRANSITION_SCRIPT,
-        keys=[state], args=['a_caminho', '60'],
-    ) == 1
-    assert escrever(json.dumps(payload), 0) == 0
-
-    # Token alheio e geração corrompida nunca gravam.
-    assert escrever(json.dumps(payload), 1, dono='outro-token') == 0
-    assert escrever(json.dumps(payload), 'lixo') == 0
-
-    # `reminder_count` textual inválido é rejeitado antes do cjson.decode.
-    payload_invalido = json.dumps(payload).replace(
-        '"reminder_count": 3', '"reminder_count": "3"',
-    )
-    assert escrever(payload_invalido, 1) == 0
-
-    # Terminal sem reabertura não pode ser reescrito como aberto.
-    terminal_state = dict(atual, last_known_status='fechado',
-                          transition_generation=1)
-    client.set(state, json.dumps(terminal_state), ex=60)
-    payload_aberto = dict(terminal_state, last_known_status='aberto')
-    assert escrever(json.dumps(payload_aberto), 1, terminal='1') == 0

@@ -19,7 +19,6 @@ from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse, urljoin
 from io import BytesIO
 from dotenv import load_dotenv
-from upstash_redis import Redis
 from pywebpush import webpush, WebPushException
 
 # Authorization layer
@@ -169,9 +168,94 @@ if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
     logger.warning("VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY nao configuradas — push desabilitado")
 VAPID_CLAIMS = {"sub": "mailto:admin@reservaslab.com"}
 
-_upstash_url = os.environ.get('UPSTASH_REDIS_REST_URL')
-_upstash_token = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
-redis = Redis(url=_upstash_url, token=_upstash_token) if _upstash_url and _upstash_token else None
+# `redis` permanece como símbolo nulo por compatibilidade: caches/rate-limit
+# legados (cache de planilha, alerta de link quebrado) usam fallbacks em
+# memória/arquivo e não foram migrados para o PostgreSQL. O subsistema de Push
+# e a dedup usam exclusivamente os stores abaixo.
+redis = None
+
+import pg_store  # módulo local: caminho inserido em sys.path no topo do arquivo
+
+push_store = pg_store.push_store
+dedup_store = pg_store.dedup_store
+
+
+class _LegacyPushSubsStore:
+    """Adapter para clientes legados que só falam `smembers('push:subscribers')`.
+
+    Mantém a compatibilidade de leitura com fakes/clients antigos sem trazer
+    Redis de volta ao subsistema de Push: é apenas uma ponte de contrato.
+    """
+
+    def __init__(self, client):
+        self._client = client
+
+    def push_subs_list(self):
+        try:
+            raw = self._client.smembers('push:subscribers') or []
+        except Exception:
+            return []
+        result = []
+        for item in raw:
+            if isinstance(item, (bytes, bytearray)):
+                try:
+                    item = item.decode('utf-8')
+                except Exception:
+                    continue
+            if isinstance(item, str):
+                try:
+                    item = json.loads(item)
+                except (TypeError, ValueError):
+                    continue
+            if isinstance(item, dict):
+                result.append(item)
+        return result
+
+    def push_subs_remove(self, endpoint):
+        srem = getattr(self._client, 'srem', None)
+        if callable(srem):
+            try:
+                srem('push:subscribers', endpoint)
+            except Exception:
+                pass
+
+    def push_subs_expire(self, endpoint, seconds):
+        expire = getattr(self._client, 'expire', None)
+        if callable(expire):
+            try:
+                expire('push:subscribers', seconds)
+            except Exception:
+                pass
+
+
+def _active_push_store():
+    """Store ativo de inscrições (fake injetado, adapter legado ou PostgreSQL)."""
+    if redis is not None:
+        if hasattr(redis, 'push_subs_list'):
+            return redis
+        if hasattr(redis, 'smembers'):
+            return _LegacyPushSubsStore(redis)
+    return push_store
+
+
+def _active_dedup_store():
+    """Store ativo de dedup (fake injetado nos testes ou PostgreSQL)."""
+    if redis is not None and hasattr(redis, 'dedup_reserve'):
+        return redis
+    return dedup_store
+
+
+def _push_store_ready():
+    """True se há store de Push utilizável.
+
+    Um cliente legado injetado (inclusive um objeto simples usado por testes de
+    rota) é aceito por compatibilidade. Em produção, `redis` é sempre None e a
+    disponibilidade depende da configuração do Supabase.
+    """
+    if redis is not None:
+        return True
+    return pg_store.is_configured()
+
 
 ARQUIVO_URL = os.environ.get('SHAREPOINT_URL', '')
 if not ARQUIVO_URL:
@@ -950,8 +1034,8 @@ def push_subscribe():
     é re-buscado no Supabase (SEC-03). O cliente envia apenas o payload da
     subscription + preferências de notificação (notify_settings).
     """
-    if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+    if not _push_store_ready():
+        return jsonify({'error': 'Push store not configured'}), 500
     try:
         body = request.get_json() or {}
         endpoint = body.get('endpoint', '')
@@ -1008,15 +1092,9 @@ def push_subscribe():
             'user': server_user,
         }
 
-        # Remove qualquer inscrição anterior com o mesmo endpoint (dedupe por dispositivo)
-        subs = _get_subs()
-        others = [s for s in subs if s.get('endpoint') != endpoint]
-        if len(others) != len(subs):
-            redis.delete('push:subscribers')
-            for s in others:
-                redis.sadd('push:subscribers', json.dumps(s, ensure_ascii=False))
-
-        redis.sadd('push:subscribers', json.dumps(sub, ensure_ascii=False))
+        # A RPC faz o dedupe por dispositivo (CONFLICT(endpoint) DO UPDATE),
+        # substituindo o payload anterior sem apagar as demais inscrições.
+        _active_push_store().push_subs_save(sub)
         logger.info(f"Push subscriber added: {sub['key'][:8]}... role={sub['user']['role']}")
         return jsonify({'status': 'ok'})
     except Exception as e:
@@ -1028,11 +1106,11 @@ def push_subscribe():
 def push_test_device():
     """Envia um Push de diagnóstico somente à inscrição do próprio dispositivo.
 
-    O endpoint informado pelo cliente é validado contra a inscrição no Redis e
+    O endpoint informado pelo cliente é validado contra a inscrição no store e
     contra o user_id obtido da sessão autenticada; não permite testar dispositivos
     de terceiros nem usa o endpoint administrativo de envio em massa.
     """
-    if not redis:
+    if not _push_store_ready():
         return jsonify({'error': 'Serviço de notificações indisponível'}), 503
     try:
         body = request.get_json(silent=True) or {}
@@ -1193,12 +1271,16 @@ def push_notify(sub, title, body, url='/', actions=None, user_id=None, timeout=N
         return PUSH_ACCEPTED
     except Exception as e:
         outcome, remove_sub = _classify_push_exception(e, session.transmitted)
-        if remove_sub and redis is not None:
+        if remove_sub:
+            # HTTP 404/410 é evidência de inscrição inválida. A remoção é
+            # best-effort: falha do store nunca altera o resultado do envio.
             try:
-                redis.srem('push:subscribers', json.dumps(sub, ensure_ascii=False))
-                logger.info("[push] inscrição removida do Redis (HTTP 404/410)")
+                endpoint = str((sub or {}).get('endpoint') or '')
+                if endpoint:
+                    _active_push_store().push_subs_remove(endpoint)
+                logger.info("[push] inscrição removida do store (HTTP 404/410)")
             except Exception as rm_err:
-                logger.error(f"Push: falha ao remover inscrição do Redis: {rm_err}")
+                logger.error(f"Push: falha ao remover inscrição do store: {rm_err}")
         if outcome == PUSH_REJECTED and remove_sub:
             logger.warning("[push] rejeitado: inscrição inválida (404/410): %s", e)
             return _push_rejected_expired()
@@ -1277,36 +1359,14 @@ def _push_dedup_key(event_id, sub, workspace_id=None, context=None):
 _PUSH_DEDUP_RESERVED = 'reserved'
 _PUSH_DEDUP_ACCEPTED = 'accepted'
 
-# Confirmação atômica: só transforma a reserva em marca definitiva se o token
-# pertencer a esta execução. O TTL original é preservado (não reiniciado) para
-# manter o comportamento anterior das marcas confirmadas.
-_PUSH_DEDUP_CONFIRM_SCRIPT = """
--- push-dedup-confirm
-local value = redis.call('get', KEYS[1])
-if not value then return 0 end
-local state, token = string.match(value, '^([^:]+):(.+)$')
-if state ~= 'reserved' or token ~= ARGV[1] then return 0 end
-local remaining = redis.call('ttl', KEYS[1])
-if remaining <= 0 then remaining = tonumber(ARGV[2]) end
-redis.call('setex', KEYS[1], remaining, 'accepted:' .. token)
-return 1
-"""
-
-# Liberação atômica: remove somente a reserva desta execução. Nunca apaga uma
-# marca `accepted` nem a reserva de outra execução. Falha aqui é contida: o TTL
-# da reserva expira naturalmente e permite nova tentativa.
-_PUSH_DEDUP_RELEASE_SCRIPT = """
--- push-dedup-release
-local value = redis.call('get', KEYS[1])
-if not value then return 0 end
-local state, token = string.match(value, '^([^:]+):(.+)$')
-if state ~= 'reserved' or token ~= ARGV[1] then return 0 end
-return redis.call('del', KEYS[1])
-"""
+# A confirmação/liberação atômicas vivem no PostgreSQL (`push_dedup_confirm` /
+# `push_dedup_release` em pg_store). O parser abaixo permanece como função pura
+# para compatibilidade com quem inspeciona valores brutos em testes/diagnóstico;
+# o fluxo real usa `dedup_state(key)` do store ativo.
 
 
 def _push_dedup_state(raw):
-    """Classifica o valor Redis sem depender apenas da existência da chave.
+    """Classifica um valor bruto legado sem depender só da existência da chave.
 
     Devolve `(estado, token)`, onde estado é `absent`, `reserved`, `accepted`
     ou `unknown`. Valores corrompidos são `unknown` (fail-closed: nunca são
@@ -1329,15 +1389,10 @@ def _push_dedup_state(raw):
 
 def _push_dedup_release(key, token):
     """Libera uma reserva somente se o token ainda pertencer a esta execução."""
-    if not redis or not key or not token:
+    if not key or not token:
         return False
     try:
-        result = redis.eval(
-            _PUSH_DEDUP_RELEASE_SCRIPT,
-            keys=[key],
-            args=[token],
-        )
-        return result == 1
+        return bool(_active_dedup_store().dedup_release(key, token))
     except Exception as e:
         logger.warning("[push] falha ao liberar reserva de dedup: %s", e)
         return False
@@ -1382,22 +1437,23 @@ def _push_check_legacy_dedup(event_id, total):
         falsificamos `accepted`;
       · qualquer outro valor (inclusive `reserved:`/`accepted:`) => valor
         desconhecido/corrompido: fail-closed, nenhum envio;
-      · falha ao ler o Redis => fail-closed, nenhum envio.
+      · falha ao ler o store => fail-closed, nenhum envio.
 
     Esta função NÃO cria, reescreve nem exclui a chave global: isso
     restauraria a supressão global que a correção individual veio eliminar.
     """
     if total <= 0:
         return 0, 0
-    if not redis:
+    if not _push_store_ready():
         return 0, total
     key = _push_legacy_dedup_key(event_id)
     try:
-        raw = redis.get(key)
+        # Leitura via store (não `get` direto): o PostgreSQL devolve o estado
+        # já classificado. Esta chave NUNCA é escrita/removida por aqui.
+        state, _token = _active_dedup_store().dedup_state(key)
     except Exception as e:
-        logger.warning("[push] falha Redis ao ler dedup legada %s: %s", key, e)
+        logger.warning("[push] falha ao ler dedup legada %s: %s", key, e)
         return 0, total
-    state = _push_legacy_dedup_state(raw)
     if state == 'absent':
         return 0, 0
     if state == 'attempted':
@@ -1416,13 +1472,13 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 
     Devolve (accepted, rejected, unknown, skipped, dedup_failed).
 
-    A reserva `reserved:<token>` é criada com SET NX EX antes do envio: duas
-    execuções concorrentes nunca enviam ao mesmo (evento, destinatário). Um
+    A reserva é criada atomicamente (equivalente a SET NX EX) antes do envio:
+    duas execuções concorrentes nunca enviam ao mesmo (evento, destinatário). Um
     token aleatório exclusivo por execução faz o fencing de todas as operações
-    seguintes. Somente `PUSH_ACCEPTED` confirma a reserva, via Lua, para
-    `accepted:<token>` preservando o TTL original. `PUSH_REJECTED` e
+    seguintes. Somente `PUSH_ACCEPTED` confirma a reserva, via RPC PostgreSQL,
+    para `accepted:<token>` preservando o TTL original. `PUSH_REJECTED` e
     `PUSH_UNKNOWN` liberam apenas a reserva desta execução; falha na liberação
-    deixa a reserva expirar pelo TTL. Falha Redis na reserva ou na confirmação
+    deixa a reserva expirar pelo TTL. Falha do store na reserva ou na confirmação
     é fail-closed: nenhum envio sem reserva atômica e nenhuma confirmação falsa.
 
     Antes do loop há a política de migração de `push:sent:{notify_id}` (ver
@@ -1436,7 +1492,7 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
     o valor é esse número de aceitações confirmadas.
     """
     accepted = rejected = unknown = skipped = dedup_failed = 0
-    if not redis:
+    if not _push_store_ready():
         return accepted, rejected, unknown, skipped, len(subs)
 
     legacy_skipped, legacy_failed = _push_check_legacy_dedup(event_id, len(subs))
@@ -1460,14 +1516,10 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
             continue
         token = secrets.token_hex(16)
         try:
-            claimed = redis.set(
-                key,
-                f'{_PUSH_DEDUP_RESERVED}:{token}',
-                ex=ttl_seconds,
-                nx=True,
-            )
+            # Equivalente a SET NX EX: uma única execução consegue a reserva.
+            claimed = _active_dedup_store().dedup_reserve(key, token, ttl_seconds)
         except Exception as e:
-            logger.warning("[push] falha Redis ao reservar dedup individual: %s", e)
+            logger.warning("[push] falha do store ao reservar dedup individual: %s", e)
             dedup_failed += 1
             continue
         if not claimed:
@@ -1481,15 +1533,13 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 
         if outcome == PUSH_ACCEPTED:
             try:
-                confirmed = redis.eval(
-                    _PUSH_DEDUP_CONFIRM_SCRIPT,
-                    keys=[key],
-                    args=[token, str(ttl_seconds)],
-                )
+                # A RPC preserva o TTL original da reserva e só confirma se o
+                # token desta execução ainda estiver vigente.
+                confirmed = _active_dedup_store().dedup_confirm(key, token)
             except Exception as e:
-                logger.warning("[push] falha Redis ao confirmar dedup individual: %s", e)
-                confirmed = 0
-            if confirmed == 1:
+                logger.warning("[push] falha do store ao confirmar dedup individual: %s", e)
+                confirmed = False
+            if confirmed:
                 accepted += 1
             else:
                 # O provedor aceitou, mas não há marca confirmada. Não
@@ -1511,14 +1561,13 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 @require_auth
 @require_admin
 def push_test():
-    if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
-    subs = redis.smembers('push:subscribers')
+    if not _push_store_ready():
+        return jsonify({'error': 'Push store not configured'}), 500
+    subs = _get_subs()
     if not subs:
         return jsonify({'message': 'No subscribers'})
     count = 0
-    for raw in subs:
-        sub = json.loads(raw) if isinstance(raw, str) else raw
+    for sub in subs:
         ok = _push_outcome(push_notify(sub, 'Teste Reservas Lab', 'Notificação push funcionando! 🔔'))
         if ok == PUSH_ACCEPTED:
             count += 1
@@ -1531,8 +1580,8 @@ def push_test():
 @require_action_rbac('reservelab.push.manage', scope='global')
 def push_send():
     """Envia um push para os subscribers (filtrando por módulo, workspace, cargo e usuário)."""
-    if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+    if not _push_store_ready():
+        return jsonify({'error': 'Push store not configured'}), 500
     try:
         body = request.get_json() or {}
         title = body.get('title', 'LabHub')
@@ -2200,13 +2249,12 @@ def _workspaces_with_spreadsheet():
 
 def _internal_push_check():
     """Core logic for push check — reservas + tablets. Returns dict."""
-    if not redis:
-        return {'error': 'Redis not configured'}
+    if not _push_store_ready():
+        return {'error': 'Push store not configured'}
     try:
         today = get_today_sp()
 
-        subs_raw = redis.smembers('push:subscribers')
-        if not subs_raw:
+        if not _get_subs():
             return {'message': 'No subscribers', 'sent': 0}
 
         # Reserva de lab: a planilha é POR CAMPUS. Quando há workspaces com
@@ -2361,8 +2409,24 @@ def _internal_push_check():
 # ─── Notificações de Empréstimos (Stock) ─────────────────────────
 
 def _get_subs():
-    raw = redis.smembers('push:subscribers') if redis else []
-    return [json.loads(s) if isinstance(s, str) else s for s in raw]
+    """Lista as inscrições ativas. Falha de leitura não derruba o chamador."""
+    try:
+        raw = _active_push_store().push_subs_list()
+    except Exception as e:
+        logger.warning("[push] falha ao listar inscrições do store: %s", e)
+        return []
+    subs = []
+    for item in raw:
+        if isinstance(item, str):
+            try:
+                subs.append(json.loads(item))
+            except (TypeError, ValueError):
+                # Registro legado/corrompido não pode derrubar o lote inteiro.
+                logger.warning("[push] inscrição com payload inválido ignorada")
+                continue
+        else:
+            subs.append(item)
+    return subs
 
 
 @app.route('/api/push/admin/subscriptions', methods=['GET'])
@@ -2376,8 +2440,8 @@ def push_admin_subscriptions():
     e o workspace do dispositivo. Sem dispositivo nunca é exposto o endpoint
     bruto (chaves de criptografia ficam no registro, não na resposta).
     """
-    if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+    if not _push_store_ready():
+        return jsonify({'error': 'Push store not configured'}), 500
     try:
         user_filter = (request.args.get('user_id') or '').strip()
         ws_filter = (request.args.get('workspace_id') or '').strip()
@@ -2438,8 +2502,8 @@ def push_notify_loan():
         ws_id = body_json.get('workspace_id')
         if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
             return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+    if not _push_store_ready():
+        return jsonify({'error': 'Push store not configured'}), 500
     try:
         body = request.get_json()
         item_name = body.get('itemName', 'Item')
@@ -2475,8 +2539,8 @@ def push_notify_return():
         ws_id = body_json.get('workspace_id')
         if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
             return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not redis:
-        return jsonify({'error': 'Redis not configured'}), 500
+    if not _push_store_ready():
+        return jsonify({'error': 'Push store not configured'}), 500
     try:
         body = request.get_json()
         item_name = body.get('itemName', 'Item')
@@ -2523,8 +2587,8 @@ def push_check_overdue():
 
 def _internal_push_check_overdue():
     """Core logic for overdue loan check. Returns dict."""
-    if not redis:
-        return {'error': 'Redis not configured'}
+    if not _push_store_ready():
+        return {'error': 'Push store not configured'}
     try:
         supabase_url = os.environ.get('SUPABASE_URL', '')
         supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
@@ -2613,8 +2677,8 @@ def push_check_pcare():
 
 def _internal_push_check_pcare():
     """Core logic for pcare low stock + maintenance check. Returns dict."""
-    if not redis:
-        return {'error': 'Redis not configured'}
+    if not _push_store_ready():
+        return {'error': 'Push store not configured'}
     try:
         supabase_url = os.environ.get('SUPABASE_URL', '')
         supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
@@ -2701,8 +2765,8 @@ def _internal_push_check_pcare():
 
 def _check_pending_users():
     """Push para admins quando existem usuários aguardando aprovação."""
-    if not redis:
-        return {'error': 'Redis not configured'}
+    if not _push_store_ready():
+        return {'error': 'Push store not configured'}
     supabase_url = os.environ.get('SUPABASE_URL', '')
     supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
     if not supabase_url or not supabase_key:
@@ -2754,8 +2818,8 @@ def _check_pending_users():
 
 def _check_stock_expiry():
     """Push para itens de stock vencidos ou com validade próxima (janela de 30 dias)."""
-    if not redis:
-        return {'error': 'Redis not configured'}
+    if not _push_store_ready():
+        return {'error': 'Push store not configured'}
     supabase_url = os.environ.get('SUPABASE_URL', '')
     supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
     if not supabase_url or not supabase_key:

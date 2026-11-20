@@ -14,6 +14,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_store_fakes import PgStoreFakeMixin
+
 RESERVALAB_API = Path(__file__).resolve().parents[2] / "src" / "apps" / "reservalab" / "api" / "app.py"
 
 FCM_SUB = {
@@ -80,8 +83,8 @@ def test_push_notify_repassa_payload_e_ttl(rlab_module, monkeypatch):
     assert payload["userId"] == "u1"
 
 
-class FakeRedis:
-    """Mini fake do upstash_redis.Redis: guarda membros e registra srem."""
+class FakeRedis(PgStoreFakeMixin):
+    """Mini fake do store: guarda membros e registra srem."""
 
     def __init__(self, members=None):
         self.members = set(members or [])
@@ -157,13 +160,30 @@ def test_push_notify_nao_remove_em_erro_nao_410(rlab_module, monkeypatch):
 
 
 def test_push_notify_sem_redis_nao_quebra_em_410(rlab_module, monkeypatch):
-    """Sem Redis configurado, 410 não pode derrubar o envio dos demais."""
+    """Sem Redis e com store Postgres indisponível, 410 não gera exceção.
+
+    A remoção é best-effort: o serviço tenta o store, engole a falha e mantém
+    o resultado `PUSH_REJECTED` com `invalid_subscription=True`.
+    """
+    chamadas = []
+
+    class _StoreIndisponivel:
+        def push_subs_list(self):
+            chamadas.append("list")
+            raise RuntimeError("Supabase indisponível")
+
+        def push_subs_remove(self, endpoint):
+            chamadas.append(("remove", endpoint))
+            raise RuntimeError("Supabase indisponível")
+
     monkeypatch.setattr(rlab_module, "redis", None)
+    monkeypatch.setattr(rlab_module, "push_store", _StoreIndisponivel())
     monkeypatch.setattr(rlab_module, "webpush", _raise_http(410))
 
     resultado = rlab_module.push_notify(FCM_SUB, "t", "b")
     assert resultado == rlab_module.PUSH_REJECTED
     assert getattr(resultado, "invalid_subscription", False) is True
+    assert chamadas == [("remove", FCM_SUB["endpoint"])]
 
 
 def _fake_post_raise(exc):
@@ -268,11 +288,12 @@ def test_push_notify_subs_separa_contadores(rlab_module, monkeypatch):
     assert chamadas == [{"timeout": rlab_module.PUSH_BULK_TIMEOUT_SECONDS}] * 3
 
 
-class _RedisDedupFake:
-    """Fake com SET NX EX, TTL e EVAL que reproduz os scripts de dedup.
+class _RedisDedupFake(PgStoreFakeMixin):
+    """Fake do store de dedup com reserva, TTL, token e fencing.
 
-    Não substitui Redis real: apenas reproduz a semântica atômica necessária
-    para testar reserva, confirmação por token, liberação fenciada e expiração.
+    Não substitui PostgreSQL real: apenas reproduz a semântica atômica
+    necessária para testar reserva, confirmação por token, liberação fenciada
+    e expiração.
     """
 
     def __init__(self, fail_set=False, fail_confirm=False, fail_release=False):
@@ -736,9 +757,7 @@ def test_token_antigo_nao_altera_reserva_nova(rlab_module, monkeypatch):
 
     # A tenta confirmar e liberar depois que B substituiu a reserva.
     redis_fake.set(key, f"reserved:{token_b}", ex=300)
-    assert redis_fake.eval(
-        rlab_module._PUSH_DEDUP_CONFIRM_SCRIPT, keys=[key], args=[token_a, "300"]
-    ) == 0
+    assert redis_fake.dedup_confirm(key, token_a) is False
     estado, atual = rlab_module._push_dedup_state(redis_fake.get(key))
     assert estado == "reserved"
     assert atual == token_b
@@ -749,9 +768,7 @@ def test_token_antigo_nao_altera_reserva_nova(rlab_module, monkeypatch):
     assert atual == token_b
 
     # B confirma normalmente.
-    assert redis_fake.eval(
-        rlab_module._PUSH_DEDUP_CONFIRM_SCRIPT, keys=[key], args=[token_b, "300"]
-    ) == 1
+    assert redis_fake.dedup_confirm(key, token_b) is True
     estado, atual = rlab_module._push_dedup_state(redis_fake.get(key))
     assert estado == "accepted"
     assert atual == token_b
@@ -1052,89 +1069,6 @@ def test_sent_conta_apenas_aceitacao_confirmada(rlab_module, monkeypatch):
     assert (accepted, rejected, unknown) == (2, 1, 1)
     assert skipped == 0 and dedup_failed == 0
     assert len(fake.store) == 2  # uma marca por aceitação confirmada
-
-
-@pytest.fixture(scope="module")
-def lua_real_push():
-    """Redis real explícito para os scripts Lua de dedup de push (somente teste)."""
-    import os
-    import uuid
-
-    url = os.environ.get("LABHUB_TEST_UPSTASH_REDIS_REST_URL")
-    token = os.environ.get("LABHUB_TEST_UPSTASH_REDIS_REST_TOKEN")
-    if not url or not token:
-        pytest.skip(
-            "Redis/Lua real não configurado: defina LABHUB_TEST_UPSTASH_REDIS_REST_URL "
-            "e LABHUB_TEST_UPSTASH_REDIS_REST_TOKEN para um Redis de teste"
-        )
-    from upstash_redis import Redis
-
-    client = Redis(url=url, token=token)
-    prefix = f"labhub:push-lua-test:{uuid.uuid4().hex}:"
-    keys = []
-
-    def key(nome):
-        k = prefix + nome
-        keys.append(k)
-        return k
-
-    try:
-        client.set(key("ping"), "ok", ex=30)
-    except Exception as exc:
-        pytest.skip(f"Redis de teste indisponível: {exc}")
-
-    yield client, key
-
-    for k in set(keys):
-        try:
-            client.delete(k)
-        except Exception:
-            pass
-
-
-def test_lua_real_push_confirm_e_release_sao_fenciados(lua_real_push):
-    client, key = lua_real_push
-    dedup_key = key("dedup")
-    client.set(dedup_key, "reserved:token-1", ex=60)
-
-    # Token alheio não confirma nem libera.
-    assert client.eval(
-        rlab_module._PUSH_DEDUP_CONFIRM_SCRIPT,
-        keys=[dedup_key], args=["token-2", "60"],
-    ) == 0
-    assert client.eval(
-        rlab_module._PUSH_DEDUP_RELEASE_SCRIPT,
-        keys=[dedup_key], args=["token-2"],
-    ) == 0
-    assert client.get(dedup_key) == "reserved:token-1"
-
-    # Confirmação preserva o TTL e transforma a reserva em marca definitiva.
-    assert client.eval(
-        rlab_module._PUSH_DEDUP_CONFIRM_SCRIPT,
-        keys=[dedup_key], args=["token-1", "60"],
-    ) == 1
-    valor = client.get(dedup_key)
-    assert valor and valor.startswith("accepted:token-1")
-    assert 0 < client.ttl(dedup_key) <= 60
-
-    # Marca aceita nunca é apagada pela liberação.
-    assert client.eval(
-        rlab_module._PUSH_DEDUP_RELEASE_SCRIPT,
-        keys=[dedup_key], args=["token-1"],
-    ) == 0
-    assert client.get(dedup_key) == valor
-
-    # Nova reserva pode ser liberada somente pelo seu próprio token.
-    client.set(dedup_key, "reserved:token-3", ex=60)
-    assert client.eval(
-        rlab_module._PUSH_DEDUP_RELEASE_SCRIPT,
-        keys=[dedup_key], args=["token-1"],
-    ) == 0
-    assert client.eval(
-        rlab_module._PUSH_DEDUP_RELEASE_SCRIPT,
-        keys=[dedup_key], args=["token-3"],
-    ) == 1
-    assert client.get(dedup_key) is None
 
 
 def test_push_device_test_only_sends_to_the_authenticated_devices_subscription(rlab_module, monkeypatch):

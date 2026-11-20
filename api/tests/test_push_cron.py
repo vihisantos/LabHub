@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_store_fakes import PgStoreFakeMixin
+
 API_FILE = Path(__file__).resolve().parents[2] / 'src' / 'apps' / 'reservalab' / 'api' / 'app.py'
 
 
@@ -212,11 +215,11 @@ def test_checks_aceitam_header_correto(client, monkeypatch, endpoint):
 
 # ── Filtro por workspace no alerta de reserva próxima ──────────────────────
 
-class FakeRedis:
-    """Fake do cliente Redis com dedup reserva/confirmação fencvada.
+class FakeRedis(PgStoreFakeMixin):
+    """Fake do store com dedup reserva/confirmação fenciada.
 
-    Reproduz a semântica atômica de `SET NX EX` e dos scripts Lua de dedup
-    (confirmação e liberação por token). Não substitui Redis real.
+    Reproduz a semântica atômica de reserva/confirmação/liberação por token,
+    agora exposta também via métodos do pg_store. Não substitui PostgreSQL real.
     """
 
     def __init__(self, members=None):
@@ -334,7 +337,9 @@ def test_push_check_reserva_de_lab_mira_so_o_campus(push_module, monkeypatch):
 
     class CampusRedis(FakeRedis):
         def __init__(self):
-            super().__init__({'x'})
+            # Uma inscrição válida qualquer: basta sinalizar que há assinantes
+            # para o core do cron seguir em frente com o direcionamento.
+            super().__init__({json.dumps({'endpoint': 'https://push.example/x'})})
 
     class Resp:
         ok = True

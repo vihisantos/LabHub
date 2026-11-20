@@ -187,7 +187,8 @@ flowchart LR
 | Serviço | Propósito |
 |---------|-----------|
 | Supabase | Banco principal (acesso com `service_role`) |
-| Upstash Redis | Inscrições de push, cache de deduplicação e cache de reservas |
+| Supabase PostgreSQL | Inscrições de push, dedup, estado/lock/marcas de lembretes (migration 111) |
+| Upstash Redis (opcional/legado) | Apenas cache de reservas/TV/YouTube e rate-limit distribuído; sem ele, esses caminhos usam fallback em memória/arquivo |
 | SharePoint Excel | Dados de reservas do ReservaLab (somente leitura) |
 | Cloudinary | Upload de fotos (Chamados e PC Care) |
 | API do YouTube | Metadados de vídeo para as playlists da TV |
@@ -229,8 +230,8 @@ class DateEncoder(json.JSONEncoder):
 |----------|-------------|-----------|
 | `SUPABASE_URL` | Sim | URL do projeto Supabase |
 | `SUPABASE_SERVICE_KEY` | Sim | Chave de serviço (ignora RLS) |
-| `UPSTASH_REDIS_REST_URL` | Não | Redis para push e cache |
-| `UPSTASH_REDIS_REST_TOKEN` | Não | Token do Redis |
+| `UPSTASH_REDIS_REST_URL` | Não | Legado/opcional: cache e rate-limit. Lembretes/Push usam Supabase. |
+| `UPSTASH_REDIS_REST_TOKEN` | Não | Legado/opcional: token do Redis para cache/rate-limit. |
 | `VAPID_PUBLIC_KEY` | Não | Chave pública de Web Push |
 | `VAPID_PRIVATE_KEY` | Não | Chave privada de Web Push |
 | `CRON_SECRET` | Sim (crons) | Protege os endpoints de cron |

@@ -14,7 +14,7 @@
 
 - **Reservas de laboratório** — planilha Excel no SharePoint, aba "RESERVA LAB. INFORMÁTICA", **por campus**. O link é configurado na interface do workspace (link da planilha) e salvo em `workspaces.spreadsheet_url`. A quantidade de laboratórios vem de `workspaces.lab_count` (padrão 2) e determina quantas seções (LAB01..LAB0N) a aplicação exibe. `SHAREPOINT_URL` é apenas um fallback global opcional. Não há banco de dados para as reservas de laboratório.
 - **Tablets** — Supabase, tabela `tablet_reservations`. É o único uso de banco de dados na aplicação.
-- **Inscrições de push** — Upstash Redis.
+- **Inscrições de push** — Supabase PostgreSQL (`push_subscriptions`, `chamado_push_subscriptions`, `push_dedup_marks`).
 
 ## Fluxo de dados
 
@@ -38,7 +38,7 @@ api/app.py (raiz — entry point da Vercel)
 app.py (Flask)
 ├── /api/reservas        → get_reservas(workspace_slug) → planilha no SharePoint
 ├── /api/health          → status do servidor e do cache
-└── /api/push/*          → Upstash Redis + Web Push (VAPID)
+└── /api/push/*          → Supabase PostgreSQL + Web Push (VAPID)
 ```
 
 O entry point da Vercel importa o app desta aplicação:

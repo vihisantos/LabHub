@@ -59,7 +59,7 @@ Termos técnicos que também são identificadores no código (como *workspace*, 
 | **Realtime** | Supabase Realtime (WebSocket) para atualizações instantâneas sem polling. Usado principalmente no Chamados. |
 | **IndexedDB** | Banco do navegador usado para dados binários (fotos, arquivos) grandes demais para o `localStorage`. |
 | **PWA** | *Progressive Web App* — aplicação web instalável, com funcionamento offline e notificações push. |
-| **Push** | Notificação enviada via Web Push (VAPID), com o serviço de inscrições em Redis (Upstash). |
+| **Push** | Notificação enviada via Web Push (VAPID), com inscrições e dedup persistidas no Supabase PostgreSQL. |
 | **Kiosk** | Modo de exibição simplificado, usado em tablets e TVs. |
 | **Launcher** | Tela inicial do LabHub, com as aplicações disponíveis em formato de grade. |
 | **Quick Actions** | Paleta de comandos (`Ctrl+K`) para navegação e ações rápidas. |

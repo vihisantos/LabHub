@@ -19,6 +19,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_store_fakes import PgStoreFakeMixin
+
 RESERVALAB_API = Path(__file__).resolve().parents[2] / "src" / "apps" / "reservalab" / "api" / "app.py"
 ROOT_API = Path(__file__).resolve().parents[1] / "app.py"
 AUTH_MODULE = Path(__file__).resolve().parents[2] / "src" / "apps" / "reservalab" / "api" / "auth.py"
@@ -75,8 +78,8 @@ class FakeRequests:
         return [c for c in self.calls if c["method"] == method and url_part in c["url"]]
 
 
-class FakeRedis:
-    """Stub em memória do Upstash Redis — os testes não dependem de `.env`."""
+class FakeRedis(PgStoreFakeMixin):
+    """Stub em memória do store de Push — os testes não dependem de `.env`."""
 
     def __init__(self):
         self._subs = set()
@@ -927,7 +930,7 @@ class TestPushSubscribeUntrusted:
         ]))
         saved = {}
 
-        class FakeRedis:
+        class FakeRedis(PgStoreFakeMixin):
             def sadd(self, _k, v):
                 saved["sub"] = json.loads(v)
                 return 1
