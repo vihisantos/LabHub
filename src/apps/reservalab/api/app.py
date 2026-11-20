@@ -11,6 +11,7 @@ import logging
 import requests
 import re
 import hashlib
+import secrets
 import uuid
 import ipaddress
 import socket
@@ -19,7 +20,7 @@ from urllib.parse import quote, urlparse, urljoin
 from io import BytesIO
 from dotenv import load_dotenv
 from upstash_redis import Redis
-from pywebpush import webpush
+from pywebpush import webpush, WebPushException
 
 # Authorization layer
 sys.path.insert(0, os.path.dirname(__file__))
@@ -1063,7 +1064,99 @@ def push_test_device():
         logger.error('Push device test error: %s', e)
         return jsonify({'error': 'Não foi possível testar as notificações'}), 500
 
-def push_notify(sub, title, body, url='/', actions=None, user_id=None):
+# Contrato interno do Push. `accepted` = o serviço respondeu 2xx (aceitação
+# para entrega, NÃO exibição no dispositivo); `rejected` = há evidência de que
+# a requisição não foi aceita; `unknown` = não é possível determinar se o
+# provedor aceitou. Nunca transforme `unknown` em confirmação de envio.
+# 5xx é `unknown`: um erro interno pode acontecer após a aceitação.
+PUSH_ACCEPTED = 'accepted'
+PUSH_REJECTED = 'rejected'
+PUSH_UNKNOWN = 'unknown'
+
+# Limite por envio nos callers em massa (cron/endpoints), para que uma
+# requisição travada não mantenha o processo preso indefinidamente.
+PUSH_BULK_TIMEOUT_SECONDS = 20
+
+
+class _PushTransmissionSession:
+    """Proxy mínimo passado ao pywebpush para marcar o início do POST.
+
+    O pywebpush usa `requests_session.post(...)` para a transmissão. Registrar
+    a entrada nesse método permite distinguir falha local (antes do envio) de
+    falha durante/depois da transmissão — sem depender do texto da exceção.
+    """
+
+    def __init__(self):
+        self.transmitted = False
+
+    def post(self, *args, **kwargs):
+        self.transmitted = True
+        return requests.post(*args, **kwargs)
+
+
+def _push_outcome(result):
+    """Normaliza o resultado para o contrato tripartite.
+
+    Os literais booleanos são aceitos apenas por compatibilidade com chamadores
+    e mocks legados; `push_notify` nunca deve retornar bool.
+    """
+    if result is True:
+        return PUSH_ACCEPTED
+    if result is False:
+        return PUSH_REJECTED
+    if result in (PUSH_ACCEPTED, PUSH_REJECTED, PUSH_UNKNOWN):
+        return result
+    return PUSH_UNKNOWN
+
+
+# 4xx com evidência documentada de rejeição pelo provedor Web Push.
+# 5xx NÃO entra: um erro interno pode ocorrer depois da aceitação.
+_PUSH_REJECTABLE_4XX = frozenset({400, 401, 403, 404, 410})
+
+
+def _classify_push_exception(exc, transmitted):
+    """Devolve (resultado, remover_inscricao) para uma exceção do pywebpush."""
+    resp = getattr(exc, 'response', None)
+    status = getattr(resp, 'status_code', None)
+    if status is not None:
+        try:
+            code = int(status)
+        except (TypeError, ValueError):
+            return PUSH_UNKNOWN, False
+        if code in (404, 410):
+            return PUSH_REJECTED, True
+        if code in _PUSH_REJECTABLE_4XX:
+            return PUSH_REJECTED, False
+        # 5xx e 4xx fora da lista documentada são indeterminados: o provedor
+        # pode ter processado a mensagem antes de falhar. Nunca inferir
+        # aceitação apenas porque uma resposta foi recebida.
+        return PUSH_UNKNOWN, False
+
+    # Timeout/queda de conexão são incertos por definição, mesmo se a biblioteca
+    # tiver levantado antes de o proxy registrar o POST.
+    if isinstance(exc, requests.exceptions.RequestException):
+        return PUSH_UNKNOWN, False
+    if transmitted:
+        return PUSH_UNKNOWN, False
+
+    # Sem resposta e sem transmissão: a falha é comprovadamente anterior ao
+    # envio (subscription inválida, VAPID, serialização, criptografia).
+    if isinstance(exc, (WebPushException, ValueError, TypeError,
+                        KeyError, AttributeError, json.JSONDecodeError)):
+        return PUSH_REJECTED, False
+    return PUSH_UNKNOWN, False
+
+
+def push_notify(sub, title, body, url='/', actions=None, user_id=None, timeout=None):
+    """Envia Web Push e devolve `PUSH_ACCEPTED`, `PUSH_REJECTED` ou `PUSH_UNKNOWN`.
+
+    `timeout` é opcional e repassado ao pywebpush/requests. Callers que precisam
+    de limites rígidos (ex.: lembretes, que renovam lock) devem passar um valor
+    explícito. HTTP 2xx significa que o serviço aceitou a mensagem para entrega;
+    não é confirmação de exibição no dispositivo. Timeout/queda após a
+    transmissão resultam em `PUSH_UNKNOWN`, nunca em aceitação confirmada.
+    """
+    session = _PushTransmissionSession()
     try:
         data = {'title': title, 'body': body, 'url': url}
         if actions:
@@ -1075,22 +1168,324 @@ def push_notify(sub, title, body, url='/', actions=None, user_id=None):
             data=json.dumps(data),
             vapid_private_key=VAPID_PRIVATE_KEY,
             vapid_claims=dict(VAPID_CLAIMS),
-            ttl=86400
+            ttl=86400,
+            timeout=timeout,
+            requests_session=session,
         )
-        return True
+        logger.info("[push] aceito (2xx) para entrega; exibição no dispositivo não é confirmada")
+        return PUSH_ACCEPTED
     except Exception as e:
-        logger.warning(f"Push send error: {e}")
-        # 404/410 = inscrição expirada/removida pelo navegador: remove do Redis
-        # para não insistir no envio em toda rodada (auto-limpeza).
-        resp = getattr(e, 'response', None)
-        status = getattr(resp, 'status_code', None) if resp is not None else None
-        if status in (404, 410) and redis is not None:
+        outcome, remove_sub = _classify_push_exception(e, session.transmitted)
+        if remove_sub and redis is not None:
             try:
                 redis.srem('push:subscribers', json.dumps(sub, ensure_ascii=False))
-                logger.info(f"Push: inscrição removida do Redis (HTTP {status})")
+                logger.info("[push] inscrição removida do Redis (HTTP 404/410)")
             except Exception as rm_err:
                 logger.error(f"Push: falha ao remover inscrição do Redis: {rm_err}")
+        if outcome == PUSH_REJECTED:
+            logger.warning("[push] rejeitado: %s", e)
+        else:
+            logger.warning(
+                "[push] resultado desconhecido (transmitido=%s): %s — não registrar como aceito",
+                session.transmitted, e,
+            )
+        return outcome
+
+
+def _push_notify_subs(subs, title, body, url='/', actions=None, user_id=None,
+                      timeout=PUSH_BULK_TIMEOUT_SECONDS):
+    """Notifica vários destinatários e devolve (accepted, rejected, unknown).
+
+    Chamadores que gravam deduplicação ou contabilizam `sent` só devem fazê-lo
+    quando `rejected == 0 and unknown == 0`: `unknown` (resposta perdida/timeout)
+    não é sucesso confirmado e não pode marcar a notificação como já entregue.
+    """
+    accepted = rejected = unknown = 0
+    kwargs = {'timeout': timeout} if timeout is not None else {}
+    if url != '/':
+        kwargs['url'] = url
+    if actions:
+        kwargs['actions'] = actions
+    if user_id:
+        kwargs['user_id'] = user_id
+    for sub in subs:
+        outcome = _push_outcome(push_notify(sub, title, body, **kwargs))
+        if outcome == PUSH_ACCEPTED:
+            accepted += 1
+        elif outcome == PUSH_REJECTED:
+            rejected += 1
+        else:
+            unknown += 1
+    return accepted, rejected, unknown
+
+
+def _push_sub_dedup_identity(sub):
+    """Identificador estável e não sensível de um destinatário push."""
+    sub = sub or {}
+    endpoint = str(sub.get('endpoint') or '').strip()
+    if endpoint:
+        return hashlib.sha256(endpoint.encode('utf-8')).hexdigest()[:16]
+    uid = str((sub.get('user') or {}).get('id') or sub.get('key') or '').strip()
+    if not uid:
+        return ''
+    return 'uid:' + hashlib.sha256(uid.encode('utf-8')).hexdigest()[:16]
+
+
+def _push_dedup_key(event_id, sub, workspace_id=None, context=None):
+    """Chave individual: evento + destinatário + workspace/contexto.
+
+    Nunca é uma chave global do lote: um destinatário aceito não pode suprimir
+    a tentativa dos demais, nem um resultado incerto pode apagar a marca de
+    quem já foi aceito.
+    """
+    identity = _push_sub_dedup_identity(sub)
+    if not identity:
+        return None
+    parts = ['push:sent', str(event_id), identity]
+    if workspace_id:
+        parts.append('ws:' + str(workspace_id))
+    if context:
+        parts.append(str(context))
+    return ':'.join(parts)
+
+
+# A existência da chave, sozinha, NÃO prova envio. O valor carrega o estado:
+# `reserved:<token>` é uma reserva temporária; `accepted:<token>` é a marca
+# definitiva. O formato legado `'1'` (se existir em uma chave individual)
+# apenas bloqueia nova reserva; NÃO é prova de 2xx e nunca é contado como
+# aceitação confirmada.
+_PUSH_DEDUP_RESERVED = 'reserved'
+_PUSH_DEDUP_ACCEPTED = 'accepted'
+
+# Confirmação atômica: só transforma a reserva em marca definitiva se o token
+# pertencer a esta execução. O TTL original é preservado (não reiniciado) para
+# manter o comportamento anterior das marcas confirmadas.
+_PUSH_DEDUP_CONFIRM_SCRIPT = """
+-- push-dedup-confirm
+local value = redis.call('get', KEYS[1])
+if not value then return 0 end
+local state, token = string.match(value, '^([^:]+):(.+)$')
+if state ~= 'reserved' or token ~= ARGV[1] then return 0 end
+local remaining = redis.call('ttl', KEYS[1])
+if remaining <= 0 then remaining = tonumber(ARGV[2]) end
+redis.call('setex', KEYS[1], remaining, 'accepted:' .. token)
+return 1
+"""
+
+# Liberação atômica: remove somente a reserva desta execução. Nunca apaga uma
+# marca `accepted` nem a reserva de outra execução. Falha aqui é contida: o TTL
+# da reserva expira naturalmente e permite nova tentativa.
+_PUSH_DEDUP_RELEASE_SCRIPT = """
+-- push-dedup-release
+local value = redis.call('get', KEYS[1])
+if not value then return 0 end
+local state, token = string.match(value, '^([^:]+):(.+)$')
+if state ~= 'reserved' or token ~= ARGV[1] then return 0 end
+return redis.call('del', KEYS[1])
+"""
+
+
+def _push_dedup_state(raw):
+    """Classifica o valor Redis sem depender apenas da existência da chave.
+
+    Devolve `(estado, token)`, onde estado é `absent`, `reserved`, `accepted`
+    ou `unknown`. Valores corrompidos são `unknown` (fail-closed: nunca são
+    aceitos como confirmação, mas também não são apagados por esta leitura).
+    """
+    if raw is None:
+        return 'absent', None
+    # `'1'` é tentativa legada, não aceitação confirmada: classificá-lo como
+    # `unknown` mantém o fail-closed sem falsificar 2xx por destinatário.
+    value = str(raw)
+    if ':' not in value:
+        return 'unknown', None
+    state, token = value.split(':', 1)
+    if token and state == _PUSH_DEDUP_RESERVED:
+        return _PUSH_DEDUP_RESERVED, token
+    if token and state == _PUSH_DEDUP_ACCEPTED:
+        return _PUSH_DEDUP_ACCEPTED, token
+    return 'unknown', None
+
+
+def _push_dedup_release(key, token):
+    """Libera uma reserva somente se o token ainda pertencer a esta execução."""
+    if not redis or not key or not token:
         return False
+    try:
+        result = redis.eval(
+            _PUSH_DEDUP_RELEASE_SCRIPT,
+            keys=[key],
+            args=[token],
+        )
+        return result == 1
+    except Exception as e:
+        logger.warning("[push] falha ao liberar reserva de dedup: %s", e)
+        return False
+
+
+def _push_legacy_dedup_key(event_id):
+    """Chave global da implementação antiga: `push:sent:{notify_id}`."""
+    return f'push:sent:{event_id}'
+
+
+def _push_legacy_dedup_state(raw):
+    """Classifica a chave global antiga SEM atribuir aceitação a ela.
+
+    Esta chave nunca é gravada pela versão atual. O código antigo escrevia
+    `'1'` após tentar o lote inteiro, sem verificar 2xx por destinatário:
+    portanto `'1'` é uma TENTATIVA, não uma confirmação. Qualquer outro valor
+    é desconhecido/corrompido e nunca autoriza envio.
+    """
+    if raw is None:
+        return 'absent'
+    if str(raw) == '1':
+        return 'attempted'
+    return 'unknown'
+
+
+def _push_check_legacy_dedup(event_id, total):
+    """Política explícita de migração da dedup global antiga.
+
+    A chave `push:sent:{notify_id}` é apenas um sinal de migração, não uma
+    prova de entrega. A implementação anterior gravava `'1'` mesmo quando os
+    envios individuais não tinham sido aceitos, então este valor NÃO pode ser
+    contado como aceitação e NÃO pode ser transformado em marca individual.
+
+    Política adotada (at-least-once, sem confusão entre tentativa e aceitação):
+
+      · chave ausente => fluxo individual normal;
+      · `'1'` (tentativa antiga) => NÃO pula o lote e NÃO marca destinatários.
+        O fluxo individual segue com reserva/confirmação por destinatário.
+        Efeito: destinatários realmente notificados pela versão antiga podem
+        receber uma duplicata, limitada ao TTL das marcas individuais; em
+        troca não perdemos notificações para quem nunca foi alcançado e não
+        falsificamos `accepted`;
+      · qualquer outro valor (inclusive `reserved:`/`accepted:`) => valor
+        desconhecido/corrompido: fail-closed, nenhum envio;
+      · falha ao ler o Redis => fail-closed, nenhum envio.
+
+    Esta função NÃO cria, reescreve nem exclui a chave global: isso
+    restauraria a supressão global que a correção individual veio eliminar.
+    """
+    if total <= 0:
+        return 0, 0
+    if not redis:
+        return 0, total
+    key = _push_legacy_dedup_key(event_id)
+    try:
+        raw = redis.get(key)
+    except Exception as e:
+        logger.warning("[push] falha Redis ao ler dedup legada %s: %s", key, e)
+        return 0, total
+    state = _push_legacy_dedup_state(raw)
+    if state == 'absent':
+        return 0, 0
+    if state == 'attempted':
+        logger.info(
+            "[push] chave legada %s registra tentativa antiga; seguindo dedup individual",
+            key,
+        )
+        return 0, 0
+    logger.warning("[push] valor desconhecido na dedup legada %s; fail-closed", key)
+    return 0, total
+
+
+def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=None,
+                            user_id=None, workspace_id=None, context=None):
+    """Envia com dedup individual reservada e confirmada atomicamente.
+
+    Devolve (accepted, rejected, unknown, skipped, dedup_failed).
+
+    A reserva `reserved:<token>` é criada com SET NX EX antes do envio: duas
+    execuções concorrentes nunca enviam ao mesmo (evento, destinatário). Um
+    token aleatório exclusivo por execução faz o fencing de todas as operações
+    seguintes. Somente `PUSH_ACCEPTED` confirma a reserva, via Lua, para
+    `accepted:<token>` preservando o TTL original. `PUSH_REJECTED` e
+    `PUSH_UNKNOWN` liberam apenas a reserva desta execução; falha na liberação
+    deixa a reserva expirar pelo TTL. Falha Redis na reserva ou na confirmação
+    é fail-closed: nenhum envio sem reserva atômica e nenhuma confirmação falsa.
+
+    Antes do loop há a política de migração de `push:sent:{notify_id}` (ver
+    `_push_check_legacy_dedup`): o valor antigo `'1'` é apenas uma tentativa,
+    não uma aceitação, e NÃO suprime o lote. Somente as marcas individuais
+    reservadas/confirmadas nesta execução controlam duplicidade.
+
+    `sent`, nos callers, significa destinatários com aceitação confirmada
+    (`PUSH_ACCEPTED`); attempted/rejected/unknown/skipped nunca entram nessa
+    contagem. Os cron endpoints mantêm a chave `sent` por compatibilidade, mas
+    o valor é esse número de aceitações confirmadas.
+    """
+    accepted = rejected = unknown = skipped = dedup_failed = 0
+    if not redis:
+        return accepted, rejected, unknown, skipped, len(subs)
+
+    legacy_skipped, legacy_failed = _push_check_legacy_dedup(event_id, len(subs))
+    if legacy_skipped or legacy_failed:
+        return 0, 0, 0, legacy_skipped, legacy_failed
+
+    kwargs = {'timeout': PUSH_BULK_TIMEOUT_SECONDS}
+    if url != '/':
+        kwargs['url'] = url
+    if actions:
+        kwargs['actions'] = actions
+    if user_id:
+        kwargs['user_id'] = user_id
+
+    ttl_seconds = int(ttl)
+    for sub in subs:
+        key = _push_dedup_key(event_id, sub, workspace_id=workspace_id, context=context)
+        if not key:
+            logger.warning("[push] destinatário sem identidade estável; envio pulado (fail-closed)")
+            skipped += 1
+            continue
+        token = secrets.token_hex(16)
+        try:
+            claimed = redis.set(
+                key,
+                f'{_PUSH_DEDUP_RESERVED}:{token}',
+                ex=ttl_seconds,
+                nx=True,
+            )
+        except Exception as e:
+            logger.warning("[push] falha Redis ao reservar dedup individual: %s", e)
+            dedup_failed += 1
+            continue
+        if not claimed:
+            skipped += 1
+            continue
+        try:
+            outcome = _push_outcome(push_notify(sub, title, body, **kwargs))
+        except Exception as e:
+            logger.warning("[push] falha inesperada no envio individual: %s", e)
+            outcome = PUSH_UNKNOWN
+
+        if outcome == PUSH_ACCEPTED:
+            try:
+                confirmed = redis.eval(
+                    _PUSH_DEDUP_CONFIRM_SCRIPT,
+                    keys=[key],
+                    args=[token, str(ttl_seconds)],
+                )
+            except Exception as e:
+                logger.warning("[push] falha Redis ao confirmar dedup individual: %s", e)
+                confirmed = 0
+            if confirmed == 1:
+                accepted += 1
+            else:
+                # O provedor aceitou, mas não há marca confirmada. Não
+                # reportar aceitação; liberar a reserva fenciada para que a
+                # política at-least-once permita nova tentativa.
+                dedup_failed += 1
+                _push_dedup_release(key, token)
+            continue
+
+        _push_dedup_release(key, token)
+        if outcome == PUSH_REJECTED:
+            rejected += 1
+        else:
+            unknown += 1
+    return accepted, rejected, unknown, skipped, dedup_failed
+
 
 @app.route('/api/push/test', methods=['GET'])
 @require_auth
@@ -1104,8 +1499,8 @@ def push_test():
     count = 0
     for raw in subs:
         sub = json.loads(raw) if isinstance(raw, str) else raw
-        ok = push_notify(sub, 'Teste Reservas Lab', 'Notificação push funcionando! 🔔')
-        if ok:
+        ok = _push_outcome(push_notify(sub, 'Teste Reservas Lab', 'Notificação push funcionando! 🔔'))
+        if ok == PUSH_ACCEPTED:
             count += 1
     return jsonify({'sent': count, 'total': len(subs)})
 
@@ -1136,8 +1531,8 @@ def push_send():
 
         count = 0
         for sub in subs:
-            ok = push_notify(sub, title, msg, url=url, actions=actions, user_id=user_id)
-            if ok:
+            ok = _push_outcome(push_notify(sub, title, msg, url=url, actions=actions, user_id=user_id))
+            if ok == PUSH_ACCEPTED:
                 count += 1
         return jsonify({'sent': count, 'total': len(subs)})
     except Exception as e:
@@ -1740,7 +2135,7 @@ def push_check():
 
 # ── Configuração da janela/dedup do push (env, com defaults históricos) ──
 # PUSH_ADVANCE_MINUTES: aviso antecedido de reserva (minutos antes do início; default 30)
-# PUSH_DEDUP_SECONDS:   TTL da chave de deduplicação `push:sent:{id}` no Redis
+# PUSH_DEDUP_SECONDS:   TTL das marcas individuais `push:sent:{evento}:{destinatário}...`
 def _push_advance_minutes() -> int:
     try:
         return max(1, int(os.environ.get('PUSH_ADVANCE_MINUTES', '30')))
@@ -1843,11 +2238,7 @@ def _internal_push_check():
             
             if agora_min <= inicio <= limite_min:
                 notify_id = hashlib.md5(f"{r.get('_scope') or ''}|{r['lab']}|{r['horario']}|{r.get('responsavel','')}".encode()).hexdigest()
-                
-                already = redis.get(f'push:sent:{notify_id}')
-                if already:
-                    continue
-                
+
                 title = f"{' '.join(r.get('labs', [r.get('lab', 'Lab')]))}"
                 alunos = r.get('alunos', '')
                 evento = r.get('observacao', '').strip()
@@ -1857,12 +2248,19 @@ def _internal_push_check():
                 if alunos:
                     body += f" — {alunos} alunos"
                 
-                for sub in (r.get('_subs') or subs):
-                    push_notify(sub, title, body)
-                
-                redis.setex(f'push:sent:{notify_id}', _push_dedup_seconds(), '1')
-                sent += 1
-                logger.info(f"Push sent for {title} at {r['horario']}")
+                accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                    r.get('_subs') or subs, notify_id, _push_dedup_seconds(), title, body,
+                    workspace_id=r.get('_scope') or None, context='lab-reserva',
+                )
+                sent += accepted
+                if accepted:
+                    logger.info("Push aceito para %s: %s destinatário(s)", title, accepted)
+                if rejected or unknown or skipped or dedup_failed:
+                    logger.info(
+                        "Push não confirmado para %s: rejected=%s unknown=%s skipped=%s "
+                        "dedup_failed=%s; marcas individuais preservadas/liberadas",
+                        title, rejected, unknown, skipped, dedup_failed,
+                    )
         
         # ─── Push para reservas de tablets ──────────────────────────
         supabase_url = os.environ.get('SUPABASE_URL', '')
@@ -1905,10 +2303,7 @@ def _internal_push_check():
                         
                         if agora_min <= inicio_min <= limite_min:
                             notify_id = hashlib.md5(f"tablet|{t['id']}".encode()).hexdigest()
-                            already = redis.get(f'push:sent:{notify_id}')
-                            if already:
-                                continue
-                            
+
                             title = f"Tablets — {t.get('sala', 'Sala')}"
                             evento = t.get('finalidade', '').strip()
                             body = f"{t.get('professor', 'Professor')}"
@@ -1921,12 +2316,20 @@ def _internal_push_check():
                             # Só nível 'full' do reservalab recebe push de reserva.
                             ws_id = t.get('workspace_id')
                             target = _target_subs(module='reservalab', workspace_id=ws_id, min_level='full') if ws_id else subs
-                            for sub in target:
-                                push_notify(sub, title, body)
-                            
-                            redis.setex(f'push:sent:{notify_id}', _push_dedup_seconds(), '1')
-                            sent += 1
-                            logger.info(f"Push sent for tablet: {title} at {inicio_str}")
+                            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                                target, notify_id, _push_dedup_seconds(), title, body,
+                                workspace_id=ws_id, context='tablet',
+                            )
+                            sent += accepted
+                            if accepted:
+                                logger.info("Push de tablet aceito: %s (%s destinatário(s))",
+                                            title, accepted)
+                            if rejected or unknown or skipped or dedup_failed:
+                                logger.info(
+                                    "Push de tablet não confirmado: rejected=%s unknown=%s "
+                                    "skipped=%s dedup_failed=%s",
+                                    rejected, unknown, skipped, dedup_failed,
+                                )
             except Exception as e:
                 logger.error(f"Tablet push check error: {e}")
         
@@ -2029,11 +2432,13 @@ def push_notify_loan():
             msg += f" — Devolução até {expected_return[:10]}"
 
         subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        for sub in subs:
-            push_notify(sub, title, msg)
+        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
 
-        logger.info(f"Loan notify: {title}")
-        return jsonify({'sent': len(subs)})
+        logger.info(
+            "Loan notify: %s (accepted=%s rejected=%s unknown=%s)",
+            title, accepted, rejected, unknown,
+        )
+        return jsonify({'sent': accepted})
     except Exception as e:
         logger.error("notify-loan error: %s", e)
         return jsonify({'error': 'Erro ao processar notificação de empréstimo'}), 500
@@ -2061,11 +2466,13 @@ def push_notify_return():
         msg = f"Devolvido por {returned_by}"
 
         subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        for sub in subs:
-            push_notify(sub, title, msg)
+        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
 
-        logger.info(f"Return notify: {title}")
-        return jsonify({'sent': len(subs)})
+        logger.info(
+            "Return notify: %s (accepted=%s rejected=%s unknown=%s)",
+            title, accepted, rejected, unknown,
+        )
+        return jsonify({'sent': accepted})
     except Exception as e:
         logger.error("notify-return error: %s", e)
         return jsonify({'error': 'Erro ao processar notificação de devolução'}), 500
@@ -2149,20 +2556,24 @@ def _internal_push_check_overdue():
 
             found += 1
             nid = hashlib.md5(f"overdue|{loan['id']}".encode()).hexdigest()
-            if redis.get(f'push:sent:{nid}'):
-                continue
 
             item_name = loan.get('itemname', 'Item')
             borrowed_by = loan.get('borrowedby', 'Alguém')
 
             title = f"⏰ Prazo de devolução: {item_name}"
             msg = f"Emprestado para {borrowed_by} — Vence {expected_raw[:10]}"
-            for sub in subs:
-                push_notify(sub, title, msg)
-
-            redis.setex(f'push:sent:{nid}', 43200, '1')
-            sent += 1
-            logger.info(f"Overdue notify: {item_name}")
+            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                subs, nid, 43200, title, msg, context='overdue',
+            )
+            sent += accepted
+            if accepted:
+                logger.info("Overdue notify aceito: %s (%s destinatário(s))", item_name, accepted)
+            if rejected or unknown or skipped or dedup_failed:
+                logger.info(
+                    "Overdue notify não confirmado: %s rejected=%s unknown=%s skipped=%s "
+                    "dedup_failed=%s",
+                    item_name, rejected, unknown, skipped, dedup_failed,
+                )
 
         return {'checked': True, 'sent': sent, 'found': found, 'subscribers': len(subs)}
     except Exception as e:
@@ -2213,15 +2624,21 @@ def _internal_push_check_pcare():
                     min_qty = part.get('minquantity', 0)
                     if qty < min_qty:
                         nid = hashlib.md5(f"pcare|part|{part['id']}".encode()).hexdigest()
-                        if redis.get(f'push:sent:{nid}'):
-                            continue
                         title = f"🔧 Estoque baixo: {part.get('name', 'Peça')}"
                         msg = f"Quantidade: {qty} | Mínimo: {min_qty}"
-                        for sub in subs:
-                            push_notify(sub, title, msg)
-                        redis.setex(f'push:sent:{nid}', 86400, '1')
-                        sent += 1
-                        logger.info(f"Low stock: {part.get('name')}")
+                        accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                            subs, nid, 86400, title, msg, context='pcare-part',
+                        )
+                        sent += accepted
+                        if accepted:
+                            logger.info("Low stock aceito: %s (%s destinatário(s))",
+                                        part.get('name'), accepted)
+                        if rejected or unknown or skipped or dedup_failed:
+                            logger.info(
+                                "Low stock não confirmado: %s rejected=%s unknown=%s "
+                                "skipped=%s dedup_failed=%s",
+                                part.get('name'), rejected, unknown, skipped, dedup_failed,
+                            )
         except Exception as e:
             logger.error(f"check-pcare parts error: {e}")
 
@@ -2238,15 +2655,21 @@ def _internal_push_check_pcare():
             if mr.ok:
                 for m in mr.json():
                     nid = hashlib.md5(f"pcare|maint|{m['id']}".encode()).hexdigest()
-                    if redis.get(f'push:sent:{nid}'):
-                        continue
                     title = f"🔧 Manutenção: {m.get('pcnumber', 'PC')}"
                     msg = f"{m.get('labname', 'Lab')} — {m.get('type', '')} — {m.get('scheduleddate', '')[:10]}"
-                    for sub in subs:
-                        push_notify(sub, title, msg)
-                    redis.setex(f'push:sent:{nid}', 86400, '1')
-                    sent += 1
-                    logger.info(f"Maintenance: {m.get('pcnumber')}")
+                    accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                        subs, nid, 86400, title, msg, context='pcare-maint',
+                    )
+                    sent += accepted
+                    if accepted:
+                        logger.info("Maintenance aceito: %s (%s destinatário(s))",
+                                    m.get('pcnumber'), accepted)
+                    if rejected or unknown or skipped or dedup_failed:
+                        logger.info(
+                            "Maintenance não confirmado: %s rejected=%s unknown=%s "
+                            "skipped=%s dedup_failed=%s",
+                            m.get('pcnumber'), rejected, unknown, skipped, dedup_failed,
+                        )
         except Exception as e:
             logger.error(f"check-pcare maintenance error: {e}")
 
@@ -2281,24 +2704,28 @@ def _check_pending_users():
         sent = 0
         for u in pending:
             nid = hashlib.md5(f"pending|{u.get('id')}".encode()).hexdigest()
-            if redis.get(f'push:sent:{nid}'):
-                continue
             nome = u.get('name') or u.get('email') or 'Usuário'
             title = 'Novo usuário pendente'
             body = f"{nome} ({u.get('email') or ''}) aguarda aprovação"
-            for sub in subs:
-                # PR-4D-A (Option B): notificação INFORMATIVA. Sem botões
-                # approve/reject — um Service Worker não consegue autenticar com
-                # segurança uma ação crítica em segundo plano (o POST ficaria
-                # também sem Authorization => 401). O click abre a fila de
-                # pendentes: /admin/users?pending=<id> (AdminGuard + RLS).
-                push_notify(
-                    sub, title, body,
-                    url=f"/admin/users?pending={u.get('id')}",
+            # PR-4D-A (Option B): notificação INFORMATIVA. Sem botões
+            # approve/reject — um Service Worker não consegue autenticar com
+            # segurança uma ação crítica em segundo plano (o POST ficaria
+            # também sem Authorization => 401). O click abre a fila de
+            # pendentes: /admin/users?pending=<id> (AdminGuard + RLS).
+            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                subs, nid, 604800, title, body,
+                url=f"/admin/users?pending={u.get('id')}", context='pending-user',
+            )
+            sent += accepted
+            if accepted:
+                logger.info("Pending user notify aceito: %s (%s destinatário(s))",
+                            (u.get('id') or '')[:8], accepted)
+            if rejected or unknown or skipped or dedup_failed:
+                logger.info(
+                    "Pending user notify não confirmado: %s rejected=%s unknown=%s "
+                    "skipped=%s dedup_failed=%s",
+                    (u.get('id') or '')[:8], rejected, unknown, skipped, dedup_failed,
                 )
-            redis.setex(f'push:sent:{nid}', 604800, '1')
-            sent += 1
-            logger.info(f"Pending user notify: {(u.get('id') or '')[:8]}")
         return {'checked': True, 'found': len(pending), 'sent': sent, 'subscribers': len(subs)}
     except Exception as e:
         logger.error("check-pending error: %s", e)
@@ -2345,8 +2772,6 @@ def _check_stock_expiry():
                 continue
 
             nid = hashlib.md5(f"expiry|{item.get('id')}".encode()).hexdigest()
-            if redis.get(f'push:sent:{nid}'):
-                continue
 
             nome = item.get('name') or 'Item'
             if dias < 0:
@@ -2361,12 +2786,21 @@ def _check_stock_expiry():
 
             ws = _get_key(item, 'workspace_id', 'workspaceId')
             subs = _target_subs(module='stock', workspace_id=ws)
-            for sub in subs:
-                push_notify(sub, title, msg, url=f"/stock/items/{item.get('id')}")
-
-            redis.setex(f'push:sent:{nid}', 86400, '1')
-            sent += 1
-            logger.info(f"Stock expiry: {nome} ({dias}d)")
+            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                subs, nid, 86400, title, msg,
+                url=f"/stock/items/{item.get('id')}",
+                workspace_id=ws, context='stock-expiry',
+            )
+            sent += accepted
+            if accepted:
+                logger.info("Stock expiry aceito: %s (%sd, %s destinatário(s))",
+                            nome, dias, accepted)
+            if rejected or unknown or skipped or dedup_failed:
+                logger.info(
+                    "Stock expiry não confirmado: %s rejected=%s unknown=%s "
+                    "skipped=%s dedup_failed=%s",
+                    nome, rejected, unknown, skipped, dedup_failed,
+                )
         return {'checked': True, 'sent': sent, 'subscribers': len(_target_subs(module='stock'))}
     except Exception as e:
         logger.error("check-expiry error: %s", e)

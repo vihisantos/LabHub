@@ -213,22 +213,86 @@ def test_checks_aceitam_header_correto(client, monkeypatch, endpoint):
 # ── Filtro por workspace no alerta de reserva próxima ──────────────────────
 
 class FakeRedis:
-    """Fake mínimo do cliente Redis usado pelos checks de push."""
+    """Fake do cliente Redis com dedup reserva/confirmação fencvada.
+
+    Reproduz a semântica atômica de `SET NX EX` e dos scripts Lua de dedup
+    (confirmação e liberação por token). Não substitui Redis real.
+    """
 
     def __init__(self, members=None):
         self._members = members if members is not None else set()
+        self.store = {}
+        self.expires = {}
+        self.now = 0
+
+    def _purge(self, key):
+        expires_at = self.expires.get(key)
+        if expires_at is not None and self.now >= expires_at:
+            self.store.pop(key, None)
+            self.expires.pop(key, None)
 
     def smembers(self, key):
         return set(self._members)
 
     def get(self, key):
-        return None
+        self._purge(key)
+        return self.store.get(key)
 
-    def setex(self, *args, **kwargs):
-        pass
+    def ttl(self, key):
+        self._purge(key)
+        if key not in self.store:
+            return -2
+        expires_at = self.expires.get(key)
+        if expires_at is None:
+            return -1
+        return max(0, expires_at - self.now)
+
+    def set(self, key, value, ex=None, nx=None, **kwargs):
+        self._purge(key)
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        if ex is not None:
+            self.expires[key] = self.now + int(ex)
+        else:
+            self.expires.pop(key, None)
+        return True
+
+    def setex(self, key, ttl, value):
+        self.store[key] = value
+        self.expires[key] = self.now + int(ttl)
 
     def delete(self, key):
         self._members = set()
+        existed = self.store.pop(key, None) is not None
+        self.expires.pop(key, None)
+        return existed
+
+    def eval(self, script, keys=None, args=None):
+        script = script or ''
+        key = (keys or [None])[0]
+        token = (args or [None])[0]
+        self._purge(key)
+        raw = self.store.get(key)
+        if raw is None:
+            return 0
+        value = str(raw)
+        if ':' not in value:
+            return 0
+        state, current = value.split(':', 1)
+        if '-- push-dedup-confirm' in script:
+            if state != 'reserved' or current != token:
+                return 0
+            remaining = self.ttl(key)
+            if remaining <= 0:
+                remaining = int((args or [None, 3600])[1])
+            self.setex(key, remaining, 'accepted:' + token)
+            return 1
+        if '-- push-dedup-release' in script:
+            if state != 'reserved' or current != token:
+                return 0
+            return 1 if self.delete(key) else 0
+        return 0
 
     def sadd(self, key, value):
         self._members.add(value)
@@ -318,7 +382,12 @@ def test_push_check_reserva_de_lab_mira_so_o_campus(push_module, monkeypatch):
 
     monkeypatch.setattr(push_module, '_target_subs', fake_target_subs)
     sent = []
-    monkeypatch.setattr(push_module, 'push_notify', lambda sub, title, body: sent.append((sub['user']['id'], title, body)))
+    monkeypatch.setattr(
+        push_module, 'push_notify',
+        lambda sub, title, body, **kwargs: (
+            sent.append((sub['user']['id'], title, body)) or push_module.PUSH_ACCEPTED
+        ),
+    )
 
     result = push_module._internal_push_check()
 
