@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { usePushNotifications } from '../../../lib/usePushNotifications'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { buildPushUser } from '../../../lib/buildPushUser'
+import { useActiveWorkspaceRole } from '../../../core/permissions/useActiveWorkspaceRole'
 import { icons } from '../../../lib/icons'
 
 const DISMISS_KEY = 'labhub_push_prompt_dismissed'
@@ -25,6 +26,7 @@ const BENEFITS = [
 
 export function PushNotificationButton() {
   const { user } = useAuth()
+  const { isTechnician, loading: roleLoading } = useActiveWorkspaceRole()
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem(DISMISS_KEY) === '1'
@@ -51,7 +53,8 @@ export function PushNotificationButton() {
 
   const settingsUrl = browserSettingsUrl()
 
-  if (dismissed || !supported || permission === 'granted' || subscribed) return null
+  // Técnicos recebem o aviso global de reativação (sem o dismiss permanente legado).
+  if (roleLoading || isTechnician || dismissed || !supported || permission === 'granted' || subscribed) return null
 
   return (
     <motion.div
