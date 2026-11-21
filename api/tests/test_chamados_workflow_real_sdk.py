@@ -42,7 +42,7 @@ CURRENT_KEY = "test-current-signing-key-with-at-least-32-bytes"
 NEXT_KEY = "test-next-signing-key-with-at-least-32-bytes"
 URL = "https://preview-abc123.vercel.app/api/chamados/reminders/workflow"
 BYPASS = "bypass-real-sdk-test-token-32chars"
-AUTH_URL = f"{URL}?x-vercel-protection-bypass={BYPASS}"
+FORWARDED = "Upstash-Forward-x-vercel-protection-bypass"
 
 
 @pytest.fixture(autouse=True)
@@ -103,7 +103,7 @@ def real_context(*, steps=None):
         workflow_run_id="wfi_test",
         headers={},
         steps=steps or [],
-        url=AUTH_URL,
+        url=URL,
         failure_url=None,
         initial_payload=payload(),
     )
@@ -198,9 +198,10 @@ def test_real_sdk_url_explicita_prevalece_sobre_host(configured):
         url="https://attacker.example/evil?next=https://evil",
         query={},
     )
-    url, _ = _determine_urls(request, AUTH_URL, None, False, None)
-    assert url == AUTH_URL
-    assert "x-vercel-protection-bypass=" in url
+    url, _ = _determine_urls(request, URL, None, False, None)
+    assert url == URL
+    assert "?" not in url
+    assert "bypass" not in url
 
 
 # ---------------------------------------------------------------------------
@@ -257,37 +258,52 @@ def test_real_sdk_remove_headers_vercel_das_etapas():
     assert headers["Content-Type"] == "application/json"
 
 
-def test_real_sdk_query_parameter_preservado_no_destino_de_cada_etapa(configured):
+def test_real_sdk_bypass_injetado_em_publicacao_e_em_todas_as_etapas(configured):
+    """Prova com a SDK real: o header vai na publicação e em cada step/sleep."""
+    client = workflow._qstash_client(workflow._config())
     calls = []
 
-    class RecordingHttp:
+    class RecordingTransport:
         def request(self, **kwargs):
             calls.append(kwargs)
-            return []
+            body = (
+                [{"messageId": "msg_ok"}]
+                if "batch" in kwargs.get("path", "")
+                else {"messageId": "msg_ok", "deduplicated": False}
+            )
+            return httpx.Response(200, json=body)
 
+    client.http._client = RecordingTransport()
+
+    # Publicação inicial (dispatcher).
+    client.message.publish_json(url=URL, body=payload())
+    # Etapa persistida pela SDK do Workflow (usa o MESMO cliente configurado).
     context = real_context()
-    context.qstash_client.http = RecordingHttp()
+    context.qstash_client = client
     with pytest.raises(WorkflowAbort):
         context.run("verificar-onda-1", lambda: {"stop": False})
 
-    assert calls, "a SDK real deve persistir a etapa"
-    batch = json.loads(calls[0]["body"])
-    assert batch, "nenhuma mensagem de etapa foi enviada"
+    assert len(calls) >= 2
+    for call in calls:
+        assert call["headers"][FORWARDED] == BYPASS
+        assert "x-vercel-protection-bypass" not in call["url"]
+        assert "?" not in call["url"]
+
+    # O transporte real recebe o batch de etapas como `content`.
+    batch = json.loads(calls[-1]["content"])
     for message in batch:
-        assert message["destination"] == AUTH_URL
-        assert (
-            message["headers"]["Upstash-Workflow-Url"] == AUTH_URL
-        )
+        assert message["destination"] == URL
+        assert message["headers"]["Upstash-Workflow-Url"] == URL
     assert BYPASS not in json.dumps(payload())
 
 
-def test_real_sdk_assinatura_valida_com_bypass_na_url(configured):
+def test_real_sdk_assinatura_valida_com_bypass_no_header(configured):
     receiver = Receiver(
         current_signing_key=CURRENT_KEY, next_signing_key=NEXT_KEY
     )
     body = json.dumps(payload())
-    # O query parameter não participa da assinatura: o Receiver continua
+    # O header de bypass não participa da assinatura: o Receiver continua
     # validando o corpo exatamente como antes.
-    receiver.verify(signature=signed(body, CURRENT_KEY, url=AUTH_URL), body=body)
+    receiver.verify(signature=signed(body, CURRENT_KEY, url=URL), body=body)
     with pytest.raises(Exception):
-        receiver.verify(signature=signed(body, "wrong-key-with-at-least-32-bytes", url=AUTH_URL), body=body)
+        receiver.verify(signature=signed(body, "wrong-key-with-at-least-32-bytes", url=URL), body=body)

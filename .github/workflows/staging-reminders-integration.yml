@@ -52,6 +52,16 @@ on:
         description: 'URL HTTPS do Preview para smoke do dispatch (vazio = nao testar)'
         required: false
         default: ''
+      run_workflow_e2e:
+        description: 'Publicar de verdade no QStash com chamado sintético em workspace isolado?'
+        required: true
+        type: boolean
+        default: false
+      keep_e2e_data:
+        description: 'Preservar os dados sintéticos do E2E para inspeção?'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -258,6 +268,21 @@ jobs:
           echo "HTTP $status"
           cat /tmp/chamados_workflow_dispatch.out
           test "$status" = "200"
+
+      # Publicação REAL no QStash. Opt-in: consome mensagens de verdade e usa
+      # somente workspace/ticket sintéticos. Nada em produção.
+      - name: E2E real QStash -> Preview protegida (Staging)
+        if: ${{ inputs.run_workflow_e2e }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          PREVIEW_DISPATCH_URL: ${{ inputs.preview_dispatch_url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          KEEP_E2E_DATA: ${{ inputs.keep_e2e_data }}
+        run: |
+          python scripts/ci/chamados_workflow_e2e_staging.py
 
       - name: Testes reais PostgreSQL (Staging)
         env:

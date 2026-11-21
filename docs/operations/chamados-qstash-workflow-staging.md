@@ -65,9 +65,11 @@ O MVP continua com **3 checagens** (2, 4 e 6 minutos após o disparo). Isso
   apenas a classe da exceção (nunca segredos) e a reconciliação recupera a
   linha no próximo tick do dispatcher. O `updatedAt` é normalizado para UTC
   antes do hash, de modo que criação e reconciliação geram o **mesmo** ciclo.
-- O bypass da Preview é anexado como query parameter **apenas à URL interna**
-  usada pelo QStash/SDK (`x-vercel-protection-bypass`). Ele não vem de Host,
-  parâmetro de request, browser, resposta ou log da aplicação.
+- O bypass da Preview é injetado como header **no cliente QStash usado pelo
+  servidor** (`Upstash-Forward-x-vercel-protection-bypass`), nunca na URL. Ele
+  não vem de Host, parâmetro de request, browser, resposta ou log da aplicação.
+  Um filtro de logging redobra o valor caso alguma biblioteca o inclua em uma
+  exceção.
 
 ## Configuração exclusiva de Preview/Staging
 
@@ -105,19 +107,20 @@ alfanuméricos), mantido apenas no secret do repositório; nunca é variável
 manual, parâmetro de URL compartilhável, resposta ou log da aplicação.
 
 Para o caminho inverso (QStash -> Preview), a documentação oficial da Upstash
-orienta passar o bypass na chamada inicial **e** configurá-lo para as etapas
-seguintes. O SDK Python `upstash-workflow==2.0.0` remove headers `x-vercel-*`
-das etapas seguintes (`_recreate_user_headers`), e a SDK QStash Python 3.4.0
-não tem opção de headers padrão no cliente. Por isso usamos o mecanismo
-suportado pela Vercel para integrações que não conseguem enviar headers
-customizados: o **query parameter** `x-vercel-protection-bypass` na URL
-interna do workflow. Ele é montado no servidor a partir da variável de sistema
-`VERCEL_AUTOMATION_BYPASS_SECRET`, preservado pelo SDK em todas as retomadas
-após `context.sleep()`, e não altera a verificação de assinatura do `Receiver`
-(a assinatura cobre o corpo da mensagem). Nenhuma proteção é desligada e o
-segredo não aparece em frontend, URLs compartilháveis, respostas ou logs locais.
-Recomenda-se rotacionar o bypass ao encerrar o experimento. **Não habilitar a
-flag em Production.**
+orienta configurar o bypass **no cliente QStash** para que todas as etapas,
+inclusive retomadas após `context.sleep()`, cheguem à Preview protegida. A SDK
+Python `qstash==3.4.0` não expõe uma opção de headers padrão, e a
+`upstash-workflow==2.0.0` remove headers `x-vercel-*` recebidos do usuário
+(`_recreate_user_headers`). Por isso injetamos
+`Upstash-Forward-x-vercel-protection-bypass` diretamente no `http.request` do
+cliente usado tanto na publicação inicial (`_qstash_client`) quanto pelo próprio
+`Serve.route(..., qstash_client=...)`. O QStash encaminha esse header ao destino
+em cada mensagem; a URL continua limpa, sem query parameter. O valor vem da
+variável de sistema `VERCEL_AUTOMATION_BYPASS_SECRET`, nunca de request, e não
+altera a verificação do `Receiver` (a assinatura cobre o corpo da mensagem).
+Nenhuma proteção é desligada e o segredo não aparece em frontend, URLs,
+respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
+**Não habilitar a flag em Production.**
 
 ## Procedimento de validação
 

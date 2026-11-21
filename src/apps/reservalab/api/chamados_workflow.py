@@ -22,9 +22,29 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _RedactBypassFilter(logging.Filter):
+    """Defesa em profundidade: nunca deixar o bypass vazar em logs."""
+
+    def __init__(self, secret: str):
+        super().__init__()
+        self._secret = secret
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+            if self._secret and self._secret in message:
+                record.msg = message.replace(self._secret, "[REDACTED]")
+                record.args = ()
+        except Exception:
+            pass
+        return True
+
+
 WORKFLOW_PATH = "/api/chamados/reminders/workflow"
 FLAG = "LABHUB_CHAMADOS_WORKFLOW_ENABLED"
 URL_ENV = "LABHUB_CHAMADOS_WORKFLOW_URL"
@@ -46,12 +66,16 @@ OUTBOX_RPC_RECONCILE_CANDIDATES = "chamados_workflow_outbox_reconcile_candidates
 RECONCILE_INTERVAL_SECONDS = 900
 RECONCILE_LOOKBACK_MINUTES = 1440
 RECONCILE_LIMIT = 20
-# Vercel só aceita o bypass por header ou query parameter. O SDK Python
-# (upstash-workflow 2.0.0) remove headers `x-vercel-*` das etapas seguintes
-# (_recreate_user_headers), então o query parameter é a única forma suportada
-# de manter o bypass em TODAS as retomadas sem desativar o SSO.
-VERCEL_BYPASS_PARAM = "x-vercel-protection-bypass"
+# A documentação da Upstash recomenda configurar o bypass no cliente QStash
+# para que TODAS as etapas (inclusive retomadas após context.sleep) cheguem à
+# Preview protegida. O SDK Python 3.4.0 não tem opção de headers padrão, e o
+# upstash-workflow 2.0.0 remove headers `x-vercel-*` recebidos do usuário
+# (_recreate_user_headers). Por isso injetamos o header no cliente HTTP usado
+# tanto na publicação inicial quanto pelo próprio Workflow. Nada de query
+# parameter: o secreto nunca aparece em URL, log de acesso ou resposta.
 VERCEL_BYPASS_ENV = "VERCEL_AUTOMATION_BYPASS_SECRET"
+VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass"
+QSTASH_FORWARD_PREFIX = "Upstash-Forward-"
 
 
 def enabled() -> bool:
@@ -92,13 +116,8 @@ def _config() -> dict:
     bypass = config[VERCEL_BYPASS_ENV]
     if len(bypass) < 16 or len(bypass) > 256 or any(ch.isspace() for ch in bypass):
         raise ValueError("bypass de automação inválido")
-    # O secreto fica SOMENTE na URL interna usada pelo QStash e pelo SDK.
-    # Nunca é derivado de Host/request, logado ou devolvido em resposta.
-    parts = urlsplit(url)
-    config["workflow_url"] = urlunsplit((
-        parts.scheme, parts.netloc, parts.path,
-        urlencode({VERCEL_BYPASS_PARAM: bypass}), parts.fragment,
-    ))
+    # A URL permanece LIMPA: o segredo trafega apenas no header encaminhado
+    # pelo QStash. Nunca é derivado de Host/request, logado ou devolvido.
     return config
 
 
@@ -360,10 +379,31 @@ def release(job_id: str, lock_token: str, error_class: str, *, rpc=None) -> str:
 
 
 def _qstash_client(config: dict):
+    """Cliente QStash com o bypass injetado em TODA chamada à API.
+
+    O prefixo `Upstash-Forward-` é o mecanismo oficial da SDK para encaminhar
+    headers ao destino. Como a injeção acontece no cliente HTTP (depois de
+    `prepare_headers`), ela alcança publicação inicial, steps e sleeps do
+    Workflow — inclusive quando a SDK interna reconstrói os headers do usuário.
+    """
     from qstash import QStash
     import httpx
 
-    client = QStash(token=config["QSTASH_TOKEN"], retry=False)
+    class _PreviewBypassQStash(QStash):
+        pass
+
+    client = _PreviewBypassQStash(token=config["QSTASH_TOKEN"], retry=False)
+    original_request = client.http.request
+
+    def request_with_bypass(*args, **kwargs):
+        headers = dict(kwargs.get("headers") or {})
+        headers[
+            QSTASH_FORWARD_PREFIX + VERCEL_BYPASS_HEADER
+        ] = config[VERCEL_BYPASS_ENV]
+        kwargs["headers"] = headers
+        return original_request(*args, **kwargs)
+
+    client.http.request = request_with_bypass
     # A SDK usa 600s por padrão; o dispatcher precisa devolver rápido.
     client.http._client = httpx.Client(
         timeout=httpx.Timeout(
@@ -383,7 +423,7 @@ def publish_pending(config: dict, row: dict, *, publish=None) -> None:
     if publish is None:
         publish = _qstash_client(config).message.publish_json
     publish(
-        url=config["workflow_url"],
+        url=config["url"],
         body=payload,
         # Estável por job/ciclo: até uma republicação ambígua não cria outro run.
         deduplication_id=f"labhub-reminder-{payload['job_id']}",
@@ -474,15 +514,22 @@ def register(app, process_one, *, interval_seconds: int, current_job_fn=None) ->
     serve = Serve(app)
     current_job_fn = current_job_fn or current_job
 
+    # Redação defensiva: mesmo que alguma lib inclua o header em uma exceção,
+    # o valor nunca aparece em log. A URL continua sem query parameter.
+    redactor = _RedactBypassFilter(config[VERCEL_BYPASS_ENV])
+    logging.getLogger().addFilter(redactor)
+    logging.getLogger("werkzeug").addFilter(redactor)
+
     # `Serve.route` (upstash-workflow 2.0.0) não expõe `redact`; o payload já
     # contém somente UUIDs, e a publicação usa `redact={"body": True}` no
     # QStash. A URL é fixa e prevalece sobre qualquer Host/request.url. O
-    # query parameter de bypass é preservado pelo SDK em TODAS as etapas.
+    # cliente injeta o bypass em todas as etapas, sem poluir a URL.
     @serve.route(
         WORKFLOW_PATH,
+        qstash_client=_qstash_client(config),
         receiver=receiver,
         initial_payload_parser=json.loads,
-        url=config["workflow_url"],
+        url=config["url"],
     )
     def chamados_reminder_workflow(context):
         payload = parse_payload(context.request_payload)

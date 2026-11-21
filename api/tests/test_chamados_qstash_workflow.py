@@ -1,5 +1,6 @@
 """Testes isolados do agendador durável QStash/Workflow; nunca usam rede."""
 import importlib
+import logging
 import pathlib
 import sys
 import types
@@ -277,10 +278,8 @@ def test_drain_publishes_with_stable_dedup_and_ack(monkeypatch):
     assert published[0]["deduplication_id"] == f"labhub-reminder-{job()['job_id']}"
     assert published[0]["retries"] == 0
     assert published[0]["redact"] == {"body": True}
-    assert published[0]["url"] == (
-        "https://preview.example/api/chamados/reminders/workflow"
-        "?x-vercel-protection-bypass=mock-bypass-token-32chars"
-    )
+    assert published[0]["url"] == "https://preview.example/api/chamados/reminders/workflow"
+    assert "?" not in published[0]["url"]
     rpc_names = [name for name, _ in store.calls]
     assert rpc_names.index(workflow.OUTBOX_RPC_CLAIM) < rpc_names.index(workflow.OUTBOX_RPC_MARK)
     claim = next(p for n, p in store.calls if n == workflow.OUTBOX_RPC_CLAIM)
@@ -370,8 +369,23 @@ def install_fake_sdk(monkeypatch):
                 return fn
             return decorator
 
+    class FakeHttpClient:
+        def __init__(self):
+            self._client = object()
+            self.calls = []
+
+        def request(self, *args, **kwargs):
+            self.calls.append((args, dict(kwargs)))
+
+    class FakeQStash:
+        def __init__(self, token, retry=None, **kwargs):
+            self.token = token
+            self.retry = retry
+            self.http = FakeHttpClient()
+
     qstash = types.ModuleType("qstash")
     qstash.Receiver = FakeReceiver
+    qstash.QStash = FakeQStash
     flask_sdk = types.ModuleType("upstash_workflow.flask")
     flask_sdk.Serve = FakeServe
     sdk = types.ModuleType("upstash_workflow")
@@ -409,10 +423,9 @@ def test_workflow_validates_result_inside_step(monkeypatch):
 
     app = object()
     assert workflow.register(app, process, interval_seconds=120)
-    assert captures["options"]["url"] == (
-        "https://preview.example/api/chamados/reminders/workflow"
-        "?x-vercel-protection-bypass=mock-bypass-token-32chars"
-    )
+    assert captures["options"]["url"] == "https://preview.example/api/chamados/reminders/workflow"
+    assert "?" not in captures["options"]["url"]
+    assert "qstash_client" in captures["options"]
     # Serve.route do SDK Flask 2.0.0 não aceita `redact`.
     assert "redact" not in captures["options"]
 
@@ -480,9 +493,10 @@ def test_workflow_stops_when_ticket_was_claimed(monkeypatch):
 def test_bypass_e_fail_closed_e_nunca_vazado(monkeypatch):
     config(monkeypatch)
     cfg = workflow._config()
-    assert "x-vercel-protection-bypass=mock-bypass-token-32chars" in cfg["workflow_url"]
-    # O segredo não aparece na URL base usada em validações/respostas.
-    assert "bypass" not in cfg["url"]
+    # URL limpa: o segredo trafega só no header encaminhado pelo QStash.
+    assert "workflow_url" not in cfg
+    assert "bypass" not in cfg["url"] and "?" not in cfg["url"]
+    assert cfg[workflow.VERCEL_BYPASS_ENV] == "mock-bypass-token-32chars"
 
     monkeypatch.delenv("VERCEL_AUTOMATION_BYPASS_SECRET")
     with pytest.raises(ValueError) as excinfo:
@@ -491,6 +505,19 @@ def test_bypass_e_fail_closed_e_nunca_vazado(monkeypatch):
     monkeypatch.setenv("VERCEL_AUTOMATION_BYPASS_SECRET", "token com espaco")
     with pytest.raises(ValueError):
         workflow._config()
+
+
+def test_redactor_remove_bypass_de_logs(monkeypatch):
+    config(monkeypatch)
+    cfg = workflow._config()
+    filtro = workflow._RedactBypassFilter(cfg[workflow.VERCEL_BYPASS_ENV])
+    record = logging.LogRecord(
+        "test", logging.INFO, __file__, 1,
+        "header x-vercel-protection-bypass=mock-bypass-token-32chars enviado", (), None,
+    )
+    assert filtro.filter(record) is True
+    assert "mock-bypass-token-32chars" not in record.getMessage()
+    assert "[REDACTED]" in record.getMessage()
 
 
 def _candidate_row(**updates):
