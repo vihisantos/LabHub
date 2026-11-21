@@ -251,6 +251,9 @@ describe('usePushNotifications', () => {
   })
 
   it('recupera automaticamente ao abrir com permissão concedida e inscrição perdida', async () => {
+    // jsdom não é visível por padrão; em browser real o efeito roda
+    // somente quando o usuário abre ou traz o PWA para o primeiro plano.
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     vi.stubGlobal('Notification', {
       permission: 'granted',
       requestPermission: vi.fn(),
@@ -271,6 +274,9 @@ describe('usePushNotifications', () => {
   })
 
   it('permite recuperar ao voltar para a aba, sem novo prompt de permissão', async () => {
+    // jsdom não é visível por padrão; em browser real o efeito roda
+    // somente quando o usuário abre ou traz o PWA para o primeiro plano.
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     vi.stubGlobal('Notification', { permission: 'default', requestPermission: vi.fn() })
     vi.stubEnv('VITE_VAPID_PUBLIC_KEY', 'dGVzdA')
     const user = { id: 'hook-recovery-2', name: 'Técnico', role: 'tecnico' }
