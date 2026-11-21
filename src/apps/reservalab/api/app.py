@@ -1569,6 +1569,40 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
     return accepted, rejected, unknown, skipped, dedup_failed
 
 
+def _queue_push_event(
+    event_id, title, body, *, module, workspace_id=None, user_id=None,
+    role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
+    context=None, actions=None,
+):
+    """Registra evento Push no outbox; None indica fallback legado seguro."""
+    if not pg_store.is_configured():
+        return None
+    payload = {
+        'title': str(title or '')[:160],
+        'body': str(body or '')[:2000],
+        'module': module,
+        'workspace_id': workspace_id,
+        'target_user_id': user_id,
+        'target_role': role,
+        'target_super_admin': target_super_admin,
+        'min_level': min_level,
+        'action_url': url or '/',
+        'ttl': max(60, min(int(ttl), 604800)),
+        'context': context or module or 'app-notification',
+        'actions': actions if isinstance(actions, list) else None,
+    }
+    try:
+        inserted = pg_store.store.notification_outbox_enqueue(
+            str(event_id), None, payload,
+        )
+        return 'queued' if inserted else 'duplicate'
+    except Exception as exc:
+        # Compatibilidade de rollout: antes da migration 113 ou em falha
+        # transitória do Postgres, o caller mantém o envio legado síncrono.
+        logger.warning('[push-outbox] enqueue indisponível; fallback legado: %s', exc)
+        return None
+
+
 @app.route('/api/push/test', methods=['GET'])
 @require_auth
 @require_admin
@@ -1605,17 +1639,15 @@ def push_send():
         module = body.get('module') or None
         workspace_id = body.get('workspace_id') or None
 
-        subs = _target_subs(module=module, workspace_id=workspace_id, user_id=user_id, role=role)
-
-        if not subs:
-            return jsonify({'sent': 0, 'total': 0})
-
-        count = 0
-        for sub in subs:
-            ok = _push_outcome(push_notify(sub, title, msg, url=url, actions=actions, user_id=user_id))
-            if ok == PUSH_ACCEPTED:
-                count += 1
-        return jsonify({'sent': count, 'total': len(subs)})
+        event_id = f"manual:{uuid.uuid4().hex}"
+        status = _queue_push_event(
+            event_id, title, msg,
+            module=module, workspace_id=workspace_id, user_id=user_id,
+            role=role, url=url, context='manual-admin-push', actions=actions,
+        )
+        if status is None:
+            return jsonify({'error': 'Não foi possível registrar o Push na fila'}), 503
+        return jsonify({'status': status, 'queued': status == 'queued', 'event_id': event_id}), 202
     except Exception as e:
         logger.error("Push send error: %s", e)
         return jsonify({'error': 'Erro ao enviar notificação push'}), 500
@@ -2266,20 +2298,15 @@ def _internal_push_check():
     try:
         today = get_today_sp()
 
-        if not _get_subs():
-            return {'message': 'No subscribers', 'sent': 0}
-
         # Reserva de lab: a planilha é POR CAMPUS. Quando há workspaces com
-        # planilha própria, agrega as reservas de hoje de cada campus e marca
-        # os assinantes daquele campus em `_subs`. Sem nenhum workspace
+        # planilha própria, agrega as reservas de hoje de cada campus. O
+        # targeting de Push é resolvido pelo worker no momento da entrega.
+        # Sem nenhum workspace
         # configurado, mantém o fallback legado da planilha global.
         reservas_hoje = []
         _lab_workspaces = _workspaces_with_spreadsheet()
         if _lab_workspaces:
             for _ws in _lab_workspaces:
-                _ws_subs = _target_subs(module='reservalab', workspace_id=_ws['id'], min_level='full')
-                if not _ws_subs:
-                    continue
                 try:
                     _lab_count = _get_workspace_lab_count(_ws['slug'])
                     _reservas_ws, _ = get_reservas(
@@ -2289,7 +2316,6 @@ def _internal_push_check():
                     logger.error("Push check: falha ao ler planilha do campus %s: %s", _ws.get('slug'), e)
                     continue
                 for _r in _reservas_ws:
-                    _r['_subs'] = _ws_subs
                     _r['_scope'] = _ws['id']
                 reservas_hoje.extend(_reservas_ws)
         else:
@@ -2299,8 +2325,8 @@ def _internal_push_check():
         agora_min = agora.hour * 60 + agora.minute
         limite_min = agora_min + _push_advance_minutes()
 
-        subs = _target_subs(module='reservalab', min_level='full')
         sent = 0
+        queued = 0
         
         for r in reservas_hoje:
             data_reserva = r.get('data')
@@ -2328,19 +2354,28 @@ def _internal_push_check():
                 if alunos:
                     body += f" — {alunos} alunos"
                 
-                accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
-                    r.get('_subs') or subs, notify_id, _push_dedup_seconds(), title, body,
-                    workspace_id=r.get('_scope') or None, context='lab-reserva',
+                queue_status = _queue_push_event(
+                    notify_id, title, body, module='reservalab',
+                    workspace_id=r.get('_scope') or None,
+                    ttl=_push_dedup_seconds(), context='lab-reserva',
                 )
-                sent += accepted
-                if accepted:
-                    logger.info("Push aceito para %s: %s destinatário(s)", title, accepted)
-                if rejected or unknown or skipped or dedup_failed:
-                    logger.info(
-                        "Push não confirmado para %s: rejected=%s unknown=%s skipped=%s "
-                        "dedup_failed=%s; marcas individuais preservadas/liberadas",
-                        title, rejected, unknown, skipped, dedup_failed,
+                if queue_status == 'queued':
+                    queued += 1
+                elif queue_status is None:
+                    accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                        _target_subs(
+                            module='reservalab',
+                            workspace_id=r.get('_scope') or None,
+                            min_level='full',
+                        ), notify_id, _push_dedup_seconds(), title, body,
+                        workspace_id=r.get('_scope') or None, context='lab-reserva',
                     )
+                    sent += accepted
+                    if rejected or unknown or skipped or dedup_failed:
+                        logger.info(
+                            "Push legado não confirmado para %s: rejected=%s unknown=%s skipped=%s "
+                            "dedup_failed=%s", title, rejected, unknown, skipped, dedup_failed,
+                        )
         
         # ─── Push para reservas de tablets ──────────────────────────
         supabase_url = os.environ.get('SUPABASE_URL', '')
@@ -2395,25 +2430,32 @@ def _internal_push_check():
                             # (super admin vê todos; reserva sem workspace vai para todos).
                             # Só nível 'full' do reservalab recebe push de reserva.
                             ws_id = t.get('workspace_id')
-                            target = _target_subs(module='reservalab', workspace_id=ws_id, min_level='full') if ws_id else subs
-                            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
-                                target, notify_id, _push_dedup_seconds(), title, body,
-                                workspace_id=ws_id, context='tablet',
+                            queue_status = _queue_push_event(
+                                notify_id, title, body, module='reservalab',
+                                workspace_id=ws_id, ttl=_push_dedup_seconds(),
+                                context='tablet',
                             )
-                            sent += accepted
-                            if accepted:
-                                logger.info("Push de tablet aceito: %s (%s destinatário(s))",
-                                            title, accepted)
-                            if rejected or unknown or skipped or dedup_failed:
-                                logger.info(
-                                    "Push de tablet não confirmado: rejected=%s unknown=%s "
-                                    "skipped=%s dedup_failed=%s",
-                                    rejected, unknown, skipped, dedup_failed,
+                            if queue_status == 'queued':
+                                queued += 1
+                            elif queue_status is None:
+                                target = _target_subs(
+                                    module='reservalab', workspace_id=ws_id, min_level='full',
+                                ) if ws_id else _target_subs(module='reservalab', min_level='full')
+                                accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                                    target, notify_id, _push_dedup_seconds(), title, body,
+                                    workspace_id=ws_id, context='tablet',
                                 )
+                                sent += accepted
+                                if rejected or unknown or skipped or dedup_failed:
+                                    logger.info(
+                                        "Push de tablet legado não confirmado: rejected=%s unknown=%s "
+                                        "skipped=%s dedup_failed=%s",
+                                        rejected, unknown, skipped, dedup_failed,
+                                    )
             except Exception as e:
                 logger.error(f"Tablet push check error: {e}")
         
-        return {'checked': True, 'sent': sent, 'subscribers': len(subs)}
+        return {'checked': True, 'queued': queued, 'sent': sent}
     except Exception as e:
         logger.error("Push check error: %s", e)
         return {'error': 'Erro ao verificar push'}
@@ -2627,8 +2669,8 @@ def _internal_push_check_overdue():
             return {'error': 'Supabase query failed'}
 
         all_loans = resp.json()
-        subs = _target_subs(module='stock')
         sent = 0
+        queued = 0
         found = 0
 
         for loan in all_loans:
@@ -2658,20 +2700,26 @@ def _internal_push_check_overdue():
 
             title = f"⏰ Prazo de devolução: {item_name}"
             msg = f"Emprestado para {borrowed_by} — Vence {expected_raw[:10]}"
-            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
-                subs, nid, 43200, title, msg, context='overdue',
+            queue_status = _queue_push_event(
+                nid, title, msg, module='stock', ttl=43200,
+                url=f"/stock/loans", context='overdue',
             )
-            sent += accepted
-            if accepted:
-                logger.info("Overdue notify aceito: %s (%s destinatário(s))", item_name, accepted)
-            if rejected or unknown or skipped or dedup_failed:
-                logger.info(
-                    "Overdue notify não confirmado: %s rejected=%s unknown=%s skipped=%s "
-                    "dedup_failed=%s",
-                    item_name, rejected, unknown, skipped, dedup_failed,
+            if queue_status == 'queued':
+                queued += 1
+            elif queue_status is None:
+                subs = _target_subs(module='stock')
+                accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                    subs, nid, 43200, title, msg, context='overdue',
                 )
+                sent += accepted
+                if rejected or unknown or skipped or dedup_failed:
+                    logger.info(
+                        "Overdue notify legado não confirmado: %s rejected=%s unknown=%s skipped=%s "
+                        "dedup_failed=%s",
+                        item_name, rejected, unknown, skipped, dedup_failed,
+                    )
 
-        return {'checked': True, 'sent': sent, 'found': found, 'subscribers': len(subs)}
+        return {'checked': True, 'queued': queued, 'sent': sent, 'found': found}
     except Exception as e:
         logger.error("check-overdue error: %s", e)
         return {'error': 'Erro ao verificar itens em atraso'}
@@ -2704,8 +2752,8 @@ def _internal_push_check_pcare():
         amanha_str = (agora + timedelta(days=1)).strftime('%Y-%m-%d')
 
         base_headers = {'apikey': supabase_key, 'Authorization': f'Bearer {supabase_key}'}
-        subs = _target_subs(module='pc-care')
         sent = 0
+        queued = 0
 
         # ── Estoque baixo de peças ──
         parts_headers = {**base_headers, 'Accept-Profile': 'pcare'}
@@ -2722,19 +2770,24 @@ def _internal_push_check_pcare():
                         nid = hashlib.md5(f"pcare|part|{part['id']}".encode()).hexdigest()
                         title = f"🔧 Estoque baixo: {part.get('name', 'Peça')}"
                         msg = f"Quantidade: {qty} | Mínimo: {min_qty}"
-                        accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
-                            subs, nid, 86400, title, msg, context='pcare-part',
+                        queue_status = _queue_push_event(
+                            nid, title, msg, module='pc-care', ttl=86400,
+                            context='pcare-part',
                         )
-                        sent += accepted
-                        if accepted:
-                            logger.info("Low stock aceito: %s (%s destinatário(s))",
-                                        part.get('name'), accepted)
-                        if rejected or unknown or skipped or dedup_failed:
-                            logger.info(
-                                "Low stock não confirmado: %s rejected=%s unknown=%s "
-                                "skipped=%s dedup_failed=%s",
-                                part.get('name'), rejected, unknown, skipped, dedup_failed,
+                        if queue_status == 'queued':
+                            queued += 1
+                        elif queue_status is None:
+                            subs = _target_subs(module='pc-care')
+                            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                                subs, nid, 86400, title, msg, context='pcare-part',
                             )
+                            sent += accepted
+                            if rejected or unknown or skipped or dedup_failed:
+                                logger.info(
+                                    "Low stock legado não confirmado: %s rejected=%s unknown=%s "
+                                    "skipped=%s dedup_failed=%s",
+                                    part.get('name'), rejected, unknown, skipped, dedup_failed,
+                                )
         except Exception as e:
             logger.error(f"check-pcare parts error: {e}")
 
@@ -2753,23 +2806,28 @@ def _internal_push_check_pcare():
                     nid = hashlib.md5(f"pcare|maint|{m['id']}".encode()).hexdigest()
                     title = f"🔧 Manutenção: {m.get('pcnumber', 'PC')}"
                     msg = f"{m.get('labname', 'Lab')} — {m.get('type', '')} — {m.get('scheduleddate', '')[:10]}"
-                    accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
-                        subs, nid, 86400, title, msg, context='pcare-maint',
+                    queue_status = _queue_push_event(
+                        nid, title, msg, module='pc-care', ttl=86400,
+                        context='pcare-maint',
                     )
-                    sent += accepted
-                    if accepted:
-                        logger.info("Maintenance aceito: %s (%s destinatário(s))",
-                                    m.get('pcnumber'), accepted)
-                    if rejected or unknown or skipped or dedup_failed:
-                        logger.info(
-                            "Maintenance não confirmado: %s rejected=%s unknown=%s "
-                            "skipped=%s dedup_failed=%s",
-                            m.get('pcnumber'), rejected, unknown, skipped, dedup_failed,
+                    if queue_status == 'queued':
+                        queued += 1
+                    elif queue_status is None:
+                        subs = _target_subs(module='pc-care')
+                        accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                            subs, nid, 86400, title, msg, context='pcare-maint',
                         )
+                        sent += accepted
+                        if rejected or unknown or skipped or dedup_failed:
+                            logger.info(
+                                "Maintenance legado não confirmado: %s rejected=%s unknown=%s "
+                                "skipped=%s dedup_failed=%s",
+                                m.get('pcnumber'), rejected, unknown, skipped, dedup_failed,
+                            )
         except Exception as e:
             logger.error(f"check-pcare maintenance error: {e}")
 
-        return {'checked': True, 'sent': sent, 'subscribers': len(subs)}
+        return {'checked': True, 'queued': queued, 'sent': sent}
     except Exception as e:
         logger.error("check-pcare error: %s", e)
         return {'error': 'Erro ao verificar manutenções do PC Care'}
@@ -2796,8 +2854,8 @@ def _check_pending_users():
         # (`admin.user.approve`/`reject` são scope global ⇒ somente super admin).
         # Módulo 'auth' não tem Actions de workspace ⇒ fail-closed: só super
         # admin é destinatário (sem dependência do snapshot `profile.role`).
-        subs = _target_subs(module='auth')
         sent = 0
+        queued = 0
         for u in pending:
             nid = hashlib.md5(f"pending|{u.get('id')}".encode()).hexdigest()
             nome = u.get('name') or u.get('email') or 'Usuário'
@@ -2808,21 +2866,27 @@ def _check_pending_users():
             # segurança uma ação crítica em segundo plano (o POST ficaria
             # também sem Authorization => 401). O click abre a fila de
             # pendentes: /admin/users?pending=<id> (AdminGuard + RLS).
-            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
-                subs, nid, 604800, title, body,
-                url=f"/admin/users?pending={u.get('id')}", context='pending-user',
+            queue_status = _queue_push_event(
+                nid, title, body, module='auth', target_super_admin=True,
+                ttl=604800, url=f"/admin/users?pending={u.get('id')}",
+                context='pending-user',
             )
-            sent += accepted
-            if accepted:
-                logger.info("Pending user notify aceito: %s (%s destinatário(s))",
-                            (u.get('id') or '')[:8], accepted)
-            if rejected or unknown or skipped or dedup_failed:
-                logger.info(
-                    "Pending user notify não confirmado: %s rejected=%s unknown=%s "
-                    "skipped=%s dedup_failed=%s",
-                    (u.get('id') or '')[:8], rejected, unknown, skipped, dedup_failed,
+            if queue_status == 'queued':
+                queued += 1
+            elif queue_status is None:
+                subs = _target_subs(module='auth')
+                accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                    subs, nid, 604800, title, body,
+                    url=f"/admin/users?pending={u.get('id')}", context='pending-user',
                 )
-        return {'checked': True, 'found': len(pending), 'sent': sent, 'subscribers': len(subs)}
+                sent += accepted
+                if rejected or unknown or skipped or dedup_failed:
+                    logger.info(
+                        "Pending user notify legado não confirmado: %s rejected=%s unknown=%s "
+                        "skipped=%s dedup_failed=%s",
+                        (u.get('id') or '')[:8], rejected, unknown, skipped, dedup_failed,
+                    )
+        return {'checked': True, 'found': len(pending), 'queued': queued, 'sent': sent}
     except Exception as e:
         logger.error("check-pending error: %s", e)
         return {'error': 'Erro ao verificar usuários pendentes'}
@@ -2852,6 +2916,7 @@ def _check_stock_expiry():
         items = resp.json() or []
         hoje = get_today_sp()
         sent = 0
+        queued = 0
         for item in items:
             status = str(_get_key(item, 'status') or '').lower()
             if status == 'descartado':
@@ -2881,23 +2946,28 @@ def _check_stock_expiry():
                 msg = f"{nome} vence em {dias} {'dia' if dias == 1 else 'dias'} ({venc.strftime('%d/%m/%Y')})"
 
             ws = _get_key(item, 'workspace_id', 'workspaceId')
-            subs = _target_subs(module='stock', workspace_id=ws)
-            accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
-                subs, nid, 86400, title, msg,
-                url=f"/stock/items/{item.get('id')}",
-                workspace_id=ws, context='stock-expiry',
+            queue_status = _queue_push_event(
+                nid, title, msg, module='stock', workspace_id=ws,
+                ttl=86400, url=f"/stock/items/{item.get('id')}",
+                context='stock-expiry',
             )
-            sent += accepted
-            if accepted:
-                logger.info("Stock expiry aceito: %s (%sd, %s destinatário(s))",
-                            nome, dias, accepted)
-            if rejected or unknown or skipped or dedup_failed:
-                logger.info(
-                    "Stock expiry não confirmado: %s rejected=%s unknown=%s "
-                    "skipped=%s dedup_failed=%s",
-                    nome, rejected, unknown, skipped, dedup_failed,
+            if queue_status == 'queued':
+                queued += 1
+            elif queue_status is None:
+                subs = _target_subs(module='stock', workspace_id=ws)
+                accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+                    subs, nid, 86400, title, msg,
+                    url=f"/stock/items/{item.get('id')}",
+                    workspace_id=ws, context='stock-expiry',
                 )
-        return {'checked': True, 'sent': sent, 'subscribers': len(_target_subs(module='stock'))}
+                sent += accepted
+                if rejected or unknown or skipped or dedup_failed:
+                    logger.info(
+                        "Stock expiry legado não confirmado: %s rejected=%s unknown=%s "
+                        "skipped=%s dedup_failed=%s",
+                        nome, rejected, unknown, skipped, dedup_failed,
+                    )
+        return {'checked': True, 'queued': queued, 'sent': sent}
     except Exception as e:
         logger.error("check-expiry error: %s", e)
         return {'error': 'Erro ao verificar validade de itens'}
