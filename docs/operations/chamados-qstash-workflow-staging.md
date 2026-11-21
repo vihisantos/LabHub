@@ -27,6 +27,15 @@ PostgreSQL como fonte de verdade:
    já agendados não ocupam os 20 slots de todas as varreduras, e um chamado
    criado depois do início de uma varredura não fica preso atrás de cursor
    antigo. A contraparte somente leitura é a migration **120**.
+   **Limite operacional:** a reconciliação continua varrendo no máximo
+   **20 candidatos por tick**, a cada 15 min, dentro de uma janela de
+   **24 h** (teto configurável de 7 dias). Em volume excepcional, um chamado
+   elegível pode envelhecer além da janela antes de ser recuperado. Monitorar
+   a fila: comparar o total de chamados `aberto` sem responsável com
+   `now() - "updatedAt" > interval '24 hours'` contra as linhas da outbox,
+   além de `status='dead'`, tentativas esgotadas e `last_error` dos jobs.
+   Esse backlog é uma métrica de alerta; a flag continua desligada até que o
+   experimento seja validado.
 3. Um dispatcher protegido por `CRON_SECRET` reclama um lote pequeno
    (`FOR UPDATE SKIP LOCKED`), publica no QStash com `deduplication_id`
    estável por job e confirma a linha. Falhas voltam para `pending` com backoff
@@ -167,14 +176,47 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
    por 150 s. Confirme em `vercel logs` o POST à rota assinada e o batch da
    SDK, e no painel Upstash o run com 3 etapas e os intervalos; interrompa
    assumindo o chamado e confirmando que as próximas checagens param.
-5. Simule falha temporária do QStash interrompendo a publicação e confirmando
+5. Para a validação funcional final, rode o mesmo workflow manual com
+   `run_workflow_waves_e2e=true`, `wave_scenario=both` e
+   `preview_dispatch_url` apontando para a Preview atual. O script
+   `scripts/ci/chamados_workflow_waves_e2e_staging.py` cria dois workspaces
+   sintéticos: em `unassigned` acompanha as ondas de 2/4/6 min; em `assigned`
+   atribui um técnico sintético após a primeira onda e exige que as contagens
+   de estado/marcas/eventos fiquem congeladas nas ondas 2 e 3. Ele imprime
+   janelas ISO por caso para correlacionar `vercel logs runtime` (linhas
+   `verificação:` e `onda N concluída`) e `vercel logs requests` (POSTs do
+   QStash à rota assinada) com o painel do Upstash. Use `KEEP_E2E_DATA=true`
+   para inspecionar e depois limpe com `cleanup_e2e_ids` usando os
+   `CLEANUP_IDS` impressos.
+6. Simule falha temporária do QStash interrompendo a publicação e confirmando
    que a linha volta para `pending`, é republicada com o **mesmo**
    `deduplication_id` e não gera dois runs. Repita o mesmo ciclo e confirme
    uma única linha na outbox.
-6. Meça por 24 h: mensagens e steps Upstash, latência por evento, chamadas
+7. Meça por 24 h: mensagens e steps Upstash, latência por evento, chamadas
    PostgREST por chamado, ausência de duplicidade e falhas no DLQ. Separe
    **medições** de estimativas. Não desligar o cron nem ativar em Production
    sem comparar custo, quantidade e comportamento.
+
+## Antes do merge na `main`
+
+O merge acionará o **runner de migrations de produção**: mesmo com
+`LABHUB_CHAMADOS_WORKFLOW_ENABLED=false` e
+`LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED=false`, as versões **115–120**
+podem ser aplicadas em Production pelo fluxo oficial. A flag desligada evita
+publicar no QStash e registrar rotas, mas **não** impede DDL, criação de
+índices, funções, grants e registros em `schema_migrations`.
+
+Antes de autorizar o merge, a validação habitual de produção é obrigatória:
+
+- backup/restore recente do banco e janela de manutenção aprovada;
+- revisão do plano de aplicação das migrations 115–120 no runner de produção;
+- checagem de compatibilidade com o esquema atual (objetos já existentes,
+  índice `idx_chamados_tickets_workflow_reconcile`, funções e grants);
+- confirmação de que as tabelas ficarão vazias/inofensivas com a flag OFF e
+  que o cron legado continua operando normalmente;
+- plano de rollback documentado na seção abaixo.
+
+O merge não deve ser interpretado como habilitação do experimento.
 
 ## Correções de revisão (21/11/2026, segunda rodada)
 

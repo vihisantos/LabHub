@@ -71,6 +71,24 @@ on:
         description: 'Limpar E2Es preservados: workspace:ticket:job[,workspace:ticket:job...]'
         required: false
         default: ''
+      run_workflow_waves_e2e:
+        description: 'Validar as três ondas (2/4/6 min) com chamado não assumido e/ou assumido?'
+        required: true
+        type: boolean
+        default: false
+      wave_scenario:
+        description: 'Cenário das três ondas: both, unassigned ou assigned.'
+        required: true
+        type: choice
+        options:
+          - both
+          - unassigned
+          - assigned
+        default: both
+      e2e_wave_margin_seconds:
+        description: 'Margem após cada onda para correlacionar logs (10..90).'
+        required: true
+        default: '45'
 
 permissions:
   contents: read
@@ -82,7 +100,7 @@ jobs:
   integration:
     name: Validar e testar no Staging
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     concurrency:
       group: staging-reminders-integration
       cancel-in-progress: false
@@ -341,6 +359,23 @@ jobs:
           KEEP_E2E_DATA: ${{ inputs.keep_e2e_data }}
         run: |
           python scripts/ci/chamados_workflow_e2e_staging.py
+
+      # Validação funcional final: três ondas (2/4/6 min) e interrupção após
+      # atribuição. Opt-in, somente Preview/Staging, sem mudança no QStash.
+      - name: E2E das três ondas e da atribuição (Staging)
+        if: ${{ inputs.run_workflow_waves_e2e && inputs.preview_dispatch_url != '' }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          PREVIEW_DISPATCH_URL: ${{ inputs.preview_dispatch_url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          WAVE_SCENARIO: ${{ inputs.wave_scenario }}
+          E2E_WAVE_MARGIN_SECONDS: ${{ inputs.e2e_wave_margin_seconds }}
+          KEEP_E2E_DATA: ${{ inputs.keep_e2e_data }}
+        run: |
+          python scripts/ci/chamados_workflow_waves_e2e_staging.py
 
       - name: Limpeza controlada de dados sintéticos do E2E
         if: ${{ inputs.cleanup_e2e_ids != '' }}
