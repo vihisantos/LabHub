@@ -262,7 +262,9 @@ def _push_store_ready():
     rota) é aceito por compatibilidade. Em produção, `redis` é sempre None e a
     disponibilidade depende da configuração do Supabase.
     """
-    if redis is not None:
+    if redis is not None and (
+        hasattr(redis, 'push_subs_list') or hasattr(redis, 'smembers')
+    ):
         return True
     return pg_store.is_configured()
 
