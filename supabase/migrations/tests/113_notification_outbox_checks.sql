@@ -79,7 +79,7 @@ BEGIN
   IF v_worker_claim.payload->>'title' <> 'retry' OR v_worker_claim.lock_token IS NULL THEN
     RAISE EXCEPTION '113 FAIL: retry event não foi reivindicado';
   END IF;
-  UPDATE public.notification_outbox SET attempts = 7 WHERE event_id = v_retry_event;
+  UPDATE public.notification_outbox SET attempts = 8 WHERE event_id = v_retry_event;
   v_status := public.notification_outbox_retry(
     v_retry_event, v_worker_claim.lock_token, 'repeated failure', 1
   );
