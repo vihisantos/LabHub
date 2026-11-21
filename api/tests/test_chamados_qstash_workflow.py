@@ -257,6 +257,40 @@ def test_preview_uses_trusted_vercel_deployment_host(monkeypatch):
         workflow._config()
 
 
+def test_production_usa_dominio_publico_sem_bypass(monkeypatch):
+    config(monkeypatch)
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv(
+        workflow.URL_ENV,
+        "https://lab-hub-pi.vercel.app" + workflow.WORKFLOW_PATH,
+    )
+    monkeypatch.delenv(workflow.VERCEL_BYPASS_ENV)
+    cfg = workflow._config()
+    assert cfg["url"] == (
+        "https://lab-hub-pi.vercel.app" + workflow.WORKFLOW_PATH
+    )
+    assert workflow.VERCEL_BYPASS_ENV not in cfg
+
+    # Bloquear configuração acidental do backend de produção para uma Preview.
+    monkeypatch.setenv(
+        workflow.URL_ENV,
+        "https://lab-preview-abc.vercel.app" + workflow.WORKFLOW_PATH,
+    )
+    with pytest.raises(ValueError, match="domínio oficial"):
+        workflow._config()
+    monkeypatch.delenv(workflow.URL_ENV)
+    with pytest.raises(ValueError):
+        workflow._config()
+
+
+def test_preview_continua_exigindo_bypass(monkeypatch):
+    config(monkeypatch)
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.delenv(workflow.VERCEL_BYPASS_ENV)
+    with pytest.raises(ValueError, match="VERCEL_AUTOMATION_BYPASS_SECRET"):
+        workflow._config()
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher durável
 # ---------------------------------------------------------------------------
