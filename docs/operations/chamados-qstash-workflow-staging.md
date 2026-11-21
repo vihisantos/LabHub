@@ -86,9 +86,11 @@ outros projetos são rejeitadas pelo script de smoke. Gere uma **nova Preview**
 depois de cadastrar os segredos: Previews antigas não os recebem.
 
 Com Deployment Protection ligado, o cron e o smoke enviam
-`x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET`. O valor vive
-apenas no secret do repositório e na variável `Preview` da branch no Vercel;
-nunca em browser, log ou payload do QStash. Antes de considerar o experimento
+`x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET`. O valor é um
+*Protection Bypass for Automation* do projeto Vercel (32 caracteres
+alfanuméricos) com cópia apenas no secret do repositório — não é uma variável
+manual de ambiente e não vai para browser, log ou payload do QStash. Antes de
+considerar o experimento
 pronto, valide também o caminho inverso (QStash -> Preview): o `Receiver` da SDK
 precisa continuar rejeitando assinaturas ausentes/inválidas mesmo com o bypass
 ativo. **Não habilitar a flag em Production.**
@@ -120,6 +122,44 @@ ativo. **Não habilitar a flag em Production.**
    PostgREST por chamado, ausência de duplicidade e falhas no DLQ. Separe
    **medições** de estimativas. Não desligar o cron nem ativar em Production
    sem comparar custo, quantidade e comportamento.
+
+## Evidências da validação (21/11/2026)
+
+- PR #491, branch `feat/chamados-qstash-workflow-staging`. Todos os checks do
+  GitHub passaram no SHA final: Analyze JS/Python, Lint, Build, CodeQL,
+  Migration runner tests, Python API tests, Test, validação de migrations em
+  PostgreSQL efêmero e Vercel Preview.
+- A suíte local de APIs terminou em **2378 passed, 7 skipped, 2 failed**; as
+  duas falhas (`test_patch_troca_foto_destroi_antiga_no_cloudinary` e
+  `test_patch_mesma_foto_nao_destroi`) são pré-existentes no HEAD limpo e não
+  foram introduzidas por esta PR.
+- Testes específicos desta correção: 37 passed
+  (`test_116_chamados_workflow_outbox_contract.py`,
+  `test_chamados_qstash_workflow.py`, `test_chamados_workflow_real_sdk.py`),
+  incluindo SDK real `upstash-workflow==2.0.0` com transporte substituído.
+- Migrations 115/116 aplicadas **somente em Staging**
+  (`pgmetdqsdjotdcifjivu`) pelo workflow manual
+  `staging-reminders-integration.yml` (run `44870468268`), com preflight
+  fail-closed e dry-run prévio. Nenhuma migration foi aplicada em produção.
+- Smoke do dispatcher no Preview gerenciado pelo GitHub (run `44871907378`):
+  `HTTP 200` com `{"claimed":0,"dead":0,"enabled":true,"error":null,
+  "published":0,"retried":0,"status":"ok"}`. O `enabled:true` confirma que a
+  flag e as credenciais chegaram ao deploy correto da branch; `claimed:0`
+  indica que a fila estava vazia no momento do teste.
+- Testes reais PostgreSQL contra Staging (`test_postgres_reminders_integration.py`)
+  passaram no mesmo run.
+
+**Limitação conhecida:** o smoke acima provou o endpoint, a autenticação, o
+bypass do Preview e a leitura da outbox, mas a fila estava vazia — portanto
+ainda não houve publicação real no QStash nem execução de um Workflow completo
+em Staging. Isso depende de um chamado de teste criado no formulário público de
+um workspace de teste, seguido de nova chamada ao dispatcher.
+
+**Consumo planejado vs. medido:** por ciclo elegível, a estimativa é 1 mensagem
+QStash (publicação inicial, `retries=0`) + até 3 steps do Workflow (ondas de
+2/4/6 min). Retentivas e backoff ficam no PostgreSQL, não no QStash. Nenhum
+número medido de QStash está disponível até o primeiro smoke com chamado real;
+não apresentar estimativa como medição.
 
 ## Rollback
 
