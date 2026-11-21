@@ -248,6 +248,12 @@ class PostgresStore:
 
     # ── Outbox durável de notificações ────────────────────────────────────
 
+    def notification_create_with_outbox(self, notification, payload):
+        return _as_bool(_rpc('notification_create_with_outbox', {
+            'p_notification': notification,
+            'p_payload': payload,
+        }))
+
     def notification_outbox_enqueue(self, event_id, notification_id, payload):
         return _as_bool(_rpc('notification_outbox_enqueue', {
             'p_event_id': str(event_id),
