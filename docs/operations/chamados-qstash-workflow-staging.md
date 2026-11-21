@@ -216,6 +216,14 @@ Antes de autorizar o merge, a validação habitual de produção é obrigatória
   que o cron legado continua operando normalmente;
 - plano de rollback documentado na seção abaixo.
 
+Revisão estática já feita nesta branch (21/11/2026): as seis migrations usam
+`CREATE TABLE/INDEX IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION` e não contêm
+`DROP TABLE`/`DROP INDEX`; a assinatura de
+`chamados_workflow_outbox_reconcile_candidates(integer, integer)` é preservada
+entre 117 e 119. Isso reduz o risco de DDL, mas **não** substitui a checagem do
+esquema real nem o backup/restore em produção, que continuam pendentes e são a
+última barreira antes do merge.
+
 O merge não deve ser interpretado como habilitação do experimento.
 
 ## Correções de revisão (21/11/2026, segunda rodada)

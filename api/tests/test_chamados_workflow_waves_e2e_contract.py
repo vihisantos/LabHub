@@ -52,6 +52,7 @@ def test_documentacao_registra_limite_e_risco_do_runner() -> None:
     assert "Antes do merge na `main`" in DOC
     assert "115–120" in DOC
     assert "backup/restore" in DOC
+    assert "Revisão estática já feita" in DOC
 
 
 def test_documentacao_registra_as_medicoes_das_tres_ondas() -> None:
