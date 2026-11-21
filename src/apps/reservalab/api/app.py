@@ -20,7 +20,6 @@ from urllib.parse import quote, urlparse, urljoin
 from io import BytesIO
 from dotenv import load_dotenv
 from pywebpush import webpush, WebPushException
-from upstash_redis import create_redis_client
 
 # Authorization layer
 sys.path.insert(0, os.path.dirname(__file__))
@@ -39,6 +38,7 @@ from auth import (
     _SUPABASE_SERVICE_KEY as _AUTH_SERVICE_KEY,
 )
 from rbac import require_action as require_action_rbac
+from upstash_redis import create_redis_client
 
 # Detecta caminho correto quando rodando de exe
 if getattr(sys, 'frozen', False):
