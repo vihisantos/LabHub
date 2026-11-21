@@ -157,7 +157,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         if (!subscription || cancelled) return
         // A sincronização pendente é feita pela recuperação com lock global;
         // evitar POST duplicado com o refresh do snapshot.
-        if (hasPendingPushRecovery(subscribeUrl, user.id)) return
+        if (user?.id && hasPendingPushRecovery(subscribeUrl, user.id)) return
 
         const payload: Record<string, unknown> = { ...subscription.toJSON(), user }
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
