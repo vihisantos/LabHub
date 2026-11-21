@@ -21,6 +21,11 @@ PostgreSQL como fonte de verdade:
    varredura a uma janela indexada (padrão: 24 h, no máximo 20 linhas a cada
    15 min), e a mesma RPC de enqueue faz dedup por chamado+ciclo. Assim, uma
    falha temporária do Supabase no INSERT do chamado não perde o agendamento.
+   A migration **119** corrige a seleção: índice parcial em `updatedAt`,
+   comparação do `cycle_key` exato já presente na outbox (hash SHA-256 idêntico
+   ao da aplicação) e cursor paginado entre ticks. Ciclos já agendados não
+   ocupam os 20 slots de todas as varreduras; a contraparte somente leitura é
+   a migration **120**.
 3. Um dispatcher protegido por `CRON_SECRET` reclama um lote pequeno
    (`FOR UPDATE SKIP LOCKED`), publica no QStash com `deduplication_id`
    estável por job e confirma a linha. Falhas voltam para `pending` com backoff
@@ -94,9 +99,13 @@ QSTASH_NEXT_SIGNING_KEY=<próxima chave do mesmo QStash>
 No GitHub (variáveis de repositório, **não** segredos novos):
 
 ```text
-LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED=true
-LABHUB_CHAMADOS_WORKFLOW_DISPATCH_URL=https://<preview>/api/chamados/workflow/outbox/dispatch
+LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED=false
 ```
+
+O dispatcher **não** é acionado pelo `push-cron.yml`: a etapa opt-in foi
+removida, então o agendamento que roda na `main` nunca alcança uma Preview.
+O único gatilho é o workflow manual `staging-reminders-integration.yml`, que
+usa `preview_dispatch_url` (um input, não variável global) e exige `confirm=STAGING`.
 
 O Supabase usado na Preview deve ser **Staging**
 (`pgmetdqsdjotdcifjivu`). Confirme isso antes de qualquer teste real. URLs de
@@ -132,11 +141,13 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
    `scripts/apply_staging_migration.py` (dry-run primeiro) ou pelo workflow
    manual `staging-reminders-integration.yml` com
    `apply_workflow_outbox_migration=true`. Depois aplicar 117/118 com
-   `apply_reconcile_migration=true`. Nada em Production.
+   `apply_reconcile_migration=true` e 119/120 com
+   `apply_reconcile_priority_migration=true`. Nada em Production.
 2. Rodar `python -m pytest api/tests/test_chamados_qstash_workflow.py
    api/tests/test_chamados_workflow_real_sdk.py
    api/tests/test_116_chamados_workflow_outbox_contract.py
-   api/tests/test_118_chamados_workflow_outbox_reconcile_contract.py -q` com as
+   api/tests/test_118_chamados_workflow_outbox_reconcile_contract.py
+   api/tests/test_119_chamados_workflow_outbox_reconcile_priority_contract.py -q` com as
    dependências de `requirements.txt` instaladas, mais a suíte completa da API
    e o runner de migrations. Os testes com SDK real usam apenas transporte
    substituído; **não** provam integração com o QStash real. Os testes de
@@ -163,6 +174,26 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
    PostgREST por chamado, ausência de duplicidade e falhas no DLQ. Separe
    **medições** de estimativas. Não desligar o cron nem ativar em Production
    sem comparar custo, quantidade e comportamento.
+
+## Correções de revisão (21/11/2026, segunda rodada)
+
+- Reconciliação sem *starvation*: a 117 selecionava os 20 registros mais
+  recentes **mesmo quando o ciclo já estava na outbox**. A 119 passou a
+  comparar o `cycle_key` exato (hash SHA-256 idêntico ao de
+  `chamados_workflow.cycle_key`) e a paginar com cursor em
+  `(updatedAt, ticket_id)`, com índice parcial para chamados elegíveis. O
+  contrato read-only correspondente é a 120.
+- Isolamento do cron: a variável
+  `LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED` foi confirmada como `true` no
+  repositório e foi **desligada** (`false`); além disso, a etapa que chamava a
+  Preview foi removida de `.github/workflows/push-cron.yml`. Mesmo uma futura
+  alteração da variável não reintroduz o comportamento no agendamento da
+  `main`. O único acionamento continua sendo o workflow manual de Staging.
+- Limpeza controlada: os registros preservados com `KEEP_E2E_DATA=true` podem
+  ser removidos com `cleanup_e2e_ids` no workflow manual ou com
+  `scripts/ci/cleanup_chamados_workflow_e2e.py`. O script exige UUIDs canônicos,
+  `SUPABASE_STAGING_ALLOWED_PROJECT_REFS` e slug `wf-e2e-`; nada é apagado se o
+  workspace não for sintético.
 
 ## Evidências da validação (21/11/2026)
 
