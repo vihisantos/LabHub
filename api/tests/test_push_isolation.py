@@ -14,14 +14,23 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_store_fakes import PgStoreFakeMixin
+
 API_FILE = Path(__file__).resolve().parents[1] / "app.py"
 
 
 # ── Fake Redis com suporte a keys individuais ──────────────────────────────
 
 
-class FakeRedis:
-    """Fake Redis que diferencia entre keys (necessário para testes de isolamento)."""
+class FakeRedis(PgStoreFakeMixin):
+    """Fake do store que diferencia entre keys (isolamento por ticket).
+
+    Também expõe a linguagem do ``pg_store`` (``chamado_subs_*``). O legado
+    ``expire`` continua registrando em ``expires`` e espelha a chamada em
+    ``chamado_subs_expire_calls`` para que o teste sirva antes e depois da
+    migração do chamador para a RPC PostgreSQL.
+    """
 
     def __init__(self):
         self._store: dict[str, set[str]] = {}
@@ -50,6 +59,10 @@ class FakeRedis:
 
     def expire(self, key: str, seconds: int) -> bool:
         self.expires.append((key, seconds))
+        if (key.startswith("push:chamado:")
+                and not getattr(self, "_pg_fake_expire_context", False)):
+            ticket_id = key[len("push:chamado:"):]
+            self.chamado_subs_expire_calls.append((ticket_id, int(seconds)))
         return True
 
 
@@ -382,18 +395,40 @@ def test_notify_ticket_status_somente_para_subs_do_chamado(api_module, monkeypat
     assert sent == ["https://fcm/target-1"]
 
 
-def test_notify_ticket_status_remove_subs_com_falha(api_module, monkeypatch):
-    """Subscriptions que falham no push são removidas do Redis."""
+@pytest.mark.parametrize(
+    "resultado, esperados",
+    [
+        ("accepted", ["https://fcm/ok", "https://fcm/alvo"]),
+        ("unknown", ["https://fcm/ok", "https://fcm/alvo"]),
+        ("rejected", ["https://fcm/ok", "https://fcm/alvo"]),
+        ("expired", ["https://fcm/ok"]),
+    ],
+)
+def test_notify_ticket_status_lista_final_de_anonimos_por_resultado(
+    api_module, monkeypatch, resultado, esperados
+):
+    """Só HTTP 404/410 remove; accepted, unknown e rejeição genérica preservam."""
     redis = FakeRedis()
     monkeypatch.setattr(api_module, "redis", redis)
 
     api_module._save_chamado_subs("ticket-1", [
         _sub("https://fcm/ok"),
-        _sub("https://fcm/fail"),
+        _sub("https://fcm/alvo"),
     ])
 
+    if resultado == "expired":
+        # Espelha o sinal que `push_notify` emite para HTTP 404/410.
+        class _RejeitadoExpirado(str):
+            invalid_subscription = True
+
+        retorno_alvo = _RejeitadoExpirado(api_module.PUSH_REJECTED)
+    else:
+        retorno_alvo = getattr(api_module, f"PUSH_{resultado.upper()}")
+
     def fake_push(sub, title, body, url="/"):
-        return sub["endpoint"] != "https://fcm/fail"
+        if sub["endpoint"] == "https://fcm/alvo":
+            return retorno_alvo
+        return api_module.PUSH_ACCEPTED
 
     monkeypatch.setattr(api_module, "push_notify", fake_push)
 
@@ -408,9 +443,8 @@ def test_notify_ticket_status_remove_subs_com_falha(api_module, monkeypatch):
 
     api_module._notify_ticket_status(ticket)
 
-    remaining = api_module._chamado_subs("ticket-1")
-    assert len(remaining) == 1
-    assert remaining[0]["endpoint"] == "https://fcm/ok"
+    restantes = [s["endpoint"] for s in api_module._chamado_subs("ticket-1")]
+    assert sorted(restantes) == sorted(esperados)
 
 
 def test_notify_ticket_status_sem_subs_nao_envia(api_module, monkeypatch):
@@ -517,4 +551,5 @@ def test_notify_ticket_status_revoga_anonimos_apos_conclusao(api_module, monkeyp
 
     api_module._notify_ticket_status(ticket)
 
-    assert redis.expires == [("push:chamado:ticket-y", 600)]
+    # A expiração passa a ser feita por `chamado_subs_expire` no pg_store.
+    assert redis.chamado_subs_expire_calls == [("ticket-y", 600)]

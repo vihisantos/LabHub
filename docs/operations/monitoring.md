@@ -24,8 +24,8 @@
 
 ### Notificações push
 
-- **Taxa de entrega** — painel do Upstash Redis
-- **Número de inscrições** — chaves `push_subscribers:*` no Redis
+- **Taxa de entrega** — logs das funções (Vercel) e RPCs `push_dedup_*` no Supabase
+- **Número de inscrições** — `public.push_subscriptions` e `public.chamado_push_subscriptions` no Supabase
 
 ### RBAC 2.0 (sempre ativo — ON-only)
 

@@ -206,7 +206,7 @@ Classificação: `ACTION` (capacidade controlável) · `RULE` (regra de negócio
 | `reservelab.tablet.view` | Ver reservas de tablets | `services/supabase.ts:16-38`; RLS `028:214-221` | tablet_reservations | workspace | leitura | leitura (implícita pelo App Access) |
 | `reservelab.tablet.reserve` | Reservar tablet | `Tablets.tsx:126-135`; `services/supabase.ts:40-45`; UI gate `getLevel==='full'` `Tablets.tsx:51`; RLS insert membro `028:223-230` | tablet_reservations | workspace | cria reserva | `ACTION` |
 | `reservelab.tablet.cancel` | Cancelar reserva de tablet | `Tablets.tsx:150-157`; `services/supabase.ts:52-55` (hard delete); RLS delete/update delegam a `user_can_cancel_tablet_reservation` (`050`), agora RBAC 2.0 (`078`) | tablet_reservations | workspace | hard delete (sem soft) | `ACTION` (definida em `078`, default `tec`) |
-| `reservelab.push.manage` | Enviar push broadcast / subscribe | `NotificationSendTab.tsx:97-112` → `POST /api/push/send` (`app.py:616-647`); subscribe `app.py:498-567` (público) | push subs (Redis) | workspace/global | envia web push | `ADMIN` (send); `INTERNAL` (subscribe) |
+| `reservelab.push.manage` | Enviar push broadcast / subscribe | `NotificationSendTab.tsx:97-112` → `POST /api/push/send` (`app.py:616-647`); subscribe `app.py:498-567` (público) | push subs (PostgreSQL) | workspace/global | envia web push | `ADMIN` (send); `INTERNAL` (subscribe) |
 | `reservelab.dashboard.view` | Ver dashboard | `Dashboard.tsx:30-53`; `AppGuard 'reservalab'` `src/App.tsx:104-110`; `'dash'` → só dashboard (`ReservaLabLayout.tsx:17-23`) | dashboard | workspace | leitura | leitura (constraint de nível `dash`) |
 
 **Notas ReservaLab**
@@ -445,7 +445,7 @@ Procurar operações onde duas pessoas agem sobre a mesma entidade.
 | Evento | Destinatário atual | Regra atual | Uso futuro sugerido |
 |---|---|---|---|
 | Novo chamado | push TI (`module='chamados'`); `_notify_new_ticket` `api/app.py:1739` | assinaturas módulo | `requester`, `assigned user`, `leader`, `workspace admin` |
-| Mudança de status de chamado | push professor por assinatura `push:chamado:{id}` | cap 10 | `requester` |
+| Mudança de status de chamado | push professor por assinatura em `public.chamado_push_subscriptions` (antiga chave Redis `push:chamado:{id}`) | cap 10 | `requester` |
 | Atribuição de chamado | push direto ao técnico (user_id) | — | `assigned user` |
 | Relatório semanal | e-mail admin (Resend) | — | `workspace admin` |
 | Pedido/aprovação de música | **NÃO EXISTE hoje** | — | futuramente `requester`/`moderator` |

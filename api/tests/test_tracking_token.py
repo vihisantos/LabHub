@@ -16,6 +16,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pg_store_fakes import PgStoreFakeMixin
+
 API_FILE = Path(__file__).resolve().parents[1] / "app.py"
 
 SUPABASE_URL = "https://test.supabase.co"
@@ -89,7 +92,14 @@ class FakeRequests:
         return [c for c in self.calls if c["method"] == method and url_part in c["url"]]
 
 
-class FakeRedis:
+class FakeRedis(PgStoreFakeMixin):
+    """Fake do store com escrita por chamado isolada por ticket.
+
+    ``sadd`` continua registrando em ``sadds`` (legado) e espelha a escrita em
+    ``chamado_subs_save_calls`` — a mesma linguagem da RPC usada pelo pg_store —
+    para que as assertions cubram o chamador antes e depois da migração.
+    """
+
     def __init__(self, members=None):
         self.members = list(members or [])
         self.sadds = []
@@ -101,6 +111,17 @@ class FakeRedis:
     def sadd(self, key, value):
         self.sadds.append((key, value))
         self.members.append(value)
+        if (key.startswith("push:chamado:")
+                and not getattr(self, "_pg_fake_save_context", False)):
+            ticket_id = key[len("push:chamado:"):]
+            self.chamado_subs_save_calls.append((ticket_id, [self._parse_sub(value)]))
+
+    @staticmethod
+    def _parse_sub(value):
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return value
 
     def delete(self, key):
         self.deleted.append(key)
@@ -665,8 +686,8 @@ def test_subscribe_token_a_associa_ao_proprio_chamado(client, fake_requests, api
                     headers={"X-Tracking-Token": "segredo-token-A"})
 
     assert r.status_code == 200
-    # A subscription foi gravada sob a chave do ticket-A (derivado do token)
-    assert any(k == "push:chamado:ticket-A" for k, _ in fake_redis.sadds)
+    # A subscription foi gravada via chamado_subs_save no ticket-A (derivado do token)
+    assert any(tid == "ticket-A" for tid, _ in fake_redis.chamado_subs_save_calls)
 
 
 def test_subscribe_token_a_nao_associa_ticket_b(client, fake_requests, api_module, monkeypatch):
@@ -679,18 +700,20 @@ def test_subscribe_token_a_nao_associa_ticket_b(client, fake_requests, api_modul
                     headers={"X-Tracking-Token": "segredo-token-A"})
 
     assert r.status_code == 200
-    keys = {k for k, _ in fake_redis.sadds}
-    assert keys == {"push:chamado:ticket-A"}, "o body não pode mudar o alvo da subscription"
+    tickets = {tid for tid, _ in fake_redis.chamado_subs_save_calls}
+    assert tickets == {"ticket-A"}, "o body não pode mudar o alvo da subscription"
 
 
-def test_subscribe_sem_redis_retorna_500(client, fake_requests, api_module, monkeypatch):
+def test_subscribe_sem_store_retorna_500(client, fake_requests, api_module, monkeypatch):
     _route_token_lookup(fake_requests, "segredo-token-A", tid="ticket-A")
     monkeypatch.setattr(api_module, "redis", None)
+    monkeypatch.setattr(api_module.pg_store, "is_configured", lambda: False)
 
     r = client.post("/api/public/chamados/segredo-token-A/subscribe", json=_sub(),
                     headers={"X-Tracking-Token": "segredo-token-A"})
 
     assert r.status_code == 500
+    assert r.get_json()["error"] == "Store de inscrições não configurado"
 
 
 def test_subscribe_sem_endpoint_retorna_400(client, fake_requests, api_module, monkeypatch):

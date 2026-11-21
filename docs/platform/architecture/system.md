@@ -27,7 +27,7 @@ flowchart LR
     subgraph SVC["Serviços"]
         SB["Supabase"]
         FL["API Flask"]
-        RD["Upstash Redis"]
+        RD["Upstash Redis (cache legado)"]
         SP["SharePoint"]
     end
 
@@ -70,7 +70,7 @@ flowchart TD
         SUPABASE["Supabase\nPostgreSQL + RLS"]
         FLASK["API Flask\n(Vercel Serverless)"]
         SHAREPOINT["SharePoint\nExcel"]
-        UPSTASH["Upstash Redis\n(push + cache)"]
+        UPSTASH["Upstash Redis\n(cache legado)"]
         CLOUDINARY["Cloudinary\n(fotos)"]
     end
 
@@ -98,7 +98,7 @@ Componente → Serviço → localStorage → Engine de sync → Supabase
 ```text
 Componente → ticketService → API Flask → Supabase
                                   ↓
-                        Notificação push → Upstash → Navegador
+                        Notificação push → inscrições no PostgreSQL → Navegador
 ```
 
 ### Padrão 3 — Acesso remoto direto (TV, tablets do ReservaLab)

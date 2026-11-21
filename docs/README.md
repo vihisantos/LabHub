@@ -47,7 +47,7 @@ Ponto de entrada da plataforma: [`platform/README.md`](platform/README.md).
 | Cargo Líder + Área do Líder | Implementado (Ciclo D, 2026-09-08) — rota `/lider` |
 | Coordenador Multiunidades | Implementado (Ciclo F, 2026-09-08) — rota `/coordenador`, tela real com unidades → lideranças → equipes |
 | Mascote | Congelado até o RBAC 2.0 estar totalmente consolidado |
-| Stack | React 19, TypeScript, Vite, Tailwind v4, Supabase PostgreSQL + RLS, Flask (Vercel), Web Push (VAPID/Upstash) |
+| Stack | React 19, TypeScript, Vite, Tailwind v4, Supabase PostgreSQL + RLS, Flask (Vercel), Web Push (VAPID com inscrições no PostgreSQL) |
 
 ## Guias
 

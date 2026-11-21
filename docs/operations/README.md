@@ -8,6 +8,7 @@
 | [Monitoramento](monitoring.md) | Métricas, health checks, logs e alertas recomendados |
 | [Troubleshooting](troubleshooting.md) | Problemas recorrentes e como diagnosticá-los |
 | [Recuperação](recovery.md) | Estratégia de backup e recuperação de desastres |
+| [Transição Redis → PostgreSQL](redis-to-postgres-migration.md) | Exportação somente leitura, importação idempotente e validação de lembretes/Push |
 
 ## Procedimentos específicos de uma aplicação
 

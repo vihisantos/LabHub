@@ -33,7 +33,7 @@ Equipes de TI de laboratórios universitários trabalham com ferramentas fragmen
 | Dados (remoto) | Supabase PostgreSQL com RLS |
 | Backend | Flask (Python) em Vercel Serverless |
 | Realtime | Supabase Realtime (WebSocket) |
-| Notificações | Web Push (VAPID) com Upstash Redis |
+| Notificações | Web Push (VAPID) com inscrições no Supabase PostgreSQL |
 | Qualidade | Vitest, Testing Library, oxlint |
 | Deploy | Vercel (automático em push para `main`) |
 

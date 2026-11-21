@@ -165,7 +165,7 @@ O ReservaLab reúne a ocupação dos laboratórios e o empréstimo de tablets em
 - **Limpeza automática** — remoção de reservas de tablet canceladas há mais de 30 dias.
 - **Evento na TV** — a partir de uma reserva, publique um evento na TV do campus.
 
-**Dados:** API Flask (leitura do SharePoint), Upstash Redis (cache e push) e Supabase (`tablet_reservations`). O ReservaLab hospeda o backend Flask principal do projeto, responsável por todas as rotas `/api/*`.
+**Dados:** API Flask (leitura do SharePoint), Supabase (tablets, inscrições/dedup de Push e lembretes) e Upstash Redis opcional (apenas cache/rate-limit legados). O ReservaLab hospeda o backend Flask principal do projeto, responsável por todas as rotas `/api/*`.
 
 [Documentação do ReservaLab →](docs/apps/reservalab/README.md)
 
@@ -325,7 +325,7 @@ sequenceDiagram
   </tr>
   <tr>
     <td><strong>Backend</strong></td>
-    <td>Flask (Python) · Vercel Serverless · Upstash Redis</td>
+    <td>Flask (Python) · Vercel Serverless · Supabase PostgreSQL (Upstash Redis opcional, apenas cache legado)</td>
   </tr>
   <tr>
     <td><strong>Realtime</strong></td>

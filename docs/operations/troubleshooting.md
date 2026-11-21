@@ -47,14 +47,14 @@
 
 1. `VAPID_PUBLIC_KEY` está definida no frontend?
 2. `VAPID_PRIVATE_KEY` está definida no backend?
-3. O Upstash Redis está configurado?
+3. O Supabase (`SUPABASE_URL`/`SUPABASE_SERVICE_KEY`) está configurado? Lembretes e Push não usam Upstash.
 4. O usuário concedeu permissão de notificação?
 
 **Correção:**
 
 - Teste com `GET /api/push/test`
 - Verifique as configurações de notificação do navegador
-- Confirme a conexão com o Upstash Redis
+- Confirme a conexão com o Supabase e a presença da migration 111
 
 ### Botões de ação não funcionam
 

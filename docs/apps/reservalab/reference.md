@@ -82,8 +82,8 @@ A interface usa **polling de 15 segundos** e exibe um banner de erro quando a pl
 |----------|-------------|-----------|
 | `SHAREPOINT_URL` | Opcional (legado) | Fallback global quando um campus não tem planilha própria. A via principal é `workspaces.spreadsheet_url` |
 | `SPREADSHEET_URL_<SLUG>` | Opcional | Preenche `spreadsheet_url` em lote via `scripts/set_workspace_spreadsheets.py` (por exemplo, `SPREADSHEET_URL_ANHEMBI_MOOCA`); alternativa ao campo da interface |
-| `UPSTASH_REDIS_REST_URL` | Não | URL do Redis (push e cache) |
-| `UPSTASH_REDIS_REST_TOKEN` | Não | Token do Redis |
+| `UPSTASH_REDIS_REST_URL` | Não | Legado/opcional: apenas cache e rate-limit. Push usa PostgreSQL. |
+| `UPSTASH_REDIS_REST_TOKEN` | Não | Legado/opcional: token do Redis para cache/rate-limit. |
 | `SUPABASE_URL` | Sim (push de ação) | URL do Supabase (tablets e aprovação) |
 | `SUPABASE_SERVICE_KEY` | Sim (push de ação) | Chave de serviço do Supabase |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Obrigatórias (push) | Chaves de Web Push; sem elas o push é desabilitado com aviso, sem derrubar a aplicação |

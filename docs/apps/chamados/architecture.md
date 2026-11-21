@@ -181,8 +181,43 @@ src/apps/chamados/
 
 - `chamados_tickets` tem `ENABLE ROW LEVEL SECURITY` e `REVOKE ALL ... FROM anon, authenticated, PUBLIC` — somente o backend (`service_role`) lê e escreve
 - Todos os endpoints `/api/chamados*` exigem `SUPABASE_URL` e `SUPABASE_SERVICE_KEY`; sem elas, respondem 503
-- As inscrições de push ficam no Upstash Redis, respeitando `notify_settings` do usuário
+- As inscrições de push ficam no PostgreSQL (`public.push_subscriptions` e `public.chamado_push_subscriptions`), respeitando `notify_settings` do usuário
 - Somente super admins ou admins do workspace aprovam usuários pendentes
+
+## Lembretes automáticos e Push
+
+O controle de lembretes não depende mais de Redis/Lua. A migration
+`111_chamado_reminder_postgres.sql` criou tabelas e RPCs no Supabase:
+
+| Antigo (Redis/Lua) | Atual (PostgreSQL) |
+|---|---|
+| `chamado:reminder:state:{ticket}` | `public.chamado_reminder_states` |
+| `chamado:reminder:lock:{ticket}` | `lock_token` / `lock_expires_at` na mesma linha |
+| `chamado:reminder:sent:{ticket}:{cycle}:{wave}:{identity}` | `public.chamado_reminder_sent_marks` |
+| `push:chamado:{ticket}` | `public.chamado_push_subscriptions` |
+| `push:subscribers` | `public.push_subscriptions` |
+| `push:sent:{event}:{identity}` | `public.push_dedup_marks` |
+
+Concorrência é feita com `pg_advisory_xact_lock` por ticket mais `SELECT ...
+FOR UPDATE`. O token de posse e `transition_generation` substituem o fencing
+dos scripts Lua: um worker que perdeu o lock ou cuja geração mudou por uma
+transição HTTP não consegue gravar. A transação HTTP (assumir/resolver/fechar)
+incrementa a geração **no banco**, sem snapshot no cliente.
+
+Regras preservadas: primeiro lembrete após 2 min, repetição a cada 2 min, teto
+de 10 por ciclo, parada em `resolvido`/`fechado`/`indeferido`, `em_espera` não
+terminal, dedup por destinatário/ciclo/onda, RBAC2 e preferências por app.
+HTTP 2xx do Web Push continua sendo aceitação para entrega — nunca exibição.
+`unknown` nunca é contado como envio confirmado.
+
+`public.chamado_reminder_workspace_settings` foi criada para uma futura
+configuração de intervalo por workspace; nenhuma tela ou código a consome ainda.
+
+Testes reais contra o Staging autorizado rodam via
+`.github/workflows/staging-reminders-integration.yml` (manual, com secrets de
+Staging e allowlist fail-closed). Não há dependência obrigatória de Upstash para
+lembretes ou Push. Cache/rate-limit legados continuam com fallback em
+memória/arquivo quando `UPSTASH_*` não está configurado.
 
 ## Relacionados
 
