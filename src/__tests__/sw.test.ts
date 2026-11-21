@@ -335,6 +335,30 @@ describe('sw.ts — notificationclick handler', () => {
   })
 })
 
+// ── Restauração de inscrição Push ────────────────────────────────────────
+
+describe('sw.ts — pushsubscriptionchange', () => {
+  beforeEach(async () => {
+    await importSW()
+  })
+
+  it('avisa janelas abertas sem criar inscrição ou enviar dados sensíveis', async () => {
+    const handler = listeners['pushsubscriptionchange']?.[0]
+    expect(handler).toBeDefined()
+    const client = { postMessage: vi.fn() }
+    fakeSelf.clients.matchAll.mockResolvedValue([client])
+
+    const event = { waitUntil: vi.fn() }
+    handler(event)
+    await event.waitUntil.mock.calls[0][0]
+
+    expect(client.postMessage).toHaveBeenCalledWith({
+      type: 'labhub:push-subscription-changed',
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
 // ── Deep link feedback ────────────────────────────────────────────────────
 
 describe('sw.ts — deep link de feedback', () => {

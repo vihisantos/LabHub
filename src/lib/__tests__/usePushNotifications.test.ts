@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { usePushNotifications } from '../usePushNotifications'
+
+const recoveryGetSession = vi.fn()
+vi.mock('../supabase', () => ({
+  defaultDb: { auth: { getSession: (...args: unknown[]) => recoveryGetSession(...args) } },
+}))
 
 const mockGetSubscription = vi.fn()
 const mockSubscribe = vi.fn()
@@ -13,6 +18,10 @@ const mockRegistration = {
 }
 
 beforeEach(() => {
+  // O setup global habilita fake timers. Os testes deste hook exercitam
+  // Promises, waitFor e eventos de foco/visibilidade: precisam de timers reais.
+  vi.useRealTimers()
+  recoveryGetSession.mockResolvedValue({ data: { session: { access_token: 'jwt-hook-test' } } })
   mockGetSubscription.mockResolvedValue(null)
   mockSubscribe.mockResolvedValue({
     toJSON: () => ({
@@ -241,6 +250,47 @@ describe('usePushNotifications', () => {
     expect(result.current.subscribed).toBe(true)
     expect(fetch).toHaveBeenCalledWith('/api/push/subscribe', expect.anything())
 
+    vi.unstubAllEnvs()
+  })
+
+  it('recupera automaticamente ao abrir com permissão concedida e inscrição perdida', async () => {
+    // jsdom não é visível por padrão; em browser real o efeito roda
+    // somente quando o usuário abre ou traz o PWA para o primeiro plano.
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    vi.stubGlobal('Notification', {
+      permission: 'granted',
+      requestPermission: vi.fn(),
+    })
+    vi.stubEnv('VITE_VAPID_PUBLIC_KEY', 'dGVzdA')
+    const user = { id: 'hook-recovery-1', name: 'Técnico', role: 'tecnico' }
+    const { result } = renderHook(() => usePushNotifications('/api/push/subscribe', user))
+
+    await waitFor(() => expect(result.current.subscribed).toBe(true))
+    expect(mockSubscribe).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith('/api/push/subscribe', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ Authorization: 'Bearer jwt-hook-test' }),
+    }))
+    expect(Notification.requestPermission).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('permite recuperar ao voltar para a aba, sem novo prompt de permissão', async () => {
+    // jsdom não é visível por padrão; em browser real o efeito roda
+    // somente quando o usuário abre ou traz o PWA para o primeiro plano.
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission: vi.fn() })
+    vi.stubEnv('VITE_VAPID_PUBLIC_KEY', 'dGVzdA')
+    const user = { id: 'hook-recovery-2', name: 'Técnico', role: 'tecnico' }
+    const { result } = renderHook(() => usePushNotifications('/api/push/subscribe', user))
+    await flushDetect()
+    expect(mockSubscribe).not.toHaveBeenCalled()
+    vi.stubGlobal('Notification', { permission: 'granted', requestPermission: vi.fn() })
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    await waitFor(() => expect(result.current.subscribed).toBe(true))
+    expect(mockSubscribe).toHaveBeenCalledTimes(1)
+    expect(Notification.requestPermission).not.toHaveBeenCalled()
     vi.unstubAllEnvs()
   })
 
