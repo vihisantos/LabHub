@@ -189,7 +189,8 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
    * Não recupera para visitantes sem sessão, permissões negadas ou iOS sem PWA.
    */
   useEffect(() => {
-    if (!user?.id || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    const currentUser = user
+    if (!currentUser?.id || !('serviceWorker' in navigator) || !('PushManager' in window)) return
     if (isIOSSafari() && !isStandalone()) return
 
     let active = true
@@ -206,13 +207,13 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         if (!active) return
         const existing = await registration.pushManager.getSubscription()
         if (!active) return
-        if (existing && !hasPendingPushRecovery(subscribeUrl, user.id)) {
+        if (existing && !hasPendingPushRecovery(subscribeUrl, currentUser.id)) {
           setState((prev) => ({ ...prev, permission, subscribed: true }))
           return
         }
 
         setState((prev) => ({ ...prev, permission, subscribed: false }))
-        const recovered = await recoverMissingPushSubscription(subscribeUrl, user, registration)
+        const recovered = await recoverMissingPushSubscription(subscribeUrl, currentUser, registration)
         if (!active) return
         setState((prev) => ({
           ...prev,
