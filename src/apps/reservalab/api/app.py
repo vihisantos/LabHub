@@ -20,6 +20,7 @@ from urllib.parse import quote, urlparse, urljoin
 from io import BytesIO
 from dotenv import load_dotenv
 from pywebpush import webpush, WebPushException
+from upstash_redis import create_redis_client
 
 # Authorization layer
 sys.path.insert(0, os.path.dirname(__file__))
@@ -168,11 +169,20 @@ if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
     logger.warning("VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY nao configuradas — push desabilitado")
 VAPID_CLAIMS = {"sub": "mailto:admin@reservaslab.com"}
 
-# `redis` permanece como símbolo nulo por compatibilidade: caches/rate-limit
-# legados (cache de planilha, alerta de link quebrado) usam fallbacks em
-# memória/arquivo e não foram migrados para o PostgreSQL. O subsistema de Push
-# e a dedup usam exclusivamente os stores abaixo.
-redis = None
+# Upstash Redis é uma camada operacional compartilhada: cache de planilhas,
+# rate limits distribuídos e operações temporárias. Dados duráveis de Push,
+# inscrições e histórico continuam no PostgreSQL.
+try:
+    redis = create_redis_client()
+    if redis:
+        logger.info("Upstash Redis configurado para operações distribuídas")
+    else:
+        logger.info("Upstash Redis ausente; fallbacks locais permanecem ativos")
+except Exception as exc:
+    # Falha de configuração não deve impedir o app de iniciar. Cada operação
+    # Redis tem fallback explícito ou falha fechada no respectivo subsistema.
+    logger.error("Não foi possível inicializar Upstash Redis: %s", exc)
+    redis = None
 
 import pg_store  # módulo local: caminho inserido em sys.path no topo do arquivo
 
