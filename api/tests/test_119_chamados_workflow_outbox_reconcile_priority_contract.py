@@ -23,7 +23,8 @@ def test_119_existe_e_cobre_index_cursor_e_prioridade() -> None:
     assert "chamados_workflow_sha256_hex" in CODE_119
     assert "NOT EXISTS" in CODE_119
     assert "o.cycle_key = c.cycle_key" in CODE_119
-    assert "RETURN NEXT v_row" in CODE_119
+    assert "RETURN NEXT;" in CODE_119
+    assert "assigned_to_user_id := v_row.assigned_to_user_id" in CODE_119
 
 
 def test_119_nao_altera_publicacao_nem_integracao_qstash() -> None:

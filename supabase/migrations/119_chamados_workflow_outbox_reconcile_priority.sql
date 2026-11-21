@@ -133,9 +133,15 @@ BEGIN
     ORDER BY c.updated_at DESC, c.ticket_id DESC
     LIMIT v_limit
   LOOP
+    -- RETURNS TABLE cria variáveis OUT: RETURN NEXT não aceita argumento.
+    ticket_id := v_row.ticket_id;
+    workspace_id := v_row.workspace_id;
+    status := v_row.status;
+    assigned_to_user_id := v_row.assigned_to_user_id;
+    updated_at := v_row.updated_at;
     v_last_at := v_row.updated_at;
     v_last_id := v_row.ticket_id;
-    RETURN NEXT v_row;
+    RETURN NEXT;
   END LOOP;
 
   UPDATE public.chamados_workflow_reconcile_state
