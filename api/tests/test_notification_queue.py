@@ -97,3 +97,40 @@ def test_invalid_event_is_rejected_before_enqueue():
         else:
             raise AssertionError("invalid event must be rejected")
     redis.xadd.assert_not_called()
+
+
+def test_process_batch_acknowledges_only_successful_handler_results():
+    redis = Mock()
+    queue = MODULE.NotificationQueue(redis)
+    redis.xgroup_create.return_value = "OK"
+    redis.xautoclaim.return_value = ["0-0", [
+        ["1-0", ["event_id", "evt-reclaimed", "payload", '{"kind":"old"}']],
+    ], []]
+    redis.xreadgroup.return_value = [[MODULE.DEFAULT_STREAM, [
+        ["2-0", ["event_id", "evt-ok", "payload", '{"kind":"ok"}']],
+        ["3-0", ["event_id", "evt-retry", "payload", '{"kind":"retry"}']],
+        ["4-0", ["event_id", "evt-fail", "payload", '{"kind":"fail"}']],
+    ]]]
+    redis.xack.return_value = 1
+
+    def handler(event_id, payload):
+        if event_id == "evt-retry":
+            return False
+        if event_id == "evt-fail":
+            raise RuntimeError("temporary failure")
+        return True
+
+    result = queue.process_batch("worker-a", handler, count=10)
+
+    assert result == {
+        "fetched": 4,
+        "acked": 2,
+        "retriable": 1,
+        "failed": 1,
+        "reclaim_next_id": "0-0",
+        "reclaimed": 1,
+        "new": 3,
+    }
+    assert redis.xack.call_count == 2
+    assert redis.xack.call_args_list[0].args[-1] == "1-0"
+    assert redis.xack.call_args_list[1].args[-1] == "2-0"
