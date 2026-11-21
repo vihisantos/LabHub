@@ -52,3 +52,12 @@ def test_documentacao_registra_limite_e_risco_do_runner() -> None:
     assert "Antes do merge na `main`" in DOC
     assert "115–120" in DOC
     assert "backup/restore" in DOC
+
+
+def test_documentacao_registra_as_medicoes_das_tres_ondas() -> None:
+    assert "## Validação funcional das três ondas" in DOC
+    assert "44918925820" in DOC
+    assert "44920500824" in DOC
+    assert "14 POSTs" in DOC
+    assert "HTTP 200" in DOC
+    assert "2/2" in DOC

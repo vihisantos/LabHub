@@ -303,9 +303,42 @@ e backoff ficam no PostgreSQL, não no QStash. **Medido** no E2E acima: 1
 chamada a `/v2/publish`, 4 chamadas a `/v2/batch` e 4 POSTs do QStash à
 Preview (todos 200) para um único ciclo observado por ~150 s — o dobro do
 número lógico de etapas porque a SDK emite um POST adicional por etapa; a
-aplicação executou uma única verificação e não enviou Push duplicado. A
-estimativa de 3 ondas completas (2/4/6 min) ainda **não** foi medida; por isso
-a flag continua restrita a esta Preview e o cron legado permanece ativo.
+aplicação executou uma única verificação e não enviou Push duplicado. As três
+ondas completas foram medidas na validação abaixo; a flag continua restrita a
+esta Preview e o cron legado permanece ativo.
+
+## Validação funcional das três ondas (21/11/2026)
+
+Run `44918925820` (sucesso), Shas `2c43869` e `98f886c`, Preview
+`lab-hub-git-feat-chamados-qstash-workfl-019c03-deltaf59592-3090.vercel.app`
+(deploy `dpl_nKw6V8wPWAjCDnAz5knsjLFipvjD`). Dispatcher validado com
+`enabled=true`, `error=null`, `reconciled=0`, `reconcile_error=None`.
+
+- **Cenário não assumido** — ticket `918358`, publicado às 15:23:56Z com
+  `claimed=1, published=1, attempts=1`. Ocorreram três verificações reais da
+  aplicação em `15:26:04Z`, `15:28:13Z` e `15:30:21Z`, todas com `1 checados,
+  0 enviados, 0 confirmados, 0 ambíguos` (sem assinatura Push no workspace
+  sintético, logo nenhum envio). Os snapshots PostgreSQL das ondas 1/2/3
+  mantiveram `current_job` estável, `outbox_status=published`, `ticket_status=
+  aberto`, `assignee` vazio, `state_rows=1` e `reminder_count/sent_marks/
+  ticket_events/push_subscriptions=0`.
+- **Cenário assumido após a primeira onda** — ticket `947220`, publicado às
+  15:30:47Z. A primeira verificação (15:32:54Z) encontrou `1 checados`; a
+  atribuição ao técnico sintético foi aplicada às 15:33:36Z; a verificação
+  seguinte (15:34:58Z) já registrou `0 checados` e encerrou o run. As ondas 2/3
+  não alteraram nenhum contador (`state_rows=1`, `reminder_count=0`,
+  `sent_marks=0`, `mark_waves=[]`, `ticket_events=0`, `push_subscriptions=0`) e o
+  responsável permaneceu o mesmo UUID até o fim.
+- **Consumo real do QStash medido em `vercel logs runtime/requests`:** 14 POSTs
+  QStash→Preview na rota assinada, **todos HTTP 200** (2 na publicação inicial
+  de cada caso + 2 por onda: um para o `context.sleep`, outro para o
+  `context.run`), 12 chamadas a `/v2/batch` com `201 Created` e 2 limpezas de
+  run (`/v2/workflows/runs/...`). Nenhum 401/403, nenhuma string
+  `x-vercel-protection-bypass=` em logs e nenhum Push duplicado. Custo por
+  ciclo de três ondas: 8 POSTs, contra 6 no ciclo interrompido no início.
+- Limpeza controlada no run `44920500824`: os dois conjuntos preservados com
+  `KEEP_E2E_DATA=true` foram removidos (`2/2`) usando os UUIDs canônicos
+  impressos pelo E2E.
 
 ## Rollback
 
