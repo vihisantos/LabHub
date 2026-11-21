@@ -23,9 +23,10 @@ PostgreSQL como fonte de verdade:
    falha temporária do Supabase no INSERT do chamado não perde o agendamento.
    A migration **119** corrige a seleção: índice parcial em `updatedAt`,
    comparação do `cycle_key` exato já presente na outbox (hash SHA-256 idêntico
-   ao da aplicação) e cursor paginado entre ticks. Ciclos já agendados não
-   ocupam os 20 slots de todas as varreduras; a contraparte somente leitura é
-   a migration **120**.
+   ao da aplicação) e lotes limitados em ordem FIFO (`updatedAt` ASC). Ciclos
+   já agendados não ocupam os 20 slots de todas as varreduras, e um chamado
+   criado depois do início de uma varredura não fica preso atrás de cursor
+   antigo. A contraparte somente leitura é a migration **120**.
 3. Um dispatcher protegido por `CRON_SECRET` reclama um lote pequeno
    (`FOR UPDATE SKIP LOCKED`), publica no QStash com `deduplication_id`
    estável por job e confirma a linha. Falhas voltam para `pending` com backoff
@@ -180,8 +181,9 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
 - Reconciliação sem *starvation*: a 117 selecionava os 20 registros mais
   recentes **mesmo quando o ciclo já estava na outbox**. A 119 passou a
   comparar o `cycle_key` exato (hash SHA-256 idêntico ao de
-  `chamados_workflow.cycle_key`) e a paginar com cursor em
-  `(updatedAt, ticket_id)`, com índice parcial para chamados elegíveis. O
+  `chamados_workflow.cycle_key`) e a entregar lotes limitados em ordem FIFO
+  (`updatedAt` ASC), com índice parcial para chamados elegíveis. Não há cursor
+  persistente, o que evita esconder chamados criados durante a varredura. O
   contrato read-only correspondente é a 120.
 - Isolamento do cron: a variável
   `LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED` foi confirmada como `true` no

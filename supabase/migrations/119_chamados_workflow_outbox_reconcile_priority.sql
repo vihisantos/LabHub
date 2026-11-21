@@ -1,28 +1,24 @@
 -- 119_chamados_workflow_outbox_reconcile_priority.sql
 -- Correção da reconciliação introduzida pela 117.
 --
--- Problemas observados em revisão:
---   * a 117 selecionava os 20 chamados MAIS RECENTES, mesmo quando o ciclo já
---     estava na outbox; em unidades com muito movimento os mesmos 20 ocupavam
---     todos os ticks e outros chamados nunca eram recuperados;
---   * não havia índice específico para a varredura por `updatedAt`.
+-- Problema observado em revisão: a 117 selecionava os 20 chamados MAIS RECENTES
+-- mesmo quando o ciclo já estava na outbox. Em unidades com muito movimento,
+-- os mesmos registros ocupavam todos os ticks e chamados mais antigos nunca
+-- eram recuperados. Não havia também índice específico para a varredura.
 --
 -- Esta migration NÃO altera a integração QStash. Ela apenas:
 --   1. cria índice parcial para a varredura elegível;
 --   2. prioriza ciclos AUSENTES na outbox (hash idêntico ao da aplicação);
---   3. pagina a varredura entre ticks, garantindo que nenhum chamado fique
---      preso atrás dos mesmos registros já atendidos.
+--   3. entrega lotes pequenos e limitados em ordem FIFO (`updatedAt` ASC),
+--      sem cursor persistente: um chamado criado depois do início de uma
+--      varredura nunca fica preso atrás de um cursor antigo.
 
 -- 1) Índice para a janela de reconciliação. O filtro parcial coincide com a
---    condição de elegibilidade da 115/117, mantendo o índice pequeno.
+--    condição de elegibilidade da 115/117, mantendo o índice pequeno. O scan
+--    ASC do índice é o mesmo usado pelos lotes FIFO abaixo.
 CREATE INDEX IF NOT EXISTS idx_chamados_tickets_workflow_reconcile
-  ON public.chamados_tickets ("updatedAt" DESC)
+  ON public.chamados_tickets ("updatedAt" ASC)
   WHERE status = 'aberto' AND coalesce("assignedToUserId", '') = '';
-
--- Cursor de paginação: a varredura continua de onde parou no tick anterior.
-ALTER TABLE public.chamados_workflow_reconcile_state
-  ADD COLUMN IF NOT EXISTS cursor_updated_at timestamptz,
-  ADD COLUMN IF NOT EXISTS cursor_ticket_id uuid;
 
 -- 2) Hash SHA-256 portável. No Supabase o pgcrypto vive em `extensions`; em
 --    PostgreSQL efêmero pode estar em `public`. O wrapper é IMMUTABLE e
@@ -56,11 +52,13 @@ REVOKE ALL ON FUNCTION public.chamados_workflow_sha256_hex(text)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.chamados_workflow_sha256_hex(text) TO service_role;
 
--- 3) Seleção priorizada e paginada. O cycle_key é reconstruído em SQL com a
---    MESMA normalização de `chamados_workflow.cycle_key` (UTC + microsegundos
---    + JSON ordenado), então a comparação com a outbox é exata por ticket+ciclo.
---    Sequência: os 20 primeiros do tick N são excluídos no tick N+1, permitindo
---    que os próximos apareçam mesmo que os primeiros já tenham agendamento.
+-- 3) Seleção priorizada e paginada por lote. O cycle_key é reconstruído em SQL
+--    com a MESMA normalização de `chamados_workflow.cycle_key` (UTC +
+--    microsegundos + JSON ordenado), então a comparação com a outbox é exata
+--    por ticket+ciclo. Ciclos já atendidos saem da consulta na mesma transação
+--    em que são enfileirados; o próximo lote começa pelo chamado mais antigo
+--    ainda ausente. Nenhum estado extra é necessário e nenhum chamado fica
+--    invisível para a reconciliação.
 CREATE OR REPLACE FUNCTION public.chamados_workflow_outbox_reconcile_candidates(
   p_lookback_minutes integer DEFAULT 1440,
   p_limit integer DEFAULT 20
@@ -77,26 +75,11 @@ SET search_path = ''
 AS $$
 DECLARE
   v_cutoff timestamptz;
-  v_cursor_at timestamptz;
-  v_cursor_id uuid;
   v_limit integer := least(greatest(coalesce(p_limit, 20), 1), 50);
-  v_last_at timestamptz;
-  v_last_id uuid;
   v_row record;
 BEGIN
   v_cutoff := clock_timestamp()
     - make_interval(mins => least(greatest(coalesce(p_lookback_minutes, 1440), 1), 10080));
-
-  SELECT cursor_updated_at, cursor_ticket_id
-  INTO v_cursor_at, v_cursor_id
-  FROM public.chamados_workflow_reconcile_state
-  WHERE singleton;
-
-  -- Cursor fora da janela atual: recomeça pelo chamado mais recente.
-  IF v_cursor_at IS NULL OR v_cursor_at < v_cutoff THEN
-    v_cursor_at := NULL;
-    v_cursor_id := NULL;
-  END IF;
 
   FOR v_row IN
     WITH candidatos AS (
@@ -126,11 +109,7 @@ BEGIN
       WHERE o.ticket_id = c.ticket_id
         AND o.cycle_key = c.cycle_key
     )
-      AND (
-        v_cursor_at IS NULL
-        OR (c.updated_at, c.ticket_id) < (v_cursor_at, v_cursor_id)
-      )
-    ORDER BY c.updated_at DESC, c.ticket_id DESC
+    ORDER BY c.updated_at ASC, c.ticket_id ASC
     LIMIT v_limit
   LOOP
     -- RETURNS TABLE cria variáveis OUT: RETURN NEXT não aceita argumento.
@@ -139,15 +118,8 @@ BEGIN
     status := v_row.status;
     assigned_to_user_id := v_row.assigned_to_user_id;
     updated_at := v_row.updated_at;
-    v_last_at := v_row.updated_at;
-    v_last_id := v_row.ticket_id;
     RETURN NEXT;
   END LOOP;
-
-  UPDATE public.chamados_workflow_reconcile_state
-  SET cursor_updated_at = coalesce(v_last_at, clock_timestamp()),
-      cursor_ticket_id = v_last_id
-  WHERE singleton;
 END;
 $$;
 
