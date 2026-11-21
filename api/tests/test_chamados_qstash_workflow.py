@@ -682,3 +682,8 @@ def test_sleep_duravel_separa_ondas_sem_republicar(monkeypatch):
         f"aguardar-onda-{i}" for i in range(1, workflow.MAX_WORKFLOW_CHECKS + 1)
     ]
     assert ctx.steps == [f"verificar-onda-{i}" for i in range(1, workflow.MAX_WORKFLOW_CHECKS + 1)]
+
+
+def test_qstash_workflow_respeita_teto_de_dez_lembretes_por_ciclo():
+    """Nenhuma execução estende a política de REMINDER_MAX_COUNT=10."""
+    assert workflow.MAX_WORKFLOW_CHECKS == 10
