@@ -122,7 +122,9 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         try {
           const registration = await navigator.serviceWorker.ready
           const existing = await registration.pushManager.getSubscription()
-          subscribed = !!existing
+          // Uma subscription local pode existir sem ter sido gravada no
+          // backend (POST anterior falhou). Não anunciá-la como ativa.
+          subscribed = !!existing && !(user?.id && hasPendingPushRecovery(subscribeUrl, user.id))
         } catch {
           /*SW não pronto ainda*/
         }
@@ -153,6 +155,9 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         const registration = await navigator.serviceWorker.ready
         const subscription = await registration.pushManager.getSubscription()
         if (!subscription || cancelled) return
+        // A sincronização pendente é feita pela recuperação com lock global;
+        // evitar POST duplicado com o refresh do snapshot.
+        if (hasPendingPushRecovery(subscribeUrl, user.id)) return
 
         const payload: Record<string, unknown> = { ...subscription.toJSON(), user }
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
