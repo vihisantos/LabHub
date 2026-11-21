@@ -1375,6 +1375,24 @@ class TestAppNotifications:
         assert resp.status_code == 200
         assert len(resp.get_json()["notifications"]) == 2
 
+    def test_list_oculta_notificacoes_direcionadas_a_outro_usuario(
+        self, root_client, fake_requests, monkeypatch
+    ):
+        headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "mine", "workspace_id": None, "target_user_id": "user-1", "title": "Minha"},
+                {"id": "other", "workspace_id": None, "target_user_id": "user-2", "title": "Privada"},
+                {"id": "global", "workspace_id": None, "target_user_id": None, "title": "Global"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        ids = {n["id"] for n in resp.get_json()["notifications"]}
+        assert ids == {"mine", "global"}
+
     def test_list_filtra_por_workspace(self, root_client, fake_requests, monkeypatch):
         headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])
         fake_requests.route(
