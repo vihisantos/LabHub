@@ -8,6 +8,9 @@ DO $$
 DECLARE
   v_event text := 'ci-notification-outbox-' || gen_random_uuid()::text;
   v_retry_event text := 'ci-notification-outbox-retry-' || gen_random_uuid()::text;
+  v_notification_id text := 'ci-notification-' || gen_random_uuid()::text;
+  v_notification jsonb;
+  v_payload jsonb;
   v_claim record;
   v_worker_claim record;
   v_token uuid;
@@ -16,6 +19,36 @@ DECLARE
   v_status text;
   v_count integer;
 BEGIN
+  -- Notificação in-app e evento Push são gravados atomicamente e idempotentes.
+  v_notification := jsonb_build_object(
+    'id', v_notification_id,
+    'title', 'Atomic notification',
+    'body', 'Body',
+    'type', 'system',
+    'severity', 'info',
+    'action_url', '/'
+  );
+  v_payload := jsonb_build_object(
+    'title', 'Atomic notification',
+    'body', 'Body',
+    'action_url', '/'
+  );
+  IF public.notification_create_with_outbox(v_notification, v_payload) IS NOT TRUE THEN
+    RAISE EXCEPTION '113 FAIL: criação atômica não inseriu';
+  END IF;
+  IF public.notification_create_with_outbox(v_notification, v_payload) IS NOT FALSE THEN
+    RAISE EXCEPTION '113 FAIL: criação atômica duplicada deveria ser ignorada';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.app_notifications WHERE id = v_notification_id
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.notification_outbox
+    WHERE event_id = 'app-notification:' || v_notification_id
+      AND notification_id = v_notification_id
+  ) THEN
+    RAISE EXCEPTION '113 FAIL: sino e outbox não foram persistidos juntos';
+  END IF;
+
   -- Idempotência da entrada: mesmo event_id não cria uma segunda linha.
   IF public.notification_outbox_enqueue(v_event, NULL, '{"title":"CI event","target":"user"}'::jsonb) IS NOT TRUE THEN
     RAISE EXCEPTION '113 FAIL: primeiro enqueue não inseriu';
@@ -108,6 +141,11 @@ BEGIN
      OR has_table_privilege('authenticated', 'public.notification_outbox', 'SELECT')
      OR NOT has_table_privilege('service_role', 'public.notification_outbox', 'SELECT') THEN
     RAISE EXCEPTION '113 FAIL: grants da tabela incorretos';
+  END IF;
+  IF has_function_privilege('anon', 'public.notification_create_with_outbox(jsonb,jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.notification_create_with_outbox(jsonb,jsonb)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.notification_create_with_outbox(jsonb,jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION '113 FAIL: grants da RPC atômica incorretos';
   END IF;
   IF has_function_privilege('anon', 'public.notification_outbox_enqueue(text,text,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.notification_outbox_enqueue(text,text,jsonb)', 'EXECUTE')
