@@ -1254,7 +1254,7 @@ def _classify_push_exception(exc, transmitted):
     return PUSH_UNKNOWN, False
 
 
-def push_notify(sub, title, body, url='/', actions=None, user_id=None, timeout=None):
+def push_notify(sub, title, body, url='/', actions=None, user_id=None, timeout=None, module=None, tag=None):
     """Envia Web Push e devolve `PUSH_ACCEPTED`, `PUSH_REJECTED` ou `PUSH_UNKNOWN`.
 
     `timeout` é opcional e repassado ao pywebpush/requests. Callers que precisam
@@ -1266,6 +1266,10 @@ def push_notify(sub, title, body, url='/', actions=None, user_id=None, timeout=N
     session = _PushTransmissionSession()
     try:
         data = {'title': title, 'body': body, 'url': url}
+        if module:
+            data['module'] = str(module)[:40]
+        if tag:
+            data['tag'] = str(tag)[:128]
         if actions:
             data['actions'] = actions
         if user_id:
@@ -1479,7 +1483,7 @@ def _push_check_legacy_dedup(event_id, total):
 
 
 def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=None,
-                            user_id=None, workspace_id=None, context=None):
+                            user_id=None, workspace_id=None, context=None, module=None, tag=None):
     """Envia com dedup individual reservada e confirmada atomicamente.
 
     Devolve (accepted, rejected, unknown, skipped, dedup_failed).
@@ -1512,6 +1516,10 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
         return 0, 0, 0, legacy_skipped, legacy_failed
 
     kwargs = {'timeout': PUSH_BULK_TIMEOUT_SECONDS}
+    if module:
+        kwargs['module'] = module
+    if tag:
+        kwargs['tag'] = tag
     if url != '/':
         kwargs['url'] = url
     if actions:
