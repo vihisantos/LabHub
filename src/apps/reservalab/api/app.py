@@ -2343,7 +2343,14 @@ def _internal_push_check():
                 continue
             
             if agora_min <= inicio <= limite_min:
-                notify_id = hashlib.md5(f"{r.get('_scope') or ''}|{r['lab']}|{r['horario']}|{r.get('responsavel','')}".encode()).hexdigest()
+                reserva_data_key = (
+                    data_reserva.isoformat() if hasattr(data_reserva, 'isoformat')
+                    else str(data_reserva)
+                )
+                notify_id = hashlib.md5(
+                    f"{r.get('_scope') or ''}|{reserva_data_key}|{r['lab']}|"
+                    f"{r['horario']}|{r.get('responsavel','')}".encode()
+                ).hexdigest()
 
                 title = f"{' '.join(r.get('labs', [r.get('lab', 'Lab')]))}"
                 alunos = r.get('alunos', '')
@@ -2693,7 +2700,10 @@ def _internal_push_check_overdue():
                 continue
 
             found += 1
-            nid = hashlib.md5(f"overdue|{loan['id']}".encode()).hexdigest()
+            overdue_bucket = int(agora.timestamp() // 43200)
+            nid = hashlib.md5(
+                f"overdue|{loan['id']}|{overdue_bucket}".encode()
+            ).hexdigest()
 
             item_name = loan.get('itemname', 'Item')
             borrowed_by = loan.get('borrowedby', 'Alguém')
@@ -2767,7 +2777,9 @@ def _internal_push_check_pcare():
                     qty = part.get('quantity', 0)
                     min_qty = part.get('minquantity', 0)
                     if qty < min_qty:
-                        nid = hashlib.md5(f"pcare|part|{part['id']}".encode()).hexdigest()
+                        nid = hashlib.md5(
+                            f"pcare|part|{part['id']}|{hoje_str}".encode()
+                        ).hexdigest()
                         title = f"🔧 Estoque baixo: {part.get('name', 'Peça')}"
                         msg = f"Quantidade: {qty} | Mínimo: {min_qty}"
                         queue_status = _queue_push_event(
@@ -2803,7 +2815,9 @@ def _internal_push_check_pcare():
             )
             if mr.ok:
                 for m in mr.json():
-                    nid = hashlib.md5(f"pcare|maint|{m['id']}".encode()).hexdigest()
+                    nid = hashlib.md5(
+                        f"pcare|maint|{m['id']}|{str(m.get('scheduleddate') or '')[:10]}".encode()
+                    ).hexdigest()
                     title = f"🔧 Manutenção: {m.get('pcnumber', 'PC')}"
                     msg = f"{m.get('labname', 'Lab')} — {m.get('type', '')} — {m.get('scheduleddate', '')[:10]}"
                     queue_status = _queue_push_event(
@@ -2857,7 +2871,10 @@ def _check_pending_users():
         sent = 0
         queued = 0
         for u in pending:
-            nid = hashlib.md5(f"pending|{u.get('id')}".encode()).hexdigest()
+            pending_week = get_today_sp().toordinal() // 7
+            nid = hashlib.md5(
+                f"pending|{u.get('id')}|{pending_week}".encode()
+            ).hexdigest()
             nome = u.get('name') or u.get('email') or 'Usuário'
             title = 'Novo usuário pendente'
             body = f"{nome} ({u.get('email') or ''}) aguarda aprovação"
@@ -2932,7 +2949,9 @@ def _check_stock_expiry():
             if dias > 30:
                 continue
 
-            nid = hashlib.md5(f"expiry|{item.get('id')}".encode()).hexdigest()
+            nid = hashlib.md5(
+                f"expiry|{item.get('id')}|{hoje.isoformat()}".encode()
+            ).hexdigest()
 
             nome = item.get('name') or 'Item'
             if dias < 0:
