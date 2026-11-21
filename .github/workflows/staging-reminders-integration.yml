@@ -33,6 +33,11 @@ on:
         required: true
         type: boolean
         default: false
+      apply_outbox_migration:
+        description: 'Registrar as migrations 113/114 do outbox no Staging via runner?'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -116,6 +121,31 @@ jobs:
         run: |
           python scripts/apply_staging_migration.py \
             --version 112 --filename 112_chamado_reminder_read_uninitialized.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      # A 113 é idempotente: em Staging os objetos já existem, mas o runner
+      # reaplica o SQL sem recriá-los e registra a versão na mesma transação.
+      # A 114 falha em voz alta se função/índice/grant/RLS estiver divergente.
+      - name: Aplicar migration 113 no Staging (registro oficial)
+        if: ${{ inputs.apply_outbox_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 113 --filename 113_notification_outbox.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 114 no Staging (contrato da 113)
+        if: ${{ inputs.apply_outbox_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 114 --filename 114_notification_outbox_contract.sql \
             --allowed-ref "$STAGING_PROJECT_REFS"
 
       - name: Testes reais PostgreSQL (Staging)

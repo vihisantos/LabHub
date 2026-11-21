@@ -61,7 +61,7 @@ describe('adminService — aprovação GLOBAL de contas', () => {
       expect(chain.eq).toHaveBeenCalledWith('id', 'u-1')
     })
 
-    it('aprovar NÃO cria membership: não chama o endpoint nem escreve em memberships', async () => {
+    it('persiste o aviso de aprovação na caixa central sem criar membership', async () => {
       makeUpdateChain({ data: [{ id: 'u-1' }], error: null })
       mockFetch.mockClear()
       mockFrom.mockClear()
@@ -69,7 +69,18 @@ describe('adminService — aprovação GLOBAL de contas', () => {
       const ok = await adminService.approveUser('u-1')
 
       expect(ok).toBe(true)
-      expect(mockFetch).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledOnce()
+      const [url, opts] = mockFetch.mock.calls[0] as unknown as [string, RequestInit]
+      expect(url).toBe('/api/app-notifications')
+      expect(opts.method).toBe('POST')
+      expect((opts.headers as Record<string, string>).Authorization).toBe('Bearer token-123')
+      expect(JSON.parse(String(opts.body))).toMatchObject({
+        type: 'approval',
+        module: 'auth',
+        audience: 'user',
+        targetUserId: 'u-1',
+        title: 'Conta aprovada',
+      })
       const tables = mockFrom.mock.calls.map(([t]) => t)
       expect(tables).not.toContain('memberships')
       expect(tables).toContain('profiles')

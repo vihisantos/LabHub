@@ -2,7 +2,7 @@
 
 Esta página registra o contrato da migração das chaves de lembretes de chamados e Push do Upstash para as tabelas criadas pelas migrations `111`/`112`.
 
-**A origem nunca é apagada.** O exportador usa apenas `SCAN`, `TYPE`, `PTTL`, `GET` e `SMEMBERS`. O importador tem como alvo padrão o Supabase de **Staging** (`pgmetdqsdjotdcifjivu`) e exige `--apply`; por padrão ele faz dry-run. Produção é opt-in via `--target production`, com variáveis e confirmação próprias.
+**A origem nunca é apagada.** O exportador usa apenas `SCAN`, `TYPE`, `PTTL`, `GET` e `SMEMBERS`. O importador grava somente no Supabase de **Staging** (`pgmetdqsdjotdcifjivu`) e exige `--apply`; por padrão ele faz dry-run.
 
 ## Inventário e destino
 
@@ -60,41 +60,7 @@ O importador:
 * valida FKs e quarentena linhas sem ticket/workspace no destino;
 * preserva payload e endpoint das inscrições e o token das marcas de dedup;
 * calcula `expires_at` com `clock_timestamp() + TTL restante`;
-* recusa, no alvo `staging`, qualquer ref que não seja o Staging autorizado.
-
-### Procedimento em Produção (manual, antes do merge da #487)
-
-O importador não faz parte do CI/CD. Pré-requisito: as migrations `111`/`112`
-precisam estar aplicadas em Produção **antes** da importação, pois o script
-valida a existência das tabelas de destino e não cria nenhum objeto. Aplique-as
-pelo runner oficial (`python scripts/migrate.py --target production --dry-run`
-e depois sem `--dry-run`), com backup e confirmação prévia das contagens. Isso
-não troca a aplicação ainda: o código antigo continua lendo Redis até o merge.
-
-Em seguida, para não perder inscrições, a ordem é: exportar Redis (somente
-leitura), validar o dry-run em Produção, aplicar a importação, conferir o
-relatório de contagens e **só então** mergear a #487. As chaves Redis não são
-apagadas, então a operação é reversível.
-
-```bash
-export SUPABASE_PRODUCTION_PROJECT_REF='...'
-export SUPABASE_PRODUCTION_ACCESS_TOKEN='...'
-export SUPABASE_PRODUCTION_ALLOWED_PROJECT_REFS='...'
-python scripts/migrate/redis_import.py \
-  --snapshot /tmp/redis-snapshot.json --report /tmp/import-prod.json \
-  --target production
-LABHUB_CONFIRM_PRODUCTION_IMPORT=APPLY_PRODUCTION \
-python scripts/migrate/redis_import.py \
-  --snapshot /tmp/redis-snapshot.json --report /tmp/import-prod.json \
-  --target production --apply
-```
-
-`--apply` em produção exige `LABHUB_CONFIRM_PRODUCTION_IMPORT=APPLY_PRODUCTION`.
-O comando falha antes de qualquer chamada se a confirmação ou a allowlist
-estiverem ausentes, se o snapshot estiver marcado como instável, ou se o ref
-de Staging for usado como destino de produção. O relatório traz
-`source_counts`, `plan_counts`, `destination_counts_before/after`, `inserted`
-e `divergences` — todos sem tokens ou endpoints.
+* recusa qualquer ref que não seja o Staging autorizado, inclusive os refs de produção.
 
 ## Evidência de que a origem permaneceu intacta
 

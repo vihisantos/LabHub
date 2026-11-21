@@ -490,23 +490,22 @@ def test_create_envia_push_para_subscribers(client, fake_requests, api_module, m
     _route_ticket_number(fake_requests, last=5)
     _route_create_insert(fake_requests, _make_ticket(ticketNumber=6))
 
-    calls = []
-    monkeypatch.setattr(api_module, "_target_subs", lambda **kw: [_make_sub()])
-
-    def fake_push(sub, title, body, url="/"):
-        calls.append((title, body, url))
-        return True
-
-    monkeypatch.setattr(api_module, "push_notify", fake_push)
+    queued = []
+    monkeypatch.setattr(
+        api_module, "_enqueue_push_event",
+        lambda event_id, payload: queued.append((event_id, payload)) or True,
+    )
 
     resp = client.post("/api/chamados", json=_valid_payload())
 
     assert resp.status_code == 200
-    assert len(calls) == 1
-    title, body, url = calls[0]
-    assert title == "Novo chamado #6"
-    assert body == "Sala 101 · Internet · Prof. Maria"
-    assert url == "/chamados/tickets/ticket-1"
+    assert len(queued) == 1
+    event_id, payload = queued[0]
+    assert event_id.startswith("chamados:")
+    assert payload["title"] == "Novo chamado #6"
+    assert payload["body"] == "Sala 101 · Internet · Prof. Maria"
+    assert payload["action_url"] == "/chamados/tickets/ticket-1"
+    assert payload["module"] == "chamados"
 
 
 def test_create_push_falha_nao_impede_criacao(client, fake_requests, api_module, monkeypatch):
@@ -1206,20 +1205,14 @@ def _route_assignment_get(fake_requests, prev_row):
 
 
 def _assignment_push_fixture(api_module, monkeypatch):
-    sent = []
-    target_kwargs = []
+    queued = []
 
-    def fake_target(**kw):
-        target_kwargs.append(kw)
-        return [_make_sub()]
-
-    def fake_push(sub, title, body, url="/"):
-        sent.append({"title": title, "body": body, "url": url})
+    def fake_enqueue(event_id, payload):
+        queued.append({"event_id": event_id, **payload})
         return True
 
-    monkeypatch.setattr(api_module, "_target_subs", fake_target)
-    monkeypatch.setattr(api_module, "push_notify", fake_push)
-    return sent, target_kwargs
+    monkeypatch.setattr(api_module, "_enqueue_push_event", fake_enqueue)
+    return queued, queued
 
 
 def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module, monkeypatch):
@@ -1242,11 +1235,11 @@ def test_patch_atribui_tecnico_com_push_direto(client, fake_requests, api_module
     assert resp.status_code == 200
     assert len(sent) == 1
     assert "atribuído a você" in sent[0]["title"]
-    assert "/chamados/tickets/ticket-1" in sent[0]["url"]
-    # Segmentação per-usuário: filtra pelo id do técnico e módulo chamados
-    assert target_kwargs and target_kwargs[0]["user_id"] == "user-2"
-    assert target_kwargs[0]["module"] == "chamados"
-    assert target_kwargs[0]["workspace_id"] == "ws-a"
+    assert "/chamados/tickets/ticket-1" in sent[0]["action_url"]
+    assert sent[0]["target_user_id"] == "user-2"
+    assert sent[0]["module"] == "chamados"
+    assert sent[0]["workspace_id"] == "ws-a"
+    assert sent[0]["min_level"] == "full"
 
 
 def test_patch_atribuicao_sem_mudanca_nao_escreve_nem_avisa(client, fake_requests, api_module, monkeypatch):

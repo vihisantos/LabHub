@@ -1334,18 +1334,27 @@ class TestAppNotifications:
         _patch_supabase_profile(fake_requests, profile)
         return {"Authorization": "Bearer tok"}
 
-    def test_persist_in_app(self, root_client, fake_requests, monkeypatch):
+    def test_persist_in_app(self, root_client, root_api_module, fake_requests, monkeypatch):
         headers = self._auth(fake_requests, monkeypatch, is_super=True)
+        captured = {}
+        monkeypatch.setattr(root_api_module.pg_store, "is_configured", lambda: True)
+        monkeypatch.setattr(
+            root_api_module.pg_store.store,
+            "notification_create_with_outbox",
+            lambda notification, payload: captured.update(
+                notification=notification, payload=payload
+            ) or True,
+        )
         resp = root_client.post(
             "/api/app-notifications",
             json={"id": "ntf-1", "title": "Olá", "body": "Mundo", "type": "system", "severity": "info", "module": "stock"},
             headers=headers,
         )
-        assert resp.status_code == 200
-        posts = fake_requests.calls_for("POST", "/rest/v1/app_notifications")
-        assert len(posts) == 1
-        assert posts[0]["kwargs"]["json"]["id"] == "ntf-1"
-        assert posts[0]["kwargs"]["json"]["type"] == "system"
+        assert resp.status_code == 202
+        assert resp.get_json()["status"] == "queued"
+        assert captured["notification"]["id"] == "ntf-1"
+        assert captured["notification"]["type"] == "system"
+        assert captured["payload"]["module"] == "stock"
 
     def test_persist_requires_admin(self, root_client, fake_requests, monkeypatch):
         headers = self._auth(fake_requests, monkeypatch, is_super=False)
@@ -1365,6 +1374,24 @@ class TestAppNotifications:
         resp = root_client.get("/api/app-notifications", headers=headers)
         assert resp.status_code == 200
         assert len(resp.get_json()["notifications"]) == 2
+
+    def test_list_oculta_notificacoes_direcionadas_a_outro_usuario(
+        self, root_client, fake_requests, monkeypatch
+    ):
+        headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])
+        fake_requests.route(
+            "GET",
+            "app_notifications",
+            FakeResponse([
+                {"id": "mine", "workspace_id": None, "target_user_id": "user-1", "title": "Minha"},
+                {"id": "other", "workspace_id": None, "target_user_id": "user-2", "title": "Privada"},
+                {"id": "global", "workspace_id": None, "target_user_id": None, "title": "Global"},
+            ]),
+        )
+        resp = root_client.get("/api/app-notifications", headers=headers)
+        assert resp.status_code == 200
+        ids = {n["id"] for n in resp.get_json()["notifications"]}
+        assert ids == {"mine", "global"}
 
     def test_list_filtra_por_workspace(self, root_client, fake_requests, monkeypatch):
         headers = self._auth(fake_requests, monkeypatch, is_super=False, workspaces=["ws-a"])

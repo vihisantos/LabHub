@@ -10,6 +10,9 @@ from app import (
     _SUPABASE_SERVICE_KEY,
     _supabase_headers,
     _target_subs,
+    _push_notify_subs_dedup,
+    _MODULE_PUSH_ACTIONS,
+    _queue_push_event,
     push_notify,
     _push_outcome,
     PUSH_ACCEPTED,
@@ -52,6 +55,49 @@ from rbac import (
     record_rbac_audit as rbac_record_audit,
 )
 import pg_store
+from notification_queue import NotificationQueue
+from notification_dispatcher import publish_pending, process_pending
+
+
+def _enqueue_push_event(event_id, payload):
+    """Persiste evento Push no outbox operacional compartilhado."""
+    if not isinstance(payload, dict):
+        logger.error("[notifications] payload inválido; evento não enfileirado: %s", event_id)
+        return False
+    try:
+        status = _queue_push_event(
+            event_id,
+            payload.get('title'),
+            payload.get('body'),
+            module=payload.get('module'),
+            workspace_id=payload.get('workspace_id'),
+            user_id=payload.get('target_user_id'),
+            role=payload.get('target_role'),
+            min_level=payload.get('min_level'),
+            target_super_admin=payload.get('target_super_admin'),
+            url=payload.get('action_url') or '/',
+            ttl=payload.get('ttl', 86400),
+            context=payload.get('context'),
+            actions=payload.get('actions'),
+        )
+        return status in ('queued', 'duplicate')
+    except Exception as exc:
+        logger.exception("[notifications] falha ao persistir evento %s: %s", event_id, exc)
+        return False
+
+def _chamados_event_id(event_type, ticket, discriminator=""):
+    ticket_id = str(ticket.get("id") or "").strip()
+    revision = (
+        ticket.get("updatedAt") or ticket.get("updated_at")
+        or ticket.get("updated_at_iso") or ticket.get("statusUpdatedAt")
+        or discriminator or json.dumps(
+            {k: ticket.get(k) for k in ("status", "assignedToUserId", "statusNote")},
+            sort_keys=True, ensure_ascii=False,
+        )
+    )
+    material = f"chamados:{event_type}:{ticket_id}:{revision}:{discriminator}"
+    return "chamados:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
 
 # O motor de lembretes e as inscrições por chamado usam PostgreSQL (Supabase).
 # O `redis` legado continua existindo apenas para rate-limit/cache antigos.
@@ -2962,9 +3008,14 @@ def _notify_ticket_status(ticket):
         reporter_id = str(ticket.get('reportedByUserId') or '').strip()
         sent_reporter = 0
         if reporter_id:
-            for sub in _target_subs(module='chamados', user_id=reporter_id):
-                if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
-                    sent_reporter += 1
+            sent_reporter = int(_enqueue_push_event(
+                _chamados_event_id('status-reporter', ticket, status),
+                {
+                    'title': title, 'body': body, 'module': 'chamados',
+                    'target_user_id': reporter_id, 'action_url': url,
+                    'context': 'chamados-status',
+                },
+            ))
 
         # b) Inscrições anônimas por-chamado (professor sem login).
         subs = _chamado_subs(ticket_id)
@@ -2993,7 +3044,7 @@ def _notify_ticket_status(ticket):
             except Exception:
                 pass
 
-        print(f"[chamados] push status #{ticket.get('ticketNumber')}: rep={sent_reporter} anon={len(keep)}/{len(subs)}")
+        print(f"[chamados] push status #{ticket.get('ticketNumber')}: reporter_queued={bool(sent_reporter)} anon={len(keep)}/{len(subs)}")
     except Exception as e:
         logger.error("[chamados] push status error: %s", e)
 
@@ -3008,24 +3059,21 @@ def _notify_ticket_assigned(ticket):
         user_id = ticket.get('assignedToUserId') or ''
         if not user_id:
             return
-        subs = _target_subs(
-            module='chamados',
-            workspace_id=ticket.get('workspace_id'),
-            user_id=user_id,
-            min_level='full',
-        )
-        if not subs:
-            return
         title = f"Chamado #{ticket.get('ticketNumber')} atribuído a você"
         body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory'), ticket.get('reportedBy')) if part
         )
         url = f"/chamados/tickets/{ticket.get('id')}"
-        sent = 0
-        for sub in subs:
-            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
-                sent += 1
-        print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
+        queued = _enqueue_push_event(
+            _chamados_event_id('assigned', ticket, user_id),
+            {
+                'title': title, 'body': body, 'module': 'chamados',
+                'workspace_id': ticket.get('workspace_id'),
+                'target_user_id': str(user_id), 'min_level': 'full',
+                'action_url': url, 'context': 'chamados-assigned',
+            },
+        )
+        print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: queued={queued}")
     except Exception as e:
         logger.error("[chamados] push atribuição error: %s", e)
 
@@ -3048,36 +3096,36 @@ def _notify_ticket_claimed(ticket, claimer_name):
         ws = ticket.get('workspace_id')
 
         # 1. Push direto a quem assumiu.
-        own_subs = _target_subs(module='chamados', workspace_id=ws, user_id=claimer_id, min_level='full')
         own_title = f"Você assumiu o chamado #{num}"
         own_body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
         )
-        sent_own = 0
-        for sub in (own_subs or []):
-            outcome = _push_outcome(
-                push_notify(sub, own_title, own_body, url=url, user_id=claimer_id)
-            )
-            if outcome == PUSH_ACCEPTED:
-                sent_own += 1
+        queued_own = _enqueue_push_event(
+            _chamados_event_id('claimed-own', ticket, claimer_id),
+            {
+                'title': own_title, 'body': own_body, 'module': 'chamados',
+                'workspace_id': ws, 'target_user_id': claimer_id,
+                'min_level': 'full', 'action_url': url,
+                'context': 'chamados-claimed',
+            },
+        )
 
         # 2. Demais técnicos do workspace: informação de indisponibilidade.
-        others = _target_subs(module='chamados', workspace_id=ws, min_level='full')
         other_title = f"O chamado #{num} foi assumido por {claimer_name or 'um técnico'}"
         other_body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
         )
-        sent_other = 0
-        for sub in (others or []):
-            u = (sub.get('user') or {})
-            if u.get('id') == claimer_id:
-                continue
-            if _push_outcome(
-                push_notify(sub, other_title, other_body, url=url)
-            ) == PUSH_ACCEPTED:
-                sent_other += 1
+        queued_others = _enqueue_push_event(
+            _chamados_event_id('claimed-others', ticket, claimer_id),
+            {
+                'title': other_title, 'body': other_body, 'module': 'chamados',
+                'workspace_id': ws, 'min_level': 'full',
+                'exclude_user_id': claimer_id, 'action_url': url,
+                'context': 'chamados-claimed',
+            },
+        )
         print(
-            f"[chamados] push claim #{num}: {sent_own} p/ responsável, {sent_other} p/ demais técnicos"
+            f"[chamados] push claim #{num}: own_queued={queued_own}, others_queued={queued_others}"
         )
     except Exception as e:
         logger.error("[chamados] push claim error: %s", e)
@@ -3092,9 +3140,6 @@ def _notify_new_ticket(ticket):
     Falha de push não impede a criação do chamado.
     """
     try:
-        subs = _target_subs(module='chamados', workspace_id=ticket.get('workspace_id'), min_level='full')
-        if not subs:
-            return
         title = f"Novo chamado #{ticket.get('ticketNumber')}"
         body = ' · '.join(
             str(part) for part in (
@@ -3104,11 +3149,16 @@ def _notify_new_ticket(ticket):
             ) if part
         )
         url = f"/chamados/tickets/{ticket.get('id')}"
-        sent = 0
-        for sub in subs:
-            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
-                sent += 1
-        print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
+        queued = _enqueue_push_event(
+            _chamados_event_id('created', ticket),
+            {
+                'title': title, 'body': body, 'module': 'chamados',
+                'workspace_id': ticket.get('workspace_id'),
+                'min_level': 'full', 'action_url': url,
+                'context': 'chamados-created',
+            },
+        )
+        print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: queued={queued}")
     except Exception as e:
         logger.error("[chamados] push error: %s", e)
 
@@ -6313,6 +6363,119 @@ def chamados_reminders_check():
     return jsonify(result)
 
 
+# ── Fila centralizada de notificações (PostgreSQL outbox + Upstash) ────────
+
+def _deliver_outbox_notification(event_id, payload):
+    """Entrega um evento persistido no outbox aos subscribers autorizados."""
+    if not isinstance(payload, dict):
+        raise ValueError('payload de notificação inválido')
+
+    title = str(payload.get('title') or 'LabHub')[:160]
+    message = str(payload.get('body') or '')[:2000]
+    module = payload.get('module') or None
+    workspace_id = payload.get('workspace_id') or None
+    user_id = payload.get('target_user_id') or None
+    role = payload.get('target_role') or None
+    min_level = payload.get('min_level') or None
+    target_super_admin = payload.get('target_super_admin')
+    action_url = payload.get('action_url') or '/'
+    context = payload.get('context') or module or 'app-notification'
+    try:
+        ttl = max(60, min(int(payload.get('ttl', 86400)), 604800))
+    except (TypeError, ValueError):
+        ttl = 86400
+
+    if not isinstance(action_url, str) or not _is_safe_url(action_url):
+        action_url = '/'
+
+    targeting_module = module
+    if module and module not in _MODULE_PUSH_ACTIONS:
+        # Eventos de autenticação/aprovação são direcionados ao usuário e não
+        # dependem de Action de um módulo de produto. Outros módulos sem regra
+        # RBAC cadastrada falham fechados em vez de virar broadcast.
+        if user_id or target_super_admin is True:
+            targeting_module = None
+        else:
+            raise ValueError('módulo sem política RBAC de Push')
+    subs = _target_subs(
+        module=targeting_module,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        role=role,
+        min_level=min_level,
+    )
+    if target_super_admin is True:
+        subs = [
+            sub for sub in subs
+            if bool((sub.get('user') or {}).get('is_super_admin'))
+        ]
+    exclude_user_id = str(payload.get('exclude_user_id') or '').strip()
+    if exclude_user_id:
+        subs = [
+            sub for sub in subs
+            if str((sub.get('user') or {}).get('id') or '') != exclude_user_id
+        ]
+
+    if not subs:
+        return True
+
+    accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
+        subs,
+        event_id,
+        ttl,
+        title,
+        message,
+        url=action_url,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        context=context,
+        actions=payload.get('actions'),
+    )
+
+    # Resultado desconhecido e falha de dedup exigem retry. Rejeições são
+    # terminais (ex.: subscription expirada removida); skips são dedup válido.
+    if unknown or dedup_failed:
+        raise RuntimeError(
+            f'push inconclusivo: accepted={accepted}, rejected={rejected}, '
+            f'unknown={unknown}, skipped={skipped}, dedup_failed={dedup_failed}'
+        )
+    return True
+
+
+@_route_once('/api/notifications/worker', methods=['POST'])
+@require_cron
+def notifications_worker():
+    """Executa publicação e consumo em lotes pequenos, sem comandos bloqueantes."""
+    if redis is None:
+        return jsonify({'error': 'Upstash Redis não configurado'}), 503
+    if not pg_store.is_configured():
+        return jsonify({'error': 'PostgreSQL não configurado'}), 503
+    try:
+        body = request.get_json(silent=True) or {}
+        publish_limit = max(1, min(int(body.get('publish_limit', 20)), 50))
+        consume_limit = max(1, min(int(body.get('consume_limit', 10)), 25))
+        worker_id = f"{os.environ.get('VERCEL_REGION', 'worker')}:{uuid.uuid4().hex}"
+        queue = NotificationQueue(redis)
+        published = publish_pending(
+            pg_store.store, queue, worker_id, limit=publish_limit,
+        )
+        processed = process_pending(
+            pg_store.store, queue, worker_id, _deliver_outbox_notification,
+            count=consume_limit,
+        )
+        return jsonify({
+            'status': 'ok',
+            'worker_id': worker_id,
+            'published': published,
+            'processed': processed,
+        })
+    except (TypeError, ValueError) as exc:
+        return jsonify({'error': f'Parâmetros inválidos: {str(exc)[:120]}'}), 400
+    except Exception as exc:
+        logger.exception('notification worker failed: %s', exc)
+        return jsonify({'error': 'Falha no worker de notificações'}), 503
+
+
 # ── Notificações in-app (sino) bem-vindo do painel do admin ─────────────────
 
 @_route_once('/api/app-notifications', methods=['POST'])
@@ -6324,8 +6487,8 @@ def app_notifications_persist():
     Chamado pelo painel do admin junto com /api/push/send (que dispara o push).
     A leitura acontece no GET /api/app-notifications, escopado por workspace.
     """
-    if not _require_supabase():
-        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not pg_store.is_configured():
+        return jsonify({'error': 'PostgreSQL não configurado'}), 503
     try:
         body = request.get_json() or {}
         ntf_id = str(body.get('id') or '').strip()
@@ -6345,15 +6508,23 @@ def app_notifications_persist():
             'target_user_id': body.get('targetUserId') or None,
             'action_url': body.get('actionUrl') or '/',
         }
-        resp = requests.post(
-            f'{_SUPABASE_URL}/rest/v1/app_notifications',
-            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
-            json=payload,
-            timeout=10,
+        event_payload = {
+            'title': payload['title'],
+            'body': payload['body'],
+            'module': payload['module'],
+            'workspace_id': payload['workspace_id'],
+            'target_role': payload['target_role'],
+            'target_super_admin': payload['target_super_admin'],
+            'target_user_id': payload['target_user_id'],
+            'action_url': payload['action_url'],
+        }
+        created = pg_store.store.notification_create_with_outbox(
+            payload, event_payload,
         )
-        if not resp.ok:
-            return jsonify({'error': f'Erro ao persistir notificação: {resp.status_code}'}), 502
-        return jsonify({'status': 'ok', 'id': ntf_id})
+        return jsonify({
+            'status': 'queued' if created else 'duplicate',
+            'id': ntf_id,
+        }), 202 if created else 200
     except Exception as e:
         logger.error("app notifications persist error: %s", e)
         return jsonify({'error': 'Erro interno'}), 500
@@ -6386,6 +6557,11 @@ def app_notifications_list():
         rows = resp.json() if resp.ok else []
         out = []
         for r in rows or []:
+            # Notificações direcionadas a uma pessoa são privadas no backend;
+            # não confiar no filtro visual do cliente para proteger o conteúdo.
+            target_user_id = r.get('target_user_id')
+            if target_user_id and str(target_user_id) != str(g.user_id):
+                continue
             # Notificações explicitamente restritas ao super admin não devem
             # chegar sequer na resposta da API de usuários comuns.
             if r.get('target_super_admin') is True and not is_super:

@@ -5,6 +5,7 @@ import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceI
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
 import OnboardingTour from './components/OnboardingTour'
 import { MarkNotificationsReadOnVisit } from './core/notifications/MarkNotificationsReadOnVisit'
+import { TechnicianPushReminder } from './core/notifications/TechnicianPushReminder'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
 import { AuthProvider } from './core/auth/AuthContext'
 import { AuthGuard } from './core/auth/AuthGuard'
@@ -172,6 +173,7 @@ export default function App() {
             <OnboardingTour />
             <GlobalPresenceIndicator />
             <MarkNotificationsReadOnVisit />
+            <TechnicianPushReminder />
           </WorkspaceProvider>
         </ThemeProvider>
       </AuthProvider>

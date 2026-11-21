@@ -93,7 +93,8 @@ export function NotificationSendTab() {
         workspace_id: workspaceId,
       })
 
-      // Persist + push: broadcast no sino (in-app) e push no segmento.
+      // A API persiste o sino e cria o evento do outbox na mesma transação.
+      // O worker entrega o Push de forma assíncrona, sem duplicar o envio.
       // Base vazia = mesmo domínio do frontend (Vercel serve a API sob /api/*).
       const pushBase = (import.meta.env.VITE_RESERVALAB_API_URL as string) || ''
       let token = ''
@@ -130,23 +131,15 @@ export function NotificationSendTab() {
         return
       }
 
-      // 2. Push do segmento (o backend filtra por módulo/workspace/cargo).
-      const pushRes = await fetch(`${pushBase}/api/push/send`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ ...notificationPayload, url: '/', role, userId }),
+      const persistPayload = (await persistRes.json().catch(() => ({}))) as {
+        status?: string
+      }
+      setFeedback({
+        ok: true,
+        text: persistPayload.status === 'duplicate'
+          ? 'Esta notificação já havia sido registrada.'
+          : 'Notificação registrada. O envio Push será processado pela fila.',
       })
-      const pushPayload = (await pushRes.json().catch(() => ({}))) as {
-        sent?: number
-        total?: number
-        error?: string
-      }
-      if (!pushRes.ok) {
-        setFeedback({ ok: false, text: `Push falhou (${pushRes.status}): ${pushPayload.error || 'erro'}` })
-        return
-      }
-
-      setFeedback({ ok: true, text: `Enviada: in-app + ${pushPayload.sent ?? 0}/${pushPayload.total ?? 0} push.` })
       setTitle('')
       setBody('')
     } catch {
@@ -161,7 +154,7 @@ export function NotificationSendTab() {
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
         <h3 className="text-sm font-bold text-fg">Enviar notificação</h3>
         <p className="mt-0.5 text-[11px] text-fg-muted">
-          Cria no sino (in-app) e dispara push para o segmento escolhido.
+          Registra no sino e agenda o Push para o segmento escolhido.
         </p>
       </div>
 

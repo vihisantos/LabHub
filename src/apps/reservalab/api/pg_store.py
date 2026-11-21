@@ -246,6 +246,71 @@ class PostgresStore:
     def dedup_cleanup(self):
         return _rpc('push_dedup_cleanup')
 
+    # ── Outbox durável de notificações ────────────────────────────────────
+
+    def notification_create_with_outbox(self, notification, payload):
+        return _as_bool(_rpc('notification_create_with_outbox', {
+            'p_notification': notification,
+            'p_payload': payload,
+        }))
+
+    def notification_outbox_enqueue(self, event_id, notification_id, payload):
+        return _as_bool(_rpc('notification_outbox_enqueue', {
+            'p_event_id': str(event_id),
+            'p_notification_id': str(notification_id) if notification_id else None,
+            'p_payload': payload,
+        }))
+
+    def notification_outbox_claim_for_publish(self, worker_id, limit=20, lease_seconds=90):
+        result = _rpc('notification_outbox_claim_for_publish', {
+            'p_worker_id': str(worker_id),
+            'p_limit': int(limit),
+            'p_lease_seconds': int(lease_seconds),
+        })
+        if not isinstance(result, list):
+            raise PostgresError('resposta inválida de notification_outbox_claim_for_publish')
+        return result
+
+    def notification_outbox_mark_queued(self, event_id, lock_token):
+        return _as_bool(_rpc('notification_outbox_mark_queued', {
+            'p_event_id': str(event_id),
+            'p_lock_token': str(lock_token),
+        }))
+
+    def notification_outbox_release_publish(self, event_id, lock_token, error=None, delay_seconds=15):
+        return _as_bool(_rpc('notification_outbox_release_publish', {
+            'p_event_id': str(event_id),
+            'p_lock_token': str(lock_token),
+            'p_error': str(error)[:1000] if error else None,
+            'p_delay_seconds': int(delay_seconds),
+        }))
+
+    def notification_outbox_claim_event(self, event_id, worker_id, lease_seconds=90):
+        result = _rpc('notification_outbox_claim_event', {
+            'p_event_id': str(event_id),
+            'p_worker_id': str(worker_id),
+            'p_lease_seconds': int(lease_seconds),
+        })
+        if result in (None, []):
+            return None
+        if not isinstance(result, list) or not isinstance(result[0], dict):
+            raise PostgresError('resposta inválida de notification_outbox_claim_event')
+        return result[0]
+
+    def notification_outbox_complete(self, event_id, lock_token):
+        return _as_bool(_rpc('notification_outbox_complete', {
+            'p_event_id': str(event_id),
+            'p_lock_token': str(lock_token),
+        }))
+
+    def notification_outbox_retry(self, event_id, lock_token, error=None, delay_seconds=30):
+        return _rpc('notification_outbox_retry', {
+            'p_event_id': str(event_id),
+            'p_lock_token': str(lock_token),
+            'p_error': str(error)[:1000] if error else None,
+            'p_delay_seconds': int(delay_seconds),
+        })
+
 
 store = PostgresStore()
 

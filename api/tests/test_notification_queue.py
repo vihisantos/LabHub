@@ -1,0 +1,176 @@
+import importlib.util
+from pathlib import Path
+from unittest.mock import Mock
+
+MODULE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "src" / "apps" / "reservalab" / "api" / "notification_queue.py"
+)
+SPEC = importlib.util.spec_from_file_location("notification_queue_under_test", MODULE_PATH)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+
+def test_enqueue_serializes_event_without_touching_database():
+    redis = Mock()
+    redis.xadd.return_value = "1730000000000-0"
+    queue = MODULE.NotificationQueue(redis)
+
+    result = queue.enqueue("evt-1", {"title": "Chamado", "target": "user-1"})
+
+    assert result == "1730000000000-0"
+    args = redis.xadd.call_args.args
+    assert args[0] == MODULE.DEFAULT_STREAM
+    assert args[1]["event_id"] == "evt-1"
+    assert '"title":"Chamado"' in args[1]["payload"]
+
+
+def test_ensure_group_treats_only_busygroup_as_existing():
+    redis = Mock()
+    redis.xgroup_create.side_effect = RuntimeError("BUSYGROUP Consumer Group name already exists")
+    queue = MODULE.NotificationQueue(redis)
+    assert queue.ensure_group() == "EXISTS"
+
+    redis.xgroup_create.side_effect = RuntimeError("connection timeout")
+    try:
+        queue.ensure_group()
+    except RuntimeError as exc:
+        assert "timeout" in str(exc)
+    else:
+        raise AssertionError("non-BUSYGROUP failures must propagate")
+
+
+def test_read_new_decodes_stream_messages():
+    redis = Mock()
+    redis.xreadgroup.return_value = [[
+        MODULE.DEFAULT_STREAM,
+        [["1730000000000-0", ["event_id", "evt-1", "payload", '{"title":"Olá"}']]],
+    ]]
+    queue = MODULE.NotificationQueue(redis)
+
+    messages = queue.read_new("worker-a", count=5)
+
+    assert messages == [{
+        "stream": MODULE.DEFAULT_STREAM,
+        "message_id": "1730000000000-0",
+        "event_id": "evt-1",
+        "payload": {"title": "Olá"},
+    }]
+
+
+def test_reclaim_stale_returns_cursor_and_messages():
+    redis = Mock()
+    redis.xautoclaim.return_value = [
+        "0-0",
+        [["1730000000000-0", ["event_id", "evt-1", "payload", '{"ok":true}']]],
+        [],
+    ]
+    queue = MODULE.NotificationQueue(redis)
+
+    result = queue.reclaim_stale("worker-b", min_idle_ms=30_000)
+
+    assert result["next_id"] == "0-0"
+    assert result["messages"][0]["event_id"] == "evt-1"
+    assert result["messages"][0]["payload"] == {"ok": True}
+    assert result["deleted_ids"] == []
+
+
+def test_acknowledge_delegates_only_after_caller_processing():
+    redis = Mock()
+    redis.xack.return_value = 1
+    queue = MODULE.NotificationQueue(redis)
+
+    assert queue.acknowledge("1730000000000-0") == 1
+    redis.xack.assert_called_once_with(
+        MODULE.DEFAULT_STREAM, MODULE.DEFAULT_GROUP, "1730000000000-0"
+    )
+
+
+def test_invalid_event_is_rejected_before_enqueue():
+    redis = Mock()
+    queue = MODULE.NotificationQueue(redis)
+    for event_id, payload in [("", {}), ("evt-1", [])]:
+        try:
+            queue.enqueue(event_id, payload)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid event must be rejected")
+    redis.xadd.assert_not_called()
+
+
+def test_process_batch_acknowledges_only_successful_handler_results():
+    redis = Mock()
+    queue = MODULE.NotificationQueue(redis)
+    redis.xgroup_create.return_value = "OK"
+    redis.xautoclaim.return_value = ["0-0", [
+        ["1-0", ["event_id", "evt-reclaimed", "payload", '{"kind":"old"}']],
+    ], []]
+    redis.xreadgroup.return_value = [[MODULE.DEFAULT_STREAM, [
+        ["2-0", ["event_id", "evt-ok", "payload", '{"kind":"ok"}']],
+        ["3-0", ["event_id", "evt-retry", "payload", '{"kind":"retry"}']],
+        ["4-0", ["event_id", "evt-fail", "payload", '{"kind":"fail"}']],
+    ]]]
+    redis.xack.return_value = 1
+
+    def handler(event_id, payload):
+        if event_id == "evt-retry":
+            return False
+        if event_id == "evt-fail":
+            raise RuntimeError("temporary failure")
+        return True
+
+    result = queue.process_batch("worker-a", handler, count=10)
+
+    assert result == {
+        "fetched": 4,
+        "acked": 2,
+        "retriable": 1,
+        "failed": 1,
+        "reclaim_next_id": "0-0",
+        "reclaimed": 1,
+        "new": 3,
+    }
+    assert redis.xack.call_count == 2
+    assert redis.xack.call_args_list[0].args[-1] == "1-0"
+    assert redis.xack.call_args_list[1].args[-1] == "2-0"
+
+
+def _real_client_module():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "src" / "apps" / "reservalab" / "api" / "upstash_redis.py"
+    )
+    spec = importlib.util.spec_from_file_location("upstash_redis_for_queue_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _queue_with_http_error(monkeypatch, error):
+    client_module = _real_client_module()
+    response = Mock()
+    response.status_code = 400
+    response.json.return_value = {"error": error}
+    monkeypatch.setattr(client_module.requests, "post", lambda *args, **kwargs: response)
+    redis = client_module.UpstashRedis("https://example.upstash.io", "token")
+    return MODULE.NotificationQueue(redis), client_module
+
+
+def test_ensure_group_recognizes_busygroup_from_upstash_http_400(monkeypatch):
+    queue, _ = _queue_with_http_error(
+        monkeypatch, "BUSYGROUP Consumer Group name already exists"
+    )
+    assert queue.ensure_group() == "EXISTS"
+
+
+def test_ensure_group_propagates_nogroup_from_upstash_http_400(monkeypatch):
+    queue, client_module = _queue_with_http_error(
+        monkeypatch, "NOGROUP No such key 'labhub:notifications:stream:v1'"
+    )
+    try:
+        queue.ensure_group()
+    except client_module.UpstashRedisError as exc:
+        assert "NOGROUP" in str(exc)
+    else:
+        raise AssertionError("non-BUSYGROUP Redis errors must propagate")
