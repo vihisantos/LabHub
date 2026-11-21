@@ -195,6 +195,9 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
     if (isIOSSafari() && !isStandalone()) return
 
     let active = true
+    // Capturar a instância: testes e navegadores podem trocar navigator/SW
+    // antes do cleanup deste effect.
+    const serviceWorker = navigator.serviceWorker
 
     async function checkSubscription() {
       if (document.visibilityState === 'hidden') return
@@ -204,7 +207,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         return
       }
       try {
-        const registration = await navigator.serviceWorker.ready
+        const registration = await serviceWorker.ready
         if (!active) return
         const existing = await registration.pushManager.getSubscription()
         if (!active) return
@@ -238,12 +241,12 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
     void checkSubscription()
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
-    navigator.serviceWorker.addEventListener?.('message', onWorkerMessage)
+    serviceWorker.addEventListener?.('message', onWorkerMessage)
     return () => {
       active = false
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
-      navigator.serviceWorker.removeEventListener?.('message', onWorkerMessage)
+      serviceWorker.removeEventListener?.('message', onWorkerMessage)
     }
     // Os campos de user são atualizados no snapshot quando a segmentação muda.
     // eslint-disable-next-line react-hooks/exhaustive-deps
