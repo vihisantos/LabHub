@@ -47,13 +47,14 @@ No projeto Vercel **Preview**, para a branch
 
 ```text
 LABHUB_CHAMADOS_WORKFLOW_ENABLED=true
-LABHUB_CHAMADOS_WORKFLOW_URL=https://<preview-público>/api/chamados/reminders/workflow
+# Opcional na Vercel Preview: URL deduzida de VERCEL_URL da plataforma.
+# LABHUB_CHAMADOS_WORKFLOW_URL=https://<preview>/api/chamados/reminders/workflow
 QSTASH_TOKEN=<token de QStash US ou EU>
 QSTASH_CURRENT_SIGNING_KEY=<chave atual do mesmo QStash>
 QSTASH_NEXT_SIGNING_KEY=<próxima chave do mesmo QStash>
 ```
 
-Use apenas o **Supabase Staging** na Preview. O endpoint precisa ser acessível
+Use apenas o **Supabase Staging** na Preview. O endereço padrão em Preview usa o `VERCEL_URL` confiável da plataforma; em produção a URL explícita continua obrigatória se a flag for ativada. O endpoint precisa ser acessível
 ao QStash; em previews com Deployment Protection, configure um bypass
 restrito/validado antes do smoke real, nunca expondo o token de bypass em
 requisições de navegador. **Não habilitar a flag em Production.**
