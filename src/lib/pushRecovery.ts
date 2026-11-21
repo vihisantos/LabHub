@@ -13,6 +13,31 @@ const MAX_RECOVERY_ATTEMPTS = 3
 type RecoveryState = { attempts: number; lastAttempt: number; needsSync: boolean; inFlight: Promise<boolean> | null }
 const recoveries = new Map<string, RecoveryState>()
 
+/** A pendência precisa sobreviver ao reinício do PWA: o browser pode ter
+ * criado a subscription mas o backend nunca a recebeu. Guardar apenas a
+ * indicação pendente, nunca endpoint, token ou chaves Web Push. */
+function pendingKey(subscribeUrl: string, userId: string): string {
+  return `labhub:push-sync-pending:v1:${encodeURIComponent(userId)}:${encodeURIComponent(subscribeUrl)}`
+}
+
+function pendingOnDevice(subscribeUrl: string, userId: string): boolean {
+  try {
+    return localStorage.getItem(pendingKey(subscribeUrl, userId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function setPendingOnDevice(subscribeUrl: string, userId: string, pending: boolean): void {
+  try {
+    const key = pendingKey(subscribeUrl, userId)
+    if (pending) localStorage.setItem(key, '1')
+    else localStorage.removeItem(key)
+  } catch {
+    // Storage indisponível: o estado em memória continua fail-closed.
+  }
+}
+
 function vapidBytes(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -21,6 +46,7 @@ function vapidBytes(base64String: string): Uint8Array {
 
 export function hasPendingPushRecovery(subscribeUrl: string, userId: string): boolean {
   return recoveries.get(JSON.stringify([userId, subscribeUrl]))?.needsSync === true
+    || pendingOnDevice(subscribeUrl, userId)
 }
 
 export async function recoverMissingPushSubscription(
@@ -33,7 +59,7 @@ export async function recoverMissingPushSubscription(
   const key = JSON.stringify([user.id, subscribeUrl])
   let state = recoveries.get(key)
   if (!state) {
-    state = { attempts: 0, lastAttempt: 0, needsSync: false, inFlight: null }
+    state = { attempts: 0, lastAttempt: 0, needsSync: pendingOnDevice(subscribeUrl, user.id), inFlight: null }
     recoveries.set(key, state)
   }
   if (state.inFlight) return state.inFlight
@@ -62,6 +88,7 @@ export async function recoverMissingPushSubscription(
       // Se o POST falhar, a inscrição existe no browser mas não no servidor.
       // Guardamos esta pendência para retentar o POST no próximo foco.
       state.needsSync = true
+      setPendingOnDevice(subscribeUrl, user.id, true)
     }
     const response = await fetch(subscribeUrl, {
       method: 'POST',
@@ -72,6 +99,7 @@ export async function recoverMissingPushSubscription(
       throw new Error(`Falha ao sincronizar inscrição Push (HTTP ${response.status})`)
     }
     state.needsSync = false
+    setPendingOnDevice(subscribeUrl, user.id, false)
     state.attempts = 0
     return true
   }
