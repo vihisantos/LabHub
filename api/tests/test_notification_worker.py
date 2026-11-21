@@ -128,3 +128,50 @@ def test_auth_notification_targets_user_without_product_module_rbac(
     }) is True
     assert selected[0]["module"] is None
     assert selected[0]["user_id"] == "user-1"
+
+
+def test_chamados_producers_persist_outbox_without_synchronous_push(
+    worker_api_module, monkeypatch,
+):
+    events = []
+    monkeypatch.setattr(
+        worker_api_module, "_enqueue_push_event",
+        lambda event_id, payload: events.append((event_id, payload)) or True,
+    )
+    monkeypatch.setattr(
+        worker_api_module, "_target_subs",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("producer queried subscribers")),
+    )
+    monkeypatch.setattr(
+        worker_api_module, "push_notify",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("producer sent Push directly")),
+    )
+
+    ticket = {
+        "id": "ticket-123", "ticketNumber": 123, "workspace_id": "ws-1",
+        "status": "aberto", "updatedAt": "2026-11-20T12:00:00Z",
+        "assignedToUserId": "tech-1", "reportedByUserId": "reporter-1",
+        "roomName": "Lab 2", "problemCategory": "Computador",
+    }
+    worker_api_module._notify_new_ticket(ticket)
+    worker_api_module._notify_ticket_assigned(ticket)
+    worker_api_module._notify_ticket_claimed(ticket, "Técnico")
+
+    assert len(events) == 4
+    assert len({event_id for event_id, _ in events}) == 4
+    assert events[0][1]["module"] == "chamados"
+    assert events[1][1]["target_user_id"] == "tech-1"
+    assert events[2][1]["target_user_id"] == "tech-1"
+    assert events[3][1]["exclude_user_id"] == "tech-1"
+    assert all(event_id.startswith("chamados:") for event_id, _ in events)
+
+
+def test_chamados_event_id_is_stable_for_same_ticket_revision(worker_api_module):
+    ticket = {
+        "id": "ticket-123", "updatedAt": "2026-11-20T12:00:00Z",
+        "status": "aberto",
+    }
+    first = worker_api_module._chamados_event_id("created", ticket)
+    second = worker_api_module._chamados_event_id("created", ticket)
+    assert first == second
+    assert first.startswith("chamados:")
