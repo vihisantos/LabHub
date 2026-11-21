@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { recoverMissingPushSubscription } from './pushRecovery'
+import { hasPendingPushRecovery, recoverMissingPushSubscription } from './pushRecovery'
 
 export interface PushNotifyChannelSettings {
   inapp?: boolean
@@ -206,7 +206,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         if (!active) return
         const existing = await registration.pushManager.getSubscription()
         if (!active) return
-        if (existing) {
+        if (existing && !hasPendingPushRecovery(subscribeUrl, user.id)) {
           setState((prev) => ({ ...prev, permission, subscribed: true }))
           return
         }
