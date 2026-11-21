@@ -36,10 +36,13 @@ from upstash_workflow import WorkflowContext  # noqa: E402
 from upstash_workflow.serve.options import _determine_urls  # noqa: E402
 from upstash_workflow.error import WorkflowAbort  # noqa: E402
 from upstash_workflow.workflow_types import _SyncRequest  # noqa: E402
+from upstash_workflow.workflow_requests import _recreate_user_headers  # noqa: E402
 
 CURRENT_KEY = "test-current-signing-key-with-at-least-32-bytes"
 NEXT_KEY = "test-next-signing-key-with-at-least-32-bytes"
 URL = "https://preview-abc123.vercel.app/api/chamados/reminders/workflow"
+BYPASS = "bypass-real-sdk-test-token-32chars"
+AUTH_URL = f"{URL}?x-vercel-protection-bypass={BYPASS}"
 
 
 @pytest.fixture(autouse=True)
@@ -48,6 +51,7 @@ def clean_env(monkeypatch):
         workflow.FLAG, workflow.URL_ENV, "QSTASH_TOKEN",
         "QSTASH_CURRENT_SIGNING_KEY", "QSTASH_NEXT_SIGNING_KEY",
         "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "VERCEL_ENV", "VERCEL_URL",
+        "VERCEL_AUTOMATION_BYPASS_SECRET",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -59,6 +63,7 @@ def configured(monkeypatch):
     monkeypatch.setenv("QSTASH_TOKEN", "test-token")
     monkeypatch.setenv("QSTASH_CURRENT_SIGNING_KEY", CURRENT_KEY)
     monkeypatch.setenv("QSTASH_NEXT_SIGNING_KEY", NEXT_KEY)
+    monkeypatch.setenv("VERCEL_AUTOMATION_BYPASS_SECRET", BYPASS)
 
 
 def signed(body: str, key: str = CURRENT_KEY, *, url: str = URL) -> str:
@@ -98,7 +103,7 @@ def real_context(*, steps=None):
         workflow_run_id="wfi_test",
         headers={},
         steps=steps or [],
-        url=URL,
+        url=AUTH_URL,
         failure_url=None,
         initial_payload=payload(),
     )
@@ -193,8 +198,9 @@ def test_real_sdk_url_explicita_prevalece_sobre_host(configured):
         url="https://attacker.example/evil?next=https://evil",
         query={},
     )
-    url, _ = _determine_urls(request, URL, None, False, None)
-    assert url == URL
+    url, _ = _determine_urls(request, AUTH_URL, None, False, None)
+    assert url == AUTH_URL
+    assert "x-vercel-protection-bypass=" in url
 
 
 # ---------------------------------------------------------------------------
@@ -235,3 +241,53 @@ def test_dispatcher_desliga_retry_do_sdk_e_devolve_para_outbox(configured, monke
     assert len(transport.calls) == 1
     # A falha volta para a outbox, que aplica backoff e limita a 5 tentativas.
     assert workflow.MAX_PUBLISH_ATTEMPTS == 5
+
+
+# ---------------------------------------------------------------------------
+# QStash -> Preview protegida: por que o query parameter é necessário
+# ---------------------------------------------------------------------------
+
+def test_real_sdk_remove_headers_vercel_das_etapas():
+    """Prova com o SDK real que enviar só o header NÃO sobrevive ao sleep/run."""
+    headers = _recreate_user_headers({
+        "x-vercel-protection-bypass": BYPASS,
+        "Content-Type": "application/json",
+    })
+    assert "x-vercel-protection-bypass" not in headers
+    assert headers["Content-Type"] == "application/json"
+
+
+def test_real_sdk_query_parameter_preservado_no_destino_de_cada_etapa(configured):
+    calls = []
+
+    class RecordingHttp:
+        def request(self, **kwargs):
+            calls.append(kwargs)
+            return []
+
+    context = real_context()
+    context.qstash_client.http = RecordingHttp()
+    with pytest.raises(WorkflowAbort):
+        context.run("verificar-onda-1", lambda: {"stop": False})
+
+    assert calls, "a SDK real deve persistir a etapa"
+    batch = json.loads(calls[0]["body"])
+    assert batch, "nenhuma mensagem de etapa foi enviada"
+    for message in batch:
+        assert message["destination"] == AUTH_URL
+        assert (
+            message["headers"]["Upstash-Workflow-Url"] == AUTH_URL
+        )
+    assert BYPASS not in json.dumps(payload())
+
+
+def test_real_sdk_assinatura_valida_com_bypass_na_url(configured):
+    receiver = Receiver(
+        current_signing_key=CURRENT_KEY, next_signing_key=NEXT_KEY
+    )
+    body = json.dumps(payload())
+    # O query parameter não participa da assinatura: o Receiver continua
+    # validando o corpo exatamente como antes.
+    receiver.verify(signature=signed(body, CURRENT_KEY, url=AUTH_URL), body=body)
+    with pytest.raises(Exception):
+        receiver.verify(signature=signed(body, "wrong-key-with-at-least-32-bytes", url=AUTH_URL), body=body)

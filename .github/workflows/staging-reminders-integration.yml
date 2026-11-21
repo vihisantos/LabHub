@@ -43,6 +43,11 @@ on:
         required: true
         type: boolean
         default: false
+      apply_reconcile_migration:
+        description: 'Registrar as migrations 117/118 da reconciliação durável no Staging via runner?'
+        required: true
+        type: boolean
+        default: false
       preview_dispatch_url:
         description: 'URL HTTPS do Preview para smoke do dispatch (vazio = nao testar)'
         required: false
@@ -190,6 +195,40 @@ jobs:
         run: |
           python scripts/apply_staging_migration.py \
             --version 116 --filename 116_chamados_workflow_outbox_contract.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      # Recuperação durável de agendamentos perdidos na criação do chamado.
+      - name: Dry-run da migration 117 (read-only)
+        if: ${{ inputs.apply_reconcile_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py --dry-run \
+            --version 117 --filename 117_chamados_workflow_outbox_reconcile.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 117 no Staging
+        if: ${{ inputs.apply_reconcile_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 117 --filename 117_chamados_workflow_outbox_reconcile.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 118 no Staging (contrato da 117)
+        if: ${{ inputs.apply_reconcile_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 118 --filename 118_chamados_workflow_outbox_reconcile_contract.sql \
             --allowed-ref "$STAGING_PROJECT_REFS"
 
       - name: Smoke do dispatch no Preview (somente Staging/Preview)

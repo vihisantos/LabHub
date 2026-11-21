@@ -16,17 +16,22 @@ PostgreSQL como fonte de verdade:
    é a `notification_outbox` das PRs #489 — nenhum evento de Push é lido ou
    escrito aqui. A chave de dedup é `ticket_id + ciclo`; a primeira gravação
    vence.
-2. Um dispatcher protegido por `CRON_SECRET` reclama um lote pequeno
+2. Antes de reclamar, o dispatcher executa uma **reconciliação durável** das
+   gravações perdidas (migrations **117/118**): um tick atômico limita a
+   varredura a uma janela indexada (padrão: 24 h, no máximo 20 linhas a cada
+   15 min), e a mesma RPC de enqueue faz dedup por chamado+ciclo. Assim, uma
+   falha temporária do Supabase no INSERT do chamado não perde o agendamento.
+3. Um dispatcher protegido por `CRON_SECRET` reclama um lote pequeno
    (`FOR UPDATE SKIP LOCKED`), publica no QStash com `deduplication_id`
    estável por job e confirma a linha. Falhas voltam para `pending` com backoff
    exponencial limitado (15 s, 30 s, 60 s, 120 s, 300 s); após 5 tentativas a
    linha vira `dead`, sem apagar nada. Nenhuma chamada externa acontece no
    request do professor.
-3. O Workflow recebe **somente UUIDs** (`ticket_id`, `workspace_id`, `job_id`)
+4. O Workflow recebe **somente UUIDs** (`ticket_id`, `workspace_id`, `job_id`)
    e revalida o ciclo vigente no PostgreSQL a cada onda. Um job antigo (ex.:
    Workflow de antes de uma reabertura/troca de responsável) termina sem
    lock, marcação ou Push.
-4. A checagem de erro do `process_one()` acontece **dentro** da função
+5. A checagem de erro do `process_one()` acontece **dentro** da função
    executada por `context.run()`. Validar depois gravaria a etapa com erro
    como sucesso na SDK oficial (comprovado com `upstash-workflow==2.0.0`).
 
@@ -57,7 +62,12 @@ O MVP continua com **3 checagens** (2, 4 e 6 minutos após o disparo). Isso
   assumidos, encerrados/indeferidos, em espera, reabertos e remoção de
   responsável.
 - Falha ao enfileirar não desfaz a criação/PATCH do chamado. O log registra
-  apenas a classe da exceção (nunca segredos).
+  apenas a classe da exceção (nunca segredos) e a reconciliação recupera a
+  linha no próximo tick do dispatcher. O `updatedAt` é normalizado para UTC
+  antes do hash, de modo que criação e reconciliação geram o **mesmo** ciclo.
+- O bypass da Preview é anexado como query parameter **apenas à URL interna**
+  usada pelo QStash/SDK (`x-vercel-protection-bypass`). Ele não vem de Host,
+  parâmetro de request, browser, resposta ou log da aplicação.
 
 ## Configuração exclusiva de Preview/Staging
 
@@ -71,6 +81,8 @@ LABHUB_CHAMADOS_WORKFLOW_ENABLED=true
 QSTASH_TOKEN=<token de QStash US ou EU>
 QSTASH_CURRENT_SIGNING_KEY=<chave atual do mesmo QStash>
 QSTASH_NEXT_SIGNING_KEY=<próxima chave do mesmo QStash>
+# VERCEL_AUTOMATION_BYPASS_SECRET é fornecida automaticamente pela Vercel
+# aos deployments; não criar variável manual nem expor ao browser.
 ```
 
 No GitHub (variáveis de repositório, **não** segredos novos):
@@ -85,27 +97,45 @@ O Supabase usado na Preview deve ser **Staging**
 outros projetos são rejeitadas pelo script de smoke. Gere uma **nova Preview**
 depois de cadastrar os segredos: Previews antigas não os recebem.
 
-Com Deployment Protection ligado, o cron e o smoke enviam
-`x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET`. O valor é um
+Com Deployment Protection ligado, o cron e o smoke (GitHub -> Preview) enviam
+`x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET` como **header**,
+conforme a documentação da Vercel para automação. O valor é um
 *Protection Bypass for Automation* do projeto Vercel (32 caracteres
-alfanuméricos) com cópia apenas no secret do repositório — não é uma variável
-manual de ambiente e não vai para browser, log ou payload do QStash. Antes de
-considerar o experimento
-pronto, valide também o caminho inverso (QStash -> Preview): o `Receiver` da SDK
-precisa continuar rejeitando assinaturas ausentes/inválidas mesmo com o bypass
-ativo. **Não habilitar a flag em Production.**
+alfanuméricos), mantido apenas no secret do repositório; nunca é variável
+manual, parâmetro de URL compartilhável, resposta ou log da aplicação.
+
+Para o caminho inverso (QStash -> Preview), a documentação oficial da Upstash
+orienta passar o bypass na chamada inicial **e** configurá-lo para as etapas
+seguintes. O SDK Python `upstash-workflow==2.0.0` remove headers `x-vercel-*`
+das etapas seguintes (`_recreate_user_headers`), e a SDK QStash Python 3.4.0
+não tem opção de headers padrão no cliente. Por isso usamos o mecanismo
+suportado pela Vercel para integrações que não conseguem enviar headers
+customizados: o **query parameter** `x-vercel-protection-bypass` na URL
+interna do workflow. Ele é montado no servidor a partir da variável de sistema
+`VERCEL_AUTOMATION_BYPASS_SECRET`, preservado pelo SDK em todas as retomadas
+após `context.sleep()`, e não altera a verificação de assinatura do `Receiver`
+(a assinatura cobre o corpo da mensagem). Nenhuma proteção é desligada e o
+segredo não aparece em frontend, URLs compartilháveis, respostas ou logs locais.
+Recomenda-se rotacionar o bypass ao encerrar o experimento. **Não habilitar a
+flag em Production.**
 
 ## Procedimento de validação
 
 1. Rodar as migrations 115/116 **somente em Staging** via
    `scripts/apply_staging_migration.py` (dry-run primeiro) ou pelo workflow
    manual `staging-reminders-integration.yml` com
-   `apply_workflow_outbox_migration=true`.
+   `apply_workflow_outbox_migration=true`. Depois aplicar 117/118 com
+   `apply_reconcile_migration=true`. Nada em Production.
 2. Rodar `python -m pytest api/tests/test_chamados_qstash_workflow.py
-   api/tests/test_chamados_workflow_real_sdk.py -q` com as dependências de
-   `requirements.txt` instaladas, mais a suíte completa da API e o runner de
-   migrations. Os testes com SDK real usam apenas transporte substituído;
-   **não** provam integração com o QStash real.
+   api/tests/test_chamados_workflow_real_sdk.py
+   api/tests/test_116_chamados_workflow_outbox_contract.py
+   api/tests/test_118_chamados_workflow_outbox_reconcile_contract.py -q` com as
+   dependências de `requirements.txt` instaladas, mais a suíte completa da API
+   e o runner de migrations. Os testes com SDK real usam apenas transporte
+   substituído; **não** provam integração com o QStash real. Os testes de
+   `chamados_workflow.py` são simulados; os arquivos `*_real_sdk.py` e os
+   testes SQL em `supabase/migrations/tests/` usam as bibliotecas e o
+   PostgreSQL reais (sem chamada externa).
 3. Em Preview, confirme: flag OFF não registra rota nem agenda; assinatura
    ausente/inválida é rejeitada pela SDK; URL do workflow é a do deploy e não
    a do Host enviado.
@@ -133,8 +163,9 @@ ativo. **Não habilitar a flag em Production.**
   duas falhas (`test_patch_troca_foto_destroi_antiga_no_cloudinary` e
   `test_patch_mesma_foto_nao_destroi`) são pré-existentes no HEAD limpo e não
   foram introduzidas por esta PR.
-- Testes específicos desta correção: 37 passed
-  (`test_116_chamados_workflow_outbox_contract.py`,
+- Testes específicos desta correção: 50 passed com as dependências reais
+  instaladas (`test_116_chamados_workflow_outbox_contract.py`,
+  `test_118_chamados_workflow_outbox_reconcile_contract.py`,
   `test_chamados_qstash_workflow.py`, `test_chamados_workflow_real_sdk.py`),
   incluindo SDK real `upstash-workflow==2.0.0` com transporte substituído.
 - Migrations 115/116 aplicadas **somente em Staging**
@@ -148,6 +179,16 @@ ativo. **Não habilitar a flag em Production.**
   indica que a fila estava vazia no momento do teste.
 - Testes reais PostgreSQL contra Staging (`test_postgres_reminders_integration.py`)
   passaram no mesmo run.
+- A comprovação pedida das duas falhas de `api/tests/test_chamados.py` foi
+  refeita com o mesmo ambiente e dependências: os mesmos
+  `400 != 200` aparecem em uma cópia limpa de `main` (`d8cfe1d3`) e na branch
+  da PR, antes de qualquer alteração desta rodada. Portanto não são regressão
+  da PR #491 e os testes não foram alterados para forçar verde.
+- Testes adicionais desta rodada cobrem: falha de gravação da outbox e
+  recuperação pela reconciliação, idempotência por ciclo, reabertura com
+  Workflow anterior ativo, chamado assumido antes da próxima onda, concorrência
+  entre dispatchers, assinatura ausente/incorreta/válida, e preservação do
+  bypass em todas as etapas com a SDK real (que remove headers `x-vercel-*`).
 
 **Limitação conhecida:** o smoke acima provou o endpoint, a autenticação, o
 bypass do Preview e a leitura da outbox, mas a fila estava vazia — portanto
@@ -165,8 +206,9 @@ não apresentar estimativa como medição.
 
 Desligar `LABHUB_CHAMADOS_WORKFLOW_ENABLED` e
 `LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED`, fazer deploy do mesmo código e
-parar o smoke. As tabelas 115/116 podem permanecer vazias e inofensivas; a
-remoção é opcional e deve seguir o runner oficial. Nenhuma alteração no
+parar o smoke. As tabelas 115/116 e o estado de reconciliação 117/118 podem
+permanecer vazios/inofensivos; a remoção é opcional e deve seguir o runner
+oficial. Nenhuma alteração no
 mecanismo de Push, RBAC ou histórico; o cron existente continua como estava.
 Inspecione/cancele runs já disparados no painel Upstash antes de desligar
 inteiramente o experimento.

@@ -4,6 +4,9 @@ Desenho durável (migrations 115/116):
 
 1. A criação/reabertura do Chamado grava um pedido de agendamento numa outbox
    DEDICADA do PostgreSQL. Nenhuma chamada ao QStash acontece nesse caminho.
+   Se essa gravação falhar por indisponibilidade temporária, o dispatcher
+   reconcilia a outbox depois (migrations 117/118), com varredura limitada,
+   idempotente e dedup por chamado+ciclo.
 2. Um dispatcher (endpoint protegido por CRON_SECRET) reclama um lote pequeno,
    publica no QStash com dedup id estável e confirma a linha. Falhas voltam para
    a fila com backoff exponencial limitado e, após 5 tentativas, viram `dead`.
@@ -18,7 +21,8 @@ import json
 import logging
 import os
 import uuid
-from urllib.parse import urlsplit
+from datetime import datetime, timezone
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 LOGGER = logging.getLogger(__name__)
 WORKFLOW_PATH = "/api/chamados/reminders/workflow"
@@ -35,6 +39,19 @@ OUTBOX_RPC_CLAIM = "chamados_workflow_outbox_claim"
 OUTBOX_RPC_MARK = "chamados_workflow_outbox_mark_published"
 OUTBOX_RPC_RELEASE = "chamados_workflow_outbox_release"
 OUTBOX_RPC_CURRENT = "chamados_workflow_outbox_current"
+OUTBOX_RPC_RECONCILE_TICK = "chamados_workflow_outbox_reconcile_tick"
+OUTBOX_RPC_RECONCILE_CANDIDATES = "chamados_workflow_outbox_reconcile_candidates"
+# A reconciliação é durável, limitada e idempotente: uma varredura pequena e
+# indexada a cada 15 minutos, nunca a cada criação de chamado.
+RECONCILE_INTERVAL_SECONDS = 900
+RECONCILE_LOOKBACK_MINUTES = 1440
+RECONCILE_LIMIT = 20
+# Vercel só aceita o bypass por header ou query parameter. O SDK Python
+# (upstash-workflow 2.0.0) remove headers `x-vercel-*` das etapas seguintes
+# (_recreate_user_headers), então o query parameter é a única forma suportada
+# de manter o bypass em TODAS as retomadas sem desativar o SSO.
+VERCEL_BYPASS_PARAM = "x-vercel-protection-bypass"
+VERCEL_BYPASS_ENV = "VERCEL_AUTOMATION_BYPASS_SECRET"
 
 
 def enabled() -> bool:
@@ -64,13 +81,24 @@ def _config() -> dict:
             or parsed.password or parsed.query or parsed.fragment
             or parsed.path != WORKFLOW_PATH):
         raise ValueError("URL pública HTTPS do workflow não configurada corretamente")
-    keys = ("QSTASH_TOKEN", "QSTASH_CURRENT_SIGNING_KEY", "QSTASH_NEXT_SIGNING_KEY")
+    keys = ("QSTASH_TOKEN", "QSTASH_CURRENT_SIGNING_KEY", "QSTASH_NEXT_SIGNING_KEY",
+            VERCEL_BYPASS_ENV)
     config = {"url": url}
     for key in keys:
         value = os.environ.get(key, "").strip()
         if not value:
             raise ValueError(f"{key} ausente")
         config[key] = value
+    bypass = config[VERCEL_BYPASS_ENV]
+    if len(bypass) < 16 or len(bypass) > 256 or any(ch.isspace() for ch in bypass):
+        raise ValueError("bypass de automação inválido")
+    # O secreto fica SOMENTE na URL interna usada pelo QStash e pelo SDK.
+    # Nunca é derivado de Host/request, logado ou devolvido em resposta.
+    parts = urlsplit(url)
+    config["workflow_url"] = urlunsplit((
+        parts.scheme, parts.netloc, parts.path,
+        urlencode({VERCEL_BYPASS_PARAM: bypass}), parts.fragment,
+    ))
     return config
 
 
@@ -95,6 +123,20 @@ def eligible_ticket(ticket) -> bool:
     )
 
 
+def _canonical_revision(value) -> str:
+    """Normaliza o timestamp para que criação e reconciliação gerem o mesmo hash."""
+    text = str(value or "")
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
 def cycle_key(ticket) -> str:
     """Chave estável do ciclo: primeira gravação vence, reabertura cria outra."""
     payload = parse_payload({
@@ -105,7 +147,7 @@ def cycle_key(ticket) -> str:
     # Mesma convenção de revisão de `_chamados_event_id` (api/app.py), com
     # estado atual incluído: reabertura/remoção de responsável trocam o ciclo
     # mesmo se o timestamp não for atualizado pelo banco.
-    revision = (
+    revision = _canonical_revision(
         ticket.get("updatedAt") or ticket.get("updated_at")
         or ticket.get("updated_at_iso") or ticket.get("statusUpdatedAt") or ""
     )
@@ -201,6 +243,68 @@ def schedule(ticket, *, enqueue_fn=None, rpc=None) -> bool:
         return False
 
 
+def reconcile_missing(*, rpc=None, interval_seconds: int = RECONCILE_INTERVAL_SECONDS,
+                      lookback_minutes: int = RECONCILE_LOOKBACK_MINUTES,
+                      limit: int = RECONCILE_LIMIT) -> dict:
+    """Recupera gravações perdidas da outbox sem depender do request original.
+
+    A falha temporária do Supabase na criação do chamado não impede a criação
+    em si. Este passo roda no dispatcher: um tick atômico no PostgreSQL limita
+    a varredura a uma janela pequena e indexada, e a RPC de enqueue faz dedup
+    por chamado+ciclo. Nenhum chamado é duplicado e nenhum QStash é chamado.
+    """
+    result = {"checked": 0, "enqueued": 0, "error": None, "skipped": False}
+    if not enabled():
+        result["skipped"] = True
+        return result
+    try:
+        ticked = bool(_rpc_scalar(_rpc(
+            OUTBOX_RPC_RECONCILE_TICK,
+            {"p_interval_seconds": max(60, min(interval_seconds, 86400))},
+            rpc=rpc,
+        )))
+    except Exception as exc:
+        result["error"] = type(exc).__name__
+        LOGGER.warning("[chamados-workflow] tick de reconciliação falhou: %s", type(exc).__name__)
+        return result
+    if not ticked:
+        result["skipped"] = True
+        return result
+
+    try:
+        rows = _rpc(
+            OUTBOX_RPC_RECONCILE_CANDIDATES,
+            {
+                "p_lookback_minutes": max(1, min(lookback_minutes, 10080)),
+                "p_limit": max(1, min(limit, 50)),
+            },
+            rpc=rpc,
+        )
+    except Exception as exc:
+        result["error"] = type(exc).__name__
+        LOGGER.warning("[chamados-workflow] varredura de reconciliação falhou: %s", type(exc).__name__)
+        return result
+    if not isinstance(rows, list):
+        rows = []
+    result["checked"] = len(rows)
+    for row in rows:
+        ticket = {
+            "id": row.get("ticket_id"),
+            "workspace_id": row.get("workspace_id"),
+            "status": row.get("status") or "aberto",
+            "assignedToUserId": row.get("assigned_to_user_id") or "",
+            "updatedAt": row.get("updated_at") or "",
+        }
+        try:
+            enqueue(ticket, rpc=rpc)
+            result["enqueued"] += 1
+        except Exception as exc:
+            # Nunca expor dados do chamado ou segredos: só a classe da falha.
+            LOGGER.warning("[chamados-workflow] reconciliação falhou: %s", type(exc).__name__)
+            result["error"] = type(exc).__name__
+    return result
+
+
 def current_job(ticket_id: str, workspace_id: str, *, rpc=None) -> str:
     """Ciclo vigente segundo o PostgreSQL; '' significa 'sem agendamento'.
 
@@ -279,7 +383,7 @@ def publish_pending(config: dict, row: dict, *, publish=None) -> None:
     if publish is None:
         publish = _qstash_client(config).message.publish_json
     publish(
-        url=config["url"],
+        url=config["workflow_url"],
         body=payload,
         # Estável por job/ciclo: até uma republicação ambígua não cria outro run.
         deduplication_id=f"labhub-reminder-{payload['job_id']}",
@@ -295,12 +399,27 @@ def drain_pending(*, limit: int = DEFAULT_DISPATCH_BATCH, rpc=None, publish=None
     result = {
         "enabled": True, "claimed": 0, "published": 0,
         "retried": 0, "dead": 0, "error": None,
+        "reconciled": 0, "reconcile_error": None,
     }
     if not enabled():
         result["enabled"] = False
         return result
     try:
         config = _config()
+    except Exception as exc:
+        result["error"] = type(exc).__name__
+        LOGGER.warning("[chamados-workflow] dispatcher indisponível: %s", type(exc).__name__)
+        return result
+
+    # Reconciliação durável: cobre falha de gravação da outbox no request.
+    try:
+        recovery = reconcile_missing(rpc=rpc)
+        result["reconciled"] = recovery["checked"]
+        result["reconcile_error"] = recovery["error"]
+    except Exception as exc:
+        result["reconcile_error"] = type(exc).__name__
+
+    try:
         rows = claim_pending(limit, rpc=rpc, worker_id=worker_id)
     except Exception as exc:
         result["error"] = type(exc).__name__
@@ -357,12 +476,13 @@ def register(app, process_one, *, interval_seconds: int, current_job_fn=None) ->
 
     # `Serve.route` (upstash-workflow 2.0.0) não expõe `redact`; o payload já
     # contém somente UUIDs, e a publicação usa `redact={"body": True}` no
-    # QStash. A URL é fixa e prevalece sobre qualquer Host/request.url.
+    # QStash. A URL é fixa e prevalece sobre qualquer Host/request.url. O
+    # query parameter de bypass é preservado pelo SDK em TODAS as etapas.
     @serve.route(
         WORKFLOW_PATH,
         receiver=receiver,
         initial_payload_parser=json.loads,
-        url=config["url"],
+        url=config["workflow_url"],
     )
     def chamados_reminder_workflow(context):
         payload = parse_payload(context.request_payload)

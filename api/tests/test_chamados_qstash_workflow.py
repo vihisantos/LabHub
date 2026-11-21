@@ -18,6 +18,7 @@ def clear_config(monkeypatch):
         workflow.FLAG, workflow.URL_ENV, "QSTASH_TOKEN",
         "QSTASH_CURRENT_SIGNING_KEY", "QSTASH_NEXT_SIGNING_KEY",
         "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "VERCEL_ENV", "VERCEL_URL",
+        "VERCEL_AUTOMATION_BYPASS_SECRET",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -28,6 +29,7 @@ def config(monkeypatch):
     monkeypatch.setenv("QSTASH_TOKEN", "mock-token")
     monkeypatch.setenv("QSTASH_CURRENT_SIGNING_KEY", "mock-current")
     monkeypatch.setenv("QSTASH_NEXT_SIGNING_KEY", "mock-next")
+    monkeypatch.setenv("VERCEL_AUTOMATION_BYPASS_SECRET", "mock-bypass-token-32chars")
 
 
 def ticket(**updates):
@@ -58,23 +60,36 @@ def job(**updates):
 class FakeStore:
     """Simula a semântica das RPCs apenas para testar a lógica do dispatcher."""
 
-    def __init__(self, rows=None, claim_error=None):
+    def __init__(self, rows=None, claim_error=None, candidates=None, tick=True):
         self.rows = [dict(r) for r in (rows or [])]
         self.claim_error = claim_error
+        self.candidates = [dict(r) for r in (candidates or [])]
+        self.tick = tick
         self.calls = []
+        self.enqueued = []
+        self.claimed_by = []
 
     def __call__(self, name, params):
         self.calls.append((name, dict(params)))
         if name == workflow.OUTBOX_RPC_ENQUEUE:
+            self.enqueued.append(dict(params))
             return params["p_job_id"]
         if name == workflow.OUTBOX_RPC_CLAIM:
             if self.claim_error:
                 raise self.claim_error("QStash indisponível")
+            self.claimed_by.append(params["p_worker_id"])
             return self.rows[: max(1, min(params["p_limit"], 25))]
         if name == workflow.OUTBOX_RPC_MARK:
             return True
         if name == workflow.OUTBOX_RPC_RELEASE:
-            return "dead" if self.rows and self.rows[0].get("exhausted") else "pending"
+            row = next((r for r in self.rows if r["job_id"] == params["p_job_id"]), {})
+            return "dead" if row.get("exhausted") else "pending"
+        if name == workflow.OUTBOX_RPC_RECONCILE_TICK:
+            return self.tick
+        if name == workflow.OUTBOX_RPC_RECONCILE_CANDIDATES:
+            return self.candidates[: params["p_limit"]]
+        if name == workflow.OUTBOX_RPC_CURRENT:
+            return self.rows[0]["job_id"] if self.rows else None
         raise AssertionError(f"RPC inesperada: {name}")
 
 
@@ -90,6 +105,7 @@ def test_flag_off_does_not_enqueue_publish_or_register():
     assert result == {
         "enabled": False, "claimed": 0, "published": 0,
         "retried": 0, "dead": 0, "error": None,
+        "reconciled": 0, "reconcile_error": None,
     }
 
 
@@ -261,10 +277,14 @@ def test_drain_publishes_with_stable_dedup_and_ack(monkeypatch):
     assert published[0]["deduplication_id"] == f"labhub-reminder-{job()['job_id']}"
     assert published[0]["retries"] == 0
     assert published[0]["redact"] == {"body": True}
-    assert published[0]["url"] == "https://preview.example/api/chamados/reminders/workflow"
-    assert store.calls[0][0] == workflow.OUTBOX_RPC_CLAIM
-    assert store.calls[0][1]["p_limit"] == workflow.DEFAULT_DISPATCH_BATCH
-    assert store.calls[1][0] == workflow.OUTBOX_RPC_MARK
+    assert published[0]["url"] == (
+        "https://preview.example/api/chamados/reminders/workflow"
+        "?x-vercel-protection-bypass=mock-bypass-token-32chars"
+    )
+    rpc_names = [name for name, _ in store.calls]
+    assert rpc_names.index(workflow.OUTBOX_RPC_CLAIM) < rpc_names.index(workflow.OUTBOX_RPC_MARK)
+    claim = next(p for n, p in store.calls if n == workflow.OUTBOX_RPC_CLAIM)
+    assert claim["p_limit"] == workflow.DEFAULT_DISPATCH_BATCH
 
 
 def test_drain_releases_failed_publication_with_backoff(monkeypatch, caplog):
@@ -305,7 +325,11 @@ def test_drain_survives_claim_outage_without_touching_rows(monkeypatch):
     result = workflow.drain_pending(rpc=store, publish=lambda **kw: pytest.fail("published"))
     assert result["error"] == "OSError"
     assert result["claimed"] == 0
-    assert [c[0] for c in store.calls] == [workflow.OUTBOX_RPC_CLAIM]
+    assert [c[0] for c in store.calls] == [
+        workflow.OUTBOX_RPC_RECONCILE_TICK,
+        workflow.OUTBOX_RPC_RECONCILE_CANDIDATES,
+        workflow.OUTBOX_RPC_CLAIM,
+    ]
 
 
 def test_current_job_uses_scoped_rpc():
@@ -385,7 +409,10 @@ def test_workflow_validates_result_inside_step(monkeypatch):
 
     app = object()
     assert workflow.register(app, process, interval_seconds=120)
-    assert captures["options"]["url"] == "https://preview.example/api/chamados/reminders/workflow"
+    assert captures["options"]["url"] == (
+        "https://preview.example/api/chamados/reminders/workflow"
+        "?x-vercel-protection-bypass=mock-bypass-token-32chars"
+    )
     # Serve.route do SDK Flask 2.0.0 não aceita `redact`.
     assert "redact" not in captures["options"]
 
@@ -444,3 +471,153 @@ def test_workflow_stops_when_ticket_was_claimed(monkeypatch):
     assert seen == ["check"]
     assert ctx.steps == ["verificar-onda-1"]
     assert ctx.sleeps == [("aguardar-onda-1", 120)]
+
+
+# ---------------------------------------------------------------------------
+# P0: persistência durável e bypass da Preview protegida
+# ---------------------------------------------------------------------------
+
+def test_bypass_e_fail_closed_e_nunca_vazado(monkeypatch):
+    config(monkeypatch)
+    cfg = workflow._config()
+    assert "x-vercel-protection-bypass=mock-bypass-token-32chars" in cfg["workflow_url"]
+    # O segredo não aparece na URL base usada em validações/respostas.
+    assert "bypass" not in cfg["url"]
+
+    monkeypatch.delenv("VERCEL_AUTOMATION_BYPASS_SECRET")
+    with pytest.raises(ValueError) as excinfo:
+        workflow._config()
+    assert "mock-bypass-token-32chars" not in str(excinfo.value)
+    monkeypatch.setenv("VERCEL_AUTOMATION_BYPASS_SECRET", "token com espaco")
+    with pytest.raises(ValueError):
+        workflow._config()
+
+
+def _candidate_row(**updates):
+    row = {
+        "ticket_id": ticket()["id"],
+        "workspace_id": ticket()["workspace_id"],
+        "status": "aberto",
+        "assigned_to_user_id": "",
+        "updated_at": ticket()["updatedAt"],
+    }
+    row.update(updates)
+    return row
+
+
+def test_reconcile_recovers_enqueue_falho_na_criacao(monkeypatch):
+    config(monkeypatch)
+
+    def supabase_fora(name, params):
+        raise ConnectionError("indisponibilidade temporária")
+
+    # A criação do chamado termina com sucesso mesmo sem gravar a outbox.
+    assert workflow.schedule(ticket(), rpc=supabase_fora) is False
+
+    store = FakeStore(candidates=[_candidate_row()])
+    published = []
+    result = workflow.drain_pending(rpc=store, publish=lambda **kw: published.append(kw))
+
+    assert result["reconciled"] == 1
+    assert result["reconcile_error"] is None
+    assert len(store.enqueued) == 1
+    assert store.enqueued[0]["p_cycle_key"] == workflow.cycle_key(ticket())
+    assert store.enqueued[0]["p_ticket_id"] == ticket()["id"]
+    assert store.enqueued[0]["p_workspace_id"] == ticket()["workspace_id"]
+    assert result["published"] == 0  # candidato ainda não estava na fila
+    assert published == []
+
+
+def test_reconcile_e_throttled_e_idempotente(monkeypatch):
+    config(monkeypatch)
+    store = FakeStore(candidates=[_candidate_row()], tick=False)
+    first = workflow.reconcile_missing(rpc=store)
+    assert first == {"checked": 0, "enqueued": 0, "error": None, "skipped": True}
+    assert [name for name, _ in store.calls] == [workflow.OUTBOX_RPC_RECONCILE_TICK]
+
+    store.tick = True
+    second = workflow.reconcile_missing(rpc=store)
+    third = workflow.reconcile_missing(rpc=store)
+    # A RPC de enqueue dedup por chamado+ciclo: chaves idênticas, um job.
+    assert second["checked"] == third["checked"] == 1
+    assert [p["p_cycle_key"] for p in store.enqueued] == [workflow.cycle_key(ticket())] * 2
+
+
+def test_reconcile_nao_agenda_chamado_assumido_ou_de_outro_ciclo(monkeypatch):
+    config(monkeypatch)
+    store = FakeStore(candidates=[
+        _candidate_row(status="resolvido"),
+        _candidate_row(assigned_to_user_id=str(uuid.uuid4())),
+    ])
+    result = workflow.reconcile_missing(rpc=store)
+    # A filtragem de elegibilidade também acontece na aplicação, à prova de
+    # uma RPC mal comportada.
+    assert result["enqueued"] == 0
+    assert result["checked"] == 2
+
+
+def test_dispatchers_concorrentes_nao_publicam_o_mesmo_job(monkeypatch):
+    config(monkeypatch)
+
+    class SplitStore(FakeStore):
+        def __call__(self, name, params):
+            if name == workflow.OUTBOX_RPC_CLAIM:
+                self.claimed_by.append(params["p_worker_id"])
+                return [self.rows.pop(0)] if len(self.rows) == 2 else self.rows
+            return super().__call__(name, params)
+
+    store = SplitStore([job(job_id=str(uuid.uuid4())), job(job_id=str(uuid.uuid4()))])
+    published = []
+    for worker in ("dispatch-a", "dispatch-b"):
+        result = workflow.drain_pending(
+            rpc=store, publish=lambda **kw: published.append(kw), worker_id=worker
+        )
+        assert result["published"] == 1
+    assert store.claimed_by == ["dispatch-a", "dispatch-b"]
+    assert len({kw["deduplication_id"] for kw in published}) == 2
+
+
+def test_reabertura_invalida_workflow_anterior(monkeypatch):
+    config(monkeypatch)
+    captures = install_fake_sdk(monkeypatch)
+    old_job = job()["job_id"]
+    new_job = str(uuid.uuid4())
+    seen = []
+
+    def process(ticket_id, workspace_id, job_id):
+        seen.append(job_id)
+        return {"ok": True, "candidate_count": 1}
+
+    workflow.register(
+        object(), process, interval_seconds=120,
+        current_job_fn=lambda *_a: new_job,
+    )
+    ctx = FakeContext()
+    ctx.request_payload["job_id"] = old_job
+    captures["fn"](ctx)
+    # Execução antiga para imediatamente; nenhum lembrete é enviado.
+    assert seen == [old_job]
+    assert ctx.steps == ["verificar-onda-1"]
+    assert len(ctx.sleeps) == 1
+
+
+def test_sleep_duravel_separa_ondas_sem_republicar(monkeypatch):
+    config(monkeypatch)
+    captures = install_fake_sdk(monkeypatch)
+    seen = []
+
+    def process(*_a):
+        seen.append(1)
+        return {"ok": True, "candidate_count": 1}
+
+    workflow.register(
+        object(), process, interval_seconds=120,
+        current_job_fn=lambda *_a: job()["job_id"],
+    )
+    ctx = FakeContext()
+    captures["fn"](ctx)
+    assert len(ctx.sleeps) == workflow.MAX_WORKFLOW_CHECKS
+    assert [name for name, _ in ctx.sleeps] == [
+        f"aguardar-onda-{i}" for i in range(1, workflow.MAX_WORKFLOW_CHECKS + 1)
+    ]
+    assert ctx.steps == [f"verificar-onda-{i}" for i in range(1, workflow.MAX_WORKFLOW_CHECKS + 1)]
