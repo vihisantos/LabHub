@@ -34,6 +34,12 @@ def _canonical_uuid(value) -> str:
 def _config() -> dict:
     """Fail-closed; nunca deduz destino a partir do Host/cliente."""
     url = os.environ.get(URL_ENV, "").strip()
+    # Para Preview, a URL exata do deploy muda a cada commit. Usar apenas
+    # VERCEL_URL provida pela plataforma (nunca Host/headers do request).
+    if not url and os.environ.get("VERCEL_ENV") == "preview":
+        host = os.environ.get("VERCEL_URL", "").strip()
+        if host.endswith(".vercel.app") and "/" not in host and ":" not in host:
+            url = f"https://{host}{WORKFLOW_PATH}"
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username
             or parsed.password or parsed.query or parsed.fragment
