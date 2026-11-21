@@ -126,3 +126,16 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
     })
   )
 })
+
+// Alguns navegadores notificam a rotação/perda da subscription por este evento.
+// Não tentamos criar inscrição no SW (não há contexto de sessão JWT aqui).
+// Avisamos somente janelas abertas; ao abrir o app, o hook também revalida.
+self.addEventListener('pushsubscriptionchange', (event: ExtendableEvent) => {
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        client.postMessage({ type: 'labhub:push-subscription-changed' })
+      }
+    }),
+  )
+})
