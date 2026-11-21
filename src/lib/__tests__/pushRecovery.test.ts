@@ -25,6 +25,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }))
 })
 afterEach(() => {
+  localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
@@ -95,6 +96,25 @@ describe('recuperação automática de inscrições Push', () => {
     expect(registration.pushManager.subscribe).toHaveBeenCalledTimes(1)
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(hasPendingPushRecovery('/api/push/subscribe', user.id)).toBe(false)
+  })
+
+  it('persiste o registro pendente após reinício do PWA e sincroniza sem criar segunda inscrição', async () => {
+    const registration = makeRegistration()
+    const user = makeUser('recovery-restart')
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+    await expect(recoverMissingPushSubscription('/api/push/subscribe', user, registration))
+      .rejects.toThrow('HTTP 503')
+    expect(hasPendingPushRecovery('/api/push/subscribe', user.id)).toBe(true)
+
+    // Simula recarga do app (novo módulo sem o Map anterior, mesmo storage).
+    vi.resetModules()
+    const reloaded = await import('../pushRecovery')
+    expect(reloaded.hasPendingPushRecovery('/api/push/subscribe', user.id)).toBe(true)
+    registration.pushManager.getSubscription = vi.fn().mockResolvedValue(sub)
+    expect(await reloaded.recoverMissingPushSubscription('/api/push/subscribe', user, registration)).toBe(true)
+    expect(registration.pushManager.subscribe).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(reloaded.hasPendingPushRecovery('/api/push/subscribe', user.id)).toBe(false)
   })
 
   it('limita falhas repetidas a três tentativas por sessão', async () => {
