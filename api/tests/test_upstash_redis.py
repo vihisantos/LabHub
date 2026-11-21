@@ -71,3 +71,53 @@ def test_client_is_disabled_without_both_environment_variables(monkeypatch):
     monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
     monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
     assert MODULE.create_redis_client() is None
+
+
+@patch.object(MODULE.requests, "post")
+def test_xadd_encodes_stream_fields(post):
+    response = Mock()
+    response.json.return_value = {"result": "1730000000000-0"}
+    post.return_value = response
+
+    result = make_client().xadd(
+        "labhub:notifications:stream:v1",
+        {"event_id": "evt-1", "payload": "{\"ok\":true}"},
+    )
+
+    assert result == "1730000000000-0"
+    assert post.call_args.kwargs["json"] == [
+        "XADD", "labhub:notifications:stream:v1", "*",
+        "event_id", "evt-1", "payload", "{\"ok\":true}",
+    ]
+
+
+@patch.object(MODULE.requests, "post")
+def test_xreadgroup_is_non_blocking_and_bounded(post):
+    response = Mock()
+    response.json.return_value = {"result": []}
+    post.return_value = response
+
+    assert make_client().xreadgroup("stream", "workers", "worker-a", count=5) == []
+    assert post.call_args.kwargs["json"] == [
+        "XREADGROUP", "GROUP", "workers", "worker-a",
+        "COUNT", 5, "STREAMS", "stream", ">",
+    ]
+
+
+@patch.object(MODULE.requests, "post")
+def test_xautoclaim_and_xack_commands(post):
+    response = Mock()
+    response.json.return_value = {"result": ["0-0", [], []]}
+    post.return_value = response
+
+    client = make_client()
+    assert client.xautoclaim("stream", "workers", "worker-b", 30_000) == ["0-0", [], []]
+    assert post.call_args.kwargs["json"] == [
+        "XAUTOCLAIM", "stream", "workers", "worker-b", 30_000, "0-0", "COUNT", 10,
+    ]
+
+    response.json.return_value = {"result": 1}
+    assert client.xack("stream", "workers", "1730000000000-0") == 1
+    assert post.call_args.kwargs["json"] == [
+        "XACK", "stream", "workers", "1730000000000-0",
+    ]
