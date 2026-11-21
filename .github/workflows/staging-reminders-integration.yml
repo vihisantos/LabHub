@@ -266,8 +266,24 @@ jobs:
             -H "x-vercel-protection-bypass: ${VERCEL_BYPASS_SECRET}" \
             "$PREVIEW_DISPATCH_URL")
           echo "HTTP $status"
-          cat /tmp/chamados_workflow_dispatch.out
-          test "$status" = "200"
+          export STATUS="$status"
+          python - <<'PY'
+          import json, os, sys
+          if os.environ.get("STATUS") != "200":
+              sys.exit("dispatcher não respondeu 200")
+          with open("/tmp/chamados_workflow_dispatch.out", encoding="utf-8") as fh:
+              result = json.load(fh)
+          required = ("enabled", "claimed", "published", "retried", "dead", "error",
+                      "reconciled", "reconcile_error")
+          missing = [key for key in required if key not in result]
+          if missing:
+              sys.exit(f"resposta incompleta do dispatcher: {missing}")
+          if result["enabled"] is not True or result["error"] is not None:
+              sys.exit("dispatcher desabilitado ou com erro")
+          print("Dispatcher validado: enabled=true, error=null, "
+                f"reconciled={result['reconciled']}, "
+                f"reconcile_error={result['reconcile_error']!r}")
+          PY
 
       # Publicação REAL no QStash. Opt-in: consome mensagens de verdade e usa
       # somente workspace/ticket sintéticos. Nada em produção.

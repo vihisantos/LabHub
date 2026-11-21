@@ -379,12 +379,17 @@ def release(job_id: str, lock_token: str, error_class: str, *, rpc=None) -> str:
 
 
 def _qstash_client(config: dict):
-    """Cliente QStash com o bypass injetado em TODA chamada à API.
+    """Cliente QStash com o bypass injetado em TODA mensagem enviada.
 
     O prefixo `Upstash-Forward-` é o mecanismo oficial da SDK para encaminhar
-    headers ao destino. Como a injeção acontece no cliente HTTP (depois de
-    `prepare_headers`), ela alcança publicação inicial, steps e sleeps do
-    Workflow — inclusive quando a SDK interna reconstrói os headers do usuário.
+    headers ao destino. A injeção precisa acontecer em DOIS níveis:
+
+    1. headers da chamada à API QStash (publicação individual);
+    2. headers de CADA mensagem de `/v2/batch` (steps e `context.sleep`).
+
+    O QStash NÃO replica headers de nível de requisição para as mensagens de um
+    batch. Sem o item 2, a publicação inicial chega à Preview, mas a retomada
+    agendada volta sem o bypass e nunca atinge a rota assinada.
     """
     from qstash import QStash
     import httpx
@@ -394,13 +399,29 @@ def _qstash_client(config: dict):
 
     client = _PreviewBypassQStash(token=config["QSTASH_TOKEN"], retry=False)
     original_request = client.http.request
+    forwarded = QSTASH_FORWARD_PREFIX + VERCEL_BYPASS_HEADER
+    bypass = config[VERCEL_BYPASS_ENV]
 
     def request_with_bypass(*args, **kwargs):
         headers = dict(kwargs.get("headers") or {})
-        headers[
-            QSTASH_FORWARD_PREFIX + VERCEL_BYPASS_HEADER
-        ] = config[VERCEL_BYPASS_ENV]
+        headers[forwarded] = bypass
         kwargs["headers"] = headers
+        if str(kwargs.get("path", "")).startswith("/v2/batch") and kwargs.get("body"):
+            try:
+                batch = json.loads(kwargs["body"])
+                if not isinstance(batch, list):
+                    raise ValueError("batch não é uma lista")
+                for message in batch:
+                    if not isinstance(message, dict):
+                        raise ValueError("mensagem de batch inválida")
+                    message_headers = dict(message.get("headers") or {})
+                    message_headers[forwarded] = bypass
+                    message["headers"] = message_headers
+                kwargs["body"] = json.dumps(batch)
+            except (TypeError, ValueError) as exc:
+                # Fail-closed: nunca publicar uma mensagem de workflow sem o
+                # bypass, sob pena de abandonar a retomada na Preview protegida.
+                raise ValueError("corpo de batch QStash inesperado") from exc
         return original_request(*args, **kwargs)
 
     client.http.request = request_with_bypass

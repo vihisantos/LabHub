@@ -289,12 +289,47 @@ def test_real_sdk_bypass_injetado_em_publicacao_e_em_todas_as_etapas(configured)
         assert "x-vercel-protection-bypass" not in call["url"]
         assert "?" not in call["url"]
 
-    # O transporte real recebe o batch de etapas como `content`.
+    # O transporte real recebe o batch de etapas como `content`. O header
+    # encaminhado precisa estar DENTRO de cada mensagem: o QStash não replica
+    # headers do nível da requisição /v2/batch para as mensagens do lote.
     batch = json.loads(calls[-1]["content"])
     for message in batch:
         assert message["destination"] == URL
         assert message["headers"]["Upstash-Workflow-Url"] == URL
+        assert message["headers"][FORWARDED] == BYPASS
     assert BYPASS not in json.dumps(payload())
+
+
+def test_real_sdk_bypass_chega_em_sleep_agendado(configured):
+    """A retomada de `context.sleep()` é o caminho que falhou em Staging."""
+    client = workflow._qstash_client(workflow._config())
+    calls = []
+
+    class RecordingTransport:
+        def request(self, **kwargs):
+            calls.append(kwargs)
+            return httpx.Response(200, json=[{"messageId": "msg_ok"}])
+
+    client.http._client = RecordingTransport()
+    context = real_context()
+    context.qstash_client = client
+    with pytest.raises(WorkflowAbort):
+        context.sleep("aguardar-onda-1", 120)
+
+    assert len(calls) == 1
+    assert calls[0]["headers"][FORWARDED] == BYPASS
+    batch = json.loads(calls[0]["content"])
+    assert len(batch) == 1
+    assert batch[0]["headers"][FORWARDED] == BYPASS
+    assert batch[0]["headers"]["Upstash-Delay"] == "120s"
+    assert batch[0]["destination"] == URL
+    assert BYPASS not in json.dumps(batch[0]["body"])
+
+
+def test_qstash_client_falha_fechada_se_batch_invalido(configured):
+    client = workflow._qstash_client(workflow._config())
+    with pytest.raises(ValueError, match="batch QStash"):
+        client.http.request(path="/v2/batch", body="not-json", method="POST")
 
 
 def test_real_sdk_assinatura_valida_com_bypass_no_header(configured):
