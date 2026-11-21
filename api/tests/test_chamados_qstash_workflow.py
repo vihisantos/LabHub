@@ -87,6 +87,23 @@ def test_requires_https_explicit_endpoint_and_signing_keys(monkeypatch):
         workflow._config()
 
 
+def test_preview_uses_trusted_vercel_deployment_host(monkeypatch):
+    config(monkeypatch)
+    monkeypatch.delenv(workflow.URL_ENV)
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("VERCEL_URL", "lab-preview-abc.vercel.app")
+    assert workflow._config()["url"] == (
+        "https://lab-preview-abc.vercel.app" + workflow.WORKFLOW_PATH
+    )
+    monkeypatch.setenv("VERCEL_URL", "evil.vercel.app/redirect")
+    with pytest.raises(ValueError):
+        workflow._config()
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("VERCEL_URL", "prod.vercel.app")
+    with pytest.raises(ValueError):
+        workflow._config()
+
+
 def test_publish_uses_deduplication_and_redaction(monkeypatch):
     config(monkeypatch)
     published = []
