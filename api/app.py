@@ -57,6 +57,9 @@ from rbac import (
 import pg_store
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
+from chamados_workflow import (schedule as _schedule_chamado_workflow,
+                              register as _register_chamado_workflow,
+                              parse_payload as _parse_workflow_payload)
 
 
 def _enqueue_push_event(event_id, payload):
@@ -3343,6 +3346,9 @@ def chamados_create():
         # Notificação imediata: avisa o TI no momento em que o professor abre o chamado.
         # Evento, não agendamento — não depende de cron nenhum (próprio app).
         _notify_new_ticket(ticket)
+        # Experimento QStash: somente com flag explícita (default OFF).
+        # Falha no agendamento nunca desfaz a criação do professor.
+        _schedule_chamado_workflow(ticket)
 
         # Auditoria do app (tabela 054): criação pública (sem actor autenticado,
         # actora é o solicitante).
@@ -4213,6 +4219,14 @@ def chamados_manage(ticket_id):
             _new_status = str(updates.get('status') or '')
             if _new_status in ('resolvido', 'fechado', 'indeferido'):
                 _record_terminal_status(ticket_id, _new_status)
+
+        # Reabertura sem responsável: agenda novo ciclo no modo opt-in.
+        # Não reagendar a cada edição e nunca agendar quando atribuído.
+        if (('status' in updates and status_prev != 'aberto'
+             and ticket.get('status') == 'aberto')
+                or (assignment_changed and not ticket.get('assignedToUserId')
+                    and ticket.get('status') == 'aberto')):
+            _schedule_chamado_workflow(ticket)
 
         # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
         # (Prefer: return=representation). Filtra pela allowlist interna antes
@@ -6025,7 +6039,8 @@ def _finalize_reminder_cycle(ticket_id: str, ticket: dict, state: dict,
     return True
 
 
-def _check_and_send_reminders() -> dict:
+def _check_and_send_reminders(ticket_id: str | None = None,
+                              workspace_id: str | None = None) -> dict:
     """Verifica chamados não assumidos e envia lembretes de push quando devido.
 
     Modelo de entrega: at-least-once com deduplicação por destinatário, ciclo
@@ -6074,15 +6089,23 @@ def _check_and_send_reminders() -> dict:
         return {'error': 'Store PostgreSQL não configurado', 'sent': 0, 'checked': 0}
 
     try:
-        resp = requests.get(
+        query_url = (
             f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
             f'?status=eq.aberto'
             f'&assignedToUserId=eq.'
             f'&select=id,workspace_id,ticketNumber,roomName,problemCategory,createdAt,updatedAt,status'
-            f'&order=createdAt.asc',
-            headers=_supabase_headers(),
-            timeout=30,
+            f'&order=createdAt.asc'
         )
+        # Modo Workflow: nunca varrer os chamados de outros workspaces.
+        # O payload veio de QStash assinado e ainda é validado localmente.
+        if ticket_id is not None:
+            scope = _parse_workflow_payload({
+                'ticket_id': ticket_id,
+                'workspace_id': workspace_id,
+            })
+            query_url += (f"&id=eq.{scope['ticket_id']}"
+                          f"&workspace_id=eq.{scope['workspace_id']}")
+        resp = requests.get(query_url, headers=_supabase_headers(), timeout=30)
         if not resp.ok:
             logger.error(f"[chamados-reminder] erro ao listar chamados: {resp.status_code}")
             return {'error': 'Erro ao listar chamados', 'sent': 0, 'checked': 0}
@@ -6331,11 +6354,23 @@ def _check_and_send_reminders() -> dict:
             'sent': sent_total,
             'confirmed': confirmed_total,
             'ambiguous': ambiguous_total,
+            **({'candidate_count': len(tickets)} if ticket_id is not None else {}),
         }
 
     except Exception as e:
         logger.error(f"[chamados-reminder] erro interno: {e}")
         return {'error': 'Erro interno', 'sent': 0, 'checked': 0}
+
+
+# Registrar Workflow assinado apenas com a flag de Staging habilitada.
+# Nunca substitui a rota /check nem o cron por padrão.
+_register_chamado_workflow(
+    app,
+    lambda scoped_ticket_id, scoped_workspace_id: _check_and_send_reminders(
+        ticket_id=scoped_ticket_id, workspace_id=scoped_workspace_id,
+    ),
+    interval_seconds=REMINDER_INTERVAL_SECONDS,
+)
 
 
 @_route_once('/api/chamados/reminders/check', methods=['GET', 'POST'])
