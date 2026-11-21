@@ -101,3 +101,50 @@ class NotificationQueue:
 
     def acknowledge(self, *message_ids: str):
         return self.redis.xack(self.stream, self.group, *message_ids)
+
+    def process_batch(
+        self, consumer: str, handler, count: int = 10,
+        min_idle_ms: int = 60_000, reclaim_start_id: str = "0-0",
+    ):
+        """Processa pendentes recuperáveis e mensagens novas.
+
+        O handler recebe (event_id, payload). XACK só ocorre quando ele termina
+        sem exceção e não retorna False. Falhas permanecem no Pending Entries
+        List para nova tentativa via XAUTOCLAIM. O handler precisa ser
+        idempotente, pois a entrega é at-least-once.
+        """
+        self.ensure_group()
+        reclaimed = self.reclaim_stale(
+            consumer, min_idle_ms=min_idle_ms,
+            start_id=reclaim_start_id, count=count,
+        )
+        new_messages = self.read_new(consumer, count=count)
+        messages = reclaimed["messages"] + new_messages
+        acked = retriable = failed = 0
+
+        for message in messages:
+            try:
+                result = handler(message["event_id"], message["payload"])
+                if result is False:
+                    retriable += 1
+                    continue
+                ack_count = self.acknowledge(message["message_id"])
+                if int(ack_count or 0) == 1:
+                    acked += 1
+                else:
+                    # ACK ausente/ambíguo: não contabilizar como concluído.
+                    retriable += 1
+            except Exception:
+                # Não confirmar. A mensagem permanece pendente e poderá ser
+                # recuperada por outro consumer depois do idle configurado.
+                failed += 1
+
+        return {
+            "fetched": len(messages),
+            "acked": acked,
+            "retriable": retriable,
+            "failed": failed,
+            "reclaim_next_id": reclaimed["next_id"],
+            "reclaimed": len(reclaimed["messages"]),
+            "new": len(new_messages),
+        }
