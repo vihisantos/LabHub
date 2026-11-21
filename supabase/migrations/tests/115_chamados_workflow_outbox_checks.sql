@@ -20,6 +20,7 @@ DECLARE
   v_current uuid;
   v_attempts integer;
   v_i integer;
+  v_expected text;
 BEGIN
   -- Primeira gravação vence; repetir o mesmo ciclo devolve o MESMO job_id.
   v_enqueued := public.chamados_workflow_outbox_enqueue(
@@ -104,9 +105,10 @@ BEGIN
     SELECT * INTO v_claim
     FROM public.chamados_workflow_outbox_claim('ci-dispatch', 10, 60)
     WHERE job_id = v_job_b;
+    v_expected := CASE WHEN v_i = 5 THEN 'dead' ELSE 'pending' END;
     IF public.chamados_workflow_outbox_release(
       v_job_b, v_claim.lock_token, 'QStashError', 1
-    ) <> CASE WHEN v_i = 5 THEN 'dead' ELSE 'pending' END THEN
+    ) <> v_expected THEN
       RAISE EXCEPTION '115 FAIL: release da tentativa % divergente', v_i;
     END IF;
   END LOOP;
