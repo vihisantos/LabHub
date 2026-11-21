@@ -244,8 +244,43 @@ def test_dispatcher_desliga_retry_do_sdk_e_devolve_para_outbox(configured, monke
     assert workflow.MAX_PUBLISH_ATTEMPTS == 5
 
 
+
+def test_real_sdk_producao_nao_propaga_header_de_bypass(configured, monkeypatch):
+    """Publicação e context.sleep no domínio oficial sem segredo da Preview."""
+    url = "https://lab-hub-pi.vercel.app" + workflow.WORKFLOW_PATH
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv(workflow.URL_ENV, url)
+    monkeypatch.delenv(workflow.VERCEL_BYPASS_ENV)
+    client = workflow._qstash_client(workflow._config())
+    calls = []
+
+    class RecordingTransport:
+        def request(self, **kwargs):
+            calls.append(kwargs)
+            if "/v2/batch" in kwargs.get("url", ""):
+                return httpx.Response(200, json=[{"messageId": "batch-ok"}])
+            return httpx.Response(200, json={"messageId": "msg_ok"})
+
+    client.http._client = RecordingTransport()
+    client.message.publish_json(url=url, body=payload())
+    context = real_context()
+    context.qstash_client = client
+    context.url = url
+    with pytest.raises(WorkflowAbort):
+        context.sleep("aguardar-onda-1", 120)
+
+    assert len(calls) == 2
+    for call in calls:
+        assert FORWARDED not in call["headers"]
+        assert "?" not in call["url"]
+    batch = json.loads(calls[1]["content"])
+    assert len(batch) == 1
+    assert batch[0]["destination"] == url
+    assert FORWARDED not in batch[0]["headers"]
+
+
 # ---------------------------------------------------------------------------
-# QStash -> Preview protegida: por que o query parameter é necessário
+# QStash -> Preview protegida: bypass permanece nos headers e batches
 # ---------------------------------------------------------------------------
 
 def test_real_sdk_remove_headers_vercel_das_etapas():
