@@ -1337,6 +1337,7 @@ class TestAppNotifications:
     def test_persist_in_app(self, root_client, root_api_module, fake_requests, monkeypatch):
         headers = self._auth(fake_requests, monkeypatch, is_super=True)
         captured = {}
+        monkeypatch.setattr(root_api_module.pg_store, "is_configured", lambda: True)
         monkeypatch.setattr(
             root_api_module.pg_store.store,
             "notification_create_with_outbox",
