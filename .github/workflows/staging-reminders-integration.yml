@@ -215,6 +215,7 @@ jobs:
             -X POST \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "x-vercel-protection-bypass: ${VERCEL_BYPASS_SECRET}" \
+            -H "x-vercel-set-bypass-cookie: true" \
             "$PREVIEW_DISPATCH_URL")
           echo "HTTP $status"
           cat /tmp/chamados_workflow_dispatch.out
