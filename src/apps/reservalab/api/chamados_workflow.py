@@ -48,8 +48,9 @@ class _RedactBypassFilter(logging.Filter):
 WORKFLOW_PATH = "/api/chamados/reminders/workflow"
 FLAG = "LABHUB_CHAMADOS_WORKFLOW_ENABLED"
 URL_ENV = "LABHUB_CHAMADOS_WORKFLOW_URL"
-# MVP: 3 checagens por chamado. Não substituir os 10 lembretes legados ainda.
-MAX_WORKFLOW_CHECKS = 3
+# Até 10 lembretes a cada 2 minutos, em linha com REMINDER_MAX_COUNT.
+# Ciclo termina antes se for assumido, encerrado ou superar o limite.
+MAX_WORKFLOW_CHECKS = 10
 DEFAULT_DISPATCH_BATCH = 10
 MAX_PUBLISH_ATTEMPTS = 5
 PUBLISH_TIMEOUT_SECONDS = 5.0

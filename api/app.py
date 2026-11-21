@@ -6252,13 +6252,26 @@ def _check_and_send_reminders(ticket_id: str | None = None,
                     continue
 
                 num = ticket.get('ticketNumber')
-                title = f"Lembrete: chamado #{num} sem responsável"
-                body = ' · '.join(
+                title = f"Chamado #{num} sem responsável"
+                details = ' · '.join(
                     str(part) for part in (
                         ticket.get('roomName'),
                         ticket.get('problemCategory'),
                     ) if part
                 )
+                # Insistência progressiva, com limite rígido de dez avisos
+                # por ciclo. Tempo de execução não é usado como idade exata:
+                # o QStash pode sofrer atrasos e reabertura pode antecipar
+                # a primeira onda.
+                if wave == 1:
+                    urgency = "Chamado ainda sem técnico. Toque para assumir."
+                elif wave == 2:
+                    urgency = "Atenção: este chamado continua sem responsável!"
+                elif wave <= 5:
+                    urgency = f"URGENTE: ninguém assumiu o chamado. Aviso {wave}/10."
+                else:
+                    urgency = f"CRÍTICO: chamado sem atendimento! Aviso {wave}/10. Assuma agora."
+                body = f"{urgency} {details}".strip()
                 url = f"/chamados/tickets/{ticket.get('id')}"
 
                 accepted_in_wave = 0
@@ -6289,6 +6302,8 @@ def _check_and_send_reminders(ticket_id: str | None = None,
 
                     push_result = _push_outcome(push_notify(
                         sub, title, body, url=url,
+                        module='chamados',
+                        tag=f"chamados:{ticket_id}:{cycle_id[:12]}:wave:{wave}",
                         timeout=REMINDER_PUSH_TIMEOUT_SECONDS,
                     ))
                     if push_result == PUSH_ACCEPTED:
@@ -6499,6 +6514,8 @@ def _deliver_outbox_notification(event_id, payload):
         user_id=user_id,
         workspace_id=workspace_id,
         context=context,
+        module=module,
+        tag=f"notification:{event_id}",
         actions=payload.get('actions'),
     )
 

@@ -83,6 +83,22 @@ def test_push_notify_repassa_payload_e_ttl(rlab_module, monkeypatch):
     assert payload["userId"] == "u1"
 
 
+def test_push_notify_inclui_modulo_e_tag_sem_alterar_subscricao(rlab_module, monkeypatch):
+    calls = []
+    monkeypatch.setattr(rlab_module, "webpush", lambda **kw: calls.append(kw))
+    result = rlab_module.push_notify(
+        APPLE_SUB, "Chamado #12 sem responsável", "URGENTE: assumir agora",
+        url="/chamados/tickets/12", module="chamados",
+        tag="chamados:12:ciclo:wave:3",
+    )
+    assert result == rlab_module.PUSH_ACCEPTED
+    data = json.loads(calls[0]["data"])
+    assert data["module"] == "chamados"
+    assert data["tag"] == "chamados:12:ciclo:wave:3"
+    assert data["url"] == "/chamados/tickets/12"
+    assert calls[0]["subscription_info"] is APPLE_SUB
+
+
 class FakeRedis(PgStoreFakeMixin):
     """Mini fake do store: guarda membros e registra srem."""
 
