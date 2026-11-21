@@ -6,3 +6,5 @@ python-jose[cryptography]
 requests
 pywebpush
 pypdf
+qstash==3.4.0
+upstash-workflow==2.0.0

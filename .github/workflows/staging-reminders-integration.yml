@@ -38,6 +38,57 @@ on:
         required: true
         type: boolean
         default: false
+      apply_workflow_outbox_migration:
+        description: 'Registrar as migrations 115/116 da outbox de agendamento no Staging via runner?'
+        required: true
+        type: boolean
+        default: false
+      apply_reconcile_migration:
+        description: 'Registrar as migrations 117/118 da reconciliação durável no Staging via runner?'
+        required: true
+        type: boolean
+        default: false
+      apply_reconcile_priority_migration:
+        description: 'Registrar as migrations 119/120 (prioridade/paginação + índice) no Staging?'
+        required: true
+        type: boolean
+        default: false
+      preview_dispatch_url:
+        description: 'URL HTTPS do Preview para smoke do dispatch (vazio = nao testar)'
+        required: false
+        default: ''
+      run_workflow_e2e:
+        description: 'Publicar de verdade no QStash com chamado sintético em workspace isolado?'
+        required: true
+        type: boolean
+        default: false
+      keep_e2e_data:
+        description: 'Preservar os dados sintéticos do E2E para inspeção?'
+        required: true
+        type: boolean
+        default: false
+      cleanup_e2e_ids:
+        description: 'Limpar E2Es preservados: workspace:ticket:job[,workspace:ticket:job...]'
+        required: false
+        default: ''
+      run_workflow_waves_e2e:
+        description: 'Validar as três ondas (2/4/6 min) com chamado não assumido e/ou assumido?'
+        required: true
+        type: boolean
+        default: false
+      wave_scenario:
+        description: 'Cenário das três ondas: both, unassigned ou assigned.'
+        required: true
+        type: choice
+        options:
+          - both
+          - unassigned
+          - assigned
+        default: both
+      e2e_wave_margin_seconds:
+        description: 'Margem após cada onda para correlacionar logs (10..90).'
+        required: true
+        default: '45'
 
 permissions:
   contents: read
@@ -49,7 +100,7 @@ jobs:
   integration:
     name: Validar e testar no Staging
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     concurrency:
       group: staging-reminders-integration
       cancel-in-progress: false
@@ -147,6 +198,194 @@ jobs:
           python scripts/apply_staging_migration.py \
             --version 114 --filename 114_notification_outbox_contract.sql \
             --allowed-ref "$STAGING_PROJECT_REFS"
+
+      # Experimento #491: tabela dedicada de agendamento, SEM reutilizar a
+      # notification_outbox. Somente Staging; produção aplica pelo CI normal.
+      - name: Dry-run da migration 115 (read-only)
+        if: ${{ inputs.apply_workflow_outbox_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py --dry-run \
+            --version 115 --filename 115_chamados_workflow_outbox.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 115 no Staging
+        if: ${{ inputs.apply_workflow_outbox_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 115 --filename 115_chamados_workflow_outbox.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 116 no Staging (contrato da 115)
+        if: ${{ inputs.apply_workflow_outbox_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 116 --filename 116_chamados_workflow_outbox_contract.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      # Recuperação durável de agendamentos perdidos na criação do chamado.
+      - name: Dry-run da migration 117 (read-only)
+        if: ${{ inputs.apply_reconcile_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py --dry-run \
+            --version 117 --filename 117_chamados_workflow_outbox_reconcile.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 117 no Staging
+        if: ${{ inputs.apply_reconcile_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 117 --filename 117_chamados_workflow_outbox_reconcile.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 118 no Staging (contrato da 117)
+        if: ${{ inputs.apply_reconcile_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 118 --filename 118_chamados_workflow_outbox_reconcile_contract.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Dry-run da migration 119 (read-only)
+        if: ${{ inputs.apply_reconcile_priority_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py --dry-run \
+            --version 119 --filename 119_chamados_workflow_outbox_reconcile_priority.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 119 no Staging (prioridade/paginação)
+        if: ${{ inputs.apply_reconcile_priority_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 119 --filename 119_chamados_workflow_outbox_reconcile_priority.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 120 no Staging (contrato da 119)
+        if: ${{ inputs.apply_reconcile_priority_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 120 --filename 120_chamados_workflow_outbox_reconcile_priority_contract.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Smoke do dispatch no Preview (somente Staging/Preview)
+        if: ${{ inputs.preview_dispatch_url != '' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PREVIEW_DISPATCH_URL: ${{ inputs.preview_dispatch_url }}
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from urllib.parse import urlsplit
+          url = os.environ.get("PREVIEW_DISPATCH_URL", "").strip()
+          parsed = urlsplit(url)
+          if (parsed.scheme != "https" or not parsed.hostname
+              or not parsed.hostname.endswith(".vercel.app")
+              or parsed.hostname == "lab-hub-pi.vercel.app"
+              or parsed.path != "/api/chamados/workflow/outbox/dispatch"):
+              sys.exit("URL de dispatch inválida ou de produção; abortando")
+          print("Destino de Preview autorizado:", parsed.hostname)
+          PY
+          status=$(curl -sS -o /tmp/chamados_workflow_dispatch.out -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "x-vercel-protection-bypass: ${VERCEL_BYPASS_SECRET}" \
+            "$PREVIEW_DISPATCH_URL")
+          echo "HTTP $status"
+          export STATUS="$status"
+          python - <<'PY'
+          import json, os, sys
+          if os.environ.get("STATUS") != "200":
+              sys.exit("dispatcher não respondeu 200")
+          with open("/tmp/chamados_workflow_dispatch.out", encoding="utf-8") as fh:
+              result = json.load(fh)
+          required = ("enabled", "claimed", "published", "retried", "dead", "error",
+                      "reconciled", "reconcile_error")
+          missing = [key for key in required if key not in result]
+          if missing:
+              sys.exit(f"resposta incompleta do dispatcher: {missing}")
+          if result["enabled"] is not True or result["error"] is not None:
+              sys.exit("dispatcher desabilitado ou com erro")
+          print("Dispatcher validado: enabled=true, error=null, "
+                f"reconciled={result['reconciled']}, "
+                f"reconcile_error={result['reconcile_error']!r}")
+          PY
+
+      # Publicação REAL no QStash. Opt-in: consome mensagens de verdade e usa
+      # somente workspace/ticket sintéticos. Nada em produção.
+      - name: E2E real QStash -> Preview protegida (Staging)
+        if: ${{ inputs.run_workflow_e2e }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          PREVIEW_DISPATCH_URL: ${{ inputs.preview_dispatch_url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          KEEP_E2E_DATA: ${{ inputs.keep_e2e_data }}
+        run: |
+          python scripts/ci/chamados_workflow_e2e_staging.py
+
+      # Validação funcional final: três ondas (2/4/6 min) e interrupção após
+      # atribuição. Opt-in, somente Preview/Staging, sem mudança no QStash.
+      - name: E2E das três ondas e da atribuição (Staging)
+        if: ${{ inputs.run_workflow_waves_e2e && inputs.preview_dispatch_url != '' }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          PREVIEW_DISPATCH_URL: ${{ inputs.preview_dispatch_url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          WAVE_SCENARIO: ${{ inputs.wave_scenario }}
+          E2E_WAVE_MARGIN_SECONDS: ${{ inputs.e2e_wave_margin_seconds }}
+          KEEP_E2E_DATA: ${{ inputs.keep_e2e_data }}
+        run: |
+          python scripts/ci/chamados_workflow_waves_e2e_staging.py
+
+      - name: Limpeza controlada de dados sintéticos do E2E
+        if: ${{ inputs.cleanup_e2e_ids != '' }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          E2E_CLEANUP_IDS: ${{ inputs.cleanup_e2e_ids }}
+        run: |
+          python scripts/ci/cleanup_chamados_workflow_e2e.py
 
       - name: Testes reais PostgreSQL (Staging)
         env:

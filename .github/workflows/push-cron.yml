@@ -53,3 +53,8 @@ jobs:
           echo "HTTP $status"
           cat /tmp/worker.out
           test "$status" = "200"
+
+      # O experimento #491 NÃO faz parte deste cron. O dispatcher da outbox de
+      # agendamento é acionado apenas pelo workflow manual de Staging
+      # (`staging-reminders-integration.yml`), nunca pelo agendamento que roda
+      # na main. Assim, o cron de produção não pode alcançar uma Preview.
