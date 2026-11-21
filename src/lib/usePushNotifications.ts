@@ -190,7 +190,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
    */
   useEffect(() => {
     const currentUser = user
-    const recoveryUserId = currentUser?.id
+    const recoveryUserId: string = currentUser?.id ?? ''
     if (!recoveryUserId || !('serviceWorker' in navigator) || !('PushManager' in window)) return
     if (isIOSSafari() && !isStandalone()) return
 
