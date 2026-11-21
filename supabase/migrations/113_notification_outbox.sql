@@ -33,6 +33,10 @@ CREATE INDEX IF NOT EXISTS idx_notification_outbox_queued_recovery
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_status_updated
   ON public.notification_outbox (status, updated_at);
 
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_processing_lease
+  ON public.notification_outbox (lock_expires_at)
+  WHERE status = 'processing';
+
 ALTER TABLE public.notification_outbox ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notification_outbox FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.notification_outbox FROM PUBLIC, anon, authenticated;
@@ -65,6 +69,67 @@ BEGIN
   RETURN v_inserted = 1;
 END;
 $$;
+
+-- Persiste a notificação in-app e seu evento de Push na MESMA transação.
+-- Evita a janela de falha entre inserir app_notifications e inserir o outbox.
+CREATE OR REPLACE FUNCTION public.notification_create_with_outbox(
+  p_notification jsonb,
+  p_payload jsonb
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_id text;
+  v_inserted integer;
+BEGIN
+  IF p_notification IS NULL
+     OR jsonb_typeof(p_notification) <> 'object'
+     OR p_payload IS NULL
+     OR jsonb_typeof(p_payload) <> 'object' THEN
+    RAISE EXCEPTION 'invalid notification payload';
+  END IF;
+
+  v_id := nullif(btrim(p_notification->>'id'), '');
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'notification id is required';
+  END IF;
+
+  INSERT INTO public.app_notifications (
+    id, workspace_id, title, body, type, severity, module, audience,
+    target_role, target_super_admin, target_user_id, action_url
+  ) VALUES (
+    v_id,
+    nullif(p_notification->>'workspace_id', '')::uuid,
+    coalesce(p_notification->>'title', ''),
+    coalesce(p_notification->>'body', ''),
+    coalesce(nullif(p_notification->>'type', ''), 'system'),
+    coalesce(nullif(p_notification->>'severity', ''), 'info'),
+    nullif(p_notification->>'module', ''),
+    nullif(p_notification->>'audience', ''),
+    nullif(p_notification->>'target_role', ''),
+    nullif(p_notification->>'target_super_admin', '')::boolean,
+    nullif(p_notification->>'target_user_id', '')::uuid,
+    coalesce(nullif(p_notification->>'action_url', ''), '/')
+  )
+  ON CONFLICT (id) DO NOTHING;
+
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+  IF v_inserted = 0 THEN
+    RETURN false;
+  END IF;
+
+  INSERT INTO public.notification_outbox (event_id, notification_id, payload)
+  VALUES ('app-notification:' || v_id, v_id, p_payload)
+  ON CONFLICT (event_id) DO NOTHING;
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.notification_create_with_outbox(jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.notification_create_with_outbox(jsonb, jsonb) TO service_role;
 
 -- Reserva eventos duráveis para publicação no Redis. Eventos queued antigos
 -- são republicados como recuperação caso o stream tenha perdido uma entrada.
