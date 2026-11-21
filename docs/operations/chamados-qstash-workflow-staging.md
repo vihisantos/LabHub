@@ -195,7 +195,11 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
   ser removidos com `cleanup_e2e_ids` no workflow manual ou com
   `scripts/ci/cleanup_chamados_workflow_e2e.py`. O script exige UUIDs canônicos,
   `SUPABASE_STAGING_ALLOWED_PROJECT_REFS` e slug `wf-e2e-`; nada é apagado se o
-  workspace não for sintético.
+  workspace não for sintético. Os dois conjuntos preservados nos runs
+  `44903817006` e `44904523055` foram removidos no run `44914443756` (2/2).
+- As migrations 119/120 foram aplicadas **somente em Staging** no run
+  `44914826872`, com dry-run prévio e preflight fail-closed. A variável
+  `LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED` foi confirmada como `false`.
 
 ## Evidências da validação (21/11/2026)
 
