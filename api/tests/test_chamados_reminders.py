@@ -760,6 +760,44 @@ def test_respeita_intervalo_de_dois_minutos_entre_lembretes(api_module, monkeypa
     assert len(sent) == 2
 
 
+def test_lembrete_escalona_texto_e_usa_tag_unica_por_onda(api_module, monkeypatch):
+    criado = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    ticket = _make_ticket(_tid(86), ws=WS_A, number=86, created_at=criado,
+                          updated_at=criado)
+    _fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
+    sub = {'key': 'qa', 'endpoint': 'https://push.example/qa', 'user': {'id': 'u-qa'}}
+    monkeypatch.setattr(api_module, '_target_subs', lambda **kw: [sub])
+    pushes = []
+
+    def record_push(subscription, title, body, **kwargs):
+        pushes.append({'title': title, 'body': body, **kwargs})
+        return True
+
+    monkeypatch.setattr(api_module, 'push_notify', record_push)
+    for wave in range(1, 7):
+        result = api_module._check_and_send_reminders()
+        assert result['sent'] == 1
+        assert pushes[-1]['module'] == 'chamados'
+        assert pushes[-1]['tag'].endswith(f':wave:{wave}')
+        assert pushes[-1]['title'] == 'Chamado #86 sem responsável'
+        if wave == 1:
+            assert 'ainda sem técnico' in pushes[-1]['body']
+        elif wave == 2:
+            assert 'Atenção' in pushes[-1]['body']
+        elif wave == 3:
+            assert 'URGENTE' in pushes[-1]['body']
+        elif wave == 6:
+            assert 'CRÍTICO' in pushes[-1]['body']
+        state_key = f'chamado:reminder:state:{ticket["id"]}'
+        state = json.loads(fake_redis.get(state_key))
+        state['last_reminder_at'] = (
+            datetime.now(timezone.utc) - timedelta(minutes=3)
+        ).isoformat()
+        fake_redis.setex(state_key, 7 * 24 * 3600, json.dumps(state))
+
+    assert len({push['tag'] for push in pushes}) == 6
+
+
 def test_chamado_assumido_interrompe_lembretes(api_module, monkeypatch):
     ticket = _make_ticket(_tid(5), ws=WS_A, number=14, assigned_to_user_id='tec-1')
     fake_db, fake_redis = _env(api_module, monkeypatch, [ticket])
