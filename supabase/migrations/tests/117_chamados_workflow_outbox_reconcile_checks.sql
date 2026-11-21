@@ -35,21 +35,20 @@ BEGIN
     RAISE EXCEPTION '117 FAIL: segundo tick não foi bloqueado';
   END IF;
 
-  -- Somente chamados abertos, sem responsável e dentro da janela.
-  SELECT count(*) INTO v_rows
+  -- Somente chamados abertos, sem responsável e dentro da janela. A consulta
+  -- única evita consumir o cursor de paginação introduzido pela migration 119.
+  SELECT count(*), bool_or(ticket_id = v_open AND workspace_id = v_workspace)
+  INTO v_rows, v_found
   FROM public.chamados_workflow_outbox_reconcile_candidates(1440, 20);
-  IF v_rows <> 1 THEN
-    RAISE EXCEPTION '117 FAIL: candidatos esperados=1, obtidos=%', v_rows;
-  END IF;
-  SELECT EXISTS (
-    SELECT 1 FROM public.chamados_workflow_outbox_reconcile_candidates(1440, 20)
-    WHERE ticket_id = v_open AND workspace_id = v_workspace
-  ) INTO v_found;
-  IF v_found IS NOT TRUE THEN
-    RAISE EXCEPTION '117 FAIL: chamado elegível não foi candidato';
+  IF v_rows <> 1 OR v_found IS NOT TRUE THEN
+    RAISE EXCEPTION '117 FAIL: candidato elegível divergente (rows=%, found=%)', v_rows, v_found;
   END IF;
 
-  -- Limite aplicado no banco, sem varrer a tabela inteira.
+  -- Limite aplicado no banco, sem varrer a tabela inteira. O cursor já está
+  -- posicionado após a página anterior, então resetamos para medir o limite.
+  UPDATE public.chamados_workflow_reconcile_state
+  SET cursor_updated_at = NULL, cursor_ticket_id = NULL
+  WHERE singleton;
   SELECT count(*) INTO v_rows
   FROM public.chamados_workflow_outbox_reconcile_candidates(1440, 1);
   IF v_rows <> 1 THEN

@@ -48,6 +48,11 @@ on:
         required: true
         type: boolean
         default: false
+      apply_reconcile_priority_migration:
+        description: 'Registrar as migrations 119/120 (prioridade/paginação + índice) no Staging?'
+        required: true
+        type: boolean
+        default: false
       preview_dispatch_url:
         description: 'URL HTTPS do Preview para smoke do dispatch (vazio = nao testar)'
         required: false
@@ -62,6 +67,10 @@ on:
         required: true
         type: boolean
         default: false
+      cleanup_e2e_ids:
+        description: 'Limpar E2Es preservados: workspace:ticket:job[,workspace:ticket:job...]'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -241,6 +250,39 @@ jobs:
             --version 118 --filename 118_chamados_workflow_outbox_reconcile_contract.sql \
             --allowed-ref "$STAGING_PROJECT_REFS"
 
+      - name: Dry-run da migration 119 (read-only)
+        if: ${{ inputs.apply_reconcile_priority_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py --dry-run \
+            --version 119 --filename 119_chamados_workflow_outbox_reconcile_priority.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 119 no Staging (prioridade/paginação)
+        if: ${{ inputs.apply_reconcile_priority_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 119 --filename 119_chamados_workflow_outbox_reconcile_priority.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
+      - name: Aplicar migration 120 no Staging (contrato da 119)
+        if: ${{ inputs.apply_reconcile_priority_migration }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: |
+          python scripts/apply_staging_migration.py \
+            --version 120 --filename 120_chamados_workflow_outbox_reconcile_priority_contract.sql \
+            --allowed-ref "$STAGING_PROJECT_REFS"
+
       - name: Smoke do dispatch no Preview (somente Staging/Preview)
         if: ${{ inputs.preview_dispatch_url != '' }}
         env:
@@ -299,6 +341,16 @@ jobs:
           KEEP_E2E_DATA: ${{ inputs.keep_e2e_data }}
         run: |
           python scripts/ci/chamados_workflow_e2e_staging.py
+
+      - name: Limpeza controlada de dados sintéticos do E2E
+        if: ${{ inputs.cleanup_e2e_ids != '' }}
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          E2E_CLEANUP_IDS: ${{ inputs.cleanup_e2e_ids }}
+        run: |
+          python scripts/ci/cleanup_chamados_workflow_e2e.py
 
       - name: Testes reais PostgreSQL (Staging)
         env:

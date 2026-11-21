@@ -54,23 +54,7 @@ jobs:
           cat /tmp/worker.out
           test "$status" = "200"
 
-      # EXPERIMENTO #491: etapa independente e DESLIGADA por padrão.
-      # Não altera check-all nem o worker de notificações. Quando habilitado
-      # explicitamente no repositório, apenas drena a outbox de agendamento do
-      # Workflow de Chamados (migrations 115/116). Nenhum segredo novo.
-      - name: Publicar pendências do workflow de Chamados (opt-in)
-        if: ${{ vars.LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED == 'true' }}
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          WORKFLOW_DISPATCH_URL: ${{ vars.LABHUB_CHAMADOS_WORKFLOW_DISPATCH_URL }}
-          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-        run: |
-          test -n "$WORKFLOW_DISPATCH_URL" || { echo "URL de dispatch não configurada"; exit 1; }
-          status=$(curl -sS -o /tmp/workflow_dispatch.out -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            -H "x-vercel-protection-bypass: ${VERCEL_BYPASS_SECRET}" \
-            "$WORKFLOW_DISPATCH_URL")
-          echo "HTTP $status"
-          cat /tmp/workflow_dispatch.out
-          test "$status" = "200"
+      # O experimento #491 NÃO faz parte deste cron. O dispatcher da outbox de
+      # agendamento é acionado apenas pelo workflow manual de Staging
+      # (`staging-reminders-integration.yml`), nunca pelo agendamento que roda
+      # na main. Assim, o cron de produção não pode alcançar uma Preview.
