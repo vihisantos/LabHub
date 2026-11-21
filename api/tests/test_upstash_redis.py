@@ -121,3 +121,91 @@ def test_xautoclaim_and_xack_commands(post):
     assert post.call_args.kwargs["json"] == [
         "XACK", "stream", "workers", "1730000000000-0",
     ]
+
+
+def make_http_error(status: int, error: str):
+    response = Mock()
+    response.status_code = status
+    response.json.return_value = {"error": error}
+    return response
+
+
+@patch.object(MODULE.requests, "post")
+def test_xgroup_create_sends_exact_arguments(post):
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {"result": "OK"}
+    post.return_value = response
+
+    assert make_client().xgroup_create(
+        "labhub:notifications:stream:v1", "labhub-notification-workers",
+        "0", mkstream=True,
+    ) == "OK"
+    assert post.call_args.kwargs["json"] == [
+        "XGROUP", "CREATE", "labhub:notifications:stream:v1",
+        "labhub-notification-workers", "0", "MKSTREAM",
+    ]
+
+
+@patch.object(MODULE.requests, "post")
+def test_http_400_busygroup_keeps_redis_error_message(post):
+    post.return_value = make_http_error(
+        400, "BUSYGROUP Consumer Group name already exists"
+    )
+
+    try:
+        make_client().xgroup_create("stream", "workers")
+    except MODULE.UpstashRedisError as exc:
+        assert "BUSYGROUP" in str(exc)
+    else:
+        raise AssertionError("BUSYGROUP must not be reported as a transport error")
+
+
+@patch.object(MODULE.requests, "post")
+def test_http_400_nogroup_is_not_treated_as_success(post):
+    post.return_value = make_http_error(400, "NOGROUP No such key 'stream' in database")
+
+    try:
+        make_client().xreadgroup("stream", "workers", "worker-a")
+    except MODULE.UpstashRedisError as exc:
+        assert "NOGROUP" in str(exc)
+    else:
+        raise AssertionError("NOGROUP must propagate")
+
+
+@patch.object(MODULE.requests, "post")
+def test_http_400_wrongtype_is_not_treated_as_success(post):
+    post.return_value = make_http_error(400, "WRONGTYPE Operation against a wrong kind of value")
+
+    try:
+        make_client().get("stream")
+    except MODULE.UpstashRedisError as exc:
+        assert "WRONGTYPE" in str(exc)
+    else:
+        raise AssertionError("WRONGTYPE must propagate")
+
+
+@patch.object(MODULE.requests, "post")
+def test_http_500_without_json_is_reported_as_invalid_response(post):
+    response = Mock()
+    response.status_code = 500
+    response.json.side_effect = ValueError("not json")
+    post.return_value = response
+
+    try:
+        make_client().get("stream")
+    except MODULE.UpstashRedisError as exc:
+        assert "HTTP 500" in str(exc)
+        assert "inválida" in str(exc)
+    else:
+        raise AssertionError("non-JSON HTTP response must fail closed")
+
+
+@patch.object(MODULE.requests, "post")
+def test_http_200_with_normal_result_is_unchanged(post):
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {"result": ["0-0", [], []]}
+    post.return_value = response
+
+    assert make_client().xautoclaim("stream", "workers", "worker-a") == ["0-0", [], []]

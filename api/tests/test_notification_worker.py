@@ -105,6 +105,61 @@ def test_notification_worker_route_fails_closed_without_cron_secret(
     assert response.status_code == 503
 
 
+def test_notification_worker_survives_busygroup_from_upstash(
+    worker_api_module, monkeypatch,
+):
+    client_path = (
+        Path(__file__).resolve().parents[2]
+        / "src" / "apps" / "reservalab" / "api" / "upstash_redis.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "upstash_redis_for_worker_busygroup", client_path
+    )
+    client_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(client_module)
+
+    def fake_post(url, **kwargs):
+        command = kwargs.get("json") or []
+        name = command[0] if command else ""
+        response = Mock()
+        response.status_code = 200
+        if name == "XGROUP":
+            response.status_code = 400
+            response.json.return_value = {
+                "error": "BUSYGROUP Consumer Group name already exists"
+            }
+        elif name == "XAUTOCLAIM":
+            response.json.return_value = {"result": ["0-0", [], []]}
+        elif name == "XREADGROUP":
+            response.json.return_value = {"result": []}
+        else:
+            response.json.return_value = {"result": "OK"}
+        return response
+
+    monkeypatch.setattr(client_module.requests, "post", fake_post)
+    redis_client = client_module.UpstashRedis("https://example.upstash.io", "token")
+
+    outbox = Mock()
+    outbox.notification_outbox_claim_for_publish.return_value = []
+    outbox.notification_outbox_claim_event.return_value = None
+
+    monkeypatch.setenv("CRON_SECRET", "test-worker-secret")
+    monkeypatch.setattr(worker_api_module, "redis", redis_client)
+    monkeypatch.setattr(worker_api_module.pg_store, "is_configured", lambda: True)
+    monkeypatch.setattr(worker_api_module.pg_store, "store", outbox)
+
+    response = worker_api_module.app.test_client().post(
+        "/api/notifications/worker",
+        headers={"Authorization": "Bearer test-worker-secret"},
+        json={"publish_limit": 1, "consume_limit": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "ok"
+    assert response.get_json()["published"]["claimed"] == 0
+    assert response.get_json()["processed"]["fetched"] == 0
+
+
 def test_auth_notification_targets_user_without_product_module_rbac(
     worker_api_module, monkeypatch,
 ):

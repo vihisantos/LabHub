@@ -45,16 +45,38 @@ class UpstashRedis:
                 json=list(command),
                 timeout=self.timeout,
             )
-            response.raise_for_status()
-            payload = response.json()
         except requests.RequestException as exc:
             raise UpstashRedisError(f"falha de transporte no Upstash: {exc}") from exc
-        except ValueError as exc:
-            raise UpstashRedisError("resposta JSON inválida do Upstash") from exc
 
-        if not isinstance(payload, dict) or payload.get("error"):
-            message = payload.get("error", "resposta inválida") if isinstance(payload, dict) else "resposta inválida"
-            raise UpstashRedisError(f"comando Redis falhou: {str(message)[:200]}")
+        try:
+            status = int(response.status_code)
+        except (AttributeError, TypeError, ValueError):
+            # Mocks/legados sem status_code explícito são tratados como 200;
+            # em respostas reais o requests sempre fornece um inteiro.
+            status = 200
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise UpstashRedisError(
+                f"resposta inválida do Upstash (HTTP {status})"
+            ) from exc
+
+        # O Upstash devolve erros do Redis (BUSYGROUP, NOGROUP, WRONGTYPE,
+        # syntax error, ...) como HTTP 400 com {"error": "..."}. O corpo precisa
+        # ser lido antes de qualquer checagem de status, senão o detalhe se
+        # perde e o chamador não consegue tratar BUSYGROUP como grupo existente.
+        if isinstance(payload, dict) and payload.get("error"):
+            raise UpstashRedisError(
+                f"comando Redis falhou: {str(payload['error'])[:200]}"
+            )
+
+        if status >= 400:
+            raise UpstashRedisError(
+                f"falha de transporte no Upstash: HTTP {status}"
+            )
+
+        if not isinstance(payload, dict):
+            raise UpstashRedisError("resposta inválida do Upstash")
         return payload.get("result")
 
     def ping(self):

@@ -134,3 +134,43 @@ def test_process_batch_acknowledges_only_successful_handler_results():
     assert redis.xack.call_count == 2
     assert redis.xack.call_args_list[0].args[-1] == "1-0"
     assert redis.xack.call_args_list[1].args[-1] == "2-0"
+
+
+def _real_client_module():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "src" / "apps" / "reservalab" / "api" / "upstash_redis.py"
+    )
+    spec = importlib.util.spec_from_file_location("upstash_redis_for_queue_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _queue_with_http_error(monkeypatch, error):
+    client_module = _real_client_module()
+    response = Mock()
+    response.status_code = 400
+    response.json.return_value = {"error": error}
+    monkeypatch.setattr(client_module.requests, "post", lambda *args, **kwargs: response)
+    redis = client_module.UpstashRedis("https://example.upstash.io", "token")
+    return MODULE.NotificationQueue(redis), client_module
+
+
+def test_ensure_group_recognizes_busygroup_from_upstash_http_400(monkeypatch):
+    queue, _ = _queue_with_http_error(
+        monkeypatch, "BUSYGROUP Consumer Group name already exists"
+    )
+    assert queue.ensure_group() == "EXISTS"
+
+
+def test_ensure_group_propagates_nogroup_from_upstash_http_400(monkeypatch):
+    queue, client_module = _queue_with_http_error(
+        monkeypatch, "NOGROUP No such key 'labhub:notifications:stream:v1'"
+    )
+    try:
+        queue.ensure_group()
+    except client_module.UpstashRedisError as exc:
+        assert "NOGROUP" in str(exc)
+    else:
+        raise AssertionError("non-BUSYGROUP Redis errors must propagate")
