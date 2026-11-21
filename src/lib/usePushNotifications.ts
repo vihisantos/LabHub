@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { recoverMissingPushSubscription } from './pushRecovery'
 
 export interface PushNotifyChannelSettings {
   inapp?: boolean
@@ -180,6 +181,71 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps — `segmentationKey` cobre os campos usados
   }, [segmentationKey, subscribeUrl])
+
+  /**
+   * Browser pode perder a inscrição mesmo com Notification.permission=granted
+   * (ex.: limpeza de dados / atualização de service worker).
+   * Na abertura, foco, visibilidade ou aviso do SW, recupera sem novo prompt.
+   * Não recupera para visitantes sem sessão, permissões negadas ou iOS sem PWA.
+   */
+  useEffect(() => {
+    if (!user?.id || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    if (isIOSSafari() && !isStandalone()) return
+
+    let active = true
+
+    async function checkSubscription() {
+      if (document.visibilityState === 'hidden') return
+      const permission = Notification.permission
+      if (permission !== 'granted') {
+        if (active) setState((prev) => ({ ...prev, permission, subscribed: false }))
+        return
+      }
+      try {
+        const registration = await navigator.serviceWorker.ready
+        if (!active) return
+        const existing = await registration.pushManager.getSubscription()
+        if (!active) return
+        if (existing) {
+          setState((prev) => ({ ...prev, permission, subscribed: true }))
+          return
+        }
+
+        setState((prev) => ({ ...prev, permission, subscribed: false }))
+        const recovered = await recoverMissingPushSubscription(subscribeUrl, user, registration)
+        if (!active) return
+        setState((prev) => ({
+          ...prev,
+          permission: Notification.permission,
+          subscribed: recovered,
+        }))
+      } catch {
+        // Fail-closed: não confirmar inscrição sem persistência no backend.
+        if (active) setState((prev) => ({ ...prev, subscribed: false }))
+      }
+    }
+
+    const onFocus = () => { void checkSubscription() }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void checkSubscription()
+    }
+    const onWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'labhub:push-subscription-changed') void checkSubscription()
+    }
+
+    void checkSubscription()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    navigator.serviceWorker.addEventListener?.('message', onWorkerMessage)
+    return () => {
+      active = false
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      navigator.serviceWorker.removeEventListener?.('message', onWorkerMessage)
+    }
+    // Os campos de user são atualizados no snapshot quando a segmentação muda.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subscribeUrl, user?.id, segmentationKey])
 
   const subscribe = useCallback(async () => {
     if (state.supported === false) {
