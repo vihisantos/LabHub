@@ -54,7 +54,29 @@ jobs:
           cat /tmp/worker.out
           test "$status" = "200"
 
-      # O experimento #491 NÃO faz parte deste cron. O dispatcher da outbox de
-      # agendamento é acionado apenas pelo workflow manual de Staging
-      # (`staging-reminders-integration.yml`), nunca pelo agendamento que roda
-      # na main. Assim, o cron de produção não pode alcançar uma Preview.
+      # #491: despachar SOMENTE a outbox de PRODUÇÃO. Reaproveita o mesmo
+      # agendamento de 5 min, sem outro job/cron e sem acessar qualquer Preview.
+      # Antes da ativação do servidor a rota responde enabled=false (HTTP 200).
+      - name: Dispatch QStash Workflow de Chamados (Production)
+        if: ${{ !cancelled() }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          status=$(curl -sS --max-time 25 -o /tmp/chamados_dispatch.out -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bear ${CRON_SECRET}" \
+            "https://lab-hub-pi.vercel.app/api/chamados/workflow/outbox/dispatch")
+          echo "Dispatcher Chamados: HTTP $status"
+          test "$status" = "200"
+          python - <<'PY'
+          import json, sys
+          with open("/tmp/chamados_dispatch.out", encoding="utf-8") as f:
+              result = json.load(f)
+          if result.get("status") != "ok" or result.get("error") or result.get("reconcile_error"):
+              sys.exit("Dispatcher Chamados com erro (verifique logs de produção)")
+          print("enabled={enabled} claimed={claimed} published={published} retried={retried} dead={dead} reconciled={reconciled}".format(
+              **{k: result.get(k, 0) for k in (
+                  "enabled", "claimed", "published", "retried", "dead", "reconciled"
+              )}
+          ))
+          PY
