@@ -60,7 +60,33 @@ O importador:
 * valida FKs e quarentena linhas sem ticket/workspace no destino;
 * preserva payload e endpoint das inscrições e o token das marcas de dedup;
 * calcula `expires_at` com `clock_timestamp() + TTL restante`;
-* recusa qualquer ref que não seja o Staging autorizado, inclusive os refs de produção.
+* recusa, no alvo `staging`, qualquer ref que não seja o Staging autorizado.
+
+### Procedimento em Produção (manual, antes do merge da #487)
+
+O importador não faz parte do CI/CD. Para não perder inscrições, a ordem é:
+exportar Redis (somente leitura), validar o dry-run em Produção, aplicar a
+importação, conferir o relatório de contagens e **só então** mergear a #487.
+As chaves Redis não são apagadas, então a operação é reversível.
+
+```bash
+export SUPABASE_PRODUCTION_PROJECT_REF='...'
+export SUPABASE_PRODUCTION_ACCESS_TOKEN='...'
+export SUPABASE_PRODUCTION_ALLOWED_PROJECT_REFS='...'
+python scripts/migrate/redis_import.py \
+  --snapshot /tmp/redis-snapshot.json --report /tmp/import-prod.json \
+  --target production
+python scripts/migrate/redis_import.py \
+  --snapshot /tmp/redis-snapshot.json --report /tmp/import-prod.json \
+  --target production --apply
+```
+
+`--apply` em produção exige `LABHUB_CONFIRM_PRODUCTION_IMPORT=APPLY_PRODUCTION`.
+O comando falha antes de qualquer chamada se a confirmação ou a allowlist
+estiverem ausentes, se o snapshot estiver marcado como instável, ou se o ref
+de Staging for usado como destino de produção. O relatório traz
+`source_counts`, `plan_counts`, `destination_counts_before/after`, `inserted`
+e `divergences` — todos sem tokens ou endpoints.
 
 ## Evidência de que a origem permaneceu intacta
 

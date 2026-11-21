@@ -1,9 +1,14 @@
-"""Importador idempotente do snapshot Redis -> PostgreSQL (somente Staging).
+"""Importador idempotente do snapshot Redis -> PostgreSQL.
 
-O destino é fail-closed: exige SUPABASE_STAGING_PROJECT_REF igual ao projeto
-de Staging autorizado, token de acesso e allowlist compatível. Nenhum segredo
-é logado. Por padrão o script é dry-run; ``--apply`` é obrigatório para
-escrever. Nenhuma chave Redis é apagada ou modificada.
+Staging é o destino padrão e usa exclusivamente as variáveis
+``SUPABASE_STAGING_*``. Produção é opt-in via ``--target production`` e exige
+variáveis ``SUPABASE_PRODUCTION_*`` próprias, allowlist explícita e a
+confirmação ``LABHUB_CONFIRM_PRODUCTION_IMPORT=APPLY_PRODUCTION`` quando
+``--apply`` é usado. Nenhuma credencial é logada, nenhuma chave Redis é
+apagada ou modificada e o padrão continua sendo dry-run.
+
+Este script é uma etapa operacional FORA do CI/CD: o workflow de migrations
+continua aplicando DDL automaticamente após o merge na main.
 """
 from __future__ import annotations
 
@@ -60,6 +65,11 @@ FORBIDDEN_REFS = frozenset({
     "hvqxantwqwarqhymnyqb",
     "obskpmnphevpaexooldg",
 })
+TARGET_STAGING = "staging"
+TARGET_PRODUCTION = "production"
+TARGETS = (TARGET_STAGING, TARGET_PRODUCTION)
+ENV_CONFIRM = "LABHUB_CONFIRM_PRODUCTION_IMPORT"
+CONFIRM_VALUE = "APPLY_PRODUCTION"
 REF_RE = re.compile(r"^[a-z0-9]{20}$")
 _BATCH = 200
 
@@ -68,21 +78,38 @@ class DestinationError(RuntimeError):
     """Destino não autorizado ou contrato ausente — nenhuma escrita ocorreu."""
 
 
-def resolve_destination() -> tuple[str, str]:
-    ref = os.environ.get("SUPABASE_STAGING_PROJECT_REF", "").strip()
-    token = os.environ.get("SUPABASE_STAGING_ACCESS_TOKEN", "").strip()
-    raw_allowed = os.environ.get("SUPABASE_STAGING_ALLOWED_PROJECT_REFS", "").strip()
-    allowed = {r.strip() for r in raw_allowed.split(",") if r.strip()} if raw_allowed else {STAGING_REF}
+def resolve_destination(target: str = TARGET_STAGING) -> tuple[str, str, str]:
+    """Resolve (ref, token, target) sem misturar variáveis de Staging e Produção."""
+    resolved = (target or TARGET_STAGING).strip().lower()
+    if resolved not in TARGETS:
+        raise DestinationError("alvo desconhecido; use 'staging' ou 'production'")
+
+    prefix = "SUPABASE_STAGING_" if resolved == TARGET_STAGING else "SUPABASE_PRODUCTION_"
+    ref = os.environ.get(prefix + "PROJECT_REF", "").strip()
+    token = os.environ.get(prefix + "ACCESS_TOKEN", "").strip()
+    raw_allowed = os.environ.get(prefix + "ALLOWED_PROJECT_REFS", "").strip()
+    allowed = {r.strip() for r in raw_allowed.split(",") if r.strip()} if raw_allowed else set()
 
     if not REF_RE.fullmatch(ref):
-        raise DestinationError("SUPABASE_STAGING_PROJECT_REF inválido")
-    if ref in FORBIDDEN_REFS:
-        raise DestinationError("projeto de produção/legado recusado pelo importador")
-    if ref != STAGING_REF or ref not in allowed:
-        raise DestinationError("ref de destino divergente do Staging autorizado")
+        raise DestinationError(prefix + "PROJECT_REF inválido")
+
+    if resolved == TARGET_STAGING:
+        # Comportamento histórico preservado: allowlist vazia significa o ref
+        # fixo de Staging, e nenhum ref de produção/legado é aceito aqui.
+        allowed = allowed or {STAGING_REF}
+        if ref in FORBIDDEN_REFS or ref != STAGING_REF or ref not in allowed:
+            raise DestinationError("ref de destino divergente do Staging autorizado")
+    else:
+        if not allowed:
+            raise DestinationError(prefix + "ALLOWED_PROJECT_REFS obrigatório em produção")
+        if ref not in allowed:
+            raise DestinationError("ref de produção fora da allowlist explícita")
+        if ref == STAGING_REF:
+            raise DestinationError("ref de Staging recusado como destino de produção")
+
     if not token:
-        raise DestinationError("SUPABASE_STAGING_ACCESS_TOKEN ausente")
-    return ref, token
+        raise DestinationError(prefix + "ACCESS_TOKEN ausente")
+    return ref, token, resolved
 
 
 def _rows(api: Any, sql: str) -> list[Mapping]:
@@ -175,10 +202,27 @@ def validate_fks(api: Any, plan: ImportPlan) -> ImportPlan:
     return plan
 
 
-def import_snapshot(snapshot: Snapshot, api: Any, *, apply: bool, ref: str) -> dict[str, Any]:
+def import_snapshot(
+    snapshot: Snapshot,
+    api: Any,
+    *,
+    apply: bool,
+    ref: str,
+    target: str = TARGET_STAGING,
+) -> dict[str, Any]:
     """Importa o snapshot e devolve relatório sem dados sensíveis."""
-    if ref != STAGING_REF or ref in FORBIDDEN_REFS:
-        raise DestinationError("destino recusado")
+    if target == TARGET_STAGING:
+        if ref != STAGING_REF or ref in FORBIDDEN_REFS:
+            raise DestinationError("destino recusado pelo alvo staging")
+    elif target == TARGET_PRODUCTION:
+        if ref == STAGING_REF:
+            raise DestinationError("destino de produção não pode ser o Staging")
+    else:
+        raise DestinationError("alvo desconhecido")
+
+    integrity = dict(snapshot.source_integrity or {})
+    if integrity and apply and integrity.get("stable") is not True:
+        raise DestinationError("snapshot de origem instável; reexportar com os crons parados")
 
     _check_tables(api)
     plan = validate_fks(api, build_import_plan(snapshot))
@@ -249,13 +293,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot", required=True, help="JSON gerado por redis_export.py")
     parser.add_argument("--report", help="onde gravar o relatório JSON (0600)")
     parser.add_argument("--apply", action="store_true", help="executa a importação (sem isso é dry-run)")
+    parser.add_argument(
+        "--target",
+        choices=TARGETS,
+        default=TARGET_STAGING,
+        help="destino: staging (padrão) ou production (exige variáveis próprias e confirmação)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        ref, token = resolve_destination()
+        ref, token, target = resolve_destination(args.target)
+        if args.apply and target == TARGET_PRODUCTION:
+            if os.environ.get(ENV_CONFIRM, "").strip() != CONFIRM_VALUE:
+                raise DestinationError(
+                    f"{ENV_CONFIRM}={CONFIRM_VALUE} é obrigatório para --apply em produção"
+                )
         snapshot = load_snapshot(Path(args.snapshot))
         api = ManagementAPI(project_ref=ref, access_token=token)
-        report = import_snapshot(snapshot, api, apply=args.apply, ref=ref)
+        report = import_snapshot(snapshot, api, apply=args.apply, ref=ref, target=target)
         if args.report:
             write_report(report, Path(args.report))
     except Exception as exc:
@@ -265,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "Importação "
         + ("aplicada" if report["applied"] else "em dry-run")
-        + f" em {ref}: "
+        + f" em {target}/{ref}: "
         + " ".join(f"{k}={v}" for k, v in report["plan_counts"].items())
     )
     print(f"Divergências: {len(report['divergences'])}")
