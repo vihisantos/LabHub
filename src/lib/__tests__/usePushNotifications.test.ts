@@ -18,6 +18,9 @@ const mockRegistration = {
 }
 
 beforeEach(() => {
+  // O setup global habilita fake timers. Os testes deste hook exercitam
+  // Promises, waitFor e eventos de foco/visibilidade: precisam de timers reais.
+  vi.useRealTimers()
   recoveryGetSession.mockResolvedValue({ data: { session: { access_token: 'jwt-hook-test' } } })
   mockGetSubscription.mockResolvedValue(null)
   mockSubscribe.mockResolvedValue({
