@@ -184,7 +184,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
   const subscribe = useCallback(async () => {
     if (state.supported === false) {
       setState((s) => ({ ...s, error: 'Push não suportado' }))
-      return
+      return false
     }
 
     setState((s) => ({ ...s, loading: true, error: null }))
@@ -193,7 +193,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
       const permission = await Notification.requestPermission()
       if (permission !== 'granted') {
         setState((s) => ({ ...s, permission, loading: false, subscribed: false }))
-        return
+        return false
       }
 
       const registration = await ensureSw()
@@ -205,7 +205,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
         if (!vapidKey) {
           setState((s) => ({ ...s, loading: false, error: 'VAPID key não configurada' }))
-          return
+          return false
         }
 
         subscription = await registration.pushManager.subscribe({
@@ -247,12 +247,14 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         loading: false,
         error: null,
       }))
+      return true
     } catch (err) {
       setState((s) => ({
         ...s,
         loading: false,
         error: err instanceof Error ? err.message : 'Erro ao ativar notificações',
       }))
+      return false
     }
   }, [subscribeUrl, user, state.supported])
 
