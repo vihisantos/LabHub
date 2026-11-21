@@ -91,6 +91,27 @@ BEGIN
     RAISE EXCEPTION '119 FAIL: segundo lote incorreto: ids=% count=%', v_ids, v_count;
   END IF;
 
+  -- Enfileira o segundo lote para provar que a varredura termina sem repetir.
+  SELECT public.chamados_workflow_sha256_hex(
+    t.id::text || ':' || t."workspace_id"::text || ':'
+    || to_char(t."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
+    || ':{"assignedToUserId": "", "status": "aberto"}'
+  ) INTO v_cycle
+  FROM public.chamados_tickets AS t WHERE t.id = v_third;
+  PERFORM public.chamados_workflow_outbox_enqueue(
+    gen_random_uuid(), v_third, v_workspace, v_cycle
+  );
+
+  SELECT public.chamados_workflow_sha256_hex(
+    t.id::text || ':' || t."workspace_id"::text || ':'
+    || to_char(t."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
+    || ':{"assignedToUserId": "", "status": "aberto"}'
+  ) INTO v_cycle
+  FROM public.chamados_tickets AS t WHERE t.id = v_new;
+  PERFORM public.chamados_workflow_outbox_enqueue(
+    gen_random_uuid(), v_new, v_workspace, v_cycle
+  );
+
   -- Fim da varredura: nenhum candidato se repete.
   SELECT count(*) INTO v_count
   FROM public.chamados_workflow_outbox_reconcile_candidates(1440, 2);
