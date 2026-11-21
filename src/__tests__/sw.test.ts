@@ -84,12 +84,45 @@ describe('sw.ts — push handler', () => {
     handler(event)
 
     expect(fakeSelf.registration.showNotification).toHaveBeenCalledWith(
-      'Chamado #42',
+      '🚨 Chamados · Chamado #42',
       expect.objectContaining({
         body: 'Sala 101 · Internet',
         data: { url: '/chamados-publico/success/t-1', userId: null },
       }),
     )
+  })
+
+  it('separa módulos por título e preserva notificações independentes', async () => {
+    const handler = listeners['push']?.[0]
+    handler(makePushEvent({ title: 'Novo chamado #51', url: '/chamados/tickets/51' }))
+    handler(makePushEvent({ title: 'Reserva confirmada', module: 'reservalab', url: '/reservas' }))
+    handler(makePushEvent({ title: 'Estoque baixo', module: 'stock', url: '/general-stock' }))
+    handler(makePushEvent({ title: 'Manutenção agendada', module: 'pc-care', url: '/pc-care' }))
+
+    const calls = fakeSelf.registration.showNotification.mock.calls
+    expect(calls.map(([title]) => title)).toEqual([
+      '🚨 Chamados · Novo chamado #51',
+      '📅 ReservaLab · Reserva confirmada',
+      '📦 Estoque · Estoque baixo',
+      '🖥️ PC Care · Manutenção agendada',
+    ])
+    for (const [, options] of calls) {
+      expect(options.tag).toBeUndefined()
+      expect(options.renotify).toBeUndefined()
+    }
+  })
+
+  it('preserva cada onda do mesmo chamado, sem sobrescrever outras ondas', async () => {
+    const handler = listeners['push']?.[0]
+    const base = { title: 'Chamado #51 sem responsável', module: 'chamados', url: '/chamados/tickets/51' }
+    handler(makePushEvent({ ...base, tag: 'chamados:51:wave:1' }))
+    handler(makePushEvent({ ...base, tag: 'chamados:51:wave:2' }))
+
+    const calls = fakeSelf.registration.showNotification.mock.calls
+    expect(calls[0][1].tag).toBe('chamados:51:wave:1')
+    expect(calls[1][1].tag).toBe('chamados:51:wave:2')
+    expect(calls[0][1].renotify).toBe(true)
+    expect(calls[1][1].renotify).toBe(true)
   })
 
   it('usa title fallback "LabHub" quando title não existe', async () => {
