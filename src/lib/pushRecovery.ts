@@ -10,13 +10,17 @@ import type { PushUserInfo } from './usePushNotifications'
 const RECOVERY_BACKOFF_MS = 15_000
 const MAX_RECOVERY_ATTEMPTS = 3
 
-type RecoveryState = { attempts: number; lastAttempt: number; inFlight: Promise<boolean> | null }
+type RecoveryState = { attempts: number; lastAttempt: number; needsSync: boolean; inFlight: Promise<boolean> | null }
 const recoveries = new Map<string, RecoveryState>()
 
 function vapidBytes(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+}
+
+export function hasPendingPushRecovery(subscribeUrl: string, userId: string): boolean {
+  return recoveries.get(JSON.stringify([userId, subscribeUrl]))?.needsSync === true
 }
 
 export async function recoverMissingPushSubscription(
@@ -29,7 +33,7 @@ export async function recoverMissingPushSubscription(
   const key = JSON.stringify([user.id, subscribeUrl])
   let state = recoveries.get(key)
   if (!state) {
-    state = { attempts: 0, lastAttempt: 0, inFlight: null }
+    state = { attempts: 0, lastAttempt: 0, needsSync: false, inFlight: null }
     recoveries.set(key, state)
   }
   if (state.inFlight) return state.inFlight
@@ -38,8 +42,8 @@ export async function recoverMissingPushSubscription(
 
   const attempt = async () => {
     // Outra montagem pode ter recuperado esta mesma inscrição.
-    const existing = await registration.pushManager.getSubscription()
-    if (existing) return true
+    let subscription = await registration.pushManager.getSubscription()
+    if (subscription && !state.needsSync) return true
 
     // Nunca criar uma inscrição sem sessão: /api/push/subscribe exige JWT.
     const { defaultDb } = await import('./supabase')
@@ -48,13 +52,17 @@ export async function recoverMissingPushSubscription(
     if (!token) throw new Error('Sessão indisponível para recuperar notificações')
     if (Notification.permission !== 'granted') return false
 
-    const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
-    if (!vapidKey) throw new Error('VAPID não configurado')
-
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: vapidBytes(vapidKey) as unknown as string,
-    })
+    if (!subscription) {
+      const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+      if (!vapidKey) throw new Error('VAPID não configurado')
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidBytes(vapidKey) as unknown as string,
+      })
+      // Se o POST falhar, a inscrição existe no browser mas não no servidor.
+      // Guardamos esta pendência para retentar o POST no próximo foco.
+      state.needsSync = true
+    }
     const response = await fetch(subscribeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -63,6 +71,8 @@ export async function recoverMissingPushSubscription(
     if (!response.ok) {
       throw new Error(`Falha ao sincronizar inscrição Push (HTTP ${response.status})`)
     }
+    state.needsSync = false
+    state.attempts = 0
     return true
   }
 
