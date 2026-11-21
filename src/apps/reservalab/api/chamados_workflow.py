@@ -105,19 +105,25 @@ def _config() -> dict:
             or parsed.password or parsed.query or parsed.fragment
             or parsed.path != WORKFLOW_PATH):
         raise ValueError("URL pública HTTPS do workflow não configurada corretamente")
-    keys = ("QSTASH_TOKEN", "QSTASH_CURRENT_SIGNING_KEY", "QSTASH_NEXT_SIGNING_KEY",
-            VERCEL_BYPASS_ENV)
+    environment = os.environ.get("VERCEL_ENV", "").strip()
+    if environment == "production" and parsed.hostname != "lab-hub-pi.vercel.app":
+        raise ValueError("Workflow de produção deve usar o domínio oficial")
+    # Deployment Protection exige bypass apenas na Preview. Produção é
+    # alcançada pelo domínio oficial público; inventar um bypass de produção
+    # impediria o endpoint de ser registrado e o dispatcher de funcionar.
+    keys = ["QSTASH_TOKEN", "QSTASH_CURRENT_SIGNING_KEY", "QSTASH_NEXT_SIGNING_KEY"]
+    if environment != "production":
+        keys.append(VERCEL_BYPASS_ENV)
     config = {"url": url}
     for key in keys:
         value = os.environ.get(key, "").strip()
         if not value:
             raise ValueError(f"{key} ausente")
         config[key] = value
-    bypass = config[VERCEL_BYPASS_ENV]
-    if len(bypass) < 16 or len(bypass) > 256 or any(ch.isspace() for ch in bypass):
-        raise ValueError("bypass de automação inválido")
-    # A URL permanece LIMPA: o segredo trafega apenas no header encaminhado
-    # pelo QStash. Nunca é derivado de Host/request, logado ou devolvido.
+    if environment != "production":
+        bypass = config[VERCEL_BYPASS_ENV]
+        if len(bypass) < 16 or len(bypass) > 256 or any(ch.isspace() for ch in bypass):
+            raise ValueError("bypass de automação inválido")
     return config
 
 
@@ -379,52 +385,45 @@ def release(job_id: str, lock_token: str, error_class: str, *, rpc=None) -> str:
 
 
 def _qstash_client(config: dict):
-    """Cliente QStash com o bypass injetado em TODA mensagem enviada.
+    """Cliente QStash com timeouts e bypass restrito a Preview protegida.
 
-    O prefixo `Upstash-Forward-` é o mecanismo oficial da SDK para encaminhar
-    headers ao destino. A injeção precisa acontecer em DOIS níveis:
-
-    1. headers da chamada à API QStash (publicação individual);
-    2. headers de CADA mensagem de `/v2/batch` (steps e `context.sleep`).
-
-    O QStash NÃO replica headers de nível de requisição para as mensagens de um
-    batch. Sem o item 2, a publicação inicial chega à Preview, mas a retomada
-    agendada volta sem o bypass e nunca atinge a rota assinada.
+    Produção usa o domínio oficial sem Deployment Protection, portanto NÃO
+    pode injetar um header de bypass. Em Preview, a proteção exige o header
+    tanto no publish individual quanto em cada mensagem de /v2/batch
+    (context.sleep e demais retomadas).
     """
     from qstash import QStash
     import httpx
 
-    class _PreviewBypassQStash(QStash):
-        pass
+    client = QStash(token=config["QSTASH_TOKEN"], retry=False)
+    bypass = config.get(VERCEL_BYPASS_ENV)
+    if bypass:
+        original_request = client.http.request
+        forwarded = QSTASH_FORWARD_PREFIX + VERCEL_BYPASS_HEADER
 
-    client = _PreviewBypassQStash(token=config["QSTASH_TOKEN"], retry=False)
-    original_request = client.http.request
-    forwarded = QSTASH_FORWARD_PREFIX + VERCEL_BYPASS_HEADER
-    bypass = config[VERCEL_BYPASS_ENV]
+        def request_with_bypass(*args, **kwargs):
+            headers = dict(kwargs.get("headers") or {})
+            headers[forwarded] = bypass
+            kwargs["headers"] = headers
+            if str(kwargs.get("path", "")).startswith("/v2/batch") and kwargs.get("body"):
+                try:
+                    batch = json.loads(kwargs["body"])
+                    if not isinstance(batch, list):
+                        raise ValueError("batch não é uma lista")
+                    for message in batch:
+                        if not isinstance(message, dict):
+                            raise ValueError("mensagem de batch inválida")
+                        message_headers = dict(message.get("headers") or {})
+                        message_headers[forwarded] = bypass
+                        message["headers"] = message_headers
+                    kwargs["body"] = json.dumps(batch)
+                except (TypeError, ValueError) as exc:
+                    # A Preview não pode deixar passos sem bypass.
+                    raise ValueError("corpo de batch QStash inesperado") from exc
+            return original_request(*args, **kwargs)
 
-    def request_with_bypass(*args, **kwargs):
-        headers = dict(kwargs.get("headers") or {})
-        headers[forwarded] = bypass
-        kwargs["headers"] = headers
-        if str(kwargs.get("path", "")).startswith("/v2/batch") and kwargs.get("body"):
-            try:
-                batch = json.loads(kwargs["body"])
-                if not isinstance(batch, list):
-                    raise ValueError("batch não é uma lista")
-                for message in batch:
-                    if not isinstance(message, dict):
-                        raise ValueError("mensagem de batch inválida")
-                    message_headers = dict(message.get("headers") or {})
-                    message_headers[forwarded] = bypass
-                    message["headers"] = message_headers
-                kwargs["body"] = json.dumps(batch)
-            except (TypeError, ValueError) as exc:
-                # Fail-closed: nunca publicar uma mensagem de workflow sem o
-                # bypass, sob pena de abandonar a retomada na Preview protegida.
-                raise ValueError("corpo de batch QStash inesperado") from exc
-        return original_request(*args, **kwargs)
+        client.http.request = request_with_bypass
 
-    client.http.request = request_with_bypass
     # A SDK usa 600s por padrão; o dispatcher precisa devolver rápido.
     client.http._client = httpx.Client(
         timeout=httpx.Timeout(
@@ -537,9 +536,10 @@ def register(app, process_one, *, interval_seconds: int, current_job_fn=None) ->
 
     # Redação defensiva: mesmo que alguma lib inclua o header em uma exceção,
     # o valor nunca aparece em log. A URL continua sem query parameter.
-    redactor = _RedactBypassFilter(config[VERCEL_BYPASS_ENV])
-    logging.getLogger().addFilter(redactor)
-    logging.getLogger("werkzeug").addFilter(redactor)
+    if config.get(VERCEL_BYPASS_ENV):
+        redactor = _RedactBypassFilter(config[VERCEL_BYPASS_ENV])
+        logging.getLogger().addFilter(redactor)
+        logging.getLogger("werkzeug").addFilter(redactor)
 
     # `Serve.route` (upstash-workflow 2.0.0) não expõe `redact`; o payload já
     # contém somente UUIDs, e a publicação usa `redact={"body": True}` no
