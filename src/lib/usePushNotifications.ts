@@ -190,7 +190,8 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
    */
   useEffect(() => {
     const currentUser = user
-    if (!currentUser?.id || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    const recoveryUserId = currentUser?.id
+    if (!recoveryUserId || !('serviceWorker' in navigator) || !('PushManager' in window)) return
     if (isIOSSafari() && !isStandalone()) return
 
     let active = true
@@ -207,7 +208,7 @@ export function usePushNotifications(subscribeUrl = '/api/push/subscribe', user?
         if (!active) return
         const existing = await registration.pushManager.getSubscription()
         if (!active) return
-        if (existing && !hasPendingPushRecovery(subscribeUrl, currentUser.id)) {
+        if (existing && !hasPendingPushRecovery(subscribeUrl, recoveryUserId)) {
           setState((prev) => ({ ...prev, permission, subscribed: true }))
           return
         }
