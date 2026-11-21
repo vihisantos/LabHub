@@ -83,10 +83,15 @@ LABHUB_CHAMADOS_WORKFLOW_DISPATCH_URL=https://<preview>/api/chamados/workflow/ou
 O Supabase usado na Preview deve ser **Staging**
 (`pgmetdqsdjotdcifjivu`). Confirme isso antes de qualquer teste real. URLs de
 outros projetos são rejeitadas pelo script de smoke. Gere uma **nova Preview**
-depois de cadastrar os segredos: Previews antigas não os recebem. Em previews
-com Deployment Protection, configure bypass restrito e validado para o QStash
-e para o cron; nunca exponha token de bypass em requisições de navegador.
-**Não habilitar a flag em Production.**
+depois de cadastrar os segredos: Previews antigas não os recebem.
+
+Com Deployment Protection ligado, o cron e o smoke enviam
+`x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET`. O valor vive
+apenas no secret do repositório e na variável `Preview` da branch no Vercel;
+nunca em browser, log ou payload do QStash. Antes de considerar o experimento
+pronto, valide também o caminho inverso (QStash -> Preview): o `Receiver` da SDK
+precisa continuar rejeitando assinaturas ausentes/inválidas mesmo com o bypass
+ativo. **Não habilitar a flag em Production.**
 
 ## Procedimento de validação
 

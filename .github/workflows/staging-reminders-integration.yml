@@ -197,6 +197,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           PREVIEW_DISPATCH_URL: ${{ inputs.preview_dispatch_url }}
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           python - <<'PY'
           import os, sys
@@ -213,6 +214,7 @@ jobs:
           status=$(curl -sS -o /tmp/chamados_workflow_dispatch.out -w "%{http_code}" \
             -X POST \
             -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "x-vercel-protection-bypass: ${VERCEL_BYPASS_SECRET}" \
             "$PREVIEW_DISPATCH_URL")
           echo "HTTP $status"
           cat /tmp/chamados_workflow_dispatch.out
