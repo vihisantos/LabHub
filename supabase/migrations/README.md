@@ -215,6 +215,9 @@ ambientes. A `000` é segura para rodar em produção (só cria o que falta).
 | 034 | `034_drop_legacy_rls_policies.sql` | DROP de 14 policies legadas que burlavam o isolamento |
 | 035 | `035_tracking_token.sql` | Chamados: credencial anônima `tracking_token_hash` (acesso limitado a um chamado) + índice único |
 | 102 | `102_schema_migrations_lockdown.sql` | Segurança: remove privilégios de clientes da tabela de histórico e habilita RLS deny-by-default; acesso somente pelo runner via Management API |
+| 111 | `111_chamado_reminder_postgres.sql` | Move estado/locks de lembretes, inscrições Push e deduplicação para PostgreSQL com RPCs transacionais e fencing |
+| 112 | `112_chamado_reminder_read_uninitialized.sql` | Trata estado inicial sem onda persistida como ausência de estado, sem confundir com corrupção |
+| 113 | `113_notification_outbox.sql` | Outbox durável para notificações, leases/fencing, publicação recuperável, retry limitado e dead-letter; RLS FORCE e service_role-only |
 
 > `tests/036_schema_migrations_checks.sql` valida a tabela de histórico
 > do runner (não é uma migration de schema).
