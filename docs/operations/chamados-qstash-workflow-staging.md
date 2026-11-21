@@ -1,44 +1,63 @@
 # Experimento: Chamados por evento com QStash + Workflow (Staging)
 
-**Estado:** experimental, desabilitado por padrão. O cron de Push e o worker
-centralizado continuam inalterados. Nenhum envio depende deste experimento
-enquanto a flag estiver desligada.
+**Estado:** experimental, desabilitado por padrão. O cron de Push, o worker
+centralizado e as PRs #487/#489 continuam inalterados. Nenhum envio depende
+deste experimento enquanto a flag estiver desligada.
 
-## Por que
+## Arquitetura durável (revisão da PR #491)
 
-O agendamento de lembretes não deve consultar o conjunto inteiro de Chamados
-quando um único ticket acabou de abrir. O Workflow agenda até **3 checagens**
-individuais (2, 4 e 6 minutos após o disparo) usando o mesmo motor de locks
-e deduplicação PostgreSQL que já existe. Esses três checks são um MVP; **não
-substituem o limite legado de 10 ondas**, nem devem ser usados para desligar
-o cron enquanto não houver comparação de comportamento e volume.
+A versão anterior publicava no QStash **dentro da requisição HTTP** que abria
+ou reabria o chamado. Isso fazia o professor depender de uma chamada externa e
+perdia o agendamento silenciosamente se o QStash falhasse. A correção usa o
+PostgreSQL como fonte de verdade:
 
-O `/api/push/check-all` existente cuida de outros subsistemas
-(Reservas/PCare/Estoque/Tablets) e **não deve ser desativado**. O endpoint
-`/api/chamados/reminders/check` continua disponível, protegido por CRON_SECRET.
-O worker `/api/notifications/worker` mantém seu agendamento atual.
+1. A criação/reabertura grava um pedido na outbox **dedicada**
+   `public.chamados_workflow_outbox` (migrations **115/116**). Essa tabela não
+   é a `notification_outbox` das PRs #489 — nenhum evento de Push é lido ou
+   escrito aqui. A chave de dedup é `ticket_id + ciclo`; a primeira gravação
+   vence.
+2. Um dispatcher protegido por `CRON_SECRET` reclama um lote pequeno
+   (`FOR UPDATE SKIP LOCKED`), publica no QStash com `deduplication_id`
+   estável por job e confirma a linha. Falhas voltam para `pending` com backoff
+   exponencial limitado (15 s, 30 s, 60 s, 120 s, 300 s); após 5 tentativas a
+   linha vira `dead`, sem apagar nada. Nenhuma chamada externa acontece no
+   request do professor.
+3. O Workflow recebe **somente UUIDs** (`ticket_id`, `workspace_id`, `job_id`)
+   e revalida o ciclo vigente no PostgreSQL a cada onda. Um job antigo (ex.:
+   Workflow de antes de uma reabertura/troca de responsável) termina sem
+   lock, marcação ou Push.
+4. A checagem de erro do `process_one()` acontece **dentro** da função
+   executada por `context.run()`. Validar depois gravaria a etapa com erro
+   como sucesso na SDK oficial (comprovado com `upstash-workflow==2.0.0`).
+
+O MVP continua com **3 checagens** (2, 4 e 6 minutos após o disparo). Isso
+**não substitui as 10 ondas legadas** e o cron atual não é removido.
 
 ## Escopo técnico
 
-- Criação pública após o INSERT bem-sucedido: agendar se `aberto` e sem
+- Criação pública após o INSERT bem-sucedido: enfileirar se `aberto` e sem
   `assignedToUserId`.
-- PATCH que realmente reabre o chamado ou remove seu responsável: agendar
+- PATCH que realmente reabre o chamado ou remove seu responsável: enfileirar
   quando resultar em `aberto` sem responsável.
-- Payload QStash: somente `ticket_id` e `workspace_id`, ambos UUIDs
-  canônicos. Nenhum token de acompanhamento, nome, email ou descrição.
-- O destino é exclusivamente `LABHUB_CHAMADOS_WORKFLOW_URL`, definido no
-  servidor e validado como HTTPS; nada vem do Host ou da requisição do cliente.
-- Endpoint `/api/chamados/reminders/workflow`: registrado somente se a flag
-  e as credenciais estiverem presentes, com assinatura QStash verificada
-  por `Receiver` (chaves atual e próxima).
-- A cada onda: consulta de somente **um ticket do workspace esperado**;
-  reaproveita histórico, autorização de destinatários, locks, marcação e
-  dedup existentes do PostgreSQL.
-- Se o ticket for assumido, fechado ou removido, a consulta retorna zero
-  candidatos e o Workflow encerra. No caso de falha transitória, a etapa
-  sinaliza erro para as retentativas controladas do Workflow.
-- Falha ao agendar não falha a criação/PATCH do chamado: o log contém somente
-  a classe da exceção (nenhum segredo).
+- Payload QStash: somente os três UUIDs canônicos acima. Nenhum token de
+  acompanhamento, nome, e-mail, descrição ou segredo. Corpo marcado com
+  `redact={"body": True}` na publicação.
+- Destino exclusivo: `LABHUB_CHAMADOS_WORKFLOW_URL` (HTTPS, caminho exato) ou,
+  em Preview, `VERCEL_URL` fornecida pela plataforma. Nunca Host/headers do
+  cliente.
+- Endpoint `/api/chamados/reminders/workflow`: registrado somente se a flag e
+  as credenciais estiverem presentes, com assinatura verificada pelo `Receiver`
+  real (chaves atual e próxima).
+- Endpoint `/api/chamados/workflow/outbox/dispatch`: `POST`, protegido por
+  `CRON_SECRET`, habilitado somente com a flag. Nunca recebe workspace ou URL
+  do chamador.
+- A cada onda: consulta de **um** ticket do workspace esperado; reaproveita
+  histórico (`ticket_events`), autorização de destinatários, locks, marcas e
+  dedup do PostgreSQL. Estado atual e histórico são a autoridade para
+  assumidos, encerrados/indeferidos, em espera, reabertos e remoção de
+  responsável.
+- Falha ao enfileirar não desfaz a criação/PATCH do chamado. O log registra
+  apenas a classe da exceção (nunca segredos).
 
 ## Configuração exclusiva de Preview/Staging
 
@@ -54,37 +73,55 @@ QSTASH_CURRENT_SIGNING_KEY=<chave atual do mesmo QStash>
 QSTASH_NEXT_SIGNING_KEY=<próxima chave do mesmo QStash>
 ```
 
-Use apenas o **Supabase Staging** na Preview. O endereço padrão em Preview usa o `VERCEL_URL` confiável da plataforma; em produção a URL explícita continua obrigatória se a flag for ativada. O endpoint precisa ser acessível
-ao QStash; em previews com Deployment Protection, configure um bypass
-restrito/validado antes do smoke real, nunca expondo o token de bypass em
-requisições de navegador. **Não habilitar a flag em Production.**
+No GitHub (variáveis de repositório, **não** segredos novos):
 
-Aproveitar a conta Upstash gratuita conectada, preferindo a região mais
-adequada ao Staging; não criar filas, schedules ou planos pagos para esta fase.
-A criação de mensagens ocorrerá apenas quando o usuário criar ou reabrir um
-ticket no Staging após ativação explícita.
+```text
+LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED=true
+LABHUB_CHAMADOS_WORKFLOW_DISPATCH_URL=https://<preview>/api/chamados/workflow/outbox/dispatch
+```
+
+O Supabase usado na Preview deve ser **Staging**
+(`pgmetdqsdjotdcifjivu`). Confirme isso antes de qualquer teste real. URLs de
+outros projetos são rejeitadas pelo script de smoke. Gere uma **nova Preview**
+depois de cadastrar os segredos: Previews antigas não os recebem. Em previews
+com Deployment Protection, configure bypass restrito e validado para o QStash
+e para o cron; nunca exponha token de bypass em requisições de navegador.
+**Não habilitar a flag em Production.**
 
 ## Procedimento de validação
 
-1. Rodar `python -m pytest api/tests/test_chamados_qstash_workflow.py -q`
-   e a suíte de API (sem chaves reais).
-2. Conferir em Preview: endpoint ausente/desligado com flag OFF;
-   assinatura ausente/ruim rejeitada com flag ON.
-3. Em Staging, criar um chamado de teste em workspace isolado e confirmar
-   um Workflow no painel Upstash; não executar no banco de produção.
-4. Confirmar as 3 checagens `ticket_id + workspace_id`, os intervalos
-   e a deduplicação com o motor de lembretes existente; depois assumir o
-   chamado e confirmar encerramento antecipado.
-5. Medir por 24 h: número de mensagens e steps Upstash, latência por evento,
-   chamadas PostgREST por chamado, ausência de duplicidade e falhas no DLQ.
-6. **Não desligar o cron nem ativar em Production** sem comparar custo,
-   quantidade e comportamento dos lembretes. Meta: redução mensurável de
-   listagens globais do Supabase; não assumir economia sem medição.
+1. Rodar as migrations 115/116 **somente em Staging** via
+   `scripts/apply_staging_migration.py` (dry-run primeiro) ou pelo workflow
+   manual `staging-reminders-integration.yml` com
+   `apply_workflow_outbox_migration=true`.
+2. Rodar `python -m pytest api/tests/test_chamados_qstash_workflow.py
+   api/tests/test_chamados_workflow_real_sdk.py -q` com as dependências de
+   `requirements.txt` instaladas, mais a suíte completa da API e o runner de
+   migrations. Os testes com SDK real usam apenas transporte substituído;
+   **não** provam integração com o QStash real.
+3. Em Preview, confirme: flag OFF não registra rota nem agenda; assinatura
+   ausente/inválida é rejeitada pela SDK; URL do workflow é a do deploy e não
+   a do Host enviado.
+4. Faça smoke real no dispatcher (`POST .../outbox/dispatch` com
+   `Authorization: Bearer $CRON_SECRET`) e crie um chamado de teste em
+   workspace isolado. Confirme no painel Upstash o run com 3 etapas e os
+   intervalos; interrompa assumindo o chamado e confirmando que as próximas
+   checagens param.
+5. Simule falha temporária do QStash interrompendo a publicação e confirmando
+   que a linha volta para `pending`, é republicada com o **mesmo**
+   `deduplication_id` e não gera dois runs. Repita o mesmo ciclo e confirme
+   uma única linha na outbox.
+6. Meça por 24 h: mensagens e steps Upstash, latência por evento, chamadas
+   PostgREST por chamado, ausência de duplicidade e falhas no DLQ. Separe
+   **medições** de estimativas. Não desligar o cron nem ativar em Production
+   sem comparar custo, quantidade e comportamento.
 
 ## Rollback
 
-Desligar `LABHUB_CHAMADOS_WORKFLOW_ENABLED` e fazer deploy do mesmo código.
-Não há migration SQL, nem alterações no mecanismo de Push, RBAC ou histórico.
-O cron existente continua como estava; a flag OFF não agenda novas tarefas.
-Executar/inspecionar runs já disparados no painel Upstash antes de desligar
+Desligar `LABHUB_CHAMADOS_WORKFLOW_ENABLED` e
+`LABHUB_CHAMADOS_WORKFLOW_DISPATCH_ENABLED`, fazer deploy do mesmo código e
+parar o smoke. As tabelas 115/116 podem permanecer vazias e inofensivas; a
+remoção é opcional e deve seguir o runner oficial. Nenhuma alteração no
+mecanismo de Push, RBAC ou histórico; o cron existente continua como estava.
+Inspecione/cancele runs já disparados no painel Upstash antes de desligar
 inteiramente o experimento.

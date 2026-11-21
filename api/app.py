@@ -59,7 +59,9 @@ from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
 from chamados_workflow import (schedule as _schedule_chamado_workflow,
                               register as _register_chamado_workflow,
-                              parse_payload as _parse_workflow_payload)
+                              parse_payload as _parse_workflow_payload,
+                              current_job as _chamados_workflow_current_job,
+                              drain_pending as _drain_chamado_workflow_outbox)
 
 
 def _enqueue_push_event(event_id, payload):
@@ -6040,7 +6042,8 @@ def _finalize_reminder_cycle(ticket_id: str, ticket: dict, state: dict,
 
 
 def _check_and_send_reminders(ticket_id: str | None = None,
-                              workspace_id: str | None = None) -> dict:
+                              workspace_id: str | None = None,
+                              job_id: str | None = None) -> dict:
     """Verifica chamados não assumidos e envia lembretes de push quando devido.
 
     Modelo de entrega: at-least-once com deduplicação por destinatário, ciclo
@@ -6102,7 +6105,20 @@ def _check_and_send_reminders(ticket_id: str | None = None,
             scope = _parse_workflow_payload({
                 'ticket_id': ticket_id,
                 'workspace_id': workspace_id,
+                'job_id': job_id,
             })
+            # Workflow opt-in: o PostgreSQL é a autoridade do ciclo. Se outro
+            # agendamento (reabertura/troca de responsável) já venceu este,
+            # a execução antiga termina antes de qualquer lock ou Push.
+            expected_job = _chamados_workflow_current_job(
+                scope['ticket_id'], scope['workspace_id']
+            )
+            if not expected_job:
+                return {'error': 'Ciclo indisponível', 'sent': 0, 'checked': 0,
+                        'candidate_count': 0}
+            if expected_job != scope['job_id']:
+                return {'ok': True, 'sent': 0, 'checked': 0,
+                        'candidate_count': 0, 'stale_cycle': True}
             query_url += (f"&id=eq.{scope['ticket_id']}"
                           f"&workspace_id=eq.{scope['workspace_id']}")
         resp = requests.get(query_url, headers=_supabase_headers(), timeout=30)
@@ -6366,11 +6382,30 @@ def _check_and_send_reminders(ticket_id: str | None = None,
 # Nunca substitui a rota /check nem o cron por padrão.
 _register_chamado_workflow(
     app,
-    lambda scoped_ticket_id, scoped_workspace_id: _check_and_send_reminders(
+    lambda scoped_ticket_id, scoped_workspace_id, scoped_job_id: _check_and_send_reminders(
         ticket_id=scoped_ticket_id, workspace_id=scoped_workspace_id,
+        job_id=scoped_job_id,
     ),
     interval_seconds=REMINDER_INTERVAL_SECONDS,
 )
+
+
+@_route_once('/api/chamados/workflow/outbox/dispatch', methods=['POST'])
+@require_cron
+def chamados_workflow_outbox_dispatch():
+    """Publica no QStash apenas as pendências duráveis do PostgreSQL.
+
+    Sem flag, a rota responde `enabled: false` e não faz nada. Protegida por
+    CRON_SECRET; o chamador nunca controla URL, workspace ou payload.
+    """
+    try:
+        result = _drain_chamado_workflow_outbox()
+    except Exception as exc:
+        logger.warning("[chamados-workflow] dispatcher falhou: %s", type(exc).__name__)
+        return jsonify({'status': 'error', 'error': type(exc).__name__}), 503
+    if result.get('error'):
+        return jsonify({'status': 'error', **result}), 503
+    return jsonify({'status': 'ok', **result}), 200
 
 
 @_route_once('/api/chamados/reminders/check', methods=['GET', 'POST'])
