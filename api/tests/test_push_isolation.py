@@ -505,16 +505,11 @@ def test_notify_ticket_status_notifica_autor_logado(api_module, monkeypatch):
     redis = FakeRedis()
     monkeypatch.setattr(api_module, "redis", redis)
 
-    sent = []
+    queued = []
     monkeypatch.setattr(
         api_module,
-        "_target_subs",
-        lambda **kw: [{"endpoint": "https://fcm/reporter"}],
-    )
-    monkeypatch.setattr(
-        api_module,
-        "push_notify",
-        lambda sub, *a, **kw: sent.append(sub["endpoint"]) or True,
+        "_enqueue_push_event",
+        lambda event_id, payload: queued.append((event_id, payload)) or True,
     )
 
     ticket = {
@@ -529,7 +524,10 @@ def test_notify_ticket_status_notifica_autor_logado(api_module, monkeypatch):
 
     api_module._notify_ticket_status(ticket)
 
-    assert sent == ["https://fcm/reporter"]
+    assert len(queued) == 1
+    assert queued[0][1]["target_user_id"] == "user-r"
+    assert queued[0][1]["module"] == "chamados"
+    assert queued[0][1]["context"] == "chamados-status"
 
 
 def test_notify_ticket_status_revoga_anonimos_apos_conclusao(api_module, monkeypatch):
