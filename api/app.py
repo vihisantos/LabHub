@@ -12,6 +12,7 @@ from app import (
     _target_subs,
     _push_notify_subs_dedup,
     _MODULE_PUSH_ACTIONS,
+    _queue_push_event,
     push_notify,
     _push_outcome,
     PUSH_ACCEPTED,
@@ -56,6 +57,47 @@ from rbac import (
 import pg_store
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
+
+
+def _enqueue_push_event(event_id, payload):
+    """Persiste evento Push no outbox operacional compartilhado."""
+    if not isinstance(payload, dict):
+        logger.error("[notifications] payload inválido; evento não enfileirado: %s", event_id)
+        return False
+    try:
+        status = _queue_push_event(
+            event_id,
+            payload.get('title'),
+            payload.get('body'),
+            module=payload.get('module'),
+            workspace_id=payload.get('workspace_id'),
+            user_id=payload.get('target_user_id'),
+            role=payload.get('target_role'),
+            min_level=payload.get('min_level'),
+            target_super_admin=payload.get('target_super_admin'),
+            url=payload.get('action_url') or '/',
+            ttl=payload.get('ttl', 86400),
+            context=payload.get('context'),
+            actions=payload.get('actions'),
+        )
+        return status in ('queued', 'duplicate')
+    except Exception as exc:
+        logger.exception("[notifications] falha ao persistir evento %s: %s", event_id, exc)
+        return False
+
+def _chamados_event_id(event_type, ticket, discriminator=""):
+    ticket_id = str(ticket.get("id") or "").strip()
+    revision = (
+        ticket.get("updatedAt") or ticket.get("updated_at")
+        or ticket.get("updated_at_iso") or ticket.get("statusUpdatedAt")
+        or discriminator or json.dumps(
+            {k: ticket.get(k) for k in ("status", "assignedToUserId", "statusNote")},
+            sort_keys=True, ensure_ascii=False,
+        )
+    )
+    material = f"chamados:{event_type}:{ticket_id}:{revision}:{discriminator}"
+    return "chamados:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
 
 # O motor de lembretes e as inscrições por chamado usam PostgreSQL (Supabase).
 # O `redis` legado continua existindo apenas para rate-limit/cache antigos.
@@ -2966,9 +3008,14 @@ def _notify_ticket_status(ticket):
         reporter_id = str(ticket.get('reportedByUserId') or '').strip()
         sent_reporter = 0
         if reporter_id:
-            for sub in _target_subs(module='chamados', user_id=reporter_id):
-                if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
-                    sent_reporter += 1
+            sent_reporter = int(_enqueue_push_event(
+                _chamados_event_id('status-reporter', ticket, status),
+                {
+                    'title': title, 'body': body, 'module': 'chamados',
+                    'target_user_id': reporter_id, 'action_url': url,
+                    'context': 'chamados-status',
+                },
+            ))
 
         # b) Inscrições anônimas por-chamado (professor sem login).
         subs = _chamado_subs(ticket_id)
@@ -2997,7 +3044,7 @@ def _notify_ticket_status(ticket):
             except Exception:
                 pass
 
-        print(f"[chamados] push status #{ticket.get('ticketNumber')}: rep={sent_reporter} anon={len(keep)}/{len(subs)}")
+        print(f"[chamados] push status #{ticket.get('ticketNumber')}: reporter_queued={bool(sent_reporter)} anon={len(keep)}/{len(subs)}")
     except Exception as e:
         logger.error("[chamados] push status error: %s", e)
 
@@ -3012,24 +3059,21 @@ def _notify_ticket_assigned(ticket):
         user_id = ticket.get('assignedToUserId') or ''
         if not user_id:
             return
-        subs = _target_subs(
-            module='chamados',
-            workspace_id=ticket.get('workspace_id'),
-            user_id=user_id,
-            min_level='full',
-        )
-        if not subs:
-            return
         title = f"Chamado #{ticket.get('ticketNumber')} atribuído a você"
         body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory'), ticket.get('reportedBy')) if part
         )
         url = f"/chamados/tickets/{ticket.get('id')}"
-        sent = 0
-        for sub in subs:
-            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
-                sent += 1
-        print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
+        queued = _enqueue_push_event(
+            _chamados_event_id('assigned', ticket, user_id),
+            {
+                'title': title, 'body': body, 'module': 'chamados',
+                'workspace_id': ticket.get('workspace_id'),
+                'target_user_id': str(user_id), 'min_level': 'full',
+                'action_url': url, 'context': 'chamados-assigned',
+            },
+        )
+        print(f"[chamados] push atribuição #{ticket.get('ticketNumber')}: queued={queued}")
     except Exception as e:
         logger.error("[chamados] push atribuição error: %s", e)
 
@@ -3052,36 +3096,36 @@ def _notify_ticket_claimed(ticket, claimer_name):
         ws = ticket.get('workspace_id')
 
         # 1. Push direto a quem assumiu.
-        own_subs = _target_subs(module='chamados', workspace_id=ws, user_id=claimer_id, min_level='full')
         own_title = f"Você assumiu o chamado #{num}"
         own_body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
         )
-        sent_own = 0
-        for sub in (own_subs or []):
-            outcome = _push_outcome(
-                push_notify(sub, own_title, own_body, url=url, user_id=claimer_id)
-            )
-            if outcome == PUSH_ACCEPTED:
-                sent_own += 1
+        queued_own = _enqueue_push_event(
+            _chamados_event_id('claimed-own', ticket, claimer_id),
+            {
+                'title': own_title, 'body': own_body, 'module': 'chamados',
+                'workspace_id': ws, 'target_user_id': claimer_id,
+                'min_level': 'full', 'action_url': url,
+                'context': 'chamados-claimed',
+            },
+        )
 
         # 2. Demais técnicos do workspace: informação de indisponibilidade.
-        others = _target_subs(module='chamados', workspace_id=ws, min_level='full')
         other_title = f"O chamado #{num} foi assumido por {claimer_name or 'um técnico'}"
         other_body = ' · '.join(
             str(part) for part in (ticket.get('roomName'), ticket.get('problemCategory')) if part
         )
-        sent_other = 0
-        for sub in (others or []):
-            u = (sub.get('user') or {})
-            if u.get('id') == claimer_id:
-                continue
-            if _push_outcome(
-                push_notify(sub, other_title, other_body, url=url)
-            ) == PUSH_ACCEPTED:
-                sent_other += 1
+        queued_others = _enqueue_push_event(
+            _chamados_event_id('claimed-others', ticket, claimer_id),
+            {
+                'title': other_title, 'body': other_body, 'module': 'chamados',
+                'workspace_id': ws, 'min_level': 'full',
+                'exclude_user_id': claimer_id, 'action_url': url,
+                'context': 'chamados-claimed',
+            },
+        )
         print(
-            f"[chamados] push claim #{num}: {sent_own} p/ responsável, {sent_other} p/ demais técnicos"
+            f"[chamados] push claim #{num}: own_queued={queued_own}, others_queued={queued_others}"
         )
     except Exception as e:
         logger.error("[chamados] push claim error: %s", e)
@@ -3096,9 +3140,6 @@ def _notify_new_ticket(ticket):
     Falha de push não impede a criação do chamado.
     """
     try:
-        subs = _target_subs(module='chamados', workspace_id=ticket.get('workspace_id'), min_level='full')
-        if not subs:
-            return
         title = f"Novo chamado #{ticket.get('ticketNumber')}"
         body = ' · '.join(
             str(part) for part in (
@@ -3108,11 +3149,16 @@ def _notify_new_ticket(ticket):
             ) if part
         )
         url = f"/chamados/tickets/{ticket.get('id')}"
-        sent = 0
-        for sub in subs:
-            if _push_outcome(push_notify(sub, title, body, url=url)) == PUSH_ACCEPTED:
-                sent += 1
-        print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: {sent}/{len(subs)} enviados")
+        queued = _enqueue_push_event(
+            _chamados_event_id('created', ticket),
+            {
+                'title': title, 'body': body, 'module': 'chamados',
+                'workspace_id': ticket.get('workspace_id'),
+                'min_level': 'full', 'action_url': url,
+                'context': 'chamados-created',
+            },
+        )
+        print(f"[chamados] push novo chamado #{ticket.get('ticketNumber')}: queued={queued}")
     except Exception as e:
         logger.error("[chamados] push error: %s", e)
 
@@ -6330,8 +6376,14 @@ def _deliver_outbox_notification(event_id, payload):
     workspace_id = payload.get('workspace_id') or None
     user_id = payload.get('target_user_id') or None
     role = payload.get('target_role') or None
+    min_level = payload.get('min_level') or None
     target_super_admin = payload.get('target_super_admin')
     action_url = payload.get('action_url') or '/'
+    context = payload.get('context') or module or 'app-notification'
+    try:
+        ttl = max(60, min(int(payload.get('ttl', 86400)), 604800))
+    except (TypeError, ValueError):
+        ttl = 86400
 
     if not isinstance(action_url, str) or not _is_safe_url(action_url):
         action_url = '/'
@@ -6341,7 +6393,7 @@ def _deliver_outbox_notification(event_id, payload):
         # Eventos de autenticação/aprovação são direcionados ao usuário e não
         # dependem de Action de um módulo de produto. Outros módulos sem regra
         # RBAC cadastrada falham fechados em vez de virar broadcast.
-        if user_id:
+        if user_id or target_super_admin is True:
             targeting_module = None
         else:
             raise ValueError('módulo sem política RBAC de Push')
@@ -6350,11 +6402,18 @@ def _deliver_outbox_notification(event_id, payload):
         workspace_id=workspace_id,
         user_id=user_id,
         role=role,
+        min_level=min_level,
     )
     if target_super_admin is True:
         subs = [
             sub for sub in subs
             if bool((sub.get('user') or {}).get('is_super_admin'))
+        ]
+    exclude_user_id = str(payload.get('exclude_user_id') or '').strip()
+    if exclude_user_id:
+        subs = [
+            sub for sub in subs
+            if str((sub.get('user') or {}).get('id') or '') != exclude_user_id
         ]
 
     if not subs:
@@ -6363,13 +6422,14 @@ def _deliver_outbox_notification(event_id, payload):
     accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
         subs,
         event_id,
-        86400,
+        ttl,
         title,
         message,
         url=action_url,
         user_id=user_id,
         workspace_id=workspace_id,
-        context=module or 'app-notification',
+        context=context,
+        actions=payload.get('actions'),
     )
 
     # Resultado desconhecido e falha de dedup exigem retry. Rejeições são
@@ -6427,8 +6487,8 @@ def app_notifications_persist():
     Chamado pelo painel do admin junto com /api/push/send (que dispara o push).
     A leitura acontece no GET /api/app-notifications, escopado por workspace.
     """
-    if not _require_supabase():
-        return jsonify({'error': 'Supabase não configurado'}), 503
+    if not pg_store.is_configured():
+        return jsonify({'error': 'PostgreSQL não configurado'}), 503
     try:
         body = request.get_json() or {}
         ntf_id = str(body.get('id') or '').strip()
