@@ -51,7 +51,7 @@ self.addEventListener('push', (event: PushEvent) => {
   const module = pushModule(data)
   const style = PUSH_MODULES[module]
   const rawTitle = String(data.title || 'LabHub')
-  const title = style && !rawTitle.startsWith(style.label)
+  const title = style && !rawTitle.startsWith(`${style.emoji} ${style.label} · `)
     ? `${style.emoji} ${style.label} · ${rawTitle}`
     : rawTitle
   const url = data.url || '/'
