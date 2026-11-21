@@ -69,7 +69,11 @@ O MVP continua com **3 checagens** (2, 4 e 6 minutos após o disparo). Isso
   servidor** (`Upstash-Forward-x-vercel-protection-bypass`), nunca na URL. Ele
   não vem de Host, parâmetro de request, browser, resposta ou log da aplicação.
   Um filtro de logging redobra o valor caso alguma biblioteca o inclua em uma
-  exceção.
+  exceção. O header é injetado em **dois níveis**: na chamada à API QStash
+  (publicação individual) e dentro de **cada mensagem** de `/v2/batch`. O
+  QStash não replica headers do nível da requisição para o lote; sem isso, a
+  retomada de `context.sleep()` ficava sem o bypass e nunca chegava à rota
+  assinada (falha encontrada e corrigida nesta rodada).
 
 ## Configuração exclusiva de Preview/Staging
 
@@ -143,10 +147,14 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
    ausente/inválida é rejeitada pela SDK; URL do workflow é a do deploy e não
    a do Host enviado.
 4. Faça smoke real no dispatcher (`POST .../outbox/dispatch` com
-   `Authorization: Bearer $CRON_SECRET`) e crie um chamado de teste em
-   workspace isolado. Confirme no painel Upstash o run com 3 etapas e os
-   intervalos; interrompa assumindo o chamado e confirmando que as próximas
-   checagens param.
+   `Authorization: Bearer $CRON_SECRET`), exigindo no JSON `enabled=true`,
+   `error=null` e as chaves de reconciliação. Para a publicação real, rode o
+   workflow manual com `run_workflow_e2e=true`: o script
+   `scripts/ci/chamados_workflow_e2e_staging.py` cria workspace/ticket
+   sintéticos, confirma a linha `published` na outbox e observa as retomadas
+   por 150 s. Confirme em `vercel logs` o POST à rota assinada e o batch da
+   SDK, e no painel Upstash o run com 3 etapas e os intervalos; interrompa
+   assumindo o chamado e confirmando que as próximas checagens param.
 5. Simule falha temporária do QStash interrompendo a publicação e confirmando
    que a linha volta para `pending`, é republicada com o **mesmo**
    `deduplication_id` e não gera dois runs. Repita o mesmo ciclo e confirme
@@ -158,28 +166,45 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
 
 ## Evidências da validação (21/11/2026)
 
-- PR #491, branch `feat/chamados-qstash-workflow-staging`. Todos os checks do
-  GitHub passaram no SHA final: Analyze JS/Python, Lint, Build, CodeQL,
-  Migration runner tests, Python API tests, Test, validação de migrations em
-  PostgreSQL efêmero e Vercel Preview.
-- A suíte local de APIs terminou em **2378 passed, 7 skipped, 2 failed**; as
+- PR #491, branch `feat/chamados-qstash-workflow-staging`, SHA do código
+  validado em Staging `b10369a0930b26142e547bd12ed6c3c326d28c47`. Todos os
+  checks passaram nesse SHA:
+  Analyze JS/Python, Lint, Build, CodeQL, Migration runner tests, Python API
+  tests, Test, validação de migrations em PostgreSQL efêmero e Vercel Preview.
+- A suíte local de APIs terminou em **2398 passed, 7 skipped, 2 failed**; as
   duas falhas (`test_patch_troca_foto_destroi_antiga_no_cloudinary` e
   `test_patch_mesma_foto_nao_destroi`) são pré-existentes no HEAD limpo e não
   foram introduzidas por esta PR.
-- Testes específicos desta correção: 50 passed com as dependências reais
+- Testes específicos desta correção: **53 passed** com as dependências reais
   instaladas (`test_116_chamados_workflow_outbox_contract.py`,
   `test_118_chamados_workflow_outbox_reconcile_contract.py`,
   `test_chamados_qstash_workflow.py`, `test_chamados_workflow_real_sdk.py`),
-  incluindo SDK real `upstash-workflow==2.0.0` com transporte substituído.
+  incluindo SDK real `upstash-workflow==2.0.0` com transporte substituído. Há
+  teste específico provando que o header de bypass chega dentro da mensagem de
+  `context.sleep()` (caminho que falhou na primeira tentativa real) e que um
+  corpo de batch inesperado falha fechado.
 - Migrations 115/116 aplicadas **somente em Staging**
   (`pgmetdqsdjotdcifjivu`) pelo workflow manual
-  `staging-reminders-integration.yml` (run `44870468268`), com preflight
-  fail-closed e dry-run prévio. Nenhuma migration foi aplicada em produção.
-- Smoke do dispatcher no Preview gerenciado pelo GitHub (run `44871907378`):
-  `HTTP 200` com `{"claimed":0,"dead":0,"enabled":true,"error":null,
-  "published":0,"retried":0,"status":"ok"}`. O `enabled:true` confirma que a
-  flag e as credenciais chegaram ao deploy correto da branch; `claimed:0`
-  indica que a fila estava vazia no momento do teste.
+  `staging-reminders-integration.yml` (run `44870468268`), e 117/118 nos runs
+  `44902835870` e `44904523055`, sempre com preflight fail-closed e dry-run
+  prévio. Nenhuma migration foi aplicada em produção.
+- O smoke reforçado no run `44904523055` validou o JSON do dispatcher, não só
+  o status: `enabled=true`, `error=null`, `reconciled=1`,
+  `reconcile_error=None`, `claimed/published/retried/dead` presentes. O
+  `reconciled=1` mostra que a reconciliação durável efetivamente varreu a
+  janela no Staging.
+- **E2E real no mesmo run** (`scripts/ci/chamados_workflow_e2e_staging.py`,
+  opt-in): workspace e ticket sintéticos isolados
+  (`00bd93b6-47a5-445d-a4a7-8df5c039ed49` /
+  `9cf83c40-0ae1-4a2d-89c8-166948b2fdb3`), outbox reclamada com
+  `claimed=1, published=1, attempts=1` e `published_at=2026-11-21T12:34:13Z`.
+  O QStash respondeu `201 Created` em `/v2/publish/...`; a rota assinada da
+  Preview protegida respondeu `200` ao chamado inicial (12:34:13) e à
+  **retomada após `context.sleep(120)`** (12:36:21). Não houve 401/403 e a
+  string `x-vercel-protection-bypass=` não aparece em nenhum log. O protocolo
+  da SDK gerou dois POSTs por etapa, mas apenas uma verificação da aplicação
+  (`[chamados-reminder] verificação: 1 checados, 0 enviados, 0 confirmados,
+  0 ambíguos`) — sem Push duplicado.
 - Testes reais PostgreSQL contra Staging (`test_postgres_reminders_integration.py`)
   passaram no mesmo run.
 - A comprovação pedida das duas falhas de `api/tests/test_chamados.py` foi
@@ -193,17 +218,15 @@ respostas ou logs. Recomenda-se rotacionar o bypass ao encerrar o experimento.
   entre dispatchers, assinatura ausente/incorreta/válida, e preservação do
   bypass em todas as etapas com a SDK real (que remove headers `x-vercel-*`).
 
-**Limitação conhecida:** o smoke acima provou o endpoint, a autenticação, o
-bypass do Preview e a leitura da outbox, mas a fila estava vazia — portanto
-ainda não houve publicação real no QStash nem execução de um Workflow completo
-em Staging. Isso depende de um chamado de teste criado no formulário público de
-um workspace de teste, seguido de nova chamada ao dispatcher.
-
-**Consumo planejado vs. medido:** por ciclo elegível, a estimativa é 1 mensagem
-QStash (publicação inicial, `retries=0`) + até 3 steps do Workflow (ondas de
-2/4/6 min). Retentivas e backoff ficam no PostgreSQL, não no QStash. Nenhum
-número medido de QStash está disponível até o primeiro smoke com chamado real;
-não apresentar estimativa como medição.
+**Consumo planejado vs. medido:** a estimativa é 1 mensagem QStash por ciclo
+elegível (publicação inicial, `retries=0`) + até 3 ondas com sleep; retentivas
+e backoff ficam no PostgreSQL, não no QStash. **Medido** no E2E acima: 1
+chamada a `/v2/publish`, 4 chamadas a `/v2/batch` e 4 POSTs do QStash à
+Preview (todos 200) para um único ciclo observado por ~150 s — o dobro do
+número lógico de etapas porque a SDK emite um POST adicional por etapa; a
+aplicação executou uma única verificação e não enviou Push duplicado. A
+estimativa de 3 ondas completas (2/4/6 min) ainda **não** foi medida; por isso
+a flag continua restrita a esta Preview e o cron legado permanece ativo.
 
 ## Rollback
 
