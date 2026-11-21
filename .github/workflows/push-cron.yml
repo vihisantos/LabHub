@@ -39,6 +39,8 @@ jobs:
           test "$status" = "200"
 
       - name: Call /api/notifications/worker
+        # Executar mesmo se check-all falhar; não executar se o job for cancelado.
+        if: ${{ !cancelled() }}
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
