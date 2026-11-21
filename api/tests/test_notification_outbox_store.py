@@ -77,3 +77,16 @@ def test_outbox_completion_and_retry_preserve_rpc_results():
         "p_error": "temporary",
         "p_delay_seconds": 60,
     })
+
+
+def test_notification_create_with_outbox_calls_atomic_rpc():
+    notification = {"id": "ntf-1", "title": "Chamado"}
+    payload = {"title": "Chamado", "module": "chamados"}
+    with patch.object(MODULE, "_rpc", return_value=True) as rpc:
+        assert MODULE.PostgresStore().notification_create_with_outbox(
+            notification, payload
+        ) is True
+    rpc.assert_called_once_with("notification_create_with_outbox", {
+        "p_notification": notification,
+        "p_payload": payload,
+    })
