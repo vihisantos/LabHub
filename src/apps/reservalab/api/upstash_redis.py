@@ -94,6 +94,48 @@ class UpstashRedis:
         args = list(args or [])
         return self.execute("EVAL", script, len(keys), *keys, *args)
 
+    # Redis Streams — usados pela fila assíncrona de notificações. As leituras
+    # são não bloqueantes porque cada execução Vercel é serverless.
+    def xadd(self, stream: str, fields: dict[str, Any], message_id: str = "*"):
+        if not fields:
+            raise ValueError("mensagem do stream sem campos")
+        flat = []
+        for key, value in fields.items():
+            flat.extend([str(key), value if isinstance(value, str) else str(value)])
+        return self.execute("XADD", str(stream), str(message_id), *flat)
+
+    def xgroup_create(self, stream: str, group: str, start_id: str = "0", mkstream: bool = True):
+        command = ["XGROUP", "CREATE", str(stream), str(group), str(start_id)]
+        if mkstream:
+            command.append("MKSTREAM")
+        return self.execute(*command)
+
+    def xreadgroup(self, stream: str, group: str, consumer: str, count: int = 10):
+        if not 1 <= int(count) <= 100:
+            raise ValueError("count deve estar entre 1 e 100")
+        return self.execute(
+            "XREADGROUP", "GROUP", str(group), str(consumer),
+            "COUNT", int(count), "STREAMS", str(stream), ">",
+        )
+
+    def xack(self, stream: str, group: str, *message_ids: str):
+        if not message_ids:
+            return 0
+        return self.execute("XACK", str(stream), str(group), *map(str, message_ids))
+
+    def xautoclaim(
+        self, stream: str, group: str, consumer: str,
+        min_idle_ms: int = 60_000, start_id: str = "0-0", count: int = 10,
+    ):
+        if int(min_idle_ms) < 0:
+            raise ValueError("min_idle_ms não pode ser negativo")
+        if not 1 <= int(count) <= 100:
+            raise ValueError("count deve estar entre 1 e 100")
+        return self.execute(
+            "XAUTOCLAIM", str(stream), str(group), str(consumer),
+            int(min_idle_ms), str(start_id), "COUNT", int(count),
+        )
+
 
 def create_redis_client():
     """Retorna None somente quando as credenciais não foram configuradas."""
