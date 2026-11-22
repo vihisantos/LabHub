@@ -168,6 +168,7 @@ def test_m04_mandatory_delivery_order_is_explicit() -> None:
         "Confirm production target",
         "Production dry-run",
         "Verify production baseline",
+        "Re-verify run identity and main HEAD before apply",
         "Apply pending migrations (pending only)",
         "Final state validation",
         "Observability summary",
@@ -192,6 +193,7 @@ def test_m05_any_mandatory_failure_blocks_production() -> None:
     assert "|| true" not in WORKFLOW_TEXT
     for job_name, step_part in (
         ("stage-migrations", "Apply pending migrations to Staging"),
+        ("production", "Re-verify run identity and main HEAD before apply"),
         ("production", "Apply pending migrations (pending only)"),
     ):
         assert "if" not in _step(job_name, step_part)
@@ -356,13 +358,16 @@ def test_m13_destructive_and_incompatible_changes_are_blocked(monkeypatch, tmp_p
     assert not acknowledged
     assert blocked and "drop-column" in blocked[0]
 
+    # ci-destructive-ack é observabilidade, NÃO autorização: sem aprovação
+    # humana no pipeline, a operação continua bloqueada.
     target.write_text(
         "-- ci-destructive-ack: limpeza revisitada em PR\n"
         "ALTER TABLE public.foo DROP COLUMN bar;\n",
         encoding="utf-8",
     )
     _files, acknowledged, blocked = analyzer.analyze("base", "head", tmp_path)
-    assert acknowledged and not blocked
+    assert acknowledged and blocked and "drop-column" in blocked[0]
+    assert "não autoriza" in acknowledged[0]
 
     target.write_text("ALTER COLUMN preco TYPE numeric(10,2);\n", encoding="utf-8")
     monkeypatch.setattr(
@@ -370,6 +375,51 @@ def test_m13_destructive_and_incompatible_changes_are_blocked(monkeypatch, tmp_p
     )
     _files, _ack, blocked = analyzer.analyze("base", "head", tmp_path)
     assert blocked and "alter-column-type" in blocked[0]
+
+
+def test_unverifiable_sql_is_blocked(monkeypatch, tmp_path) -> None:
+    """SQL dinâmico, UPDATE sem WHERE e DROP em comentário bloco não passam."""
+    analyzer = _load_module("analyze_unverifiable_under_test", "analyze_migrations.py")
+    relative = "supabase/migrations/998_risco.sql"
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(analyzer, "changed_sql_files", lambda *a: [relative])
+
+    cases = (
+        (["EXECUTE format('DROP TABLE %s', v_name);"], "unverifiable-dynamic-sql"),
+        (["UPDATE public.foo SET bar = 1;"], "unfiltered-update"),
+        (["ALTER TABLE public.foo ALTER COLUMN preco SET DATA TYPE numeric(10,2);"], "alter-column-type"),
+        (["DROP/* sep */TABLE public.foo;"], "drop-object"),
+    )
+    for lines, kind in cases:
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        monkeypatch.setattr(analyzer, "added_lines", lambda *a, _l=lines: _l)
+        _files, _ack, blocked = analyzer.analyze("base", "head", tmp_path)
+        assert any(f"[{kind}]" in item for item in blocked), (kind, blocked)
+
+    # CREATE TRIGGER ... EXECUTE PROCEDURE é estático: não pode ser confundido
+    # com EXECUTE dinâmico.
+    static = ["CREATE TRIGGER t AFTER INSERT ON public.foo EXECUTE PROCEDURE public.f();"]
+    target.write_text("\n".join(static) + "\n", encoding="utf-8")
+    monkeypatch.setattr(analyzer, "added_lines", lambda *a: static)
+    _files, _ack, blocked = analyzer.analyze("base", "head", tmp_path)
+    assert blocked == []
+
+
+def test_destructive_ack_is_observability_only(monkeypatch, tmp_path, capsys) -> None:
+    """Mesmo com ACK, o CLI retorna 1 e mantém o log do achado."""
+    analyzer = _load_module("analyze_ack_cli_under_test", "analyze_migrations.py")
+    monkeypatch.setattr(
+        analyzer,
+        "analyze",
+        lambda *a: (["x"], ["linha ACK informativa"], ["x:1 [drop-column] DROP COLUMN"]),
+    )
+    code = analyzer.main([
+        "--base-sha", "base", "--head-sha", "head", "--root", str(tmp_path)
+    ])
+    output = capsys.readouterr()
+    assert code == 1
+    assert "NOTE/ACK" in output.out and "BLOCK" in output.err
 
 
 def test_m14_supabase_postgresql_17_compatibility_is_enforced() -> None:
@@ -382,6 +432,23 @@ def test_m14_supabase_postgresql_17_compatibility_is_enforced() -> None:
     assert "170000" in health and "server_version_num" in health
     suite = (SCRIPTS / "ci" / "ci_migration_suite.py").read_text(encoding="utf-8")
     assert "supabase/migrations/tests" in suite
+
+
+def test_test_119_uses_relative_time_anchor() -> None:
+    """Regressão: fixtures da janela móvel não podem voltar a usar datas fixas."""
+    path = ROOT / "supabase" / "migrations" / "tests" / (
+        "119_chamados_workflow_outbox_reconcile_priority_checks.sql"
+    )
+    text = path.read_text(encoding="utf-8")
+    assert "clock_timestamp()" in text and "v_anchor" in text
+    assert "2026-11-21 " not in text
+    for required in (
+        "ARRAY[v_first, v_second]",
+        "ARRAY[v_third, v_new]",
+        "chamados_workflow_sha256_hex",
+        "ROLLBACK;",
+    ):
+        assert required in text
 
 
 def test_release_gate_rejects_stale_runs(tmp_path, monkeypatch) -> None:
@@ -441,6 +508,34 @@ def test_yaml_step_environments_have_exact_secret_mapping() -> None:
     assert production["SUPABASE_PROJECT_REF"] == "${{ secrets.SUPABASE_PROJECT_REF }}"
     assert production["SUPABASE_ACCESS_TOKEN"] == "${{ secrets.SUPABASE_ACCESS_TOKEN }}"
     assert production["BASELINE_VERSION"] == "${{ secrets.BASELINE_VERSION }}"
+
+
+def test_yaml_production_has_final_preapply_guard() -> None:
+    """O último passo antes do apply relê o artifact e checa commit/run/HEAD."""
+    steps = _steps("production")
+    guard = _step("production", "Re-verify run identity and main HEAD before apply")
+    apply_step = _step("production", "Apply pending migrations (pending only)")
+    gi, ai = steps.index(guard), steps.index(apply_step)
+    assert gi < ai
+    # O único passo entre a barreira e o apply é o marcador de estágio.
+    assert all(
+        str(step.get("name", "")).startswith("Mark production apply")
+        for step in steps[gi + 1:ai]
+    )
+    run = str(guard.get("run"))
+    for required in (
+        "release_gate.py preapply",
+        "--attestation .artifacts/staging-release.json",
+        '--commit-sha "$GITHUB_SHA"',
+        '--run-id "$GITHUB_RUN_ID"',
+        '--repo "$GITHUB_REPOSITORY"',
+    ):
+        assert required in run
+    assert guard["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
+
+    download = _step("production", "Download staging attestation for final guard")
+    assert download["with"]["name"] == "staging-release-${{ github.sha }}"
+    assert steps.index(download) < steps.index(guard)
 
 
 def test_yaml_has_no_manual_trigger_environment_or_confirmation_output() -> None:

@@ -16,8 +16,13 @@ DECLARE
   v_cycle text;
   v_ids uuid[];
   v_count integer;
+  -- A função de reconciliação usa uma janela MÓVEL (clock_timestamp() - 1440
+  -- minutos). Datas fixas no teste expiram: a âncora é relativa à execução.
+  -- Uma hora é suficientemente antiga para a ordem FIFO e bem dentro da janela.
+  v_anchor timestamptz := clock_timestamp() - interval '1 hour';
 BEGIN
-  -- O hash SQL precisa ser idêntico ao de chamados_workflow.cycle_key (Python).
+  -- Vetor fixo: prova apenas que o SQL gera o mesmo SHA-256 da aplicação.
+  -- Não é usado como janela temporal (por isso não depende da data atual).
   v_hash := public.chamados_workflow_sha256_hex(
     '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:'
     || '2026-11-21T12:34:13.162592+00:00:{"assignedToUserId": "", "status": "aberto"}'
@@ -29,13 +34,13 @@ BEGIN
   INSERT INTO public.workspaces (id, name, slug)
   VALUES (v_workspace, 'Workflow Priority CI', 'wf-priority-' || substr(gen_random_uuid()::text, 1, 8));
 
-  -- Timestamps fixos tornam a ordem FIFO determinística.
+  -- Âncora relativa: mantém a ordem FIFO determinística SEM expirar a janela.
   INSERT INTO public.chamados_tickets (id, "workspace_id", status, "assignedToUserId", "updatedAt")
   VALUES
-    (v_done,   v_workspace, 'aberto', '', '2026-11-21 12:00:00+00'::timestamptz),
-    (v_first,  v_workspace, 'aberto', '', '2026-11-21 12:01:00+00'::timestamptz),
-    (v_second, v_workspace, 'aberto', '', '2026-11-21 12:02:00+00'::timestamptz),
-    (v_third,  v_workspace, 'aberto', '', '2026-11-21 12:03:00+00'::timestamptz);
+    (v_done,   v_workspace, 'aberto', '', v_anchor),
+    (v_first,  v_workspace, 'aberto', '', v_anchor + interval '1 minute'),
+    (v_second, v_workspace, 'aberto', '', v_anchor + interval '2 minutes'),
+    (v_third,  v_workspace, 'aberto', '', v_anchor + interval '3 minutes');
 
   -- v_done já tem agendamento para o ciclo vigente: não deve ser candidato.
   SELECT public.chamados_workflow_sha256_hex(
@@ -81,7 +86,7 @@ BEGIN
   );
 
   INSERT INTO public.chamados_tickets (id, "workspace_id", status, "assignedToUserId", "updatedAt")
-  VALUES (v_new, v_workspace, 'aberto', '', '2026-11-21 12:04:00+00'::timestamptz);
+  VALUES (v_new, v_workspace, 'aberto', '', v_anchor + interval '4 minutes');
 
   -- Segundo lote: v_third e o chamado criado depois da primeira varredura.
   SELECT array_agg(ticket_id ORDER BY updated_at ASC, ticket_id ASC), count(*)

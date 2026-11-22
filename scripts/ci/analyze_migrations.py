@@ -6,12 +6,15 @@ contém migrações legítimas com DROP COLUMN etc., e a política nova não pod
 reprovar o passado. Para cada linha SQL adicionada em ``supabase/migrations/*.sql``:
 
   - ``DROP TABLE``, ``DROP SCHEMA``, ``TRUNCATE``, ``DELETE FROM``,
-    ``DROP COLUMN`` e mudança de tipo de coluna são considerados destrutivos;
-  - ``DROP POLICY/TRIGGER/FUNCTION/VIEW IF EXISTS`` e ``CREATE OR REPLACE`` são
-    compatíveis e não bloqueiam;
-  - um arquivo pode registrar explicitamente ``-- ci-destructive-ack: motivo``.
-    Nesse caso a mudança é reportada como reconhecida, mas não é bloqueada —
-    a decisão fica revisável no PR, sem aprovação manual no pipeline.
+    ``DROP COLUMN``, ``DROP CONSTRAINT``, ``DROP EXTENSION`` e mudanças de tipo
+    de coluna são considerados destrutivos;
+  - ``UPDATE`` sem ``WHERE`` e SQL dinâmico (``EXECUTE`` com expressão) são
+    considerados NÃO VERIFICÁVEIS estáticamente e também bloqueiam;
+  - ``DROP POLICY/TRIGGER/FUNCTION/VIEW/INDEX IF EXISTS`` e ``CREATE OR REPLACE``
+    são compatíveis e não bloqueiam;
+  - ``-- ci-destructive-ack: <motivo>`` é apenas OBSERVABILIDADE: como a cadeia
+    não tem aprovação humana, ele NUNCA libera uma operação bloqueada. Ele
+    continua sendo exibido no log para contextualizar a decisão do autor.
 
 A ferramenta reporta e bloqueia (exit 1): nunca gera SQL, nunca executa rollback
 e nunca conecta em banco compartilhado.
@@ -27,13 +30,29 @@ from pathlib import Path
 _EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 _ACK_RE = re.compile(r"--\s*ci-destructive-ack:\s*\S+", re.IGNORECASE)
 _COMMENT_RE = re.compile(r"^\s*--")
+
+# EXECUTEs estáticos (literal ou dollar-quote) podem ser inspecionados pelo
+# próprio scan; EXECUTE de expressão/variável não pode ser verificado -> block.
+_DYNAMIC_SQL_RE = re.compile(
+    r"\bEXECUTE\s+(?!PROCEDURE\b|FUNC(?:TION)?\b|\$|'|\")|\bEXECUTE\s*\(",
+    re.IGNORECASE,
+)
 _BLOCK_PATTERNS = (
     (re.compile(r"\bDROP\s+(TABLE|SCHEMA|DATABASE)\b", re.IGNORECASE), "drop-object"),
     (re.compile(r"\bTRUNCATE\b", re.IGNORECASE), "truncate"),
     (re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE), "delete-data"),
     (re.compile(r"\bDROP\s+COLUMN\b", re.IGNORECASE), "drop-column"),
     (re.compile(r"\bDROP\s+(CONSTRAINT|EXTENSION)\b", re.IGNORECASE), "drop-dependency"),
-    (re.compile(r"\bALTER\s+COLUMN\b[\s\S]*?\bTYPE\b", re.IGNORECASE), "alter-column-type"),
+    (
+        re.compile(
+            r"\bALTER\s+COLUMN\b[^;]*?\b(?:SET\s+DATA\s+)?TYPE\b"
+            r"|\bSET\s+DATA\s+TYPE\b"
+            r"|\bALTER\s+TABLE\s+\S+\s+ALTER\s+\S+\s+(?:SET\s+DATA\s+)?TYPE\b",
+            re.IGNORECASE,
+        ),
+        "alter-column-type",
+    ),
+    (_DYNAMIC_SQL_RE, "unverifiable-dynamic-sql"),
 )
 _SAFE_PATTERNS = (
     re.compile(
@@ -41,6 +60,15 @@ _SAFE_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_UPDATE_RE = re.compile(r"\bUPDATE\s+[^;]*?\bSET\s[^;]*", re.IGNORECASE)
+_WHERE_RE = re.compile(r"\bWHERE\b", re.IGNORECASE)
+
+
+def _normalize(sql: str) -> str:
+    """Remove comentários e quebra de linha para detectar SQL multi-linha."""
+    sql = re.sub(r"--[^\n]*", " ", sql)
+    sql = re.sub(r"/\*[\s\S]*?\*/", " ", sql)
+    return re.sub(r"\s+", " ", sql).strip()
 
 
 def changed_sql_files(base: str, head: str, root: Path) -> list[str]:
@@ -80,6 +108,7 @@ def added_lines(base: str, head: str, root: Path, path: str) -> list[str]:
 
 
 def analyze(base: str, head: str, root: Path) -> tuple[list[str], list[str], list[str]]:
+    """Retorna (arquivos com achados, notas informativas, achados bloqueantes)."""
     blocked: list[str] = []
     acknowledged: list[str] = []
     files: list[str] = []
@@ -93,6 +122,7 @@ def analyze(base: str, head: str, root: Path) -> tuple[list[str], list[str], lis
         has_ack = bool(_ACK_RE.search(content))
         added = [line for line in added_lines(base, head, root, path) if not _COMMENT_RE.match(line)]
         findings: list[str] = []
+
         for line_no, line in enumerate(added, start=1):
             if any(pattern.search(line) for pattern in _SAFE_PATTERNS):
                 continue
@@ -101,20 +131,28 @@ def analyze(base: str, head: str, root: Path) -> tuple[list[str], list[str], lis
                     findings.append(f"{path}:{line_no} [{kind}] {line.strip()[:160]}")
                     break
 
-        # Uma mudança de tipo pode estar quebrada em várias linhas; varrer o
-        # bloco adicionado inteiro evita que ``ALTER COLUMN x\n  TYPE y`` passe.
-        joined = "\n".join(added)
+        # Varredura do bloco normalizado cobre DROP/**/TABLE, ALTER COLUMN em
+        # linhas separadas e SQL dentro de DO $$ ... $$.
+        joined = _normalize("\n".join(added))
         if joined:
             found_kinds = {item.split("[", 1)[1].split("]", 1)[0] for item in findings}
             for pattern, kind in _BLOCK_PATTERNS:
                 if kind not in found_kinds and pattern.search(joined):
-                    findings.append(f"{path}:bloco [{kind}] {joined.strip()[:160]}")
+                    findings.append(f"{path}:bloco [{kind}] {joined[:160]}")
+            for match in _UPDATE_RE.finditer(joined):
+                if not _WHERE_RE.search(match.group(0)):
+                    findings.append(
+                        f"{path}:bloco [unfiltered-update] {match.group(0)[:160]}"
+                    )
+
         if findings:
             files.append(path)
             if has_ack:
-                acknowledged.extend(findings)
-            else:
-                blocked.extend(findings)
+                acknowledged.extend(
+                    f"{item} (ci-destructive-ack é informativo; não autoriza a operação)"
+                    for item in findings
+                )
+            blocked.extend(findings)
     return files, acknowledged, blocked
 
 
@@ -135,20 +173,20 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"[migration-analysis] arquivos de migration alterados: {len(set(files))}")
     for item in acknowledged:
-        print(f"[migration-analysis] ACK {item}")
+        print(f"[migration-analysis] NOTE/ACK {item}")
     for item in blocked:
         print(f"[migration-analysis] BLOCK {item}", file=sys.stderr)
 
     if blocked:
         print(
-            "[migration-analysis] BLOCK: mudança destrutiva/incompatível sem "
-            "justificativa revisável. Adicione `-- ci-destructive-ack: <motivo>` "
-            "no arquivo se a operação for realmente necessária.",
+            "[migration-analysis] BLOCK: operação destrutiva ou não verificável. "
+            "Reescreva a migration de forma incremental/verificável; "
+            "`-- ci-destructive-ack` não autoriza promoção sem aprovação humana.",
             file=sys.stderr,
         )
         return 1
 
-    print("[migration-analysis] PASS nenhuma mudança destrutiva não declarada")
+    print("[migration-analysis] PASS nenhuma mudança destrutiva/não verificável")
     return 0
 
 

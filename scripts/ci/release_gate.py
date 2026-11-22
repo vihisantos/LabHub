@@ -8,6 +8,12 @@
     promovendo, que todas as etapas obrigatórias passaram e que não existe run
     mais novo na branch. Um run antigo não pode promover produção.
 
+``preapply``
+    Última barreira, executada IMEDIATAMENTE antes da aplicação em produção:
+    repete a checagem de run/commit e confirma na API do GitHub que o HEAD da
+    main ainda é o commit atestado. Qualquer erro de API, run mais novo ou
+    divergência de commit bloqueia a aplicação (fail-closed).
+
 Nenhum token é impresso. O token do GitHub é usado apenas no header da chamada
 de leitura à API e nunca entra no artifact.
 """
@@ -16,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -109,11 +116,11 @@ def attest(args: argparse.Namespace) -> int:
     return 0
 
 
-def _newer_runs(api_url: str, repo: str, token: str, branch: str, run_id: int) -> list[dict]:
-    url = f"{api_url}/repos/{repo}/actions/runs"
+def _get_json(url: str, token: str, params: dict[str, Any] | None = None) -> Any:
+    """GET autenticado na API do GitHub; erro vira exceção (fail-closed)."""
     response = requests.get(
         url,
-        params={"branch": branch, "event": "push", "per_page": 100},
+        params=params,
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -122,9 +129,20 @@ def _newer_runs(api_url: str, repo: str, token: str, branch: str, run_id: int) -
         timeout=30,
     )
     if response.status_code >= 300:
-        # Não imprimimos corpo: pode conter detalhes do token/request.
-        raise RuntimeError(f"GitHub Actions API retornou HTTP {response.status_code}")
-    payload = response.json()
+        # Não imprimimos corpo nem headers: podem conter detalhes do token.
+        raise RuntimeError(f"GitHub API retornou HTTP {response.status_code}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise RuntimeError("resposta inválida da API do GitHub") from exc
+
+
+def _newer_runs(api_url: str, repo: str, token: str, branch: str, run_id: int) -> list[dict]:
+    payload = _get_json(
+        f"{api_url}/repos/{repo}/actions/runs",
+        token,
+        {"branch": branch, "event": "push", "per_page": 100},
+    )
     runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
     if not isinstance(runs, list):
         raise RuntimeError("resposta inesperada da GitHub Actions API")
@@ -136,33 +154,64 @@ def _newer_runs(api_url: str, repo: str, token: str, branch: str, run_id: int) -
     ]
 
 
+def _main_head_sha(api_url: str, repo: str, token: str, branch: str) -> str:
+    """Lê o SHA atual da branch na API; NUNCA confia em valor do próprio job."""
+    payload = _get_json(f"{api_url}/repos/{repo}/git/ref/heads/{branch}", token)
+    ref = payload.get("object") if isinstance(payload, dict) else None
+    sha = ref.get("sha") if isinstance(ref, dict) else None
+    _require(
+        isinstance(sha, str) and re.fullmatch(r"[0-9a-fA-F]{40}", sha) is not None,
+        "ref da branch principal ausente/inválido na API do GitHub",
+    )
+    return str(sha)
+
+
+def _validate_attestation(attestation: dict[str, Any], args: argparse.Namespace) -> None:
+    """Valida identidade e etapas do artifact, sem chamadas de rede."""
+    _require(
+        isinstance(args.commit_sha, str)
+        and bool(args.commit_sha.strip())
+        and not any(char.isspace() for char in args.commit_sha),
+        "commit_sha do job inválido",
+    )
+    _require(isinstance(args.run_id, int) and args.run_id > 0, "run_id do job inválido")
+    _require(attestation.get("status") == "passed", "status do artifact não é passed")
+    _require(attestation.get("target") == "staging", "artifact não é de staging")
+    _require(bool(attestation.get("project_ref_fingerprint")), "fingerprint do projeto ausente")
+    _require(attestation.get("commit_sha") == args.commit_sha, "commit do artifact diverge")
+    _require(str(attestation.get("run_id")) == str(args.run_id), "run_id do artifact diverge")
+    _require(attestation.get("tests_passed") is True, "testes de staging não passaram")
+    _require(
+        attestation.get("health_checks_passed") is True,
+        "health checks de staging não passaram",
+    )
+    mandatory = attestation.get("mandatory_steps")
+    _require(isinstance(mandatory, dict), "mandatory_steps ausente no artifact")
+    for step in _MANDATORY_STEPS:
+        _require(mandatory.get(step) is True, f"etapa obrigatória não passou: {step}")
+
+    migrated = attestation.get("migrations_applied")
+    pending = attestation.get("migrations_pending")
+    _require(isinstance(migrated, list) and isinstance(pending, list), "listas de migrations ausentes")
+    _require(migrated == pending, "nem toda migration pendente foi aplicada em staging")
+
+
+def _api_context(args: argparse.Namespace) -> str:
+    token = os.environ.get(args.token_env, "")
+    _require(bool(token), f"{args.token_env} ausente")
+    newer = _newer_runs(args.api_url, args.repo, token, args.branch, args.run_id)
+    _require(
+        not newer,
+        f"existem {len(newer)} run(s) mais novo(s) na branch; run atual está obsoleto",
+    )
+    return token
+
+
 def verify(args: argparse.Namespace) -> int:
     try:
         attestation = _read_json(args.attestation)
-        _require(attestation.get("status") == "passed", "status do artifact não é passed")
-        _require(attestation.get("target") == "staging", "artifact não é de staging")
-        _require(bool(attestation.get("project_ref_fingerprint")), "fingerprint do projeto ausente")
-        _require(attestation.get("commit_sha") == args.commit_sha, "commit do artifact diverge")
-        _require(str(attestation.get("run_id")) == str(args.run_id), "run_id do artifact diverge")
-        _require(attestation.get("tests_passed") is True, "testes de staging não passaram")
-        _require(
-            attestation.get("health_checks_passed") is True,
-            "health checks de staging não passaram",
-        )
-        mandatory = attestation.get("mandatory_steps")
-        _require(isinstance(mandatory, dict), "mandatory_steps ausente no artifact")
-        for step in _MANDATORY_STEPS:
-            _require(mandatory.get(step) is True, f"etapa obrigatória não passou: {step}")
-
-        migrated = attestation.get("migrations_applied")
-        pending = attestation.get("migrations_pending")
-        _require(isinstance(migrated, list) and isinstance(pending, list), "listas de migrations ausentes")
-        _require(migrated == pending, "nem toda migration pendente foi aplicada em staging")
-
-        token = os.environ.get(args.token_env, "")
-        _require(bool(token), f"{args.token_env} ausente")
-        newer = _newer_runs(args.api_url, args.repo, token, args.branch, args.run_id)
-        _require(not newer, f"existem {len(newer)} run(s) mais novo(s) na branch; run atual está obsoleto")
+        _validate_attestation(attestation, args)
+        _api_context(args)
     except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
         print(f"[release-gate] BLOCK: {exc}", file=sys.stderr)
         return 1
@@ -170,6 +219,28 @@ def verify(args: argparse.Namespace) -> int:
     print(
         "[release-gate] PASS promoção autorizada: "
         f"commit={args.commit_sha} run={args.run_id} target=production"
+    )
+    return 0
+
+
+def preapply(args: argparse.Namespace) -> int:
+    """Barreira final, executada logo antes do apply em produção."""
+    try:
+        attestation = _read_json(args.attestation)
+        _validate_attestation(attestation, args)
+        token = _api_context(args)
+        head = _main_head_sha(args.api_url, args.repo, token, args.branch)
+        _require(
+            head.lower() == args.commit_sha.lower(),
+            f"HEAD da main divergiu do commit atestado (head={head}, artifact={args.commit_sha})",
+        )
+    except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
+        print(f"[release-gate] BLOCK pré-apply: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        "[release-gate] PASS pré-apply: "
+        f"commit={args.commit_sha} run={args.run_id} branch_head={head}"
     )
     return 0
 
@@ -200,6 +271,16 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--api-url", default="https://api.github.com")
     v.add_argument("--token-env", default="GITHUB_TOKEN")
     v.set_defaults(func=verify)
+
+    p = sub.add_parser("preapply", help="barreira final antes do apply em produção")
+    p.add_argument("--attestation", required=True)
+    p.add_argument("--commit-sha", required=True)
+    p.add_argument("--run-id", required=True, type=int)
+    p.add_argument("--repo", required=True)
+    p.add_argument("--branch", default="main")
+    p.add_argument("--api-url", default="https://api.github.com")
+    p.add_argument("--token-env", default="GITHUB_TOKEN")
+    p.set_defaults(func=preapply)
 
     return parser
 

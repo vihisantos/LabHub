@@ -9,7 +9,9 @@ name: Migrations
 # environment com revisores. O merge na main inicia a entrega sozinho.
 # Produção só roda depois que release-gate prova que o artifact de staging
 # pertence ao MESMO commit e ao MESMO run_id, com todas as etapas obrigatórias
-# verde, e que não existe run mais novo na branch.
+# verde, e que não existe run mais novo na branch. Imediatamente antes do apply
+# em produção, um último guarda repete a checagem e confirma na API do GitHub
+# que o HEAD da main ainda é exatamente o commit atestado (fail-closed).
 #
 # Credenciais isoladas (GitHub Secrets/Variables do repositório):
 #   staging:
@@ -95,7 +97,11 @@ jobs:
 
       - name: Security checks (workflow isolation and destructive guards)
         working-directory: scripts
-        run: python -m pytest tests/test_ci_cd_pipeline.py tests/test_workflow_security.py -q
+        run: >-
+          python -m pytest
+          tests/test_ci_cd_pipeline.py
+          tests/test_workflow_security.py
+          tests/test_release_gate_concurrency.py -q
 
       - name: Migration validation (runner unit tests)
         working-directory: scripts
@@ -320,6 +326,14 @@ jobs:
       - name: Install production dependencies
         run: pip install requests python-dotenv
 
+      # O artifact é relido aqui (não confiamos apenas no job de gate): a
+      # barreira final roda no mesmo runner que executa o apply em produção.
+      - name: Download staging attestation for final guard
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-release-${{ github.sha }}
+          path: .artifacts
+
       - name: Mark stage start
         run: |
           echo "CURRENT_STAGE=confirm-production-target" >> "$GITHUB_ENV"
@@ -372,6 +386,22 @@ jobs:
               f"pendentes={len(data['pending'])}"
           )
           PY
+
+      - name: Mark pre-apply promotion guard
+        run: echo "CURRENT_STAGE=production-preapply-guard" >> "$GITHUB_ENV"
+
+      # Fail-closed: único lugar autorizado a preceder o apply. Qualquer erro
+      # de API, commit divergente ou run mais novo aborta antes de qualquer DDL.
+      - name: Re-verify run identity and main HEAD before apply
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python scripts/ci/release_gate.py preapply
+          --attestation .artifacts/staging-release.json
+          --commit-sha "$GITHUB_SHA"
+          --run-id "$GITHUB_RUN_ID"
+          --repo "$GITHUB_REPOSITORY"
+          --branch main
 
       - name: Mark production apply
         run: echo "CURRENT_STAGE=production-apply" >> "$GITHUB_ENV"
