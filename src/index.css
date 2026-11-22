@@ -361,9 +361,42 @@
   to { transform: translateX(-100%); }
 }
 
+/* Pulse animation — mantém a definição global usada por toda a PWA */
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+@keyframes weather-background-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Weather slide animations */
+@keyframes cloud-drift {
+  0% { background-position: 0% 50%; transform: translateX(0); }
+  25% { background-position: 25% 50%; transform: translateX(2%); }
+  50% { background-position: 50% 50%; transform: translateX(-1%); }
+  75% { background-position: 75% 50%; transform: translateX(1%); }
+  100% { background-position: 100% 50%; transform: translateX(0); }
+}
+
+@keyframes rain-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Wind animation for weather details */
+@keyframes wind-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Temperature number reveal */
+@keyframes temp-reveal {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 /* ── Shimmer loading ── */

@@ -1,110 +1,106 @@
-name: Desktop Release
+name: Desktop Build (Tauri 2) — manual
 
-# Gera o instalador NSIS do Lab Hub TV e publica no GitHub Releases.
-# O feed (latest.yml + app-update.yml) é o que o electron-updater consulta
-# nos kiosks. Só o alvo NSIS suporta auto-update; o portable é distribuído
-# manualmente quando necessário.
+# ⛔ EXECUÇÃO EXCLUSIVAMENTE MANUAL (`workflow_dispatch`).
 #
-# Importante: o feed só avança se `desktop/package.json#version` for aumentado
-# a cada feature (electron-updater compara versão semântica). Bump antes de push.
+# Este arquivo substitui o antigo fluxo Electron, que disparava a cada merge na
+# main, criava tag e GitHub Release e publicava o instalador automaticamente.
+# Com a migração para Tauri 2 (PR #496) esse fluxo não tem mais consumidor:
+# não existe diretório `desktop/`, nem dependências do antigo empacotador no
+# código, e o player usa apenas mídia local + ativação USB.
+#
+# Regras deste fluxo:
+#   - nenhum trigger automático (sem disparo por commit, PR ou agenda);
+#   - `contents: read` — nenhuma permissão de escrita no repositório;
+#   - nenhuma criação de tag, GitHub Release ou publicação externa;
+#   - somente build e validação do instalador NSIS;
+#   - o `.exe` fica disponível como ARTEFATO DO GITHUB ACTIONS;
+#   - uma publicação assinada só será considerada após homologação física e
+#     decisão explícita — nunca como efeito de merge.
+#
+# O nome do arquivo é mantido para preservar histórico/referências, mas ele não
+# publica nada automaticamente.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "desktop/**"
-      - "src/tv-desktop/**"
-      - "src/apps/tv/**"
-      - "vite.desktop.config.ts"
-      - "desktop.html"
-      - ".github/workflows/desktop-release.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: desktop-build-manual-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build & publish TV desktop (Windows)
+  build-nsis:
+    name: Build & validate NSIS (Windows, manual)
     runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_CLOUDINARY_CLOUD_NAME: horytsxg
+      VITE_CLOUDINARY_UPLOAD_PRESET: tv_events
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
 
-      - name: Install root deps
+      - name: Install root dependencies
         run: npm ci
 
-      - name: Install desktop deps
-        run: npm ci
-        working-directory: desktop
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build renderer
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+
+      - name: Build desktop renderer
         run: npm run build:desktop:renderer
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_CLOUDINARY_CLOUD_NAME: horytsxg
-          VITE_CLOUDINARY_UPLOAD_PRESET: tv_events
 
-      - name: Ensure version tag exists
-        # A tag PRECISA existir antes do publish: o electron-builder falha com
-        # 422 "Published releases must have a valid tag" sem ela.
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build NSIS installer (no publish)
+        run: npx tauri build --bundles nsis
+
+      - name: Validate installer and branding
+        shell: pwsh
         run: |
-          VERSION="v$(node -p "require('./desktop/package.json').version")"
-          git tag "$VERSION" 2>/dev/null || true
-          gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/$VERSION" -f sha="${{ github.sha }}" 2>/dev/null || true
+          $exe = 'src-tauri/target/release/bundle/nsis/LabHub TV_2.4.0_x64-setup.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw "Instalador NSIS nao encontrado: $exe"
+          }
+          $item = Get-Item -LiteralPath $exe
+          if ($item.Length -lt 1MB) {
+            throw "Instalador NSIS suspeitosamente pequeno: $($item.Length) bytes"
+          }
+          Write-Host "Installer: $($item.FullName)"
+          Write-Host "Size: $($item.Length) bytes"
+          Write-Host "SHA256: $((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash)"
 
-      - name: Ensure release exists for tag
-        # O electron-builder publica exe e blockmap em paralelo e cada upload
-        # resolve/cria a release de forma independente; quando os dois correm em
-        # paralelo, o GitHub pode criar DUAS releases com a mesma tag e a tag
-        # passa a resolver para a release sem latest.yml (update quebra com
-        # ERR_UPDATER_CHANNEL_FILE_NOT_FOUND). Criando a release PUBLICADA antes
-        # do publish, os dois uploads encontram a mesma release (<2h => permitido
-        # pelo electron-builder) e todos os assets ficam nela — a tag resolve
-        # para a única release com todos os assets. Idempotente: se a release
-        # já existe, não faz nada.
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set +e
-          VERSION="v$(node -p "require('./desktop/package.json').version")"
-          for attempt in 1 2 3 4 5; do
-            gh api "repos/${{ github.repository }}/releases/tags/$VERSION" --jq '.id' >/dev/null 2>&1 && break
-            gh api -X POST "repos/${{ github.repository }}/releases" \
-              -f tag_name="$VERSION" -f name="LabHub TV $VERSION" -F draft=false >/dev/null 2>&1 && break
-            sleep 2
-          done
-          exit 0
+          $template = 'src-tauri/windows/installer.nsi'
+          $hash = (Get-FileHash -LiteralPath $template -Algorithm SHA256).Hash
+          if ($hash -ne 'CED7DF04EF22EFA70F3B6E6250C179536577312D91D0EE74B3E9900787049FA5') {
+            throw "Hash do template NSIS mudou: $hash"
+          }
 
-      - name: Build installer & publish to GitHub Releases
-        run: npx electron-builder --win nsis --publish always
-        working-directory: desktop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          $generated = Get-ChildItem -LiteralPath 'src-tauri/target/release/nsis' `
+            -Filter 'installer.nsi' -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $generated -or
+              -not (Select-String -LiteralPath $generated.FullName `
+                    -Pattern 'by Vihisantos' -SimpleMatch -Quiet)) {
+            throw 'Assinatura by Vihisantos ausente no NSIS gerado'
+          }
+          Write-Host 'Premium NSIS template and branding validated.'
 
-      - name: Title release as Lab Hub TV (best-effort)
-        # Rename é cosmético. Tags recém-criadas por API podem travar o update
-        # com 422 "tag_name already exists" (eventual consistency do GitHub);
-        # nesse caso o pipeline NÃO quebra — renomear manualmente depois.
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set +e
-          VER="v$(node -p "require('./desktop/package.json').version")"
-          RELEASE_ID="$(gh api "repos/${{ github.repository }}/releases/tags/$VER" --jq '.id' 2>/dev/null)"
-          if [ -z "$RELEASE_ID" ]; then
-            echo "::warning::Release $VER nao encontrada para retitle"
-            exit 0
-          fi
-          gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" -f name="LabHub TV $VER" \
-            || echo "::warning::Retitle de $VER falhou (422 tag_name); renomeie manualmente"
-          exit 0
+      - name: Upload installer as Actions artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: labhub-tv-nsis-manual
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14

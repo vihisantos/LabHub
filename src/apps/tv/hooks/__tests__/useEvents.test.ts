@@ -14,7 +14,21 @@ vi.mock('../../../../lib/supabase', () => ({
   stockDb: null,
 }))
 
-import { useEvents, useAllEvents } from '../useEvents'
+vi.mock('../../utils/kiosk', () => ({
+  isKiosk: () => false,
+  kioskError: () => false,
+  isDesktopEnv: () => true,
+}))
+
+vi.mock('../../../../lib/localStore', () => ({
+  isDesktopEnv: () => true,
+  isKiosk: () => false,
+  kioskError: () => false,
+  localStoreGet: () => Promise.resolve(null),
+  localStoreSet: () => Promise.resolve(),
+}))
+
+import { useEvents } from '../useEvents'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -22,10 +36,11 @@ beforeEach(() => {
 })
 
 describe('useEvents', () => {
-  it('inicia com loading=true e eventos vazios', () => {
+  it('em desktop, inicia sem tráfego Supabase com eventos vazios e loading=false', () => {
     const { result } = renderHook(() => useEvents())
-    expect(result.current.loading).toBe(true)
+    expect(result.current.loading).toBe(false)
     expect(result.current.events).toEqual([])
+    expect(mockAddToast).not.toHaveBeenCalled()
   })
 
   it('carrega eventos e desliga loading', async () => {
@@ -36,55 +51,12 @@ describe('useEvents', () => {
     expect(result.current.events).toEqual([])
   })
 
-  it('refresh retorna vazio', async () => {
+  it('reload (load) não falha', async () => {
     const { result } = renderHook(() => useEvents())
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     await act(async () => {
-      await result.current.refresh()
-    })
-
-    expect(result.current.events).toEqual([])
-  })
-})
-
-describe('useAllEvents', () => {
-  it('carrega eventos e desliga loading', async () => {
-    const { result } = renderHook(() => useAllEvents())
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false)
-    })
-    expect(result.current.events).toEqual([])
-  })
-
-  it('add não falha', async () => {
-    const { result } = renderHook(() => useAllEvents())
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    await act(async () => {
-      await result.current.add({ title: 'X', description: null, image_url: null, pdf_url: null, start_date: null, end_date: null, is_active: true, sort_order: 0 })
-    })
-
-    expect(result.current.events).toEqual([])
-  })
-
-  it('edit não falha', async () => {
-    const { result } = renderHook(() => useAllEvents())
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    await act(async () => {
-      await result.current.edit('evt-1', { title: 'X' })
-    })
-
-    expect(result.current.events).toEqual([])
-  })
-
-  it('remove não falha', async () => {
-    const { result } = renderHook(() => useAllEvents())
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    await act(async () => {
-      await result.current.remove('evt-1')
+      await result.current.load()
     })
 
     expect(result.current.events).toEqual([])

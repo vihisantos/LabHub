@@ -49,13 +49,6 @@ export const MODULE_DEFINITIONS: ModuleDefinition[] = [
     selector: '[data-tour="module-reservalab"]',
   },
   {
-    id: 'tv',
-    name: 'TV Corporativa',
-    title: '📺 Módulo TV Corporativa',
-    description: 'Mural digital para exibição de comunicados institucionais, avisos e pedidos musicais nos laboratórios.',
-    selector: '[data-tour="module-tv"]',
-  },
-  {
     id: 'patrimonio',
     name: 'Patrimônio',
     title: '🏷️ Módulo de Patrimônio',

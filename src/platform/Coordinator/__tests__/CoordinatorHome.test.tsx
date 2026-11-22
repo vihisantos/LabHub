@@ -1881,13 +1881,13 @@ describe('Central por abas (PR C) — sobre os painéis da PR B (#250)', () => {
 
   it('Ecossistema respeita disabled_apps por unidade e navega para a rota existente', async () => {
     workspaceContextMock.workspaces = [
-      { id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] },
+      { id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['stock'] },
     ]
     renderHomeAt('/coordenador?tab=ecosystem')
     await act(async () => {})
 
-    expect(screen.getByTestId('ecosystem-module-tv')).toBeInTheDocument()
-    expect(screen.getByTestId('ecosystem-tv-ws1-disabled')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-module-stock')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-stock-ws1-disabled')).toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('ecosystem-open-pc-care-ws1'))
 
@@ -2168,11 +2168,11 @@ describe('contexto de unidade (PR C, C1/C3) — seletor local à Central, sem tr
     await act(async () => {})
 
     expect(screen.getByTestId('tab-ecosystem')).toBeInTheDocument()
-    expect(screen.getByTestId('ecosystem-module-tv')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-module-stock')).toBeInTheDocument()
     // module rows são por unidade: com filtro ws2 só há uma linha por módulo
-    const tv = screen.getByTestId('ecosystem-module-tv')
-    expect(within(tv).queryByText('Campus A')).toBeNull()
-    expect(within(tv).getByText('Campus B')).toBeTruthy()
+    const stock = screen.getByTestId('ecosystem-module-stock')
+    expect(within(stock).queryByText('Campus A')).toBeNull()
+    expect(within(stock).getByText('Campus B')).toBeTruthy()
   })
 
   it('deep link ?unit= válido abre direto na unidade (e ?tab= é preservado)', async () => {
@@ -2338,13 +2338,13 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
       '/coordenador?tab=ecosystem',
       [unitWithData()],
       {},
-      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] }],
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['stock'] }],
     )
     await act(async () => {})
 
-    expect(screen.getByTestId('ecosystem-tv-ws1-disabled')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-stock-ws1-disabled')).toBeInTheDocument()
     expect(screen.getByText('indisponível neste workspace')).toBeTruthy()
-    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+    expect(screen.queryByTestId('ecosystem-open-stock-ws1')).toBeNull()
   })
 
   it('papel SEM acesso ao módulo → "acesso restrito", sem Abrir, mesmo com workspace habilitado', async () => {
@@ -2369,22 +2369,22 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
       '/coordenador?tab=ecosystem',
       [unitWithData()],
       { isVisible: () => false },
-      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['tv'] }],
+      [{ id: 'ws1', name: 'Campus A', slug: 'campus-a', disabled_apps: ['stock'] }],
     )
     await act(async () => {})
 
-    expect(screen.getByTestId('ecosystem-tv-ws1-restricted')).toBeInTheDocument()
-    expect(screen.queryByTestId('ecosystem-tv-ws1-disabled')).toBeNull()
-    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+    expect(screen.getByTestId('ecosystem-stock-ws1-restricted')).toBeInTheDocument()
+    expect(screen.queryByTestId('ecosystem-stock-ws1-disabled')).toBeNull()
+    expect(screen.queryByTestId('ecosystem-open-stock-ws1')).toBeNull()
   })
 
   it('sem workspace no contexto → "fora do contexto", sem Abrir (não inventa disponibilidade)', async () => {
     renderEcosystem('/coordenador?tab=ecosystem', [unitWithData()], {}, [])
     await act(async () => {})
 
-    const module = screen.getByTestId('ecosystem-module-tv')
+    const module = screen.getByTestId('ecosystem-module-stock')
     expect(within(module).getByText('fora do contexto')).toBeTruthy()
-    expect(screen.queryByTestId('ecosystem-open-tv-ws1')).toBeNull()
+    expect(screen.queryByTestId('ecosystem-open-stock-ws1')).toBeNull()
   })
 
   it('módulos planejados (plannedApps) → bloco "Em breve", sem botão de navegação', async () => {
@@ -2412,16 +2412,17 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
       {},
       [
         { id: 'ws1', name: 'Campus A', slug: 'campus-a' },
-        { id: 'ws2', name: 'Campus B', slug: 'campus-b', disabled_apps: ['tv'] },
+        { id: 'ws2', name: 'Campus B', slug: 'campus-b', disabled_apps: ['stock'] },
       ],
     )
     await act(async () => {})
 
-    const module = screen.getByTestId('ecosystem-module-tv')
-    expect(within(module).queryByTestId('ecosystem-tv-ws1-disabled')).toBeNull()
-    expect(within(module).getByTestId('ecosystem-tv-ws2-disabled')).toBeInTheDocument()
+    const module = screen.getByTestId('ecosystem-module-stock')
+    expect(within(module).queryByTestId('ecosystem-stock-ws1-disabled')).toBeNull()
+    expect(within(module).getByTestId('ecosystem-stock-ws2-disabled')).toBeInTheDocument()
     expect(within(module).getByText('indisponível neste workspace')).toBeTruthy()
-    expect(screen.getByTestId('ecosystem-open-tv-ws1')).toBeInTheDocument()
+    expect(within(module).getAllByText('disponível').length).toBeGreaterThan(0)
+    expect(within(module).getByTestId('ecosystem-open-stock-ws1')).toBeInTheDocument()
     expect(screen.getByTestId('ecosystem-open-pc-care-ws1')).toBeInTheDocument()
     expect(screen.getByTestId('ecosystem-open-pc-care-ws2')).toBeInTheDocument()
   })
@@ -2438,10 +2439,11 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
     )
     await act(async () => {})
 
-    const module = screen.getByTestId('ecosystem-module-tv')
+    const module = screen.getByTestId('ecosystem-module-stock')
     expect(within(module).queryByText('Campus A')).toBeNull()
     expect(within(module).getByText('Campus B')).toBeTruthy()
-    expect(screen.getByTestId('ecosystem-open-tv-ws2')).toBeInTheDocument()
+    expect(within(module).getAllByText('disponível').length).toBeGreaterThan(0)
+    expect(within(module).getByTestId('ecosystem-open-stock-ws2')).toBeInTheDocument()
   })
 
   it('?unit= inválido/fora do escopo → fail-closed (Todas as unidades) no ecossistema', async () => {
@@ -2456,7 +2458,7 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
     )
     await act(async () => {})
 
-    const module = screen.getByTestId('ecosystem-module-tv')
+    const module = screen.getByTestId('ecosystem-module-stock')
     expect(within(module).getByText('Campus A')).toBeTruthy()
     expect(within(module).getByText('Campus B')).toBeTruthy()
   })
@@ -2495,7 +2497,7 @@ describe('disponibilidade por workspace (PR D) — Ecossistema espelha papel + w
     await act(async () => {})
 
     expect(screen.queryByTestId('coordinator-unit-context')).toBeNull()
-    expect(screen.getByTestId('ecosystem-module-tv')).toBeInTheDocument()
-    expect(screen.getByTestId('ecosystem-open-tv-ws1')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-module-stock')).toBeInTheDocument()
+    expect(screen.getByTestId('ecosystem-open-stock-ws1')).toBeInTheDocument()
   })
 })

@@ -14,7 +14,21 @@ vi.mock('../../../../lib/supabase', () => ({
   stockDb: null,
 }))
 
-import { usePlaylists, useAllPlaylists } from '../usePlaylists'
+vi.mock('../../utils/kiosk', () => ({
+  isKiosk: () => false,
+  kioskError: () => false,
+  isDesktopEnv: () => true,
+}))
+
+vi.mock('../../../../lib/localStore', () => ({
+  isDesktopEnv: () => true,
+  isKiosk: () => false,
+  kioskError: () => false,
+  localStoreGet: () => Promise.resolve(null),
+  localStoreSet: () => Promise.resolve(),
+}))
+
+import { usePlaylists } from '../usePlaylists'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -22,13 +36,14 @@ beforeEach(() => {
 })
 
 describe('usePlaylists', () => {
-  it('inicia com loading=true e playlists vazias', () => {
+  it('em desktop, inicia sem tráfego Supabase com playlists vazias e loading=false', () => {
     const { result } = renderHook(() => usePlaylists())
-    expect(result.current.loading).toBe(true)
+    expect(result.current.loading).toBe(false)
     expect(result.current.playlists).toEqual([])
+    expect(mockAddToast).not.toHaveBeenCalled()
   })
 
-  it('carrega playlists e desliga loading', async () => {
+  it('em desktop, carrega playlists vazias e desliga loading', async () => {
     const { result } = renderHook(() => usePlaylists())
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -36,55 +51,12 @@ describe('usePlaylists', () => {
     expect(result.current.playlists).toEqual([])
   })
 
-  it('refresh retorna vazio', async () => {
+  it('refresh não falha', async () => {
     const { result } = renderHook(() => usePlaylists())
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     await act(async () => {
       await result.current.refresh()
-    })
-
-    expect(result.current.playlists).toEqual([])
-  })
-})
-
-describe('useAllPlaylists', () => {
-  it('carrega playlists e desliga loading', async () => {
-    const { result } = renderHook(() => useAllPlaylists())
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false)
-    })
-    expect(result.current.playlists).toEqual([])
-  })
-
-  it('add não falha', async () => {
-    const { result } = renderHook(() => useAllPlaylists())
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    await act(async () => {
-      await result.current.add({ name: 'X', source: 'youtube', youtube_url: 'url', is_active: true, sort_order: 0 })
-    })
-
-    expect(result.current.playlists).toEqual([])
-  })
-
-  it('edit não falha', async () => {
-    const { result } = renderHook(() => useAllPlaylists())
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    await act(async () => {
-      await result.current.edit('pl-1', { name: 'X' })
-    })
-
-    expect(result.current.playlists).toEqual([])
-  })
-
-  it('remove não falha', async () => {
-    const { result } = renderHook(() => useAllPlaylists())
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    await act(async () => {
-      await result.current.remove('pl-1')
     })
 
     expect(result.current.playlists).toEqual([])

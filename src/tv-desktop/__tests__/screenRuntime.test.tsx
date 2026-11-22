@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import {
   SCREEN_APP_OPTIONS,
   screenAppLabel,
@@ -23,63 +23,8 @@ vi.mock('../../apps/tv/pages/TvDisplay', () => ({
   ),
 }))
 
-/* O painel de chamados é uma implementação real: a integração via
- * ScreenRenderer precisa da sessão do kiosk e do fetch stubados. O mock
- * também cobre realtime (ThemeContext/MusicPlayer usam canais encadeados). */
-const mockSupabase = vi.hoisted(() => {
-  const channel = {
-    on: () => channel,
-    subscribe: () => channel,
-    unsubscribe: () => Promise.resolve('ok'),
-    send: () => Promise.resolve('ok'),
-    track: () => Promise.resolve('ok'),
-    untrack: () => Promise.resolve('ok'),
-  }
-  return {
-    auth: { getSession: vi.fn() },
-    channel: vi.fn(() => channel),
-    removeChannel: vi.fn(),
-  }
-})
-
-vi.mock('../../lib/supabase', () => ({
-  defaultDb: mockSupabase,
-  pcareDb: null,
-  stockDb: null,
-}))
-
-const DASHBOARD_SNAPSHOT = {
-  generatedAt: '2026-06-25T12:00:00Z',
-  summary: {
-    total: 1, open: 1, inProgress: 0, highPriority: 0,
-    avgResolutionHours: null, satisfaction: null,
-  },
-  tickets: [{
-    ticketNumber: 101, roomName: 'Lab 204', problemArea: 'Computador',
-    problemCategory: 'Hardware', priority: 'alta', status: 'aberto',
-    createdAt: '2026-06-25T10:00:00Z', resolvedAt: null,
-  }],
-}
-
-/** Consome microtasks dos efeitos assíncronos (fake timers globais). */
-async function flushDashboard() {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(0)
-  })
-}
-
-beforeEach(() => {
-  mockSupabase.auth.getSession.mockReset()
-  mockSupabase.auth.getSession.mockResolvedValue({
-    data: { session: { access_token: 'kiosk-token' } },
-  })
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-    ok: true, status: 200, json: async () => DASHBOARD_SNAPSHOT,
-  }))
-})
-
 afterEach(() => {
-  vi.unstubAllGlobals()
+  localStorage.clear()
 })
 
 function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
@@ -107,9 +52,16 @@ function makeConfig(overrides: Partial<DeviceConfig> = {}): DeviceConfig {
   }
 }
 
+/** Config legada de instalações que tinham o painel de Chamados no Desktop. */
+function legacyChamadosConfig(overrides: Partial<DeviceConfig> = {}): DeviceConfig {
+  return makeConfig({
+    screenApp: 'chamados-dashboard' as unknown as ScreenAppId,
+    ...overrides,
+  })
+}
+
 describe('resolveScreenApp — fallbacks seguros', () => {
   it('config antiga sem screenApp resolve para "tv"', () => {
-    // Simula instalação existente: objeto persistido sem a chave screenApp
     const { screenApp: _omitted, ...legacy } = makeConfig({ screenApp: 'tv' })
     void _omitted
     expect(resolveScreenApp(legacy)).toBe('tv')
@@ -122,9 +74,10 @@ describe('resolveScreenApp — fallbacks seguros', () => {
 
   it('valor válido é preservado', () => {
     expect(resolveScreenApp(makeConfig({ screenApp: 'tv' }))).toBe('tv')
-    expect(resolveScreenApp(makeConfig({ screenApp: 'chamados-dashboard' }))).toBe(
-      'chamados-dashboard',
-    )
+  })
+
+  it('screenApp legado de Chamados resolve para "tv"', () => {
+    expect(resolveScreenApp(legacyChamadosConfig())).toBe('tv')
   })
 
   it('qualquer valor desconhecido cai em "tv" — a TV nunca fica vazia', () => {
@@ -135,11 +88,9 @@ describe('resolveScreenApp — fallbacks seguros', () => {
   })
 })
 
-describe('SCREEN_APP_OPTIONS — catálogo de módulos (fonte da UI de seleção)', () => {
-  it('cobre exatamente os ids válidos de ScreenAppId, sem duplicatas', () => {
-    const ids = SCREEN_APP_OPTIONS.map((o) => o.id)
-    expect(ids).toEqual(expect.arrayContaining(['tv', 'chamados-dashboard']))
-    expect(new Set(ids).size).toBe(ids.length)
+describe('SCREEN_APP_OPTIONS — catálogo institucional', () => {
+  it('contém exclusivamente a TV Corporativa', () => {
+    expect(SCREEN_APP_OPTIONS.map((o) => o.id)).toEqual(['tv'])
   })
 
   it('rotula todos os módulos com texto não vazio e rotulo desconhecido cai no próprio id', () => {
@@ -152,19 +103,16 @@ describe('SCREEN_APP_OPTIONS — catálogo de módulos (fonte da UI de seleção
   })
 })
 
-describe('ScreenRenderer — decisão de tela', () => {
-  it('screenApp "tv" renderiza a TV Corporativa', () => {
+describe('ScreenRenderer — apenas TV institucional', () => {
+  it('renderiza a TV Corporativa', () => {
     render(<ScreenRenderer config={makeConfig({ screenApp: 'tv' })} />)
     expect(screen.getByTestId('tv-display-stub')).toHaveAttribute('data-device-name', 'TV Recepção')
   })
 
-  it('"chamados-dashboard" renderiza o painel de chamados na TV', async () => {
-    render(<ScreenRenderer config={makeConfig({ screenApp: 'chamados-dashboard' })} />)
-    await flushDashboard()
-
-    expect(screen.queryByTestId('tv-display-stub')).not.toBeInTheDocument()
-    expect(screen.getByText('Painel de Chamados')).toBeInTheDocument()
-    expect(screen.getByText('#101')).toBeInTheDocument()
+  it('screenApp legado de Chamados nunca renderiza Chamados', () => {
+    render(<ScreenRenderer config={legacyChamadosConfig()} />)
+    expect(screen.getByTestId('tv-display-stub')).toBeInTheDocument()
+    expect(screen.queryByText('Painel de Chamados')).not.toBeInTheDocument()
   })
 
   it('screenApp inválido nunca quebra: renderiza a TV', () => {
@@ -174,13 +122,13 @@ describe('ScreenRenderer — decisão de tela', () => {
   })
 })
 
-describe('Persistência de screenApp (Electron SQLite / web localStorage)', () => {
+describe('Persistência de screenApp (Desktop local store / web localStorage)', () => {
   it('saveConfig → loadConfig preserva screenApp e todos os campos', async () => {
-    await saveConfig(makeConfig({ screenApp: 'chamados-dashboard', deviceId: 'dev-2' }))
+    await saveConfig(makeConfig({ screenApp: 'tv', deviceId: 'dev-2' }))
     const loaded = await loadConfig()
 
-    expect(loaded?.screenApp).toBe('chamados-dashboard')
-    expect(loaded).toEqual(makeConfig({ screenApp: 'chamados-dashboard', deviceId: 'dev-2' }))
+    expect(loaded?.screenApp).toBe('tv')
+    expect(loaded).toEqual(makeConfig({ screenApp: 'tv', deviceId: 'dev-2' }))
   })
 
   it('config antiga (JSON sem screenApp) carrega, resolve "tv" e não é reescrita', async () => {
@@ -194,10 +142,18 @@ describe('Persistência de screenApp (Electron SQLite / web localStorage)', () =
     expect('screenApp' in raw).toBe(false)
   })
 
+  it('config legada de Chamados é carregada, mas resolve para TV', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(legacyChamadosConfig({ deviceId: 'dev-3' })))
+
+    const loaded = await loadConfig()
+    expect(loaded?.screenApp).toBe('chamados-dashboard')
+    expect(resolveScreenApp(loaded)).toBe('tv')
+  })
+
   it('re-salvar a configuração não corrompe deviceId/workspace/name', async () => {
     await saveConfig(makeConfig())
     await saveConfig(
-      makeConfig({ screenApp: 'chamados-dashboard', createdAt: '2026-07-01T10:00:00Z' }),
+      makeConfig({ createdAt: '2026-07-01T10:00:00Z' }),
     )
 
     const loaded = await loadConfig()
@@ -211,5 +167,11 @@ describe('Fluxo existente — DisplayShell → ScreenRenderer → TvDisplay', ()
   it('a cadeia completa do kiosk continua renderizando a TV', () => {
     render(<DisplayShell config={makeConfig()} onReconfigure={() => {}} />)
     expect(screen.getByTestId('tv-display-stub')).toBeInTheDocument()
+  })
+
+  it('config legada de Chamados também cai na TV na cadeia completa', () => {
+    render(<DisplayShell config={legacyChamadosConfig()} onReconfigure={() => {}} />)
+    expect(screen.getByTestId('tv-display-stub')).toBeInTheDocument()
+    expect(screen.queryByText('Painel de Chamados')).not.toBeInTheDocument()
   })
 })

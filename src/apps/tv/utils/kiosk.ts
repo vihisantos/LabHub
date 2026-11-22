@@ -1,9 +1,13 @@
-export interface KioskWindow { desktop?: { isDesktop?: boolean } }
+import { isTauri } from '@tauri-apps/api/core'
 
 export function isKiosk(): boolean {
   if (typeof window === 'undefined') return false
-  return !!window.desktop?.isDesktop
+  // API oficial do Tauri 2: não depende de bridge injetada pelo Electron.
+  return isTauri()
 }
+
+/** Alias para isKiosk, mantido para compatibilidade */
+export const isDesktopEnv = isKiosk
 
 let kioskErrorCount = 0
 

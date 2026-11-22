@@ -59,7 +59,7 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(permissionService.getAll()).toHaveLength(4)
   })
 
-  it('a matriz RBAC2 dá read nos cinco módulos do workspace do coordenador', () => {
+  it('a matriz RBAC2 dá read nos módulos do workspace do coordenador', () => {
     // Autorização/vizibilidade do coordenador é a MATRIZ RBAC2, resolvida do
     // slug da membership ativa — não mais uma propriedade do cargo local.
     // `chamados` BAIXOU de `full` para `read`: o coordenador acompanha as
@@ -69,15 +69,14 @@ describe('Cargo Coordenador Multiunidade (role-coordinator)', () => {
     expect(moduleLevelForSlug('coordinator', 'chamados')).toBe('read')
     expect(moduleLevelForSlug('coordinator', 'stock')).toBe('read')
     expect(moduleLevelForSlug('coordinator', 'pc-care')).toBe('read')
-    expect(moduleLevelForSlug('coordinator', 'tv')).toBe('read')
     expect(moduleLevelForSlug('coordinator', 'reservalab')).toBe('read')
     // Fail-closed: nada fora da matriz.
     expect(moduleLevelForSlug('coordinator', 'admin')).toBe('none')
     expect(moduleLevelForSlug('coordinator', 'dashboard')).toBe('none')
   })
 
-  it('regressão: técnico (full) e visualizador (read) nos cinco módulos', () => {
-    for (const appId of ['chamados', 'stock', 'pc-care', 'reservalab', 'tv'] as const) {
+  it('regressão: técnico (full) e visualizador (read) nos módulos', () => {
+    for (const appId of ['chamados', 'stock', 'pc-care', 'reservalab'] as const) {
       expect(moduleLevelForSlug('tec', appId), `tec/${appId}`).toBe('full')
       expect(moduleLevelForSlug('vis', appId), `vis/${appId}`).toBe('read')
     }

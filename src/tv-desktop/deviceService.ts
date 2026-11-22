@@ -1,3 +1,4 @@
+import { isTauri } from '@tauri-apps/api/core'
 import { defaultDb as supabase } from '../lib/supabase'
 import { heartbeatDevice } from '../apps/tv/services/supabase'
 import { tvApi } from '../apps/tv/utils/apiBase'
@@ -151,9 +152,32 @@ export async function listDevices(workspaceId?: string): Promise<TvDevice[]> {
   return data.devices || []
 }
 
+/**
+ * Presença do dispositivo: atualiza `tv_devices.last_seen` a cada 5 minutos.
+ * Não sincroniza conteúdo — apenas sinaliza que a TV Desktop está viva.
+ * Retorna uma função de parada que cancela o intervalo, os retries pendentes
+ * e impede qualquer nova tentativa após a desmontagem do shell.
+ */
 export function startHeartbeat(deviceId: string, intervalMs = 5 * 60 * 1000): () => void {
   let stopped = false
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  let sleepTimer: ReturnType<typeof setTimeout> | null = null
+  let resolveSleep: (() => void) | null = null
+
+  const sleep = (ms: number) => new Promise<void>((resolve) => {
+    resolveSleep = resolve
+    sleepTimer = setTimeout(() => {
+      sleepTimer = null
+      resolveSleep = null
+      resolve()
+    }, ms)
+  })
+
+  const cancelPendingSleep = () => {
+    if (sleepTimer !== null) clearTimeout(sleepTimer)
+    sleepTimer = null
+    resolveSleep?.()
+    resolveSleep = null
+  }
 
   const ping = async () => {
     let delay = 1000
@@ -163,35 +187,40 @@ export function startHeartbeat(deviceId: string, intervalMs = 5 * 60 * 1000): ()
         await heartbeatDevice(deviceId)
         return
       } catch (err) {
+        if (stopped) return
         console.warn('[TV] heartbeat falhou, retry com backoff:', err)
         await sleep(delay)
         delay *= 2
       }
     }
-    console.warn('[TV] heartbeat indisponível; próxima tentativa no próximo ciclo')
+    if (!stopped) {
+      console.warn('[TV] heartbeat indisponível; próxima tentativa no próximo ciclo')
+    }
   }
 
   void ping()
   const timer = setInterval(() => { void ping() }, intervalMs)
+
   return () => {
     stopped = true
     clearInterval(timer)
+    cancelPendingSleep()
   }
-}
-/** Indica se o ambiente é o app desktop Electron (vs navegador). */
-export function isDesktop(): boolean {
-  return !!window.desktop?.isDesktop
 }
 
-/** Abre o painel administrativo no navegador padrão. */
+/** Indica se o ambiente é o app desktop Tauri (vs navegador). */
+export function isDesktop(): boolean {
+  return isTauri()
+}
+
+/**
+ * Abre o painel administrativo apenas quando configurado explicitamente.
+ * Não existe bridge `window.desktop` no runtime Tauri 2.
+ */
 export function openAdminPanel(): void {
-  if (window.desktop?.openAdmin) {
-    window.desktop.openAdmin()
-    return
-  }
   const adminUrl = import.meta.env.VITE_TV_ADMIN_URL as string | undefined
   if (adminUrl) {
-    window.open(adminUrl, '_blank')
+    window.open(adminUrl, '_blank', 'noopener,noreferrer')
   }
 }
 

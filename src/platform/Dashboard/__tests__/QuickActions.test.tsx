@@ -33,8 +33,6 @@ vi.mock('../../../core/permissions/useModuleVisibility', () => ({
 
 vi.mock('../../../core/workspaces/apps', () => ({
   isAppDisabled: (appId: string) => mockDisabledApps().includes(appId),
-  isModuleAvailable: (appId: string, _ws: unknown, canAccessApp: (id: string) => boolean) =>
-    !mockDisabledApps().includes(appId) && canAccessApp(appId),
 }))
 
 function css(): string {
@@ -68,7 +66,7 @@ afterEach(() => {
 describe('QuickActions — a cor de fundo segue o tema', () => {
   it('o cartão usa --bg-quick-card, não --bg-card direto', () => {
     renderQuick()
-    const botao = screen.getByRole('button', { name: /Pedir Música/ })
+    const botao = screen.getByRole('button', { name: /Reservas/ })
     expect(botao.className).toContain('bg-quick-card')
     // Se voltar a bg-card, o Sutil perde o pareamento com o Resumo.
     expect(botao.className).not.toMatch(/\bbg-card\b/)
@@ -92,8 +90,8 @@ describe('QuickActions — as cores dos ícones continuam distintas', () => {
   it('cada ação mantém a sua cor, e são todas diferentes entre si', () => {
     renderQuick()
     const cores = tiles().map((t) => t.style.color)
-    expect(cores).toHaveLength(4)
-    expect(new Set(cores).size, `cores repetidas: ${cores.join(' ')}`).toBe(4)
+    expect(cores).toHaveLength(3)
+    expect(new Set(cores).size, `cores repetidas: ${cores.join(' ')}`).toBe(3)
     // O navegador normaliza hex para rgb(); por isso rgb() e não #rrggbb.
     for (const cor of cores) expect(cor).toMatch(/^rgb\(\d+, \d+, \d+\)$/)
   })
@@ -114,50 +112,38 @@ describe('QuickActions — as cores dos ícones continuam distintas', () => {
   })
 })
 
-describe('QuickActions — Estoque saiu, Pedir Música entrou', () => {
+describe('QuickActions — apenas os atalhos dos módulos do PWA', () => {
   it('não tem mais o atalho de Estoque', () => {
     renderQuick()
     expect(screen.queryByRole('button', { name: /Estoque/ })).not.toBeInTheDocument()
   })
 
-  it('Pedir Música navega para /pedir-musica', () => {
-    renderQuick()
-    fireEvent.click(screen.getByRole('button', { name: /Pedir Música/ }))
-    expect(mockNavigate).toHaveBeenCalledWith('/pedir-musica')
-  })
-
-  it('Pedir Música fica visível mesmo com os outros módulos desligados', () => {
-    // A rota /pedir-musica só exige login (sem AppGuard), então o atalho não
-    // some por falta de permissão — só pelo eixo da TV do campus (próximo teste).
-    mockCanAccessApp.mockReturnValue(false)
-    mockDisabledApps.mockReturnValue(['chamados', 'reservalab', 'pc-care', 'stock'])
-    renderQuick()
-    expect(screen.getByRole('button', { name: /Pedir Música/ })).toBeInTheDocument()
-    expect(screen.getAllByRole('button')).toHaveLength(1)
-  })
-
-  it('Pedir Música some quando a TV do campus está desligada', () => {
-    // Sem o app `tv` habilitado no workspace não há para onde o pedido ir.
-    mockDisabledApps.mockReturnValue(['tv'])
+  it('não tem mais o atalho de Pedir Música (recurso removido)', () => {
     renderQuick()
     expect(screen.queryByRole('button', { name: /Pedir Música/ })).not.toBeInTheDocument()
-  })
-})
-
-describe('QuickActions — o filtro de acesso não mudou', () => {
-  it('só mostra as ações permitidas, mais Pedir Música', () => {
-    mockCanAccessApp.mockImplementation((id: string) => id === 'reservalab')
-    // Novo Chamado tem regra própria: basta estar desabilitado no workspace.
-    mockDisabledApps.mockReturnValue(['chamados', 'pc-care'])
-    renderQuick()
-    expect(screen.getByRole('button', { name: /Reservas/ })).toBeInTheDocument()
-    // Reservas + Pedir Música (a TV não está desligada no campus).
-    expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 
   it('navigate vai para a rota da ação', () => {
     renderQuick()
     fireEvent.click(screen.getByRole('button', { name: /Reservas/ }))
     expect(mockNavigate).toHaveBeenCalledWith('/reservalab')
+  })
+})
+
+describe('QuickActions — o filtro de acesso não mudou', () => {
+  it('só mostra as ações permitidas', () => {
+    mockCanAccessApp.mockImplementation((id: string) => id === 'reservalab')
+    // Novo Chamado tem regra própria: basta estar desabilitado no workspace.
+    mockDisabledApps.mockReturnValue(['chamados', 'pc-care'])
+    renderQuick()
+    expect(screen.getByRole('button', { name: /Reservas/ })).toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('Novo Chamado não depende de permissão de app, só do workspace', () => {
+    mockCanAccessApp.mockReturnValue(false)
+    renderQuick()
+    expect(screen.getByRole('button', { name: /Novo Chamado/ })).toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
   })
 })

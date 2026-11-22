@@ -45,7 +45,7 @@ vi.mock('../../../core/notifications/useNotifications', () => ({
 // A varredura exercita a navegação entre abas, não a visibilidade. O usuário
 // fictício é super admin, que na fonte nova (membership -> matriz) é `full` em
 // todos os módulos; sem memberships no ambiente de teste, o nível viraria
-// `none` e o Admin da TV cairia na tela de acesso restrito.
+// `none` e as abas cairiam na tela de acesso restrito.
 vi.mock('../../../core/permissions/useModuleVisibility', () => {
   const nivel = { level: 'full' as const, visible: true, loading: false }
   return {
@@ -68,50 +68,11 @@ vi.mock('../../../apps/reservalab/components/PushNotificationButton', () => ({
 // ReservaLab Navbar
 vi.mock('../../../apps/reservalab/hooks/useIsMobile', () => ({ useIsMobile: mockUseIsMobile }))
 
-// TV AdminView — hooks (evita Supabase/realtime nos testes)
-vi.mock('../../../apps/tv/hooks/useEvents', () => ({
-  useAllEvents: () => ({ events: [], loading: false, add: vi.fn(), edit: vi.fn(), remove: vi.fn() }),
-}))
-vi.mock('../../../apps/tv/hooks/usePlaylists', () => ({
-  useAllPlaylists: () => ({ playlists: [], loading: false, add: vi.fn(), edit: vi.fn(), remove: vi.fn() }),
-}))
-vi.mock('../../../apps/tv/hooks/useNowPlaying', () => ({
-  useNowPlaying: () => ({ nowPlaying: null, broadcast: vi.fn() }),
-}))
-vi.mock('../../../apps/tv/hooks/useAnnouncements', () => ({
-  useAnnouncements: () => ({ announcements: [], add: vi.fn(), edit: vi.fn(), remove: vi.fn(), moveUp: vi.fn(), moveDown: vi.fn() }),
-}))
-vi.mock('../../../apps/tv/hooks/useGallery', () => ({
-  useGalleries: () => ({ galleries: [], loading: false, create: vi.fn(), remove: vi.fn(), toggleActive: vi.fn() }),
-}))
-vi.mock('../../../apps/tv/hooks/useUrgentAnnouncements', () => ({
-  useUrgentAnnouncements: () => ({ activeAnnouncement: null, createUrgent: vi.fn(), dismissUrgent: vi.fn() }),
-}))
-vi.mock('../../../apps/tv/hooks/useDevices', () => ({
-  useDevices: () => ({ devices: [], loading: false, rename: vi.fn(), moveWorkspace: vi.fn(), remove: vi.fn() }),
-}))
-vi.mock('../../../apps/tv/contexts/MusicPlayerCommandContext', () => ({
-  useMusicPlayerCommand: () => ({ playNext: vi.fn(), stop: vi.fn(), pause: vi.fn(), resume: vi.fn(), next: vi.fn(), previous: vi.fn(), seek: vi.fn() }),
-}))
-
-// TV AdminView — gerentes de conteúdo (a varredura cobre a navegação por abas,
-// não o conteúdo; os managers puxam Supabase/realtime)
-vi.mock('../../../apps/tv/components/EventManager', () => ({ EventManager: () => null }))
-vi.mock('../../../apps/tv/components/PlaylistManager', () => ({ PlaylistManager: () => null }))
-vi.mock('../../../apps/tv/components/QueueManager', () => ({ QueueManager: () => null }))
-vi.mock('../../../apps/tv/components/MusicRequestManager', () => ({ MusicRequestManager: () => null }))
-vi.mock('../../../apps/tv/components/AnnouncementManager', () => ({ AnnouncementManager: () => null }))
-vi.mock('../../../apps/tv/components/GalleryManager', () => ({ GalleryManager: () => null }))
-vi.mock('../../../apps/tv/components/DeviceManager', () => ({ DeviceManager: () => null }))
-vi.mock('../../../apps/tv/components/CalendarManager', () => ({ CalendarManager: () => null }))
-vi.mock('../../../apps/tv/components/TvDesktopInstall', () => ({ TvDesktopInstall: () => null }))
-
 import { BottomNav as PCareBottomNav } from '../../../apps/pcare/components/BottomNav'
 import { StockBottomNav } from '../../../apps/stock/components/StockBottomNav'
 import { ChamadosBottomNav } from '../../../apps/chamados/components/ChamadosBottomNav'
 import { AdminLayout } from '../../../apps/admin/layouts/AdminLayout'
 import { Navbar as ReservaLabNavbar } from '../../../apps/reservalab/components/Navbar'
-import { AdminView as TvAdminView } from '../../../apps/tv/pages/Admin'
 
 type GetActive = () => string[]
 
@@ -136,19 +97,6 @@ function activeReservaLabTabTexts(): string[] {
     if (color === 'rgb(99, 102, 241)' || weight === '600' || weight === '700') {
       texts.push((el.textContent || '').trim())
     }
-  })
-  return texts
-}
-
-/** Aba ativa no painel da TV (a que se declara com `aria-current`). */
-function activeTvTabTexts(): string[] {
-  const tabs = document.querySelector('div.overflow-x-auto')
-  if (!tabs) return []
-  const texts: string[] = []
-  // `aria-current`, e não uma classe de cor: a aba ativa é estado, e a cor do
-  // cartão pode mudar com o tema sem que o estado mude.
-  tabs.querySelectorAll('button[aria-current="true"]').forEach((btn) => {
-    texts.push((btn.textContent || '').trim())
   })
   return texts
 }
@@ -252,19 +200,4 @@ describe('varredura de rotas — aba ativa', () => {
     ], activeReservaLabTabTexts)
   })
 
-  it('TV: aba ativa correta conforme o parâmetro ?tab=', () => {
-    runSweep(<TvAdminView />, [
-      ['/tv', 'Eventos'],
-      ['/tv?tab=events', 'Eventos'],
-      ['/tv?tab=playlists', 'Playlists'],
-      ['/tv?tab=music', 'Filas de Música'],
-      ['/tv?tab=requests', 'Pedidos de Música'],
-      ['/tv?tab=gallery', 'Galeria'],
-      ['/tv?tab=announcements', 'Avisos'],
-      ['/tv?tab=devices', 'Dispositivos'],
-      ['/tv?tab=calendar', 'Calendário'],
-      ['/tv?tab=install', 'Instalar App'],
-      ['/tv?tab=help', 'Ajuda'],
-    ], activeTvTabTexts)
-  })
 })

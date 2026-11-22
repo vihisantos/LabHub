@@ -4,6 +4,7 @@ interface Props {
   children: ReactNode
   fallback?: ReactNode
   recoverMs?: number
+  /** Callback opcional para testes/hosts que queiram observar a recuperação. */
   onReloadRenderer?: () => void
 }
 
@@ -12,9 +13,22 @@ interface State {
   failures: number[]
 }
 
+const FAILURE_WINDOW_MS = 120_000
+const RELOAD_THRESHOLD = 3
+const RELOAD_COOLDOWN_MS = 60_000
+const RELOAD_KEY = 'labhub-tv-last-reload'
+
+/**
+ * Recuperação de erro de renderização com critérios objetivos:
+ *  - erros idênticos repetidos não reiniciam a TV (evita laço determinístico);
+ *  - reload somente após 3 falhas distintas em 2 minutos, no máximo 1 por minuto;
+ *  - sem bridge `window.desktop`: usa a API web padrão e sempre agenda a
+ *    liberação do fallback, mesmo quando o reload não for permitido.
+ */
 export class KioskErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false, failures: [] }
   private timer: ReturnType<typeof setTimeout> | null = null
+  private lastSignature = ''
 
   static getDerivedStateFromError(): Partial<State> {
     return { hasError: true }
@@ -23,17 +37,48 @@ export class KioskErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[KioskErrorBoundary]', error, info)
     const now = Date.now()
-    const failures = [...this.state.failures, now].filter((t) => now - t < 120_000)
+    const signature = `${error.message}|${info.componentStack ?? ''}`
+    const recent = this.state.failures.filter((t) => now - t < FAILURE_WINDOW_MS)
+    const repeated = signature === this.lastSignature
+    this.lastSignature = signature
+
+    const failures = repeated ? recent : [...recent, now]
     this.setState({ failures })
 
-    if (failures.length >= 3) {
-      console.error('[KioskErrorBoundary] 3 falhas em 2 min — solicitando reload do renderer')
-      window.desktop?.reloadRenderer?.()
-      this.props.onReloadRenderer?.()
-      return
+    if (!repeated && failures.length >= RELOAD_THRESHOLD) {
+      const lastReload = this.readLastReload()
+      if (now - lastReload >= RELOAD_COOLDOWN_MS) {
+        this.writeLastReload(now)
+        this.props.onReloadRenderer?.()
+        window.location.reload()
+        return
+      }
+      console.warn('[KioskErrorBoundary] reload em resfriamento — mantendo tela de recuperacao')
     }
 
+    this.scheduleRecovery()
+  }
+
+  private readLastReload(): number {
+    try {
+      return Number(sessionStorage.getItem(RELOAD_KEY) ?? 0)
+    } catch {
+      return 0
+    }
+  }
+
+  private writeLastReload(at: number): void {
+    try {
+      sessionStorage.setItem(RELOAD_KEY, String(at))
+    } catch {
+      /* sessão indisponível: o cooldown não pode ser persistido */
+    }
+  }
+
+  private scheduleRecovery() {
+    if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => {
+      this.timer = null
       this.setState({ hasError: false })
     }, this.props.recoverMs ?? 3000)
   }

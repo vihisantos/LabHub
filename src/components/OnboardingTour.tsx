@@ -110,7 +110,7 @@ function TourArrow({ rect, tipRef }: { rect: DOMRect; tipRef: React.RefObject<HT
 }
 
 // ─── Main component ─────────────────────────────────────────────────────────────
-const ALL_MODULE_IDS = ['chamados', 'pc-care', 'stock', 'reservalab', 'tv', 'patrimonio', 'admin'] as const
+const ALL_MODULE_IDS = ['chamados', 'pc-care', 'stock', 'reservalab', 'patrimonio', 'admin'] as const
 
 function storageKey(userId?: string) {
   return `onboardingCompleted_${userId ?? 'guest'}`

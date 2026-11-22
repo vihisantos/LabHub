@@ -72,3 +72,10 @@ ORCAMENTO.md
 .github/workflows/.zo.py
 .github/workflows/ci-db.yml
 .github/workflows/ci-web.yml
+
+.vercel
+.env*
+
+# Tauri build output and generated schemas (regenerados por cargo/tauri)
+src-tauri/target/
+src-tauri/gen/

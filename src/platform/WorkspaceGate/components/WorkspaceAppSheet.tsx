@@ -5,7 +5,6 @@ import { useWorkspaces } from '../../../core/workspaces/useWorkspaces'
 import { APPS_CONFIGURABLE, isAppDisabled } from '../../../core/workspaces/apps'
 import { appSettingsService } from '../../../core/appSettings/service'
 import type { AppModule } from '../../../appRegistry'
-import { AppDataResetModal } from './AppDataResetModal'
 import { icons } from '../../../lib/icons'
 
 interface WorkspaceAppSheetProps {
@@ -29,13 +28,11 @@ function getFocusableElements(root: HTMLElement): HTMLElement[] {
 /**
  * Shell genérico de gerenciamento de um app dentro de um workspace.
  * Não conhece campos de configuração de nenhum app: apenas consulta as
- * capacidades declaradas no appRegistry (configurable/clearable) e renderiza
+ * capacidades declaradas no appRegistry (configurable) e renderiza
  * o SettingsPanel próprio do app, quando existir.
  *
  * Desativar reutiliza o mecanismo existente (workspaces.disabled_apps ->
- * Launcher/AppGuard). "Limpar dados" abre o AppDataResetModal (PR 5): contagens
- * reais server-side, confirmação forte e purge com backup obrigatório — o
- * servidor é quem valida identidade/workspace/permissão.
+ * Launcher/AppGuard).
  */
 export function WorkspaceAppSheet({
   app,
@@ -47,14 +44,8 @@ export function WorkspaceAppSheet({
   const { update } = useWorkspaces()
   const [view, setView] = useState<'overview' | 'settings'>('overview')
   const [toggling, setToggling] = useState(false)
-  const [resetOpen, setResetOpen] = useState(false)
-  const resetOpenRef = useRef(false)
   const [error, setError] = useState('')
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
-
-  useEffect(() => {
-    resetOpenRef.current = resetOpen
-  }, [resetOpen])
 
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const previouslyFocused = useRef<HTMLElement | null>(null)
@@ -62,7 +53,6 @@ export function WorkspaceAppSheet({
   useEffect(() => {
     if (open) {
       setView('overview')
-      setResetOpen(false)
       setError('')
       setUpdatedAt(null)
     }
@@ -96,9 +86,7 @@ export function WorkspaceAppSheet({
     })
 
     function onKeyDown(event: KeyboardEvent) {
-      // O AppDataResetModal captura Escape quando está aberto (capture phase);
-      // o ref é defesa adicional contra corridas de render.
-      if (event.key === 'Escape' && !resetOpenRef.current) {
+      if (event.key === 'Escape') {
         event.stopPropagation()
         onClose()
       }
@@ -249,28 +237,6 @@ export function WorkspaceAppSheet({
                   </button>
                 )}
 
-                {app.clearable && (
-                  <button
-                    type="button"
-                    onClick={() => setResetOpen(true)}
-                    data-testid="clear-app-data-button"
-                    className="flex w-full items-center gap-3 rounded-xl border border-line bg-card px-3 py-2.5 text-left transition-colors hover:bg-input"
-                  >
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-500">
-                      <icons.ui.trash size={14} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-fg">
-                        Limpar dados deste workspace
-                      </span>
-                      <span className="block text-[10px] text-fg-dim">
-                        Remove dados de conteúdo, com backup automático
-                      </span>
-                    </span>
-                    <icons.ui.chevronRight size={16} className="text-fg-dim" />
-                  </button>
-                )}
-
                 {configurableByWorkspace && (
                   <button
                     type="button"
@@ -310,12 +276,6 @@ export function WorkspaceAppSheet({
           </>
         )}
       </div>
-      <AppDataResetModal
-        app={app}
-        workspace={workspace}
-        open={resetOpen}
-        onClose={() => setResetOpen(false)}
-      />
     </BottomSheet>
   )
 }

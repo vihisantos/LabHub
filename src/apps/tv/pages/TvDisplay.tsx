@@ -1,599 +1,528 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Settings, Tv, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
-import { useEvents } from '../hooks/useEvents'
-import { usePlaylists } from '../hooks/usePlaylists'
-import { useActiveGalleries } from '../hooks/useGallery'
-import { useMusicPlayer } from '../contexts/MusicPlayerContext'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Tv, Folder } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
+import './TvDisplay.css'
+import { isKiosk } from '../utils/kiosk'
+import { useProgramming } from '../contexts/ProgrammingContext'
+import { toLocalUrl } from '../services/localProgramming'
+import type { ProgrammingQueueItem } from '../types'
 import { VideoPlayer } from '../components/VideoPlayer'
-import { EventsCarousel } from '../components/EventsCarousel'
-import { MusicQueuePlayer } from '../components/MusicQueuePlayer'
 import { PhotoSlideshow } from '../components/PhotoSlideshow'
 import { UpdateBadge } from '../components/UpdateBadge'
-import { ClockDisplay } from '../components/ClockDisplay'
-import { Greeting } from '../components/Greeting'
-import { Ticker } from '../components/Ticker'
-import { WeatherWidget } from '../components/WeatherWidget'
-import { useUrgentAnnouncements } from '../hooks/useUrgentAnnouncements'
-import { UrgentBanner } from '../components/UrgentBanner'
-import { CountdownSlide } from '../components/CountdownSlide'
-import { WelcomeSlide } from '../components/WelcomeSlide'
-import { WeatherSlide } from '../components/WeatherSlide'
+import { WeatherSlideEnhanced } from '../components/WeatherSlideEnhanced'
+import { ClockSlide } from '../components/ClockSlide'
 import { ScreenSaver } from '../components/ScreenSaver'
 import { SeasonalEffects } from '../components/SeasonalEffects'
-import { useYouTubeLive } from '../hooks/useYouTubeLive'
-import { isKiosk } from '../utils/kiosk'
-import { TvRequestQr } from '../components/TvRequestQr'
 
-type Phase =
-  | { type: 'video' }
-  | { type: 'gallery'; galleryId: string }
-  | { type: 'events' }
-  | { type: 'weather' }
-  | { type: 'countdown'; eventId: string }
-  | { type: 'welcome'; eventId?: string }
+/**
+ * Player de exibição da TV — modo LOCAL (Tauri Desktop).
+ *
+ * A sequência de fases é montada exclusivamente a partir dos arquivos
+ * sincronizados do Google Drive (via ProgrammingContext local):
+ *   [informativo?] → [fixo?] → conteúdo acadêmico (fila principal) →
+ *   [galeria → clima]* → clima
+ *
+ * Fases que dependiam de tabelas administrativas (eventos, playlists do
+ * banco, galerias do Storage) não existem mais aqui: sem dados locais, a
+ * fase simplesmente não entra na sequência.
+ *
+ * SLIDES ESPECIAIS (ClockSlide e WeatherSlideEnhanced):
+ * - ClockSlide: a cada 4 conteúdos, 12 segundos
+ * - WeatherSlideEnhanced: a cada 8 conteúdos, 15 segundos
+ * - Conta TODO conteúdo exibido: acadêmico, fixo e informativo. Slides
+ *   especiais e galerias NÃO contam como conteúdo.
+ * - O slide entra imediatamente depois do conteúdo que fecha o marco
+ * - Quando coincidem (múltiplo de 8), ambos são exibidos sequencialmente
+ */
 
-export function TvDisplay({ deviceName, deviceId }: { deviceName?: string; deviceId?: string | null }) {
-  const { events, loading: eventsLoading } = useEvents(deviceId)
-  const { playlists: videoPlaylists, loading: videoLoading } = usePlaylists()
-  const { galleries: activeGalleries, photosMap, loading: galleryLoading } = useActiveGalleries()
-  const { activeAnnouncement } = useUrgentAnnouncements()
-  const { setPlaying: setMusicPlaying } = useMusicPlayer()
-  const navigate = useNavigate()
+// Duration constants (in milliseconds)
+const CLOCK_DISPLAY_MS = 12000
+const WEATHER_DISPLAY_MS = 15000
 
-  const [hasLoaded, setHasLoaded] = useState(false)
-  const [paused, setPaused] = useState(false)
-  const [failedGalleries, setFailedGalleries] = useState<Set<string>>(() => new Set())
+export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string } = {}) {
+  const programming = useProgramming()
+  void deviceId // mantém para compatibilidade com chamadas existentes
+  const {
+    queue,
+    currentItem,
+    contentShown,
+    markContentShown,
+    fixedContent,
+    nextFixedId,
+    isFixedDue,
+    nextInformativo,
+    informativoDue,
+    informativos,
+    galleries,
+    photosMap,
+    ready,
+    discoveryError,
+    markCurrentCompleted,
+    reportMediaFailure,
+    resetInformativoCounter,
+  } = programming
 
-  useEffect(() => {
+  const [failedGalleries, setFailedGalleries] = useState(new Set<string>())
+
+  // Callback estável: uma galeria que falhou é removida da sequência uma única
+  // vez, sem disparar novas chamadas a cada re-render do player.
+  const handleGalleryAllFailed = useCallback(function(galleryId: string) {
+    setFailedGalleries(function(prev) {
+      if (prev.has(galleryId)) return prev
+      const next = new Set(prev)
+      next.add(galleryId)
+      return next
+    })
+  }, [])
+
+  useEffect(function() {
     if (!isKiosk()) return
     let offlineSince: number | null = null
-    const onOffline = () => { offlineSince = Date.now(); console.warn('[TV kiosk] offline') }
-    const onOnline = () => {
+    const onOffline = function() { offlineSince = Date.now(); console.warn('[TV kiosk] offline') }
+    const onOnline = function() {
       if (offlineSince !== null) {
-        console.info(`[TV kiosk] reconnect after ${Math.round((Date.now() - offlineSince) / 1000)}s`)
+        console.info('[TV kiosk] reconnect after ' + Math.round((Date.now() - offlineSince) / 1000) + 's')
         offlineSince = null
       }
     }
     window.addEventListener('offline', onOffline)
     window.addEventListener('online', onOnline)
-    return () => {
+    return function() {
       window.removeEventListener('offline', onOffline)
       window.removeEventListener('online', onOnline)
     }
   }, [])
 
-  /* ── Phase sequence: countdown / welcome → video → gallery[0] → events → weather ... ── */
-  const phaseSequence = useMemo<Phase[]>(() => {
+  /* ── Phase sequence (local) ── */
+  interface PhaseInformative { type: 'informativo'; item: NonNullable<typeof nextInformativo> }
+  interface PhaseFixed { type: 'fixed'; item: ProgrammingQueueItem }
+  interface PhaseTrailer { type: 'trailer'; trailerUrl: string; courseName: string }
+  interface PhaseVideo { type: 'video'; item: ProgrammingQueueItem | null }
+  interface PhaseGallery { type: 'gallery'; galleryId: string }
+  interface PhaseClock { type: 'clock' }
+  interface PhaseWeatherEnhanced { type: 'weather-enhanced' }
+  type Phase = PhaseInformative | PhaseFixed | PhaseTrailer | PhaseVideo | PhaseGallery | PhaseClock | PhaseWeatherEnhanced
+
+  const fixedItem = useMemo(function() {
+    if (!isFixedDue || !nextFixedId) return null
+    return fixedContent.find(function(f) { return f.id === nextFixedId }) ?? null
+  }, [isFixedDue, nextFixedId, fixedContent])
+
+  // Quantos conteúdos já tinham sido exibidos quando o ciclo atual começou.
+  // Serve de base para a cadência dos slides especiais dentro do ciclo.
+  // Deve ser declarado antes do usePhaseSequence que o usa.
+  const [cycleBaseContents, setCycleBaseContents] = useState(contentShown)
+
+  // Gerar a sequência de fases incluindo vinhetas e slides especiais
+  const phaseSequence = useMemo<Phase[]>(function() {
     const seq: Phase[] = []
 
-    // 1. Countdown for upcoming events with show_countdown or within 7 days
-    const countdownEvents = events.filter(e => {
-      if (!e.start_date) return false
-      const targetTime = new Date(e.start_date).getTime()
-      const diffDays = (targetTime - Date.now()) / (1000 * 60 * 60 * 24)
-      return e.show_countdown || (diffDays > 0 && diffDays <= 7)
-    })
-    for (const ce of countdownEvents) {
-      seq.push({ type: 'countdown', eventId: ce.id })
+    // Cadência dos slides especiais: todo conteúdo exibido conta (acadêmico,
+    // fixo e informativo). `played` parte da base do ciclo para que a sequência
+    // seja a mesma em toda regeração — inclusive quando ela acontece no meio do
+    // ciclo (ex.: contador de informativo zerado ao exibir o informativo).
+    let played = cycleBaseContents
+    function pushContent(phase: PhaseInformative | PhaseFixed | PhaseVideo) {
+      seq.push(phase)
+      played += 1
+      if (played % 8 === 0) {
+        // Múltiplo de 8: clima (15s) e, na sequência, o relógio (12s)
+        seq.push({ type: 'weather-enhanced' })
+        seq.push({ type: 'clock' })
+      } else if (played % 4 === 0) {
+        seq.push({ type: 'clock' })
+      }
     }
 
-    // 2. Welcome slide if event has_welcome
-    const welcomeEvent = events.find(e => e.has_welcome)
-    if (welcomeEvent) {
-      seq.push({ type: 'welcome', eventId: welcomeEvent.id })
+    // 1. Conteúdo fixo/comercial (a cada 5 itens acadêmicos)
+    if (fixedItem) {
+      pushContent({ type: 'fixed', item: fixedItem })
     }
 
-    // 3. Main rotation
-    seq.push({ type: 'video' })
-    for (const g of activeGalleries.filter(g => !failedGalleries.has(g.id))) {
+    // 2. Informativo do Drive (comunicados/avisos intercalados)
+    if (informativoDue && nextInformativo) {
+      pushContent({ type: 'informativo', item: nextInformativo })
+    }
+
+    // 3. Conteúdo acadêmico — fila principal do Drive
+    if (currentItem) {
+      // REGRA OBRIGATÓRIA DA VINHETA (Seção 4 do Plano):
+      // Sempre que um conteúdo acadêmico for reproduzido, sua vinheta aparece imediatamente antes.
+      // Cursos sem conteúdo acadêmico não entram na fila, garantindo que a vinheta nunca toca sozinha.
+      if (currentItem.course_trailer) {
+        seq.push({
+          type: 'trailer',
+          trailerUrl: currentItem.course_trailer,
+          courseName: currentItem.course_name || 'Curso',
+        })
+      }
+
+      // Conteúdo acadêmico em si (vídeo ou imagem) — também conta na cadência
+      pushContent({ type: 'video', item: currentItem })
+    }
+
+    // 5. Galerias locais
+    for (const g of galleries.filter(function(gItem) { return !failedGalleries.has(gItem.id) })) {
       seq.push({ type: 'gallery', galleryId: g.id })
-      seq.push({ type: 'events' })
     }
-    seq.push({ type: 'weather' })
-    seq.push({ type: 'events' })
 
-    return seq.length > 0 ? seq : [{ type: 'video' }]
-  }, [activeGalleries, events, failedGalleries])
+    return seq.length > 0 ? seq : [{ type: 'video', item: null }]
+  }, [fixedItem, informativoDue, nextInformativo, currentItem, cycleBaseContents, galleries, failedGalleries])
 
   const [phaseIdx, setPhaseIdx] = useState(0)
-  const currentPhase = phaseSequence[phaseIdx] ?? { type: 'video' }
+  // Sinaliza quando um ciclo completo de fases terminou (para avançar a fila)
+  const [cycleCompleted, setCycleCompleted] = useState(0)
+  const currentPhase = phaseSequence[phaseIdx]
+  const isVideoPhase = currentPhase?.type === 'video'
 
-  const isVideoPhase = currentPhase.type === 'video'
-  const showingVideo = isVideoPhase
+  const PHOTO_DISPLAY_MS = 15000
 
-  /* ── Pause music during video phase ── */
-  useEffect(() => {
-    setMusicPlaying(!isVideoPhase)
-  }, [isVideoPhase, setMusicPlaying])
-
-  const EVENT_DURATIONS = [10000, 15000, 30000, 60000] as const
-  const [eventDurationIndex, setEventDurationIndex] = useState(2)
-  const eventDisplayMs = EVENT_DURATIONS[eventDurationIndex]
-  const EVENTS_BRIEF_MS = 16000
-
-  const PHOTO_DISPLAY_MS = 15_000
-  const WEATHER_DISPLAY_MS = 10_000
-
-  /* ── Track initial load complete ── */
-  useEffect(() => {
-    if (!eventsLoading && !videoLoading && !galleryLoading) {
-      setHasLoaded(true)
-    }
-  }, [eventsLoading, videoLoading, galleryLoading])
-
-  /* ── Video index cycles through playlists on natural end ── */
-  const [videoIndex, setVideoIndex] = useState(0)
-  const currentPlaylist = videoPlaylists[videoIndex]
-
-  /* ── Reset index when current playlist is removed ── */
-  useEffect(() => {
-    if (videoPlaylists.length === 0) return
-    if (videoIndex >= videoPlaylists.length) {
-      setVideoIndex(0)
-    }
-  }, [videoPlaylists.length, videoIndex])
-
-  const advancePhase = useCallback(() => {
-    setPhaseIdx((i) => (i + 1) % phaseSequence.length)
+  // Separa o setState do efeito colateral (markCurrentCompleted)
+  // para seguir o padrão correto do React — sem chamar funções externas
+  // dentro de callbacks de setState.
+  const advancePhase = useCallback(function() {
+    setPhaseIdx(function(i) {
+      const next = i + 1
+      if (next >= phaseSequence.length) {
+        // Ciclo completo: sinaliza via contador separado e volta ao índice 0
+        setCycleCompleted(function(c) { return c + 1 })
+        return 0
+      }
+      return next
+    })
   }, [phaseSequence.length])
 
-  /* ── Auto-skip video phase when no playlists are configured ── */
-  useEffect(() => {
-    if (isVideoPhase && videoPlaylists.length === 0 && hasLoaded) {
-      advancePhase()
-    }
-  }, [isVideoPhase, videoPlaylists.length, hasLoaded, advancePhase])
-
-  /* ── Pre-compute current phase duration as a stable primitive ── */
-  const currentPhaseDurationMs = useMemo(() => {
-    if (isVideoPhase || paused) return null
-    if (currentPhase.type === 'countdown') {
-      return 15_000
-    }
-    if (currentPhase.type === 'welcome') {
-      return 20_000
-    }
-    if (currentPhase.type === 'events') {
-      const prevType = phaseIdx > 0 ? phaseSequence[phaseIdx - 1].type : null
-      const isBrief = prevType === 'gallery' || prevType === 'weather'
-      return events.length > 0 ? (isBrief ? EVENTS_BRIEF_MS : eventDisplayMs) : 1000
-    }
-    if (currentPhase.type === 'gallery') {
-      const photos = photosMap[currentPhase.galleryId]
-      return photos && photos.length > 0 ? photos.length * PHOTO_DISPLAY_MS : 3000
-    }
-    if (currentPhase.type === 'weather') {
-      return WEATHER_DISPLAY_MS
-    }
-    return null
+  // Reage ao fim de um ciclo: avança a fila de programação
+  useEffect(function() {
+    if (cycleCompleted === 0) return
+    setCycleBaseContents(contentShown)
+    markCurrentCompleted()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVideoPhase, paused, currentPhase.type, (currentPhase as any).galleryId, phaseIdx,
-      phaseSequence, events.length, eventDisplayMs,
-      // Use a stable key for photosMap: the number of photos in the current gallery
-      currentPhase.type === 'gallery' ? (photosMap[(currentPhase as any).galleryId]?.length ?? 0) : 0])
+  }, [cycleCompleted])
 
-  /* ── Phase timer — depends only on primitive duration ── */
-  useEffect(() => {
-    if (currentPhaseDurationMs === null) return
-    const timer = setTimeout(advancePhase, currentPhaseDurationMs)
-    return () => clearTimeout(timer)
-  }, [currentPhaseDurationMs, advancePhase, phaseIdx])
+  // Conta cada conteúdo exibido (acadêmico, fixo ou informativo) uma única vez.
+  // A chave ciclo:índice evita contagem dupla quando o efeito reexecuta.
+  const countedPhaseRef = useRef('')
+  useEffect(function() {
+    if (!currentPhase) return
+    const isContent =
+      currentPhase.type === 'fixed' ||
+      currentPhase.type === 'informativo' ||
+      (currentPhase.type === 'video' && currentPhase.item !== null)
+    if (!isContent) return
+    const key = cycleCompleted + ':' + phaseIdx
+    if (countedPhaseRef.current === key) return
+    countedPhaseRef.current = key
+    markContentShown()
+  }, [currentPhase, phaseIdx, cycleCompleted, markContentShown])
 
-  /* ── Reset phase sequence when active galleries change ── */
-  useEffect(() => {
-    setPhaseIdx(0)
-  }, [activeGalleries.length])
-
-  /* ── Keyboard shortcuts ── */
-  const advanceToNextVideo = useCallback(() => {
-    if (videoPlaylists.length > 1) {
-      setVideoIndex((i) => (i + 1) % videoPlaylists.length)
+  const handleContentCompleted = useCallback(function(failed?: boolean) {
+    if (failed) {
+      const failedId = currentPhase?.type === 'fixed' || currentPhase?.type === 'informativo'
+        ? currentPhase.item.id
+        : currentPhase?.type === 'video' ? currentPhase.item?.id : undefined
+      if (failedId) reportMediaFailure(failedId)
     }
     advancePhase()
-  }, [videoPlaylists.length, advancePhase])
+  }, [advancePhase, currentPhase, reportMediaFailure])
 
-  const goToPrevVideo = useCallback(() => {
-    if (videoPlaylists.length > 0) {
-      setVideoIndex((i) => (i - 1 + videoPlaylists.length) % videoPlaylists.length)
+  // Fila vazia: pula a fase de vídeo para não prender o ciclo.
+  useEffect(function() {
+    if (ready && isVideoPhase && !currentItem) {
+      advancePhase()
     }
-    setPaused(false)
-    setPhaseIdx(0)
-  }, [videoPlaylists.length])
+  }, [ready, isVideoPhase, currentItem, advancePhase])
 
-  const togglePause = useCallback(() => setPaused((p) => !p), [])
-
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {})
-    } else {
-      document.exitFullscreen().catch(() => {})
-    }
+  // Tela cheia: tenta no boot e, se o shell não ceder de primeira, insiste por
+  // um tempo limitado. Não é re-disparada a cada fase: reentrar em fullscreen
+  // no meio de um vídeo provoca reflow/redimensionamento visível na TV.
+  useEffect(function() {
+    if (document.fullscreenElement) return
+    let attempts = 0
+    const timer = setInterval(function() {
+      if (document.fullscreenElement || attempts >= 6) {
+        clearInterval(timer)
+        return
+      }
+      attempts += 1
+      document.documentElement.requestFullscreen().catch(function() {})
+    }, 5000)
+    // Primeira tentativa no boot (pode ser bloqueada sem gesto do usuário),
+    // depois o intervalo tenta por até 30s.
+    document.documentElement.requestFullscreen().catch(function() {})
+    attempts = 1
+    return function() { clearInterval(timer) }
   }, [])
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case ' ':
-          e.preventDefault()
-          togglePause()
-          break
-        case 'ArrowRight':
-          advanceToNextVideo()
-          break
-        case 'ArrowLeft':
-          goToPrevVideo()
-          break
-        case 'f':
-        case 'F':
-          toggleFullscreen()
-          break
+  // Listener de teclado - F11 para tela cheia
+  useEffect(function() {
+    const onKeyDown = function(e: KeyboardEvent) {
+      if (e.key === 'F11') {
+        e.preventDefault()
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(function() {})
+        } else {
+          document.exitFullscreen().catch(function() {})
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [togglePause, advanceToNextVideo, goToPrevVideo, toggleFullscreen])
-
-  /* ── Auto-fullscreen on mount ── */
-  useEffect(() => {
-    document.documentElement.requestFullscreen().catch(() => {})
+    return function() { window.removeEventListener('keydown', onKeyDown) }
   }, [])
 
-  /* ── WakeLock: prevent screen sleep ── */
-  useEffect(() => {
-    let wakeLock: WakeLockSentinel | null = null
-    if ('wakeLock' in navigator) {
-      navigator.wakeLock.request('screen').then((wl) => { wakeLock = wl }).catch(() => {})
+  function isGalleryPhase(phase: Phase | undefined): phase is PhaseGallery {
+    return phase?.type === 'gallery' && phase.galleryId !== undefined
+  }
+
+  const currentPhaseDurationMs = useMemo(function() {
+    if (!currentPhase) return null
+    if (currentPhase.type === 'weather-enhanced') return WEATHER_DISPLAY_MS
+    if (currentPhase.type === 'clock') return CLOCK_DISPLAY_MS
+    if (currentPhase.type === 'trailer') return null // Vídeo da vinheta: duração original (via onEnd)
+    if (currentPhase.type === 'informativo') {
+      return currentPhase.item.file_type === 'image' ? PHOTO_DISPLAY_MS : null
     }
-    return () => { wakeLock?.release().catch(() => {}) }
+    if (currentPhase.type === 'fixed') {
+      return currentPhase.item.file_type === 'image' ? PHOTO_DISPLAY_MS : null
+    }
+    if (isVideoPhase) {
+      const item = (currentPhase as PhaseVideo).item
+      if (item && item.file_type === 'image') return PHOTO_DISPLAY_MS
+      return null
+    }
+    if (isGalleryPhase(currentPhase)) {
+      const photos = photosMap[currentPhase.galleryId]
+      return photos && photos.length > 0 ? photos.length * PHOTO_DISPLAY_MS : 3000
+    }
+    return null
+  }, [currentPhase, isVideoPhase, photosMap, PHOTO_DISPLAY_MS, WEATHER_DISPLAY_MS, CLOCK_DISPLAY_MS])
+
+  useEffect(function() {
+    if (currentPhaseDurationMs === null) return
+    // Informativo em imagem termina pelo timer (não há onEnd): zera o contador
+    // aqui também, senão ele continuaria "devido" e voltaria em todo ciclo.
+    const isInformativo = currentPhase?.type === 'informativo'
+    const timer = setTimeout(function() {
+      if (isInformativo) resetInformativoCounter()
+      advancePhase()
+    }, currentPhaseDurationMs)
+    return function() { clearTimeout(timer) }
+  }, [currentPhaseDurationMs, currentPhase, advancePhase, phaseIdx, resetInformativoCounter])
+
+  // Sequência mudou: preserva o índice atual. Se ela encolheu a ponto de não
+  // haver mais fase nele (ex.: galeria removida por falha de carregamento),
+  // encerra o ciclo em vez de voltar ao índice 0 — voltar repetiria o conteúdo
+  // atual sem marcar o anterior como concluído.
+  useEffect(function() {
+    setPhaseIdx(function(i) {
+      if (i < phaseSequence.length) return i
+      setCycleCompleted(function(c) { return c + 1 })
+      return 0
+    })
+  }, [phaseSequence.length])
+
+  let wakeLock: WakeLockSentinel | null = null
+  useEffect(function() {
+    if ('wakeLock' in navigator) {
+      (navigator.wakeLock as { request: (type: string) => Promise<WakeLockSentinel> }).request('screen')
+        .then(function(wl) { wakeLock = wl })
+        .catch(function() {})
+    }
+    return function() { wakeLock?.release().catch(function() {}) }
   }, [])
 
-  const hasContent = videoPlaylists.length > 0 || events.length > 0
-
-  /* ── Current gallery for display ── */
-  const currentGallery = currentPhase.type === 'gallery'
-    ? activeGalleries.find(g => g.id === currentPhase.galleryId) ?? null
+  const hasContent = queue.length > 0 || galleries.length > 0
+    || fixedContent.length > 0 || informativos.length > 0
+  const currentGallery = isGalleryPhase(currentPhase)
+    ? galleries.find(function(g) { return g.id === (currentPhase as PhaseGallery).galleryId }) ?? null
     : null
-  const currentGalleryPhotos = currentPhase.type === 'gallery'
-    ? photosMap[currentPhase.galleryId] ?? []
+  const currentGalleryPhotos = isGalleryPhase(currentPhase)
+    ? photosMap[(currentPhase as PhaseGallery).galleryId] ?? []
     : []
 
+  const mainItem = isVideoPhase ? (currentPhase as PhaseVideo).item : null
+
   return (
-    <div
-      style={{
-        width: '100vw', height: '100vh', overflow: 'hidden',
-        background: '#080a14',
-        color: '#f1f5f9', position: 'relative', fontFamily: 'system-ui, -apple-system, sans-serif',
-      }}
-    >
-      {/* ── Layer 1: Background (events carousel always mounted) ── */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        opacity: !showingVideo && currentPhase.type === 'events' && events.length > 0 ? 1 : 0,
-        pointerEvents: !showingVideo && currentPhase.type === 'events' ? 'auto' : 'none',
-        transition: 'opacity 0.5s',
-      }}>
-        {events.length > 0 ? (
-          <EventsCarousel events={events} interval={8000} fullBleed />
-        ) : (
-          <div style={{
-            position: 'absolute', inset: 0,
-            background: 'radial-gradient(ellipse at center, #1e293b 0%, #080a14 100%)',
-          }} />
-        )}
-      </div>
+    <div style={{
+      width: '100vw', height: '100vh', overflow: 'hidden',
+      background: '#000000',
+      color: '#0f172a', position: 'relative', fontFamily: 'system-ui, -apple-system, sans-serif',
+    }}>
+      {/* Vinheta do curso (imediatamente antes de cada conteúdo acadêmico) */}
+      {currentPhase?.type === 'trailer' && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          opacity: 1,
+          pointerEvents: 'auto',
+          overflow: 'hidden',
+          background: '#000000',
+        }}>
+          <VideoPlayer
+            key={currentPhase.trailerUrl}
+            url={toLocalUrl(currentPhase.trailerUrl)}
+            source="local"
+            contentType="video"
+            isPlaying={true}
+            onEnd={handleContentCompleted}
+            style={{ width: '100%', height: '100%' }}
+          />
+        </div>
+      )}
 
-      {/* ── Layer 2: Centered content (video / gallery / weather) ── */}
-      {/* Video player — only mounted when playlists exist */}
-      {videoPlaylists.length > 0 && currentPlaylist && (
+      {/* Academic content phase (fila principal do Drive) */}
+      {mainItem && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          opacity: isVideoPhase ? 1 : 0,
+          pointerEvents: isVideoPhase ? 'auto' : 'none',
+          transition: 'opacity 0.5s',
+          overflow: 'hidden',
+          background: '#000000',
+        }}>
+          <VideoPlayer
+            key={mainItem.id}
+            url={toLocalUrl(mainItem.file_path)}
+            source="local"
+            contentType={mainItem.file_type}
+            isPlaying={true}
+            onEnd={handleContentCompleted}
+            style={{ width: '100%', height: '100%' }}
+          />
+        </div>
+      )}
+
+      {/* Fixed content phase (Fixos/) */}
+      {currentPhase?.type === 'fixed' && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          opacity: 1,
+          pointerEvents: 'auto',
+          transition: 'opacity 0.5s',
+          overflow: 'hidden',
+          background: '#000000',
+        }}>
+          <VideoPlayer
+            key={currentPhase.item.file_path}
+            url={toLocalUrl(currentPhase.item.file_path)}
+            source="local"
+            contentType={currentPhase.item.file_type}
+            isPlaying={true}
+            onEnd={function() { resetInformativoCounter(); handleContentCompleted() }}
+          />
+        </div>
+      )}
+
+      {/* Informativo phase (Informativos/) */}
+      {currentPhase?.type === 'informativo' && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          opacity: 1,
+          pointerEvents: 'auto',
+          transition: 'opacity 0.5s',
+          overflow: 'hidden',
+          background: '#000000',
+        }}>
+          <VideoPlayer
+            key={currentPhase.item.file_path}
+            url={toLocalUrl(currentPhase.item.file_path)}
+            source="local"
+            contentType={currentPhase.item.file_type}
+            isPlaying={true}
+            onEnd={function() { resetInformativoCounter(); handleContentCompleted() }}
+          />
+        </div>
+      )}
+
+      {/* Gallery phase (Galerias/) */}
+      {isGalleryPhase(currentPhase) && currentGallery && currentGalleryPhotos.length > 0 && (
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(8,10,20,0.85)',
-          opacity: showingVideo ? 1 : 0,
-          pointerEvents: showingVideo ? 'auto' : 'none',
+          background: '#000000',
+          opacity: 1,
+          pointerEvents: 'auto',
           transition: 'opacity 0.5s',
         }}>
-          <div style={{
-            position: 'relative',
-            width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
-            borderRadius: '1rem', overflow: 'hidden',
-            boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
-          }}>
-            <VideoPlayer
-              key={currentPlaylist.id}
-              url={currentPlaylist.youtube_url}
-              source={currentPlaylist.source}
-              isPlaying={isVideoPhase && !paused}
-              onEnd={advanceToNextVideo}
-            />
-          </div>
+          <PhotoSlideshow
+            photos={currentGalleryPhotos}
+            title={currentGallery.title}
+            onAllFailed={() => handleGalleryAllFailed((currentPhase as PhaseGallery).galleryId)}
+          />
         </div>
       )}
 
-      {/* Gallery player — always rendered when a gallery phase is active */}
-      {currentGallery && currentGalleryPhotos.length > 0 && (
+      {/* Weather slide (Piracicaba + detalhes, Open-Meteo) */}
+      {currentPhase && currentPhase.type === 'weather-enhanced' && (
         <div style={{
           position: 'absolute', inset: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(8,10,20,0.85)',
-          opacity: currentPhase.type === 'gallery' ? 1 : 0,
-          pointerEvents: currentPhase.type === 'gallery' ? 'auto' : 'none',
-          transition: 'opacity 0.5s',
+          opacity: 1,
+          pointerEvents: 'auto',
         }}>
-          <div style={{
-            position: 'relative',
-            width: '80%', maxWidth: '1200px', aspectRatio: '16/9',
-            borderRadius: '1rem', overflow: 'hidden',
-            boxShadow: '0 20px 80px rgba(0,0,0,0.5)',
-          }}>
-            <PhotoSlideshow photos={currentGalleryPhotos} title={currentGallery.title} onAllFailed={() => setFailedGalleries(prev => { const next = new Set(prev); next.add((currentPhase as { galleryId: string }).galleryId); return next })} />
-          </div>
+          <WeatherSlideEnhanced />
         </div>
       )}
 
-      {/* Countdown slide */}
-      {currentPhase.type === 'countdown' && (() => {
-        const targetEvent = events.find(e => e.id === currentPhase.eventId) || events[0]
-        return targetEvent ? (
-          <div style={{
-            position: 'absolute', inset: 0,
-            opacity: currentPhase.type === 'countdown' ? 1 : 0,
-            pointerEvents: currentPhase.type === 'countdown' ? 'auto' : 'none',
-            transition: 'opacity 0.5s',
-          }}>
-            <CountdownSlide event={targetEvent} />
-          </div>
-        ) : null
-      })()}
+      {/* Clock slide */}
+      {currentPhase && currentPhase.type === 'clock' && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          opacity: 1,
+          pointerEvents: 'auto',
+        }}>
+          <ClockSlide />
+        </div>
+      )}
 
-      {/* Welcome slide */}
-      {currentPhase.type === 'welcome' && (() => {
-        const targetEvent = events.find(e => e.id === currentPhase.eventId)
-        return (
-          <div style={{
-            position: 'absolute', inset: 0,
-            opacity: currentPhase.type === 'welcome' ? 1 : 0,
-            pointerEvents: currentPhase.type === 'welcome' ? 'auto' : 'none',
-            transition: 'opacity 0.5s',
-          }}>
-            <WelcomeSlide event={targetEvent} />
-          </div>
-        )
-      })()}
+      {/* Aviso de descoberta vazia */}
+      {ready && discoveryError && (
+        <div style={{
+          position: 'fixed', bottom: '6rem', left: '50%',
+          transform: 'translateX(-50%)', zIndex: 40,
+          background: 'rgba(245, 158, 11, 0.15)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          borderRadius: '8px',
+          padding: '0.5rem 1rem',
+          fontSize: '0.8rem', color: '#92400e',
+          maxWidth: '80vw', textAlign: 'center',
+        }}>
+          {discoveryError}
+        </div>
+      )}
 
-      {/* Weather slide — always rendered when weather phase is active */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        opacity: currentPhase.type === 'weather' ? 1 : 0,
-        pointerEvents: currentPhase.type === 'weather' ? 'auto' : 'none',
-        transition: 'opacity 0.5s',
-      }}>
-        <WeatherSlide />
+      {}
+
+      {/* Branding */}
+      <div style={{ position: 'fixed', bottom: '2rem', left: '3rem', zIndex: 10, display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#333333' }}>
+        <Tv size={16} />
+        <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>LabHub TV</span>
       </div>
 
-      {/* Urgent Banner Layer */}
-      <UrgentBanner announcement={activeAnnouncement} />
-
-      {/* ── Layer 3: Music ── */}
-      <MusicQueuePlayer />
-
-      {/* ── Layer 4: Playback controls ── */}
-      {videoPlaylists.length > 0 && showingVideo && (
-        <div style={{
-          position: 'fixed', bottom: '4.5rem', left: '50%',
-          transform: 'translateX(-50%)', zIndex: 20,
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.35rem 0.75rem', borderRadius: '9999px',
-          background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255,255,255,0.08)',
-        }}>
-          <button
-            onClick={goToPrevVideo}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'rgba(255,255,255,0.5)', padding: '0.35rem',
-              display: 'flex', borderRadius: '50%', transition: 'color 0.2s',
-            }}
-            title="Anterior"
-          >
-            <SkipBack size={16} />
-          </button>
-          <button
-            onClick={togglePause}
-            style={{
-              background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer',
-              color: '#fff', padding: '0.4rem',
-              display: 'flex', borderRadius: '50%', transition: 'background 0.2s',
-            }}
-            title={paused ? 'Continuar' : 'Pausar'}
-          >
-            {paused ? <Play size={16} /> : <Pause size={16} />}
-          </button>
-          <button
-            onClick={advanceToNextVideo}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'rgba(255,255,255,0.5)', padding: '0.35rem',
-              display: 'flex', borderRadius: '50%', transition: 'color 0.2s',
-            }}
-            title="Próximo"
-          >
-            <SkipForward size={16} />
-          </button>
-        </div>
-      )}
-
-      {/* ── Layer 5: UI overlay ── */}
-
-      {/* Admin button */}
-      <button
-        onClick={() => {
-          if (window.desktop?.openAdmin) {
-            window.desktop.openAdmin()
-          } else {
-            navigate('/tv')
-          }
-        }}
-        style={{
-          position: 'fixed', top: '1rem', right: '1rem', zIndex: 50,
-          width: '40px', height: '40px', borderRadius: '50%',
-          background: 'rgba(255,255,255,0.05)', border: 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'rgba(255,255,255,0.3)', cursor: 'pointer',
-          textDecoration: 'none', transition: 'all 0.2s',
-        }}
-        title="Painel"
-      >
-        <Settings size={18} />
+      {/* Botão de seleção da pasta do Google Drive */}
+      <button onClick={async () => {
+        try {
+          const folderPath = await invoke<string>('open_folder_dialog')
+          if (!folderPath) return
+          await invoke('configure_drive_folder', { folderPath, accountConfirmed: true })
+          await invoke('sync_drive_content').catch(() => {})
+          // Recarrega para o ProgrammingProvider redescobrir a biblioteca local
+          window.location.reload()
+        } catch (err: any) {
+          const msg = err?.message || String(err || '')
+          if (msg.includes('User cancelled') || msg.includes('No folder selected') || msg.toLowerCase().includes('cancel')) return
+          // Não registrar o erro bruto: mensagens do seletor podem conter caminhos.
+          console.warn('[TV] falha ao selecionar pasta do Drive')
+        }
+      }} style={{ position: 'fixed', top: '1rem', right: '5rem', zIndex: 50, width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(255,255,255,0.92)', border: '1px solid rgba(15,23,42,0.12)', boxShadow: '0 2px 8px rgba(15,23,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#334155', cursor: 'pointer', transition: 'all 0.2s' }} title="Selecionar pasta do Google Drive">
+        <Folder size={18} />
       </button>
 
       <UpdateBadge />
-      <ClockDisplay />
-      <WeatherWidget />
-      <Greeting />
-      <Ticker />
 
-      {/* Status dots */}
-      <div style={{
-        position: 'fixed', bottom: '2rem', left: '50%',
-        transform: 'translateX(-50%)', zIndex: 10,
-        display: 'flex', gap: '0.5rem', alignItems: 'center',
-      }}>
-        <div
-          style={{
-            width: showingVideo ? '24px' : '8px',
-            height: '6px', borderRadius: '3px',
-            background: showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
-            transition: 'all 0.3s',
-          }}
-        />
-        <div
-          onClick={() => {
-            setEventDurationIndex((i) => (i + 1) % EVENT_DURATIONS.length)
-          }}
-          title={`Eventos: ${eventDisplayMs / 1000}s`}
-          style={{
-            cursor: events.length > 0 ? 'pointer' : 'default',
-            width: !showingVideo ? '24px' : '8px',
-            height: '6px', borderRadius: '3px',
-            background: !showingVideo ? '#6366f1' : 'rgba(255,255,255,0.15)',
-            transition: 'all 0.3s',
-          }}
-        />
-        {events.length > 0 && !showingVideo && (
-          <span style={{
-            fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)',
-            marginLeft: '0.25rem', fontVariantNumeric: 'tabular-nums',
-          }}>
-            {eventDisplayMs / 1000}s
-          </span>
-        )}
-      </div>
-
-      {/* Branding */}
-      <div style={{
-        position: 'fixed', bottom: '2rem', left: '3rem', zIndex: 10,
-        display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#334155',
-      }}>
-        <Tv size={16} />
-        <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>
-          {deviceName ? `Lab Hub TV · ${deviceName}` : 'Lab Hub TV'}
-        </span>
-      </div>
-
-      {/* Seasonal particle effects (confetes, snow, leaves) */}
+      {/* Seasonal particle effects */}
       <SeasonalEffects />
 
-      {/* Live YouTube Indicator */}
-      <TvLiveBadge />
-      <TvRequestQr />
-
       {/* Empty state → screensaver */}
-      {hasLoaded && !hasContent && <ScreenSaver />}
+      {ready && !hasContent && <ScreenSaver />}
     </div>
-  )
-}
-
-/**
- * Badge flutuante que indica quando o canal da faculdade está ao vivo no YouTube
- */
-function TvLiveBadge() {
-  const { isLive, title, channelTitle, videoId, viewerCount } = useYouTubeLive()
-
-  if (!isLive) return null
-
-  return (
-    <a
-      href={videoId ? `https://www.youtube.com/watch?v=${videoId}` : `https://www.youtube.com/@${encodeURIComponent(channelTitle)}/live`}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{
-        position: 'fixed',
-        top: '1rem',
-        left: '1rem',
-        zIndex: 45,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.6rem',
-        padding: '0.5rem 1rem',
-        borderRadius: '9999px',
-        background: 'rgba(220,38,38,0.2)',
-        border: '1px solid rgba(220,38,38,0.3)',
-        backdropFilter: 'blur(12px)',
-        boxShadow: '0 4px 20px rgba(220,38,38,0.3)',
-        color: '#ffffff',
-        textDecoration: 'none',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        transition: 'all 0.2s',
-        cursor: 'pointer',
-      }}
-    >
-      {/* Live dot animado */}
-      <span
-        style={{
-          width: '10px',
-          height: '10px',
-          borderRadius: '50%',
-          background: '#ef4444',
-          animation: 'pulse 1.5s ease-in-out infinite',
-          boxShadow: '0 0 12px rgba(239,68,68,0.6)',
-        }}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-        <span style={{
-          fontSize: '0.75rem',
-          fontWeight: 800,
-          color: '#fca5a5',
-          letterSpacing: '0.05em',
-          textTransform: 'uppercase',
-        }}>
-          AO VIVO
-        </span>
-        <span style={{
-          fontSize: '0.7rem',
-          fontWeight: 600,
-          color: '#f1f5f9',
-          maxWidth: '200px',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}>
-          {title || channelTitle || 'YouTube'}
-        </span>
-      </div>
-      {viewerCount != null && viewerCount > 0 && (
-        <span style={{
-          fontSize: '0.6rem',
-          fontWeight: 700,
-          color: '#fca5a5',
-          background: 'rgba(0,0,0,0.2)',
-          padding: '0.15rem 0.5rem',
-          borderRadius: '9999px',
-        }}>
-          {viewerCount} espectadores
-        </span>
-      )}
-    </a>
   )
 }

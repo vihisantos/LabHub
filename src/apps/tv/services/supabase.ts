@@ -1,7 +1,7 @@
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { tvApi } from '../utils/apiBase'
-import type { TvEvent, TvPlaylist, TvMusicQueue, TvMusicTrack, TvAnnouncement, TvGallery, TvGalleryPhoto, TvDevice, TvMusicRequest, MusicRequestStatus, ScheduledResolution } from '../types'
+import type { TvEvent, TvPlaylist, TvAnnouncement, TvGallery, TvGalleryPhoto, TvDevice, ScheduledResolution } from '../types'
 
 /* ── Helpers ── */
 
@@ -18,66 +18,6 @@ function workspaceId(): string | null {
 
 function scoped<T extends { workspace_id?: string | null }>(rows: T[]): T[] {
   return workspaceStore.filter(rows)
-}
-
-/* ── Events ── */
-
-export async function fetchEvents(deviceId?: string | null): Promise<TvEvent[]> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const { data, error } = await supabase
-    .from('tv_events')
-    .select('*')
-    .eq('is_active', true)
-    .order('sort_order', { ascending: true })
-  if (error) throw error
-  if (error) throw error
-  const rows = scoped((data as TvEvent[]) || [])
-  // Evento do campus (device_id NULL) aparece em todas as TVs; evento com
-  // device_id aparece só na TV de destino.
-  if (!deviceId) return rows
-  return rows.filter((e) => !e.device_id || e.device_id === deviceId)
-}
-
-export async function fetchAllEvents(): Promise<TvEvent[]> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const { data, error } = await supabase
-    .from('tv_events')
-    .select('*')
-    .order('sort_order', { ascending: true })
-  if (error) throw error
-  return scoped((data as TvEvent[]) || [])
-}
-
-export async function createEvent(values: Omit<TvEvent, 'id' | 'created_at'>): Promise<void> {
-  if (!supabase) throw new Error('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_events').insert({ ...values, workspace_id: ws })
-  if (error) throw error
-}
-
-export async function updateEvent(id: string, values: Partial<TvEvent>): Promise<void> {
-  if (!supabase) throw new Error('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase
-    .from('tv_events')
-    .update(values)
-    .eq('id', id)
-    .eq('workspace_id', ws)
-  if (error) throw error
-}
-
-export async function deleteEvent(id: string): Promise<void> {
-  if (!supabase) throw new Error('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase
-    .from('tv_events')
-    .delete()
-    .eq('id', id)
-    .eq('workspace_id', ws)
-  if (error) throw error
 }
 
 /* ── Scheduled Content Resolution (via tv_resolve_scheduled_content 4-arg) ── */
@@ -145,58 +85,6 @@ export async function fetchScheduledContent(deviceId?: string | null): Promise<T
   return event as TvEvent
 }
 
-/* ── Reserva → Evento na TV (RPC único, tabela de TV só via RPC) ── */
-
-export interface ReserveEventInput {
-  /** Data da reserva em YYYY-MM-DD (obrigatória). */
-  reservationDate: string
-  title: string
-  description?: string | null
-  /** Chave determinística vinda do backend (/api/reservas). null = sem ligação à reserva. */
-  reservationId?: string | null
-  /** Horário da reserva em HH:MM (somente na data da reserva). null = horário não declarado. */
-  timeStart?: string | null
-  timeEnd?: string | null
-  /** Datas adicionais em YYYY-MM-DD (repetem o evento nas outras TVs, sem horário). */
-  additionalDates?: string[] | null
-  /** TVs (uuid[]) de destino no workspace. null/[] = todas as TVs do workspace. */
-  targetDeviceIds?: string[] | null
-  /** Evento existente a atualizar (upsert). null = criar/atualizar pela reservation_id. */
-  eventId?: string | null
-}
-
-export interface ReserveEventResult {
-  event_id: string
-  schedule_id: string
-}
-
-/**
- * Cria/atualiza o evento de TV de uma reserva via `tv_reserve_event_upsert`.
- * Nunca grava em `tv_events` diretamente: a tabela só é escrita pelo RPC (064).
- */
-export async function reserveEventUpsert(input: ReserveEventInput): Promise<ReserveEventResult> {
-  if (!supabase) throw new Error('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { data, error } = await supabase.rpc('tv_reserve_event_upsert', {
-    p_workspace_id: ws,
-    p_reservation_date: input.reservationDate,
-    p_title: input.title,
-    p_description: input.description ?? null,
-    p_image_url: null,
-    p_pdf_url: null,
-    p_reservation_id: input.reservationId ?? null,
-    p_reservation_time_start: input.timeStart ?? null,
-    p_reservation_time_end: input.timeEnd ?? null,
-    p_additional_dates: input.additionalDates?.length ? input.additionalDates : null,
-    p_target_device_ids: input.targetDeviceIds?.length ? input.targetDeviceIds : null,
-    p_event_id: input.eventId ?? null,
-    p_sort_order: 0,
-  })
-  if (error) throw error
-  return data as ReserveEventResult
-}
-
 /* ── Playlists ── */
 
 export async function fetchPlaylists(): Promise<TvPlaylist[]> {
@@ -241,71 +129,6 @@ export async function deletePlaylist(id: string): Promise<void> {
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
   const { error } = await supabase.from('tv_playlists').delete().eq('id', id).eq('workspace_id', ws)
-  if (error) throw error
-}
-
-/* ── Music Queues ── */
-
-export async function fetchQueues(): Promise<TvMusicQueue[]> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const { data, error } = await supabase.from('tv_music_queues').select('*').order('created_at', { ascending: true })
-  if (error) throw error
-  return scoped((data as TvMusicQueue[]) || [])
-}
-
-export async function createQueue(values: Partial<TvMusicQueue>): Promise<void> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_music_queues').insert({ ...values, workspace_id: ws })
-  if (error) throw error
-}
-
-export async function updateQueue(id: string, values: Partial<TvMusicQueue>): Promise<void> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_music_queues').update(values).eq('id', id).eq('workspace_id', ws)
-  if (error) throw error
-}
-
-export async function deleteQueue(id: string): Promise<void> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_music_queues').delete().eq('id', id).eq('workspace_id', ws)
-  if (error) throw error
-}
-
-/* ── Music Tracks ── */
-
-export async function fetchTracks(queueId: string): Promise<TvMusicTrack[]> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const { data, error } = await supabase
-    .from('tv_music_tracks')
-    .select('*')
-    .eq('queue_id', queueId)
-    .order('position', { ascending: true })
-  if (error) throw error
-  return (data as TvMusicTrack[]) || []
-}
-
-export async function createTrack(track: Omit<TvMusicTrack, 'id' | 'created_at'>): Promise<void> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const { error } = await supabase.from('tv_music_tracks').insert(track)
-  if (error) throw error
-}
-
-export async function createTracks(tracks: Omit<TvMusicTrack, 'id' | 'created_at'>[]): Promise<void> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  if (tracks.length === 0) return
-  const { error } = await supabase.from('tv_music_tracks').insert(tracks)
-  if (error) throw error
-}
-
-export async function deleteTrack(id: string): Promise<void> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const { error } = await supabase.from('tv_music_tracks').delete().eq('id', id)
   if (error) throw error
 }
 
@@ -356,13 +179,6 @@ export async function deleteAnnouncement(id: string): Promise<void> {
   if (error) throw error
 }
 
-export async function reorderTracks(_queueId: string, trackIds: string[]): Promise<void> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  for (const [idx, id] of trackIds.entries()) {
-    const { error } = await supabase.from('tv_music_tracks').update({ position: idx }).eq('id', id)
-    if (error) throw error
-  }
-}
 
 /* ── Photo Galleries ── */
 
@@ -459,7 +275,7 @@ export async function addGalleryPhoto(galleryId: string, imageUrl: string): Prom
 /**
  * Tenta deletar a imagem do Cloudinary via backend.
  * Falha silenciosamente se o backend não estiver disponível.
- * A extração do public_id é feita pelo backend — o frontend só envia a URL.
+ * A extração do public_id é feita pelo backend; o frontend só envia a URL.
  */
 async function deleteFromCloudinary(imageUrl: string): Promise<void> {
   try {
@@ -581,55 +397,5 @@ export async function deleteDevice(id: string): Promise<void> {
   const ws = workspaceId()
   if (!ws) throw new Error('Workspace não selecionado')
   const { error } = await supabase.from('tv_devices').delete().eq('id', id).eq('workspace_id', ws)
-  if (error) throw error
-}
-
-/* ── Music Requests (sugestões de música) ── */
-
-export async function fetchMusicRequests(): Promise<TvMusicRequest[]> {
-  if (!supabase) throw new TvServiceError('Supabase not initialized')
-  const { data, error } = await supabase
-    .from('tv_music_requests')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return scoped((data as TvMusicRequest[]) || [])
-}
-
-export async function createMusicRequest(values: {
-  youtube_url: string
-  youtube_video_id: string | null
-  title: string | null
-  requested_by: string
-  requested_by_name: string | null
-}): Promise<void> {
-  if (!supabase) throw new Error('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase.from('tv_music_requests').insert({
-    ...values,
-    status: 'pending',
-    workspace_id: ws,
-  })
-  if (error) throw error
-}
-
-export async function reviewMusicRequest(
-  id: string,
-  status: Extract<MusicRequestStatus, 'approved' | 'rejected'>,
-  reviewedBy: string,
-): Promise<void> {
-  if (!supabase) throw new Error('Supabase not initialized')
-  const ws = workspaceId()
-  if (!ws) throw new Error('Workspace não selecionado')
-  const { error } = await supabase
-    .from('tv_music_requests')
-    .update({
-      status,
-      reviewed_by: reviewedBy,
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .eq('workspace_id', ws)
   if (error) throw error
 }

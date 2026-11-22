@@ -1,7 +1,5 @@
-import { useState } from 'react'
 import { motion } from 'framer-motion'
 import type { TransformedReservation } from '../types'
-import { CreateTvEventModal, type TvEventDraft } from './CreateTvEventModal'
 
 const X = ({ size = 24 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -39,26 +37,10 @@ const DESK_ROWS = 8
 const PCD_INDEX = 54
 
 export function ReservationModal({ reservation, onClose }: ReservationModalProps) {
-  const [showTvModal, setShowTvModal] = useState(false)
   const desks = Array.from({ length: DESK_COLS * DESK_ROWS }, (_, i) => {
     if (i === PCD_INDEX) return { label: 'PCD', pcd: true }
     return { label: `${Math.floor(i / DESK_COLS) + 1}.${(i % DESK_COLS) + 1}`, pcd: false }
   })
-
-  const buildDraft = (): TvEventDraft => {
-    const description = [
-      reservation.professor && `Professor: ${reservation.professor}`,
-      reservation.lab && `Sala: ${reservation.lab}`,
-    ].filter(Boolean).join(' | ')
-    return {
-      title: reservation.subject || 'Reserva',
-      description,
-      reservationDate: reservation.data || '',
-      reservationId: reservation.reservation_id ?? null,
-      timeStartMinutes: reservation.horario_inicio ?? null,
-      timeEndMinutes: reservation.horario_fim ?? null,
-    }
-  }
 
   return (
     <motion.div
@@ -103,23 +85,6 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <button
-                onClick={() => setShowTvModal(true)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '4px',
-                  padding: '6px 12px', borderRadius: '0.5rem', border: '1px solid var(--border)',
-                  background: 'var(--bg-card)', cursor: 'pointer', color: 'var(--accent)',
-                  fontSize: '0.75rem', fontWeight: 500, whiteSpace: 'nowrap',
-                  transition: 'all 0.15s',
-                }}
-                onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = 'var(--accent-soft)' }}
-                onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-card)' }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
-                </svg>
-                Criar evento na TV
-              </button>
               <button
                 onClick={onClose}
                 style={{
@@ -212,9 +177,6 @@ export function ReservationModal({ reservation, onClose }: ReservationModalProps
           </div>
         </div>
       </motion.div>
-      {showTvModal && (
-        <CreateTvEventModal draft={buildDraft()} onClose={() => setShowTvModal(false)} />
-      )}
     </motion.div>
   )
 }

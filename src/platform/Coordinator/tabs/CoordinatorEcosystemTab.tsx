@@ -4,7 +4,7 @@ import { useModuleVisibilities } from '../../../core/permissions/useModuleVisibi
 import type { Workspace } from '../../../core/workspaces/types'
 import type { CoordinatedUnit } from '../../../core/permissions/coordinatorService'
 
-const ECOSYSTEM_APP_IDS = ['tv', 'pc-care', 'stock', 'reservalab'] as const
+const ECOSYSTEM_APP_IDS = ['pc-care', 'stock', 'reservalab'] as const
 
 export interface CoordinatorEcosystemTabProps {
   units: CoordinatedUnit[]
@@ -25,8 +25,8 @@ export interface CoordinatorEcosystemTabProps {
  *     ação (mesmo rótulo/usabilidade do AppGuard);
  *   - `useAppAccess().canAccessApp(appId)` falso → "acesso restrito", sem ação
  *     (mesma ordem do AppGuard: papel antes do workspace);
- *   - senão → "disponível" + "Abrir" (navega para a rota existente no contexto
- *     da unidade — o app revalida o acesso ao abrir).
+ *   - senão → "disponível" + "Abrir" (navega para a rota existente no
+ *     contexto da unidade — o app revalida o acesso ao abrir).
  *
  * "Em breve": módulos de roadmap registrados em `plannedApps` (sem página/rota
  * própria ainda) aparecem em bloco próprio, dados de `appRegistry`, sem botão —
@@ -81,7 +81,7 @@ export function CoordinatorEcosystemTab({
                 const workspaceEntry = workspaces.find((w) => w.id === unit.unitId)
                 const disabled = isAppDisabled(app.id, workspaceEntry)
                 const restricted = !isVisible(app.id)
-                const open = workspaceEntry && !disabled && !restricted
+                const open = workspaceEntry && !disabled && !restricted && app.launchable !== false
                   ? onOpenApp(unit.unitId, app.route)
                   : null
                 return (
@@ -115,14 +115,16 @@ export function CoordinatorEcosystemTab({
                         <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                           disponível
                         </span>
-                        <button
-                          type="button"
-                          data-testid={`ecosystem-open-${app.id}-${unit.unitId}`}
-                          onClick={() => open?.()}
-                          className="shrink-0 rounded-lg bg-violet-500/15 px-2.5 py-1 text-[10px] font-semibold text-violet-600 transition-colors hover:bg-violet-500/25 dark:text-violet-400"
-                        >
-                          Abrir
-                        </button>
+                        {app.launchable !== false && (
+                          <button
+                            type="button"
+                            data-testid={`ecosystem-open-${app.id}-${unit.unitId}`}
+                            onClick={() => open?.()}
+                            className="shrink-0 rounded-lg bg-violet-500/15 px-2.5 py-1 text-[10px] font-semibold text-violet-600 transition-colors hover:bg-violet-500/25 dark:text-violet-400"
+                          >
+                            Abrir
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

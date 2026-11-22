@@ -1,25 +1,17 @@
 import type { DeviceConfig } from './config'
-import { resolveScreenApp } from './config'
 import { TvDisplay } from '../apps/tv/pages/TvDisplay'
-import { CallsDashboardScreen } from '../apps/chamados-dashboard/pages/CallsDashboardScreen'
 
 interface ScreenRendererProps {
   config: DeviceConfig
 }
 
 /**
- * Único ponto de decisão de qual aplicação de tela o kiosk executa.
- * Apenas decide qual componente renderizar: sem polling, sem subscriptions,
- * sem acesso a Supabase/backend, sem timers.
+ * Único ponto de decisão da tela do kiosk: a TV Corporativa institucional.
+ * Sem polling, sem subscriptions, sem Supabase/backend, sem Chamados e sem timers.
  *
- * Valores desconhecidos caem na TV Corporativa — a TV nunca fica sem tela.
+ * Qualquer valor antigo/desconhecido de `screenApp` continua exibindo a TV —
+ * a TV nunca fica sem tela e nunca renderiza Chamados.
  */
 export function ScreenRenderer({ config }: ScreenRendererProps) {
-  const screenApp = resolveScreenApp(config)
-
-  if (screenApp === 'chamados-dashboard') {
-    return <CallsDashboardScreen />
-  }
-
   return <TvDisplay deviceName={config.name} deviceId={config.deviceId} />
 }

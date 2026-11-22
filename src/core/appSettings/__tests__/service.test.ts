@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /* ── Mock do Supabase: builder encadeável com registro de chamadas ── */
 const state = {
@@ -50,23 +50,23 @@ vi.mock('../../../lib/supabase', () => ({
 }))
 
 /* ── Registry fake: apps com/sem definição (vi.hoisted: fábrica do mock é hoisted) ── */
-interface TvSettings { display: { refreshIntervalSeconds: number; tickerLabel: string }; features: { calendar: boolean } }
+interface TestSettings { display: { refreshIntervalSeconds: number; tickerLabel: string }; features: { calendar: boolean } }
 
-const tvDefaults = vi.hoisted(() => ({
+const testDefaults = vi.hoisted(() => ({
   display: { refreshIntervalSeconds: 300, tickerLabel: 'LabHub' },
   features: { calendar: true },
 }))
 
 const fakeRegistry = vi.hoisted(() => [
   {
-    id: 'tv',
-    name: 'TV',
+    id: 'test-app',
+    name: 'Test App',
     description: '',
     icon: (): null => null,
-    route: '/tv',
+    route: '/test-app',
     color: '#000',
     settings: {
-      defaultSettings: tvDefaults,
+      defaultSettings: testDefaults,
       validateSettings: (value: unknown) => {
         const v = value as { display: { refreshIntervalSeconds: number } }
         if (typeof v.display.refreshIntervalSeconds !== 'number' || v.display.refreshIntervalSeconds < 10) {
@@ -119,7 +119,7 @@ beforeEach(() => {
 
 describe('deepMerge', () => {
   it('mescla objetos aninhados sem substituir irmãos', () => {
-    const merged = deepMerge(tvDefaults, { display: { refreshIntervalSeconds: 600 } })
+    const merged = deepMerge(testDefaults, { display: { refreshIntervalSeconds: 600 } })
     expect(merged).toEqual({
       display: { refreshIntervalSeconds: 600, tickerLabel: 'LabHub' },
       features: { calendar: true },
@@ -134,13 +134,13 @@ describe('deepMerge', () => {
 describe('appSettingsService.getSettings', () => {
   it('retorna defaults quando não há settings persistidos', async () => {
     state.rows = [null]
-    const result = await appSettingsService.getSettings<TvSettings>('tv')
-    expect(result).toEqual(tvDefaults)
+    const result = await appSettingsService.getSettings<TestSettings>('test-app')
+    expect(result).toEqual(testDefaults)
   })
 
   it('carrega e mescla settings persistidos (merge profundo)', async () => {
     state.rows = [{ settings: { display: { refreshIntervalSeconds: 600 }, features: {} }, updated_at: '2026-08-01T10:00:00Z' }]
-    const result = await appSettingsService.getSettings<TvSettings>('tv')
+    const result = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(result).toEqual({
       display: { refreshIntervalSeconds: 600, tickerLabel: 'LabHub' },
       features: { calendar: true },
@@ -149,15 +149,15 @@ describe('appSettingsService.getSettings', () => {
 
   it('settings válidos passam pela validação intactos', async () => {
     state.rows = [{ settings: { display: { refreshIntervalSeconds: 999 } }, updated_at: null }]
-    const result = await appSettingsService.getSettings<TvSettings>('tv')
+    const result = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(result.display.refreshIntervalSeconds).toBe(999)
   })
 
   it('JSON inválido persistido -> defaults + erro registrado, sem quebrar', async () => {
     state.rows = [{ settings: 'nao-sou-um-objeto', updated_at: null }]
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const result = await appSettingsService.getSettings<TvSettings>('tv')
-    expect(result).toEqual(tvDefaults)
+    const result = await appSettingsService.getSettings<TestSettings>('test-app')
+    expect(result).toEqual(testDefaults)
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
@@ -165,8 +165,8 @@ describe('appSettingsService.getSettings', () => {
   it('validateSettings lançando -> defaults seguros', async () => {
     state.rows = [{ settings: { display: { refreshIntervalSeconds: -5 } }, updated_at: null }]
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const result = await appSettingsService.getSettings<TvSettings>('tv')
-    expect(result).toEqual(tvDefaults)
+    const result = await appSettingsService.getSettings<TestSettings>('test-app')
+    expect(result).toEqual(testDefaults)
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
@@ -174,47 +174,47 @@ describe('appSettingsService.getSettings', () => {
   it('falha de rede -> defaults sem popular cache (tenta de novo depois)', async () => {
     state.failNextSelect = { message: 'network down' }
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const first = await appSettingsService.getSettings<TvSettings>('tv')
-    expect(first).toEqual(tvDefaults)
+    const first = await appSettingsService.getSettings<TestSettings>('test-app')
+    expect(first).toEqual(testDefaults)
     spy.mockRestore()
 
     state.rows = [{ settings: { display: { refreshIntervalSeconds: 120 } }, updated_at: null }]
-    const second = await appSettingsService.getSettings<TvSettings>('tv')
+    const second = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(second.display.refreshIntervalSeconds).toBe(120)
   })
 
   it('cacheia por workspace+app: segunda leitura não refaz requisição', async () => {
     state.rows = [{ settings: {}, updated_at: null }]
-    await appSettingsService.getSettings('tv')
-    await appSettingsService.getSettings('tv')
+    await appSettingsService.getSettings('test-app')
+    await appSettingsService.getSettings('test-app')
     expect(state.selectCalledWith.length).toBe(1)
   })
 
   it('workspace B nunca lê cache do workspace A (e vice-versa)', async () => {
     state.rows = [{ settings: { display: { refreshIntervalSeconds: 111 } }, updated_at: null }]
-    const fromA = await appSettingsService.getSettings<TvSettings>('tv')
+    const fromA = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(fromA.display.refreshIntervalSeconds).toBe(111)
 
     setWorkspace('ws-b')
     state.rows = [{ settings: { display: { refreshIntervalSeconds: 222 } }, updated_at: null }]
-    const fromB = await appSettingsService.getSettings<TvSettings>('tv')
+    const fromB = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(fromB.display.refreshIntervalSeconds).toBe(222)
     expect(fromB.display.tickerLabel).toBe('LabHub') // defaults aplicados, nada vazou de A
 
     // consulta de B foi filtrada pelo workspace correto
     const lastEq = state.eqCalls.slice(-2)
-    expect(lastEq).toEqual([['workspace_id', 'ws-b'], ['app_id', 'tv']])
+    expect(lastEq).toEqual([['workspace_id', 'ws-b'], ['app_id', 'test-app']])
 
     // voltar ao A reutiliza o cache de A (não pega valor de B)
     setWorkspace('ws-a')
-    const againA = await appSettingsService.getSettings<TvSettings>('tv')
+    const againA = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(againA.display.refreshIntervalSeconds).toBe(111)
     expect(state.selectCalledWith.length).toBe(2)
   })
 
   it('rejeita sem workspace ativo', async () => {
     setWorkspace(null)
-    await expect(appSettingsService.getSettings('tv')).rejects.toThrow('Nenhum workspace ativo')
+    await expect(appSettingsService.getSettings('test-app')).rejects.toThrow('Nenhum workspace ativo')
   })
 
   it('app desconhecido e app sem definição têm comportamento definido', async () => {
@@ -226,7 +226,7 @@ describe('appSettingsService.getSettings', () => {
 describe('appSettingsService.upsertSettings', () => {
   it('faz upsert do merge validado e atualiza o cache imediatamente', async () => {
     state.rows = [null] // primeira leitura: sem row
-    const saved = await appSettingsService.upsertSettings<TvSettings>('tv', {
+    const saved = await appSettingsService.upsertSettings<TestSettings>('test-app', {
       display: { refreshIntervalSeconds: 600 },
     })
     expect(saved).toEqual({
@@ -238,31 +238,31 @@ describe('appSettingsService.upsertSettings', () => {
     const { payload, opts } = state.upserts[0]
     expect(payload).toMatchObject({
       workspace_id: 'ws-a',
-      app_id: 'tv',
+      app_id: 'test-app',
       settings: saved,
       updated_by: 'user-1',
     })
     expect(opts).toEqual({ onConflict: 'workspace_id,app_id' })
 
     // cache atualizado: get seguinte NÃO refaz SELECT e já vê o novo valor
-    const cached = await appSettingsService.getSettings<TvSettings>('tv')
+    const cached = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(cached.display.refreshIntervalSeconds).toBe(600)
     expect(state.selectCalledWith.length).toBe(1)
   })
 
   it('invalidação força nova leitura do servidor', async () => {
     state.rows = [null]
-    await appSettingsService.upsertSettings<TvSettings>('tv', { display: { tickerLabel: 'Campus' } })
-    appSettingsService.invalidate('tv')
+    await appSettingsService.upsertSettings<TestSettings>('test-app', { display: { tickerLabel: 'Campus' } })
+    appSettingsService.invalidate('test-app')
     state.rows = [{ settings: { display: { tickerLabel: 'Servidor' } }, updated_at: null }]
-    const fresh = await appSettingsService.getSettings<TvSettings>('tv')
+    const fresh = await appSettingsService.getSettings<TestSettings>('test-app')
     expect(fresh.display.tickerLabel).toBe('Servidor')
   })
 
   it('patch inválido é rejeitado antes de gravar', async () => {
     state.rows = [null]
     await expect(
-      appSettingsService.upsertSettings<TvSettings>('tv', { display: { refreshIntervalSeconds: 1 } }),
+      appSettingsService.upsertSettings<TestSettings>('test-app', { display: { refreshIntervalSeconds: 1 } }),
     ).rejects.toThrow('refreshIntervalSeconds inválido')
     expect(state.upserts.length).toBe(0)
   })

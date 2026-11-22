@@ -1,26 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { DisplayShell } from '../DisplayShell'
-import { loadConfig, type DeviceConfig } from '../config'
-
-/* DisplayShell monta o MusicPlayerProvider real, que por sua vez dispara
- * fetch/realtime/poll assíncronos que podem resolver após o teardown do arquivo
- * (setState em `window` já desmontado → ReferenceError no CI). Este teste não
- * valida música, então o provedor entra como pass-through — mesmo padrão de
- * desktopKeepsPlayer.test.tsx. */
-vi.mock('../../apps/tv/contexts/MusicPlayerContext', () => ({
-  MusicPlayerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useMusicPlayer: () => ({
-    currentTrack: null,
-    isPlaying: false,
-    shuffle: false,
-    currentTrackIndex: 0,
-    tracks: [],
-    playOrder: [],
-    togglePlay: vi.fn(),
-    setPlaying: vi.fn(),
-  }),
-}))
+import { loadConfig, saveConfig, type DeviceConfig } from '../config'
 
 /* Mock do ScreenRenderer: prova que o DisplayShell delega a decisão de tela
  * a ele (em vez de montar TvDisplay diretamente) e repassa a config inteira. */
@@ -32,10 +13,6 @@ vi.mock('../ScreenRenderer', () => ({
       data-screen-app={String(config?.screenApp)}
     />
   ),
-}))
-
-vi.mock('../PlayerVolumeControls', () => ({
-  PlayerVolumeControls: () => <div data-testid="player-volume-controls" />,
 }))
 
 const config = {
@@ -70,33 +47,59 @@ describe('DisplayShell — uso do ScreenRenderer', () => {
     expect(screen.queryByText('Manutenção')).not.toBeInTheDocument()
   })
 
-  it('troca o módulo pelo menu de manutenção e persiste a escolha', async () => {
+  it('menu de manutenção não expõe seleção de módulo de Chamados', () => {
     render(<DisplayShell config={config} onReconfigure={() => {}} />)
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true, altKey: true })
-    expect(screen.getByText('Painel de Chamados')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /painel de chamados/i }))
-
-    await vi.waitFor(() => {
-      expect(screen.getByTestId('screen-renderer-stub')).toHaveAttribute(
-        'data-screen-app',
-        'chamados-dashboard',
-      )
-    })
-
-    const loaded = await loadConfig()
-    expect(loaded?.screenApp).toBe('chamados-dashboard')
+    expect(screen.getByText('Manutenção')).toBeInTheDocument()
+    expect(screen.queryByText('Painel de Chamados')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /chamados/i })).not.toBeInTheDocument()
   })
 
-  it('trocar de módulo não altera deviceId nem workspace persistidos', async () => {
+  it('abrir a manutenção não altera deviceId nem workspace persistidos', async () => {
+    await saveConfig(config)
     render(<DisplayShell config={config} onReconfigure={() => {}} />)
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true, altKey: true })
-    fireEvent.click(screen.getByRole('button', { name: /tv corporativa/i }))
 
     const loaded = await loadConfig()
     expect(loaded?.deviceId).toBe('dev-9')
     expect(loaded?.workspace?.id).toBe('ws-1')
+    expect(loaded?.screenApp).toBe('tv')
+  })
+})
+
+describe('DisplayShell — configuração inválida e recuperação', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('sem config, mostra o erro dedicado e não monta o player', () => {
+    render(<DisplayShell config={null} onReconfigure={() => {}} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Erro de inicialização')
+    expect(screen.queryByTestId('screen-renderer-stub')).not.toBeInTheDocument()
+  })
+
+  it('transita de config inválida para válida sem violar a ordem dos Hooks', () => {
+    const { rerender } = render(<DisplayShell config={null} onReconfigure={() => {}} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Erro de inicialização')
+
+    // Se algum Hook fosse condicional, este rerender lançaria "Rendered more
+    // hooks than during the previous render".
+    rerender(<DisplayShell config={config} onReconfigure={() => {}} />)
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByTestId('screen-renderer-stub')).toHaveAttribute('data-device-id', 'dev-9')
+
+    // O estado do shell continua íntegro após a transição.
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true, altKey: true })
+    expect(screen.getByText('Manutenção')).toBeInTheDocument()
+
+    // E a volta para config inválida também não altera a ordem dos Hooks.
+    rerender(<DisplayShell config={undefined} onReconfigure={() => {}} />)
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByTestId('screen-renderer-stub')).not.toBeInTheDocument()
   })
 })

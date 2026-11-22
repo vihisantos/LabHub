@@ -1,19 +1,40 @@
 /**
  * Armazenamento local cross-ambiente.
- * - Desktop (Electron): SQLite local via IPC (`window.desktop.store`).
- * - Web: localStorage.
- * Ambos têm a mesma interface assíncrona.
+ *
+ * - Desktop Tauri: comandos nativos `device_config_*`, gravados em
+ *   `%APPDATA%/LabHub TV/device-config.json` com escrita atômica (`fsync` +
+ *   rename no backend Rust). Não depende de `window.desktop` nem de preload.
+ * - Web/PWA: `localStorage` (dados não críticos).
+ *
+ * A leitura aceita um valor legado do `localStorage` quando o arquivo nativo
+ * ainda não existe, para não desconfigurar instalações já existentes.
  */
 
-const desktopStore = () => window.desktop?.store
+import { invoke, isTauri } from '@tauri-apps/api/core'
+
+const LEGACY_PREFIX = 'labhub-legacy-'
 
 export function isDesktopEnv(): boolean {
-  return !!window.desktop?.isDesktop
+  return isTauri()
+}
+
+function legacyKey(key: string): string {
+  return LEGACY_PREFIX + key
 }
 
 export async function localStoreGet(key: string): Promise<string | null> {
+  if (isTauri()) {
+    try {
+      const native = await invoke<string | null>('device_config_get', { key })
+      if (native !== null && native !== undefined) return native
+      // Migração: instalações antigas guardavam a config no WebView2.
+      return localStorage.getItem(key) ?? localStorage.getItem(legacyKey(key))
+    } catch (e) {
+      console.warn('[localStore] leitura nativa falhou, usando cópia local:', e)
+      return localStorage.getItem(key) ?? localStorage.getItem(legacyKey(key))
+    }
+  }
   try {
-    if (isDesktopEnv()) return await desktopStore()!.get(key)
     return localStorage.getItem(key)
   } catch {
     return null
@@ -21,24 +42,34 @@ export async function localStoreGet(key: string): Promise<string | null> {
 }
 
 export async function localStoreSet(key: string, value: string): Promise<void> {
-  try {
-    if (isDesktopEnv()) {
-      await desktopStore()!.set(key, value)
+  if (isTauri()) {
+    try {
+      await invoke('device_config_set', { key, value })
+      localStorage.removeItem(key)
+      localStorage.removeItem(legacyKey(key))
       return
+    } catch (e) {
+      console.warn('[localStore] escrita nativa falhou, mantendo cópia local:', e)
     }
+  }
+  try {
     localStorage.setItem(key, value)
   } catch {
-    /* IPC indisponível / quota */
+    /* cota indisponível */
   }
 }
 
 export async function localStoreRemove(key: string): Promise<void> {
-  try {
-    if (isDesktopEnv()) {
-      await desktopStore()!.delete(key)
-      return
+  if (isTauri()) {
+    try {
+      await invoke('device_config_remove', { key })
+    } catch (e) {
+      console.warn('[localStore] remoção nativa falhou:', e)
     }
+  }
+  try {
     localStorage.removeItem(key)
+    localStorage.removeItem(legacyKey(key))
   } catch {
     /* ignore */
   }

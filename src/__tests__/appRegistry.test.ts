@@ -11,7 +11,6 @@ describe('appRegistry (compatibilidade com apps antigos)', () => {
     expect(ids).toContain('pc-care')
     expect(ids).toContain('stock')
     expect(ids).toContain('reservalab')
-    expect(ids).toContain('tv')
     expect(ids).toContain('chamados')
     expect(ids).toContain('admin')
   })
@@ -37,19 +36,14 @@ describe('appRegistry (compatibilidade com apps antigos)', () => {
     expect(dashboard.SettingsPanel).toBeUndefined()
   })
 
-  it('tv declara capacidades completas (configurable + clearable + settings + painel)', () => {
-    const tv = appRegistry.find((a) => a.id === 'tv')!
-    expect(tv.configurable).toBe(true)
-    expect(tv.clearable).toBe(true)
-    const tvDefaults = tv.settings?.defaultSettings as { eventSource: { enabled: boolean } } | undefined
-    expect(tvDefaults?.eventSource.enabled).toBe(false) // default seguro
-    expect(typeof tv.SettingsPanel).toBe('function') // TvSettingsPanel
-  })
-
-  it('APPS_CONFIGURABLE exclui admin/dashboard e inclui tv', () => {
+  it('APPS_CONFIGURABLE exclui admin/dashboard', () => {
     expect(APPS_CONFIGURABLE).not.toContain('admin')
     expect(APPS_CONFIGURABLE).not.toContain('dashboard')
-    expect(APPS_CONFIGURABLE).toContain('tv')
+  })
+
+  it('TV não é registrada no PWA (Desktop Tauri é independente)', () => {
+    expect(appRegistry.find((a) => a.id === 'tv')).toBeUndefined()
+    expect(APPS_CONFIGURABLE).not.toContain('tv')
   })
 })
 

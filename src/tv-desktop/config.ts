@@ -6,12 +6,20 @@ import { localStoreGet, localStoreRemove, localStoreSet } from '../lib/localStor
  * app de exibição entra aqui somente quando ganhar implementação real.
  * Preferência LOCAL do dispositivo: nunca usar para autorização, identidade
  * nem acesso a dados (isso permanece Device Auth → workspace → backend/RLS).
+ *
+ * Nota: 'tv-ambiente' é um valor especial apenas para modo desenvolvimento/preview,
+ * não deve ser usado em produção.
  */
-export type ScreenAppId = 'tv' | 'chamados-dashboard'
+export type ScreenAppId = 'tv' | 'tv-ambiente'
 
 /** Catálogo de módulos de exibição — a fonte para a UI de seleção.
  * `id` precisa ser estável (persistido no config); `label`/`description`
- * são só apresentação local do dispositivo. */
+ * são só apresentação local do dispositivo.
+ *
+ * O catálogo institucional contém apenas a TV Corporativa. O painel de
+ * Chamados saiu da execução do Desktop e ficou congelado como referência
+ * para os futuros produtos NSI. Valores legados em configs persistidas são
+ * normalizados por `resolveScreenApp` para 'tv'. */
 export const SCREEN_APP_OPTIONS: ReadonlyArray<{
   id: ScreenAppId
   label: string
@@ -21,11 +29,6 @@ export const SCREEN_APP_OPTIONS: ReadonlyArray<{
     id: 'tv',
     label: 'TV Corporativa',
     description: 'Eventos, avisos, galeria, clima e músicas do campus',
-  },
-  {
-    id: 'chamados-dashboard',
-    label: 'Painel de Chamados',
-    description: 'Tela com o status dos chamados abertos do prédio',
   },
 ]
 

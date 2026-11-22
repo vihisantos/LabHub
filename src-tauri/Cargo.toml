@@ -1,0 +1,42 @@
+[package]
+name = "labhub-tv"
+version = "2.4.0"
+edition = "2021"
+description = "LabHub TV - Aplicação de reprodução de conteúdo acadêmico e institucional"
+license = "UNLICENSED"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "default", "custom-protocol", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+dirs = "7"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+] }
+# Use the same windows-core as Tauri
+windows-core = "0.62"
+# Nota: Win32_UI_WindowsAndMessaging não está disponível - precisaremos de outra abordagem
+windows-dpapi = "0.1"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+rsa = { version = "0.10", features = ["pkcs1v15", "std", "sha1"] }
+base64 = "0.22"
+sha2 = "0.11"
+hex = "0.4"
+rand = "0.8"
+
+[profile.release]
+strip = true
+opt-level = "s"

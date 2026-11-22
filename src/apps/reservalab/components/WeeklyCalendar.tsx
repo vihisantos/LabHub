@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { WeekDayData } from '../types'
 import { diasSemana, parseHorario } from '../utils/timeUtils'
-import { CreateTvEventModal, type TvEventDraft } from './CreateTvEventModal'
 
 interface WeeklyCalendarProps {
   weekData: WeekDayData[]
@@ -26,28 +25,8 @@ const BookOpen = ({ size = 14 }: { size?: number }) => (
   </svg>
 )
 
-function buildTvDraft(
-  reservation: WeekDayData['reservations'][number],
-  date: string,
-): TvEventDraft {
-  const parsed = parseHorario(reservation.time)
-  const description = [
-    reservation.professor && `Professor: ${reservation.professor}`,
-    reservation.lab && `Sala: ${reservation.lab}`,
-  ].filter(Boolean).join(' | ')
-  return {
-    title: reservation.subject || reservation.observacao || 'Reserva',
-    description,
-    reservationDate: reservation.data || date,
-    reservationId: reservation.reservation_id ?? null,
-    timeStartMinutes: reservation.horario_inicio ?? parsed.inicio,
-    timeEndMinutes: reservation.horario_fim ?? parsed.fim,
-  }
-}
-
 export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
   const [selectedDay, setSelectedDay] = useState<WeekDayData | null>(null)
-  const [tvDraft, setTvDraft] = useState<TvEventDraft | null>(null)
   const [filtroTipo, setFiltroTipo] = useState<'lab' | 'tablet' | 'todas'>('todas')
   const [filtroPeriodo, setFiltroPeriodo] = useState('todos')
 
@@ -312,22 +291,6 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
                           </div>
                         </div>
                       )}
-                      <button
-                        onClick={() => setTvDraft(buildTvDraft(r, selectedDay.date))}
-                        style={{
-                          marginTop: '0.5rem',
-                          display: 'flex', alignItems: 'center', gap: '4px',
-                          padding: '4px 8px', borderRadius: '6px',
-                          border: '1px solid var(--border)', background: 'var(--bg-card)',
-                          cursor: 'pointer', color: 'var(--accent)',
-                          fontSize: '11px', fontWeight: 500,
-                        }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
-                        </svg>
-                        Criar evento na TV
-                      </button>
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -341,10 +304,6 @@ export function WeeklyCalendar({ weekData }: WeeklyCalendarProps) {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {tvDraft && (
-        <CreateTvEventModal draft={tvDraft} onClose={() => setTvDraft(null)} />
-      )}
     </motion.div>
   )
 }

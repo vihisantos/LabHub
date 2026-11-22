@@ -69,12 +69,12 @@ vi.mock('../useCoordinator', () => ({
 
 // ── Matriz espelhada da regra de produto (célula a célula) ────────────────────
 const MATRIX: Record<string, Partial<Record<string, string>>> = {
-  tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', tv: 'full', chamados: 'full' },
-  vis: { 'pc-care': 'read', stock: 'read', reservalab: 'read', tv: 'read', chamados: 'read' },
+  tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', chamados: 'full' },
+  vis: { 'pc-care': 'read', stock: 'read', reservalab: 'read', chamados: 'read' },
   lider: { 'pc-care': 'read', stock: 'read', chamados: 'full' },
-  coordinator: { 'pc-care': 'read', stock: 'read', reservalab: 'read', tv: 'read', chamados: 'read' },
+  coordinator: { 'pc-care': 'read', stock: 'read', reservalab: 'read', chamados: 'read' },
 }
-const MODULES = ['dashboard', 'pc-care', 'stock', 'reservalab', 'tv', 'chamados', 'admin']
+const MODULES = ['dashboard', 'pc-care', 'stock', 'reservalab', 'chamados', 'admin']
 
 const { mockUseModuleLevel, mockUseModuleVisibilities } = vi.hoisted(() => ({
   mockUseModuleLevel: vi.fn(),
@@ -258,44 +258,40 @@ describe('Launcher — cards pela nova fonte (F2-D-L)', () => {
     )
   }
 
-  it('técnico vê os cinco módulos do workspace no Launcher', () => {
+  it('técnico vê os módulos navegáveis do workspace no Launcher', () => {
     primeSource('tec')
     renderLauncher()
     expect(screen.getAllByText('PC Care').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Estoque').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Chamados').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('TV').length).toBeGreaterThan(0)
     expect(screen.getAllByText('ReservaLab').length).toBeGreaterThan(0)
     expect(screen.queryByText('Administração')).not.toBeInTheDocument()
     expect(screen.queryByText('Painel')).not.toBeInTheDocument()
   })
 
-  it('viewer vê os cinco módulos do workspace, mas o Launcher não mostra nível', () => {
+  it('viewer vê os módulos navegáveis do workspace, mas o Launcher não mostra nível', () => {
     primeSource('vis')
     renderLauncher()
     expect(screen.getAllByText('PC Care').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Estoque').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Chamados').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('TV').length).toBeGreaterThan(0)
     expect(screen.getAllByText('ReservaLab').length).toBeGreaterThan(0)
     expect(screen.queryByText('Administração')).not.toBeInTheDocument()
   })
 
-  it('coordenador vê os cinco módulos do workspace (TV e ReservaLab em read)', () => {
+  it('coordenador vê os módulos navegáveis do workspace (ReservaLab em read)', () => {
     primeSource('coordinator')
     renderLauncher()
     expect(screen.getAllByText('PC Care').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Estoque').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Chamados').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('TV').length).toBeGreaterThan(0)
     expect(screen.getAllByText('ReservaLab').length).toBeGreaterThan(0)
     expect(screen.queryByText('Administração')).not.toBeInTheDocument()
   })
 
-  it('lider NÃO vê TV nem ReservaLab', () => {
+  it('lider NÃO vê ReservaLab', () => {
     primeSource('lider')
     renderLauncher()
-    expect(screen.queryByText('TV')).not.toBeInTheDocument()
     expect(screen.queryByText('ReservaLab')).not.toBeInTheDocument()
     expect(screen.getAllByText('Chamados').length).toBeGreaterThan(0)
   })
@@ -464,14 +460,14 @@ describe('nenhum consumidor de produção ficou na fonte legada', () => {
     expect(detectar(`const { requireWrite, canWriteApp } = usePermissions()`)).toEqual(
       expect.arrayContaining(['requireWrite', 'canWriteApp']),
     )
-    expect(detectar(`permissionService.resolveAppAccess(role, user, 'tv')`)).toEqual(['resolveAppAccess'])
+    expect(detectar(`permissionService.resolveAppAccess(role, user, 'stock')`)).toEqual(['resolveAppAccess'])
     expect(detectar(`const { getLevel } = useAppAccess()`)).toEqual(
       expect.arrayContaining(['useAppAccess', 'getLevel']),
     )
     // E NÃO dispara em código legítimo: quem escreve de verdade usa a Action,
     // quem vê módulo usa a matriz RBAC2.
     expect(detectar(`const { allowed } = useCanAccessAction('ticket.edit')`)).toEqual([])
-    expect(detectar(`const { isVisible } = useModuleVisibilities(['tv'])`)).toEqual([])
+    expect(detectar(`const { isVisible } = useModuleVisibilities(['stock'])`)).toEqual([])
     // Mesmo uma referência sem chamada é consumo legado e é barrada: passar o
     // gate adiante (callback, comparação) autorizaria igual.
     expect(detectar(`if (roomService.requireWrite) {}`)).toEqual(['requireWrite'])
@@ -488,7 +484,7 @@ describe('a matriz de produto (RBAC 2.0) não é alterada por '+"`"+`useCanAcces
       }
     }
     // `opv`/`est`/`adm` não ganham linha na matriz (dívida técnica registrada):
-    // `opv` e `adm` têm `tv.manage` e mesmo assim resolvem `none` na TV.
+    // suas Actions não conferem visibilidade de módulo.
     for (const slug of ['opv', 'est', 'adm']) {
       for (const appId of MODULES) {
         expect(moduleLevelForSlug(slug, appId)).toBe('none')
