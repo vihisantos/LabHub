@@ -13,6 +13,24 @@ name: Migrations
 # em produção, um último guarda repete a checagem e confirma na API do GitHub
 # que o HEAD da main ainda é exatamente o commit atestado (fail-closed).
 #
+# PUSH NA MAIN SEM FILTRO DE PATHS: qualquer merge na main inicia o pipeline,
+# mesmo que toque apenas arquivos fora de supabase/migrations e scripts. Isso
+# é necessário porque o guarda de pré-apply exige HEAD == commit atestado: se
+# um push posterior não disparasse o workflow, as migrations pendentes ficariam
+# sem executora. Cada execução aplica SOMENTE o que está pendente (nunca
+# --from-scratch), então não há reaplicação nem DDL redundante; o group
+# "migrations-delivery" com cancel-in-progress: false serializa a fila.
+#
+# Identidade de workflow: a checagem de run obsoleto usa apenas execuções do
+# path canônico .github/workflows/migrations.yml. Outros workflows no mesmo
+# commit (CI, CodeQL, Vercel) não bloqueiam a promoção.
+#
+# Destinos esperados (verificados no código, de forma independente da allowlist):
+#   staging    = pgmetdqsdjotdcifjivu
+#   production = hvqxantwqwarqhymnyqb
+# Se secret e allowlist forem alterados juntos para outro projeto, o
+# target_guard aborta antes de qualquer requisição. Nenhum valor é impresso.
+#
 # Credenciais isoladas (GitHub Secrets/Variables do repositório):
 #   staging:
 #     secrets.SUPABASE_STAGING_PROJECT_REF
@@ -30,13 +48,8 @@ name: Migrations
 on:
   push:
     branches: [main]
-    paths:
-      - "supabase/migrations/**"
-      - "scripts/migrate.py"
-      - "scripts/migrate/**"
-      - "scripts/ci/**"
-      - "scripts/tests/**"
-      - ".github/workflows/migrations.yml"
+    # Sem filtro de paths: todo push na main precisa de uma execução para
+    # satisfazer a checagem HEAD == commit atestado e retomar pendências.
   pull_request:
     branches: [main]
     paths:

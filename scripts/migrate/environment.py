@@ -48,6 +48,18 @@ _TARGETS = (LOCAL, STAGING, PRODUCTION)
 # minúsculos. Valida o formato antes de qualquer chamada de rede.
 _PROJECT_REF_RE = re.compile(r"^[a-z0-9]{20}$")
 
+# Destinos esperados e imutáveis do pipeline. A allowlist é configuração do
+# repositório; estes valores são o CONTRATO do código. Se um secret for trocado
+# para outro projeto válido (e a allowlist for trocada junto), apenas conferir
+# "ref ∈ allowlist" não provaria identidade — por isso a verificação
+# independente abaixo existe. Nenhum valor é impresso em mensagem de erro.
+EXPECTED_STAGING_PROJECT_REF = "pgmetdqsdjotdcifjivu"
+EXPECTED_PRODUCTION_PROJECT_REF = "hvqxantwqwarqhymnyqb"
+EXPECTED_PROJECT_REFS: dict[str, str] = {
+    STAGING: EXPECTED_STAGING_PROJECT_REF,
+    PRODUCTION: EXPECTED_PRODUCTION_PROJECT_REF,
+}
+
 ENV_TARGET = "MIGRATE_TARGET"
 ENV_ALLOWED_REFS = "SUPABASE_ALLOWED_PROJECT_REFS"
 ENV_ACCESS_TOKEN = "SUPABASE_ACCESS_TOKEN"
@@ -214,6 +226,44 @@ def validate_project_ref(project_ref: str, policy: TargetPolicy) -> None:
         )
 
 
+def validate_expected_destination(project_ref: str, policy: TargetPolicy) -> None:
+    """Verificação independente de identidade: ref e allowlist devem ser os esperados.
+
+    Chamada pelo ``target_guard`` em staging e produção, ANTES de qualquer
+    requisição. ``validate_project_ref`` prova apenas que o ref está na
+    allowlist — se ambas forem alteradas para o mesmo projeto errado, o DDL
+    iria parar no banco errado sem nenhum sinal de erro (a Management API
+    responde 200 para qualquer projeto válido). Este guard usa valores fixos
+    no código e aborta nesse caso. Não imprime refs nem tokens.
+    """
+    if not policy.is_shared:
+        return
+
+    expected = EXPECTED_PROJECT_REFS[policy.target]
+    other_target = PRODUCTION if policy.target == STAGING else STAGING
+    other = EXPECTED_PROJECT_REFS[other_target]
+
+    if (project_ref or "").strip() != expected:
+        raise TargetEnvironmentError(
+            f"project ref de {policy.target} não é o destino esperado; "
+            "execução abortada antes de qualquer requisição."
+        )
+
+    allowed = tuple(ref.strip().lower() for ref in policy.allowed_project_refs)
+    if allowed != (expected,):
+        raise TargetEnvironmentError(
+            f"{policy.allowed_refs_env_var} não contém exclusivamente o destino "
+            f"esperado para {policy.target}; "
+            "execução abortada antes de qualquer requisição."
+        )
+
+    if other == expected or any(ref == other for ref in allowed):
+        raise TargetEnvironmentError(
+            "allowlist contém o projeto do outro ambiente; "
+            "execução abortada antes de qualquer requisição."
+        )
+
+
 def warn_unenforced_allowlist(policy: TargetPolicy) -> str | None:
     """Aviso quando há allowlist configurada mas o alvo não é compartilhado."""
     if not policy.allowed_project_refs or policy.is_shared:
@@ -247,11 +297,15 @@ __all__ = [
     "ENV_STAGING_PROJECT_REF",
     "ENV_STAGING_ACCESS_TOKEN",
     "ENV_STAGING_ALLOWED_REFS",
+    "EXPECTED_PROJECT_REFS",
+    "EXPECTED_PRODUCTION_PROJECT_REF",
+    "EXPECTED_STAGING_PROJECT_REF",
     "TargetEnvironmentError",
     "TargetPolicy",
     "missing_baseline_message",
     "parse_allowed_refs",
     "resolve_policy",
+    "validate_expected_destination",
     "validate_project_ref",
     "warn_unenforced_allowlist",
 ]

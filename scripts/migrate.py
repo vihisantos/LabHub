@@ -43,6 +43,7 @@ from migrate.environment import (
     TargetEnvironmentError,
     TargetPolicy,
     resolve_policy,
+    validate_expected_destination,
     validate_project_ref,
     warn_unenforced_allowlist,
 )
@@ -148,6 +149,10 @@ def _build_executor(args: argparse.Namespace, policy: TargetPolicy):
     access_token = os.environ.get(access_token_env_var, "")
     try:
         validate_project_ref(project_ref, policy)
+        # Defesa em profundidade: o target_guard do CI faz o mesmo, mas uma
+        # execução direta do runner também não pode mirar outro projeto só
+        # porque secret e allowlist foram alterados juntos.
+        validate_expected_destination(project_ref, policy)
     except TargetEnvironmentError as exc:
         print(f"[migrate] ERRO: {exc}", file=sys.stderr)
         sys.exit(2)

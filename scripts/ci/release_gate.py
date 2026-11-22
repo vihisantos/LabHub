@@ -5,8 +5,9 @@
     Consolida o resultado das etapas obrigatórias de staging num artifact JSON.
 ``verify``
     Confere que o artifact pertence ao MESMO commit e ao MESMO run que está
-    promovendo, que todas as etapas obrigatórias passaram e que não existe run
-    mais novo na branch. Um run antigo não pode promover produção.
+    promovendo, que todas as etapas obrigatórias passaram, que o fingerprint
+    é do projeto de staging esperado e que não existe run do PIPELINE DE
+    MIGRATIONS em commit posterior. Um run antigo não pode promover produção.
 
 ``preapply``
     Última barreira, executada IMEDIATAMENTE antes da aplicação em produção:
@@ -14,12 +15,19 @@
     main ainda é o commit atestado. Qualquer erro de API, run mais novo ou
     divergência de commit bloqueia a aplicação (fail-closed).
 
+Identidade de workflow
+    A decisão de obsolescência usa SOMENTE execuções do workflow canônico
+    ``.github/workflows/migrations.yml`` (descoberto pelo ``path`` na API, não
+    pelo nome). Outros workflows do mesmo commit — CI, CodeQL, Vercel — não
+    têm permissão para invalidar esta promoção, mesmo com IDs maiores.
+
 Nenhum token é impresso. O token do GitHub é usado apenas no header da chamada
 de leitura à API e nunca entra no artifact.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -29,6 +37,22 @@ from pathlib import Path
 from typing import Any
 
 import requests
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from migrate.environment import (  # noqa: E402
+    EXPECTED_PROJECT_REFS,
+    STAGING,
+)
+
+# Identidade confiável do pipeline: o PATH é estável mesmo se o nome do
+# workflow for renomeado. Nunca usamos a listagem global de runs.
+_MIGRATIONS_WORKFLOW_PATH = ".github/workflows/migrations.yml"
+_EXPECTED_STAGING_FINGERPRINT = hashlib.sha256(
+    EXPECTED_PROJECT_REFS[STAGING].encode("utf-8")
+).hexdigest()[:12]
 
 _MANDATORY_STEPS = (
     "target_confirmed",
@@ -62,6 +86,10 @@ def attest(args: argparse.Namespace) -> int:
     dry = _read_json(args.dry_run_json)
     applied = _read_json(args.apply_json)
 
+    _require(
+        args.project_ref_fingerprint == _EXPECTED_STAGING_FINGERPRINT,
+        "fingerprint do projeto de staging não corresponde ao destino esperado",
+    )
     _require(dry.get("status") == "success", "dry-run de staging não terminou com sucesso")
     _require(applied.get("status") == "success", "aplicação em staging não terminou com sucesso")
     _require(dry.get("target") == "staging", "dry-run não aponta para staging")
@@ -137,21 +165,73 @@ def _get_json(url: str, token: str, params: dict[str, Any] | None = None) -> Any
         raise RuntimeError("resposta inválida da API do GitHub") from exc
 
 
-def _newer_runs(api_url: str, repo: str, token: str, branch: str, run_id: int) -> list[dict]:
+def _migrations_workflow_id(api_url: str, repo: str, token: str) -> int:
+    """Resolve o workflow de Migrations pelo PATH canônico, não pelo nome.
+
+    A listagem global ``/actions/runs`` mistura todos os workflows do repositório;
+    IDs de CI/CodeQL/Vercel não dizem nada sobre a obsolescência do deploy.
+    """
     payload = _get_json(
-        f"{api_url}/repos/{repo}/actions/runs",
+        f"{api_url}/repos/{repo}/actions/workflows", token, {"per_page": 100}
+    )
+    workflows = payload.get("workflows") if isinstance(payload, dict) else None
+    _require(
+        isinstance(workflows, list),
+        "lista de workflows ausente/inválida na API do GitHub",
+    )
+    matches = [
+        item for item in workflows
+        if isinstance(item, dict)
+        and item.get("path") == _MIGRATIONS_WORKFLOW_PATH
+        and isinstance(item.get("id"), int)
+        and item["id"] > 0
+    ]
+    _require(
+        len(matches) == 1,
+        "workflow de Migrations não identificado de forma única na API do GitHub",
+    )
+    return int(matches[0]["id"])
+
+
+def _newer_runs(
+    api_url: str,
+    repo: str,
+    token: str,
+    branch: str,
+    run_id: int,
+    commit_sha: str,
+) -> list[dict]:
+    """Runs do MESMO workflow, em commit diferente do atestado.
+
+    Re-runs do mesmo commit não substituem o artifact; um run de Migrations em
+    commit posterior, sim. Qualquer campo ausente/malformado bloqueia.
+    """
+    workflow_id = _migrations_workflow_id(api_url, repo, token)
+    payload = _get_json(
+        f"{api_url}/repos/{repo}/actions/workflows/{workflow_id}/runs",
         token,
         {"branch": branch, "event": "push", "per_page": 100},
     )
     runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
-    if not isinstance(runs, list):
-        raise RuntimeError("resposta inesperada da GitHub Actions API")
-    return [
-        run for run in runs
-        if isinstance(run, dict)
-        and isinstance(run.get("id"), int)
-        and run["id"] > run_id
-    ]
+    _require(isinstance(runs, list), "resposta inesperada da GitHub Actions API")
+
+    newer: list[dict] = []
+    for run in runs:
+        _require(
+            isinstance(run, dict)
+            and isinstance(run.get("id"), int)
+            and isinstance(run.get("head_sha"), str)
+            and re.fullmatch(r"[0-9a-fA-F]{40}", run["head_sha"]) is not None
+            and isinstance(run.get("head_branch"), str),
+            "run de Migrations com identidade incompleta na API do GitHub",
+        )
+        if (
+            run["id"] > run_id
+            and run["head_branch"] == branch
+            and run["head_sha"].lower() != commit_sha.lower()
+        ):
+            newer.append(run)
+    return newer
 
 
 def _main_head_sha(api_url: str, repo: str, token: str, branch: str) -> str:
@@ -177,7 +257,10 @@ def _validate_attestation(attestation: dict[str, Any], args: argparse.Namespace)
     _require(isinstance(args.run_id, int) and args.run_id > 0, "run_id do job inválido")
     _require(attestation.get("status") == "passed", "status do artifact não é passed")
     _require(attestation.get("target") == "staging", "artifact não é de staging")
-    _require(bool(attestation.get("project_ref_fingerprint")), "fingerprint do projeto ausente")
+    _require(
+        attestation.get("project_ref_fingerprint") == _EXPECTED_STAGING_FINGERPRINT,
+        "fingerprint do artifact não é do projeto de staging esperado",
+    )
     _require(attestation.get("commit_sha") == args.commit_sha, "commit do artifact diverge")
     _require(str(attestation.get("run_id")) == str(args.run_id), "run_id do artifact diverge")
     _require(attestation.get("tests_passed") is True, "testes de staging não passaram")
@@ -196,15 +279,24 @@ def _validate_attestation(attestation: dict[str, Any], args: argparse.Namespace)
     _require(migrated == pending, "nem toda migration pendente foi aplicada em staging")
 
 
-def _api_context(args: argparse.Namespace) -> str:
+def _api_context(args: argparse.Namespace) -> tuple[str, str]:
+    """Frescor do run + HEAD real da branch. Falha fechada em qualquer erro."""
     token = os.environ.get(args.token_env, "")
     _require(bool(token), f"{args.token_env} ausente")
-    newer = _newer_runs(args.api_url, args.repo, token, args.branch, args.run_id)
+    newer = _newer_runs(
+        args.api_url, args.repo, token, args.branch, args.run_id, args.commit_sha
+    )
     _require(
         not newer,
-        f"existem {len(newer)} run(s) mais novo(s) na branch; run atual está obsoleto",
+        f"existem {len(newer)} run(s) de Migrations em commit posterior; "
+        "run atual está obsoleto",
     )
-    return token
+    head = _main_head_sha(args.api_url, args.repo, token, args.branch)
+    _require(
+        head.lower() == args.commit_sha.lower(),
+        f"HEAD da main divergiu do commit atestado (head={head}, artifact={args.commit_sha})",
+    )
+    return token, head
 
 
 def verify(args: argparse.Namespace) -> int:
@@ -228,12 +320,7 @@ def preapply(args: argparse.Namespace) -> int:
     try:
         attestation = _read_json(args.attestation)
         _validate_attestation(attestation, args)
-        token = _api_context(args)
-        head = _main_head_sha(args.api_url, args.repo, token, args.branch)
-        _require(
-            head.lower() == args.commit_sha.lower(),
-            f"HEAD da main divergiu do commit atestado (head={head}, artifact={args.commit_sha})",
-        )
+        _token, head = _api_context(args)
     except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
         print(f"[release-gate] BLOCK pré-apply: {exc}", file=sys.stderr)
         return 1

@@ -23,7 +23,10 @@ if str(SCRIPTS) not in sys.path:
 from migrate.core import BaselineConfigurationError, pending_migrations  # noqa: E402
 from migrate.environment import (  # noqa: E402
     ENV_STAGING_ALLOWED_REFS,
+    EXPECTED_PRODUCTION_PROJECT_REF,
+    EXPECTED_STAGING_PROJECT_REF,
     resolve_policy,
+    validate_expected_destination,
     validate_project_ref,
 )
 from migrate.runner import _validate_baseline  # noqa: E402
@@ -452,14 +455,15 @@ def test_test_119_uses_relative_time_anchor() -> None:
 
 
 def test_release_gate_rejects_stale_runs(tmp_path, monkeypatch) -> None:
-    """Um run antigo (com artifact válido) não pode promover produção."""
+    """Só runs de Migrations em commit posterior invalidam o artifact."""
     gate = _load_module("release_gate_stale_under_test", "release_gate.py")
+    commit = "a" * 40
     payload = {
         "status": "passed",
         "target": "staging",
-        "commit_sha": "abc123",
+        "commit_sha": commit,
         "run_id": "123",
-        "project_ref_fingerprint": "0123456789ab",
+        "project_ref_fingerprint": gate._EXPECTED_STAGING_FINGERPRINT,
         "tests_passed": True,
         "health_checks_passed": True,
         "mandatory_steps": {step: True for step in gate._MANDATORY_STEPS},
@@ -472,15 +476,25 @@ def test_release_gate_rejects_stale_runs(tmp_path, monkeypatch) -> None:
     args = gate.build_parser().parse_args([
         "verify",
         "--attestation", str(attestation),
-        "--commit-sha", "abc123",
+        "--commit-sha", commit,
         "--run-id", "123",
         "--repo", "vihisantos/LabHub",
     ])
+    monkeypatch.setattr(gate, "_migrations_workflow_id", lambda *a: 42)
 
-    monkeypatch.setattr(gate, "_newer_runs", lambda *a: [{"id": 999}])
+    def api(runs):
+        def fake_get_json(url, token, params=None):
+            if "/git/ref/heads/" in url:
+                return {"object": {"sha": commit}}
+            return {"workflow_runs": runs}
+        return fake_get_json
+
+    monkeypatch.setattr(gate, "_get_json", api([
+        {"id": 999, "head_sha": "b" * 40, "head_branch": "main"}
+    ]))
     assert gate.verify(args) == 1
 
-    monkeypatch.setattr(gate, "_newer_runs", lambda *a: [])
+    monkeypatch.setattr(gate, "_get_json", api([]))
     assert gate.verify(args) == 0
 
 
@@ -544,3 +558,91 @@ def test_yaml_has_no_manual_trigger_environment_or_confirmation_output() -> None
     for job in data["jobs"].values():
         assert "environment" not in job
     assert "outputs" not in data["jobs"].get("release-gate", {})
+
+
+# ───────── 2) PUSH POSTERIOR NÃO DEIXA MIGRATIONS PENDENTES ────────────────
+
+
+def test_yaml_push_to_main_has_no_paths_filter() -> None:
+    """Todo push na main dispara a entrega, inclusive fora de migrations."""
+    triggers = _workflow()["on"]
+    push = triggers["push"]
+    assert "main" in push["branches"]
+    assert "paths" not in push, "filtro paths deixaria o HEAD da main sem execução"
+    # PRs continuam filtradas: validação focada no que pode mudar o schema.
+    assert "paths" in triggers["pull_request"]
+
+
+def test_consecutive_pushes_resume_delivery_without_reapply() -> None:
+    """Pushes consecutivos: nova execução retoma pendências, sem reaplicar."""
+    assert "paths" not in _workflow()["on"]["push"]
+    for job_name in ("stage-migrations", "release-gate", "production"):
+        concurrency = _job(job_name)["concurrency"]
+        assert concurrency["group"] == "migrations-delivery"
+        assert str(concurrency["cancel-in-progress"]).lower() == "false"
+    # O run anterior é barrado no preapply quando o HEAD muda; o push seguinte
+    # dispara um novo run que aplica apenas o que falta.
+    assert "preapply" in str(_step("production", "Re-verify run identity").get("run"))
+    for job_name in ("stage-migrations", "production"):
+        runs = "\n".join(str(step.get("run", "")) for step in _steps(job_name))
+        assert "--from-scratch" not in runs
+        assert "pending" in runs or "migrate.py" in runs
+
+
+# ─── 3) VERIFICAÇÃO INDEPENDENTE DAS IDENTIDADES DE STAGING/PRODUÇÃO ───────
+
+
+def test_expected_project_refs_are_distinct_and_pinned() -> None:
+    assert EXPECTED_STAGING_PROJECT_REF == "pgmetdqsdjotdcifjivu"
+    assert EXPECTED_PRODUCTION_PROJECT_REF == "hvqxantwqwarqhymnyqb"
+    assert EXPECTED_STAGING_PROJECT_REF != EXPECTED_PRODUCTION_PROJECT_REF
+    # O runner aplica a mesma barreira, mesmo sem passar pelo target_guard.
+    assert "validate_expected_destination(project_ref, policy)" in (
+        SCRIPTS / "migrate.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_wrong_allowlist_cannot_authorize_wrong_project(monkeypatch) -> None:
+    """Secret e allowlist trocados juntos ainda bloqueiam (fail-closed)."""
+    guard = _load_module("target_guard_wrong_project_under_test", "target_guard.py")
+    monkeypatch.delenv("SUPABASE_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("MIGRATE_TARGET", raising=False)
+
+    # Cenário 1: secret aponta para produção, allowlist foi trocada junto.
+    monkeypatch.setenv("SUPABASE_STAGING_PROJECT_REF", EXPECTED_PRODUCTION_PROJECT_REF)
+    monkeypatch.setenv("SUPABASE_STAGING_ACCESS_TOKEN", "staging-token")
+    monkeypatch.setenv(
+        "SUPABASE_STAGING_ALLOWED_PROJECT_REFS", EXPECTED_PRODUCTION_PROJECT_REF
+    )
+    assert guard.main(["--target", "staging"]) == 2
+
+    # Cenário 2: allowlist contém os dois projetos.
+    monkeypatch.setenv("SUPABASE_STAGING_PROJECT_REF", EXPECTED_STAGING_PROJECT_REF)
+    monkeypatch.setenv(
+        "SUPABASE_STAGING_ALLOWED_PROJECT_REFS",
+        f"{EXPECTED_STAGING_PROJECT_REF},{EXPECTED_PRODUCTION_PROJECT_REF}",
+    )
+    assert guard.main(["--target", "staging"]) == 2
+
+
+def test_production_guard_requires_baseline_and_pinned_ref(monkeypatch) -> None:
+    guard = _load_module("target_guard_prod_under_test", "target_guard.py")
+    monkeypatch.delenv("MIGRATE_TARGET", raising=False)
+    monkeypatch.delenv("SUPABASE_STAGING_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("SUPABASE_PROJECT_REF", EXPECTED_PRODUCTION_PROJECT_REF)
+    monkeypatch.setenv("SUPABASE_ACCESS_TOKEN", "producao-token")
+    monkeypatch.setenv("SUPABASE_ALLOWED_PROJECT_REFS", EXPECTED_PRODUCTION_PROJECT_REF)
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    assert guard.main(["--target", "production"]) == 2
+
+    monkeypatch.setenv("BASELINE_VERSION", "035")
+    assert guard.main(["--target", "production"]) == 0
+
+    # Allowlist de produção apontando para staging: bloqueia mesmo com token válido.
+    monkeypatch.setenv("SUPABASE_ALLOWED_PROJECT_REFS", EXPECTED_STAGING_PROJECT_REF)
+    assert guard.main(["--target", "production"]) == 2
+
+    policy = resolve_policy(
+        target="staging", env={"SUPABASE_STAGING_ALLOWED_PROJECT_REFS": _STAGING_REF}
+    )
+    validate_expected_destination(_STAGING_REF, policy)

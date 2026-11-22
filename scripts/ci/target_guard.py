@@ -7,8 +7,12 @@ Uso no CI:
 Valida, sem abrir conexão e sem imprimir valores:
   - allowlist específica do target presente e não vazia;
   - project ref com formato canônico e presente na allowlist;
+  - identidade INDEPENDENTE: ref e allowlist batem com o destino esperado no
+    código (pgmetdqsdjotdcifjivu para staging, hvqxantwqwarqhymnyqb para
+    produção), mesmo que secret e allowlist tenham sido alterados juntos;
   - token específico do target presente (nunca lido/impresso);
-  - ausência de credencial cruzada (staging não usa token de produção e vice-versa).
+  - ausência de credencial cruzada (staging não usa token de produção e vice-versa);
+  - BASELINE_VERSION presente em produção (fail-fast antes do runner).
 
 Qualquer divergência aborta com código 2 antes do dry-run e, portanto, antes
 de qualquer escrita.
@@ -26,10 +30,12 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from migrate.environment import (  # noqa: E402
     ENV_ACCESS_TOKEN,
+    ENV_BASELINE,
     ENV_STAGING_ACCESS_TOKEN,
     STAGING,
     TargetEnvironmentError,
     resolve_policy,
+    validate_expected_destination,
     validate_project_ref,
 )
 
@@ -50,8 +56,14 @@ def main(argv: list[str] | None = None) -> int:
         project_ref = os.environ.get(ref_var, "")
         try:
             validate_project_ref(project_ref, policy)
+            # Barreira independente da allowlist: um secret trocado junto com a
+            # allowlist não pode redirecionar o apply para outro projeto.
+            validate_expected_destination(project_ref, policy)
         except TargetEnvironmentError as exc:
             print(f"[target-guard] ERRO: {exc}", file=sys.stderr)
+            return 2
+        if policy.is_production and not os.environ.get(ENV_BASELINE, "").strip():
+            print(f"[target-guard] ERRO: {ENV_BASELINE} ausente", file=sys.stderr)
             return 2
         if not os.environ.get(token_var, "").strip():
             print(f"[target-guard] ERRO: {token_var} ausente", file=sys.stderr)
@@ -71,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"[target-guard] PASS target={policy.target} "
         f"allowlist_entries={len(policy.allowed_project_refs)} "
+        f"expected_destination_verified={policy.is_shared} "
         f"project_ref_present={bool(os.environ.get(policy.project_ref_env_var, ''))} "
         f"token_present={bool(os.environ.get(policy.access_token_env_var, ''))}"
     )
