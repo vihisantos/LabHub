@@ -12,6 +12,9 @@
   <a href="https://lab-hub-pi.vercel.app">
     <img src="https://img.shields.io/badge/Acessar-Aplica%C3%A7%C3%A3o-10b981?style=for-the-badge&logo=vercel&logoColor=white" alt="Acessar aplicação" />
   </a>
+  <a href="https://github.com/vihisantos/LabHub/releases/download/tv-v2.4.0-rc.1/LabHub.TV_2.4.0_x64-setup.exe">
+    <img src="https://img.shields.io/badge/TV%20Desktop-Baixar%20para%20Windows-2F6BFF?style=for-the-badge&logo=windows&logoColor=white" alt="Baixar LabHub TV Desktop para Windows" />
+  </a>
   <img src="https://img.shields.io/github/actions/workflow/status/vihisantos/LabHub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI" />
   <img src="https://img.shields.io/badge/version-2.3.0-blue?style=for-the-badge" alt="Versão 2.3.0" />
   <img src="https://img.shields.io/badge/license-All%20rights%20reserved-purple?style=for-the-badge" alt="Licença" />
@@ -20,7 +23,7 @@
 ---
 
 <p align="center">
-  Um único PWA para inventário de computadores, estoque, reservas de laboratório, patrimônio, chamados de suporte e murais digitais em campi universitários.
+  Uma plataforma web (PWA) para inventário, estoque, reservas, patrimônio e chamados, acompanhada pelo LabHub TV Desktop para murais institucionais em Windows.
 </p>
 
 ## Índice
@@ -28,6 +31,7 @@
 - [Sobre o LabHub](#sobre-o-labhub)
 - [Demonstração](#demonstração)
 - [Aplicações](#aplicações)
+- [LabHub TV Desktop para Windows](#labhub-tv-desktop-windows)
 - [Plataforma](#plataforma)
 - [Arquitetura](#arquitetura)
 - [Stack](#stack)
@@ -48,7 +52,7 @@ O LabHub reúne toda essa operação em uma plataforma única, modular e **offli
 - **Modular** — cada aplicação tem rotas, serviços e tema próprios, carregados sob demanda.
 - **Offline-first** — o `localStorage` é a fonte de verdade; o Supabase sincroniza em segundo plano.
 - **Isolado por workspace** — todo dado é escopado por campus/unidade, com RLS e RBAC.
-- **Progressivo** — instalável como PWA e utilizável em celular, tablet, desktop e TVs.
+- **Progressivo** — PWA instalável em celular, tablet e desktop; murais de TV usam um aplicativo Windows independente.
 - **Multi-tenant** — uma pessoa pode participar de vários workspaces com cargos diferentes.
 
 ## Demonstração
@@ -73,7 +77,7 @@ O LabHub reúne toda essa operação em uma plataforma única, modular e **offli
 | **PC Care** | `/pc-care` | Inventário, limpeza e manutenção preventiva de computadores |
 | **Estoque** | `/stock` | Materiais, movimentações, kits e inventário cíclico |
 | **ReservaLab** | `/reservalab` | Reservas de laboratório e tablets, com dashboard e lembretes |
-| **TV** | `/tv` · `/tv/display` | Murais digitais: eventos, vídeos, música, avisos e galerias |
+| **LabHub TV Desktop** | Aplicativo Windows (Tauri 2) | Murais institucionais com mídia local sincronizada pelo Google Drive e ativação USB |
 | **Patrimônio** | `/patrimonio` | Acervo institucional de TI com custódia e histórico de movimentações |
 
 Cada aplicação é habilitada por workspace e respeita o cargo do usuário. A documentação detalhada de cada uma está em [`docs/apps/`](docs/apps/README.md).
@@ -163,30 +167,33 @@ O ReservaLab reúne a ocupação dos laboratórios e o empréstimo de tablets em
 - **Notificações push** — lembretes configuráveis antes do início da reserva (padrão de 30 minutos).
 - **Múltiplos laboratórios** — quantidade configurável por campus (`lab_count`).
 - **Limpeza automática** — remoção de reservas de tablet canceladas há mais de 30 dias.
-- **Evento na TV** — a partir de uma reserva, publique um evento na TV do campus.
 
 **Dados:** API Flask (leitura do SharePoint), Supabase (tablets, inscrições/dedup de Push e lembretes) e Upstash Redis opcional (apenas cache/rate-limit legados). O ReservaLab hospeda o backend Flask principal do projeto, responsável por todas as rotas `/api/*`.
 
 [Documentação do ReservaLab →](docs/apps/reservalab/README.md)
 
-### TV
+### LabHub TV Desktop (Windows)
 
-> Canal corporativo e murais digitais dos laboratórios.  
-> **Cor:** vermelho · **Rota:** `/tv` (admin) e `/tv/display` (tela cheia) · **Código:** `src/apps/tv`
+> Player institucional independente para TVs dos laboratórios.  
+> **Tecnologia:** Tauri 2 · React · Rust · NSIS · **Código:** `src/tv-desktop/`, `src-tauri/`
 
-A TV opera em dois modos: **admin**, para gestão de conteúdo, e **display**, para reprodução em tela cheia nos murais dos laboratórios.
+O **LabHub TV** agora é um aplicativo Windows separado do PWA: a antiga rota `/tv`, os pedidos de música e o painel web de administração da TV foram retirados. O player executa a programação institucional diretamente de arquivos sincronizados no computador, sem login Supabase nem acesso aos Chamados no Desktop.
 
-- **Eventos** — por campus, direcionados a uma TV específica ou a todas as TVs da unidade.
-- **Playlists de vídeo** — integração com o YouTube e busca de metadados.
-- **Música** — filas de reprodução em segundo plano e pedidos de música.
-- **Avisos** — mensagens em rolagem, incluindo alertas urgentes por severidade.
-- **Galerias de fotos** — carrosséis de imagens.
-- **Gestão de dispositivos** — códigos de ativação para as TVs.
-- **Fonte externa de eventos** — planilha do SharePoint/OneDrive, com validação de URL e cache por workspace.
+- **Programação acadêmica** — cursos e conteúdos embaralhados sem reposição, com vinheta antes de cada conteúdo.
+- **Conteúdos fixos e informativos** — alternância com conteúdos acadêmicos; slides de horário e clima.
+- **Google Drive para computador** — leitura da pasta local sincronizada, retomada da programação e recuperação de falhas.
+- **Ativação por pendrive USB autorizado** — validação local, armazenamento protegido no Windows e reativação quando necessária.
+- **Instalador Windows** — pacote NSIS personalizado com a identidade **LabHub TV · by Vihisantos** e autostart configurável.
 
-**Dados:** acesso direto ao Supabase, sem sincronização local, nas tabelas `tv_*`; metadados de vídeo e fonte externa passam pela API Flask (`/api/tv/*`).
+**[⬇️ Baixar LabHub TV Desktop 2.4.0 para Windows (.exe)](https://github.com/vihisantos/LabHub/releases/download/tv-v2.4.0-rc.1/LabHub.TV_2.4.0_x64-setup.exe)**
 
-[Documentação da TV →](docs/apps/tv/README.md)
+- **Arquivo:** `LabHub.TV_2.4.0_x64-setup.exe` (25,01 MB).
+- **Release:** [`tv-v2.4.0-rc.1` — pré-lançamento](https://github.com/vihisantos/LabHub/releases/tag/tv-v2.4.0-rc.1).
+- **SHA-256:** `0be3a83d59580be47cb2a39ba88299f0f96ceefddb13dec25d85a25b6607bfc7`.
+
+O link baixa o instalador diretamente do GitHub Releases, sem precisar executar um workflow. Para reconstruir o `.exe` a partir do código-fonte, utilize o [workflow manual de build](https://github.com/vihisantos/LabHub/actions/workflows/desktop-release.yml).
+
+> **Atenção:** esta é uma versão de pré-lançamento, ainda pendente de homologação física prolongada. Para ativar o LabHub TV, é necessário um pendrive USB autorizado. Os instaladores Electron antigos não correspondem a esta versão.
 
 ### Patrimônio
 
@@ -232,7 +239,7 @@ Recursos compartilhados por todas as aplicações:
 
 ## Arquitetura
 
-O LabHub é um PWA React carregado sob demanda por aplicação. A plataforma fornece autenticação, autorização, workspaces, sincronização e notificações; cada aplicação consome apenas os serviços de que precisa.
+O LabHub reúne um PWA React (com autenticação, autorização, workspaces, sincronização e notificações) e um player Windows independente para a TV institucional. O Desktop usa ativação USB e arquivos locais sincronizados pelo Google Drive; a reprodução não depende das rotas do PWA.
 
 ```mermaid
 flowchart LR
@@ -249,7 +256,6 @@ flowchart LR
         PC["PC Care"]
         ST["Estoque"]
         RL["ReservaLab"]
-        TV["TV"]
         PT["Patrimônio"]
     end
 
@@ -268,12 +274,19 @@ flowchart LR
     PC --> SYNC
     ST --> SYNC
     SYNC --> SB
-    TV --> SB
     PT --> SB
     FL --> SB
     FL --> RD
     FL --> SP
     NOTIF --> RD
+
+    subgraph TVDESKTOP["TV institucional — Windows"]
+        USBAUTH["Pendrive USB autorizado"]
+        TVPLAYER["LabHub TV — Tauri 2"]
+        GDLOCAL["Google Drive local sincronizado"]
+        USBAUTH --> TVPLAYER
+        GDLOCAL --> TVPLAYER
+    end
 ```
 
 ### Padrões de fluxo de dados
@@ -281,9 +294,10 @@ flowchart LR
 | Padrão | Aplicações | Caminho |
 |--------|------------|---------|
 | **Local-first com sincronização** | PC Care, Estoque | Interface → serviço → `localStorage` → engine de sync → Supabase |
-| **Mediado pela API** | Chamados, ReservaLab, TV | Interface → API Flask → Supabase / SharePoint / YouTube |
-| **Acesso remoto direto** | TV, tablets do ReservaLab, Patrimônio | Interface → cliente Supabase → RLS |
-| **Fonte externa** | ReservaLab, TV | Interface → API Flask → planilha no SharePoint → cache (Redis/arquivo) |
+| **Mediado pela API** | Chamados, ReservaLab | Interface → API Flask → Supabase / SharePoint |
+| **Acesso remoto direto** | Tablets do ReservaLab, Patrimônio | Interface → cliente Supabase → RLS |
+| **Fonte externa** | ReservaLab | Interface → API Flask → planilha no SharePoint → cache |
+| **Mídia institucional local** | LabHub TV Desktop | Google Drive para computador → pasta sincronizada → player Tauri 2 |
 
 ### Sincronização offline-first
 
@@ -326,6 +340,10 @@ sequenceDiagram
   <tr>
     <td><strong>Backend</strong></td>
     <td>Flask (Python) · Vercel Serverless · Supabase PostgreSQL (Upstash Redis opcional, apenas cache legado)</td>
+  </tr>
+  <tr>
+    <td><strong>TV Desktop</strong></td>
+    <td>Tauri 2 · Rust · WebView2 · NSIS · Google Drive local · ativação USB</td>
   </tr>
   <tr>
     <td><strong>Realtime</strong></td>
@@ -397,7 +415,7 @@ A documentação completa fica em [`docs/`](docs/README.md):
 
 ## Desenvolvimento
 
-O código-fonte é privado e restrito à equipe do projeto. O desenvolvimento acontece diretamente no repositório interno.
+O código-fonte está disponível neste repositório. Instalações e ativações do LabHub TV são controladas separadamente por pendrive autorizado.
 
 **Pré-requisitos:** Node.js 20.19+ (ou 22.12+), npm e Python 3.10+ para a API Flask.
 
