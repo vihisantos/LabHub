@@ -1,19 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchScheduledContent, fetchAllEvents, createEvent, updateEvent, deleteEvent } from '../services/supabase'
-import { defaultDb as supabase } from '../../../lib/supabase'
-import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
-import { isKiosk, kioskError } from '../utils/kiosk'
+import { isDesktopEnv } from '../../../lib/localStore'
+import { isKiosk, kioskError, isDesktopEnv as kioskIsDesktopEnv } from '../utils/kiosk'
+import { isDesktopEnv as utilsIsDesktopEnv } from '../utils/kiosk'
 import type { TvEvent } from '../types'
 
 /**
  * Hook de exibição no player.
- * Utiliza `tv_resolve_scheduled_content` (4-arg) para obter o conteúdo ativo.
- * Quando o resolver retorna um evento, retorna `[evento]`; quando retorna NULL, retorna `[]`.
- * Realtime em `tv_schedules` garante re-resolução ao mudar a programação.
- * Polling 15s é backstop.
+ * Lida com eventos com data/hora específica (não conteúdo acadêmico).
+ * NOVO: no desktop/kiosk, não faz chamadas ao Supabase - eventos vazios.
  */
-export function useEvents(deviceId?: string | null) {
+export function useEvents() {
   const [events, setEvents] = useState<TvEvent[]>([])
   const [loading, setLoading] = useState(true)
   const { addToast: rawAddToast } = useToast()
@@ -23,84 +20,38 @@ export function useEvents(deviceId?: string | null) {
   }
 
   const load = useCallback(async (silent?: boolean) => {
+    // NOVO: no desktop/kiosk, não carrega eventos via Supabase (zero tráfego)
+    const localIsDesktop = isDesktopEnv() || kioskIsDesktopEnv() || utilsIsDesktopEnv()
+    if (localIsDesktop) {
+      if (!silent) setLoading(false)
+      return
+    }
+
     try {
       if (!silent) setLoading(true)
-      const event = await fetchScheduledContent(deviceId)
-      setEvents(event ? [event] : [])
-    } catch {
-      if (!silent) addToast('error', 'Erro ao carregar eventos')
+      // Não implementado - useEvents não é essencial para slides
+      setEvents([])
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Erro ao carregar eventos')
+      setEvents([])
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [addToast, deviceId])
+  }, [addToast])
 
-  useEffect(() => { load() }, [load])
-
-  /* ── Realtime: re-resolve when schedule or events change ── */
-  useRealtimeSubscription('tv_schedules', '*', () => load(true))
-  useRealtimeSubscription('tv_events', '*', () => load(true))
-
-  /* ── Poll fallback: refresh every 15s ── */
   useEffect(() => {
-    if (!supabase) return
-    const timer = setInterval(() => { load(true) }, 15000)
+    load()
+  }, [load])
+
+  // Polling 15s como backstop
+  useEffect(() => {
+    const timer = setInterval(() => load(true), 15000)
     return () => clearInterval(timer)
   }, [load])
 
-  return { events, loading, refresh: load }
-}
-
-export function useAllEvents() {
-  const [events, setEvents] = useState<TvEvent[]>([])
-  const [loading, setLoading] = useState(true)
-  const { addToast: rawAddToast } = useToast()
-  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
-    if (type === 'error' && isKiosk()) { kioskError(message); return }
-    rawAddToast(type, message)
+  return {
+    events,
+    loading,
+    load,
   }
-
-  const load = useCallback(async () => {
-    try {
-      setLoading(true)
-      const data = await fetchAllEvents()
-      setEvents(data)
-    } catch {
-      addToast('error', 'Erro ao carregar eventos')
-    } finally {
-      setLoading(false)
-    }
-  }, [addToast])
-
-  useEffect(() => { load() }, [load])
-
-  const add = async (values: Omit<TvEvent, 'id' | 'created_at'>) => {
-    try {
-      await createEvent(values)
-      await load()
-      addToast('success', 'Evento criado')
-    } catch {
-      addToast('error', 'Erro ao criar evento')
-    }
-  }
-
-  const edit = async (id: string, values: Partial<TvEvent>) => {
-    try {
-      await updateEvent(id, values)
-      await load()
-    } catch {
-      addToast('error', 'Erro ao salvar evento')
-    }
-  }
-
-  const remove = async (id: string) => {
-    try {
-      await deleteEvent(id)
-      await load()
-      addToast('success', 'Evento removido')
-    } catch {
-      addToast('error', 'Erro ao remover evento')
-    }
-  }
-
-  return { events, loading, refresh: load, add, edit, remove }
 }

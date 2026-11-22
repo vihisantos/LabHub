@@ -1,0 +1,278 @@
+/* LabHub TV - Tema Limpo */
+.tv-display {
+  background: #f8f4f0;
+  color: #333333;
+  font-family: system-ui, -apple-system, sans-serif;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Content phases */
+.tv-content-phase {
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.5s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f4f0;
+}
+
+.tv-video-container {
+  position: relative;
+  width: 80%;
+  max-width: 1200px;
+  aspect-ratio: 16/9;
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow: 0 20px 80px rgba(0,0,0,0.1);
+}
+
+/* Fixed content phase */
+.tv-fixed-phase {
+  background: #f8f4f0;
+}
+
+/* Informativo phase */
+.tv-informativo-phase {
+  background: #f8f4f0;
+}
+
+/* Gallery phase */
+.tv-gallery-phase {
+  background: #f8f4f0;
+}
+
+/* Playback controls */
+.tv-playback-controls {
+  position: fixed;
+  bottom: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.tv-control-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(0,0,0,0.5);
+  padding: 0.35rem;
+  display: flex;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.tv-control-button:hover {
+  color: #000;
+}
+
+.tv-control-button.play {
+  background: rgba(0,0,0,0.1);
+  color: #000;
+  padding: 0.4rem;
+}
+
+/* Status dots */
+.tv-status-dots {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.tv-status-dot {
+  width: 8px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.15);
+  transition: all 0.3s;
+}
+
+.tv-status-dot.active {
+  width: 24px;
+  background: #3b82f6;
+}
+
+/* Branding */
+.tv-branding {
+  position: fixed;
+  bottom: 2rem;
+  left: 3rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #333333;
+}
+
+/* Admin button */
+.tv-admin-button {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.05);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0,0,0,0.3);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* Folder selection button */
+.tv-folder-button {
+  position: fixed;
+  top: 1rem;
+  right: 5rem;
+  z-index: 50;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.05);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0,0,0,0.3);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* Informativo badge */
+.tv-informativo-badge {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 45;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tv-informativo-badge .icon {
+  color: #2563eb;
+}
+
+.tv-informativo-badge .text {
+  font-size: 0.8rem;
+  color: #1e40af;
+}
+
+/* Discovery error */
+.tv-discovery-error {
+  position: fixed;
+  bottom: 6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: #92400e;
+  max-width: 80vw;
+  text-align: center;
+}
+
+/* Live YouTube Indicator */
+.tv-live-indicator {
+  position: fixed;
+  top: 4.5rem;
+  left: 1rem;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1rem;
+  border-radius: 9999px;
+  background: rgba(220,38,38,0.1);
+  border: 1px solid rgba(220,38,38,0.2);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(220,38,38,0.2);
+  color: #7f1d1d;
+  text-decoration: none;
+  font-family: system-ui, -apple-system, sans-serif;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.tv-live-indicator .pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 12px rgba(239,68,68,0.6);
+}
+
+.tv-live-indicator .title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.tv-live-indicator .live-text {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #dc2626;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tv-live-indicator .channel-text {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #500505;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-live-indicator .viewers {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #dc2626;
+  background: rgba(0,0,0,0.05);
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+}
+
+/* Pulse animation */
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+/* Empty state (screensaver) */
+.tv-empty-state {
+  opacity: 1;
+}

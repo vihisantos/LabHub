@@ -6,7 +6,7 @@ type Call = { m: string; a: unknown[] }
 const state = {
   calls: [] as Call[],
   fromCalls: [] as string[],
-  result: { data: [] as unknown[], error: null } as { data: unknown[] | null; error: unknown },
+  result: { data: [] as unknown[], error: null } as { data: unknown; error: unknown },
   /** Fila de resultados: quando preenchida, cada chamada consome o próximo item. */
   resultQueue: [] as { data: unknown; error: unknown }[],
 }
@@ -30,10 +30,18 @@ function makeBuilder(table?: string) {
     upsert: method('upsert'),
     eq: method('eq'),
     order: method('order'),
+    limit: method('limit'),
     single: () => { const r = dequeue(); const d = Array.isArray(r.data) ? r.data[0] ?? null : r.data; return Promise.resolve({ data: d, error: r.error }) },
     maybeSingle: () => { const r = dequeue(); const d = Array.isArray(r.data) ? r.data[0] ?? null : r.data; return Promise.resolve({ data: d, error: r.error }) },
-    then: (resolve: (v: { data: unknown[] | null; error: unknown }) => unknown) =>
-      Promise.resolve(resolve(state.result)),
+    then: (resolve: (v: { data: unknown[] | null; error: unknown }) => unknown) => {
+      const r = dequeue()
+      return Promise.resolve(
+        resolve({
+          data: r.data as unknown[] | null,
+          error: r.error,
+        }),
+      )
+    },
     catch: (reject: (e: unknown) => unknown) =>
       Promise.resolve({ data: state.result.data, error: state.result.error }).catch(reject),
   })
@@ -71,18 +79,33 @@ vi.mock('../../../../core/workspaces/store', () => ({
 
 import { workspaceStore } from '../../../../core/workspaces/store'
 import {
-  fetchEvents,
-  fetchAllEvents,
   fetchScheduledContent,
-  createEvent,
-  updateEvent,
-  deleteEvent,
-  reserveEventUpsert,
   fetchPlaylists,
   fetchAllPlaylists,
   createPlaylist,
   updatePlaylist,
   deletePlaylist,
+  fetchAnnouncements,
+  fetchAllAnnouncements,
+  createAnnouncement,
+  updateAnnouncement,
+  deleteAnnouncement,
+  fetchActiveGalleries,
+  fetchGalleries,
+  createGallery,
+  deleteGallery,
+  toggleGalleryActive,
+  setGalleryOrder,
+  fetchGalleryPhotos,
+  addGalleryPhoto,
+  deleteGalleryPhoto,
+  reorderGalleryPhotos,
+  fetchDevices,
+  fetchDeviceById,
+  upsertDevice,
+  heartbeatDevice,
+  updateDevice,
+  deleteDevice,
 } from '../supabase'
 
 const store = workspaceStore as unknown as { activeWorkspaceId: string | null }
@@ -95,122 +118,7 @@ beforeEach(() => {
   state.resultQueue = []
 })
 
-/* ── Events ── */
-
-describe('fetchEvents', () => {
-  it('retorna eventos ativos ordenados por sort_order', async () => {
-    const mockData = [{ id: '1', title: 'Evento A', is_active: true, sort_order: 0 }]
-    state.result = { data: mockData, error: null }
-
-    const result = await fetchEvents()
-    expect(result).toEqual(mockData)
-    expect(state.fromCalls).toEqual(['tv_events'])
-    expect(lastCall('select')?.a).toEqual(['*'])
-    expect(lastCall('eq')?.a).toEqual(['is_active', true])
-    expect(lastCall('order')?.a).toEqual(['sort_order', { ascending: true }])
-  })
-
-  it('retorna array vazio quando resultado é null', async () => {
-    state.result = { data: null, error: null }
-    expect(await fetchEvents()).toEqual([])
-  })
-})
-
-describe('fetchEvents — escopo por TV', () => {
-  it('mostra evento do campus (device_id null) para qualquer TV', async () => {
-    state.result = {
-      data: [{ id: 'campus', title: 'Campus', device_id: null }],
-      error: null,
-    }
-    const out = await fetchEvents('tv-a')
-    expect(out.map((e: any) => e.id)).toEqual(['campus'])
-  })
-
-  it('esconde evento de outra TV e mostra o da própria TV', async () => {
-    state.result = {
-      data: [
-        { id: 'a', title: 'A', device_id: 'tv-a' },
-        { id: 'b', title: 'B', device_id: 'tv-b' },
-      ],
-      error: null,
-    }
-    const out = await fetchEvents('tv-a')
-    expect(out.map((e: any) => e.id)).toEqual(['a'])
-  })
-
-  it('sem deviceId retorna tudo (painel/legado)', async () => {
-    state.result = {
-      data: [
-        { id: 'a', title: 'A', device_id: 'tv-a' },
-        { id: 'b', title: 'B', device_id: 'tv-b' },
-      ],
-      error: null,
-    }
-    const out = await fetchEvents()
-    expect(out.map((e: any) => e.id)).toEqual(['a', 'b'])
-  })
-})
-
-describe('fetchAllEvents', () => {
-  it('retorna todos os eventos sem filtro is_active', async () => {
-    const mockData = [{ id: '1', title: 'A' }, { id: '2', title: 'B' }]
-    state.result = { data: mockData, error: null }
-
-    const result = await fetchAllEvents()
-    expect(result).toEqual(mockData)
-    expect(lastCall('eq')).toBeUndefined()
-  })
-})
-
-describe('createEvent', () => {
-  it('insere evento com valores e workspace ativo', async () => {
-    const values = { title: 'Novo Evento', description: null, image_url: null, pdf_url: null, start_date: null, end_date: null, is_active: true, sort_order: 0 }
-    await createEvent(values)
-    expect(lastCall('insert')?.a).toEqual([
-      { ...values, workspace_id: 'ws-x' },
-    ])
-  })
-
-  it('falha sem workspace ativo (evita criar registro legado global)', async () => {
-    store.activeWorkspaceId = null
-    await expect(createEvent({ title: 'x' } as never)).rejects.toThrow()
-    expect(lastCall('insert')).toBeUndefined()
-  })
-})
-
-describe('updateEvent', () => {
-  it('atualiza evento por id E workspace_id', async () => {
-    await updateEvent('evt-1', { title: 'Atualizado' })
-    expect(lastCall('update')?.a).toEqual([{ title: 'Atualizado' }])
-    expect(state.calls.filter((c) => c.m === 'eq').map((c) => c.a)).toEqual([
-      ['id', 'evt-1'],
-      ['workspace_id', 'ws-x'],
-    ])
-  })
-
-  it('falha sem workspace ativo (nao vaza UPDATE cross-workspace)', async () => {
-    store.activeWorkspaceId = null
-    await expect(updateEvent('evt-1', { title: 'x' })).rejects.toThrow()
-    expect(lastCall('eq')).toBeUndefined()
-  })
-})
-
-describe('deleteEvent', () => {
-  it('deleta evento por id E workspace_id', async () => {
-    await deleteEvent('evt-1')
-    expect(lastCall('delete')).toBeDefined()
-    expect(state.calls.filter((c) => c.m === 'eq').map((c) => c.a)).toEqual([
-      ['id', 'evt-1'],
-      ['workspace_id', 'ws-x'],
-    ])
-  })
-
-  it('falha sem workspace ativo', async () => {
-    store.activeWorkspaceId = null
-    await expect(deleteEvent('evt-1')).rejects.toThrow()
-    expect(lastCall('eq')).toBeUndefined()
-  })
-})
+/* ── Scheduled Content ── */
 
 describe('fetchScheduledContent', () => {
   it('chama tv_resolve_scheduled_content e busca o evento por event_id', async () => {
@@ -259,77 +167,6 @@ describe('fetchScheduledContent', () => {
   })
 })
 
-describe('reserveEventUpsert', () => {
-  it('chama o RPC tv_reserve_event_upsert com workspace ativo e payload canônico', async () => {
-    state.result = { data: [{ event_id: 'evt-1', schedule_id: 'sch-1' }], error: null }
-
-    const result = await reserveEventUpsert({
-      reservationDate: '2026-09-20',
-      title: 'Reserva Lab A',
-      description: 'Aula prática',
-      reservationId: 'chave-abc',
-      timeStart: '09:30',
-      timeEnd: '11:00',
-      additionalDates: ['2026-09-27'],
-      targetDeviceIds: ['dev-1', 'dev-2'],
-    })
-
-    expect(result).toEqual({ event_id: 'evt-1', schedule_id: 'sch-1' })
-    expect(lastCall('rpc')?.a).toEqual([
-      'tv_reserve_event_upsert',
-      {
-        p_workspace_id: 'ws-x',
-        p_reservation_date: '2026-09-20',
-        p_title: 'Reserva Lab A',
-        p_description: 'Aula prática',
-        p_image_url: null,
-        p_pdf_url: null,
-        p_reservation_id: 'chave-abc',
-        p_reservation_time_start: '09:30',
-        p_reservation_time_end: '11:00',
-        p_additional_dates: ['2026-09-27'],
-        p_target_device_ids: ['dev-1', 'dev-2'],
-        p_event_id: null,
-        p_sort_order: 0,
-      },
-    ])
-  })
-
-  it('envia nulls quando não há horário, datas adicionais ou TVs (todas do workspace)', async () => {
-    state.result = { data: [{ event_id: 'evt-2', schedule_id: 'sch-2' }], error: null }
-
-    const result = await reserveEventUpsert({
-      reservationDate: '2026-09-20',
-      title: 'Sem horário',
-      reservationId: null,
-    })
-
-    expect(result).toEqual({ event_id: 'evt-2', schedule_id: 'sch-2' })
-    const payload = lastCall('rpc')?.a[1] as Record<string, unknown>
-    expect(payload.p_reservation_id).toBeNull()
-    expect(payload.p_reservation_time_start).toBeNull()
-    expect(payload.p_reservation_time_end).toBeNull()
-    expect(payload.p_additional_dates).toBeNull()
-    expect(payload.p_target_device_ids).toBeNull()
-    expect(payload.p_event_id).toBeNull()
-  })
-
-  it('propaga erro do RPC (falha de permissão)', async () => {
-    state.result = { data: [], error: { code: '42501', message: 'TV_WORKSPACE_FULL_REQUIRED' } }
-    await expect(
-      reserveEventUpsert({ reservationDate: '2026-09-20', title: 'x' }),
-    ).rejects.toThrow()
-  })
-
-  it('falha sem workspace ativo', async () => {
-    store.activeWorkspaceId = null
-    await expect(
-      reserveEventUpsert({ reservationDate: '2026-09-20', title: 'x' }),
-    ).rejects.toThrow()
-    expect(lastCall('rpc')).toBeUndefined()
-  })
-})
-
 /* ── Playlists ── */
 
 describe('fetchPlaylists', () => {
@@ -358,7 +195,7 @@ describe('fetchAllPlaylists', () => {
 
 describe('createPlaylist', () => {
   it('insere playlist com valores e workspace ativo', async () => {
-    const values = { name: 'Nova Playlist', source: 'youtube' as const, youtube_url: 'https://youtube.com/watch?v=test', is_active: true, sort_order: 0 }
+    const values = { name: 'Nova Playlist', source: 'google_drive' as const, youtube_url: '', is_active: true, sort_order: 0 }
     await createPlaylist(values)
     expect(lastCall('insert')?.a).toEqual([
       { ...values, workspace_id: 'ws-x' },
@@ -379,9 +216,190 @@ describe('updatePlaylist', () => {
 describe('deletePlaylist', () => {
   it('deleta playlist por id com workspace scoping', async () => {
     await deletePlaylist('pl-1')
-    expect(lastCall('delete')).toBeDefined()
+    expect(state.calls.some((c) => c.m === 'delete')).toBe(true)
     const eqCalls = state.calls.filter((c) => c.m === 'eq')
     expect(eqCalls[eqCalls.length - 2]?.a).toEqual(['id', 'pl-1'])
     expect(eqCalls[eqCalls.length - 1]?.a).toEqual(['workspace_id', 'ws-x'])
+  })
+})
+
+/* ── Announcements ── */
+
+describe('fetchAnnouncements', () => {
+  it('retorna anúncios ativos ordenados por sort_order', async () => {
+    const mockData = [{ id: '1', text: 'Anúncio A', is_active: true }]
+    state.result = { data: mockData, error: null }
+
+    const result = await fetchAnnouncements()
+    expect(result).toEqual(mockData)
+    expect(state.fromCalls).toEqual(['tv_announcements'])
+  })
+})
+
+describe('fetchAllAnnouncements', () => {
+  it('retorna todos os anúncios sem filtro is_active', async () => {
+    const mockData = [{ id: '1', text: 'A' }]
+    state.result = { data: mockData, error: null }
+
+    const result = await fetchAllAnnouncements()
+    expect(result).toEqual(mockData)
+    expect(lastCall('eq')).toBeUndefined()
+  })
+})
+
+describe('createAnnouncement', () => {
+  it('insere anúncio com workspace_id', async () => {
+    await createAnnouncement({ text: 'Teste', is_active: true, sort_order: 0 })
+    expect(lastCall('insert')?.a[0]).toHaveProperty('workspace_id', 'ws-x')
+  })
+})
+
+describe('updateAnnouncement', () => {
+  it('atualiza anúncio com workspace scoping', async () => {
+    await updateAnnouncement('a-1', { text: 'Updated text' })
+    const eqCalls = state.calls.filter((c) => c.m === 'eq')
+    expect(eqCalls[eqCalls.length - 1]?.a).toEqual(['workspace_id', 'ws-x'])
+  })
+})
+
+describe('deleteAnnouncement', () => {
+  it('deleta anúncio com workspace scoping', async () => {
+    await deleteAnnouncement('a-1')
+    expect(state.calls.some((c) => c.m === 'delete')).toBe(true)
+  })
+})
+
+/* ── Photo Galleries ── */
+
+describe('fetchActiveGalleries', () => {
+  it('retorna galerias ativas', async () => {
+    state.result = { data: [{ id: '1', title: 'Gallery A', is_active: true }], error: null }
+    const result = await fetchActiveGalleries()
+    expect(result[0].title).toBe('Gallery A')
+  })
+})
+
+describe('fetchGalleries', () => {
+  it('retorna todas as galerias', async () => {
+    state.result = { data: [{ id: '1', title: 'A' }], error: null }
+    const result = await fetchGalleries()
+    expect(result).toEqual([{ id: '1', title: 'A' }])
+  })
+})
+
+describe('createGallery', () => {
+  it('cria galeria com sort_order 0', async () => {
+    await createGallery('Minha Galeria')
+    expect(lastCall('insert')?.a).toEqual([{ title: 'Minha Galeria', sort_order: 0, workspace_id: 'ws-x' }])
+  })
+})
+
+describe('deleteGallery', () => {
+  it('deleta galeria com workspace scoping', async () => {
+    await deleteGallery('g-1')
+    expect(state.calls.some((c) => c.m === 'delete')).toBe(true)
+  })
+})
+
+describe('toggleGalleryActive', () => {
+  it('ativa galeria quando inativa', async () => {
+    state.result = { data: [{ is_active: false }], error: null }
+    await toggleGalleryActive('g-1')
+    expect(lastCall('update')?.a).toEqual([{ is_active: true }])
+  })
+})
+
+describe('setGalleryOrder', () => {
+  it('atualiza ordem das galerias', async () => {
+    await setGalleryOrder(['g-1', 'g-2', 'g-3'])
+    expect(state.calls.filter((c) => c.m === 'update')).toHaveLength(3)
+  })
+})
+
+describe('fetchGalleryPhotos', () => {
+  it('retorna fotos da galeria', async () => {
+    state.result = { data: [{ id: 'p-1', image_url: 'http://x' }], error: null }
+    const result = await fetchGalleryPhotos('g-1')
+    expect(result).toHaveLength(1)
+  })
+})
+
+describe('addGalleryPhoto', () => {
+  it('adiciona foto com proxima posicao', async () => {
+    state.result = { data: [{ sort_order: 2 }], error: null }
+    await addGalleryPhoto('g-1', 'http://image.jpg')
+    expect(lastCall('insert')?.a[0]).toHaveProperty('image_url', 'http://image.jpg')
+    expect(lastCall('insert')?.a[0]).toHaveProperty('sort_order', 3)
+  })
+})
+
+describe('deleteGalleryPhoto', () => {
+  it('deleta foto pelo id', async () => {
+    // Mock fetch para evitar chamada real
+    const originalFetch = global.fetch
+    global.fetch = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ success: true }),
+    } as Response)
+
+    state.result = { data: null, error: null }
+    await deleteGalleryPhoto('p-1')
+
+    global.fetch = originalFetch
+    expect(lastCall('delete')).toBeDefined()
+    expect(lastCall('eq')?.a).toEqual(['id', 'p-1'])
+  })
+})
+
+describe('reorderGalleryPhotos', () => {
+  it('atualiza posicoes das fotos', async () => {
+    await reorderGalleryPhotos(['p-1', 'p-2'])
+    expect(state.calls.filter((c) => c.m === 'update')).toHaveLength(2)
+  })
+})
+
+/* ── TV Devices ── */
+
+describe('fetchDevices', () => {
+  it('retorna todas as TVs', async () => {
+    state.result = { data: [{ id: 't1', name: 'TV 1' }], error: null }
+    const result = await fetchDevices()
+    expect(result).toHaveLength(1)
+  })
+})
+
+describe('fetchDeviceById', () => {
+  it('retorna TV especifica', async () => {
+    state.result = { data: { id: 't1' }, error: null }
+    const result = await fetchDeviceById('t1')
+    expect(result?.id).toBe('t1')
+  })
+})
+
+describe('heartbeatDevice', () => {
+  it('atualiza last_seen', async () => {
+    state.result = { data: null, error: null }
+    await heartbeatDevice('t1')
+    expect(lastCall('update')?.a).toEqual([{ last_seen: expect.any(String) }])
+  })
+})
+
+describe('upsertDevice', () => {
+  it('executa upsert da TV', async () => {
+    await upsertDevice({ id: 't1', name: 'TV Lab', workspace_id: 'ws-1' })
+    expect(lastCall('upsert')).toBeDefined()
+  })
+})
+
+describe('updateDevice', () => {
+  it('atualiza dispositivo', async () => {
+    await updateDevice('t1', { name: 'Nova TV' })
+    expect(lastCall('update')?.a).toEqual([{ name: 'Nova TV' }])
+  })
+})
+
+describe('deleteDevice', () => {
+  it('deleta dispositivo', async () => {
+    await deleteDevice('t1')
+    expect(lastCall('delete')).toBeDefined()
   })
 })

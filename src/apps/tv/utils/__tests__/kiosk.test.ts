@@ -1,18 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { isKiosk, kioskError, resetKioskErrorCount } from '../kiosk'
 
+/* A detecção usa a API oficial `isTauri()`. No navegador ela é false; no
+ * desktop é true. Não existe mais bridge `window.desktop` para simular. */
+const state = vi.hoisted(() => ({ tauri: false }))
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => state.tauri }))
+
 describe('kiosk', () => {
   beforeEach(() => {
     resetKioskErrorCount()
-    delete (window as unknown as { desktop?: unknown }).desktop
+    state.tauri = false
   })
 
   it('isKiosk false no navegador', () => {
     expect(isKiosk()).toBe(false)
   })
 
-  it('isKiosk true com desktop', () => {
-    (window as unknown as { desktop: { isDesktop: boolean } }).desktop = { isDesktop: true }
+  it('isKiosk true no desktop Tauri', () => {
+    state.tauri = true
     expect(isKiosk()).toBe(true)
   })
 
@@ -23,8 +28,8 @@ describe('kiosk', () => {
     spy.mockRestore()
   })
 
-  it('kioskError loga e conta em kiosk', () => {
-    (window as unknown as { desktop: { isDesktop: boolean } }).desktop = { isDesktop: true }
+  it('kioskError loga e conta no desktop', () => {
+    state.tauri = true
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     expect(kioskError('boom')).toBe(true)
     expect(spy).toHaveBeenCalled()

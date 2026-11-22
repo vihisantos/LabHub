@@ -1,24 +1,35 @@
 import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { workspaceStore } from '../../../core/workspaces/store'
-import { localStoreGet, localStoreSet } from '../../../lib/localStore'
-
-export interface UrgentAnnouncement {
-  id: string
-  message: string
-  severity: 'info' | 'warning' | 'danger'
-  expires_at: string | null
-  is_active: boolean
-  workspace_id?: string | null
-  created_at: string
-}
+import { localStoreGet, localStoreSet, isDesktopEnv } from '../../../lib/localStore'
+import { isDesktopEnv as kioskIsDesktopEnv } from '../utils/kiosk'
+import type { TvAnnouncement } from '../types'
 
 const STORAGE_KEY = 'tv_urgent_announcements_local'
+
+// Definir o tipo localmente para urgent announcements
+interface UrgentAnnouncement extends TvAnnouncement {
+  message: string
+  severity: 'info' | 'warning' | 'danger'
+}
+
+// Exportar o tipo para uso externo (como em UrgentBanner.tsx)
+export type { UrgentAnnouncement }
 
 export function useUrgentAnnouncements() {
   const [announcements, setAnnouncements] = useState<UrgentAnnouncement[]>([])
 
+  /* NOVO: no desktop/kiosk, não carrega anúncios via Supabase (zero tráfego) */
+  const isDesktop = isDesktopEnv() || kioskIsDesktopEnv()
+
   const loadAnnouncements = useCallback(async () => {
+    // NOVO: no kiosk, não carrega do Supabase
+    if (isDesktop) {
+      // Mantém arrays vazios - sem tráfego ao Supabase
+      setAnnouncements([])
+      return
+    }
+
     const nowIso = new Date().toISOString()
     if (supabase) {
       try {
@@ -40,58 +51,63 @@ export function useUrgentAnnouncements() {
       }
     }
 
-    // Local fallback filter
-    try {
-      const saved = await localStoreGet(STORAGE_KEY)
-      if (saved) {
-        const parsed: UrgentAnnouncement[] = JSON.parse(saved)
-        const active = parsed.filter(a => a.is_active && (!a.expires_at || new Date(a.expires_at) > new Date()))
-        setAnnouncements(active)
+    // Local fallback filter (só usado no web)
+    if (!isDesktop) {
+      try {
+        const saved = await localStoreGet(STORAGE_KEY)
+        if (saved) {
+          const parsed: UrgentAnnouncement[] = JSON.parse(saved)
+          const active = parsed.filter((a: any) => a.is_active && (!a.expires_at || new Date(a.expires_at) > new Date()))
+          setAnnouncements(active)
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
-  }, [])
+  }, [isDesktop])
 
+  useEffect(() => { loadAnnouncements() }, [loadAnnouncements])
+
+  /* Realtime subscription only in web */
   useEffect(() => {
-    loadAnnouncements()
+    if (!isDesktop) {
+      const db = supabase
+      if (db) {
+        const channel = db
+          .channel('tv_urgent_announcements_changes')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'tv_urgent_announcements' }, () => {
+            loadAnnouncements()
+          })
+          .subscribe()
 
-    // Realtime subscription if available
-    const db = supabase
-    if (db) {
-      const channel = db
-        .channel('tv_urgent_announcements_changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tv_urgent_announcements' }, () => {
-          loadAnnouncements()
-        })
-        .subscribe()
-
-      return () => {
-        db.removeChannel(channel)
+        return () => {
+          db.removeChannel(channel)
+        }
       }
     }
-  }, [loadAnnouncements])
+  }, [loadAnnouncements, isDesktop])
 
-  const createUrgent = async (message: string, severity: 'info' | 'warning' | 'danger', durationMinutes: number | null) => {
+  const createUrgent = async (message: string, durationMinutes: number | null) => {
     const ws = workspaceStore.activeWorkspaceId
     if (!ws) throw new Error('Workspace não selecionado')
 
     const expiresAt = durationMinutes ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString() : null
-    const newRecord: Omit<UrgentAnnouncement, 'id' | 'created_at'> = {
-      message,
-      severity,
-      expires_at: expiresAt,
+    const newRecord = {
+      id: '',
+      text: message,
+      severity: 'info' as const,
       is_active: true,
+      sort_order: 0,
+      expires_at: expiresAt,
       workspace_id: ws,
-    }
+      created_at: '',
+    } as UrgentAnnouncement
 
     if (supabase) {
       try {
-        const { error } = await supabase.from('tv_urgent_announcements').insert(newRecord as never)
-        if (!error) {
-          loadAnnouncements()
-          return
-        }
+        await supabase.from('tv_urgent_announcements').insert(newRecord)
+        loadAnnouncements()
+        return
       } catch (err) {
         console.warn('[TV] Remote insert urgent failed:', err)
       }
@@ -111,12 +127,12 @@ export function useUrgentAnnouncements() {
   const dismissUrgent = async (id: string) => {
     if (supabase && !id.startsWith('local_')) {
       try {
-        await supabase.from('tv_urgent_announcements').update({ is_active: false } as never).eq('id', id)
+        await supabase.from('tv_urgent_announcements').update({ is_active: false }).eq('id', id)
       } catch (err) {
         console.warn('[TV] Dismiss urgent failed:', err)
       }
     }
-    const updated = announcements.filter(a => a.id !== id)
+    const updated = announcements.filter((a: any) => a.id !== id)
     setAnnouncements(updated)
     void localStoreSet(STORAGE_KEY, JSON.stringify(updated))
   }

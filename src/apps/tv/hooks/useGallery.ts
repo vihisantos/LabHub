@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
-import { isKiosk, kioskError } from '../utils/kiosk'
+import { isDesktopEnv, isKiosk, kioskError } from '../utils/kiosk'
 import {
   fetchActiveGalleries,
-  fetchGalleries,
   fetchGalleryPhotos,
+  fetchGalleries,
   createGallery,
   deleteGallery as deleteGallerySvc,
   toggleGalleryActive,
@@ -23,6 +23,13 @@ export function useActiveGalleries() {
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
+    // NOVO: no desktop/kiosk, não carrega galerias via Supabase (zero tráfego)
+    const localIsDesktop = isDesktopEnv()
+    if (localIsDesktop) {
+      setLoading(false)
+      return
+    }
+
     try {
       const gs = await fetchActiveGalleries()
       setGalleries(gs)
@@ -40,12 +47,14 @@ export function useActiveGalleries() {
 
   useEffect(() => { load() }, [load])
 
-  /* Realtime: auto-refresh when galleries or photos change */
-  useRealtimeSubscription('tv_galleries', '*', () => load())
-  useRealtimeSubscription('tv_gallery_photos', '*', () => load())
+  // Realtime: auto-refresh when galleries or photos change ── DISABLED in kiosk
+  if (!isDesktopEnv()) {
+    useRealtimeSubscription('tv_galleries', '*', () => load())
+  }
 
+  // Poll fallback
   useEffect(() => {
-    if (!supabase) return
+    if (!supabase || isDesktopEnv()) return
     const timer = setInterval(() => load(), 15000)
     return () => clearInterval(timer)
   }, [load])

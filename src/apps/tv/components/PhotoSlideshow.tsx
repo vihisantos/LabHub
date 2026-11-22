@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Images } from 'lucide-react'
 import type { TvGalleryPhoto } from '../types'
 
 const PHOTO_MS = 15_000
@@ -7,15 +6,24 @@ const FADE_MS = 1000
 
 interface PhotoSlideshowProps {
   photos: TvGalleryPhoto[]
-  title: string
+  /** Mantido por compatibilidade: o título não é mais exibido sobre as fotos. */
+  title?: string
   onAllFailed?: () => void
 }
 
-export function PhotoSlideshow({ photos, title, onAllFailed }: PhotoSlideshowProps) {
+export function PhotoSlideshow({ photos, onAllFailed }: PhotoSlideshowProps) {
   const [failedIds, setFailedIds] = useState<Set<string>>(() => new Set())
   const [index, setIndex] = useState(0)
   const [phase, setPhase] = useState<'enter' | 'zoom' | 'exit'>('enter')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(function() {
+    return function() {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
+    }
+  }, [])
 
   // Reset de falhas quando a galeria muda.
   useEffect(() => {
@@ -110,45 +118,6 @@ export function PhotoSlideshow({ photos, title, onAllFailed }: PhotoSlideshowPro
         transition: `opacity ${FADE_MS}ms`,
         opacity: phase === 'exit' ? 0 : 1,
       }} />
-
-      <div style={{
-        position: 'absolute', top: '3rem', left: '3rem', zIndex: 5,
-        transition: `opacity ${FADE_MS}ms`,
-        opacity: phase === 'exit' ? 0 : 1,
-      }}>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: '0.6rem',
-          padding: '0.5rem 1rem 0.5rem 0.8rem',
-          background: 'rgba(0,0,0,0.35)',
-          backdropFilter: 'blur(12px)',
-          borderRadius: '12px',
-          border: '1px solid rgba(255,255,255,0.06)',
-        }}>
-          <Images size={16} color="#818cf8" />
-          <span style={{
-            fontSize: 'clamp(0.9rem, 1.5vw, 1.3rem)',
-            fontWeight: 700, color: '#f1f5f9',
-            letterSpacing: '0.01em',
-          }}>
-            {title}
-          </span>
-        </div>
-      </div>
-
-      <div style={{
-        position: 'absolute', bottom: '6rem', left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex', gap: '0.5rem', zIndex: 5,
-      }}>
-        {validPhotos.map((_, i) => (
-          <div key={i} style={{
-            width: i === safeIndex ? '24px' : '8px',
-            height: '8px', borderRadius: '4px',
-            background: i === safeIndex ? '#818cf8' : 'rgba(255,255,255,0.2)',
-            transition: 'all 0.3s',
-          }} />
-        ))}
-      </div>
     </div>
   )
 }

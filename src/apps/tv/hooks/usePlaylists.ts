@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchPlaylists, fetchAllPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from '../services/supabase'
+import { fetchPlaylists, createPlaylist, updatePlaylist, deletePlaylist } from '../services/supabase'
 import { defaultDb as supabase } from '../../../lib/supabase'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useToast } from '../../../lib/ToastContext'
-import { isKiosk, kioskError } from '../utils/kiosk'
+import { isDesktopEnv, isKiosk, kioskError } from '../utils/kiosk'
 import type { TvPlaylist } from '../types'
 
 export function usePlaylists() {
@@ -16,6 +16,13 @@ export function usePlaylists() {
   }
 
   const load = useCallback(async (silent?: boolean) => {
+    // NOVO: no desktop/kiosk, não carrega playlists via Supabase (zero tráfego)
+    const localIsDesktop = isDesktopEnv()
+    if (localIsDesktop) {
+      if (!silent) setLoading(false)
+      return
+    }
+
     try {
       if (!silent) setLoading(true)
       const data = await fetchPlaylists()
@@ -29,60 +36,38 @@ export function usePlaylists() {
 
   useEffect(() => { load() }, [load])
 
-  /* ── Realtime: auto-refresh when playlists change ── */
-  useRealtimeSubscription('tv_playlists', '*', () => load(true))
+  // Realtime: auto-refresh when playlists change ── DISABLED in kiosk
+  if (!isDesktopEnv()) {
+    useRealtimeSubscription('tv_playlists', '*', () => load(true))
+  }
 
-  /* ── Poll fallback: refresh every 15s ── */
+  // Poll fallback
   useEffect(() => {
-    if (!supabase) return
+    if (!supabase || isDesktopEnv()) return
     const timer = setInterval(() => { load(true) }, 15000)
     return () => clearInterval(timer)
   }, [load])
 
-  return { playlists, loading, refresh: load }
-}
-
-export function useAllPlaylists() {
-  const [playlists, setPlaylists] = useState<TvPlaylist[]>([])
-  const [loading, setLoading] = useState(true)
-  const { addToast: rawAddToast } = useToast()
-  const addToast = (type: Parameters<typeof rawAddToast>[0], message: string) => {
-    if (type === 'error' && isKiosk()) { kioskError(message); return }
-    rawAddToast(type, message)
-  }
-
-  const load = useCallback(async () => {
+  const create = async (name: string, source: TvPlaylist['source'] = 'google_drive') => {
     try {
-      setLoading(true)
-      const data = await fetchAllPlaylists()
-      setPlaylists(data)
-    } catch {
-      addToast('error', 'Erro ao carregar playlists')
-    } finally {
-      setLoading(false)
-    }
-  }, [addToast])
-
-  useEffect(() => { load() }, [load])
-
-  const add = async (values: Omit<TvPlaylist, 'id' | 'created_at'>) => {
-    try {
-      await createPlaylist(values)
+      const playlist = await createPlaylist({ name, source, youtube_url: '', is_active: true, sort_order: 0 })
       await load()
       addToast('success', 'Playlist criada')
+      return playlist
     } catch (err) {
-      console.error('[usePlaylists] add error:', JSON.stringify(err))
       addToast('error', 'Erro ao criar playlist')
+      throw err
     }
   }
 
-  const edit = async (id: string, values: Partial<TvPlaylist>) => {
+  const update = async (id: string, data: Partial<TvPlaylist>) => {
     try {
-      await updatePlaylist(id, values)
+      await updatePlaylist(id, data)
       await load()
+      addToast('success', 'Playlist atualizada')
     } catch (err) {
-      console.error('[usePlaylists] edit error:', err)
-      addToast('error', 'Erro ao salvar playlist')
+      addToast('error', 'Erro ao atualizar playlist')
+      throw err
     }
   }
 
@@ -92,10 +77,10 @@ export function useAllPlaylists() {
       await load()
       addToast('success', 'Playlist removida')
     } catch (err) {
-      console.error('[usePlaylists] remove error:', err)
       addToast('error', 'Erro ao remover playlist')
+      throw err
     }
   }
 
-  return { playlists, loading, refresh: load, add, edit, remove }
+  return { playlists, loading, create, update, remove, refresh: load }
 }
