@@ -9,8 +9,43 @@ import { workspaceStore } from '../core/workspaces/store'
 import type { DeviceConfig } from './config'
 
 interface DisplayShellProps {
+  /** Nula durante a transição de boot; o guard externo decide o que renderizar. */
+  config: DeviceConfig | null | undefined
+  onReconfigure: () => void
+}
+
+interface ConfiguredDisplayProps {
   config: DeviceConfig
   onReconfigure: () => void
+}
+
+/**
+ * Guard externo: decisões de configuração inválida ficam FORA do componente
+ * que usa Hooks. Assim `useState`/`useEffect` sempre executam na mesma ordem,
+ * inclusive quando o boot transita de "sem config" para "config válida".
+ */
+export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
+  if (!config) {
+    console.error('[LabHub TV DisplayShell] ERRO: config é null!')
+    return <InvalidConfigScreen />
+  }
+
+  return <ConfiguredDisplay config={config} onReconfigure={onReconfigure} />
+}
+
+function InvalidConfigScreen() {
+  return (
+    <div role="alert" style={{
+      width: '100vw', height: '100vh',
+      background: '#080a14',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: '#ef4444', fontFamily: 'system-ui, sans-serif',
+      flexDirection: 'column', gap: '1rem',
+    }}>
+      <span style={{ fontSize: '1.5rem', fontWeight: 600 }}>LabHub TV</span>
+      <span style={{ fontSize: '1rem' }}>Erro de inicialização - reinicie o aplicativo</span>
+    </div>
+  )
 }
 
 /**
@@ -19,27 +54,12 @@ interface DisplayShellProps {
  *
  * A cadeia não usa `window.desktop`: o encerramento usa a API oficial do
  * Tauri 2 e não há watchdog, updates ou painel administrativo na TV.
+ *
+ * Todos os Hooks vivem aqui, onde `config` é sempre válido.
  */
-export function DisplayShell({ config, onReconfigure }: DisplayShellProps) {
+function ConfiguredDisplay({ config, onReconfigure }: ConfiguredDisplayProps) {
   // Log sem deviceId, workspace ou URL — o config completo é dado sensível.
-  console.info('[LabHub TV DisplayShell] configuracao carregada:', config?.name ?? 'desconhecida')
-
-  // PROTEÇÃO: Se config for null, mostrar tela de erro
-  if (!config) {
-    console.error('[LabHub TV DisplayShell] ERRO: config é null!')
-    return (
-      <div style={{
-        width: '100vw', height: '100vh',
-        background: '#080a14',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#ef4444', fontFamily: 'system-ui, sans-serif',
-        flexDirection: 'column', gap: '1rem',
-      }}>
-        <span style={{ fontSize: '1.5rem', fontWeight: 600 }}>LabHub TV</span>
-        <span style={{ fontSize: '1rem' }}>Erro de inicialização - reinicie o aplicativo</span>
-      </div>
-    )
-  }
+  console.info('[LabHub TV DisplayShell] configuracao carregada:', config.name)
 
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
 

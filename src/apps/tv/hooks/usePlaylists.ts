@@ -36,10 +36,12 @@ export function usePlaylists() {
 
   useEffect(() => { load() }, [load])
 
-  // Realtime: auto-refresh when playlists change ── DISABLED in kiosk
-  if (!isDesktopEnv()) {
-    useRealtimeSubscription('tv_playlists', '*', () => load(true))
-  }
+  // Realtime: auto-refresh when playlists change ── DISABLED in kiosk.
+  // Chamada incondicional; `enabled: false` impede a criação de qualquer
+  // canal Realtime no Desktop institucional (zero tráfego Supabase).
+  useRealtimeSubscription('tv_playlists', '*', () => load(true), {
+    enabled: !isDesktopEnv(),
+  })
 
   // Poll fallback
   useEffect(() => {

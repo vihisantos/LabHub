@@ -68,3 +68,38 @@ describe('DisplayShell — uso do ScreenRenderer', () => {
     expect(loaded?.screenApp).toBe('tv')
   })
 })
+
+describe('DisplayShell — configuração inválida e recuperação', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('sem config, mostra o erro dedicado e não monta o player', () => {
+    render(<DisplayShell config={null} onReconfigure={() => {}} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Erro de inicialização')
+    expect(screen.queryByTestId('screen-renderer-stub')).not.toBeInTheDocument()
+  })
+
+  it('transita de config inválida para válida sem violar a ordem dos Hooks', () => {
+    const { rerender } = render(<DisplayShell config={null} onReconfigure={() => {}} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Erro de inicialização')
+
+    // Se algum Hook fosse condicional, este rerender lançaria "Rendered more
+    // hooks than during the previous render".
+    rerender(<DisplayShell config={config} onReconfigure={() => {}} />)
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByTestId('screen-renderer-stub')).toHaveAttribute('data-device-id', 'dev-9')
+
+    // O estado do shell continua íntegro após a transição.
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true, altKey: true })
+    expect(screen.getByText('Manutenção')).toBeInTheDocument()
+
+    // E a volta para config inválida também não altera a ordem dos Hooks.
+    rerender(<DisplayShell config={undefined} onReconfigure={() => {}} />)
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByTestId('screen-renderer-stub')).not.toBeInTheDocument()
+  })
+})

@@ -47,10 +47,12 @@ export function useActiveGalleries() {
 
   useEffect(() => { load() }, [load])
 
-  // Realtime: auto-refresh when galleries or photos change ── DISABLED in kiosk
-  if (!isDesktopEnv()) {
-    useRealtimeSubscription('tv_galleries', '*', () => load())
-  }
+  // Realtime: auto-refresh when galleries or photos change ── DISABLED in kiosk.
+  // Chamada incondicional; `enabled: false` impede a criação de qualquer
+  // canal Realtime no Desktop institucional (zero tráfego Supabase).
+  useRealtimeSubscription('tv_galleries', '*', () => load(), {
+    enabled: !isDesktopEnv(),
+  })
 
   // Poll fallback
   useEffect(() => {

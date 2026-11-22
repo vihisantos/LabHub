@@ -1,10 +1,13 @@
 """Revisão estática da migration 086 (tarefa RBAC 2.0 — permissões de módulo).
 
 A 077 concedeu `tv.manage` a `opv`/`adm` e ABORTAVA se `tec` a recebesse
-(`077:130-137`, decisão da 059:19-26). A tarefa de produto é: técnico tem
-`full` nos cinco módulos do workspace — inclusive TV. `full` sem autoridade de
-escrita seria uma tela que abre e não opera nada, então a 086 semeia
-`tv.manage` também em `tec` e trava todo o resto.
+(`077:130-137`, decisão da 059:19-26). A 086 semeia `tv.manage` em `tec` e
+trava todo o resto — a Action permanece no backend. Em paralelo, a TV
+institucional saiu do PWA e passou a rodar em Tauri 2: `tv` não pertence a
+`MODULE_IDS` e nenhuma linha da matriz visual `MODULE_VISIBILITY_BY_SLUG` a
+expõe. Visibilidade e autorização são eixos independentes: tirar o módulo do
+launcher não revoga a Action da 086, e manter a Action não obriga a matriz a
+exibir o módulo.
 
 O que é verificado aqui (leitura estática; o comportamento com `auth.uid()` real
 roda em `supabase/migrations/tests/086_rbac2_module_permissions.sql`, no
@@ -19,8 +22,9 @@ Migrations CI):
   5. ela NÃO toca policy, helper, trigger, tabela, `profiles.*`,
      `MODULE_VISIBILITY_BY_SLUG` nem o bypass de super admin — ou seja, a
      correção de visibilidade não vira uma reescrita do esquema;
-  6. a matriz de visibilidade e a 086 contam a mesma história: quem ganhou
-     `full` ganhou a Action, quem ganhou `read` não ganhou escrita.
+  6. a matriz visual do PWA NÃO expõe `tv` (o player é Tauri 2, fora do PWA),
+     enquanto a 086 continua concedendo `tv.manage` somente a opv/adm/tec;
+     os demais módulos (ReservaLab, Chamados, ...) preservam sua visibilidade.
 
 LIMITAÇÃO (comportamental): este arquivo NÃO abre conexão com banco. A prova de
 ALLOW/DENY por membership (incluindo isolamento entre unidades, membership
@@ -296,27 +300,70 @@ _KNOWN_ACTIONS = {
 
 
 class TestMatrizEActionCoerentes:
-    """A regra de produto: `full` na matriz ⇒ Action de escrita correspondente."""
+    """Visibilidade (PWA) e autorização (086) são eixos independentes.
 
-    def test_matriz_declare_tv_full_para_tec(self):
+    A TV institucional roda em Tauri 2: `tv` saiu de `MODULE_IDS` e da matriz
+    visual, mas a Action `tv.manage` da 086 permanece intacta no backend e
+    continua restrita a opv/adm/tec. Nada aqui desativa a 086: o contrato é
+    "módulo fora do PWA ≠ Action revogada".
+    """
+
+    def test_tv_fora_da_matriz_visual_mas_action_preservada_no_backend(self, body):
         matriz = _read(MATRIX_TS)
-        bloco = re.search(r"\btec:\s*\{(.*?)\}", matriz, re.S)
-        assert bloco, "a matriz deve ter uma linha para tec"
-        assert re.search(r"tv:\s*'full'", bloco.group(1)), (
-            "a 086 concede tv.manage ao tec; a matriz precisa declarar tv: 'full'"
+
+        # 1. `tv` não pertence ao catálogo de módulos do PWA; os demais seguem.
+        bloco = re.search(r"export const MODULE_IDS\s*=\s*\[(.*?)\]\s*as const", matriz, re.S)
+        assert bloco, "MODULE_IDS deve existir"
+        ids = re.findall(r"'([^']+)'", bloco.group(1))
+        assert "tv" not in ids, "a TV institucional nao pode voltar ao MODULE_IDS do PWA"
+        for modulo in (
+            "dashboard", "pc-care", "stock", "reservalab", "chamados", "patrimonio", "admin",
+        ):
+            assert modulo in ids, f"{modulo} deve permanecer em MODULE_IDS"
+
+        # 2. Nenhuma linha da matriz visual expõe a TV a qualquer cargo.
+        matriz_visual = re.search(
+            r"export const MODULE_VISIBILITY_BY_SLUG.*?\n\}", matriz, re.S
         )
-        assert re.search(r"reservalab:\s*'full'", bloco.group(1)), (
-            "o tecnico tem reservalab.tablet.reserve/cancel; a matriz precisa de 'full'"
+        assert matriz_visual, "a matriz visual deve existir"
+        assert not re.search(r"\btv\s*:", matriz_visual.group(0)), (
+            "nenhuma linha da matriz visual pode expor a TV no PWA"
         )
 
-    def test_matriz_declara_read_para_vis_e_coordinator(self):
+        # 3. A 086 continua semeando tv.manage@workspace para tec e nada mais.
+        grant = re.search(r"INSERT INTO public\.role_permissions.*?ON CONFLICT", body, re.S)
+        assert grant, "a 086 deve manter o INSERT de role_permissions"
+        assert re.search(r"'tv\.manage',\s*'workspace'", grant.group(0)), (
+            "a 086 nao pode perder o grant de tv.manage@workspace"
+        )
+        assert "v_tec" in grant.group(0), "a 086 deve continuar semeando em v_tec"
+
+        # 4/5. Nenhuma concessão indevida e travas anti-escalada intactas.
+        for proibida in ("v_vis", "v_coord"):
+            assert proibida not in grant.group(0), f"{proibida} nao pode receber tv.manage"
+        assert len(re.findall(r"RAISE EXCEPTION\s+'FAIL:", body)) == 6, (
+            "as travas anti-escalada da 086 devem permanecer ativas"
+        )
+
+    def test_matriz_visual_sem_tv_preserva_os_demais_modulos(self):
         matriz = _read(MATRIX_TS)
+
+        tec = re.search(r"\btec:\s*\{(.*?)\}", matriz, re.S)
+        assert tec, "a matriz deve ter uma linha para tec"
+        conteudo_tec = tec.group(1)
+        assert "tv" not in conteudo_tec, "tec nao pode ter TV na matriz visual do PWA"
+        for modulo in ("reservalab", "chamados", "stock"):
+            assert re.search(rf"{modulo}:\s*'full'", conteudo_tec), (
+                f"a visibilidade de {modulo} para tec nao pode mudar"
+            )
+
         for slug in ("vis", "coordinator"):
             bloco = re.search(rf"\b{slug}:\s*\{{(.*?)\n  \}}", matriz, re.S)
             assert bloco, f"a matriz deve ter uma linha para {slug}"
             conteudo = bloco.group(1)
-            assert "tv: 'read'" in conteudo, f"{slug} entra na TV com 'read'"
-            assert "chamados: 'read'" in conteudo, f"{slug} fica com 'read' em chamados"
+            assert "tv" not in conteudo, f"{slug} nao pode ver TV no PWA"
+            assert "chamados: 'read'" in conteudo, f"{slug} mantem 'read' em chamados"
+            assert "reservalab: 'read'" in conteudo, f"{slug} mantem 'read' em reservalab"
             assert "'full'" not in conteudo, (
                 f"{slug} nao pode ter 'full': a 086 nao concede nenhuma escrita a ele"
             )
