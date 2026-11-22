@@ -12,8 +12,8 @@
   <a href="https://lab-hub-pi.vercel.app">
     <img src="https://img.shields.io/badge/Acessar-Aplica%C3%A7%C3%A3o-10b981?style=for-the-badge&logo=vercel&logoColor=white" alt="Acessar aplicação" />
   </a>
-  <a href="https://github.com/vihisantos/LabHub/actions/workflows/desktop-release.yml">
-    <img src="https://img.shields.io/badge/TV%20Desktop-Gerar%20instalador%20Windows-2F6BFF?style=for-the-badge&logo=windows&logoColor=white" alt="Gerar instalador Windows do LabHub TV" />
+  <a href="https://github.com/vihisantos/LabHub/releases/download/tv-v2.4.0-rc.1/LabHub.TV_2.4.0_x64-setup.exe">
+    <img src="https://img.shields.io/badge/TV%20Desktop-Baixar%20para%20Windows-2F6BFF?style=for-the-badge&logo=windows&logoColor=white" alt="Baixar LabHub TV Desktop para Windows" />
   </a>
   <img src="https://img.shields.io/github/actions/workflow/status/vihisantos/LabHub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI" />
   <img src="https://img.shields.io/badge/version-2.3.0-blue?style=for-the-badge" alt="Versão 2.3.0" />
@@ -185,11 +185,15 @@ O **LabHub TV** agora é um aplicativo Windows separado do PWA: a antiga rota `/
 - **Ativação por pendrive USB autorizado** — validação local, armazenamento protegido no Windows e reativação quando necessária.
 - **Instalador Windows** — pacote NSIS personalizado com a identidade **LabHub TV · by Vihisantos** e autostart configurável.
 
-**Instalador Windows (.exe):** [Gerar e baixar o LabHub TV 2.4.0 no GitHub Actions](https://github.com/vihisantos/LabHub/actions/workflows/desktop-release.yml).
+**[⬇️ Baixar LabHub TV Desktop 2.4.0 para Windows (.exe)](https://github.com/vihisantos/LabHub/releases/download/tv-v2.4.0-rc.1/LabHub.TV_2.4.0_x64-setup.exe)**
 
-Para obter o instalador, abra o workflow, escolha **Run workflow** na branch `main` e, após a execução bem-sucedida, baixe o artefato **`labhub-tv-nsis-manual`**. O ZIP contém o instalador `.exe`. O download do artefato requer acesso ao GitHub e expira após **14 dias**. O workflow não cria releases nem publica o executável automaticamente.
+- **Arquivo:** `LabHub.TV_2.4.0_x64-setup.exe` (25,01 MB).
+- **Release:** [`tv-v2.4.0-rc.1` — pré-lançamento](https://github.com/vihisantos/LabHub/releases/tag/tv-v2.4.0-rc.1).
+- **SHA-256:** `0be3a83d59580be47cb2a39ba88299f0f96ceefddb13dec25d85a25b6607bfc7`.
 
-> **Nota:** ainda não existe um link público permanente para o instalador Tauri 2.4.0 em GitHub Releases. Os instaladores anteriores são da versão Electron e não devem ser confundidos com esta. A ativação requer um pendrive autorizado.
+O link baixa o instalador diretamente do GitHub Releases, sem precisar executar um workflow. Para reconstruir o `.exe` a partir do código-fonte, utilize o [workflow manual de build](https://github.com/vihisantos/LabHub/actions/workflows/desktop-release.yml).
+
+> **Atenção:** esta é uma versão de pré-lançamento, ainda pendente de homologação física prolongada. Para ativar o LabHub TV, é necessário um pendrive USB autorizado. Os instaladores Electron antigos não correspondem a esta versão.
 
 ### Patrimônio
 
