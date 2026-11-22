@@ -646,3 +646,56 @@ def test_production_guard_requires_baseline_and_pinned_ref(monkeypatch) -> None:
         target="staging", env={"SUPABASE_STAGING_ALLOWED_PROJECT_REFS": _STAGING_REF}
     )
     validate_expected_destination(_STAGING_REF, policy)
+
+
+# ─── 4) LACUNAS HISTÓRICAS SÃO EXPOSTAS AOS GATES DO CI ────────────────────
+
+
+def test_cli_publishes_history_gaps_and_reconciliation_in_json() -> None:
+    """O artifact do dry-run precisa revelar lacunas, nunca sucesso enganoso."""
+    migrate_source = (SCRIPTS / "migrate.py").read_text(encoding="utf-8")
+    for field in (
+        '"history_gaps"',
+        '"reconciliation_plan"',
+        '"reconciliation_contracts"',
+        '"reconciled"',
+    ):
+        assert field in migrate_source
+
+
+def test_staging_gate_rejects_unreconciled_gaps() -> None:
+    gate = "\n".join(
+        line for line in WORKFLOW_TEXT.splitlines()
+        if any(marker in line for marker in (
+            "staging-gate", "unreconciled", "history_gaps", "reconciliation_plan"
+        ))
+    )
+    assert "history_gaps" in gate
+    assert "reconciliation_plan" in gate
+    assert "not unreconciled" in gate
+    assert "BLOCK" in gate
+
+
+def test_production_gate_rejects_any_history_gap() -> None:
+    gate = "\n".join(
+        line for line in WORKFLOW_TEXT.splitlines()
+        if any(marker in line for marker in (
+            "production-gate", "lacunas não autorizadas", "history_gaps", "not gaps"
+        ))
+    )
+    assert "history_gaps" in gate
+    assert "not gaps" in gate
+    assert "BLOCK" in gate
+
+
+def test_reconciliation_is_staging_only_and_contract_backed() -> None:
+    source = (SCRIPTS / "migrate" / "reconciliation.py").read_text(encoding="utf-8")
+    assert 'version="113"' in source
+    assert 'version="114"' in source
+    assert "114_notification_outbox_contract.sql" in source
+    assert "is_read_only_contract" in source
+    # Nenhuma regra genérica por prefixo: lacuna desconhecida bloqueia.
+    assert "RECONCILIATION_RULES.get(gap.version)" in source
+    assert (SCRIPTS / "migrate" / "runner.py").read_text(encoding="utf-8").count(
+        "policy.is_staging"
+    ) >= 1

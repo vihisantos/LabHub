@@ -330,6 +330,23 @@ def main(argv: list[str] | None = None) -> int:
         "applied": result.applied,
         "already_applied_count": len(result.already_applied),
         "api_call_count": result.api_call_count,
+        # Lacunas nunca são escondidas: o dry-run as revela com o plano de
+        # reconciliação, e o apply registra o que foi efetivamente recuperado.
+        "history_gaps": [
+            {
+                "version": gap.version,
+                "filename": gap.filename,
+                "baseline": gap.baseline,
+                "baseline_source": gap.baseline_source,
+                "reconciled": gap.version in result.reconciliation.versions,
+            }
+            for gap in result.history_gaps
+        ],
+        "reconciliation_plan": list(result.reconciliation.versions),
+        "reconciliation_contracts": [
+            contract.filename for contract in result.reconciliation.contracts
+        ],
+        "reconciled": result.reconciled,
     }
     _write_json_output(args.json_output, payload)
 
@@ -344,6 +361,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"[migrate] origem do baseline utilizado: {result.baseline_source}")
     print(f"[migrate] baseline efetivo: {result.baseline or '(nenhum)'}")
+    if result.history_gaps:
+        print(
+            "[migrate] LACUNAS no histórico: "
+            + ", ".join(gap.filename for gap in result.history_gaps)
+        )
+        print(
+            "[migrate] plano de reconciliação: "
+            + (", ".join(result.reconciliation.versions) or "(bloqueado)")
+        )
+    if result.reconciled:
+        print(f"[migrate] lacunas reconciliadas: {result.reconciled}")
     print(f"[migrate] pendentes: {result.pending or 'nenhuma'}")
     if args.dry_run:
         print(f"[migrate] (dry-run) já aplicadas/atrasadas: {len(result.already_applied)}")

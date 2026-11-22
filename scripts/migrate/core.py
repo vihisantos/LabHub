@@ -86,6 +86,17 @@ class BaselineConfigurationError(MigrationError):
     """
 
 
+class MigrationGapError(MigrationError):
+    """Lacuna histórica: migration ausente abaixo do baseline efetivo.
+
+    Uma versão posterior no ``schema_migrations`` NÃO prova que as anteriores
+    foram aplicadas. Quando o baseline vem da maior versão registrada (e não de
+    uma linha ``__baseline__`` explícita), as versões do repositório ausentes no
+    histórico e menores que esse baseline são lacunas — o runner deve revelá-las
+    e falhar fechado, em vez de reportar "nenhuma pendente".
+    """
+
+
 @dataclass(frozen=True)
 class Migration:
     version: str      # "036"
@@ -390,3 +401,71 @@ def audit_applied_identities(
                 )
             )
     return divergences
+
+
+# ---------------------------------------------------------------------------
+# lacunas no histórico (uma versão posterior NÃO prova as anteriores)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MigrationGap:
+    """Migration do repositório ausente no histórico, abaixo do baseline efetivo."""
+
+    version: str
+    filename: str
+    baseline: str
+    baseline_source: str
+
+    def describe(self) -> str:
+        return (
+            f"versão {self.version} ('{self.filename}') não está registrada, "
+            f"mas baseline efetivo {self.baseline} (origem={self.baseline_source}) "
+            f"a consideraria aplicada"
+        )
+
+
+# Somente esta origem de baseline é suspeita. As demais são decisões explícitas
+# ou estado de banco novo, onde não há histórico que permita afirmar lacuna:
+#   - "database" / "env" → baseline explícita e legítima (produção usa 035);
+#   - "implicit" → banco vazio legado, sem histórico para auditar;
+#   - "none" → from-scratch em banco efêmero;
+#   - "applied_migrations" → maior versão registrada usada como baseline: é
+#     exatamente aqui que 113/114 desapareceram em staging.
+_GAP_BASELINE_SOURCE = "applied_migrations"
+
+
+def detect_history_gaps(
+    migrations: Sequence[Migration],
+    applied_versions: set[str],
+    baseline: str | None,
+    baseline_source: str,
+) -> list[MigrationGap]:
+    """Detecta migrations ausentes que um baseline derivado esconderia.
+
+    A regra é deliberadamente estreita: só há lacuna quando o baseline veio da
+    MAIOR VERSÃO REGISTRADA (``applied_migrations``), sem linha ``__baseline__``
+    e sem ``BASELINE_VERSION``. Nesse caso o runner historicamente fazia
+    ``pending = versões > maior_registrada`` — e uma migration faltante 113,
+    com a 120 registrada, era silenciosamente tratada como aplicada.
+
+    Baselines explícitas (linha no banco ou secret) continuam legítimas: versões
+    abaixo delas são ignoradas por decisão do operador, não por inferência.
+    """
+    if baseline is None or baseline_source != _GAP_BASELINE_SOURCE:
+        return []
+    if not str(baseline).isdigit():
+        # Já bloqueado por _validate_baseline; aqui apenas não transformamos
+        # dados corrompidos em uma lista de lacunas enganosa.
+        return []
+    baseline_num = int(baseline)
+    return [
+        MigrationGap(
+            version=m.version,
+            filename=m.filename,
+            baseline=str(baseline),
+            baseline_source=baseline_source,
+        )
+        for m in sorted(migrations, key=lambda item: item.number)
+        if m.version not in applied_versions and m.number <= baseline_num
+    ]

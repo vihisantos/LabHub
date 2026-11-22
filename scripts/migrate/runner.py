@@ -10,18 +10,24 @@ Fluxo (idempotente e seguro):
 3. Lê as versões já aplicadas do banco via Management API.
 4. Resolve o **baseline** (ver abaixo). Com ``require_baseline``, a falta de
    ``BASELINE_VERSION`` aborta aqui — ainda sem nenhuma escrita no banco.
-5. Só então escreve: garante ``public.schema_migrations`` se faltava e, se
+5. Detecta **lacunas**: quando o baseline veio da maior versão registrada (e
+   não de uma baseline explícita), uma versão posterior NÃO prova que as
+   anteriores foram aplicadas. Lacunas sem política de reconciliação abortam.
+   Em staging, as lacunas autorizadas têm seu contrato read-only verificado
+   AQUI — antes de qualquer escrita. Nenhum registro fictício é inserido.
+6. Só então escreve: garante ``public.schema_migrations`` se faltava e, se
    aplicável, grava a linha de baseline.
-6. Aplica cada migration pendente numa transação própria que embute um advisory
+7. Aplica cada migration pendente numa transação própria que embute um advisory
    lock transacional (``pg_advisory_xact_lock``) para serializar execuções
    concorrentes, o corpo do arquivo e o registro em ``schema_migrations``.
    Só registra depois que o SQL roda sem erro (ON CONFLICT DO NOTHING evita
    duplicar em corrida).
-7. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
+8. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
 
-Os passos 1-4 são todos read-only e concentram as travas: nenhuma escrita
-(chefe de bootstrap ou DDL de migration) é emitida antes de a renumeração e a
-configuração de baseline terem sido verificadas.
+Os passos 1-5 são todos read-only e concentram as travas: nenhuma escrita
+(bootstrap, DDL de migration ou registro de lacuna) é emitida antes de a
+renumeração, a configuração de baseline e o contrato de reconciliação terem
+sido verificados.
 
 Regras de baseline:
    - ``require_baseline`` + nada resolvido -> aborta (fail-closed em staging e
@@ -40,14 +46,17 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-from .api import ManagementAPI
+from .api import ApiError, ManagementAPI
 from .core import (
     BASELINE_FILENAME,
     AppliedIdentityError,
     BaselineConfigurationError,
     Migration,
     MigrationError,
+    MigrationGap,
+    MigrationGapError,
     audit_applied_identities,
+    detect_history_gaps,
     discover_migrations,
     latest_version,
     pending_migrations,
@@ -55,6 +64,8 @@ from .core import (
     strip_inner_transaction,
 )
 from .environment import missing_baseline_message, resolve_policy
+from .pg import SqlExecutionError
+from .reconciliation import ReconciliationPlan, plan_reconciliation
 
 # Chave do advisory lock: inteiro arbitrário, fixo, específico deste projeto.
 # Regras do Postgres exigem um bigint; usamos um valor dedicado ao LabHub.
@@ -102,6 +113,17 @@ ON CONFLICT (version) DO NOTHING;
 COMMIT;
 """
 
+# Verificação de contrato: mesma transação/lock, SEM o INSERT de registro.
+# Usada antes de qualquer escrita quando há lacuna a reconciliar.
+_CONTRACT_WRAP_BEGIN = """
+BEGIN;
+SELECT pg_advisory_xact_lock({key});
+"""
+
+_CONTRACT_WRAP_END = """
+COMMIT;
+"""
+
 
 class RunnerResult:
     """Resultado da execução, com rastreabilidade completa do baseline.
@@ -117,7 +139,10 @@ class RunnerResult:
                  already_applied: list[str], api_call_count: int,
                  baseline_source: str = "none", db_baseline: str | None = None,
                  env_baseline: str | None = None,
-                 schema_migrations_exists: bool = False):
+                 schema_migrations_exists: bool = False,
+                 history_gaps: list[MigrationGap] | None = None,
+                 reconciliation: ReconciliationPlan | None = None,
+                 reconciled: list[str] | None = None):
         self.baseline = baseline
         self.pending = pending
         self.applied = applied
@@ -127,6 +152,9 @@ class RunnerResult:
         self.db_baseline = db_baseline
         self.env_baseline = env_baseline
         self.schema_migrations_exists = schema_migrations_exists
+        self.history_gaps = history_gaps or []
+        self.reconciliation = reconciliation or ReconciliationPlan((), (), ())
+        self.reconciled = reconciled or []
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +342,51 @@ def apply_migration(api: ManagementAPI, migration: Migration) -> None:
     api.query(sql)
 
 
+def verify_contract(api: ManagementAPI, migration: Migration) -> None:
+    """Executa o contrato read-only ANTES de qualquer escrita de reconciliação.
+
+    O arquivo roda dentro da mesma transação/advisory lock do runner, mas sem o
+    INSERT em ``schema_migrations``. Uma falha (inclusive erro de API) vira
+    :class:`MigrationGapError`: nenhum registro é inserido "por comprovação"
+    quando a comprovação falhou.
+    """
+    body = strip_inner_transaction(
+        migration.path.read_text(encoding="utf-8").strip()
+    )
+    sql = (
+        _CONTRACT_WRAP_BEGIN.format(key=ADVISORY_LOCK_KEY)
+        + "\n" + body + "\n"
+        + _CONTRACT_WRAP_END
+    )
+    try:
+        api.query(sql)
+    except MigrationGapError:
+        raise
+    except (ApiError, MigrationError, SqlExecutionError, OSError, ValueError) as exc:
+        # Mensagens destes tipos já passaram por sanitização nas camadas de
+        # API/executor; não há token/DSN nelas.
+        raise MigrationGapError(
+            f"contrato de reconciliação '{migration.filename}' falhou: {exc}. "
+            "Nenhuma lacuna foi registrada; nenhuma migration foi aplicada."
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - fronteira do executor
+        raise MigrationGapError(
+            f"contrato de reconciliação '{migration.filename}' falhou "
+            f"({type(exc).__name__}). Nenhuma lacuna foi registrada; "
+            "nenhuma migration foi aplicada."
+        ) from exc
+
+
+def _blocking_gaps_message(gaps: list[MigrationGap]) -> str:
+    details = "\n".join(f"  - {gap.describe()}" for gap in gaps)
+    return (
+        "LACUNAS no histórico de migrations detectadas: uma versão posterior "
+        "não prova que as anteriores foram aplicadas. Nenhuma reconciliação "
+        "automática autorizada para estes arquivos; abortando SEM escrita.\n"
+        f"{details}"
+    )
+
+
 def _resolve_baseline(
     *,
     applied_versions: set[str],
@@ -366,6 +439,35 @@ def _resolve_baseline(
     if db_baseline is not None:
         return db_baseline, False, "database"
     return sorted(applied_versions, key=int)[-1], False, "applied_migrations"
+
+
+def _plan_history_reconciliation(
+    *,
+    migrations: list[Migration],
+    applied_versions: set[str],
+    baseline: str | None,
+    baseline_source: str,
+    policy,
+) -> tuple[list[MigrationGap], ReconciliationPlan]:
+    """Detecta lacunas e aplica a política de reconciliação do destino.
+
+    A reconciliação automática só existe em staging. Em produção/local, qualquer
+    lacuna bloqueia — a correção conhecida do staging não pode autorizar escrita
+    em outro projeto, mesmo que o contrato passasse.
+    """
+    gaps = detect_history_gaps(
+        migrations, applied_versions, baseline, baseline_source
+    )
+    plan = plan_reconciliation(
+        gaps,
+        migrations,
+        allow_reconciliation=bool(policy is not None and policy.is_staging),
+    )
+    if plan.blocking:
+        raise MigrationGapError(
+            _blocking_gaps_message(list(plan.unreconciled))
+        )
+    return gaps, plan
 
 
 def run(
@@ -426,10 +528,20 @@ def run(
             migrations=migrations,
             applied_versions=applied_versions,
         )
+        gaps, plan = _plan_history_reconciliation(
+            migrations=migrations,
+            applied_versions=applied_versions,
+            baseline=baseline,
+            baseline_source=baseline_source,
+            policy=policy,
+        )
         ordered = sorted(migrations, key=lambda m: m.number)
         baseline_num = int(baseline) if baseline is not None else -1
+        reconcile_versions = set(plan.versions)
         already_applied = [
-            m.filename for m in ordered if (m.version in applied_versions or m.number <= baseline_num)
+            m.filename for m in ordered
+            if m.version not in reconcile_versions
+            and (m.version in applied_versions or m.number <= baseline_num)
         ]
         pending = pending_migrations(migrations, applied_versions, baseline)
         return RunnerResult(
@@ -442,6 +554,8 @@ def run(
             db_baseline=db_baseline,
             env_baseline=env_baseline,
             schema_migrations_exists=table_exists,
+            history_gaps=gaps,
+            reconciliation=plan,
         )
 
     # ── execução real ────────────────────────────────────────────────────────
@@ -487,6 +601,19 @@ def run(
         applied_versions=applied_versions,
     )
 
+    # 3a. lacunas históricas + comprovação dos contratos — ANTES de qualquer
+    # escrita. Se o contrato falhar, nenhum registro é inserido.
+    gaps, plan = _plan_history_reconciliation(
+        migrations=migrations,
+        applied_versions=applied_versions,
+        baseline=baseline,
+        baseline_source=baseline_source,
+        policy=policy,
+    )
+    for contract in plan.contracts:
+        verify_contract(api, contract)
+        api_call_count += 1
+
     # ── a partir daqui a execução escreve no banco ───────────────────────────
 
     # 4. cria a tabela de histórico só quando ela realmente não existe
@@ -499,13 +626,23 @@ def run(
         _stamp_baseline(api, baseline, BASELINE_FILENAME)
         api_call_count += 1
 
-    # 6. calcula pendentes e aplica
+    # 6. calcula pendentes (incluindo lacunas reconciliadas) e aplica
     ordered = sorted(migrations, key=lambda m: m.number)
     pending = pending_migrations(migrations, applied_versions, baseline)
+    reconcile_versions = set(plan.versions)
+    if reconcile_versions:
+        planned = {m.version: m for m in pending}
+        for migration in ordered:
+            if migration.version in reconcile_versions:
+                planned[migration.version] = migration
+        pending = [
+            planned[version] for version in sorted(planned, key=int)
+        ]
     baseline_num = int(baseline) if baseline is not None else -1
     already_applied = [
         m.filename for m in ordered if (
-            m.version in applied_versions or m.number <= baseline_num
+            m.version not in reconcile_versions
+            and (m.version in applied_versions or m.number <= baseline_num)
         )
     ]
 
@@ -525,4 +662,7 @@ def run(
         db_baseline=db_baseline,
         env_baseline=env_baseline,
         schema_migrations_exists=table_exists,
+        history_gaps=gaps,
+        reconciliation=plan,
+        reconciled=[m.version for m in ordered if m.version in reconcile_versions],
     )

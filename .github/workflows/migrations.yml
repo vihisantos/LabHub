@@ -198,19 +198,35 @@ jobs:
           path = os.path.join(os.environ["RUNNER_TEMP"], "staging-dry-run.json")
           data = json.load(open(path, encoding="utf-8"))
           valid_sources = {"database", "applied_migrations", "env"}
+          gaps = data.get("history_gaps") or []
+          unreconciled = [gap for gap in gaps if not gap.get("reconciled")]
           ok = (
               data.get("status") == "success"
               and data.get("target") == "staging"
               and (data.get("schema_migrations_exists") or data.get("baseline_source") in valid_sources)
               and isinstance(data.get("pending"), list)
+              and isinstance(data.get("reconciliation_plan"), list)
+              and not unreconciled
           )
           if not ok:
-              print("[staging-gate] BLOCK: baseline/histórico/pendentes inválidos", file=sys.stderr)
+              print("[staging-gate] BLOCK: baseline/histórico/lacunas inválidos", file=sys.stderr)
+              if unreconciled:
+                  print(
+                      "[staging-gate] lacunas sem reconciliação autorizada: "
+                      + ", ".join(str(g.get("filename")) for g in unreconciled),
+                      file=sys.stderr,
+                  )
               sys.exit(1)
+          if gaps:
+              print(
+                  "[staging-gate] lacunas detectadas e reconciliadas: "
+                  + ", ".join(str(g.get("filename")) for g in gaps)
+              )
           print(
               "[staging-gate] PASS baseline="
               f"{data.get('baseline') or '(nenhum)'} origem={data.get('baseline_source')} "
-              f"pendentes={len(data['pending'])}"
+              f"pendentes={len(data['pending'])} "
+              f"reconciliacao={data.get('reconciliation_plan') or 'nenhuma'}"
           )
           PY
 
@@ -383,15 +399,25 @@ jobs:
           path = os.path.join(os.environ["RUNNER_TEMP"], "production-dry-run.json")
           data = json.load(open(path, encoding="utf-8"))
           valid_sources = {"database", "applied_migrations", "env"}
+          gaps = data.get("history_gaps") or []
           ok = (
               data.get("status") == "success"
               and data.get("target") == "production"
               and data.get("from_scratch") is False
               and (data.get("schema_migrations_exists") or data.get("baseline_source") in valid_sources)
               and isinstance(data.get("pending"), list)
+              # A recuperação 113/114 é exclusiva de staging. Produção não
+              # reconcilia lacunas: qualquer uma bloqueia a promoção.
+              and not gaps
           )
           if not ok:
-              print("[production-gate] BLOCK: baseline/histórico/pendentes inválidos", file=sys.stderr)
+              print("[production-gate] BLOCK: baseline/histórico/lacunas inválidos", file=sys.stderr)
+              if gaps:
+                  print(
+                      "[production-gate] lacunas não autorizadas em produção: "
+                      + ", ".join(str(g.get("filename")) for g in gaps),
+                      file=sys.stderr,
+                  )
               sys.exit(1)
           print(
               "[production-gate] PASS baseline="
