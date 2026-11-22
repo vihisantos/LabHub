@@ -34,11 +34,11 @@ import {
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 /**
- * Os cinco módulos que o produto declara disponíveis ao workspace. É o recorte
+ * Os módulos que o produto declara disponíveis ao workspace. É o recorte
  * da regra "todos os módulos disponíveis para o workspace" que a tarefa de
  * permissões fixa: técnico `full`, visualizador/coordenador `read`.
  */
-const MODULOS_DO_WS = ['pc-care', 'stock', 'reservalab', 'tv', 'chamados'] as const
+const MODULOS_DO_WS = ['pc-care', 'stock', 'reservalab', 'chamados'] as const
 
 const WS_A = 'ws-a'
 const WS_B = 'ws-b'
@@ -141,25 +141,24 @@ describe('a matriz RBAC2 é a fonte de verdade (fonte legada removida no F2-D-N2
   })
 
   // Matriz esperada, escrita à mão a partir da REGRA DE PRODUTO da tarefa
-  // RBAC 2.0: técnico `full` nos 5 módulos; visualizador e coordenador `read`
-  // nos 5; líder intocado (escopo de unidade). É o oráculo permanente: com a
+  // RBAC 2.0: técnico `full` nos módulos; visualizador e coordenador `read`
+  // nos mesmos; líder intocado (escopo de unidade). É o oráculo permanente: com a
   // matriz legada removida, este é o teste que trava contra alguém "melhorar" a
   // política sem querer.
   const ESPERADO: Record<string, Partial<Record<ModuleId, ModuleLevel>>> = {
-    tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', tv: 'full', chamados: 'full', patrimonio: 'full' },
-    vis: { 'pc-care': 'read', stock: 'read', reservalab: 'read', tv: 'read', chamados: 'read' },
+    tec: { 'pc-care': 'full', stock: 'full', reservalab: 'full', chamados: 'full', patrimonio: 'full' },
+    vis: { 'pc-care': 'read', stock: 'read', reservalab: 'read', chamados: 'read' },
     lider: { 'pc-care': 'read', stock: 'read', chamados: 'full' },
     coordinator: {
       'pc-care': 'read',
       stock: 'read',
       reservalab: 'read',
-      tv: 'read',
       chamados: 'read',
       patrimonio: 'read',
     },
   }
 
-  // Os cinco módulos que o produto declara disponíveis ao workspace.
+  // Os módulos que o produto declara disponíveis ao workspace.
 
   for (const [slug, esperado] of Object.entries(ESPERADO)) {
     it(`${slug}: matriz nova = matriz do F2-D-J, célula a célula`, () => {
@@ -170,7 +169,7 @@ describe('a matriz RBAC2 é a fonte de verdade (fonte legada removida no F2-D-N2
 
     it(`${slug}: nenhum nível fora do esperado é concedido`, () => {
       // Fecha a matriz: um app fora de MODULE_IDS não pode vazar acesso.
-      for (const appId of ['dashboard', 'admin', 'pedir-musica']) {
+      for (const appId of ['dashboard', 'admin'])  {
         expect(moduleLevelForSlug(slug, appId)).toBe('none')
       }
     })
@@ -345,11 +344,11 @@ describe('a nova fonte NÃO consulta o legado', () => {
   })
 
   it('NÃO infere visibilidade pela existência de Actions (uso explícito do slug)', async () => {
-    // `opv` tem 6 Actions de TV, mas não tem linha na matriz ⇒ não vê TV.
+    // `est` tem Actions de estoque, mas não tem linha na matriz ⇒ não vê estoque.
     // Se a implementação inferisse de role_permissions, isto quebraria.
-    const opv = memberOf('opv')
-    const tv = await resolveModuleVisibility({ user: opv, workspaceId: WS_A, appId: 'tv' })
-    expect(tv).toEqual({ visible: false, level: 'none' })
+    const est = memberOf('est')
+    const stock = await resolveModuleVisibility({ user: est, workspaceId: WS_A, appId: 'stock' })
+    expect(stock).toEqual({ visible: false, level: 'none' })
   })
 })
 
@@ -392,8 +391,8 @@ describe('workspace.disabled_apps (segundo eixo, por unidade)', () => {
     const res = await resolveModuleVisibility({
       user: superAdmin,
       workspaceId: WS_A,
-      appId: 'tv',
-      workspace: workspace({ disabled_apps: ['tv'] }),
+      appId: 'pc-care',
+      workspace: workspace({ disabled_apps: ['pc-care'] }),
     })
     expect(res).toEqual({ visible: false, level: 'none' })
   })
@@ -413,7 +412,7 @@ describe('workspace.disabled_apps (segundo eixo, por unidade)', () => {
       user: memberOf('tec'),
       workspaceId: WS_A,
       appId: 'pc-care',
-      workspace: workspace({ disabled_apps: ['tv'] }),
+      workspace: workspace({ disabled_apps: ['stock'] }),
     })
     expect(res).toEqual({ visible: true, level: 'full' })
   })
@@ -436,11 +435,11 @@ describe('escopo por unidade (multiunidade)', () => {
       workspace_ids: [WS_A, WS_B],
     } as unknown as User)
 
-    // Na unidade A (lider) o TV é invisível…
+    // Na unidade A (lider) o ReservaLab é invisível…
     expect(
-      await resolveModuleVisibility({ user: u, workspaceId: WS_A, appId: 'tv' }),
+      await resolveModuleVisibility({ user: u, workspaceId: WS_A, appId: 'reservalab' }),
     ).toEqual({ visible: false, level: 'none' })
-    // …na unidade B (viewer) o TV também, mas o nível de pc-care difere.
+    // …na unidade B (viewer) o nível de pc-care é 'read'.
     expect(
       await resolveModuleVisibility({ user: u, workspaceId: WS_B, appId: 'pc-care' }),
     ).toEqual({ visible: true, level: 'read' })
@@ -495,19 +494,19 @@ describe('níveis (semântica dash/read/full preservada)', () => {
 })
 
 describe('regra de produto: full no técnico, read no visualizador e no coordenador', () => {
-  it('técnico enxerga os cinco módulos do workspace em full', () => {
+  it('técnico enxerga os módulos do workspace em full', () => {
     for (const appId of MODULOS_DO_WS) {
       expect(moduleLevelForSlug('tec', appId), `tec/${appId}`).toBe('full')
     }
   })
 
-  it('visualizador enxerga os cinco módulos do workspace em read', () => {
+  it('visualizador enxerga os módulos do workspace em read', () => {
     for (const appId of MODULOS_DO_WS) {
       expect(moduleLevelForSlug('vis', appId), `vis/${appId}`).toBe('read')
     }
   })
 
-  it('coordenador enxerga os cinco módulos do workspace em read', () => {
+  it('coordenador enxerga os módulos do workspace em read', () => {
     for (const appId of MODULOS_DO_WS) {
       expect(moduleLevelForSlug('coordinator', appId), `coordinator/${appId}`).toBe('read')
     }
@@ -538,10 +537,10 @@ describe('resolução em lote', () => {
     const res = await resolveModuleVisibilities({
       user: memberOf('coordinator'),
       workspaceId: WS_A,
-      appIds: ['pc-care', 'stock', 'tv', 'chamados', 'reservalab', 'dashboard'],
+      appIds: ['pc-care', 'stock', 'chamados', 'reservalab', 'dashboard'],
     })
     expect(mockResolveRoleSlug).toHaveBeenCalledTimes(1)
-    expect(res['tv']).toEqual({ visible: true, level: 'read' })
+    expect(res['pc-care']).toEqual({ visible: true, level: 'read' })
     expect(res['dashboard']).toEqual({ visible: false, level: 'none' })
   })
 
@@ -549,18 +548,18 @@ describe('resolução em lote', () => {
     const res = await resolveModuleVisibilities({
       user: memberOf('tec'),
       workspaceId: WS_A,
-      appIds: ['pc-care', 'stock', 'tv'],
+      appIds: ['pc-care', 'stock', 'chamados'],
       workspace: workspace({ disabled_apps: ['stock'] }),
     })
     expect(res['pc-care']).toEqual({ visible: true, level: 'full' })
     // disabled_apps tem precedência sobre a matriz do papel, mesmo em 'full'.
     expect(res['stock']).toEqual({ visible: false, level: 'none' })
-    expect(res['tv']).toEqual({ visible: true, level: 'full' })
+    expect(res['chamados']).toEqual({ visible: true, level: 'full' })
   })
 
   it('disabled_apps esconde o módulo do técnico mesmo com full na matriz', async () => {
     // A configuração da unidade manda na matriz do papel — vale para `full`.
-    for (const appId of ['pc-care', 'stock', 'reservalab', 'tv', 'chamados']) {
+    for (const appId of ['pc-care', 'stock', 'reservalab', 'chamados']) {
       const res = await resolveModuleVisibility({
         user: memberOf('tec'),
         workspaceId: WS_A,
@@ -575,8 +574,8 @@ describe('resolução em lote', () => {
     const res = await resolveModuleVisibility({
       user: memberOf('super'),
       workspaceId: WS_A,
-      appId: 'tv',
-      workspace: workspace({ disabled_apps: ['tv'] }),
+      appId: 'pc-care',
+      workspace: workspace({ disabled_apps: ['pc-care'] }),
     })
     expect(res).toEqual({ visible: false, level: 'none' })
   })

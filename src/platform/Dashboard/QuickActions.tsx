@@ -37,17 +37,6 @@ const actions: QuickAction[] = [
     color: '#8b5cf6',
     appId: 'pc-care',
   },
-  {
-    label: 'Pedir Música',
-    icon: <icons.ui.music size={18} />,
-    route: '/pedir-musica',
-    color: '#ef4444',
-    // Pedir Música não é um app do registry (a rota só exige login), mas só
-    // faz sentido quando o campus TEM TV ligada: sem TV não há para onde o
-    // pedido de música ir. Semântica do Launcher é a mesma.
-    appId: null,
-    requiresAppId: 'tv',
-  },
 ]
 
 export function QuickActions() {

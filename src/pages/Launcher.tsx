@@ -44,7 +44,7 @@ export function Launcher() {
       {/* Apps */}
       <main className="relative z-10 flex w-full max-w-md flex-1 flex-col gap-3 px-5 pb-8">
         <div className="grid grid-cols-2 gap-3">
-          {appRegistry.map((app) => (
+          {appRegistry.filter((app) => app.launchable !== false).map((app) => (
             <button
               key={app.id}
               type="button"

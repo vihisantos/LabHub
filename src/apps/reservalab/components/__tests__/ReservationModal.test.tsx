@@ -14,13 +14,6 @@ vi.mock('@/core/workspaces/WorkspaceContext', () => ({
   useWorkspace: () => ({ workspace: { id: 'ws-1', name: 'Campus A', slug: 'campus-a' } }),
 }))
 
-vi.mock('@/apps/tv/services/supabase', () => ({
-  fetchWorkspaceDevices: vi.fn(),
-  reserveEventUpsert: vi.fn(),
-}))
-
-import { fetchWorkspaceDevices, reserveEventUpsert } from '@/apps/tv/services/supabase'
-
 function makeReservation(overrides: Partial<TransformedReservation> = {}): TransformedReservation {
   return {
     id: 'lab|07h30 - 09h20|Prof. João',
@@ -98,11 +91,6 @@ describe('ReservationModal', () => {
     expect(screen.getByText('Livre')).toBeInTheDocument()
   })
 
-  it('renderiza botão "Criar evento na TV"', () => {
-    renderModal()
-    expect(screen.getByText('Criar evento na TV')).toBeInTheDocument()
-  })
-
   it('chama onClose ao clicar no overlay do modal', () => {
     const onClose = vi.fn()
     renderModal(makeReservation(), onClose)
@@ -114,50 +102,5 @@ describe('ReservationModal', () => {
       fireEvent.click(overlay)
       expect(onClose).toHaveBeenCalled()
     }
-  })
-
-  it('cria evento na TV com disciplina no título, professor+sala na descrição e metadados da reserva', async () => {
-    ;(fetchWorkspaceDevices as any).mockResolvedValue([
-      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
-    ])
-    ;(reserveEventUpsert as any).mockResolvedValue({ event_id: 'evt-1', schedule_id: 'sch-1' })
-
-    renderModal()
-    fireEvent.click(screen.getByText('Criar evento na TV'))
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Programar evento' }))
-
-    await vi.waitFor(() => {
-      expect(reserveEventUpsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Matemática',
-          description: 'Professor: Prof. João | Sala: Lab 01',
-          reservationDate: '2026-06-25',
-          reservationId: 'chave-abc',
-          timeStart: '07:30',
-          timeEnd: '09:20',
-          targetDeviceIds: ['tv-1'],
-        }),
-      )
-    })
-  })
-
-  it('não envia "Reservado por" nem a hora crua na descrição do evento da TV', async () => {
-    ;(fetchWorkspaceDevices as any).mockResolvedValue([
-      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
-    ])
-    ;(reserveEventUpsert as any).mockResolvedValue({ event_id: 'evt-1', schedule_id: 'sch-1' })
-
-    renderModal(makeReservation())
-    fireEvent.click(screen.getByText('Criar evento na TV'))
-    fireEvent.click(await screen.findByRole('button', { name: 'Programar evento' }))
-
-    await vi.waitFor(() => {
-      const call = (reserveEventUpsert as any).mock.calls.find(([c]: any) => c && c.title === 'Matemática')
-      expect(call).toBeTruthy()
-      expect(call[0].description).not.toContain('Reservado por')
-      expect(call[0].description).not.toContain('Maria')
-      expect(call[0].description).not.toContain('07h30')
-    })
   })
 })

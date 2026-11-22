@@ -11,8 +11,7 @@ import type { Workspace } from '../workspaces/types'
  * `roles`) + override `profiles.app_access` — origem que a auditoria F2-D-H
  * provou NÃO ser autoridade de segurança (nenhuma policy, função, RPC ou rota a
  * consultava) e que o F2-D-J provou já estar **desalinhada do RBAC 2.0**:
- *   · `opv` (6 Actions de TV) e `est` (9 Actions de estoque) não têm cargo
- *     correspondente no frontend — suas Actions dormem;
+ *   · `opv` e `est` não têm cargo correspondente no frontend — suas Actions dormem;
  *   · `adm` é convertido em `role-technician` no frontend, então enxerga módulos
  *     que o servidor não autoriza.
  *
@@ -35,8 +34,7 @@ import type { Workspace } from '../workspaces/types'
  *                      RPC `get_coordinator_units`, migration 047);
  *   · `/lider`      → `LeadershipAreaGuard('team')` (slug da membership ativa +
  *                      RPC `get_leader_team`, migrations 045/046);
- *   · `/pedir-musica`, `/changelog`, `/chamados-publico/*`, TV Desktop → sem gate
- *     de app por design.
+ *   · `/changelog`, `/chamados-publico/*` → sem gate de app por design.
  *
  * ══ MIGRAÇÃO ════════════════════════════════════════════════════════════════
  * Os consumidores (`AppGuard`, `Launcher`, `CommandPalette`, `QuickActions`,
@@ -73,7 +71,6 @@ export const MODULE_IDS = [
   'pc-care',
   'stock',
   'reservalab',
-  'tv',
   'chamados',
   'patrimonio',
   'admin',
@@ -97,7 +94,7 @@ export type ModuleId = (typeof MODULE_IDS)[number]
  *     (é o comportamento atual: nenhum `DEFAULT_ROLE` declara essas chaves);
  *   · `opv`, `est` e `adm` NÃO aparecem — ver `UNMAPPED_SLUGS` abaixo;
  *   · `lider` é o único cargo fora da regra "5 módulos": escopo de unidade, sem
- *     TV nem ReservaLab. Não é alvo desta tarefa e segue inalterado.
+ *     ReservaLab. Não é alvo desta tarefa e segue inalterado.
  *
  * ── REGRAS DE PRODUTO QUE ESTA MATRIZ EXPRESSA ───────────────────────────────
  *   · Técnico  → `full` nos 5 módulos disponíveis ao workspace + Patrimônio.
@@ -120,14 +117,13 @@ export type ModuleId = (typeof MODULE_IDS)[number]
 export const MODULE_VISIBILITY_BY_SLUG: Readonly<
   Record<string, Readonly<Partial<Record<ModuleId, ModuleLevel>>>>
 > = {
-  // Técnico: operação nos cinco módulos. `tv` e `reservalab` subiram para `full`.
-  // A autorização correspondente é `tv.manage` (migration 086) e
+  // Técnico: operação nos módulos disponíveis. `reservalab` subiu para `full`.
+  // A autorização correspondente é
   // `reservelab.tablet.reserve` + `reservelab.tablet.cancel` (036/078).
   tec: {
     'pc-care': 'full',
     stock: 'full',
     reservalab: 'full',
-    tv: 'full',
     chamados: 'full',
     patrimonio: 'full',
   },
@@ -137,10 +133,9 @@ export const MODULE_VISIBILITY_BY_SLUG: Readonly<
     'pc-care': 'read',
     stock: 'read',
     reservalab: 'read',
-    tv: 'read',
     chamados: 'read',
   },
-  // Líder: sem TV nem ReservaLab; Chamados operacional. Inalterado.
+  // Líder: sem ReservaLab; Chamados operacional. Inalterado.
   lider: { 'pc-care': 'read', stock: 'read', chamados: 'full' },
   // Coordenador: leitura nos cinco módulos. `chamados` BAIXOU de `full` para
   // `read` na visibilidade; as Actions de ticket do cargo (040/082) foram
@@ -152,7 +147,6 @@ export const MODULE_VISIBILITY_BY_SLUG: Readonly<
     'pc-care': 'read',
     stock: 'read',
     reservalab: 'read',
-    tv: 'read',
     chamados: 'read',
     patrimonio: 'read',
   },
@@ -162,7 +156,7 @@ export const MODULE_VISIBILITY_BY_SLUG: Readonly<
  * Slugs RBAC 2.0 sem linha na matriz — e o que fazer com eles é a ÚNICA decisão
  * de produto que o F2-D-K encontrou e NÃO resolveu (ver relatório do F2-D-K):
  *
- *   · `opv` / `est` — têM Actions (`tv.*`, `stock.*`) mas nunca tiveram cargo no
+ *   · `opv` / `est` — têM Actions (`stock.*`) mas nunca tiveram cargo no
  *     frontend. Resolvem `none`: coerente com "não têm cargo", porém significa
  *     que, ao migrar os consumidores no F2-D-L, elas passam a ver módulos que
  *     hoje já não veem (hoje: nenhum) e a NÃO ver os módulos das próprias Actions

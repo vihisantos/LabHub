@@ -39,8 +39,7 @@ describe('Cargo Líder (role-lider) e classificação de liderança (Fase 4/5 RB
     expect(moduleLevelForSlug('lider', 'chamados')).toBe('full')
     expect(moduleLevelForSlug('lider', 'stock')).toBe('read')
     expect(moduleLevelForSlug('lider', 'pc-care')).toBe('read')
-    // Escopo de unidade: sem tv (mult. unidades), sem dashboard/admin/reservalab.
-    expect(moduleLevelForSlug('lider', 'tv')).toBe('none')
+    // Escopo de unidade: sem dashboard/admin/reservalab.
     expect(moduleLevelForSlug('lider', 'dashboard')).toBe('none')
     expect(moduleLevelForSlug('lider', 'admin')).toBe('none')
     expect(moduleLevelForSlug('lider', 'reservalab')).toBe('none')

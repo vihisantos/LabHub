@@ -21,7 +21,6 @@ const MODULE_APP_ID: Record<string, string> = {
   chamados: 'chamados',
   stock: 'stock',
   reservalab: 'reservalab',
-  tv: 'tv',
 }
 
 /**
@@ -96,13 +95,6 @@ export function ModuleStats() {
         icon: icons.ui.flaskConical,
         route: '/reservalab',
         stats: [{ label: 'Laboratórios', value: 'Reservas e tablets' }],
-      },
-      {
-        id: 'tv',
-        name: 'TV Corporativa',
-        icon: icons.ui.tv,
-        route: '/tv',
-        stats: [{ label: 'Display', value: 'Mural digital' }],
       },
     ].filter((m) => isVisible(MODULE_APP_ID[m.id]))
     // Só `isVisible` participa: o eixo `disabled_apps` já está resolvido dentro

@@ -18,13 +18,6 @@ vi.mock('@/core/workspaces/WorkspaceContext', () => ({
   useWorkspace: () => ({ workspace: { id: 'ws-1', name: 'Campus A', slug: 'campus-a' } }),
 }))
 
-vi.mock('@/apps/tv/services/supabase', () => ({
-  fetchWorkspaceDevices: vi.fn(),
-  reserveEventUpsert: vi.fn(),
-}))
-
-import { fetchWorkspaceDevices, reserveEventUpsert } from '@/apps/tv/services/supabase'
-
 function makeWeekData(): WeekDayData[] {
   return [
     {
@@ -198,13 +191,6 @@ describe('WeeklyCalendar', () => {
     expect(screen.getByText('João')).toBeInTheDocument()
   })
 
-  it('botão "Criar evento na TV" aparece no modal de detalhes', () => {
-    renderCalendar()
-    fireEvent.click(screen.getByText('29'))
-    const tvButtons = screen.getAllByText('Criar evento na TV')
-    expect(tvButtons.length).toBeGreaterThanOrEqual(1)
-  })
-
   it('exibe legenda no modal de detalhes', () => {
     renderCalendar()
     fireEvent.click(screen.getByText('29'))
@@ -237,51 +223,6 @@ describe('WeeklyCalendar', () => {
     expect(screen.getByText('Seg')).toBeInTheDocument()
     expect(screen.getByText('Ter')).toBeInTheDocument()
     expect(screen.getByText('Qua')).toBeInTheDocument()
-  })
-
-  it('cria evento na TV com disciplina no título, professor e sala na descrição', async () => {
-    ;(fetchWorkspaceDevices as any).mockResolvedValue([
-      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
-    ])
-    ;(reserveEventUpsert as any).mockResolvedValue({ event_id: 'evt-1', schedule_id: 'sch-1' })
-
-    renderCalendar()
-    fireEvent.click(screen.getByText('29'))
-
-    fireEvent.click(screen.getAllByText('Criar evento na TV')[0])
-    expect(await screen.findByText('Matemática')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Programar evento' }))
-
-    await vi.waitFor(() => {
-      expect(reserveEventUpsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Matemática',
-          description: 'Professor: Prof. Silva | Sala: Lab Info 1',
-          reservationDate: '2026-06-29',
-        }),
-      )
-    })
-  })
-
-  it('não envia "Reservado por" no evento da TV', async () => {
-    ;(fetchWorkspaceDevices as any).mockResolvedValue([
-      { id: 'tv-1', name: 'TV do Lab', workspace_id: 'ws-1' },
-    ])
-    ;(reserveEventUpsert as any).mockResolvedValue({ event_id: 'evt-1', schedule_id: 'sch-1' })
-
-    renderCalendar()
-    fireEvent.click(screen.getByText('29'))
-
-    fireEvent.click(screen.getAllByText('Criar evento na TV')[0])
-    fireEvent.click(await screen.findByRole('button', { name: 'Programar evento' }))
-
-    await vi.waitFor(() => {
-      const call = (reserveEventUpsert as any).mock.calls.find(([c]: any) => c && c.title === 'Matemática')
-      expect(call).toBeTruthy()
-      expect(call[0].description).not.toContain('Reservado por')
-      expect(call[0].description).not.toContain('João')
-    })
   })
 
   describe('faixa horizontal de dias (Issue #391)', () => {

@@ -145,8 +145,8 @@ describe('ModuleStats — a cor vem do tema, não de uma cor fixa por módulo', 
   it('todo cartão repete o mesmo tratamento de cor, vindo do tema', () => {
     renderStats()
     const tiles = iconTiles()
-    // 5 módulos visíveis -> 5 tiles de ícone.
-    expect(tiles).toHaveLength(5)
+    // 4 módulos do PWA visíveis -> 4 tiles de ícone.
+    expect(tiles).toHaveLength(4)
     for (const tile of tiles) {
       expect(tile.style.backgroundColor).toBe('var(--accent-soft)')
       expect(tile.style.color).toBe('var(--accent-strong)')
@@ -320,14 +320,14 @@ describe('ModuleStats — navegação e acessibilidade', () => {
 
   it('a lista é semântica: um item por módulo acessível', () => {
     renderStats()
-    expect(screen.getAllByRole('listitem')).toHaveLength(5)
+    expect(screen.getAllByRole('listitem')).toHaveLength(4)
   })
 
   it('o tile de ícone é decorativo e o cartão se identifica pelo nome do módulo', () => {
     renderStats()
-    const card = cardByName('TV Corporativa')
+    const card = cardByName('ReservaLab')
     expect(card.querySelector('[data-testid="mod-icon"]')).not.toBeNull()
-    expect(card).toHaveAccessibleName(/TV Corporativa/)
+    expect(card).toHaveAccessibleName(/ReservaLab/)
   })
 })
 
@@ -344,7 +344,7 @@ describe('ModuleStats — o filtro de acesso não mudou', () => {
     mockDisabledApps.mockReturnValue(['pc-care'])
     renderStats()
     expect(screen.queryByRole('button', { name: /PC Care/ })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('listitem')).toHaveLength(4)
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
   })
 
   it('nenhum módulo acessível: lista vazia, sem quebrar a seção', () => {

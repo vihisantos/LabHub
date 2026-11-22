@@ -51,7 +51,7 @@ export function useRoles() {
  * gate de UI não abre por omissão. Erro de consulta também vira `false`
  * (`membershipService.can` já é fail-closed; aqui só normalizamos o estado).
  *
- *   const { allowed, loading } = useCanAccessAction('tv.manage')
+ *   const { allowed, loading } = useCanAccessAction('stock.manage')
  *   {allowed && <AbasDeEscrita />}
  */
 export function useCanAccessAction(

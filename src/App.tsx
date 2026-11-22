@@ -18,12 +18,9 @@ const LoginPage = lazy(() => import('./platform/Login/LoginPage').then(m => ({ d
 const DashboardPage = lazy(() => import('./platform/Dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })))
 const HomePage = lazy(() => import('./platform/Dashboard/HomePage').then(m => ({ default: m.HomePage })))
 const Changelog = lazy(() => import('./pages/Changelog').then(m => ({ default: m.Changelog })))
-const MusicRequestPage = lazy(() => import('./pages/MusicRequest').then(m => ({ default: m.default })))
-const PublicMusicRequestPage = lazy(() => import('./pages/PublicMusicRequest').then(m => ({ default: m.default })))
 const PCCareApp = lazy(() => import('./apps/pcare').then(m => ({ default: m.PCCareApp })))
 const StockApp = lazy(() => import('./apps/stock').then(m => ({ default: m.StockApp })))
 const ReservaLabApp = lazy(() => import('./apps/reservalab').then(m => ({ default: m.ReservaLabApp })))
-const TvApp = lazy(() => import('./apps/tv').then(m => ({ default: m.TvApp })))
 const ChamadosApp = lazy(() => import('./apps/chamados').then(m => ({ default: m.ChamadosApp })))
 const PatrimonioApp = lazy(() => import('./apps/patrimonio').then(m => ({ default: m.PatrimonioApp })))
 const ChamadosPublicApp = lazy(() => import('./apps/chamados-publico').then(m => ({ default: m.ChamadosPublicApp })))
@@ -72,16 +69,6 @@ function AppRoutes() {
           <Changelog />
         </AuthGuard>
       } />
-      <Route path="pedir-musica/:token" element={
-        <Suspense fallback={<RouteFallback />}>
-          <PublicMusicRequestPage />
-        </Suspense>
-      } />
-      <Route path="pedir-musica" element={
-        <AuthGuard fallback={AUTH_FALLBACK}>
-          <MusicRequestPage />
-        </AuthGuard>
-      } />
       <Route path="pc-care/*" element={
         <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="pc-care">
@@ -107,13 +94,6 @@ function AppRoutes() {
         <AuthGuard fallback={AUTH_FALLBACK}>
           <AppGuard appId="reservalab">
             <ReservaLabApp />
-          </AppGuard>
-        </AuthGuard>
-      } />
-      <Route path="tv/*" element={
-        <AuthGuard fallback={AUTH_FALLBACK}>
-          <AppGuard appId="tv">
-            <TvApp />
           </AppGuard>
         </AuthGuard>
       } />

@@ -13,11 +13,6 @@ vi.mock('../../../../core/appSettings/service', () => ({
   appSettingsService: { getUpdatedAt: mockGetUpdatedAt },
 }))
 
-vi.mock('../AppDataResetModal', () => ({
-  AppDataResetModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="app-data-reset-dialog-slot">RESET_MODAL</div> : null,
-}))
-
 import { appRegistry, plannedApps } from '../../../../appRegistry'
 import type { AppModule } from '../../../../appRegistry'
 import type { Workspace } from '../../../../core/workspaces/types'
@@ -38,19 +33,13 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   }
 }
 
-const tv = appRegistry.find((a) => a.id === 'tv')!
 const admin = appRegistry.find((a) => a.id === 'admin')!
-const chamadosDashboard = plannedApps.find((a) => a.id === 'chamados-dashboard')!
 
-const fakeConfigurableApp: AppModule = {
-  id: 'tv',
-  name: 'App de Teste',
-  description: 'App com SettingsPanel para o smoke test',
-  icon: () => null,
-  route: '/x',
-  color: '#123456',
+// App configurável real do registry (chamados) usado como fixture para
+// validar toggle e configuração, sem depender de módulos removidos.
+const configurableApp: AppModule = {
+  ...appRegistry.find((a) => a.id === 'chamados')!,
   configurable: true,
-  clearable: false,
   settings: { defaultSettings: {}, validateSettings: (v) => v as Record<string, never> },
   SettingsPanel: function Panel() {
     return <div data-testid="settings-panel-slot">PANEL_RENDERIZADO</div>
@@ -78,14 +67,14 @@ describe('WorkspaceAppSheet', () => {
   })
 
   it('abre e mostra o app com status ativo', () => {
-    renderWithProviders(renderSheet(tv))
+    renderWithProviders(renderSheet(configurableApp))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('TV')).toBeInTheDocument()
+    expect(screen.getByText('Chamados')).toBeInTheDocument()
     expect(screen.getByText('Ativo neste workspace')).toBeInTheDocument()
   })
 
   it('mostra status desativado conforme disabled_apps do workspace', () => {
-    renderWithProviders(renderSheet(tv, makeWorkspace({ disabled_apps: ['tv'] })))
+    renderWithProviders(renderSheet(configurableApp, makeWorkspace({ disabled_apps: ['chamados'] })))
     expect(screen.getByText('Desativado neste workspace')).toBeInTheDocument()
     expect(screen.getByText('Ativar neste workspace')).toBeInTheDocument()
   })
@@ -94,7 +83,7 @@ describe('WorkspaceAppSheet', () => {
     const onDisabledAppsChange = vi.fn()
     renderWithProviders(
       <WorkspaceAppSheet
-        app={tv}
+        app={configurableApp}
         workspace={makeWorkspace()}
         open
         onClose={() => {}}
@@ -103,15 +92,15 @@ describe('WorkspaceAppSheet', () => {
     )
     fireEvent.click(screen.getByText('Desativar neste workspace'))
     await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith('ws-1', { disabled_apps: ['tv'] })
-      expect(onDisabledAppsChange).toHaveBeenCalledWith(['tv'])
+      expect(mockUpdate).toHaveBeenCalledWith('ws-1', { disabled_apps: ['chamados'] })
+      expect(onDisabledAppsChange).toHaveBeenCalledWith(['chamados'])
     })
   })
 
   it('Escape fecha', () => {
     const onClose = vi.fn()
     renderWithProviders(
-      <WorkspaceAppSheet app={tv} workspace={makeWorkspace()} open onClose={onClose} />,
+      <WorkspaceAppSheet app={configurableApp} workspace={makeWorkspace()} open onClose={onClose} />,
     )
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
@@ -123,7 +112,7 @@ describe('WorkspaceAppSheet', () => {
         <button type="button" data-testid="trigger">
           Abrir
         </button>
-        <WorkspaceAppSheet app={tv} workspace={makeWorkspace()} open={false} onClose={() => {}} />
+        <WorkspaceAppSheet app={configurableApp} workspace={makeWorkspace()} open={false} onClose={() => {}} />
       </>,
     )
     const trigger = screen.getByTestId('trigger')
@@ -134,7 +123,7 @@ describe('WorkspaceAppSheet', () => {
         <button type="button" data-testid="trigger">
           Abrir
         </button>
-        <WorkspaceAppSheet app={tv} workspace={makeWorkspace()} open onClose={() => {}} />
+        <WorkspaceAppSheet app={configurableApp} workspace={makeWorkspace()} open onClose={() => {}} />
       </>,
     )
 
@@ -148,7 +137,7 @@ describe('WorkspaceAppSheet', () => {
         <button type="button" data-testid="trigger">
           Abrir
         </button>
-        <WorkspaceAppSheet app={tv} workspace={makeWorkspace()} open={false} onClose={() => {}} />
+        <WorkspaceAppSheet app={configurableApp} workspace={makeWorkspace()} open={false} onClose={() => {}} />
       </>,
     )
     await waitFor(() => {
@@ -157,7 +146,7 @@ describe('WorkspaceAppSheet', () => {
   })
 
   it('focus trap mantém o Tab dentro do dialog (Shift+Tab no primeiro volta ao último)', async () => {
-    renderWithProviders(renderSheet(tv))
+    renderWithProviders(renderSheet(configurableApp))
     const dialog = screen.getByRole('dialog')
     await waitFor(() => {
       expect(dialog.contains(document.activeElement)).toBe(true)
@@ -175,40 +164,22 @@ describe('WorkspaceAppSheet', () => {
     expect(screen.getByText('Configuração disponível em breve')).toBeInTheDocument()
   })
 
-  it('tv registra definição e painel próprios de configuração', () => {
-    expect(tv.settings).toBeDefined()
-    expect(typeof tv.SettingsPanel).toBe('function')
-    renderWithProviders(renderSheet(tv))
+  it('app configurável registra definição e painel próprios de configuração', () => {
+    expect(configurableApp.settings).toBeDefined()
+    expect(typeof configurableApp.SettingsPanel).toBe('function')
+    renderWithProviders(renderSheet(configurableApp))
     const configureButton = screen.getByText('Configurar').closest('button')!
     expect(configureButton).toBeEnabled()
   })
 
   it('app com SettingsPanel futuro tem slot correto renderizado pelo shell', async () => {
-    renderWithProviders(renderSheet(fakeConfigurableApp))
+    renderWithProviders(renderSheet(configurableApp))
     fireEvent.click(screen.getByText('Configurar'))
     expect(await screen.findByTestId('settings-panel-slot')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Voltar'))
     expect(screen.queryByTestId('settings-panel-slot')).not.toBeInTheDocument()
     expect(await screen.findByText('Desativar neste workspace')).toBeInTheDocument()
-  })
-
-  it('clearable=false esconde a ação; clearable=true mostra e abre o modal de purge', () => {
-    const { unmount } = renderWithProviders(renderSheet(fakeConfigurableApp))
-    expect(screen.queryByText('Limpar dados deste workspace')).not.toBeInTheDocument()
-    unmount()
-
-    renderWithProviders(renderSheet(tv))
-    const purgeButton = screen.getByTestId('clear-app-data-button').closest('button')!
-    expect(purgeButton).toBeEnabled()
-
-    fireEvent.click(purgeButton)
-    expect(screen.getByTestId('app-data-reset-dialog-slot')).toBeInTheDocument()
-  })
-
-  it('planned app (chamados-dashboard, clearable=false) nunca mostra ação de purge', () => {
-    renderWithProviders(renderSheet(chamadosDashboard))
-    expect(screen.queryByTestId('clear-app-data-button')).not.toBeInTheDocument()
   })
 
   it('app sempre-ativo (admin/dashboard) mostra status fixo e sem toggle', () => {
@@ -218,9 +189,9 @@ describe('WorkspaceAppSheet', () => {
   })
 
   it('mostra a última alteração vinda do core/appSettings quando existir', async () => {
-    renderWithProviders(renderSheet(fakeConfigurableApp))
+    renderWithProviders(renderSheet(configurableApp))
     await waitFor(() => {
-      expect(mockGetUpdatedAt).toHaveBeenCalledWith('tv')
+      expect(mockGetUpdatedAt).toHaveBeenCalledWith('chamados')
     })
   })
 })

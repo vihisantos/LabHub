@@ -4,7 +4,7 @@ import { appRegistry } from '../../appRegistry'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
 import { useWorkspace } from '../../core/workspaces/WorkspaceContext'
-import { filterAppsByWorkspace, isAppDisabled } from '../../core/workspaces/apps'
+import { filterAppsByWorkspace } from '../../core/workspaces/apps'
 import { useModuleVisibilities } from '../../core/permissions/useModuleVisibility'
 import { useCoordinator } from '../../core/permissions/useCoordinator'
 import { useFastSync } from '../../lib/useFastSync'
@@ -16,7 +16,6 @@ import { OnboardingOverlay, completeOnboarding, hasCompletedOnboarding } from '.
 import { UserAvatar } from '../Profile/UserAvatar'
 import { QuickActions } from '../Dashboard/QuickActions'
 import { icons } from '../../lib/icons'
-import { Music } from 'lucide-react'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -50,7 +49,7 @@ export function Launcher() {
 
   const userName = user?.name?.split(' ')[0] || ''
   const accessibleApps = filterAppsByWorkspace(
-    appRegistry.filter((app) => isVisible(app.id)),
+    appRegistry.filter((app) => app.launchable !== false && isVisible(app.id)),
     workspace,
   )
 
@@ -159,23 +158,6 @@ export function Launcher() {
         <div className="mb-6" data-tour="modules-section">
           <p className="mb-3 px-1 text-xs font-semibold text-fg-muted">Meus Módulos</p>
           <div className="flex flex-wrap justify-center gap-3">
-            {/* Pedir Música: atalho fixo, mas só quando o campus tem a TV
-                ligada (mesma regra do QuickActions) — sem TV não há onde o
-                pedido de música ser exibido. */}
-            {!isAppDisabled('tv', workspace) && (
-              <button
-                type="button"
-                data-tour="module-pedir-musica"
-                onClick={() => navigate('/pedir-musica')}
-                className="flex w-36 flex-col items-center gap-2.5 rounded-2xl bg-card p-4 text-center shadow-sm transition-all hover:shadow-[var(--shadow-elevated)] active:scale-[0.97]"
-              >
-                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/15 text-red-500">
-                  <Music size={26} />
-                </span>
-                <span className="text-sm font-semibold text-fg">Pedir Música</span>
-                <span className="text-[11px] leading-snug text-fg-muted">Sugira uma música para a TV</span>
-              </button>
-            )}
             {accessibleApps.map((app) => (
               <button
                 key={app.id}

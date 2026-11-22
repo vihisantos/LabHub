@@ -46,7 +46,7 @@ function makeNotification(overrides: Partial<AppNotification> = {}): AppNotifica
  * RBAC 2.0 (F2-D-L): a visibilidade do módulo é injetada na função pura. Este
  * acessor reproduz a NOVA FONTE de verdade usando a MATRIZ real
  * (`moduleLevelForSlug`), para que o teste continue exercitando a política
- * (viewer tem `pc-care`, não tem `tv`; super admin vê tudo) em vez de um stub.
+ * (viewer tem `pc-care`, não tem `auth`; super admin vê tudo) em vez de um stub.
  *
  * `roleId` aqui é só o rótulo do cenário; o slug é derivado pela tabela abaixo,
  * como `LEGACY_ROLE_TO_ID` fazia antes — mas a decisão sai da matriz, não do
@@ -141,8 +141,8 @@ describe('notificationAppliesTo', () => {
     }
   })
 
-  it('viewer vê os cinco módulos do workspace (incluindo tv e reservalab)', () => {
-    for (const modulo of ['pc-care', 'stock', 'reservalab', 'tv', 'chamados']) {
+  it('viewer vê os módulos do workspace (incluindo reservalab)', () => {
+    for (const modulo of ['pc-care', 'stock', 'reservalab', 'chamados']) {
       const n = makeNotification({ module: modulo })
       expect(appliesTo(n, makeUser({ roleId: 'role-viewer' })), modulo).toBe(true)
     }
@@ -154,7 +154,7 @@ describe('notificationAppliesTo', () => {
   })
 
   it('admin absoluto vê de qualquer app', () => {
-    const n = makeNotification({ module: 'tv' })
+    const n = makeNotification({ module: 'pc-care' })
     expect(appliesTo(n, makeUser({ is_super_admin: true }))).toBe(true)
   })
 

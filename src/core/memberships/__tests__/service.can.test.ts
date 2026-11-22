@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Membership } from '../types'
 import type { User } from '../../auth/types'
 
@@ -96,43 +96,43 @@ beforeEach(() => {
 describe('membershipService.can — RBAC 2.0 por Action', () => {
   it('Caso 5 — membership ativa + role com a Action => true', async () => {
     const { membershipService } = await loadService()
-    await expect(membershipService.can(user(), 'tv.manage', WS_A)).resolves.toBe(true)
+    await expect(membershipService.can(user(), 'stock.item.create', WS_A)).resolves.toBe(true)
   })
 
   it('consulta role_permissions com role/action/scope corretos (sessão do usuário)', async () => {
     const { membershipService } = await loadService()
-    await membershipService.can(user(), 'tv.manage', WS_A)
+    await membershipService.can(user(), 'stock.item.create', WS_A)
     expect(chain.table).toBe('role_permissions')
     expect(chain.filters.role_id).toBe(ROLE_ID)
-    expect(chain.filters.action).toBe('tv.manage')
+    expect(chain.filters.action).toBe('stock.item.create')
     expect(chain.filters.scope).toBe('workspace')
   })
 
   it('Caso 1 — usuário sem membership => false (sem tocar o banco)', async () => {
     const { membershipService } = await loadService()
     const u = user({ memberships: [], membershipsLoaded: true } as Partial<User>)
-    await expect(membershipService.can(u, 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(u, 'stock.item.create', WS_A)).resolves.toBe(false)
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
   it('Caso 1b — membershipsLoaded !== true => false (fail-closed, sem fallback)', async () => {
     const { membershipService } = await loadService()
     const u = user({ membershipsLoaded: false } as Partial<User>)
-    await expect(membershipService.can(u, 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(u, 'stock.item.create', WS_A)).resolves.toBe(false)
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
   it('Caso 1c — memberships undefined => false', async () => {
     const { membershipService } = await loadService()
     const u = user({ memberships: undefined, membershipsLoaded: true } as Partial<User>)
-    await expect(membershipService.can(u, 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(u, 'stock.item.create', WS_A)).resolves.toBe(false)
   })
 
   it('Caso 2 — membership suspensa/pending/removed => false', async () => {
     const { membershipService } = await loadService()
     for (const status of ['suspended', 'pending', 'removed'] as const) {
       const u = user({ memberships: [membership({ status })] } as Partial<User>)
-      await expect(membershipService.can(u, 'tv.manage', WS_A)).resolves.toBe(false)
+      await expect(membershipService.can(u, 'stock.item.create', WS_A)).resolves.toBe(false)
       mockFrom.mockClear()
     }
   })
@@ -141,14 +141,14 @@ describe('membershipService.can — RBAC 2.0 por Action', () => {
     const { membershipService } = await loadService()
     const u = user({ memberships: [membership({ workspace_id: WS_B })] } as Partial<User>)
     // A Action existe no banco, mas é da membership de WS_B.
-    await expect(membershipService.can(u, 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(u, 'stock.item.create', WS_A)).resolves.toBe(false)
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
   it('Caso 8 — a MESMA Action é resolvida quando se consulta a unidade correta', async () => {
     const { membershipService } = await loadService()
     const u = user({ memberships: [membership({ workspace_id: WS_B })] } as Partial<User>)
-    await expect(membershipService.can(u, 'tv.manage', WS_B)).resolves.toBe(true)
+    await expect(membershipService.can(u, 'stock.item.create', WS_B)).resolves.toBe(true)
   })
 
   it('Caso 4 — membership ativa, role SEM a Action => false', async () => {
@@ -160,7 +160,7 @@ describe('membershipService.can — RBAC 2.0 por Action', () => {
   it('Caso 4b — data null sem erro => false (fail-closed)', async () => {
     dbResult = { data: null, error: null }
     const { membershipService } = await loadService()
-    await expect(membershipService.can(user(), 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(user(), 'stock.item.create', WS_A)).resolves.toBe(false)
   })
 
   it('Caso 6 — Super Admin => true SEM membership e SEM consultar role_permissions', async () => {
@@ -170,32 +170,32 @@ describe('membershipService.can — RBAC 2.0 por Action', () => {
       memberships: [],
       membershipsLoaded: false,
     } as Partial<User>)
-    await expect(membershipService.can(u, 'tv.manage', null)).resolves.toBe(true)
+    await expect(membershipService.can(u, 'stock.item.create', null)).resolves.toBe(true)
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
   it('Caso 7 — erro na consulta => false (nunca vira allow)', async () => {
     dbResult = { data: null, error: { message: 'permission denied' } }
     const { membershipService } = await loadService()
-    await expect(membershipService.can(user(), 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(user(), 'stock.item.create', WS_A)).resolves.toBe(false)
   })
 
   it('Caso 7b — exceção na construção da query => false', async () => {
     throwOnBuild = true
     const { membershipService } = await loadService()
-    await expect(membershipService.can(user(), 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(user(), 'stock.item.create', WS_A)).resolves.toBe(false)
   })
 
   it('usuário null/undefined => false', async () => {
     const { membershipService } = await loadService()
-    await expect(membershipService.can(null, 'tv.manage', WS_A)).resolves.toBe(false)
-    await expect(membershipService.can(undefined, 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(null, 'stock.item.create', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(undefined, 'stock.item.create', WS_A)).resolves.toBe(false)
   })
 
   it('workspaceId ausente/vazio => false (Action com escopo workspace exige contexto)', async () => {
     const { membershipService } = await loadService()
-    await expect(membershipService.can(user(), 'tv.manage', null)).resolves.toBe(false)
-    await expect(membershipService.can(user(), 'tv.manage', '')).resolves.toBe(false)
+    await expect(membershipService.can(user(), 'stock.item.create', null)).resolves.toBe(false)
+    await expect(membershipService.can(user(), 'stock.item.create', '')).resolves.toBe(false)
   })
 
   it('action vazia/branco => false', async () => {
@@ -207,7 +207,7 @@ describe('membershipService.can — RBAC 2.0 por Action', () => {
   it('membership sem role_id => false', async () => {
     const { membershipService } = await loadService()
     const u = user({ memberships: [membership({ role_id: '' })] } as Partial<User>)
-    await expect(membershipService.can(u, 'tv.manage', WS_A)).resolves.toBe(false)
+    await expect(membershipService.can(u, 'stock.item.create', WS_A)).resolves.toBe(false)
   })
 })
 

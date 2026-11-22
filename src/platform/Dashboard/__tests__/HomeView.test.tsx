@@ -166,8 +166,6 @@ describe('HomeView — "Seus Apps" removido (Resumo por módulos é a fonte)', (
   it('a seção "Seus Apps" não existe mais na composição da Home', () => {
     renderHome()
     expect(screen.queryByText('Seus Apps')).not.toBeInTheDocument()
-    // O atalho interno da seção (Pedir Música) saiu junto com ela.
-    expect(screen.queryByText('Pedir Música')).not.toBeInTheDocument()
   })
 
   it('Resumo por módulos e Ações rápidas permanecem — nenhum acesso funcional perdido', () => {

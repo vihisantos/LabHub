@@ -8,7 +8,6 @@ const MODULE_ICONS: Record<string, string> = {
   pcare: 'monitor',
   stock: 'package',
   chamados: 'alertCircle',
-  tv: 'tv',
   reservalab: 'flaskConical',
 }
 
@@ -17,7 +16,6 @@ const MODULE_APP_ID: Record<string, string> = {
   pcare: 'pc-care',
   stock: 'stock',
   chamados: 'chamados',
-  tv: 'tv',
   reservalab: 'reservalab',
 }
 

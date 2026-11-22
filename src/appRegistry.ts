@@ -2,8 +2,6 @@ import type { ComponentType } from 'react'
 
 import type { AppSettingsDefinition, AppSettingsPanelProps } from './core/appSettings/types'
 import { icons } from './lib/icons'
-import { tvSettingsDefinition } from './apps/tv/settings/definition'
-import { TvSettingsPanel } from './apps/tv/settings/TvSettingsPanel'
 
 export interface AppModule {
   id: string
@@ -18,6 +16,9 @@ export interface AppModule {
   /** Declara intenção de purge de dados por workspace. A ação só é habilitada
    * quando o mecanismo real existir (app_data_backups + endpoint dedicado). */
   clearable?: boolean
+  /** App com metadado administrativo, mas sem interface web navegável própria.
+   * Launcher/Coordinator não devem criar card nem ação "Abrir" para ele. */
+  launchable?: boolean
 
   /** Contrato consumido por core/appSettings. Obrigatório antes de qualquer
    * leitura/escrita de configuração deste app via appSettingsService. */
@@ -62,18 +63,6 @@ export const appRegistry: AppModule[] = [
     color: '#6366f1',
   },
   {
-    id: 'tv',
-    name: 'TV',
-    description: 'Canal corporativo e murais digitais',
-    icon: icons.ui.tv,
-    route: '/tv',
-    color: '#ef4444',
-    configurable: true,
-    clearable: true,
-    settings: tvSettingsDefinition,
-    SettingsPanel: TvSettingsPanel,
-  },
-  {
     id: 'chamados',
     name: 'Chamados',
     description: 'Abertura e gestão de chamados técnicos',
@@ -94,7 +83,7 @@ export const appRegistry: AppModule[] = [
 /**
  * Apps planejados que ainda NÃO entram no launcher: não possuem página/route
  * própria e apareceriam como tiles mortos (Launcher.tsx renderiza todo o
- * registry; UsersPage/RolesPage também iterariam a permissão).
+ * registry launchable; UsersPage/RolesPage também iterariam a permissão).
  *
  * Quando o PR do Painel de Chamados entregar a página real, basta mover o
  * objeto abaixo para dentro de `appRegistry` — o WorkspaceAppSheet e o

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { WorkspaceAppsModal } from '../WorkspaceAppsModal'
 import type { Workspace } from '../../../../core/workspaces/types'
@@ -74,7 +74,7 @@ describe('WorkspaceAppsModal', () => {
   it('salva o link da planilha junto com os apps desativados', async () => {
     render(
       <WorkspaceAppsModal
-        workspace={makeWorkspace({ disabled_apps: ['tv'] })}
+        workspace={makeWorkspace({ disabled_apps: ['stock'] })}
         open
         onClose={() => {}}
       />,
@@ -87,7 +87,7 @@ describe('WorkspaceAppsModal', () => {
 
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledWith('ws-1', {
-        disabled_apps: ['tv'],
+        disabled_apps: ['stock'],
         spreadsheet_url: 'https://sharepoint/campus-a.xlsx?download=1',
         lab_count: 2,
       })
@@ -142,7 +142,7 @@ describe('WorkspaceAppsModal', () => {
 
     rerender(
       <WorkspaceAppsModal
-        workspace={makeWorkspace({ disabled_apps: ['tv'] })}
+        workspace={makeWorkspace({ disabled_apps: ['stock'] })}
         open
         onClose={() => {}}
       />,
@@ -152,7 +152,7 @@ describe('WorkspaceAppsModal', () => {
 
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledWith('ws-1', {
-        disabled_apps: ['tv'],
+        disabled_apps: ['stock'],
         spreadsheet_url: '',
         lab_count: 2,
       })

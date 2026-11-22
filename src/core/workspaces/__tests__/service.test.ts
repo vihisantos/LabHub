@@ -42,13 +42,13 @@ describe('workspaceService.create (toSnake)', () => {
       name: 'Escola B',
       slug: 'escola-b',
       color: '#f59e0b',
-      disabled_apps: ['tv', 'stock'],
+      disabled_apps: ['pc-care', 'stock'],
       spreadsheet_url: 'https://docs.google.com/spreadsheets/x',
       location: 'São Paulo, SP',
     })
 
     expect(created.color).toBe('#f59e0b')
-    expect(created.disabled_apps).toEqual(['tv', 'stock'])
+    expect(created.disabled_apps).toEqual(['pc-care', 'stock'])
     expect(created.spreadsheet_url).toBe('https://docs.google.com/spreadsheets/x')
     expect(created.location).toBe('São Paulo, SP')
   })

@@ -248,14 +248,13 @@ const GRANTS: Record<string, ReadonlySet<string>> = {
   ]),
 }
 
-const MODULOS_DO_WS: readonly ModuleId[] = ['pc-care', 'stock', 'reservalab', 'tv', 'chamados']
+const MODULOS_DO_WS: readonly ModuleId[] = ['pc-care', 'stock', 'reservalab', 'chamados']
 
 const MODULE_IDS_ALL: readonly string[] = [
   'dashboard',
   'pc-care',
   'stock',
   'reservalab',
-  'tv',
   'chamados',
   'admin',
 ]
@@ -263,14 +262,13 @@ const MODULE_IDS_ALL: readonly string[] = [
 /**
  * Ações de escrita que `full` implica para o papel que OPERA o módulo — o
  * técnico. `full` é "opera este módulo", não "tem toda Action conceivable": o
- * técnico não tem `ticket.assign` (a 038 trocou atribuir por reivindicar, e é o
- * `opv` que moder TV), e essas ausências estão travadas logo abaixo.
+ * técnico não tem `ticket.assign` (a 038 trocou atribuir por reivindicar),
+ * e essas ausências estão travadas logo abaixo.
  */
 const ESCRITA_POR_MODULO: Record<string, readonly string[]> = {
   'pc-care': ['pcare.asset.create', 'pcare.asset.edit', 'pcare.checklist.edit', 'pcare.import'],
   stock: ['stock.item.create', 'stock.item.edit', 'stock.movement.create', 'stock.inventory.run'],
   reservalab: ['reservelab.tablet.reserve', 'reservelab.tablet.cancel'],
-  tv: ['tv.manage'],
   chamados: [
     'ticket.create',
     'ticket.status',
@@ -307,9 +305,8 @@ describe('técnico: full nos cinco módulos é operacional, não decorativo', ()
     }
   })
 
-  it('TV é o caso que faltava: tv.manage só foi concedida na 086', () => {
+  it('tv.manage foi concedida na 086 (Action server-side permanece para o Desktop)', () => {
     expect(GRANTS.tec.has('tv.manage')).toBe(true)
-    expect(moduleLevelForSlug('tec', 'tv')).toBe('full')
   })
 
   it('ReservaLab: tem reserve E cancel — full == todo o write set do módulo', () => {
@@ -339,11 +336,11 @@ describe('técnico: full nos cinco módulos é operacional, não decorativo', ()
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Visualizador — read nos cinco módulos, ZERO escrita
+// Visualizador — read nos módulos, ZERO escrita
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('visualizador: vê os cinco módulos e não ganha escrita', () => {
-  it('a matriz dá read nos cinco módulos do workspace', () => {
+describe('visualizador: vê os módulos e não ganha escrita', () => {
+  it('a matriz dá read nos módulos do workspace', () => {
     for (const appId of MODULOS_DO_WS) {
       expect(moduleLevelForSlug('vis', appId), `vis/${appId}`).toBe('read')
     }
@@ -378,10 +375,9 @@ describe('visualizador: vê os cinco módulos e não ganha escrita', () => {
     }
   })
 
-  it('ReservaLab e TV: vê as telas, mas não reserva, não cancela, não opera TV', () => {
+  it('ReservaLab: vê a tela, mas não reserva nem cancela', () => {
     expect(moduleLevelForSlug('vis', 'reservalab')).toBe('read')
-    expect(moduleLevelForSlug('vis', 'tv')).toBe('read')
-    for (const acao of ['reservelab.tablet.reserve', 'reservelab.tablet.cancel', 'tv.manage']) {
+    for (const acao of ['reservelab.tablet.reserve', 'reservelab.tablet.cancel']) {
       expect(GRANTS.vis.has(acao), acao).toBe(false)
     }
   })
@@ -394,11 +390,11 @@ describe('visualizador: vê os cinco módulos e não ganha escrita', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Coordenador — read nos cinco módulos, escopo multiunidade preservado
+// Coordenador — read nos módulos, escopo multiunidade preservado
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('coordenador: read nos cinco módulos sem ganhar escrita nova', () => {
-  it('a matriz dá read nos cinco módulos do workspace', () => {
+describe('coordenador: read nos módulos sem ganhar escrita nova', () => {
+  it('a matriz dá read nos módulos do workspace', () => {
     for (const appId of MODULOS_DO_WS) {
       expect(moduleLevelForSlug('coordinator', appId), `coordinator/${appId}`).toBe('read')
     }
@@ -522,7 +518,7 @@ describe('técnico não acessa outro workspace', () => {
     // A cadeia real é membership ativa NA UNIDADE → role → Action. Um `full`
     // global não existe: `role_permissions.scope` é `workspace` em todas as
     // Actions deste conjunto (CHECK em workspace/global/self, 036).
-    expect(moduleLevelForSlug('tec', 'tv')).toBe('full')
+    expect(moduleLevelForSlug('tec', 'stock')).toBe('full')
     expect(activeMembershipRoleId(memberOf('tec', WS_A), WS_B)).toBeNull()
   })
 
@@ -558,21 +554,21 @@ describe('módulo desabilitado na unidade tem precedência sobre a matriz', () =
       const res = await resolveModuleVisibility({
         user: memberOf(slug, WS_A),
         workspaceId: WS_A,
-        appId: 'tv',
-        workspace: workspace({ disabled_apps: ['tv'] }),
+        appId: 'stock',
+        workspace: workspace({ disabled_apps: ['stock'] }),
       })
-      expect(res, `${slug}/tv desabilitado`).toEqual({ visible: false, level: 'none' })
+      expect(res, `${slug}/stock desabilitado`).toEqual({ visible: false, level: 'none' })
     }
   })
 
   it('esconder um módulo NÃO mexe nas Actions nem nos outros módulos', async () => {
-    // Desligar TV na unidade não pode alterar o grant de chamados, e vice-versa:
+    // Desligar um módulo na unidade não pode alterar o grant de chamados, e vice-versa:
     // os eixos são independentes.
     const res = await resolveModuleVisibility({
       user: memberOf('tec', WS_A),
       workspaceId: WS_A,
       appId: 'chamados',
-      workspace: workspace({ disabled_apps: ['tv'] }),
+      workspace: workspace({ disabled_apps: ['stock'] }),
     })
     expect(res).toEqual({ visible: true, level: 'full' })
     expect(GRANTS.tec.has('ticket.status')).toBe(true)
@@ -601,8 +597,8 @@ describe('super admin: bypass absoluto permanece', () => {
     const res = await resolveModuleVisibility({
       user: superAdmin,
       workspaceId: WS_A,
-      appId: 'tv',
-      workspace: workspace({ disabled_apps: ['tv'] }),
+      appId: 'stock',
+      workspace: workspace({ disabled_apps: ['stock'] }),
     })
     expect(res).toEqual({ visible: false, level: 'none' })
   })

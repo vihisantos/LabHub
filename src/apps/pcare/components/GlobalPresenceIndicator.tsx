@@ -33,7 +33,6 @@ function getAppInfo(pathname: string): { app: string; page: string } {
   if (pathname.startsWith('/pc-care')) return { app: 'pc-care', page: 'PC Care' }
   if (pathname.startsWith('/stock') || pathname.startsWith('/general-stock')) return { app: 'stock', page: 'Estoque' }
   if (pathname.startsWith('/reservalab')) return { app: 'reservalab', page: 'ReservaLab' }
-  if (pathname.startsWith('/tv')) return { app: 'tv', page: 'TV' }
   return { app: 'desconhecido', page: pathname }
 }
 
