@@ -15,13 +15,15 @@ reconciliada por heurística de nome: ela precisa constar explicitamente em
 * um ``contract`` — arquivo de migration SOMENTE LEITURA que prova, no próprio
   banco, que o contrato dos objetos confere com o esperado.
 
-Nada aqui executa SQL. O runner verifica o contrato ANTES de qualquer escrita
-e só então registra as versões pelo caminho oficial (transação + advisory lock
-+ INSERT atômico em ``schema_migrations``).
+Nada aqui executa SQL. O runner verifica o contrato ANTES de qualquer escrita,
+dentro de uma transação PostgreSQL ``READ ONLY`` encerrada por ``ROLLBACK`` —
+a garantia de imutabilidade é do servidor, não de inspeção de texto (que pode
+ser burlada por instruções indentadas ou dentro de blocos ``DO``). Só então as
+versões são registradas pelo caminho oficial (transação + advisory lock +
+INSERT atômico em ``schema_migrations``).
 """
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -62,27 +64,6 @@ RECONCILIATION_RULES: dict[str, ReconciliationRule] = {
         contract=STAGING_OUTBOX_CONTRACT,
     ),
 }
-
-# Um "contrato" só é aceito se o arquivo não contiver comando de mutação em
-# posição de statement top-level (sem indentação). As linhas dentro do DO $$ da
-# 114 são indentadas; um arquivo trocado por DDL seria detectado aqui.
-_MUTATING_TOP_LEVEL_RE = re.compile(
-    r"^(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|TRUNCATE|GRANT|REVOKE|COPY|MERGE|REFRESH|VACUUM|REINDEX)\b",
-    re.IGNORECASE,
-)
-
-
-def is_read_only_contract(sql: str) -> bool:
-    """Rejeita arquivos que, sob a aparência de contrato, mutam o banco."""
-    for line in sql.splitlines():
-        if not line.strip() or line.lstrip().startswith("--"):
-            continue
-        if line[:1].isspace():
-            continue  # corpo do DO $$ — não é statement top-level
-        if _MUTATING_TOP_LEVEL_RE.match(line.strip()):
-            return False
-    return True
-
 
 @dataclass(frozen=True)
 class ReconciliationPlan:
@@ -132,9 +113,9 @@ def plan_reconciliation(
         if migration is None or contract is None:
             unreconciled.append(gap)
             continue
-        if not is_read_only_contract(contract.path.read_text(encoding="utf-8")):
-            unreconciled.append(gap)
-            continue
+        # A pureza do contrato NÃO é decidida aqui. É imposta pelo PostgreSQL
+        # em verify_contract(): BEGIN READ ONLY ... ROLLBACK. Qualquer escrita,
+        # inclusive indentada/dentro de DO, falha no servidor antes de registrar.
         selected[gap.version] = migration
         contracts[contract.version] = contract
 

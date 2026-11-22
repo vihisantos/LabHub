@@ -113,15 +113,18 @@ ON CONFLICT (version) DO NOTHING;
 COMMIT;
 """
 
-# Verificação de contrato: mesma transação/lock, SEM o INSERT de registro.
-# Usada antes de qualquer escrita quando há lacuna a reconciliar.
+# Verificação de contrato: transação READ ONLY + ROLLBACK. A garantia é do
+# PostgreSQL, não de inspeção de texto: QUALQUER INSERT/UPDATE/DELETE/DDL —
+# inclusive indentado ou escondido dentro de um bloco DO — é rejeitado pelo
+# servidor com "cannot execute ... in a read-only transaction". O ROLLBACK é
+# explícito para que nada persista mesmo se o contrato evoluir no futuro.
 _CONTRACT_WRAP_BEGIN = """
-BEGIN;
+BEGIN READ ONLY;
 SELECT pg_advisory_xact_lock({key});
 """
 
 _CONTRACT_WRAP_END = """
-COMMIT;
+ROLLBACK;
 """
 
 
@@ -343,12 +346,16 @@ def apply_migration(api: ManagementAPI, migration: Migration) -> None:
 
 
 def verify_contract(api: ManagementAPI, migration: Migration) -> None:
-    """Executa o contrato read-only ANTES de qualquer escrita de reconciliação.
+    """Executa o contrato em transação READ ONLY, antes de qualquer escrita.
 
-    O arquivo roda dentro da mesma transação/advisory lock do runner, mas sem o
-    INSERT em ``schema_migrations``. Uma falha (inclusive erro de API) vira
-    :class:`MigrationGapError`: nenhum registro é inserido "por comprovação"
-    quando a comprovação falhou.
+    A imutabilidade é garantida pelo PostgreSQL: ``BEGIN READ ONLY`` + ``ROLLBACK``
+    fazem o servidor rejeitar INSERT, UPDATE, DELETE, TRUNCATE e DDL, mesmo
+    indentados ou dentro de blocos ``DO $$``. Não existe verificação de texto do
+    SQL — uma inspeção textual pode ser enganada por indentação e não é barreira.
+
+    Uma falha (contrato divergente, escrita tentada ou erro de API) vira
+    :class:`MigrationGapError`: nenhuma versão é registrada e nenhuma lacuna é
+    reconciliada quando a comprovação não passou.
     """
     body = strip_inner_transaction(
         migration.path.read_text(encoding="utf-8").strip()

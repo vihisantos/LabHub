@@ -693,9 +693,11 @@ def test_reconciliation_is_staging_only_and_contract_backed() -> None:
     assert 'version="113"' in source
     assert 'version="114"' in source
     assert "114_notification_outbox_contract.sql" in source
-    assert "is_read_only_contract" in source
+    # A garantia é do PostgreSQL, não de inspeção de texto do SQL.
+    assert "is_read_only_contract" not in source
     # Nenhuma regra genérica por prefixo: lacuna desconhecida bloqueia.
     assert "RECONCILIATION_RULES.get(gap.version)" in source
-    assert (SCRIPTS / "migrate" / "runner.py").read_text(encoding="utf-8").count(
-        "policy.is_staging"
-    ) >= 1
+    runner_source = (SCRIPTS / "migrate" / "runner.py").read_text(encoding="utf-8")
+    assert "BEGIN READ ONLY;" in runner_source
+    assert "ROLLBACK;" in runner_source
+    assert runner_source.count("policy.is_staging") >= 1
