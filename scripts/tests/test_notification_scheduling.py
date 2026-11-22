@@ -7,6 +7,7 @@ obrigatória vive nos checks da PR e no Staging, não em aprovação manual.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,16 +32,26 @@ def test_cron_tem_concorrencia_e_timeout() -> None:
     assert "group: push-cron" in CRON
     assert "cancel-in-progress: false" in CRON
     assert "timeout-minutes:" in CRON
-    assert "- cron: '*/5 * * * *'" in CRON
+    # Schedule deslocado para evitar o minuto cheio: a cada 5 minutos.
+    assert re.search(r"- cron: '\d+(?:-\d+)?/5 \* \* \* \*'", CRON)
     assert "permissions:" in CRON
 
 
 def test_migrations_continua_automatico_sem_aprovacao_manual() -> None:
     assert "branches: [main]" in MIGRATIONS
+    assert "python scripts/migrate.py --target staging --dry-run" in MIGRATIONS
+    assert "python scripts/migrate.py --target staging" in MIGRATIONS
     assert "python scripts/migrate.py --target production --dry-run" in MIGRATIONS
     assert "python scripts/migrate.py --target production" in MIGRATIONS
+    # A promoção depende do gate automático de staging para o MESMO commit/run.
     assert "needs: validate" in MIGRATIONS
-    assert "environment: production" in MIGRATIONS
+    assert "needs: [validate, stage-migrations]" in MIGRATIONS
+    assert "needs: release-gate" in MIGRATIONS
+    assert "stage-migrations:" in MIGRATIONS
+    assert "release-gate:" in MIGRATIONS
+    config = [line for line in MIGRATIONS.splitlines() if not line.lstrip().startswith("#")]
+    assert not any(line.strip().startswith("workflow_dispatch:") for line in config)
+    assert not any(line.strip().startswith("environment:") for line in config)
     for proibido in (
         "MIGRATIONS_RELEASE_APPROVED",
         "MIGRATIONS_BACKUP_CONFIRMED",

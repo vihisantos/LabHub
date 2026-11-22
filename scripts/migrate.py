@@ -19,6 +19,7 @@ implícito "maior versão" (pensado para produção legada).
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -32,8 +33,13 @@ except Exception:  # pragma: no cover - dotenv é opcional
 from migrate import MigrationError
 from migrate.api import ApiError, ManagementAPI
 from migrate.environment import (
+    ENV_ACCESS_TOKEN,
+    ENV_STAGING_ACCESS_TOKEN,
+    ENV_STAGING_ALLOWED_REFS,
+    ENV_STAGING_PROJECT_REF,
     LOCAL,
     PRODUCTION,
+    STAGING,
     TargetEnvironmentError,
     TargetPolicy,
     resolve_policy,
@@ -46,44 +52,63 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MIGRATIONS_DIR = PROJECT_ROOT / "supabase" / "migrations"
 
 
-_PRODUCTION_ONLY_VARS = frozenset(
-    {"SUPABASE_PROJECT_REF", "BASELINE_VERSION", "SUPABASE_ALLOWED_PROJECT_REFS"}
+_TARGET_ONLY_VARS = frozenset(
+    {
+        "SUPABASE_PROJECT_REF",
+        ENV_ACCESS_TOKEN,
+        "SUPABASE_ALLOWED_PROJECT_REFS",
+        ENV_STAGING_PROJECT_REF,
+        ENV_STAGING_ACCESS_TOKEN,
+        ENV_STAGING_ALLOWED_REFS,
+        "BASELINE_VERSION",
+    }
 )
 
 
 def _load_env(target: str | None = None) -> None:
-    """Carrega .env/.env.local quando presentes (nunca sobrescreve vars existentes).
+    """Carrega .env/.env.local sem deixar um ambiente herdar a identidade do outro.
 
-    O .env do repositório descreve STAGING (SUPABASE_PROJECT_REF de staging e
-    BASELINE_VERSION=000). Como load_dotenv roda com override=False, o primeiro
-    arquivo a definir a variável vence — então, sem cuidado, uma execução local
-    de --target production herdaria a identidade do staging em silêncio. O
-    pior caso: se public.schema_migrations estivesse vazia, o baseline 000 do
-    staging seria aceito e marcaria 000..034 como aplicadas sem terem rodado.
-
-    Por isso, em produção SUPABASE_PROJECT_REF, BASELINE_VERSION e
-    SUPABASE_ALLOWED_PROJECT_REFS só podem vir de .env.production ou do ambiente
-    do processo (secrets/variáveis do GitHub, export explícito no shell). De .env
-    e .env.local são descartados em produção: são arquivos de desenvolvimento, e o
-    único papel deles ali é fornecer credenciais (SUPABASE_ACCESS_TOKEN).
+    Arquivos de desenvolvimento (``.env``/``.env.local``) podem fornecer apenas
+    variáveis que NÃO identificam um alvo compartilhado. Refs, allowlists e
+    baseline só vêm de ``.env.<target>`` ou do ambiente do processo (GitHub
+    Secrets/Variables, export explícito). Assim, ``--target staging`` não herda
+    a identidade de produção, e ``--target production`` não herda a de staging.
     """
     if load_dotenv is None or dotenv_values is None:
         return
     effective = (target or os.environ.get("MIGRATE_TARGET", "") or LOCAL).strip().lower()
-    production = effective == PRODUCTION
-    names = (".env.production", ".env", ".env.local") if production else (".env", ".env.local")
+    shared = effective in (STAGING, PRODUCTION)
+    target_file = f".env.{effective}" if shared else None
+    names = (target_file, ".env", ".env.local") if shared else (".env", ".env.local")
     for name in names:
         path = PROJECT_ROOT / name
         if not path.is_file():
             continue
-        if not production or name == ".env.production":
+        if not shared or name == target_file:
             load_dotenv(path, override=False)
             continue
-        blocked = _PRODUCTION_ONLY_VARS
         for key, value in dotenv_values(path).items():
-            if key in blocked or key in os.environ or value is None:
+            if key in _TARGET_ONLY_VARS or key in os.environ or value is None:
                 continue
             os.environ[key] = value
+
+
+def policy_target(args: argparse.Namespace) -> str:
+    """Target efetivo (CLI > MIGRATE_TARGET > local), sem validação."""
+    return (args.target or os.environ.get("MIGRATE_TARGET", "") or LOCAL).strip().lower()
+
+
+def _write_json_output(path: str | None, payload: dict) -> None:
+    """Escreve observabilidade estruturada SEM credenciais.
+
+    O arquivo é consumido pelo release-gate do CI. Contém apenas identificadores
+    de execução, baseline e versões de migrations — nunca token, DSN ou segredos.
+    """
+    if not path:
+        return
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _build_executor(args: argparse.Namespace, policy: TargetPolicy):
@@ -94,6 +119,15 @@ def _build_executor(args: argparse.Namespace, policy: TargetPolicy):
     ambiente (#285) só é aplicada no caminho da Management API.
     """
     dsn = args.database_url or os.environ.get("DATABASE_URL", "").strip()
+    if (dsn or args.database_url is not None) and policy.is_shared:
+        # Um DSN em staging/produção bypassaria allowlist, token isolado e
+        # confirmação de identidade do projeto. Fail-closed.
+        print(
+            f"[migrate] ERRO: --database-url/DATABASE_URL é proibido com "
+            f"--target {policy.target}; use a credencial isolada da Management API.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     if dsn or args.database_url is not None:
         from migrate.pg import PostgresExecutor, SqlExecutionError
 
@@ -106,7 +140,12 @@ def _build_executor(args: argparse.Namespace, policy: TargetPolicy):
     # Management API: valida o DESTINO antes de existir qualquer cliente HTTP.
     # Uma configuração errada (secret trocado, .env apontando para outro
     # projeto) aborta aqui, sem uma única requisição ao Supabase.
-    project_ref = os.environ.get("SUPABASE_PROJECT_REF", "")
+    # As variáveis de ref e token são escolhidas pela política do target:
+    # staging nunca lê SUPABASE_ACCESS_TOKEN e produção nunca lê
+    # SUPABASE_STAGING_ACCESS_TOKEN.
+    project_ref_env_var, access_token_env_var = policy.credential_vars()
+    project_ref = os.environ.get(project_ref_env_var, "")
+    access_token = os.environ.get(access_token_env_var, "")
     try:
         validate_project_ref(project_ref, policy)
     except TargetEnvironmentError as exc:
@@ -117,16 +156,19 @@ def _build_executor(args: argparse.Namespace, policy: TargetPolicy):
     if warning:
         print(f"[migrate] AVISO: {warning}", file=sys.stderr)
 
-    api = ManagementAPI(access_token=None, project_ref=project_ref)
+    api = ManagementAPI(
+        access_token=access_token,
+        project_ref=project_ref,
+        access_token_env_var=access_token_env_var,
+        project_ref_env_var=project_ref_env_var,
+    )
     # Valida configuração antes de qualquer chamada (falha cedo e clara).
     try:
-        # acessa atributos para forçar a validação de variáveis ausentes
         _ = api._headers()
-    except ApiError as exc:
-        print(f"[migrate] ERRO: {exc}", file=sys.stderr)
+    except ApiError:
         print(
-            "[migrate] Configure SUPABASE_ACCESS_TOKEN e SUPABASE_PROJECT_REF "
-            "(GitHub Secrets ou .env.local), ou passe --database-url para "
+            f"[migrate] Configure {access_token_env_var} e {project_ref_env_var} "
+            "(GitHub Secrets ou .env.<target>), ou passe --database-url para "
             "executar num PostgreSQL efêmero.",
             file=sys.stderr,
         )
@@ -170,12 +212,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--target",
-        choices=[LOCAL, PRODUCTION],
+        choices=[LOCAL, STAGING, PRODUCTION],
         default=None,
         help=(
-            "Ambiente de destino. 'production' e fail-closed: exige "
-            "SUPABASE_ALLOWED_PROJECT_REFS e BASELINE_VERSION. Default: "
-            "variavel MIGRATE_TARGET, ou 'local'."
+            "Ambiente de destino. 'staging' exige allowlist e credenciais "
+            "proprias; 'production' exige allowlist, credenciais proprias e "
+            "BASELINE_VERSION. Default: MIGRATE_TARGET, ou 'local'."
         ),
     )
     parser.add_argument(
@@ -187,6 +229,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--allowed-project-refs-staging",
+        default=None,
+        help=(
+            f"Allowlist de {ENV_STAGING_PROJECT_REF} separada por virgula. "
+            f"Default: variavel {ENV_STAGING_ALLOWED_REFS}."
+        ),
+    )
+    parser.add_argument(
         "--require-baseline",
         dest="require_baseline",
         action="store_true",
@@ -194,7 +244,15 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Falha se BASELINE_VERSION nao resolver, em vez de cair no baseline "
             "implicito (que seria um no-op reportando sucesso). Implicito em "
-            "--target production."
+            "staging e production."
+        ),
+    )
+    parser.add_argument(
+        "--json-output",
+        default=None,
+        help=(
+            "Arquivo JSON de observabilidade (sem segredos) com baseline, "
+            "pendentes e aplicadas; usado pelo release-gate do CI."
         ),
     )
     args = parser.parse_args(argv)
@@ -204,18 +262,28 @@ def main(argv: list[str] | None = None) -> int:
     try:
         policy = resolve_policy(
             target=args.target,
-            allowed_refs=args.allowed_project_refs,
+            allowed_refs=(
+                args.allowed_project_refs_staging
+                if policy_target(args) == STAGING
+                else args.allowed_project_refs
+            ),
             require_baseline=args.require_baseline,
         )
     except TargetEnvironmentError as exc:
         print(f"[migrate] ERRO: {exc}", file=sys.stderr)
         return 2
 
-    migrations_dir = Path(args.migrations_dir)
-
-    api = _build_executor(args, policy)
-
     from_scratch = args.from_scratch or os.environ.get("MIGRATE_FROM_SCRATCH", "") == "1"
+    if from_scratch and policy.is_shared:
+        print(
+            "[migrate] ERRO: --from-scratch e proibido em staging/producao "
+            "(banco persistente). Use apenas em PostgreSQL efemero/local.",
+            file=sys.stderr,
+        )
+        return 2
+
+    migrations_dir = Path(args.migrations_dir)
+    api = _build_executor(args, policy)
     try:
         result = run(
             migrations_dir,
@@ -243,10 +311,36 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    payload = {
+        "status": "success",
+        "target": policy.target,
+        "dry_run": bool(args.dry_run),
+        "from_scratch": bool(from_scratch),
+        "baseline": result.baseline,
+        "baseline_source": result.baseline_source,
+        "db_baseline": result.db_baseline,
+        "env_baseline": result.env_baseline,
+        "schema_migrations_exists": result.schema_migrations_exists,
+        "pending": result.pending,
+        "applied": result.applied,
+        "already_applied_count": len(result.already_applied),
+        "api_call_count": result.api_call_count,
+    }
+    _write_json_output(args.json_output, payload)
+
+    # Observabilidade textual (#476): origem do baseline e histórico ficam
+    # explícitos no log. Nenhum token/DSN/ref de credencial é impresso.
     print(f"[migrate] alvo: {policy.describe()}")
-    print(f"[migrate] baseline: {result.baseline or '(nenhum)'}")
+    print(f"[migrate] baseline configurada (secret): {result.env_baseline or '(nenhuma)'}")
+    print(f"[migrate] baseline registrada no banco: {result.db_baseline or '(nenhuma)'}")
+    print(
+        "[migrate] tabela schema_migrations existe: "
+        f"{'sim' if result.schema_migrations_exists else 'nao'}"
+    )
+    print(f"[migrate] origem do baseline utilizado: {result.baseline_source}")
+    print(f"[migrate] baseline efetivo: {result.baseline or '(nenhum)'}")
+    print(f"[migrate] pendentes: {result.pending or 'nenhuma'}")
     if args.dry_run:
-        print(f"[migrate] (dry-run) pendentes: {result.pending or 'nenhuma'}")
         print(f"[migrate] (dry-run) já aplicadas/atrasadas: {len(result.already_applied)}")
         return 0
 

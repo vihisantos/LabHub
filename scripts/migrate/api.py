@@ -2,8 +2,10 @@
 
 Usado SO para executar SQL arbitrário (DDL) no Postgres do projeto, exatamente
 como os scripts manuais do repositório fazem. Preferimos a Management API com
-``SUPABASE_ACCESS_TOKEN`` (PAT/secret de curta duração) ao invés da service role
-key de longa duração — mais seguro em CI/GitHub Actions.
+um PAT de curta duração ao invés da service role key de longa duração — mais
+seguro em CI/GitHub Actions. O nome da variável do token é escolhido pela
+política do alvo: ``SUPABASE_STAGING_ACCESS_TOKEN`` em staging e
+``SUPABASE_ACCESS_TOKEN`` em produção; nunca são misturados.
 
 Endpoint (visto em uso manual neste repositório):
     POST https://api.supabase.com/v1/projects/{ref}/database/query
@@ -57,18 +59,25 @@ class ManagementAPI:
     """Wrapper fino da Management API para o endpoint de query SQL."""
 
     def __init__(self, *, access_token: str | None = None, project_ref: str | None = None,
-                 post: HttpPost | None = None):
+                 post: HttpPost | None = None,
+                 access_token_env_var: str = "SUPABASE_ACCESS_TOKEN",
+                 project_ref_env_var: str = "SUPABASE_PROJECT_REF"):
+        # Os nomes das variáveis servem apenas para mensagens de erro. Os
+        # valores são sempre escolhidos pela política do target no CLI: staging
+        # nunca lê a credencial de produção, e produção nunca lê a de staging.
         env = os.environ
-        self.access_token = access_token if access_token is not None else env.get("SUPABASE_ACCESS_TOKEN", "")
-        self.project_ref = project_ref if project_ref is not None else env.get("SUPABASE_PROJECT_REF", "")
+        self.access_token_env_var = access_token_env_var
+        self.project_ref_env_var = project_ref_env_var
+        self.access_token = access_token if access_token is not None else env.get(access_token_env_var, "")
+        self.project_ref = project_ref if project_ref is not None else env.get(project_ref_env_var, "")
         # ``post`` injetável: default usa requests.post. Nunca imprimimos o token.
         self._post = post if post is not None else requests.post
 
     def _headers(self) -> dict[str, str]:
         if not self.access_token:
-            raise ApiError(None, "SUPABASE_ACCESS_TOKEN não configurado")
+            raise ApiError(None, f"{self.access_token_env_var} não configurado")
         if not self.project_ref:
-            raise ApiError(None, "SUPABASE_PROJECT_REF não configurado")
+            raise ApiError(None, f"{self.project_ref_env_var} não configurado")
         return {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",

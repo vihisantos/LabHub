@@ -80,8 +80,9 @@ class AppliedIdentityError(MigrationError):
 class BaselineConfigurationError(MigrationError):
     """``BASELINE_VERSION`` obrigatório ausente ou inválido.
 
-    Levantada apenas quando o baseline é exigido (``require_baseline=True``),
-    isto é, no caminho de produção. Ver :func:`migrate.runner.run`.
+    Levantada quando o baseline é exigido (``require_baseline=True``), isto é,
+    nos ambientes compartilhados (staging e produção), e também quando o
+    histórico registrado está corrompido. Ver :func:`migrate.runner.run`.
     """
 
 

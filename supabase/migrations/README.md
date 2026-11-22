@@ -135,7 +135,8 @@ São 12 migrations com esse par (`000`, `029`, `030`, `032`, `034`, `038`, `039`
 ### Validação em CI (PR) — nunca toca DEV/PROD
 
 `.github/workflows/migrations.yml` roda em Pull Request (path-filtered) e cria um
-**PostgreSQL 16 descartável** (`services: postgres`) no próprio job:
+**PostgreSQL 17 descartável** (`services: postgres`) no próprio job — a mesma
+versão do Supabase, para exercitar inclusive o privilégio `MAINTAIN`:
 
 1. roda a suíte unitária do runner (`scripts/tests/test_migrations.py`, mocks);
 2. roda o teste estático da migration 039 de TV;

@@ -1,44 +1,35 @@
-"""Política do ambiente de destino do migration runner (#285).
+"""Política do ambiente de destino do migration runner (#285, CI/CD 2026).
 
 Motivo
 ------
-Até aqui, ``SUPABASE_PROJECT_REF`` ia direto para a URL da Management API. Trocar
-o valor do secret — ou um ``.env`` local apontando para o projeto errado — levava
-o runner a aplicar DDL no banco errado, com sucesso e sem aviso. A Management API
-responde 200 para um projeto válido que não é o nosso: não existe sinal de erro.
+``SUPABASE_PROJECT_REF`` ia direto para a URL da Management API. Trocar o valor do
+secret — ou um ``.env`` local apontando para o projeto errado — levava o runner a
+aplicar DDL no banco errado, com sucesso e sem aviso. A Management API responde
+200 para um projeto válido que não é o nosso: não existe sinal de erro.
 
-Este módulo é a barreira *antes* do primeiro request. Ele não conhece rede nem
+Este módulo é a barreira *antes* do primeiro request. Não conhece rede nem lê
 segredos: valida configuração pura e testável.
 
-Dois eixos, independentes:
+Três eixos, independentes:
 
 ``target``
-    ``local`` (default) — execução de desenvolvimento, CI efêmero, testes. Não
-    exige nada além do que já era exigido.
-    ``production`` — habilita as travas: ``BASELINE_VERSION`` obrigatório e
-    ``SUPABASE_PROJECT_REF`` obrigado a constar na allowlist.
+    ``local`` — desenvolvimento, CI efêmero e testes. Sem restrições.
+    ``staging`` — exige allowlist, credenciais **próprias** de staging e
+    baseline/histórico verificável (nunca ``--from-scratch``).
+    ``production`` — exige allowlist, credenciais **próprias** de produção e
+    baseline/histórico verificável.
 
-``SUPABASE_ALLOWED_PROJECT_REFS``
-    Allowlist separada, separada do valor efetivo. É ela que dá sentido à
-    checagem: comparar o ref *com ele mesmo* não validaria nada.
+Allowlist
+    Cada ambiente tem a sua (``SUPABASE_STAGING_ALLOWED_PROJECT_REFS`` e
+    ``SUPABASE_ALLOWED_PROJECT_REFS``). São variáveis de repositório, não
+    secrets: um project ref não é credencial. Sem ela o runner aborta antes de
+    qualquer chamada de rede.
 
-A allowlist é obrigatória em produção
-------------------------------------
-Sem ela, o único guardio contra um secret trocado seria o formato do ref
-(20 caracteres minúsculos) — que um projeto válido e errado também satisfaz.
-Exigir a configuração explícita é a diferença entre detectar a configuração
-errada no primeiro request e descobrir que o DDL foi para o banco errado depois.
-O custo é a primeira execução de produção recusar até alguém declarar o destino;
-aceitamos esse custo, porque o modo anterior só empurrava a falha para mais
-tarde, já com escrita em andamento.
-
-A allowlist **não** é uma secret nova: é uma variável de repositório
-(``vars.SUPABASE_ALLOWED_PROJECT_REFS``), porque um project ref não é
-credencial. Faltando ela, a mensagem de erro diz exatamente o que criar.
-
-Este módulo não toca o executor genérico de propósito: o PostgreSQL efêmero do
-CI passa por ``PostgresExecutor``/``DATABASE_URL`` e nunca é afetado por uma
-restrição de produção.
+Credenciais isoladas
+    ``SUPABASE_STAGING_ACCESS_TOKEN`` só pode ser usada com ``--target staging``;
+    ``SUPABASE_ACCESS_TOKEN`` só com ``--target production``. O runner escolhe a
+    variável pela política e nunca mistura os dois ambientes. Mensagens de erro
+    dizem *qual regra* quebrou, nunca o valor do ref ou do token.
 """
 from __future__ import annotations
 
@@ -49,24 +40,38 @@ from dataclasses import dataclass
 from .core import MigrationError
 
 LOCAL = "local"
+STAGING = "staging"
 PRODUCTION = "production"
+_TARGETS = (LOCAL, STAGING, PRODUCTION)
 
-# Formato canônico de um project ref da Supabase: 20 caracteres alfanuméricos
-# minúsculos. Validar o formato pega placeholder, URL colada por engano e
-# string de configuração errada — antes de qualquer chamada de rede.
+# Formato canônico de project ref da Supabase: 20 caracteres alfanuméricos
+# minúsculos. Valida o formato antes de qualquer chamada de rede.
 _PROJECT_REF_RE = re.compile(r"^[a-z0-9]{20}$")
 
 ENV_TARGET = "MIGRATE_TARGET"
 ENV_ALLOWED_REFS = "SUPABASE_ALLOWED_PROJECT_REFS"
+ENV_ACCESS_TOKEN = "SUPABASE_ACCESS_TOKEN"
 ENV_BASELINE = "BASELINE_VERSION"
+ENV_STAGING_PROJECT_REF = "SUPABASE_STAGING_PROJECT_REF"
+ENV_STAGING_ACCESS_TOKEN = "SUPABASE_STAGING_ACCESS_TOKEN"
+ENV_STAGING_ALLOWED_REFS = "SUPABASE_STAGING_ALLOWED_PROJECT_REFS"
+
+# Nomes canônicos por target. A separação é o que impede uma credencial de
+# produção de ser usada no staging (e vice-versa).
+_PRODUCTION_VARS = (
+    "SUPABASE_PROJECT_REF",
+    ENV_ACCESS_TOKEN,
+    ENV_ALLOWED_REFS,
+)
+_STAGING_VARS = (
+    ENV_STAGING_PROJECT_REF,
+    ENV_STAGING_ACCESS_TOKEN,
+    ENV_STAGING_ALLOWED_REFS,
+)
 
 
 class TargetEnvironmentError(MigrationError):
-    """Ambiente de destino desconhecido ou ``SUPABASE_PROJECT_REF`` inválido.
-
-    Mensagens nunca incluem o valor do ref nem qualquer token: o erro diz *que*
-    regra quebrou, não o segredo.
-    """
+    """Ambiente desconhecido, allowlist ausente ou project ref inválido."""
 
 
 @dataclass(frozen=True)
@@ -77,25 +82,48 @@ class TargetPolicy:
     require_baseline: bool = False
     allowed_project_refs: tuple[str, ...] = ()
     enforce_allowlist: bool = False
+    project_ref_env_var: str = ""
+    access_token_env_var: str = ""
+    allowed_refs_env_var: str = ""
+
+    @property
+    def is_staging(self) -> bool:
+        return self.target == STAGING
 
     @property
     def is_production(self) -> bool:
         return self.target == PRODUCTION
 
+    @property
+    def is_shared(self) -> bool:
+        """True quando o destino é um banco compartilhado (não efêmero)."""
+        return self.is_staging or self.is_production
+
     def describe(self) -> str:
         refs = ",".join(self.allowed_project_refs) if self.allowed_project_refs else "(nao configurada)"
-        return f"target={self.target} require_baseline={self.require_baseline} allowlist={refs}"
+        return (
+            f"target={self.target} require_baseline={self.require_baseline} "
+            f"allowlist={refs} token_env={self.access_token_env_var or '(none)'}"
+        )
+
+    def credential_vars(self) -> tuple[str, str]:
+        """Nomes das variáveis de ref/token que esta política autoriza."""
+        return self.project_ref_env_var, self.access_token_env_var
 
 
 def parse_allowed_refs(raw: str | None) -> tuple[str, ...]:
-    """Parseia a allowlist: lista separada por vírgula, espaços ignorados.
-
-    Entrada vazia/none = allowlist não configurada (não é lista vazia por engano).
-    """
+    """Parseia a allowlist separada por vírgula; espaços são ignorados."""
     if not raw:
         return ()
-    parts = [p.strip() for p in raw.split(",")]
-    return tuple(p for p in parts if p)
+    return tuple(p for p in (part.strip() for part in raw.split(",")) if p)
+
+
+def _vars_for(target: str) -> tuple[str, str, str]:
+    if target == STAGING:
+        return _STAGING_VARS
+    if target == PRODUCTION:
+        return _PRODUCTION_VARS
+    return ("", "", "")
 
 
 def resolve_policy(
@@ -112,13 +140,17 @@ def resolve_policy(
     source = os.environ if env is None else env
 
     resolved_target = (target or source.get(ENV_TARGET, "") or LOCAL).strip().lower()
-    if resolved_target not in (LOCAL, PRODUCTION):
+    if resolved_target not in _TARGETS:
         raise TargetEnvironmentError(
             f"ambiente de destino desconhecido: {resolved_target!r}. "
-            f"use '{LOCAL}' ou '{PRODUCTION}'."
+            f"use '{LOCAL}', '{STAGING}' ou '{PRODUCTION}'."
         )
 
-    raw_refs = allowed_refs if allowed_refs is not None else source.get(ENV_ALLOWED_REFS)
+    project_ref_env_var, access_token_env_var, allowed_refs_env_var = _vars_for(resolved_target)
+
+    raw_refs = allowed_refs if allowed_refs is not None else (
+        source.get(allowed_refs_env_var) if allowed_refs_env_var else None
+    )
     refs = parse_allowed_refs(raw_refs)
 
     if require_baseline is not None:
@@ -126,98 +158,95 @@ def resolve_policy(
     elif source.get("MIGRATE_REQUIRE_BASELINE", "").strip() in ("1", "true", "yes"):
         baseline_required = True
     else:
-        # Produção exige baseline por definição; local preserva o comportamento
-        # histórico (fallback implícito) para não quebrar o uso de desenvolvimento.
-        baseline_required = resolved_target == PRODUCTION
+        # Ambientes compartilhados (staging e produção) exigem baseline
+        # explícito ou histórico registrado. O fallback implícito (maior versão
+        # do repositório) é um no-op silencioso em um banco vazio: em staging
+        # ele já reaplicou 108 migrations por engano em #483, e em produção
+        # congelaria o schema sem sinal. Local/CI efêmero mantém o fallback.
+        baseline_required = resolved_target in (STAGING, PRODUCTION)
 
-    # Fail-closed do destino (#285). Em produção a allowlist é OBRIGATÓRIA:
-    # sem ela, o único guardio contra um secret trocado seria o formato do ref
-    # (20 chars minúsculos), que um valor de outro projeto também satisfaz. O
-    # modo anterior — "exigir allowlist só se estiver configurada" — deixava
-    # `--target production` funcionando com destino não verificável, e a falha
-    # só apareceria tarde, já com DDL em andamento.
-    #
-    # A allowlist NÃO é um secret novo: é uma variável de repositório
-    # (`SUPABASE_ALLOWED_PROJECT_REFS`), pois um project ref não é credencial.
-    # Se ela faltar, a execução aborta dizendo o que criar.
-    if resolved_target == PRODUCTION and not refs:
+    # Fail-closed de destino: um banco compartilhado sem allowlist não tem como
+    # provar que o ref aponta para o projeto correto.
+    if resolved_target in (STAGING, PRODUCTION) and not refs:
         raise TargetEnvironmentError(
-            f"target=production exige {ENV_ALLOWED_REFS} configurada (a "
-            "configuracao explicita do destino). Sem ela nao ha como provar que "
-            "SUPABASE_PROJECT_REF aponta para o projeto de producao, entao a "
-            f"execucao aborta. Configure a variavel de repositorio {ENV_ALLOWED_REFS} "
-            f"(ou passe --allowed-project-refs), e tambem o secret {ENV_BASELINE}."
+            f"target={resolved_target} exige {allowed_refs_env_var} configurada "
+            "(a configuração explícita do destino). Sem ela não há como provar "
+            "que o project ref aponta para o projeto correto; a execução aborta "
+            "antes de qualquer requisição."
         )
 
     return TargetPolicy(
         target=resolved_target,
         require_baseline=baseline_required,
         allowed_project_refs=refs,
-        # Só há enforcement em produção; em local a allowlist é informativa.
-        enforce_allowlist=resolved_target == PRODUCTION,
+        enforce_allowlist=resolved_target in (STAGING, PRODUCTION),
+        project_ref_env_var=project_ref_env_var,
+        access_token_env_var=access_token_env_var,
+        allowed_refs_env_var=allowed_refs_env_var,
     )
 
 
 def validate_project_ref(project_ref: str, policy: TargetPolicy) -> None:
-    """Valida ``SUPABASE_PROJECT_REF`` contra a política. Levanta em caso de falha.
+    """Valida o project ref contra a política. Levanta em caso de falha.
 
-    Chamado por ``scripts/migrate.py`` ANTES de construir o cliente HTTP — a
-    garantia de "nenhum request em produção com destino desconhecido" mora aqui.
+    Chamado antes de construir o cliente HTTP: nenhum request em ambiente
+    compartilhado com destino desconhecido.
     """
     ref = (project_ref or "").strip()
     if not ref:
         raise TargetEnvironmentError(
-            "SUPABASE_PROJECT_REF nao configurado; nenhuma requisicao foi feita."
+            f"{policy.project_ref_env_var or 'SUPABASE_PROJECT_REF'} não configurado; "
+            "nenhuma requisição foi feita."
         )
 
     if not _PROJECT_REF_RE.match(ref):
         raise TargetEnvironmentError(
-            "SUPABASE_PROJECT_REF em formato invalido (esperado 20 caracteres "
-            "alfanumericos minusculos); nenhuma requisicao foi feita."
+            "project ref em formato inválido (esperado 20 caracteres alfanuméricos "
+            "minúsculos); nenhuma requisição foi feita."
         )
 
     if policy.enforce_allowlist and ref not in policy.allowed_project_refs:
-        # Não ecoa o ref: a mensagem precisa dizer que houve divergência, não
-        # facilitar a leitura de um valor possivelmente disparado por engano.
+        # Não ecoa o valor: a mensagem diz que houve divergência, não qual ref.
         raise TargetEnvironmentError(
-            "SUPABASE_PROJECT_REF nao consta em SUPABASE_ALLOWED_PROJECT_REFS "
+            f"project ref não consta em {policy.allowed_refs_env_var} "
             f"({len(policy.allowed_project_refs)} entrada(s) configurada(s)); "
-            "execucao abortada antes de qualquer requisicao."
+            "execução abortada antes de qualquer requisição."
         )
 
 
 def warn_unenforced_allowlist(policy: TargetPolicy) -> str | None:
-    """Mensagem de advertência quando a allowlist existe mas o alvo não é produção.
-
-    Existe para o log de produção dizer explicitamente que a checagem de destino
-    está em modo parcial, em vez de dar a impressão de uma garantia completa.
-    """
-    if not policy.allowed_project_refs or policy.is_production:
+    """Aviso quando há allowlist configurada mas o alvo não é compartilhado."""
+    if not policy.allowed_project_refs or policy.is_shared:
         return None
     return (
-        f"{ENV_ALLOWED_REFS} esta configurada mas o alvo e '{policy.target}'; "
-        "a allowlist so e exigida em target=production."
+        f"{ENV_ALLOWED_REFS} está configurada mas o alvo é '{policy.target}'; "
+        "a allowlist só é exigida em staging e produção."
     )
 
 
 def missing_baseline_message(policy: TargetPolicy) -> str:
     """Mensagem de fail-closed do baseline. Não revela nenhum valor."""
     return (
-        "BASELINE_VERSION nao configurado para execucao de producao. "
-        "Sem ele o runner cairia no baseline implicito (maior versao do "
-        "repositorio) e nao aplicaria NADA, reportando sucesso — um schema "
-        "que para de evoluir sem ninguem notar. Execucao abortada por seguranca. "
-        f"Configure o secret {ENV_BASELINE} com a versao cuja aplicacao ja "
-        f"esta garantida no banco. Contexto: {policy.describe()}"
+        f"BASELINE_VERSION não configurado para execução de {policy.target}. Sem ele o "
+        "runner cairia no baseline implícito (maior versão do repositório) e não "
+        "aplicaria NADA, reportando sucesso — um schema que para de evoluir sem "
+        "ninguém notar. Execução abortada por segurança. Configure o secret "
+        f"{ENV_BASELINE} com a versão cuja aplicação já está garantida no banco. "
+        f"Contexto: {policy.describe()}"
     )
 
 
 __all__ = [
     "LOCAL",
+    "STAGING",
     "PRODUCTION",
-    "ENV_ALLOWED_REFS",
-    "ENV_BASELINE",
     "ENV_TARGET",
+    "ENV_ALLOWED_REFS",
+    "ENV_ACCESS_TOKEN",
+    "ENV_BASELINE",
+    "ENV_STAGING_PROJECT_REF",
+    "ENV_STAGING_ACCESS_TOKEN",
+    "ENV_STAGING_ALLOWED_REFS",
     "TargetEnvironmentError",
     "TargetPolicy",
     "missing_baseline_message",
