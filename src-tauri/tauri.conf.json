@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0",
+  "productName": "LabHub TV",
+  "version": "2.4.0",
+  "identifier": "br.com.labhub.tv",
+  "build": {
+    "beforeDevCommand": "npm run build:desktop:renderer",
+    "beforeBuildCommand": "npm run build:desktop:renderer",
+    "frontendDist": "../desktop/renderer"
+  },
+  "app": {
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**",
+          "G:\\**",
+          "C:\\**",
+          "D:\\**",
+          "E:\\**"
+        ]
+      }
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "LabHub TV",
+        "url": "desktop.html",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 400,
+        "minHeight": 300,
+        "maxWidth": 1920,
+        "maxHeight": 1080,
+        "resizable": true,
+        "decorations": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "center": true,
+        "visible": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Vihisantos",
+    "copyright": "© 2026 Vihisantos",
+    "icon": [
+      "icons/icon.ico",
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/384x384.png",
+      "icons/1024x1024.png"
+    ],
+    "windows": {
+      "nsis": {
+        "template": "windows/installer.nsi",
+        "installerHooks": "windows/nsis-hooks.nsh",
+        "headerImage": "windows/assets/header.bmp",
+        "sidebarImage": "windows/assets/sidebar-200.bmp",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "uninstallerHeaderImage": "windows/assets/header.bmp",
+        "installMode": "currentUser",
+        "languages": ["PortugueseBR"],
+        "customLanguageFiles": {
+          "PortugueseBR": "windows/languages/PortugueseBR.nsh"
+        }
+      }
+    }
+  }
+}

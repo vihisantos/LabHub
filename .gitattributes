@@ -1,0 +1,4 @@
+# O template NSIS premium  mantido com CRLF ( hash SHA-256 publicado);
+# CR no fim da linha nao deve ser tratado como trailing whitespace.
+*.nsi whitespace=cr-at-eol
+*.nsh whitespace=cr-at-eol
