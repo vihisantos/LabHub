@@ -1,38 +1,55 @@
 name: Migrations
 
-# Cadeia ÚNICA de migrations (Issue #285).
+# Pipeline automático de migrations (Issue #285 + consolidação #476/#477/#478/#483).
 #
-#   PR   -> validate  (PostgreSQL 16 efêmero, NUNCA toca em DEV/PROD)
-#   main -> validate  -> migrate (produção, via Supabase Management API)
+# PR ──> validate (PostgreSQL 17 efêmero; NUNCA toca staging/produção)
+# main ─> validate ─> stage-migrations ─> release-gate ─> production
 #
-# A aplicação em produção depende (`needs: validate`) da validação efêmera
-# ter passado: se a cadeia de migrations não aplica em um banco descartável,
-# ela não é submetida ao banco real.
+# Não existe workflow_dispatch, aprovação manual, input de confirmação nem
+# environment com revisores. O merge na main inicia a entrega sozinho.
+# Produção só roda depois que release-gate prova que o artifact de staging
+# pertence ao MESMO commit e ao MESMO run_id, com todas as etapas obrigatórias
+# verde, e que não existe run mais novo na branch. Imediatamente antes do apply
+# em produção, um último guarda repete a checagem e confirma na API do GitHub
+# que o HEAD da main ainda é exatamente o commit atestado (fail-closed).
 #
-# Segredos e variáveis (Settings -> Secrets and variables -> Actions):
-#   secrets.SUPABASE_PROJECT_REF   -> project ref de produção
-#   secrets.SUPABASE_ACCESS_TOKEN  -> PAT da Supabase (escopo de Management API)
-#   secrets.BASELINE_VERSION       -> versão cuja aplicação JÁ está garantida no
-#                                     banco. Obrigatória em produção: sem ela o
-#                                     runner aborta em vez de cair no baseline
-#                                     implícito (que seria um no-op reportando
-#                                     sucesso e congelaria o schema em silêncio).
-#   vars.SUPABASE_ALLOWED_PROJECT_REFS -> allowlist de destinos, separada por
-#                                     vírgula. variável de REPOSITÓRIO, não
-#                                     secret: um project ref não é credencial.
-#                                     Sem ela o runner aborta em produção —
-#                                     é o que impede aplicar em projeto errado.
+# PUSH NA MAIN SEM FILTRO DE PATHS: qualquer merge na main inicia o pipeline,
+# mesmo que toque apenas arquivos fora de supabase/migrations e scripts. Isso
+# é necessário porque o guarda de pré-apply exige HEAD == commit atestado: se
+# um push posterior não disparasse o workflow, as migrations pendentes ficariam
+# sem executora. Cada execução aplica SOMENTE o que está pendente (nunca
+# --from-scratch), então não há reaplicação nem DDL redundante; o group
+# "migrations-delivery" com cancel-in-progress: false serializa a fila.
+#
+# Identidade de workflow: a checagem de run obsoleto usa apenas execuções do
+# path canônico .github/workflows/migrations.yml. Outros workflows no mesmo
+# commit (CI, CodeQL, Vercel) não bloqueiam a promoção.
+#
+# Destinos esperados (verificados no código, de forma independente da allowlist):
+#   staging    = pgmetdqsdjotdcifjivu
+#   production = hvqxantwqwarqhymnyqb
+# Se secret e allowlist forem alterados juntos para outro projeto, o
+# target_guard aborta antes de qualquer requisição. Nenhum valor é impresso.
+#
+# Credenciais isoladas (GitHub Secrets/Variables do repositório):
+#   staging:
+#     secrets.SUPABASE_STAGING_PROJECT_REF
+#     secrets.SUPABASE_STAGING_ACCESS_TOKEN
+#     vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS
+#   production:
+#     secrets.SUPABASE_PROJECT_REF
+#     secrets.SUPABASE_ACCESS_TOKEN
+#     secrets.BASELINE_VERSION
+#     vars.SUPABASE_ALLOWED_PROJECT_REFS
+#
+# O runner escolhe ref/token pela política do --target: staging nunca lê
+# SUPABASE_ACCESS_TOKEN, produção nunca lê SUPABASE_STAGING_ACCESS_TOKEN.
 
 on:
   push:
     branches: [main]
-    paths:
-      - "supabase/migrations/**"
-      - "scripts/migrate.py"
-      - "scripts/migrate/**"
-      - "scripts/ci/**"
-      - "scripts/tests/**"
-      - ".github/workflows/migrations.yml"
+    # Sem filtro de paths: todo push na main precisa de uma execução para
+    # satisfazer a checagem HEAD == commit atestado e retomar pendências.
   pull_request:
     branches: [main]
     paths:
@@ -42,26 +59,26 @@ on:
       - "scripts/ci/**"
       - "scripts/tests/**"
       - ".github/workflows/migrations.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
-  # 1) validate — sempre, em PR e em main. Banco descartável, zero DEV/PROD.
+  # 1) validate — PR e main. Banco PostgreSQL 17 descartável, zero compartilhado.
   # ─────────────────────────────────────────────────────────────────────────
   validate:
-    name: Validate migrations against ephemeral PostgreSQL
+    name: Validate on disposable PostgreSQL 17
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # Cancela execuções antigas do MESMO ref: uma validação nova torna obsoleta
-    # a anterior. Só aqui cancelamos; produção nunca cancela (ver migrate).
+    timeout-minutes: 30
     concurrency:
       group: migrations-validate-${{ github.ref }}
       cancel-in-progress: true
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -78,43 +95,64 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Install Python deps
-        run: pip install requests python-dotenv pytest "psycopg[binary]"
-      - name: Unit tests do runner (mocks, sem banco)
+
+      - name: Install validation dependencies
+        run: pip install requests python-dotenv pytest "psycopg[binary]" pyyaml
+
+      - name: Lint Python and YAML syntax
+        run: python -m compileall -q scripts/migrate.py scripts/migrate scripts/ci
+
+      - name: Security checks (workflow isolation and destructive guards)
         working-directory: scripts
-        run: python -m pytest tests/test_migrations.py -q
+        run: >-
+          python -m pytest
+          tests/test_ci_cd_pipeline.py
+          tests/test_workflow_security.py
+          tests/test_release_gate_concurrency.py -q
+
+      - name: Migration validation (runner unit tests)
+        working-directory: scripts
+        run: python -m pytest tests/test_migrations.py tests/test_notification_scheduling.py tests/test_schema_migrations_lockdown.py -q
+
       - name: Static TV station migration test (039)
         run: python -m pytest api/tests/test_tv_station_migration.py -q
-      - name: Runner CLI --dry-run é read-only (migrations de exemplo)
+
+      - name: Dry-run read-only on disposable database
         working-directory: scripts
         run: python ci/ci_dry_run_smoke.py
-      - name: Suite de migrations em PostgreSQL efêmero
+
+      - name: Destructive/incompatible change analysis
+        working-directory: scripts
+        run: >-
+          python ci/analyze_migrations.py
+          --base-sha ${{ github.event.pull_request.base.sha || github.event.before }}
+          --head-sha ${{ github.sha }}
+
+      - name: Compatibility and integration checks (Supabase PostgreSQL 17)
         working-directory: scripts
         run: python ci/ci_migration_suite.py
-      - name: Valida lockdown de schema_migrations (migration 102)
-        working-directory: scripts
-        run: python -m pytest tests/test_schema_migrations_lockdown.py -q
+
+      - name: Report failing validation stage
+        if: failure()
+        run: echo "failing_stage=validate target=disposable commit=$GITHUB_SHA"
 
   # ─────────────────────────────────────────────────────────────────────────
-  # 2) migrate — só após validate verde, e só fora de PR.
+  # 2) stage-migrations — somente push na main, após validate.
   # ─────────────────────────────────────────────────────────────────────────
-  migrate:
-    name: Apply pending migrations
+  stage-migrations:
+    name: Stage migrations (dry-run, apply, integration, health)
     needs: validate
-    # Em PR não há como (e não deve) tocar em produção.
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # Habilita as protection rules do GitHub Environment (revisão/aprovação
-    # manual opcional) e registra a aplicação no log do environment.
-    environment: production
-    # Serializa as aplicações. `cancel-in-progress: false` é obrigatório: duas
-    # aplicações concorrentes em produção competem pelo advisory lock e a que for
-    # cancelada no meio deixa o estado sem registro.
+    timeout-minutes: 45
     concurrency:
-      group: migrations-apply-production
+      group: migrations-delivery
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
@@ -122,23 +160,347 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: "pip"
 
-      - name: Install minimal dependencies
+      - name: Install staging dependencies
         run: pip install requests python-dotenv
 
-      - name: Dry-run em produção (read-only, fail-closed)
-        env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
-          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
-        run: python scripts/migrate.py --target production --dry-run
+      - name: Mark stage start
+        run: |
+          echo "CURRENT_STAGE=confirm-staging-target" >> "$GITHUB_ENV"
+          echo "STAGE_START=$(date +%s)" >> "$GITHUB_ENV"
 
-      - name: Apply pending migrations
+      - name: Confirm staging target
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: python scripts/ci/target_guard.py --target staging
+
+      - name: Mark stage dry-run
+        run: echo "CURRENT_STAGE=staging-dry-run" >> "$GITHUB_ENV"
+
+      - name: Staging dry-run (read-only, fail-closed)
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: >-
+          python scripts/migrate.py --target staging --dry-run
+          --json-output "$RUNNER_TEMP/staging-dry-run.json"
+
+      - name: Mark stage baseline verification
+        run: echo "CURRENT_STAGE=staging-baseline-history" >> "$GITHUB_ENV"
+
+      - name: Verify staging baseline, history and pending
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          path = os.path.join(os.environ["RUNNER_TEMP"], "staging-dry-run.json")
+          data = json.load(open(path, encoding="utf-8"))
+          valid_sources = {"database", "applied_migrations", "env"}
+          gaps = data.get("history_gaps") or []
+          unreconciled = [gap for gap in gaps if not gap.get("reconciled")]
+          ok = (
+              data.get("status") == "success"
+              and data.get("target") == "staging"
+              and (data.get("schema_migrations_exists") or data.get("baseline_source") in valid_sources)
+              and isinstance(data.get("pending"), list)
+              and isinstance(data.get("reconciliation_plan"), list)
+              and not unreconciled
+          )
+          if not ok:
+              print("[staging-gate] BLOCK: baseline/histórico/lacunas inválidos", file=sys.stderr)
+              if unreconciled:
+                  print(
+                      "[staging-gate] lacunas sem reconciliação autorizada: "
+                      + ", ".join(str(g.get("filename")) for g in unreconciled),
+                      file=sys.stderr,
+                  )
+              sys.exit(1)
+          if gaps:
+              print(
+                  "[staging-gate] lacunas detectadas e reconciliadas: "
+                  + ", ".join(str(g.get("filename")) for g in gaps)
+              )
+          print(
+              "[staging-gate] PASS baseline="
+              f"{data.get('baseline') or '(nenhum)'} origem={data.get('baseline_source')} "
+              f"pendentes={len(data['pending'])} "
+              f"reconciliacao={data.get('reconciliation_plan') or 'nenhuma'}"
+          )
+          PY
+
+      - name: Mark stage apply
+        run: echo "CURRENT_STAGE=staging-apply" >> "$GITHUB_ENV"
+
+      - name: Apply pending migrations to Staging (pending only)
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: >-
+          python scripts/migrate.py --target staging
+          --json-output "$RUNNER_TEMP/staging-apply.json"
+
+      - name: Mark stage integration tests
+        run: echo "CURRENT_STAGE=staging-integration-tests" >> "$GITHUB_ENV"
+
+      - name: Staging integration tests
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: python scripts/ci/staging_integration_checks.py --phase integration
+
+      - name: Mark stage health checks
+        run: echo "CURRENT_STAGE=staging-health-checks" >> "$GITHUB_ENV"
+
+      - name: Staging health checks
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+        run: python scripts/ci/staging_integration_checks.py --phase health
+
+      - name: Confirm all mandatory staging steps and attest
+        env:
+          STAGING_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+        run: |
+          FINGERPRINT="$(printf '%s' "$STAGING_REF" | sha256sum | cut -c1-12)"
+          python scripts/ci/release_gate.py attest \
+            --output staging-release.json \
+            --dry-run-json "$RUNNER_TEMP/staging-dry-run.json" \
+            --apply-json "$RUNNER_TEMP/staging-apply.json" \
+            --commit-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --project-ref-fingerprint "$FINGERPRINT" \
+            --duration-seconds "$(( $(date +%s) - STAGE_START ))" \
+            --tests-passed "${{ needs.validate.result == 'success' }}" \
+            --health-passed true
+
+      - name: Upload staging release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-release-${{ github.sha }}
+          path: staging-release.json
+          retention-days: 7
+
+      - name: Report failing staging stage
+        if: failure()
+        run: echo "failing_stage=${CURRENT_STAGE:-unknown} target=staging commit=$GITHUB_SHA"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 3) release-gate — aprovação AUTOMÁTICA, vinculada ao commit e ao run.
+  # ─────────────────────────────────────────────────────────────────────────
+  release-gate:
+    name: Automatic release gate (staging -> production)
+    needs: [validate, stage-migrations]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: migrations-delivery
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install gate dependencies
+        run: pip install requests
+
+      - name: Download staging attestation
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-release-${{ github.sha }}
+          path: .artifacts
+
+      - name: Verify same commit, same run, mandatory steps and freshness
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python scripts/ci/release_gate.py verify
+          --attestation .artifacts/staging-release.json
+          --commit-sha "$GITHUB_SHA"
+          --run-id "$GITHUB_RUN_ID"
+          --repo "$GITHUB_REPOSITORY"
+          --branch main
+
+      - name: Report failing gate stage
+        if: failure()
+        run: echo "failing_stage=release-gate commit=$GITHUB_SHA"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 4) production — depende EXPLICITAMENTE do gate automático de staging.
+  # ─────────────────────────────────────────────────────────────────────────
+  production:
+    name: Apply pending migrations to Production
+    needs: release-gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: migrations-delivery
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install production dependencies
+        run: pip install requests python-dotenv
+
+      # O artifact é relido aqui (não confiamos apenas no job de gate): a
+      # barreira final roda no mesmo runner que executa o apply em produção.
+      - name: Download staging attestation for final guard
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-release-${{ github.sha }}
+          path: .artifacts
+
+      - name: Mark stage start
+        run: |
+          echo "CURRENT_STAGE=confirm-production-target" >> "$GITHUB_ENV"
+          echo "PROD_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Confirm production target
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
           SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
-        run: python scripts/migrate.py --target production
+        run: python scripts/ci/target_guard.py --target production
+
+      - name: Mark production dry-run
+        run: echo "CURRENT_STAGE=production-dry-run" >> "$GITHUB_ENV"
+
+      - name: Production dry-run (read-only, fail-closed)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
+          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
+        run: >-
+          python scripts/migrate.py --target production --dry-run
+          --json-output "$RUNNER_TEMP/production-dry-run.json"
+
+      - name: Mark production baseline verification
+        run: echo "CURRENT_STAGE=production-baseline-history" >> "$GITHUB_ENV"
+
+      - name: Verify production baseline, history and pending
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          path = os.path.join(os.environ["RUNNER_TEMP"], "production-dry-run.json")
+          data = json.load(open(path, encoding="utf-8"))
+          valid_sources = {"database", "applied_migrations", "env"}
+          gaps = data.get("history_gaps") or []
+          ok = (
+              data.get("status") == "success"
+              and data.get("target") == "production"
+              and data.get("from_scratch") is False
+              and (data.get("schema_migrations_exists") or data.get("baseline_source") in valid_sources)
+              and isinstance(data.get("pending"), list)
+              # A recuperação 113/114 é exclusiva de staging. Produção não
+              # reconcilia lacunas: qualquer uma bloqueia a promoção.
+              and not gaps
+          )
+          if not ok:
+              print("[production-gate] BLOCK: baseline/histórico/lacunas inválidos", file=sys.stderr)
+              if gaps:
+                  print(
+                      "[production-gate] lacunas não autorizadas em produção: "
+                      + ", ".join(str(g.get("filename")) for g in gaps),
+                      file=sys.stderr,
+                  )
+              sys.exit(1)
+          print(
+              "[production-gate] PASS baseline="
+              f"{data.get('baseline') or '(nenhum)'} origem={data.get('baseline_source')} "
+              f"pendentes={len(data['pending'])}"
+          )
+          PY
+
+      - name: Mark pre-apply promotion guard
+        run: echo "CURRENT_STAGE=production-preapply-guard" >> "$GITHUB_ENV"
+
+      # Fail-closed: único lugar autorizado a preceder o apply. Qualquer erro
+      # de API, commit divergente ou run mais novo aborta antes de qualquer DDL.
+      - name: Re-verify run identity and main HEAD before apply
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python scripts/ci/release_gate.py preapply
+          --attestation .artifacts/staging-release.json
+          --commit-sha "$GITHUB_SHA"
+          --run-id "$GITHUB_RUN_ID"
+          --repo "$GITHUB_REPOSITORY"
+          --branch main
+
+      - name: Mark production apply
+        run: echo "CURRENT_STAGE=production-apply" >> "$GITHUB_ENV"
+
+      - name: Apply pending migrations (pending only)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
+          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
+        run: >-
+          python scripts/migrate.py --target production
+          --json-output "$RUNNER_TEMP/production-apply.json"
+
+      - name: Mark final validation
+        run: echo "CURRENT_STAGE=production-final-validation" >> "$GITHUB_ENV"
+
+      - name: Final state validation (read-only)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BASELINE_VERSION: ${{ secrets.BASELINE_VERSION }}
+          SUPABASE_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_ALLOWED_PROJECT_REFS }}
+        run: >-
+          python scripts/migrate.py --target production --dry-run
+          --json-output "$RUNNER_TEMP/production-final.json"
+
+      - name: Observability summary (no credentials)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, time
+          temp = os.environ["RUNNER_TEMP"]
+          def load(name):
+              with open(os.path.join(temp, name), encoding="utf-8") as handle:
+                  return json.load(handle)
+          apply = load("production-apply.json")
+          final = load("production-final.json")
+          ref = os.environ.get("SUPABASE_PROJECT_REF", "")
+          fingerprint = hashlib.sha256(ref.encode()).hexdigest()[:12] if ref else "(ausente)"
+          summary = {
+              "status": "success" if not final.get("pending") else "failed",
+              "commit": os.environ["GITHUB_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "target": "production",
+              "project_ref_fingerprint": fingerprint,
+              "pending_before": apply.get("pending", []),
+              "applied": apply.get("applied", []),
+              "pending_after": final.get("pending", []),
+              "baseline_source": apply.get("baseline_source"),
+              "tests_passed": True,
+              "failing_stage": "none",
+              "duration_seconds": int(time.time()) - int(os.environ["PROD_START"]),
+          }
+          print("[migrations] " + json.dumps(summary, sort_keys=True))
+          if summary["status"] != "success" or apply.get("pending") != apply.get("applied"):
+              raise SystemExit(1)
+          PY
+
+      - name: Report failing production stage
+        if: failure()
+        run: echo "failing_stage=${CURRENT_STAGE:-unknown} target=production commit=$GITHUB_SHA"

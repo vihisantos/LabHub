@@ -544,6 +544,103 @@ def test_db_baseline_higher_than_repo_skips_everything(migrations_dir, monkeypat
     assert result.applied == []
 
 
+def test_baseline_source_applied_migrations_when_no_baseline_row(migrations_dir, monkeypatch):
+    """Histórico com migrations aplicadas mas sem linha __baseline__."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(
+        applied_rows=[
+            {"version": "000", "filename": "000_boot.sql"},
+            {"version": "001", "filename": "001_create_a.sql"},
+        ],
+        table_exists=True,
+    )
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "applied_migrations"
+    assert result.db_baseline is None
+    assert result.env_baseline is None
+    assert result.applied == ["002"]
+
+
+def test_baseline_source_database_when_baseline_row_exists(migrations_dir, monkeypatch):
+    """Linha __baseline__ registrada é a fonte, não a maior versão aplicada."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(
+        applied_rows=[
+            {"version": "002", "filename": "__baseline__"},
+            {"version": "000", "filename": "000_boot.sql"},
+            {"version": "001", "filename": "001_create_a.sql"},
+        ],
+        table_exists=True,
+    )
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "002"
+    assert result.baseline_source == "database"
+    assert result.db_baseline == result.baseline
+    assert result.env_baseline is None
+    assert result.applied == []
+
+
+def test_baseline_source_env_when_table_empty_and_env_set(migrations_dir, monkeypatch):
+    """Tabela vazia + BASELINE_VERSION => fonte env, grava linha de baseline."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "env"
+    assert result.env_baseline == result.baseline
+    assert result.db_baseline is None
+    assert result.applied == ["002"]
+    assert any("'001'" in q and "'__baseline__'" in q for q in api.queries)
+
+
+def test_baseline_source_implicit_when_no_env_no_db_no_require(migrations_dir, monkeypatch):
+    """Fallback implícito permitido apenas fora de ambientes compartilhados."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, require_baseline=False)
+    assert result.baseline == "002"
+    assert result.baseline_source == "implicit"
+    assert result.env_baseline is None
+    assert result.db_baseline is None
+
+
+def test_baseline_source_none_when_from_scratch_empty(migrations_dir, monkeypatch):
+    """from_scratch + tabela vazia => baseline None (apenas banco efêmero)."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(applied_rows=[], table_exists=False)
+    result = run(migrations_dir, api, require_baseline=False, from_scratch=True)
+    assert result.baseline is None
+    assert result.baseline_source == "none"
+    assert result.schema_migrations_exists is False
+    assert len(result.applied) == 3
+
+
+def test_corrupt_baseline_row_fails_before_any_write(migrations_dir, monkeypatch):
+    """Histórico com baseline não numérico aborta em fail-closed, sem DDL."""
+    monkeypatch.delenv("BASELINE_VERSION", raising=False)
+    api = FakeAPI(
+        applied_rows=[{"version": "00x", "filename": "__baseline__"}],
+        table_exists=True,
+    )
+    with pytest.raises(core.BaselineConfigurationError):
+        run(migrations_dir, api, require_baseline=True)
+    assert api.mutating_queries() == []
+
+
+def test_dry_run_writes_nothing_even_with_env_baseline(migrations_dir, monkeypatch):
+    """Dry-run com baseline configurado não grava nada (#476)."""
+    monkeypatch.setenv("BASELINE_VERSION", "001")
+    api = FakeAPI(applied_rows=[], table_exists=True)
+    result = run(migrations_dir, api, dry_run=True, require_baseline=True)
+    assert result.baseline == "001"
+    assert result.baseline_source == "env"
+    assert result.env_baseline == "001"
+    assert result.db_baseline is None
+    assert result.applied == []
+    assert api.mutating_queries() == []
+
+
 def test_resolve_baseline_requires_env_when_strict(migrations_dir):
     ms = core.discover_migrations(migrations_dir)
     with pytest.raises(core.BaselineConfigurationError):
@@ -800,20 +897,22 @@ def test_error_messages_never_leak_token_values():
 # ─────────────────────────────────────────────────────────────────────────────
 # Carregamento de .env por alvo (regressão #285)
 #
-# O .env do repositório aponta para STAGING (ref obskpmnphevpaexooldg,
-# BASELINE_VERSION=000). Como load_dotenv roda com override=False, o primeiro
-# arquivo a definir a variável vence. Sem carregar .env.production antes de .env
-# em --target production, uma execução local de produção herdaria o ref e o
-# baseline do staging em silêncio.
+# O .env do repositório aponta para STAGING (ref pgmetdqsdjotdcifjivu). Como
+# load_dotenv roda com override=False, o primeiro arquivo a definir a variável
+# vence. Sem isolamento por target, uma execução de produção herdaria o ref e o
+# baseline do staging em silêncio — e staging herdaria o token de produção.
 # ─────────────────────────────────────────────────────────────────────────────
 
 _PROD_REF = "hvqxantwqwarqhymnyqb"
-_STAGING_REF = "obskpmnphevpaexooldg"
+_STAGING_REF = "pgmetdqsdjotdcifjivu"
 _ENV_VARS = (
     "SUPABASE_PROJECT_REF",
     "BASELINE_VERSION",
     "SUPABASE_ACCESS_TOKEN",
     "SUPABASE_ALLOWED_PROJECT_REFS",
+    "SUPABASE_STAGING_PROJECT_REF",
+    "SUPABASE_STAGING_ACCESS_TOKEN",
+    "SUPABASE_STAGING_ALLOWED_REFS",
     "MIGRATE_TARGET",
 )
 
@@ -838,8 +937,17 @@ def env_home(tmp_path, monkeypatch):
     (tmp_path / ".env.local").write_text(
         "SUPABASE_ACCESS_TOKEN=sbp_token_de_dev\n", encoding="utf-8"
     )
+    (tmp_path / ".env.staging").write_text(
+        f"SUPABASE_STAGING_PROJECT_REF={_STAGING_REF}\n"
+        "SUPABASE_STAGING_ACCESS_TOKEN=sbp_token_de_staging\n"
+        "SUPABASE_STAGING_ALLOWED_PROJECT_REFS=abcdefghijklmnopqrst\n",
+        encoding="utf-8",
+    )
     (tmp_path / ".env.production").write_text(
-        f"SUPABASE_PROJECT_REF={_PROD_REF}\nBASELINE_VERSION=035\n", encoding="utf-8"
+        f"SUPABASE_PROJECT_REF={_PROD_REF}\n"
+        "SUPABASE_ACCESS_TOKEN=sbp_token_de_producao\n"
+        "BASELINE_VERSION=035\n",
+        encoding="utf-8",
     )
     for name in _ENV_VARS:
         monkeypatch.delenv(name, raising=False)
@@ -865,10 +973,22 @@ def test_load_env_production_ignores_staging_baseline(env_home):
     assert os.environ["BASELINE_VERSION"] == "035"
 
 
-def test_load_env_production_still_reads_token_from_env_local(env_home):
-    """A precedência do .env.production não pode expulsar o PAT de .env.local."""
+def test_load_env_production_reads_only_production_token(env_home):
+    """Produção não pode herdar o PAT de desenvolvimento nem o de staging."""
     env_home._load_env("production")
-    assert os.environ["SUPABASE_ACCESS_TOKEN"] == "sbp_token_de_dev"
+    assert os.environ["SUPABASE_ACCESS_TOKEN"] == "sbp_token_de_producao"
+    assert "SUPABASE_STAGING_ACCESS_TOKEN" not in os.environ
+
+
+def test_load_env_staging_isolates_credentials_and_identity(env_home):
+    """Staging usa .env.staging; nem ref nem token de produção podem vazar."""
+    env_home._load_env("staging")
+    assert os.environ["SUPABASE_STAGING_PROJECT_REF"] == _STAGING_REF
+    assert os.environ["SUPABASE_STAGING_ACCESS_TOKEN"] == "sbp_token_de_staging"
+    assert os.environ["SUPABASE_STAGING_ALLOWED_PROJECT_REFS"] == "abcdefghijklmnopqrst"
+    assert "SUPABASE_PROJECT_REF" not in os.environ
+    assert "SUPABASE_ACCESS_TOKEN" not in os.environ
+    assert "BASELINE_VERSION" not in os.environ
 
 
 def test_load_env_production_blocks_staging_ref_when_env_production_lacks_it(
@@ -888,7 +1008,7 @@ def test_load_env_production_blocks_staging_ref_when_env_production_lacks_it(
 
 
 def test_load_env_production_blocks_identity_from_env_local(env_home):
-    """BASELINE_VERSION de .env.local também não vale para produção."""
+    """BASELINE_VERSION e token de .env.local não valem para produção."""
     (env_home.PROJECT_ROOT / ".env.local").write_text(
         "SUPABASE_ACCESS_TOKEN=sbp_token_de_dev\nBASELINE_VERSION=000\n", encoding="utf-8"
     )
@@ -896,7 +1016,7 @@ def test_load_env_production_blocks_identity_from_env_local(env_home):
         "SUPABASE_SERVICE_KEY=svc_key\n", encoding="utf-8"
     )
     env_home._load_env("production")
-    assert os.environ["SUPABASE_ACCESS_TOKEN"] == "sbp_token_de_dev"
+    assert "SUPABASE_ACCESS_TOKEN" not in os.environ
     assert "BASELINE_VERSION" not in os.environ
 
 

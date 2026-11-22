@@ -53,8 +53,8 @@ def test_102_sql_checks_effective_privileges_and_rls():
 
 def test_102_sql_checks_maintain_privilege_on_postgresql_17():
     """`REVOKE ALL PRIVILEGES` also revokes MAINTAIN on PostgreSQL 17+; the
-    checks must assert its absence there, guarded so the PostgreSQL 16 CI
-    image (which does not know MAINTAIN) still passes."""
+    checks must assert its absence there. The guard is kept so older/local
+    PostgreSQL 16 databases (which do not know MAINTAIN) still pass."""
     checks = CHECKS.read_text(encoding="utf-8")
     assert "MAINTAIN" in checks
     # Guard pinning: the MAINTAIN assertion must be skipped on pre-17 servers.

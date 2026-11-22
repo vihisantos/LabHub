@@ -38,8 +38,9 @@ BEGIN
     END LOOP;
 
     -- PostgreSQL 17 added the MAINTAIN table privilege; `REVOKE ALL PRIVILEGES`
-    -- revokes it there as well. Guarded by server version because the CI
-    -- ephemeral image (postgres:16) does not recognize 'MAINTAIN'.
+    -- revokes it there as well. The CI ephemeral image is postgres:17 (same as
+    -- Supabase); the guard is kept only for older/local PostgreSQL 16 databases
+    -- where the literal 'MAINTAIN' does not exist.
     IF current_setting('server_version_num')::int >= 170000 THEN
         FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
             IF has_table_privilege(role_name, 'public.schema_migrations', 'MAINTAIN') THEN

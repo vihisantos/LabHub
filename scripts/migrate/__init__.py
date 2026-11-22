@@ -15,19 +15,35 @@ from .core import (
     validate_migration_filename,
 )
 from .environment import (
+    ENV_ACCESS_TOKEN,
+    ENV_ALLOWED_REFS,
+    ENV_BASELINE,
+    ENV_STAGING_ACCESS_TOKEN,
+    ENV_STAGING_ALLOWED_REFS,
+    ENV_STAGING_PROJECT_REF,
     LOCAL,
     PRODUCTION,
+    STAGING,
     TargetEnvironmentError,
     TargetPolicy,
+    parse_allowed_refs,
     resolve_policy,
     validate_project_ref,
+    warn_unenforced_allowlist,
 )
 from .runner import RunnerResult, run
 
 __all__ = [
+    "ENV_ACCESS_TOKEN",
+    "ENV_ALLOWED_REFS",
+    "ENV_BASELINE",
+    "ENV_STAGING_ACCESS_TOKEN",
+    "ENV_STAGING_ALLOWED_REFS",
+    "ENV_STAGING_PROJECT_REF",
     "LOCAL",
     "MIGRATION_FILENAME_PATTERN",
     "PRODUCTION",
+    "STAGING",
     "AppliedIdentityDivergence",
     "AppliedIdentityError",
     "BaselineConfigurationError",
@@ -40,9 +56,11 @@ __all__ = [
     "TargetPolicy",
     "audit_applied_identities",
     "discover_migrations",
+    "parse_allowed_refs",
     "resolve_policy",
     "run",
     "sql_string_literal",
     "validate_migration_filename",
     "validate_project_ref",
+    "warn_unenforced_allowlist",
 ]

@@ -10,21 +10,28 @@ Fluxo (idempotente e seguro):
 3. Lê as versões já aplicadas do banco via Management API.
 4. Resolve o **baseline** (ver abaixo). Com ``require_baseline``, a falta de
    ``BASELINE_VERSION`` aborta aqui — ainda sem nenhuma escrita no banco.
-5. Só então escreve: garante ``public.schema_migrations`` se faltava e, se
+5. Detecta **lacunas**: quando o baseline veio da maior versão registrada (e
+   não de uma baseline explícita), uma versão posterior NÃO prova que as
+   anteriores foram aplicadas. Lacunas sem política de reconciliação abortam.
+   Em staging, as lacunas autorizadas têm seu contrato read-only verificado
+   AQUI — antes de qualquer escrita. Nenhum registro fictício é inserido.
+6. Só então escreve: garante ``public.schema_migrations`` se faltava e, se
    aplicável, grava a linha de baseline.
-6. Aplica cada migration pendente numa transação própria que embute um advisory
+7. Aplica cada migration pendente numa transação própria que embute um advisory
    lock transacional (``pg_advisory_xact_lock``) para serializar execuções
    concorrentes, o corpo do arquivo e o registro em ``schema_migrations``.
    Só registra depois que o SQL roda sem erro (ON CONFLICT DO NOTHING evita
    duplicar em corrida).
-7. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
+8. Sai com código != 0 na primeira falha, sem marcar a migration como aplicada.
 
-Os passos 1-4 são todos read-only e concentram as travas: nenhuma escrita
-(chefe de bootstrap ou DDL de migration) é emitida antes de a renumeração e a
-configuração de baseline terem sido verificadas.
+Os passos 1-5 são todos read-only e concentram as travas: nenhuma escrita
+(bootstrap, DDL de migration ou registro de lacuna) é emitida antes de a
+renumeração, a configuração de baseline e o contrato de reconciliação terem
+sido verificados.
 
 Regras de baseline:
-   - ``require_baseline`` + nada resolvido -> aborta (fail-closed, produção);
+   - ``require_baseline`` + nada resolvido -> aborta (fail-closed em staging e
+     produção, únicos ambientes com banco persistente);
    - tabela vazia + ``BASELINE_VERSION`` definido -> grava baseline e aplica
      apenas versões > baseline;
    - tabela vazia + sem ``BASELINE_VERSION`` -> usa a maior versão do repositório
@@ -39,14 +46,17 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-from .api import ManagementAPI
+from .api import ApiError, ManagementAPI
 from .core import (
     BASELINE_FILENAME,
     AppliedIdentityError,
     BaselineConfigurationError,
     Migration,
     MigrationError,
+    MigrationGap,
+    MigrationGapError,
     audit_applied_identities,
+    detect_history_gaps,
     discover_migrations,
     latest_version,
     pending_migrations,
@@ -54,6 +64,8 @@ from .core import (
     strip_inner_transaction,
 )
 from .environment import missing_baseline_message, resolve_policy
+from .pg import SqlExecutionError
+from .reconciliation import ReconciliationPlan, plan_reconciliation
 
 # Chave do advisory lock: inteiro arbitrário, fixo, específico deste projeto.
 # Regras do Postgres exigem um bigint; usamos um valor dedicado ao LabHub.
@@ -101,15 +113,51 @@ ON CONFLICT (version) DO NOTHING;
 COMMIT;
 """
 
+# Verificação de contrato: transação READ ONLY + ROLLBACK. A garantia é do
+# PostgreSQL, não de inspeção de texto: QUALQUER INSERT/UPDATE/DELETE/DDL —
+# inclusive indentado ou escondido dentro de um bloco DO — é rejeitado pelo
+# servidor com "cannot execute ... in a read-only transaction". O ROLLBACK é
+# explícito para que nada persista mesmo se o contrato evoluir no futuro.
+_CONTRACT_WRAP_BEGIN = """
+BEGIN READ ONLY;
+SELECT pg_advisory_xact_lock({key});
+"""
+
+_CONTRACT_WRAP_END = """
+ROLLBACK;
+"""
+
 
 class RunnerResult:
+    """Resultado da execução, com rastreabilidade completa do baseline.
+
+    ``baseline_source`` discrimina de onde veio o baseline efetivo usado no
+    cálculo de pendentes (secret, linha ``__baseline__`` no banco, maior versão
+    aplicada, fallback implícito ou nenhum). Os demais campos permitem ao CI
+    registrar em log — sem expor credenciais — exatamente o que foi planejado e
+    o que foi aplicado (observabilidade do pipeline).
+    """
+
     def __init__(self, *, baseline: str | None, pending: list[str], applied: list[str],
-                 already_applied: list[str], api_call_count: int):
+                 already_applied: list[str], api_call_count: int,
+                 baseline_source: str = "none", db_baseline: str | None = None,
+                 env_baseline: str | None = None,
+                 schema_migrations_exists: bool = False,
+                 history_gaps: list[MigrationGap] | None = None,
+                 reconciliation: ReconciliationPlan | None = None,
+                 reconciled: list[str] | None = None):
         self.baseline = baseline
         self.pending = pending
         self.applied = applied
         self.already_applied = already_applied
         self.api_call_count = api_call_count
+        self.baseline_source = baseline_source
+        self.db_baseline = db_baseline
+        self.env_baseline = env_baseline
+        self.schema_migrations_exists = schema_migrations_exists
+        self.history_gaps = history_gaps or []
+        self.reconciliation = reconciliation or ReconciliationPlan((), (), ())
+        self.reconciled = reconciled or []
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +193,16 @@ def _applied_index(rows: list[Mapping]) -> tuple[set[str], str | None]:
         filename = row.get("filename")
         if version is None:
             continue
+        version = str(version)
         applied.add(version)
         if filename == BASELINE_FILENAME:
+            if not version.isdigit():
+                # Fail-closed DURANTE a leitura: não deixamos um baseline corrompido
+                # chegar ao `int()` de `_resolve_baseline` como ValueError opaco.
+                raise BaselineConfigurationError(
+                    "histórico de migrations corrompido: baseline registrado com "
+                    "versão não numérica; nenhuma migration foi aplicada."
+                )
             if baseline is None or int(version) > int(baseline):
                 baseline = version
     return applied, baseline
@@ -206,6 +262,54 @@ def _env_baseline() -> str | None:
     return value or None
 
 
+def _validate_applied_versions(applied_versions: set[str]) -> None:
+    """Rejeita histórico não numérico antes de ordenar/resolver o baseline."""
+    for version in applied_versions:
+        if not str(version).isdigit():
+            raise BaselineConfigurationError(
+                "histórico de migrations corrompido: versão não numérica em "
+                "schema_migrations; nenhuma migration foi aplicada."
+            )
+
+
+def _validate_baseline(
+    *,
+    baseline: str | None,
+    migrations: list[Migration],
+    applied_versions: set[str],
+) -> None:
+    """Fail-closed para baseline inválido, antes de qualquer escrita.
+
+    Um baseline não numérico, ou maior que a maior versão do repositório sem
+    registro correspondente no banco, é configuração de destino suspeita: aceitá-lo
+    faria o runner pular migrations reais e reportar sucesso. Um baseline
+    registrado no banco (`applied_versions`) é legítimo mesmo que o repositório
+    não contenha mais esse arquivo — é o estado reconciliado do histórico.
+    """
+    if baseline is None:
+        return
+    if not baseline.isdigit():
+        raise BaselineConfigurationError(
+            "baseline inválido: a versão configurada/registrada precisa ser "
+            "numérica; nenhuma migration foi aplicada."
+        )
+    for version in applied_versions:
+        if not version.isdigit():
+            raise BaselineConfigurationError(
+                "histórico de migrations corrompido: versão não numérica em "
+                "schema_migrations; nenhuma migration foi aplicada."
+            )
+    if baseline in applied_versions:
+        return
+    latest = max((m.number for m in migrations), default=-1)
+    if int(baseline) > latest:
+        raise BaselineConfigurationError(
+            "baseline inválido: a versão está acima da maior migration do "
+            "repositório e não consta no histórico do banco; isso pularia "
+            "migrations reais. Nenhuma migration foi aplicada."
+        )
+
+
 # ---------------------------------------------------------------------------
 # aplicação
 # ---------------------------------------------------------------------------
@@ -241,6 +345,55 @@ def apply_migration(api: ManagementAPI, migration: Migration) -> None:
     api.query(sql)
 
 
+def verify_contract(api: ManagementAPI, migration: Migration) -> None:
+    """Executa o contrato em transação READ ONLY, antes de qualquer escrita.
+
+    A imutabilidade é garantida pelo PostgreSQL: ``BEGIN READ ONLY`` + ``ROLLBACK``
+    fazem o servidor rejeitar INSERT, UPDATE, DELETE, TRUNCATE e DDL, mesmo
+    indentados ou dentro de blocos ``DO $$``. Não existe verificação de texto do
+    SQL — uma inspeção textual pode ser enganada por indentação e não é barreira.
+
+    Uma falha (contrato divergente, escrita tentada ou erro de API) vira
+    :class:`MigrationGapError`: nenhuma versão é registrada e nenhuma lacuna é
+    reconciliada quando a comprovação não passou.
+    """
+    body = strip_inner_transaction(
+        migration.path.read_text(encoding="utf-8").strip()
+    )
+    sql = (
+        _CONTRACT_WRAP_BEGIN.format(key=ADVISORY_LOCK_KEY)
+        + "\n" + body + "\n"
+        + _CONTRACT_WRAP_END
+    )
+    try:
+        api.query(sql)
+    except MigrationGapError:
+        raise
+    except (ApiError, MigrationError, SqlExecutionError, OSError, ValueError) as exc:
+        # Mensagens destes tipos já passaram por sanitização nas camadas de
+        # API/executor; não há token/DSN nelas.
+        raise MigrationGapError(
+            f"contrato de reconciliação '{migration.filename}' falhou: {exc}. "
+            "Nenhuma lacuna foi registrada; nenhuma migration foi aplicada."
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - fronteira do executor
+        raise MigrationGapError(
+            f"contrato de reconciliação '{migration.filename}' falhou "
+            f"({type(exc).__name__}). Nenhuma lacuna foi registrada; "
+            "nenhuma migration foi aplicada."
+        ) from exc
+
+
+def _blocking_gaps_message(gaps: list[MigrationGap]) -> str:
+    details = "\n".join(f"  - {gap.describe()}" for gap in gaps)
+    return (
+        "LACUNAS no histórico de migrations detectadas: uma versão posterior "
+        "não prova que as anteriores foram aplicadas. Nenhuma reconciliação "
+        "automática autorizada para estes arquivos; abortando SEM escrita.\n"
+        f"{details}"
+    )
+
+
 def _resolve_baseline(
     *,
     applied_versions: set[str],
@@ -250,10 +403,13 @@ def _resolve_baseline(
     migrations: list[Migration],
     require_baseline: bool = False,
     policy=None,
-) -> tuple[str | None, bool]:
-    """Resolve o baseline e se ele precisa ser gravado (``__baseline__``).
+) -> tuple[str | None, bool, str]:
+    """Resolve o baseline, se ele precisa ser gravado e a sua origem.
 
-    Retorna ``(baseline, precisa_gravar)``.
+    Retorna ``(baseline, precisa_gravar, origem)``. ``origem`` é uma de:
+    ``env`` (secret ``BASELINE_VERSION``), ``database`` (linha
+    ``__baseline__``), ``applied_migrations`` (maior versão aplicada),
+    ``implicit`` (fallback do repositório) ou ``none`` (sem baseline).
 
     Regras (preservadas do comportamento histórico, com uma exceção fechada):
       - ``from_scratch`` + tabela vazia -> baseline ``None`` (aplica TUDO, da
@@ -273,12 +429,12 @@ def _resolve_baseline(
     if from_scratch and not applied_versions and db_baseline is None:
         # Banco novo/efêmero não tem nada que baselinar; `require_baseline`
         # não se aplica (não há histórico a reconciliar).
-        return None, False
+        return None, False, "none"
     if not applied_versions:
         if db_baseline is not None:
-            return db_baseline, False
+            return db_baseline, False, "database"
         if env_baseline is not None:
-            return env_baseline, True
+            return env_baseline, True, "env"
         if require_baseline:
             raise BaselineConfigurationError(
                 missing_baseline_message(
@@ -286,8 +442,39 @@ def _resolve_baseline(
                 )
             )
         implicit = latest_version(migrations)
-        return implicit, implicit is not None
-    return (db_baseline if db_baseline is not None else sorted(applied_versions, key=int)[-1]), False
+        return implicit, implicit is not None, "implicit"
+    if db_baseline is not None:
+        return db_baseline, False, "database"
+    return sorted(applied_versions, key=int)[-1], False, "applied_migrations"
+
+
+def _plan_history_reconciliation(
+    *,
+    migrations: list[Migration],
+    applied_versions: set[str],
+    baseline: str | None,
+    baseline_source: str,
+    policy,
+) -> tuple[list[MigrationGap], ReconciliationPlan]:
+    """Detecta lacunas e aplica a política de reconciliação do destino.
+
+    A reconciliação automática só existe em staging. Em produção/local, qualquer
+    lacuna bloqueia — a correção conhecida do staging não pode autorizar escrita
+    em outro projeto, mesmo que o contrato passasse.
+    """
+    gaps = detect_history_gaps(
+        migrations, applied_versions, baseline, baseline_source
+    )
+    plan = plan_reconciliation(
+        gaps,
+        migrations,
+        allow_reconciliation=bool(policy is not None and policy.is_staging),
+    )
+    if plan.blocking:
+        raise MigrationGapError(
+            _blocking_gaps_message(list(plan.unreconciled))
+        )
+    return gaps, plan
 
 
 def run(
@@ -333,7 +520,8 @@ def run(
             api_call_count += 1
         else:
             applied_versions, db_baseline = set(), None
-        baseline, _ = _resolve_baseline(
+        _validate_applied_versions(applied_versions)
+        baseline, _, baseline_source = _resolve_baseline(
             applied_versions=applied_versions,
             db_baseline=db_baseline,
             env_baseline=env_baseline,
@@ -342,10 +530,25 @@ def run(
             require_baseline=require_baseline,
             policy=policy,
         )
+        _validate_baseline(
+            baseline=baseline,
+            migrations=migrations,
+            applied_versions=applied_versions,
+        )
+        gaps, plan = _plan_history_reconciliation(
+            migrations=migrations,
+            applied_versions=applied_versions,
+            baseline=baseline,
+            baseline_source=baseline_source,
+            policy=policy,
+        )
         ordered = sorted(migrations, key=lambda m: m.number)
         baseline_num = int(baseline) if baseline is not None else -1
+        reconcile_versions = set(plan.versions)
         already_applied = [
-            m.filename for m in ordered if (m.version in applied_versions or m.number <= baseline_num)
+            m.filename for m in ordered
+            if m.version not in reconcile_versions
+            and (m.version in applied_versions or m.number <= baseline_num)
         ]
         pending = pending_migrations(migrations, applied_versions, baseline)
         return RunnerResult(
@@ -354,6 +557,12 @@ def run(
             applied=[],
             already_applied=already_applied,
             api_call_count=api_call_count,
+            baseline_source=baseline_source,
+            db_baseline=db_baseline,
+            env_baseline=env_baseline,
+            schema_migrations_exists=table_exists,
+            history_gaps=gaps,
+            reconciliation=plan,
         )
 
     # ── execução real ────────────────────────────────────────────────────────
@@ -380,10 +589,11 @@ def run(
     else:
         # Tabela ausente: histórico vazio, nada a auditar.
         applied_versions, db_baseline = set(), None
+    _validate_applied_versions(applied_versions)
 
     # 3. resolve o baseline. Com `require_baseline`, a falta de
     #    `BASELINE_VERSION` aborta AQUI — ainda sem nenhuma escrita no banco.
-    baseline, should_stamp = _resolve_baseline(
+    baseline, should_stamp, baseline_source = _resolve_baseline(
         applied_versions=applied_versions,
         db_baseline=db_baseline,
         env_baseline=env_baseline,
@@ -392,6 +602,24 @@ def run(
         require_baseline=require_baseline,
         policy=policy,
     )
+    _validate_baseline(
+        baseline=baseline,
+        migrations=migrations,
+        applied_versions=applied_versions,
+    )
+
+    # 3a. lacunas históricas + comprovação dos contratos — ANTES de qualquer
+    # escrita. Se o contrato falhar, nenhum registro é inserido.
+    gaps, plan = _plan_history_reconciliation(
+        migrations=migrations,
+        applied_versions=applied_versions,
+        baseline=baseline,
+        baseline_source=baseline_source,
+        policy=policy,
+    )
+    for contract in plan.contracts:
+        verify_contract(api, contract)
+        api_call_count += 1
 
     # ── a partir daqui a execução escreve no banco ───────────────────────────
 
@@ -405,13 +633,23 @@ def run(
         _stamp_baseline(api, baseline, BASELINE_FILENAME)
         api_call_count += 1
 
-    # 6. calcula pendentes e aplica
+    # 6. calcula pendentes (incluindo lacunas reconciliadas) e aplica
     ordered = sorted(migrations, key=lambda m: m.number)
     pending = pending_migrations(migrations, applied_versions, baseline)
+    reconcile_versions = set(plan.versions)
+    if reconcile_versions:
+        planned = {m.version: m for m in pending}
+        for migration in ordered:
+            if migration.version in reconcile_versions:
+                planned[migration.version] = migration
+        pending = [
+            planned[version] for version in sorted(planned, key=int)
+        ]
     baseline_num = int(baseline) if baseline is not None else -1
     already_applied = [
         m.filename for m in ordered if (
-            m.version in applied_versions or m.number <= baseline_num
+            m.version not in reconcile_versions
+            and (m.version in applied_versions or m.number <= baseline_num)
         )
     ]
 
@@ -427,4 +665,11 @@ def run(
         applied=applied,
         already_applied=already_applied,
         api_call_count=api_call_count,
+        baseline_source=baseline_source,
+        db_baseline=db_baseline,
+        env_baseline=env_baseline,
+        schema_migrations_exists=table_exists,
+        history_gaps=gaps,
+        reconciliation=plan,
+        reconciled=[m.version for m in ordered if m.version in reconcile_versions],
     )
