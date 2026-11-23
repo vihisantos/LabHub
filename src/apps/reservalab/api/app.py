@@ -3,7 +3,7 @@ import json
 import hmac
 from flask import Flask, jsonify, request, g
 from openpyxl import load_workbook
-from datetime import date, timedelta, datetime, timezone
+from datetime import date, timedelta, datetime, timezone, time as datetime_time
 from flask_cors import CORS
 import os
 import sys
@@ -15,6 +15,7 @@ import secrets
 import uuid
 import ipaddress
 import socket
+import tempfile
 from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse, urljoin
 from io import BytesIO
@@ -87,9 +88,18 @@ for h in logger.handlers:
 
 CACHE_TTL = 60  # segundos
 
+def _excel_time_to_text(value):
+    """Normaliza horário nativo do openpyxl sem descartar segundos informados."""
+    if value.second or value.microsecond:
+        return value.isoformat()
+    return value.isoformat(timespec='minutes')
+
+
 class DateEncoder(json.JSONEncoder):
-    """Serializa objetos date/datetime para string ISO automaticamente."""
+    """Serializa datas e horários nativos de células Excel."""
     def default(self, obj):
+        if isinstance(obj, datetime_time):
+            return _excel_time_to_text(obj)
         if isinstance(obj, (date, datetime)):
             return obj.strftime('%d/%m/%Y')
         return super().default(obj)
@@ -145,18 +155,40 @@ def get_cached_reservas(cache_key):
 
 
 def set_cached_reservas(cache_key, data):
-    """Grava o cache por chave (Redis + arquivo local para resiliência)."""
+    """Grava JSON válido no Redis e substitui o arquivo de forma atômica."""
     payload = {'data': data, 'timestamp': time.time()}
+    # Serializar ANTES de escrever evita sobrescrever o cache com JSON parcial.
+    try:
+        serialized = json.dumps(payload, cls=DateEncoder)
+    except (TypeError, ValueError) as exc:
+        logger.error("Erro ao serializar cache de reservas: %s", exc)
+        return
     if redis:
         try:
-            redis.set(f'cache:{cache_key}', json.dumps(payload, cls=DateEncoder), ex=CACHE_TTL)
+            redis.set(f'cache:{cache_key}', serialized, ex=CACHE_TTL)
         except Exception as e:
             logger.error(f"Erro ao salvar cache Redis: {e}")
+
+    temp_path = None
     try:
-        with open(_cache_path(cache_key), 'w', encoding='utf-8') as f:
-            json.dump(payload, f, cls=DateEncoder)
+        cache_path = _cache_path(cache_key)
+        # Mesmo diretório: os.replace() é atômico e não expõe escrita incompleta.
+        with tempfile.NamedTemporaryFile(
+            mode='w', encoding='utf-8', dir=os.path.dirname(cache_path),
+            prefix='.cache_', suffix='.tmp', delete=False,
+        ) as temp_file:
+            temp_path = temp_file.name
+            temp_file.write(serialized)
+        os.replace(temp_path, cache_path)
+        temp_path = None
     except Exception as e:
-        logger.error(f"Erro ao salvar cache em arquivo: {e}")
+        logger.error("Erro ao salvar cache em arquivo: %s", e)
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
 
 app = Flask(__name__)
 CORS(app)
@@ -792,6 +824,10 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                 email = row[2]
                 data_reserva = row[3]
                 horario = row[4]
+                # openpyxl entrega células formatadas como hora em datetime.time;
+                # manter o objeto na resposta causava HTTP 500 ao montar o JSON.
+                if isinstance(horario, datetime_time):
+                    horario = _excel_time_to_text(horario)
                 alunos = row[5]
                 obs = row[6]
                 lab = row[8]
