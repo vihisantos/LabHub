@@ -3,6 +3,8 @@ import type { Ticket, TicketFormData, TicketStatus } from '../types'
 import { ticketService, cachedTickets } from '../services/ticketService'
 import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket, syncSlaAlerts } from '../services/ticketAlerts'
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
+import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
+import { useTicketInvalidationBroadcast } from './useTicketInvalidationBroadcast'
 
 /**
  * Corrige tickets antigos no IndexedDB que estejam sem createdAt ou ticketNumber.
@@ -34,6 +36,10 @@ export function useTickets() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [realtimeConnected, setRealtimeConnected] = useState(false)
+  const [broadcastConnected, setBroadcastConnected] = useState(false)
+  const { workspace } = useWorkspace()
+  const workspaceId = workspace?.id ?? null
+  const invalidationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeConnectedRef = useRef(false)
   const realtimeStatusSeenRef = useRef(false)
   const sanitizedRef = useRef(false)
@@ -87,20 +93,42 @@ export function useTickets() {
     })
   }, [load, checkAutoArchive, syncRemote])
 
-  // Realtime é o canal primário. Só consultamos periodicamente enquanto o
-  // WebSocket estiver indisponível, e pausamos o fallback com a aba oculta.
+  // Um postgres_changes SUBSCRIBED não garante eventos para tabelas com RLS
+  // fechado. Broadcast privado por campus é o gatilho, mas a reconciliação
+  // visível continua: 2min conectado, 30s sem canal, e sempre no retorno ao PWA.
   useEffect(() => {
-    if (realtimeConnected) return
     const syncWhenVisible = () => {
       if (document.visibilityState === 'visible') void syncRemote()
     }
-    const timer = window.setInterval(syncWhenVisible, 30000)
+    const timer = window.setInterval(syncWhenVisible, broadcastConnected ? 120000 : 30000)
     document.addEventListener('visibilitychange', syncWhenVisible)
     return () => {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', syncWhenVisible)
     }
-  }, [realtimeConnected, syncRemote])
+  }, [broadcastConnected, syncRemote])
+
+  // Cada INSERT/UPDATE/DELETE em um chamado emite somente um sinal de invalidação;
+  // a API autenticada continua responsável por fornecer os dados e aplicar RBAC.
+  const onTicketInvalidated = useCallback(() => {
+    if (document.visibilityState === 'hidden') return
+    if (invalidationTimer.current !== null) clearTimeout(invalidationTimer.current)
+    invalidationTimer.current = setTimeout(() => {
+      invalidationTimer.current = null
+      void syncRemote()
+    }, 250)
+  }, [syncRemote])
+
+  useTicketInvalidationBroadcast(workspaceId, onTicketInvalidated, setBroadcastConnected)
+
+  useEffect(() => () => {
+    if (invalidationTimer.current !== null) clearTimeout(invalidationTimer.current)
+  }, [])
+
+  // Selecionar outro campus precisa reconciliar a fila, não esperar o próximo evento.
+  useEffect(() => {
+    if (workspaceId) void syncRemote()
+  }, [workspaceId, syncRemote])
 
   useEffect(() => {
     const onOnline = () => {
