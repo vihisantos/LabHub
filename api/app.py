@@ -57,6 +57,7 @@ from rbac import (
 import pg_store
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
+from notification_tick import TICK_PATH as _QSTASH_TICK_PATH, verify_signed_tick as _verify_qstash_tick
 from chamados_workflow import (schedule as _schedule_chamado_workflow,
                               register as _register_chamado_workflow,
                               parse_payload as _parse_workflow_payload,
@@ -6529,18 +6530,13 @@ def _deliver_outbox_notification(event_id, payload):
     return True
 
 
-@_route_once('/api/notifications/worker', methods=['POST'])
-@require_cron
-def notifications_worker():
-    """Executa publicação e consumo em lotes pequenos, sem comandos bloqueantes."""
+def _run_notification_worker(publish_limit: int, consume_limit: int) -> tuple[dict, int]:
+    """Núcleo compartilhado: cron legado e tick assinado usam os mesmos locks."""
     if redis is None:
-        return jsonify({'error': 'Upstash Redis não configurado'}), 503
+        return {'error': 'Upstash Redis não configurado'}, 503
     if not pg_store.is_configured():
-        return jsonify({'error': 'PostgreSQL não configurado'}), 503
+        return {'error': 'PostgreSQL não configurado'}, 503
     try:
-        body = request.get_json(silent=True) or {}
-        publish_limit = max(1, min(int(body.get('publish_limit', 20)), 50))
-        consume_limit = max(1, min(int(body.get('consume_limit', 10)), 25))
         worker_id = f"{os.environ.get('VERCEL_REGION', 'worker')}:{uuid.uuid4().hex}"
         queue = NotificationQueue(redis)
         published = publish_pending(
@@ -6550,17 +6546,71 @@ def notifications_worker():
             pg_store.store, queue, worker_id, _deliver_outbox_notification,
             count=consume_limit,
         )
-        return jsonify({
+        return {
             'status': 'ok',
             'worker_id': worker_id,
             'published': published,
             'processed': processed,
-        })
+        }, 200
+    except Exception as exc:
+        logger.exception('notification worker failed: %s', type(exc).__name__)
+        return {'error': 'Falha no worker de notificações'}, 503
+
+
+@_route_once('/api/notifications/worker', methods=['POST'])
+@require_cron
+def notifications_worker():
+    """Endpoint legado protegido por CRON_SECRET (mantido como fallback)."""
+    try:
+        body = request.get_json(silent=True) or {}
+        publish_limit = max(1, min(int(body.get('publish_limit', 20)), 50))
+        consume_limit = max(1, min(int(body.get('consume_limit', 10)), 25))
     except (TypeError, ValueError) as exc:
         return jsonify({'error': f'Parâmetros inválidos: {str(exc)[:120]}'}), 400
+    result, code = _run_notification_worker(publish_limit, consume_limit)
+    return jsonify(result), code
+
+
+@_route_once(_QSTASH_TICK_PATH, methods=['POST'])
+def notifications_qstash_tick():
+    """Tick QStash assinado: outbox de push e dispatcher dos workflows.
+
+    O agendador executa, mas só há Push se existir evento/aviso elegível.
+    As cobranças em si são por chamado e revalidam status/responsável
+    antes de cada envio; concorrência com o cron legado usa locks e dedup.
+    """
+    if os.environ.get('VERCEL_ENV') != 'production':
+        return jsonify({'error': 'Não encontrado'}), 404
+
+    # Body e destino têm contrato fixo: sem URL arbitrária, JWT exposto ou
+    # parâmetros que permitam alterar lote, campus, destinatários ou intervalo.
+    if request.content_length is not None and request.content_length > 256:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+    try:
+        verified = _verify_qstash_tick(
+            request.get_data(cache=False),
+            request.headers.get('Upstash-Signature', ''),
+        )
+    except (RuntimeError, ImportError):
+        logger.warning('[notifications] QStash tick indisponível: credenciais ou SDK')
+        return jsonify({'error': 'Agendador indisponível'}), 503
+    if not verified:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+
+    queue_result, queue_code = _run_notification_worker(5, 5)
+    try:
+        workflow_result = _drain_chamado_workflow_outbox(limit=5)
     except Exception as exc:
-        logger.exception('notification worker failed: %s', exc)
-        return jsonify({'error': 'Falha no worker de notificações'}), 503
+        logger.warning('[notifications] dispatch QStash falhou: %s', type(exc).__name__)
+        workflow_result = {'error': type(exc).__name__}
+
+    failed = (queue_code != 200 or workflow_result.get('error')
+              or workflow_result.get('reconcile_error'))
+    return jsonify({
+        'status': 'error' if failed else 'ok',
+        'queue': queue_result,
+        'chamados': workflow_result,
+    }), (503 if failed else 200)
 
 
 # ── Notificações in-app (sino) bem-vindo do painel do admin ─────────────────
