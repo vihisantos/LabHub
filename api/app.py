@@ -61,6 +61,7 @@ from notification_tick import (
     TICK_PATH as _QSTASH_TICK_PATH,
     verify_signed_tick as _verify_qstash_tick,
     request_tick_for_created_ticket as _request_tick_for_created_ticket,
+    request_tick_for_chamados_event as _request_tick_for_chamados_event,
 )
 from chamados_workflow import (schedule as _schedule_chamado_workflow,
                               register as _register_chamado_workflow,
@@ -90,6 +91,15 @@ def _enqueue_push_event(event_id, payload):
             context=payload.get('context'),
             actions=payload.get('actions'),
         )
+        if (status == 'queued'
+                and payload.get('module') == 'chamados'
+                and payload.get('context') != 'chamados-created'):
+            # Status, claim e atribuição não devem aguardar o próximo tick
+            # de 5 min. Falha no wake-up não desfaz a outbox durável; o
+            # schedule assinado faz a recuperação posterior.
+            if not _request_tick_for_chamados_event(str(event_id)):
+                if os.environ.get('VERCEL_ENV') == 'production':
+                    logger.warning('[notifications] wake-up QStash indisponível; fallback pelo schedule')
         return status in ('queued', 'duplicate')
     except Exception as exc:
         logger.exception("[notifications] falha ao persistir evento %s: %s", event_id, exc)
@@ -4235,7 +4245,12 @@ def chamados_manage(ticket_id):
              and ticket.get('status') == 'aberto')
                 or (assignment_changed and not ticket.get('assignedToUserId')
                     and ticket.get('status') == 'aberto')):
-            _schedule_chamado_workflow(ticket)
+            if _schedule_chamado_workflow(ticket):
+                # Reabertura/desatribuição pode não criar Push para usuário
+                # logado: o Workflow precisa do próprio wake-up imediato.
+                _request_tick_for_chamados_event(
+                    _chamados_event_id('workflow-rescheduled', ticket)
+                )
 
         # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
         # (Prefer: return=representation). Filtra pela allowlist interna antes
