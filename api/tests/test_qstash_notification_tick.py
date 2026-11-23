@@ -337,3 +337,157 @@ def test_created_event_preserves_ticket_deep_link(api_module, monkeypatch):
     assert select.call_args.kwargs["min_level"] == "claim"
     assert select.call_args.kwargs["workspace_id"] == campus
     assert send.call_args.kwargs["url"] == url
+
+
+# Regression suite for event-driven latency (no real QStash requests).
+def test_claim_status_and_assignment_publish_distinct_fixed_qstash_wakeups(api_module, monkeypatch):
+    import notification_tick as tick
+
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("QSTASH_TOKEN", "test-publish-token")
+    publish = Mock()
+    one = "chamados:" + "a" * 64
+    two = "chamados:" + "b" * 64
+
+    assert tick.request_tick_for_chamados_event(one, publish=publish)
+    assert tick.request_tick_for_chamados_event(two, publish=publish)
+    assert publish.call_count == 2
+    for event_id, call in zip((one, two), publish.call_args_list):
+        assert call.kwargs["url"] == "https://lab-hub-pi.vercel.app" + TICK_PATH
+        assert call.kwargs["body"] == TICK_BODY.decode("utf-8")
+        assert call.kwargs["content_type"] == "application/json"
+        assert call.kwargs["deduplication_id"] == "labhub-event-" + event_id[9:]
+        assert call.kwargs["retries"] == 1
+    assert publish.call_args_list[0].kwargs["deduplication_id"] != publish.call_args_list[1].kwargs["deduplication_id"]
+
+
+@pytest.mark.parametrize("bad_id", [
+    "", "other:" + "a" * 64, "chamados:" + "x" * 64,
+    "chamados:" + "a" * 63, "chamados:" + "A" * 64,
+    "chamados:" + "a" * 64 + ":extra", None,
+])
+def test_event_wakeup_refuses_malformed_unrelated_or_pii_ids(
+    api_module, monkeypatch, bad_id,
+):
+    import notification_tick as tick
+
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("QSTASH_TOKEN", "test-publish-token")
+    publisher = Mock()
+    assert not tick.request_tick_for_chamados_event(bad_id, publish=publisher)
+    publisher.assert_not_called()
+
+
+def test_event_wakeup_never_publishes_in_preview_and_fails_open_on_qstash_error(
+    api_module, monkeypatch,
+):
+    import notification_tick as tick
+
+    event_id = "chamados:" + "c" * 64
+    publish = Mock()
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("QSTASH_TOKEN", "test-publish-token")
+    assert not tick.request_tick_for_chamados_event(event_id, publish=publish)
+    publish.assert_not_called()
+
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.delenv("QSTASH_TOKEN")
+    assert not tick.request_tick_for_chamados_event(event_id, publish=publish)
+    publish.assert_not_called()
+
+    monkeypatch.setenv("QSTASH_TOKEN", "test-publish-token")
+    publish.side_effect = TimeoutError("simulate outage")
+    assert not tick.request_tick_for_chamados_event(event_id, publish=publish)
+    assert publish.call_count == 1
+
+
+def test_chamados_outbox_wakes_qstash_after_persisted_event(
+    api_module, monkeypatch,
+):
+    timeline = []
+    event_id = "chamados:" + "d" * 64
+    monkeypatch.setattr(
+        api_module, "_queue_push_event",
+        lambda event, *args, **kwargs: timeline.append(("queued", event, kwargs)) or "queued",
+    )
+    monkeypatch.setattr(
+        api_module, "_request_tick_for_chamados_event",
+        lambda event: timeline.append(("qstash_wakeup", event)) or True,
+    )
+    payload = {
+        "module": "chamados",
+        "context": "chamados-claimed",
+        "workspace_id": "ws-piracicaba",
+        "title": "Chamado assumido",
+        "target_user_id": "tech-1",
+    }
+    assert api_module._enqueue_push_event(event_id, payload)
+    assert [item[0] for item in timeline] == ["queued", "qstash_wakeup"]
+    assert timeline[1][1] == event_id
+    assert timeline[0][2]["workspace_id"] == "ws-piracicaba"
+
+
+@pytest.mark.parametrize("queue_status,module,context,expected_kicks", [
+    ("queued", "chamados", "chamados-status", 1),
+    ("queued", "chamados", "chamados-assigned", 1),
+    ("queued", "chamados", "chamados-claimed", 1),
+    ("queued", "chamados", "chamados-created", 0),  # creation wakes after workflow outbox
+    ("duplicate", "chamados", "chamados-status", 0),
+    ("queued", "stock", "stock-inventory", 0),
+    (None, "chamados", "chamados-status", 0),
+])
+def test_wakeup_only_for_new_persisted_chamados_events(
+    api_module, monkeypatch, queue_status, module, context, expected_kicks,
+):
+    wake = Mock(return_value=True)
+    monkeypatch.setattr(api_module, "_request_tick_for_chamados_event", wake)
+    monkeypatch.setattr(api_module, "_queue_push_event", lambda *args, **kwargs: queue_status)
+    event_id = "chamados:" + "e" * 64
+    assert api_module._enqueue_push_event(event_id, {
+        "module": module, "context": context, "title": "status",
+    }) is (queue_status in ("queued", "duplicate"))
+    assert wake.call_count == expected_kicks
+
+
+def test_qstash_failure_does_not_lose_durable_ticket_event(api_module, monkeypatch):
+    writes = []
+    monkeypatch.setattr(
+        api_module, "_queue_push_event",
+        lambda event, *args, **kwargs: writes.append(event) or "queued",
+    )
+    wake = Mock(return_value=False)
+    monkeypatch.setattr(api_module, "_request_tick_for_chamados_event", wake)
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    event_id = "chamados:" + "f" * 64
+
+    assert api_module._enqueue_push_event(event_id, {
+        "module": "chamados", "context": "chamados-status",
+        "target_user_id": "reporter-1",
+    }) is True
+    assert writes == [event_id]  # periodic 5-min tick can still consume the outbox
+    wake.assert_called_once_with(event_id)
+
+
+def test_chamados_producers_wake_each_distinct_claim_event(api_module, monkeypatch):
+    queued = []
+    wake = []
+    monkeypatch.setattr(
+        api_module, "_queue_push_event",
+        lambda event, *args, **kwargs: queued.append((event, kwargs)) or "queued",
+    )
+    monkeypatch.setattr(
+        api_module, "_request_tick_for_chamados_event",
+        lambda event: wake.append(event) or True,
+    )
+    ticket = {
+        "id": "9c9f7381-c03f-41de-a46f-c0094025ef60",
+        "ticketNumber": 333, "workspace_id": "ws-piracicaba",
+        "status": "aberto", "updatedAt": "2026-11-23T20:30:00Z",
+        "assignedToUserId": "technician-1",
+        "roomName": "Laboratorio", "problemCategory": "Internet",
+    }
+    api_module._notify_ticket_claimed(ticket, "Técnico")
+    assert len(queued) == 2
+    assert len(wake) == 2
+    assert set(wake) == {item[0] for item in queued}
+    assert all(item[1]["module"] == "chamados" for item in queued)

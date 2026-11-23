@@ -98,3 +98,46 @@ e nunca apagar tickets reais para resolver incidente.
 
 **Segurança:** nunca colocar `CRON_SECRET`, `QSTASH_TOKEN` ou outras
 credenciais na URL do QStash; sempre usar `Upstash-Signature` verificada.
+
+
+## Testes de latência e critérios de aceite (2026-11-23)
+
+**Observação read-only da produção (America/Sao_Paulo):**
+
+| Evento | Enfileirado | Publicado | Processado | Total |
+|---|---:|---:|---:|---:|
+| Chamado criado (novo pipeline) | 17:03:31 | 17:03:35 | 17:03:46 | 14,7 s |
+| Status alterado | 17:04:48 | 17:05:00 | 17:05:04 | 16,8 s |
+| Status alterado | 17:02:59 | 17:03:35 | 17:03:40 | 41,3 s |
+| Chamado #333 (pipeline antigo) | 16:07:03 | 16:40:00 | 16:40:11 | 33 min |
+  
+A coluna processado é **aceite/processamento do backend**, não comprovação
+de banner no telefone. O browser, o provedor de Push, o SO, as permissões,
+modo de economia de bateria e conectividade podem acrescentar latência.
+
+**Mudança posterior:** ao persistir outbox de chamados para eventos de
+**status**, **atribuição** e **assunção**, o servidor publica um wake-up QStash
+assinado dedicado ao `event_id` (SHA-256) e aciona o processamento, sem
+esperar o próximo tick de 5 minutos. Novo chamado usa o wake-up já existente
+após enfileirar também o Workflow; reabertura/desatribuição do chamado ativa
+o dispatcher do Workflow. Todos os caminhos mantêm a recuperação por cron.
+
+**Matriz de regressão sem Push real:**
+- Novo evento persistido ⇒ publica exatamente um wake-up com payload fixo
+  sem PII; eventos distintos não compartilham a chave de dedup.
+- `duplicate`, falha de outbox ou outro módulo ⇒ nenhuma publicação extra.
+- QStash indisponível, sem token, Preview ⇒ fail-open para o chamado e fila
+  persiste; nunca aceita envio não assinado.
+- Claim gera eventos separados para o responsável e os demais do campus.
+- Lembretes dependem de status aberto, sem responsável, permissão de
+  `ticket.claim`, campus correto, lock e dedup existentes.
+- Zero teste automatizado exige endpoints ou inscrições reais dos técnicos.
+
+**Meta operacional orientativa:** avisos de Chamados com QStash disponível
+devem normalmente processar em dezenas de segundos, e não em vários minutos.
+Monitorar p50/p95, outbox pendente e `last_error` após merge. **Não prometer
+latência zero**: dependências externas e entrega no aparelho não oferecem
+garantia determinística de tempo. Para incidentes, comparar
+`notification_outbox.created_at`, `published_at`, `delivered_at` e
+`chamados_workflow_outbox.created_at/published_at`; evitar testes que
+disparem múltiplas cobranças reais.
