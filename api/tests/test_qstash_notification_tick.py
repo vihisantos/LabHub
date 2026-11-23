@@ -300,3 +300,38 @@ def test_db_error_during_created_push_revalidation_keeps_event_for_retry(api_mod
                 "action_url": f"/chamados/tickets/{ticket_id}",
             },
         )
+
+
+def test_push_action_urls_keep_internal_paths_and_block_evil_schemes(api_module):
+    assert api_module._safe_push_action_url("/chamados/tickets/abc")
+    assert api_module._safe_push_action_url("/chamados/tickets/abc?tab=history")
+    assert not api_module._safe_push_action_url("//evil.example/path")
+    assert not api_module._safe_push_action_url("/%2fevil.example")
+    assert not api_module._safe_push_action_url("/%5c%5cevil.example")
+    assert not api_module._safe_push_action_url("javascript:alert(1)")
+    assert not api_module._safe_push_action_url("/chamados/abc\nX-Test: value")
+
+
+def test_created_event_preserves_ticket_deep_link(api_module, monkeypatch):
+    from unittest.mock import Mock
+
+    subscriber = {"user": {"id": "tech"}}
+    select = Mock(return_value=[subscriber])
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    validate = Mock(return_value=True)
+    monkeypatch.setattr(api_module, "_created_push_still_actionable", validate)
+    monkeypatch.setattr(api_module, "_target_subs", select)
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+
+    ticket = "23a8de5b-09b7-49ba-8b9f-7380425be4c9"
+    campus = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+    url = f"/chamados/tickets/{ticket}"
+    assert api_module._deliver_outbox_notification("new-event", {
+        "module": "chamados", "context": "chamados-created",
+        "workspace_id": campus, "min_level": "claim",
+        "action_url": url, "title": "Novo chamado",
+    })
+    validate.assert_called_once_with(url, campus)
+    assert select.call_args.kwargs["min_level"] == "claim"
+    assert select.call_args.kwargs["workspace_id"] == campus
+    assert send.call_args.kwargs["url"] == url
