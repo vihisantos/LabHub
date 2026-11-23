@@ -1,7 +1,7 @@
 import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools, math, hmac, base64, uuid
 from datetime import datetime, timedelta, timezone, date
 from io import BytesIO
-from urllib.parse import urlparse, parse_qs, quote, urljoin
+from urllib.parse import urlparse, parse_qs, quote, urljoin, unquote
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api')))
 from app import (
@@ -6457,6 +6457,27 @@ def chamados_reminders_check():
 
 # ── Fila centralizada de notificações (PostgreSQL outbox + Upstash) ────────
 
+def _safe_push_action_url(value) -> bool:
+    """Aceita rotas internas do PWA sem afrouxar proteção de URLs externas.
+
+    `_is_safe_url` do ReservaLab foi feito para fetch externo e exige
+    http(s) absoluto. Links do PWA são root-relative, como /chamados/tickets/id.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        return False
+    decoded = unquote(value)
+    if (
+        value.startswith("/") and not value.startswith("//")
+        and decoded.startswith("/") and not decoded.startswith("//")
+        and "\\" not in decoded
+    ):
+        parsed = urlparse(value)
+        return not parsed.scheme and not parsed.netloc
+    return _is_safe_url(value)
+
+
 def _created_push_still_actionable(action_url, workspace_id):
     """Descarta aviso de ABERTURA obsoleto após claim/indeferimento/fechamento.
 
@@ -6522,7 +6543,7 @@ def _deliver_outbox_notification(event_id, payload):
     except (TypeError, ValueError):
         ttl = 86400
 
-    if not isinstance(action_url, str) or not _is_safe_url(action_url):
+    if not _safe_push_action_url(action_url):
         action_url = '/'
 
     if module == 'chamados' and context == 'chamados-created':
