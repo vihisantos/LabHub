@@ -1782,6 +1782,9 @@ _MODULE_PUSH_ACTIONS = {
             'ticket.edit', 'ticket.status', 'ticket.assign', 'ticket.comment',
             'ticket.close', 'ticket.reopen', 'ticket.delete', 'ticket.qr',
         }),
+        # Apenas quem pode ASSUMIR chamados deve receber alertas de
+        # novo chamado e cobranças por falta de técnico.
+        'claim': frozenset({'ticket.claim'}),
     },
     'reservalab': {
         'full': frozenset({'reservelab.tablet.reserve', 'reservelab.tablet.cancel'}),
@@ -1929,7 +1932,10 @@ def _module_action_ok(u, module, min_level, rbac_members, role_actions, override
     - com workspace_id, a Action é exigida NAQUELE workspace; sem workspace_id,
       qualquer membership ativa do usuário conta.
     """
-    if u.get('is_super_admin'):
+    # Alertas de chamado sem responsável são destinados a quem tem a Action
+    # ticket.claim no campus, não a administradores só pelo bypass global.
+    # O bypass do super admin permanece intacto nos outros canais/módulos.
+    if u.get('is_super_admin') and not (module == 'chamados' and min_level == 'claim'):
         return True
     criteria = _MODULE_PUSH_ACTIONS.get(module)
     actions = (criteria or {}).get(min_level) if criteria else None
@@ -1973,6 +1979,10 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
     - user_id/role: filtros operacionais preservados (destinatário direto).
     - notify_settings: mudo global e canal `push` por app são respeitados.
     """
+    # O push de chamados não pode virar broadcast intercampi, inclusive
+    # para super admins que não pertencem ao workspace do chamado.
+    if module == 'chamados' and min_level == 'claim' and not workspace_id:
+        return []
     subs = _get_subs()
     needs_rbac = bool(module)
     if needs_rbac:
@@ -2011,7 +2021,8 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
             if ch is not None and not ch.get('push', True):
                 continue
         if workspace_id:
-            if not u.get('is_super_admin') and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
+            must_be_member = (module == 'chamados' and min_level == 'claim')
+            if (must_be_member or not u.get('is_super_admin')) and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
                 continue
         out.append(s)
     return out
