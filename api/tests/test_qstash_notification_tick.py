@@ -227,3 +227,76 @@ def test_created_ticket_kick_fails_open_and_preview_never_publishes(api_module, 
     monkeypatch.delenv("QSTASH_TOKEN")
     assert tick.request_tick_for_created_ticket(ticket_id, publish=publish) is False
     assert publish.call_count == 1
+
+
+def test_old_created_notification_does_not_alert_after_claim(api_module, monkeypatch):
+    subscriber_lookup = Mock(side_effect=AssertionError("stale event queried subscribers"))
+    push = Mock(side_effect=AssertionError("stale event sent Push"))
+    monkeypatch.setattr(api_module, "_created_push_still_actionable", lambda *args: False)
+    monkeypatch.setattr(api_module, "_target_subs", subscriber_lookup)
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", push)
+
+    result = api_module._deliver_outbox_notification(
+        "ticket-created-stale",
+        {
+            "module": "chamados",
+            "context": "chamados-created",
+            "workspace_id": "b394e6e1-b6e8-442c-aa99-c76c37ec3303",
+            "action_url": "/chamados/tickets/23a8de5b-09b7-49ba-8b9f-7380425be4c9",
+            "title": "Novo chamado",
+        },
+    )
+    assert result is True
+    subscriber_lookup.assert_not_called()
+    push.assert_not_called()
+
+
+def test_created_ticket_revalidation_requires_open_unclaimed_and_same_campus(
+    api_module, monkeypatch,
+):
+    from unittest.mock import Mock
+
+    ticket_id = "23a8de5b-09b7-49ba-8b9f-7380425be4c9"
+    workspace_id = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+    url = f"/chamados/tickets/{ticket_id}"
+    monkeypatch.setattr(api_module, "_SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-key")
+    response = Mock(ok=True)
+    response.json.return_value = [{
+        "id": ticket_id, "workspace_id": workspace_id,
+        "status": "aberto", "assignedToUserId": "",
+    }]
+    get = Mock(return_value=response)
+    monkeypatch.setattr(api_module.requests, "get", get)
+
+    assert api_module._created_push_still_actionable(url, workspace_id)
+    assert get.call_args.kwargs["timeout"] == 8
+
+    response.json.return_value[0]["assignedToUserId"] = "tech-1"
+    assert not api_module._created_push_still_actionable(url, workspace_id)
+    response.json.return_value[0]["assignedToUserId"] = ""
+    response.json.return_value[0]["status"] = "indeferido"
+    assert not api_module._created_push_still_actionable(url, workspace_id)
+    response.json.return_value[0]["status"] = "aberto"
+    response.json.return_value[0]["workspace_id"] = "d64116cd-3dc8-407a-a940-f5539ac81061"
+    assert not api_module._created_push_still_actionable(url, workspace_id)
+
+    assert not api_module._created_push_still_actionable("/invalid-url", workspace_id)
+
+
+def test_db_error_during_created_push_revalidation_keeps_event_for_retry(api_module, monkeypatch):
+    ticket_id = "23a8de5b-09b7-49ba-8b9f-7380425be4c9"
+    workspace_id = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+    monkeypatch.setattr(api_module, "_SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setattr(api_module, "_SUPABASE_SERVICE_KEY", "test-key")
+    response = Mock(ok=False, status_code=503)
+    monkeypatch.setattr(api_module.requests, "get", lambda *args, **kwargs: response)
+    with pytest.raises(RuntimeError, match="revalidar abertura"):
+        api_module._deliver_outbox_notification(
+            "ticket-created-retry", {
+                "module": "chamados",
+                "context": "chamados-created",
+                "workspace_id": workspace_id,
+                "action_url": f"/chamados/tickets/{ticket_id}",
+            },
+        )
