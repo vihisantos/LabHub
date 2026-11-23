@@ -1091,6 +1091,7 @@ def test_push_device_test_only_sends_to_the_authenticated_devices_subscription(r
     sub = {**FCM_SUB, "user": {"id": "user-1"}}
     calls = []
     monkeypatch.setattr(rlab_module, "redis", object())
+    monkeypatch.setattr(rlab_module, "_push_store_ready", lambda: True)
     monkeypatch.setattr(rlab_module, "_get_subs", lambda: [sub])
     monkeypatch.setattr(rlab_module, "push_notify", lambda *args, **kwargs: calls.append((args, kwargs)) or True)
 
@@ -1101,7 +1102,7 @@ def test_push_device_test_only_sends_to_the_authenticated_devices_subscription(r
         response = rlab_module.app.make_response(rlab_module.push_test_device.__wrapped__())
 
     assert response.status_code == 200
-    assert response.get_json() == {"sent": True}
+    assert response.get_json() == {"sent": True, "status": "accepted"}
     assert len(calls) == 1
     assert calls[0][0][0] == sub
 
@@ -1110,6 +1111,7 @@ def test_push_device_test_rejects_another_users_subscription(rlab_module, monkey
     sub = {**FCM_SUB, "user": {"id": "user-2"}}
     calls = []
     monkeypatch.setattr(rlab_module, "redis", object())
+    monkeypatch.setattr(rlab_module, "_push_store_ready", lambda: True)
     monkeypatch.setattr(rlab_module, "_get_subs", lambda: [sub])
     monkeypatch.setattr(rlab_module, "push_notify", lambda *args, **kwargs: calls.append(args) or True)
 
@@ -1122,3 +1124,31 @@ def test_push_device_test_rejects_another_users_subscription(rlab_module, monkey
     assert response.status_code == 404
     assert response.get_json()["error"]
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "outcome,status_code,status",
+    [
+        ("rejected", 502, "rejected"),
+        ("unknown", 503, "unknown"),
+    ],
+)
+def test_push_device_test_does_not_report_failure_as_success(
+    rlab_module, monkeypatch, outcome, status_code, status
+):
+    sub = {**FCM_SUB, "user": {"id": "user-1"}}
+    monkeypatch.setattr(rlab_module, "redis", object())
+    monkeypatch.setattr(rlab_module, "_push_store_ready", lambda: True)
+    monkeypatch.setattr(rlab_module, "_get_subs", lambda: [sub])
+    monkeypatch.setattr(rlab_module, "push_notify", lambda *args, **kwargs: outcome)
+
+    with rlab_module.app.test_request_context(
+        "/api/push/test-device", method="POST", json={"endpoint": FCM_SUB["endpoint"]}
+    ):
+        rlab_module.g.user = {"id": "user-1"}
+        response = rlab_module.app.make_response(rlab_module.push_test_device.__wrapped__())
+
+    assert response.status_code == status_code
+    assert response.get_json()["sent"] is False
+    assert response.get_json()["status"] == status
+    assert response.get_json()["error"]

@@ -17,6 +17,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 
 const mockSubscribe = vi.hoisted(() => vi.fn())
 const mockGetSession = vi.hoisted(() => vi.fn())
+const mockGetSubscription = vi.hoisted(() => vi.fn())
+const mockShowNotification = vi.hoisted(() => vi.fn())
 const mockFetch = vi.hoisted(() => vi.fn())
 const mockSupabaseState = vi.hoisted(() => ({ defaultDb: null as any }))
 
@@ -81,78 +83,100 @@ beforeEach(() => {
     error: null,
   })
   vi.stubGlobal('fetch', mockFetch)
+  mockGetSubscription.mockResolvedValue({ endpoint: 'https://fcm.googleapis.com/fcm/send/device-qa' })
+  mockShowNotification.mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'serviceWorker', {
+    configurable: true,
+    value: {
+      ready: Promise.resolve({
+        pushManager: { getSubscription: mockGetSubscription },
+        showNotification: mockShowNotification,
+      }),
+    },
+  })
 })
 
 afterEach(() => {
+  Reflect.deleteProperty(navigator, 'serviceWorker')
   vi.unstubAllGlobals()
 })
 
-describe('ProfileSheet — Testar notificação (push global)', () => {
-  it('mostra o botão de teste quando o push está ativo', () => {
+describe('ProfileSheet — diagnóstico Push por dispositivo', () => {
+  it('mostra os botões de teste quando o push está ativo', () => {
     render(<ProfileSheet open onClose={() => {}} />)
     expect(screen.getByText('Push ativo')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Testar notificação' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Testar exibição local' })).toBeEnabled()
   })
 
-  it('oculta o botão de teste quando o push não está ativo', () => {
+  it('oculta os botões de teste quando o push não está ativo', () => {
     mockHook({ permission: 'default', subscribed: false })
     render(<ProfileSheet open onClose={() => {}} />)
     expect(screen.queryByRole('button', { name: 'Testar notificação' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Testar exibição local' })).not.toBeInTheDocument()
   })
 
-  it('envia para /api/chamados/push/test com o token da sessão', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ sent: 1, total: 1 }),
-    })
-
+  it('envia ao próprio endpoint do dispositivo autenticado, não a todos os endpoints', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ sent: true, status: 'accepted' }) })
     render(<ProfileSheet open onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Testar notificação' }))
     await act(async () => {})
-
     expect(mockFetch).toHaveBeenCalledWith(
-      '/api/chamados/push/test',
+      '/api/push/test-device',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ Authorization: 'Bearer token-123' }),
+        body: JSON.stringify({ endpoint: 'https://fcm.googleapis.com/fcm/send/device-qa' }),
       }),
     )
-    expect(screen.getByText(/Push de teste enviado \(1\/1\)/)).toBeInTheDocument()
+    expect(screen.getByText(/provedor aceitou o Push para este dispositivo/)).toBeInTheDocument()
   })
 
-  it('avisa quando o usuário não tem inscrições', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ sent: 0, total: 0, message: 'Nenhuma inscrição encontrada para este usuário' }),
-    })
-
+  it('rejeita sucesso falso da API se o provedor não confirmou o envio', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ sent: false, status: 'rejected' }) })
     render(<ProfileSheet open onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Testar notificação' }))
     await act(async () => {})
+    expect(screen.getByText(/servidor não confirmou a aceitação/)).toBeInTheDocument()
+  })
 
-    expect(screen.getByText(/Nenhuma inscrição encontrada/)).toBeInTheDocument()
+  it('avisa se a inscrição local desapareceu mesmo com permissão concedida', async () => {
+    mockGetSubscription.mockResolvedValue(null)
+    render(<ProfileSheet open onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar notificação' }))
+    await act(async () => {})
+    expect(screen.getByText(/inscrição Push deste dispositivo não está ativa/)).toBeInTheDocument()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('oferece teste de exibição local sem requisição à API', async () => {
+    render(<ProfileSheet open onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar exibição local' }))
+    await act(async () => {})
+    expect(mockShowNotification).toHaveBeenCalledWith(
+      'LabHub · teste local',
+      expect.objectContaining({ icon: '/logo-192.png' }),
+    )
+    expect(screen.getByText(/Teste local solicitado/)).toBeInTheDocument()
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
   it('mostra erro quando a API falha', async () => {
     mockFetch.mockResolvedValue({
       ok: false,
-      json: async () => ({ error: 'Sessão inválida ou expirada. Faça login novamente.' }),
+      json: async () => ({ error: 'Inscrição deste dispositivo não encontrada. Ative as notificações novamente.' }),
     })
-
     render(<ProfileSheet open onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Testar notificação' }))
     await act(async () => {})
-
-    expect(screen.getByText(/Faça login novamente/)).toBeInTheDocument()
+    expect(screen.getByText(/Inscrição deste dispositivo não encontrada/)).toBeInTheDocument()
   })
 
   it('avisa quando a sessão expira sem chamar o endpoint', async () => {
     mockGetSession.mockResolvedValue({ data: { session: null }, error: null })
-
     render(<ProfileSheet open onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Testar notificação' }))
     await act(async () => {})
-
     expect(screen.getByText('Sessão expirada. Faça login novamente.')).toBeInTheDocument()
     expect(mockFetch).not.toHaveBeenCalled()
   })
