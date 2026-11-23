@@ -43,18 +43,29 @@ export function UsersPage() {
     load()
   }, [load])
 
-  // Polling: mantém a lista atualizada (aprovações e cargos de outros admins)
+  // Admin não precisa consultar perfis/memberships a cada 10s em uma aba esquecida.
+  // Revalida imediatamente ao voltar; a RLS continua sendo a autoridade.
   useEffect(() => {
-    const refresh = () => load(true)
-    const id = window.setInterval(refresh, 10000)
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') refresh()
+    let inFlight = false
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible' || inFlight) return
+      inFlight = true
+      try {
+        await load(true)
+      } catch {
+        // Falha transitória: a próxima ativação/rodada tenta novamente.
+      } finally {
+        inFlight = false
+      }
     }
-    window.addEventListener('focus', refresh)
+    const id = window.setInterval(() => { void refresh() }, 60000)
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh() }
+    const onFocus = () => { void refresh() }
+    window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.clearInterval(id)
-      window.removeEventListener('focus', refresh)
+      window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [load])
