@@ -1932,7 +1932,10 @@ def _module_action_ok(u, module, min_level, rbac_members, role_actions, override
     - com workspace_id, a Action é exigida NAQUELE workspace; sem workspace_id,
       qualquer membership ativa do usuário conta.
     """
-    if u.get('is_super_admin'):
+    # Alertas de chamado sem responsável são destinados a quem tem a Action
+    # ticket.claim no campus, não a administradores só pelo bypass global.
+    # O bypass do super admin permanece intacto nos outros canais/módulos.
+    if u.get('is_super_admin') and not (module == 'chamados' and min_level == 'claim'):
         return True
     criteria = _MODULE_PUSH_ACTIONS.get(module)
     actions = (criteria or {}).get(min_level) if criteria else None
