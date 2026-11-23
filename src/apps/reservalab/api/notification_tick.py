@@ -6,6 +6,7 @@ Somente QStash pode chamar o endpoint; nunca incluir segredos na URL.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 
 TICK_PATH = "/api/notifications/qstash/tick"
@@ -48,22 +49,16 @@ def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) ->
     return True
 
 
-def request_tick_for_created_ticket(ticket_id: str, *, publish=None) -> bool:
-    """Acelera o primeiro aviso; o schedule periódico é o fallback durável.
+def _publish_fixed_tick(deduplication_id: str, *, publish=None) -> bool:
+    """Wake-up best-effort; PostgreSQL outbox + schedule handle recovery.
 
-    Publica apenas o payload fixo de tick, jamais dados do professor/campus.
-    O request público NÃO depende da disponibilidade momentânea do QStash.
+    The message contains only a fixed job type. No ticket, staff or patient
+    details are sent to QStash. Production-only and signed by QStash on delivery.
     """
     if os.environ.get("VERCEL_ENV") != "production":
         return False
     token = os.environ.get("QSTASH_TOKEN", "").strip()
     if not token:
-        return False
-    try:
-        normalized = str(uuid.UUID(str(ticket_id)))
-        if normalized != str(ticket_id):
-            return False
-    except (TypeError, ValueError, AttributeError):
         return False
 
     http_client = None
@@ -72,8 +67,8 @@ def request_tick_for_created_ticket(ticket_id: str, *, publish=None) -> bool:
             import httpx
             from qstash import QStash
 
-            # Somente o acionamento best-effort cabe no request do professor.
-            # O worker propriamente dito executa em outra função Vercel.
+            # Small bounded network attempt; never block ticket mutations
+            # indefinitely if QStash is degraded.
             client = QStash(token=token, retry=False)
             http_client = httpx.Client(
                 timeout=httpx.Timeout(2.5, connect=1.0)
@@ -85,7 +80,7 @@ def request_tick_for_created_ticket(ticket_id: str, *, publish=None) -> bool:
             url=TICK_URL,
             body=TICK_BODY.decode("utf-8"),
             content_type="application/json",
-            deduplication_id=f"labhub-created-{normalized}",
+            deduplication_id=deduplication_id,
             retries=1,
             timeout="20s",
         )
@@ -95,3 +90,25 @@ def request_tick_for_created_ticket(ticket_id: str, *, publish=None) -> bool:
     finally:
         if http_client is not None:
             http_client.close()
+
+
+def request_tick_for_created_ticket(ticket_id: str, *, publish=None) -> bool:
+    """Wake the worker after BOTH the notification and workflow outboxes exist."""
+    try:
+        normalized = str(uuid.UUID(str(ticket_id)))
+        if normalized != str(ticket_id):
+            return False
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return _publish_fixed_tick(f"labhub-created-{normalized}", publish=publish)
+
+
+def request_tick_for_chamados_event(event_id: str, *, publish=None) -> bool:
+    """Wake the worker for an already-persisted claim/assignment/status event.
+
+    The event id is already a SHA-256 digest, avoiding PII in the QStash
+    deduplication header. Other modules and malformed IDs cannot schedule.
+    """
+    if not isinstance(event_id, str) or not re.fullmatch(r"chamados:[0-9a-f]{64}", event_id):
+        return False
+    return _publish_fixed_tick(f"labhub-event-{event_id[9:]}", publish=publish)
