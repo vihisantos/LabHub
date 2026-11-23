@@ -256,6 +256,24 @@ describe('UsersPage listagem (Pessoas)', () => {
     vi.useFakeTimers()
   })
 
+  it('revalida ao voltar ao primeiro plano, mas não consulta com a aba oculta', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval')
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Maria Mooca')).toBeInTheDocument())
+    expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 60000)
+    intervalSpy.mockRestore()
+
+    const initial = mockAdminService.listAllProfiles.mock.calls.length
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    fireEvent(document, new Event('visibilitychange'))
+    expect(mockAdminService.listAllProfiles).toHaveBeenCalledTimes(initial)
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    fireEvent(document, new Event('visibilitychange'))
+    await waitFor(() => expect(mockAdminService.listAllProfiles).toHaveBeenCalledTimes(initial + 1))
+    delete (document as unknown as { visibilityState?: string }).visibilityState
+  })
+
   it('mostra apenas os usuários do workspace atual (admin absoluto sempre visível)', async () => {
     mockWorkspaceCtx.workspace = workspaces[0] // Campus Mooca
 

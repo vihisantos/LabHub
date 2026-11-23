@@ -93,6 +93,20 @@ describe('DashboardView', () => {
     vi.setSystemTime(new Date('2026-06-25T12:00:00Z'))
   })
 
+  it('só atualiza reservas quando a aba está visível', async () => {
+    renderDashboard()
+    await waitFor(() => expect(fetchTabletReservas).toHaveBeenCalledTimes(1))
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(fetchTabletReservas).toHaveBeenCalledTimes(1)
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await waitFor(() => expect(fetchTabletReservas).toHaveBeenCalledTimes(2))
+    delete (document as unknown as { visibilityState?: string }).visibilityState
+  })
+
   it('renderiza o título "Visão Geral"', async () => {
     renderDashboard()
     expect(await screen.findByText('Visão Geral')).toBeInTheDocument()
