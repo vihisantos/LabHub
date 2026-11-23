@@ -19,7 +19,12 @@ não executa Push diretamente.
   `Host`, query string, variáveis de Preview, URL fornecida pelo cliente
   e `CRON_SECRET` no endereço não autorizam chamadas.
 - Cada tick processa até **5 eventos** do worker PostgreSQL/Redis e despacha
-  até **5 jobs** QStash de Chamados. Se um subsistema falha, o outro ainda roda;
+  até **5 jobs** QStash de Chamados. Ao criar um chamado, o servidor também
+  publica um **tick imediato**, assinado e com dedup por UUID do chamado:
+  tenta avisar imediatamente e iniciar seu Workflow, sem aguardar os cinco
+  minutos. Se o QStash estiver indisponível, o chamado é criado normalmente,
+  as duas outboxes persistem e o schedule periódico faz a recuperação.
+  Se um subsistema falha, o outro ainda roda;
   um HTTP 503 permite retentativa. Os locks/dedup existentes evitam dupla
   entrega conhecida quando coincidir com o fallback no GitHub Actions.
 - O `push-cron.yml` do GitHub **permanece** como fallback/manual de operação
@@ -47,7 +52,8 @@ não executa Push diretamente.
 ### Consumo do plano Free
 
 - Cron de cinco minutos: `24*60/5 = 288` *mensagens QStash de trigger por
-  dia*, independentemente de haver chamado.
+  dia*, independentemente de haver chamado. Cada **novo chamado** ainda
+  publica um tick imediato adicional (uma mensagem por chamado criado).
 - **288 não são notificações de técnicos**. Mensagens/steps dos Workflows por
   chamado, eventuais retentativas e outros projetos usam a mesma franquia e
   precisam ser monitorados. Não assumir que 288 é o consumo total.
@@ -75,7 +81,7 @@ não executa Push diretamente.
    Acompanhar o DLQ, retries, `notification_outbox` e
    `chamados_workflow_outbox` por 24 h.
 5. Testar chamado **real controlado**, no campus autorizado, com técnico inscrito:
-   avisar novo chamado uma vez, confirmar cobrança **somente se não assumir**,
+   avisar novo chamado sem esperar até 5 minutos, confirmar cobrança **somente se não assumir**,
    assumir e confirmar interrupção. Não gerar lote artificial em Production.
 6. Inspecionar `push-cron.yml`: quando executar simultaneamente, dedup e locks
    precisam prevenir duplicidade. Se não, pausar o schedule e investigar.
