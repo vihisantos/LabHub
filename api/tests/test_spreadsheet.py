@@ -1,6 +1,7 @@
 import importlib.util
+import json
 import sys
-from datetime import date, timedelta
+from datetime import date, timedelta, time as datetime_time
 from io import BytesIO
 from pathlib import Path
 
@@ -162,6 +163,102 @@ def test_parse_spreadsheet_sem_url_retorna_vazio(spread_module):
     reservas_hoje, reservas_semana = spread_module._parse_spreadsheet('')
     assert reservas_hoje == []
     assert reservas_semana == []
+
+
+
+def test_horario_nativo_excel_na_planilha_e_na_api(cache_isolado, monkeypatch):
+    """Hora real do Excel não pode quebrar /api/reservas nem o cache."""
+    today = date(2026, 11, 23)
+    monkeypatch.setattr(cache_isolado, 'get_today_sp', lambda: today)
+    monkeypatch.setattr(cache_isolado, '_get_workspace_spreadsheet_url',
+                        lambda slug: 'https://sharepoint/reservas.xlsx')
+    monkeypatch.setattr(cache_isolado, '_get_workspace_lab_count', lambda slug: 2)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'RESERVA LAB. INFORMÁTICA'
+    ws.append(['Reserva feita por', 'Professor', 'Email', 'Data', 'Horário',
+               'Alunos', 'Obs', '', 'Lab'])
+    ws.append(['Maria', 'Prof. A', 'a@x', today, datetime_time(9, 30),
+               30, '', None, 'Lab 01'])
+    ws.append(['João', 'Prof. B', 'b@x', today + timedelta(days=1),
+               datetime_time(14, 15, 30), 20, '', None, 'Lab 02'])
+    buffer = BytesIO()
+    wb.save(buffer)
+    _route_download(cache_isolado, monkeypatch, buffer.getvalue())
+
+    client = cache_isolado.app.test_client()
+    resp = client.get('/api/reservas?workspace=ws-a')
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['lab1_reservas'][0]['horario'] == '09:30'
+    assert body['lab1_reservas'][0]['horario_inicio'] == 570
+    assert body['lab1_reservas'][0]['horario_fim'] is None
+    assert body['reservas_semana'][0]['horario'] == '14:15:30'
+    assert body['reservas_semana'][0]['horario_inicio'] == 855
+
+    # Segunda chamada lê arquivo serializado, sem alterar os dados.
+    again = client.get('/api/reservas?workspace=ws-a')
+    assert again.status_code == 200
+    assert again.get_json()['lab1_reservas'][0]['horario'] == '09:30'
+    assert not list(Path(cache_isolado._cache_path('reservas_ws-a')).parent.glob('*.tmp'))
+
+
+def test_date_encoder_serializa_hora_nativa_do_excel(spread_module):
+    payload = {'hora': datetime_time(9, 30), 'hora_com_segundos': datetime_time(14, 15, 30)}
+    serialized = json.dumps(payload, cls=spread_module.DateEncoder)
+    assert json.loads(serialized) == {'hora': '09:30', 'hora_com_segundos': '14:15:30'}
+
+
+def test_cache_redis_serializa_horario_nativo(cache_isolado, monkeypatch):
+    class FakeRedis:
+        def __init__(self):
+            self.saved = {}
+
+        def set(self, key, value, ex=None):
+            self.saved[key] = value
+
+        def get(self, key):
+            return self.saved.get(key)
+
+    redis = FakeRedis()
+    monkeypatch.setattr(cache_isolado, 'redis', redis)
+    cache_key = 'reservas_ws-a'
+    cache_isolado.set_cached_reservas(
+        cache_key, ([{'horario': datetime_time(9, 30), 'data': date(2026, 11, 23)}], []),
+    )
+    stored = json.loads(redis.saved[f'cache:{cache_key}'])
+    assert stored['data'][0][0]['horario'] == '09:30'
+    assert stored['data'][0][0]['data'] == '23/11/2026'
+    assert cache_isolado.get_cached_reservas(cache_key)[0][0]['horario'] == '09:30'
+
+
+def test_cache_arquivo_preserva_anterior_em_erro_de_serializacao(cache_isolado):
+    cache_key = 'reservas_ws-a'
+    cache_path = Path(cache_isolado._cache_path(cache_key))
+    previous = '{"data": [[{"horario": "08:00"}], []], "timestamp": 123}'
+    cache_path.write_text(previous, encoding='utf-8')
+
+    cache_isolado.set_cached_reservas(cache_key, ([{'invalido': object()}], []))
+
+    assert cache_path.read_text(encoding='utf-8') == previous
+    assert not list(cache_path.parent.glob('*.tmp'))
+
+
+def test_cache_arquivo_preserva_anterior_se_replace_falhar(cache_isolado, monkeypatch):
+    cache_key = 'reservas_ws-a'
+    cache_path = Path(cache_isolado._cache_path(cache_key))
+    previous = '{"data": [[{"horario": "08:00"}], []], "timestamp": 123}'
+    cache_path.write_text(previous, encoding='utf-8')
+
+    def fail_replace(src, dst):
+        raise OSError('falha simulada na substituição')
+
+    monkeypatch.setattr(cache_isolado.os, 'replace', fail_replace)
+    cache_isolado.set_cached_reservas(cache_key, ([{'horario': '09:30'}], []))
+
+    assert cache_path.read_text(encoding='utf-8') == previous
+    assert not list(cache_path.parent.glob('*.tmp'))
 
 
 # ── Cache por workspace (bug: cache global cruzava campi) ──
