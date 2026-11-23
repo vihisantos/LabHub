@@ -37,6 +37,9 @@ não executa Push diretamente.
 
 1. Novo chamado: um evento `chamados-created` na outbox, para inscrições do
    **campus do chamado** que tenham a Action ativa `ticket.claim`.
+   **Antes da entrega**, o worker relê o ticket no PostgreSQL. Se já foi
+   assumido, indeferido, fechado ou movido para outro campus, descarta o
+   aviso obsoleto sem Push. Erros de banco exigem retry, nunca ACK cego.
 2. Após 2 minutos sem atribuição (ou reabertura elegível), até 10 cobranças
    separadas por ao menos 2 minutos: cada tentativa revalida o chamado, ciclo,
    workspace, RBAC, preferências e dedup antes do Web Push.
