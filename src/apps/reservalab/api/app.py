@@ -1177,15 +1177,26 @@ def push_test_device():
         if not subscription:
             return jsonify({'error': 'Inscrição deste dispositivo não encontrada. Ative as notificações novamente.'}), 404
 
-        sent = push_notify(
+        outcome = _push_outcome(push_notify(
             subscription,
             'Teste de notificações do LabHub',
             'Se esta mensagem apareceu, o Push chegou a este dispositivo.',
             url='/chamados/settings',
-        )
-        if not sent:
-            return jsonify({'error': 'O servidor não conseguiu enviar o Push. Verifique a configuração VAPID e a inscrição.'}), 502
-        return jsonify({'sent': True})
+        ))
+        if outcome == PUSH_REJECTED:
+            return jsonify({
+                'sent': False,
+                'status': 'rejected',
+                'error': 'O serviço Push rejeitou a inscrição deste dispositivo. Reative as notificações.',
+            }), 502
+        if outcome != PUSH_ACCEPTED:
+            return jsonify({
+                'sent': False,
+                'status': 'unknown',
+                'error': 'O servidor não conseguiu confirmar a aceitação do Push. Confira o dispositivo antes de repetir.',
+            }), 503
+        # HTTP 2xx do provedor = aceito para entrega, NÃO exibido no dispositivo.
+        return jsonify({'sent': True, 'status': 'accepted'})
     except Exception as e:
         logger.error('Push device test error: %s', e)
         return jsonify({'error': 'Não foi possível testar as notificações'}), 500
