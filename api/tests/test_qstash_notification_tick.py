@@ -170,6 +170,7 @@ def test_claim_targeting_excludes_other_campuses_and_non_claim_roles(api_module,
         {"user": {"id": "tech-other", "notify_settings": {}}},
         {"user": {"id": "coordinator-here", "notify_settings": {}}},
         {"user": {"id": "super-admin-global", "is_super_admin": True, "notify_settings": {}}},
+        {"user": {"id": "super-admin-local", "is_super_admin": True, "notify_settings": {}}},
     ]
     role_tech, role_coord = "r-tec", "r-coord"
     memberships = {
@@ -177,6 +178,7 @@ def test_claim_targeting_excludes_other_campuses_and_non_claim_roles(api_module,
         "tech-other": {"ws-other": {"role_id": role_tech, "membership_id": "mem-2"}},
         "coordinator-here": {"ws-here": {"role_id": role_coord, "membership_id": "mem-3"}},
         "super-admin-global": {},
+        "super-admin-local": {"ws-here": {"role_id": role_coord, "membership_id": "mem-4"}},
     }
     monkeypatch.setattr(legacy, "_get_subs", lambda: subscribers)
     monkeypatch.setattr(legacy, "_resolve_batch_rbac", lambda _: memberships)
