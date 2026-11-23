@@ -189,3 +189,41 @@ def test_claim_targeting_excludes_other_campuses_and_non_claim_roles(api_module,
     selected = legacy._target_subs(module="chamados", workspace_id="ws-here", min_level="claim")
     assert [item["user"]["id"] for item in selected] == ["tech-here"]
     assert legacy._target_subs(module="chamados", min_level="claim") == []
+
+
+def test_created_ticket_kicks_fixed_signed_tick_without_user_data(api_module, monkeypatch):
+    import notification_tick as tick
+
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("QSTASH_TOKEN", "test-publish-token")
+    publish = Mock()
+    ticket_id = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+
+    assert tick.request_tick_for_created_ticket(ticket_id, publish=publish)
+    publish.assert_called_once_with(
+        url="https://lab-hub-pi.vercel.app" + TICK_PATH,
+        body=TICK_BODY.decode("utf-8"),
+        content_type="application/json",
+        deduplication_id="labhub-created-" + ticket_id,
+        retries=1,
+        timeout="20s",
+    )
+    assert not tick.request_tick_for_created_ticket("not-uuid", publish=publish)
+    assert publish.call_count == 1
+
+
+def test_created_ticket_kick_fails_open_and_preview_never_publishes(api_module, monkeypatch):
+    import notification_tick as tick
+
+    ticket_id = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+    publish = Mock(side_effect=TimeoutError("network timeout"))
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("QSTASH_TOKEN", "test-publish-token")
+    assert tick.request_tick_for_created_ticket(ticket_id, publish=publish) is False
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    assert tick.request_tick_for_created_ticket(ticket_id, publish=publish) is False
+    assert publish.call_count == 1
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.delenv("QSTASH_TOKEN")
+    assert tick.request_tick_for_created_ticket(ticket_id, publish=publish) is False
+    assert publish.call_count == 1
