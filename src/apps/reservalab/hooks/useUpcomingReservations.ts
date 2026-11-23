@@ -30,8 +30,11 @@ export function useUpcomingReservations(workspaceSlug?: string, workspaceId?: st
   useEffect(() => {
     if (!workspaceSlug && !workspaceId) return
     let mounted = true
+    let inFlight = false
 
     const load = async () => {
+      if (inFlight) return
+      inFlight = true
       try {
         const [res, tablets] = await Promise.all([
           fetchReservas(workspaceSlug).catch(() => null),
@@ -52,12 +55,22 @@ export function useUpcomingReservations(workspaceSlug?: string, workspaceId?: st
         )
       } catch {
         /* silencioso: aviso é complementar */
+      } finally {
+        inFlight = false
       }
     }
 
-    load()
-    const timer = setInterval(load, 60000)
-    return () => { mounted = false; clearInterval(timer) }
+    void load()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    const timer = setInterval(onVisible, 60000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      mounted = false
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [workspaceSlug, workspaceId])
 
   return { labReservas, tabletReservas }
