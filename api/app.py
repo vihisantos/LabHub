@@ -57,7 +57,11 @@ from rbac import (
 import pg_store
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
-from notification_tick import TICK_PATH as _QSTASH_TICK_PATH, verify_signed_tick as _verify_qstash_tick
+from notification_tick import (
+    TICK_PATH as _QSTASH_TICK_PATH,
+    verify_signed_tick as _verify_qstash_tick,
+    request_tick_for_created_ticket as _request_tick_for_created_ticket,
+)
 from chamados_workflow import (schedule as _schedule_chamado_workflow,
                               register as _register_chamado_workflow,
                               parse_payload as _parse_workflow_payload,
@@ -3349,9 +3353,11 @@ def chamados_create():
         # Notificação imediata: avisa o TI no momento em que o professor abre o chamado.
         # Evento, não agendamento — não depende de cron nenhum (próprio app).
         _notify_new_ticket(ticket)
-        # Experimento QStash: somente com flag explícita (default OFF).
-        # Falha no agendamento nunca desfaz a criação do professor.
+        # Agendamento durável por chamado: só roda se continuar aberto e sem
+        # responsável. Primeiro Push é acelerado por um tick assinado QStash;
+        # o schedule periódico recupera falhas (não bloqueia o professor).
         _schedule_chamado_workflow(ticket)
+        _request_tick_for_created_ticket(ticket.get('id') or '')
 
         # Auditoria do app (tabela 054): criação pública (sem actor autenticado,
         # actora é o solicitante).
