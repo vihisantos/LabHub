@@ -1,7 +1,7 @@
 import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools, math, hmac, base64, uuid
 from datetime import datetime, timedelta, timezone, date
 from io import BytesIO
-from urllib.parse import urlparse, parse_qs, quote, urljoin
+from urllib.parse import urlparse, parse_qs, quote, urljoin, unquote
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api')))
 from app import (
@@ -57,6 +57,12 @@ from rbac import (
 import pg_store
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
+from notification_tick import (
+    TICK_PATH as _QSTASH_TICK_PATH,
+    verify_signed_tick as _verify_qstash_tick,
+    request_tick_for_created_ticket as _request_tick_for_created_ticket,
+    request_tick_for_chamados_event as _request_tick_for_chamados_event,
+)
 from chamados_workflow import (schedule as _schedule_chamado_workflow,
                               register as _register_chamado_workflow,
                               parse_payload as _parse_workflow_payload,
@@ -85,6 +91,15 @@ def _enqueue_push_event(event_id, payload):
             context=payload.get('context'),
             actions=payload.get('actions'),
         )
+        if (status == 'queued'
+                and payload.get('module') == 'chamados'
+                and payload.get('context') != 'chamados-created'):
+            # Status, claim e atribuição não devem aguardar o próximo tick
+            # de 5 min. Falha no wake-up não desfaz a outbox durável; o
+            # schedule assinado faz a recuperação posterior.
+            if not _request_tick_for_chamados_event(str(event_id)):
+                if os.environ.get('VERCEL_ENV') == 'production':
+                    logger.warning('[notifications] wake-up QStash indisponível; fallback pelo schedule')
         return status in ('queued', 'duplicate')
     except Exception as exc:
         logger.exception("[notifications] falha ao persistir evento %s: %s", event_id, exc)
@@ -3159,7 +3174,7 @@ def _notify_new_ticket(ticket):
             {
                 'title': title, 'body': body, 'module': 'chamados',
                 'workspace_id': ticket.get('workspace_id'),
-                'min_level': 'full', 'action_url': url,
+                'min_level': 'claim', 'action_url': url,
                 'context': 'chamados-created',
             },
         )
@@ -3348,9 +3363,11 @@ def chamados_create():
         # Notificação imediata: avisa o TI no momento em que o professor abre o chamado.
         # Evento, não agendamento — não depende de cron nenhum (próprio app).
         _notify_new_ticket(ticket)
-        # Experimento QStash: somente com flag explícita (default OFF).
-        # Falha no agendamento nunca desfaz a criação do professor.
+        # Agendamento durável por chamado: só roda se continuar aberto e sem
+        # responsável. Primeiro Push é acelerado por um tick assinado QStash;
+        # o schedule periódico recupera falhas (não bloqueia o professor).
         _schedule_chamado_workflow(ticket)
+        _request_tick_for_created_ticket(ticket.get('id') or '')
 
         # Auditoria do app (tabela 054): criação pública (sem actor autenticado,
         # actora é o solicitante).
@@ -4228,7 +4245,12 @@ def chamados_manage(ticket_id):
              and ticket.get('status') == 'aberto')
                 or (assignment_changed and not ticket.get('assignedToUserId')
                     and ticket.get('status') == 'aberto')):
-            _schedule_chamado_workflow(ticket)
+            if _schedule_chamado_workflow(ticket):
+                # Reabertura/desatribuição pode não criar Push para usuário
+                # logado: o Workflow precisa do próprio wake-up imediato.
+                _request_tick_for_chamados_event(
+                    _chamados_event_id('workflow-rescheduled', ticket)
+                )
 
         # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
         # (Prefer: return=representation). Filtra pela allowlist interna antes
@@ -5903,7 +5925,7 @@ def _revalidate_super_admin_subs(subs: list) -> list:
 
 def _eligible_reminder_subs(workspace_id: str) -> list:
     """Destinatários elegíveis no workspace, sem duplicatas de identidade."""
-    subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='full')
+    subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='claim')
     subs = _revalidate_super_admin_subs(subs)
     out = []
     seen = set()
@@ -6450,6 +6472,72 @@ def chamados_reminders_check():
 
 # ── Fila centralizada de notificações (PostgreSQL outbox + Upstash) ────────
 
+def _safe_push_action_url(value) -> bool:
+    """Aceita rotas internas do PWA sem afrouxar proteção de URLs externas.
+
+    `_is_safe_url` do ReservaLab foi feito para fetch externo e exige
+    http(s) absoluto. Links do PWA são root-relative, como /chamados/tickets/id.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        return False
+    decoded = unquote(value)
+    if (
+        value.startswith("/") and not value.startswith("//")
+        and decoded.startswith("/") and not decoded.startswith("//")
+        and "\\" not in decoded
+    ):
+        parsed = urlparse(value)
+        return not parsed.scheme and not parsed.netloc
+    return _is_safe_url(value)
+
+
+def _created_push_still_actionable(action_url, workspace_id):
+    """Descarta aviso de ABERTURA obsoleto após claim/indeferimento/fechamento.
+
+    A fila pode ficar parada durante um incidente: o Web Push "Novo chamado"
+    só é útil enquanto o ticket permanece aberto e sem responsável.
+    Falhas de consulta ao banco NÃO viram ACK silencioso; geram retry.
+    """
+    match = re.fullmatch(
+        r'/chamados/tickets/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',
+        action_url or '',
+    )
+    if not match or not workspace_id:
+        return False
+    try:
+        ticket_id = str(uuid.UUID(match.group(1)))
+        workspace_id = str(uuid.UUID(str(workspace_id)))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        raise RuntimeError('Banco indisponível para revalidar chamado')
+
+    resp = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+        f'?id=eq.{quote(ticket_id)}'
+        f'&select=id,workspace_id,status,assignedToUserId'
+        f'&limit=1',
+        headers=_supabase_headers(),
+        timeout=8,
+    )
+    if not resp.ok:
+        raise RuntimeError('Não foi possível revalidar abertura de chamado')
+    rows = resp.json()
+    if not isinstance(rows, list):
+        raise RuntimeError('Resposta inválida ao revalidar chamado')
+    if not rows:
+        return False
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise RuntimeError('Resposta ambígua ao revalidar chamado')
+    ticket = rows[0]
+    return (
+        str(ticket.get('workspace_id') or '') == workspace_id
+        and _is_ticket_eligible_for_reminder(ticket)
+    )
+
+
 def _deliver_outbox_notification(event_id, payload):
     """Entrega um evento persistido no outbox aos subscribers autorizados."""
     if not isinstance(payload, dict):
@@ -6470,8 +6558,13 @@ def _deliver_outbox_notification(event_id, payload):
     except (TypeError, ValueError):
         ttl = 86400
 
-    if not isinstance(action_url, str) or not _is_safe_url(action_url):
+    if not _safe_push_action_url(action_url):
         action_url = '/'
+
+    if module == 'chamados' and context == 'chamados-created':
+        if not _created_push_still_actionable(action_url, workspace_id):
+            logger.info('[notifications] aviso de abertura obsoleto descartado: %s', event_id)
+            return True
 
     targeting_module = module
     if module and module not in _MODULE_PUSH_ACTIONS:
@@ -6529,18 +6622,13 @@ def _deliver_outbox_notification(event_id, payload):
     return True
 
 
-@_route_once('/api/notifications/worker', methods=['POST'])
-@require_cron
-def notifications_worker():
-    """Executa publicação e consumo em lotes pequenos, sem comandos bloqueantes."""
+def _run_notification_worker(publish_limit: int, consume_limit: int) -> tuple[dict, int]:
+    """Núcleo compartilhado: cron legado e tick assinado usam os mesmos locks."""
     if redis is None:
-        return jsonify({'error': 'Upstash Redis não configurado'}), 503
+        return {'error': 'Upstash Redis não configurado'}, 503
     if not pg_store.is_configured():
-        return jsonify({'error': 'PostgreSQL não configurado'}), 503
+        return {'error': 'PostgreSQL não configurado'}, 503
     try:
-        body = request.get_json(silent=True) or {}
-        publish_limit = max(1, min(int(body.get('publish_limit', 20)), 50))
-        consume_limit = max(1, min(int(body.get('consume_limit', 10)), 25))
         worker_id = f"{os.environ.get('VERCEL_REGION', 'worker')}:{uuid.uuid4().hex}"
         queue = NotificationQueue(redis)
         published = publish_pending(
@@ -6550,17 +6638,71 @@ def notifications_worker():
             pg_store.store, queue, worker_id, _deliver_outbox_notification,
             count=consume_limit,
         )
-        return jsonify({
+        return {
             'status': 'ok',
             'worker_id': worker_id,
             'published': published,
             'processed': processed,
-        })
+        }, 200
+    except Exception as exc:
+        logger.exception('notification worker failed: %s', type(exc).__name__)
+        return {'error': 'Falha no worker de notificações'}, 503
+
+
+@_route_once('/api/notifications/worker', methods=['POST'])
+@require_cron
+def notifications_worker():
+    """Endpoint legado protegido por CRON_SECRET (mantido como fallback)."""
+    try:
+        body = request.get_json(silent=True) or {}
+        publish_limit = max(1, min(int(body.get('publish_limit', 20)), 50))
+        consume_limit = max(1, min(int(body.get('consume_limit', 10)), 25))
     except (TypeError, ValueError) as exc:
         return jsonify({'error': f'Parâmetros inválidos: {str(exc)[:120]}'}), 400
+    result, code = _run_notification_worker(publish_limit, consume_limit)
+    return jsonify(result), code
+
+
+@_route_once(_QSTASH_TICK_PATH, methods=['POST'])
+def notifications_qstash_tick():
+    """Tick QStash assinado: outbox de push e dispatcher dos workflows.
+
+    O agendador executa, mas só há Push se existir evento/aviso elegível.
+    As cobranças em si são por chamado e revalidam status/responsável
+    antes de cada envio; concorrência com o cron legado usa locks e dedup.
+    """
+    if os.environ.get('VERCEL_ENV') != 'production':
+        return jsonify({'error': 'Não encontrado'}), 404
+
+    # Body e destino têm contrato fixo: sem URL arbitrária, JWT exposto ou
+    # parâmetros que permitam alterar lote, campus, destinatários ou intervalo.
+    if request.content_length is not None and request.content_length > 256:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+    try:
+        verified = _verify_qstash_tick(
+            request.get_data(cache=False),
+            request.headers.get('Upstash-Signature', ''),
+        )
+    except (RuntimeError, ImportError):
+        logger.warning('[notifications] QStash tick indisponível: credenciais ou SDK')
+        return jsonify({'error': 'Agendador indisponível'}), 503
+    if not verified:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+
+    queue_result, queue_code = _run_notification_worker(5, 5)
+    try:
+        workflow_result = _drain_chamado_workflow_outbox(limit=5)
     except Exception as exc:
-        logger.exception('notification worker failed: %s', exc)
-        return jsonify({'error': 'Falha no worker de notificações'}), 503
+        logger.warning('[notifications] dispatch QStash falhou: %s', type(exc).__name__)
+        workflow_result = {'error': type(exc).__name__}
+
+    failed = (queue_code != 200 or workflow_result.get('error')
+              or workflow_result.get('reconcile_error'))
+    return jsonify({
+        'status': 'error' if failed else 'ok',
+        'queue': queue_result,
+        'chamados': workflow_result,
+    }), (503 if failed else 200)
 
 
 # ── Notificações in-app (sino) bem-vindo do painel do admin ─────────────────

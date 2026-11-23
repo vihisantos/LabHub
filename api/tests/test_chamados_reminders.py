@@ -902,7 +902,7 @@ def test_rbac2_respeitado(api_module, monkeypatch):
 
     assert captured['module'] == 'chamados'
     assert captured['workspace_id'] == WS_A
-    assert captured['min_level'] == 'full'
+    assert captured['min_level'] == 'claim'
 
 
 def test_preferencia_push_desativada_eh_respeitada(api_module, monkeypatch):
@@ -3849,7 +3849,7 @@ def test_revalidacao_por_destinatario_antes_de_cada_push(api_module, monkeypatch
     assert len(chamadas) == 3
     assert all(c.get('module') == 'chamados'
                and c.get('workspace_id') == WS_A
-               and c.get('min_level') == 'full' for c in chamadas)
+               and c.get('min_level') == 'claim' for c in chamadas)
 
     cycle_id = api_module._get_cycle_id(ticket['id'], ticket)
     ident0 = api_module._sub_identity(subs[0])
@@ -3974,7 +3974,7 @@ def test_targeting_real_respeita_workspace_modulo_e_nivel(api_module, monkeypatc
         chamadas.append(dict(kw))
         if (kw.get('module') != 'chamados'
                 or kw.get('workspace_id') != WS_A
-                or kw.get('min_level') != 'full'):
+                or kw.get('min_level') != 'claim'):
             return []
         return list(subs)
 
@@ -3985,7 +3985,7 @@ def test_targeting_real_respeita_workspace_modulo_e_nivel(api_module, monkeypatc
     assert sorted(enviados) == sorted(s['key'] for s in subs)
     assert chamadas
     assert all(c['module'] == 'chamados' and c['workspace_id'] == WS_A
-               and c['min_level'] == 'full' for c in chamadas)
+               and c['min_level'] == 'claim' for c in chamadas)
 
 
 def test_empate_nao_terminal_nao_torna_historico_inconclusivo(api_module, monkeypatch):
