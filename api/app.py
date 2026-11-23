@@ -6457,6 +6457,51 @@ def chamados_reminders_check():
 
 # ── Fila centralizada de notificações (PostgreSQL outbox + Upstash) ────────
 
+def _created_push_still_actionable(action_url, workspace_id):
+    """Descarta aviso de ABERTURA obsoleto após claim/indeferimento/fechamento.
+
+    A fila pode ficar parada durante um incidente: o Web Push "Novo chamado"
+    só é útil enquanto o ticket permanece aberto e sem responsável.
+    Falhas de consulta ao banco NÃO viram ACK silencioso; geram retry.
+    """
+    match = re.fullmatch(
+        r'/chamados/tickets/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',
+        action_url or '',
+    )
+    if not match or not workspace_id:
+        return False
+    try:
+        ticket_id = str(uuid.UUID(match.group(1)))
+        workspace_id = str(uuid.UUID(str(workspace_id)))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        raise RuntimeError('Banco indisponível para revalidar chamado')
+
+    resp = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+        f'?id=eq.{quote(ticket_id)}'
+        f'&select=id,workspace_id,status,assignedToUserId'
+        f'&limit=1',
+        headers=_supabase_headers(),
+        timeout=8,
+    )
+    if not resp.ok:
+        raise RuntimeError('Não foi possível revalidar abertura de chamado')
+    rows = resp.json()
+    if not isinstance(rows, list):
+        raise RuntimeError('Resposta inválida ao revalidar chamado')
+    if not rows:
+        return False
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise RuntimeError('Resposta ambígua ao revalidar chamado')
+    ticket = rows[0]
+    return (
+        str(ticket.get('workspace_id') or '') == workspace_id
+        and _is_ticket_eligible_for_reminder(ticket)
+    )
+
+
 def _deliver_outbox_notification(event_id, payload):
     """Entrega um evento persistido no outbox aos subscribers autorizados."""
     if not isinstance(payload, dict):
@@ -6479,6 +6524,11 @@ def _deliver_outbox_notification(event_id, payload):
 
     if not isinstance(action_url, str) or not _is_safe_url(action_url):
         action_url = '/'
+
+    if module == 'chamados' and context == 'chamados-created':
+        if not _created_push_still_actionable(action_url, workspace_id):
+            logger.info('[notifications] aviso de abertura obsoleto descartado: %s', event_id)
+            return True
 
     targeting_module = module
     if module and module not in _MODULE_PUSH_ACTIONS:
