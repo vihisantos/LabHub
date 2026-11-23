@@ -3160,7 +3160,7 @@ def _notify_new_ticket(ticket):
             {
                 'title': title, 'body': body, 'module': 'chamados',
                 'workspace_id': ticket.get('workspace_id'),
-                'min_level': 'full', 'action_url': url,
+                'min_level': 'claim', 'action_url': url,
                 'context': 'chamados-created',
             },
         )
@@ -5904,7 +5904,7 @@ def _revalidate_super_admin_subs(subs: list) -> list:
 
 def _eligible_reminder_subs(workspace_id: str) -> list:
     """Destinatários elegíveis no workspace, sem duplicatas de identidade."""
-    subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='full')
+    subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='claim')
     subs = _revalidate_super_admin_subs(subs)
     out = []
     seen = set()
