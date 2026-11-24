@@ -2830,6 +2830,19 @@ def push_notify_return():
     return _enqueue_stock_movement_notice('devolucao')
 
 
+def _ensure_stock_schema(supabase_url, supabase_key):
+    """Não executa DDL em runtime.
+
+    A criação e a evolução do schema são responsabilidade das migrations
+    versionadas do Supabase (000_bootstrap_baseline.sql linhas 41-42,
+    009_workspace_isolation.sql linhas 38-39 e
+    016_notifications_stock_expiry.sql linha 12). Esta função é mantida como
+    no-op por compatibilidade com chamadores existentes.
+    """
+    if not supabase_url or not supabase_key:
+        return
+    logger.info("pg_sql stock/pcare: pulado (DDL coberto pelas migrations 000/009/016)")
+
 @app.route('/api/push/check-overdue', methods=['GET'])
 @require_cron
 def push_check_overdue():
