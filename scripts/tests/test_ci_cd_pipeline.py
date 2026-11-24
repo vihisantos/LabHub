@@ -556,17 +556,12 @@ def test_yaml_production_has_final_preapply_guard() -> None:
     assert steps.index(download) < steps.index(guard)
 
 
-def test_yaml_has_no_manual_trigger_and_production_has_isolated_environment() -> None:
+def test_yaml_has_no_manual_trigger_or_paid_environment_requirement() -> None:
     data = _workflow()
     assert "workflow_dispatch" not in data["on"]
-    for name, job in data["jobs"].items():
-        if name == "production":
-            assert job["environment"] == "production-migrations"
-        else:
-            assert "environment" not in job
-    guard = _step("production", "Require configured production-only environment")
-    assert guard["env"]["PRODUCTION_ENV_READY"] == "${{ secrets.SUPABASE_PRODUCTION_ENV_READY }}"
-    assert _step_index("production", "Require configured production-only environment") < _step_index("production", "Confirm production target")
+    for job in data["jobs"].values():
+        assert "environment" not in job
+    assert "SUPABASE_PRODUCTION_ENV_READY" not in WORKFLOW_TEXT
     assert "outputs" not in data["jobs"].get("release-gate", {})
 
 

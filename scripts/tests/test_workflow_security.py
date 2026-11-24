@@ -91,11 +91,7 @@ def test_no_manual_dispatch_or_environment_approval() -> None:
     # Comentários explicam a ausência do gate; só contam linhas de configuração.
     config = [line for line in LINES if not line.lstrip().startswith("#")]
     assert not any(line.strip().startswith("workflow_dispatch:") for line in config)
-    assert [line.strip() for line in config if line.strip().startswith("environment:")] == ["environment: production-migrations"]
-    assert "environment: production-migrations" in _job_block("production")
-    assert "secrets.SUPABASE_PRODUCTION_ENV_READY" in _job_block("production")
-    assert 'if [ "$PRODUCTION_ENV_READY" != 1 ]' in _job_block("production")
-    assert "SUPABASE_PRODUCTION_ENV_READY" not in _job_block("stage-migrations")
+    assert not any(line.strip().startswith("environment:") for line in config)
     for forbidden in (
         "MIGRATIONS_RELEASE_APPROVED",
         "required_reviewers",

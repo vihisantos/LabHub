@@ -1,16 +1,10 @@
-# Migration delivery: pre-merge staging and production isolation
+# Migration delivery: pre-merge staging (free-plan workflow)
 
-## Required repository settings (owner action)
+No paid environment, new secret, or GitHub plan upgrade is required. Keep the existing staging and production credentials separate, and review each trusted internal PR before merging. Staging jobs reference only staging credentials. Production jobs remain restricted by workflow conditions to a push on main after release attestation.
 
-Before merging the first PR using this policy:
+Repository-level secrets are not a branch-level security boundary: someone able to modify a trusted internal workflow could reference production secrets. Do not run untrusted internal PR code with these credentials. Restrict write access, review workflow changes before execution where possible, and use a protected credential broker or branch-restricted environment if stronger isolation is needed later. The connector cannot inspect or change repository protection or secret settings.
 
-1. In Settings → Environments, create `production-migrations`. Under deployment branches/tags, select **Selected branches and tags**, allow only the **branch** `main` (not a tag). No manual reviewers/wait timer are required.
-2. Copy the existing production-only secrets into that environment: `SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `BASELINE_VERSION`. Create the environment-only secret `SUPABASE_PRODUCTION_ENV_READY` with value `1`. Configure `SUPABASE_ALLOWED_PROJECT_REFS` as an environment variable with the expected production project ref.
-3. Remove the production credential copies from repository/organization-level secrets accessible to PR workflows. Verify dependent workflows before removing anything; do not paste tokens in issues, logs, or chat. Rotate previously shared credentials if necessary. Keep staging credentials scoped to the staging account/project; a project-ref allowlist is not a substitute for token privileges.
-4. In Settings → Branches or Rulesets, require pull requests, require `Staging pre-merge gate` and the existing CI checks, require branches to be up to date, disallow direct pushes/bypasses (including administrators where supported). The pre-merge check appears for all PRs; ordinary app-only PRs take the lightweight path.
-5. Confirm the Vercel Preview uses staging and test it before merging. Vercel automatic production deployments are independent of this migration gate; the release coordinator must ensure backwards-compatible migrations and verify production delivery.
-
-The GitHub integration cannot configure or inspect these settings. Environment secrets and deployment branch restrictions in private repositories require GitHub Pro/Team/Enterprise. If the plan does not support them, do not add the production sentinel as a repository secret or bypass the gate. Keep the PR draft and choose a protected credential-broker/deployment alternative. No paid upgrade is assumed.
+Require `Staging pre-merge gate` and existing CI checks through branch protection if available; otherwise enforce the same checks and up-to-date main base manually in the release review. No direct pushes or bypasses. Verify Vercel Preview against staging before merge; production deployment on Vercel is independent of this migration gate.
 
 ## Shared staging discipline
 
