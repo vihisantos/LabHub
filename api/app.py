@@ -6585,12 +6585,17 @@ def _deliver_outbox_notification(event_id, payload):
             targeting_module = None
         else:
             raise ValueError('módulo sem política RBAC de Push')
+    strict_stock_movement = module == 'stock' and context in ('stock-loan', 'stock-return')
+    if strict_stock_movement and not workspace_id:
+        raise ValueError('movimento de estoque sem campus')
+    target_options = {'strict': True} if strict_stock_movement else {}
     subs = _target_subs(
         module=targeting_module,
         workspace_id=workspace_id,
         user_id=user_id,
         role=role,
         min_level=min_level,
+        **target_options,
     )
     if target_super_admin is True:
         subs = [
