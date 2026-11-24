@@ -1627,7 +1627,7 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
-    context=None, actions=None, expires_at=None, reservation_id=None,
+    context=None, actions=None, expires_at=None, reservation_id=None, persist_inapp=False,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1650,6 +1650,8 @@ def _queue_push_event(
         payload['expires_at'] = expires_at
     if reservation_id is not None:
         payload['reservation_id'] = str(reservation_id)
+    if persist_inapp:
+        payload['persist_inapp'] = True
     try:
         inserted = pg_store.store.notification_outbox_enqueue(
             str(event_id), None, payload,
@@ -2537,7 +2539,7 @@ def _internal_push_check(*, strict_scope=False):
                                 notify_id, title, body, module='reservalab',
                                 workspace_id=ws_id, min_level='full', ttl=_push_dedup_seconds(),
                                 context='tablet',
-                                **({'expires_at': dt_sp.isoformat(), 'reservation_id': t['id']} if strict_scope else {}),
+                                **({'expires_at': dt_sp.isoformat(), 'reservation_id': t['id'], 'persist_inapp': True} if strict_scope else {}),
                             )
                             if queue_status == 'queued':
                                 queued += 1

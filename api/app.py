@@ -6551,6 +6551,101 @@ def _created_push_still_actionable(action_url, workspace_id):
     )
 
 
+# Only these explicitly opted-in operational events can populate the bell.
+_PERIODIC_BELL_LEVELS = {
+    ('reservalab', 'tablet'): 'full',
+    ('stock', 'overdue'): None,
+    ('stock', 'stock-expiry'): None,
+    ('pc-care', 'pcare-part'): None,
+    ('pc-care', 'pcare-maint'): None,
+}
+
+
+def _persist_periodic_bell(event_id, payload, title, message, action_url):
+    module, context = payload.get('module'), payload.get('context')
+    workspace = payload.get('workspace_id')
+    if (module, context) not in _PERIODIC_BELL_LEVELS or not workspace:
+        raise ValueError('invalid periodic bell scope')
+    # The existing outbox owns delivery. This INSERT must NOT create a
+    # second outbox event. Stable ID + conflict ignore makes retry idempotent.
+    row = {
+        'id': f'periodic:{module}:{context}:{event_id}',
+        'title': title, 'body': message, 'module': module,
+        'workspace_id': workspace, 'audience': 'workspace',
+        'type': 'maintenance' if module == 'pc-care' else ('asset' if module == 'stock' else 'system'),
+        'severity': 'warning', 'action_url': action_url,
+    }
+    if not _require_supabase():
+        raise RuntimeError('bell database unavailable')
+    response = requests.post(
+        f'{_SUPABASE_URL}/rest/v1/app_notifications',
+        params={'on_conflict': 'id'},
+        headers={**_supabase_headers(), 'Prefer': 'resolution=ignore-duplicates,return=minimal'},
+        json=row, timeout=8,
+    )
+    if not response.ok:
+        raise RuntimeError('periodic bell persistence failed')
+
+
+def _periodic_bell_authorizer(user_id):
+    """Resolve RBAC once per list request. Failed reads never grant access.
+
+    Do not reuse push subscription snapshots or helpers that swallow a failed
+    override lookup as an empty override map.
+    """
+    def read(table, params):
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+            headers=_supabase_headers(), timeout=6,
+        )
+        if not response.ok:
+            raise RuntimeError('bell authorization unavailable')
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise RuntimeError('invalid bell authorization response')
+        return rows
+
+    memberships = read('memberships', {
+        'profile_id': f'eq.{user_id}', 'status': 'eq.active',
+        'select': 'id,workspace_id,role_id,status',
+    })
+    memberships = {str(m['workspace_id']): m for m in memberships
+                   if m.get('status') == 'active' and m.get('id') and m.get('workspace_id')}
+    role_ids = sorted({str(m['role_id']) for m in memberships.values() if m.get('role_id')})
+    member_ids = sorted({str(m['id']) for m in memberships.values()})
+    roles, overrides = {}, {}
+    if role_ids:
+        for row in read('role_permissions', {
+            'role_id': 'in.(' + ','.join(role_ids) + ')',
+            'scope': 'eq.workspace', 'select': 'role_id,action,scope',
+        }):
+            if row.get('scope') == 'workspace':
+                roles.setdefault(str(row['role_id']), set()).add(row['action'])
+    if member_ids:
+        for row in read('membership_overrides', {
+            'membership_id': 'in.(' + ','.join(member_ids) + ')',
+            'select': 'membership_id,action,effect',
+        }):
+            overrides.setdefault(str(row['membership_id']), {})[row['action']] = row['effect']
+
+    def allowed(row):
+        parts = str(row.get('id') or '').split(':', 3)
+        if len(parts) != 4 or parts[1] != row.get('module'):
+            return False
+        pair = (parts[1], parts[2])
+        if pair not in _PERIODIC_BELL_LEVELS:
+            return False
+        member = memberships.get(str(row.get('workspace_id')))
+        if not member:
+            return False
+        actions = _MODULE_PUSH_ACTIONS.get(pair[0], {}).get(_PERIODIC_BELL_LEVELS[pair], ())
+        base = roles.get(str(member.get('role_id')), set())
+        effects = overrides.get(str(member['id']), {})
+        return any(effects.get(action) == 'allow' or
+                   (effects.get(action) is None and action in base) for action in actions)
+    return allowed
+
+
 def _deliver_outbox_notification(event_id, payload):
     """Entrega um evento persistido no outbox aos subscribers autorizados."""
     if not isinstance(payload, dict):
@@ -6687,6 +6782,9 @@ def _deliver_outbox_notification(event_id, payload):
             if str((sub.get('user') or {}).get('id') or '') != exclude_user_id
         ]
 
+    if payload.get('persist_inapp') is True:
+        _persist_periodic_bell(event_id, payload, title, message, action_url)
+
     if not subs:
         return True
 
@@ -6767,7 +6865,9 @@ def _periodic_inventory_check(kind, now):
         if not resp.ok:
             raise RuntimeError('inventory read failed')
         return resp.json()
-    return run_inventory_check(kind, now, read=read, enqueue=_queue_push_event)
+    def enqueue(*args, **kwargs):
+        return _queue_push_event(*args, **kwargs, persist_inapp=True)
+    return run_inventory_check(kind, now, read=read, enqueue=enqueue)
 
 
 @_route_once(_QSTASH_TICK_PATH, methods=['POST'])
@@ -6942,6 +7042,7 @@ def app_notifications_list():
         if not isinstance(rows, list):
             return jsonify({'error': 'Resposta inválida de notificações'}), 503
         out = []
+        periodic_allowed = None
         for r in rows or []:
             # Notificações direcionadas a uma pessoa são privadas no backend;
             # não confiar no filtro visual do cliente para proteger o conteúdo.
@@ -6953,6 +7054,11 @@ def app_notifications_list():
             if r.get('target_super_admin') is True and not is_super:
                 continue
             w = r.get('workspace_id')
+            if str(r.get('id') or '').startswith('periodic:') and not is_super:
+                if periodic_allowed is None:
+                    periodic_allowed = _periodic_bell_authorizer(g.user_id)
+                if not periodic_allowed(r):
+                    continue
             if is_super:
                 out.append(r)
             elif w is None or (w and str(w) in ws_ids):

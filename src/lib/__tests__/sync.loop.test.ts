@@ -229,7 +229,7 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     expect(harness.calls('stock_items', 'delete')).toHaveLength(3)
     expect(tombstones()).toContain(created.id)
     expect(JSON.parse(localStorage.getItem('labhub_delete_attempts') || '{}')).toMatchObject({
-      notifications: { [created.id]: { attempts: 3, status: 'unverifiable' } },
+      stock_items: { [created.id]: { attempts: 3, status: 'unverifiable' } },
     })
 
     // Recuperação explícita libera nova tentativa sem apagar nada.
@@ -251,7 +251,7 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     expect(getDirtyCollections()).toContain('stock_items') // não é sucesso
     expect(getSyncBlockers().stock_items).toBeUndefined() // não virou bloqueio permanente
     expect(JSON.parse(localStorage.getItem('labhub_sync_retry') || '{}')).toMatchObject({
-      notifications: { attempts: 1 },
+      stock_items: { attempts: 1 },
     })
 
     // Imediatamente depois: sem nova requisição (backoff ativo).
