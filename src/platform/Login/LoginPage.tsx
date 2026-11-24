@@ -44,10 +44,8 @@ export function LoginPage() {
   // reconciliation. A signup without a session cannot receive private events.
   useEffect(() => {
     if (!isAuthenticated || !user) return
-    if (user.status === 'active' || user.status === 'pending') {
-      persistSignupWaiting(false)
-      navigate(user.status === 'active' ? '/' : '/approval-pending', { replace: true })
-    }
+    persistSignupWaiting(false)
+    navigate(user.status === 'active' ? '/' : '/approval-pending', { replace: true })
   }, [isAuthenticated, user, navigate])
 
   function handleRetry() {
