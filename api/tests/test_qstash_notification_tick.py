@@ -514,7 +514,7 @@ def test_periodic_checks_are_separate_and_fail_closed(api_module, monkeypatch, s
     reservations = Mock(return_value={"checked": True, "queued": 2})
     approvals = Mock(return_value={"checked": True, "queued": 1})
     worker = Mock(return_value=({"status": "ok"}, 200))
-    dispatch = Mock()
+    dispatch = Mock(return_value={"enabled": True, "published": 0})
     monkeypatch.setattr(api_module, "_internal_push_check", reservations)
     monkeypatch.setattr(api_module, "_check_pending_users", approvals)
     monkeypatch.setattr(api_module, "_run_notification_worker", worker)
@@ -526,8 +526,8 @@ def test_periodic_checks_are_separate_and_fail_closed(api_module, monkeypatch, s
     if signed:
         reservations.assert_called_once_with(strict_scope=True)
         approvals.assert_called_once_with(require_outbox=True)
-    assert worker.call_count == int(signed)
-    dispatch.assert_not_called()
+    assert worker.call_count == 2 * int(signed)
+    assert dispatch.call_count == int(signed)
 
 
 def test_periodic_failure_does_not_prevent_other_check_or_delivery(api_module, monkeypatch):
@@ -539,10 +539,11 @@ def test_periodic_failure_does_not_prevent_other_check_or_delivery(api_module, m
     worker = Mock(return_value=({"status": "ok"}, 200))
     monkeypatch.setattr(api_module, "_check_pending_users", approval)
     monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", Mock(return_value={"enabled": True}))
     response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
     assert response.status_code == 503
     approval.assert_called_once()
-    worker.assert_called_once_with(5, 5)
+    assert worker.call_count == 2
 
 
 def test_no_new_periodic_events_does_not_repeat_worker(api_module, monkeypatch):
@@ -551,11 +552,12 @@ def test_no_new_periodic_events_does_not_repeat_worker(api_module, monkeypatch):
     monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
     monkeypatch.setattr(api_module, "_internal_push_check", Mock(return_value={"checked": True, "queued": 0}))
     monkeypatch.setattr(api_module, "_check_pending_users", Mock(return_value={"checked": True, "queued": 0}))
-    worker = Mock()
+    worker = Mock(return_value=({"status": "ok"}, 200))
     monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", Mock(return_value={"enabled": True}))
     response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
     assert response.status_code == 200
-    worker.assert_not_called()
+    worker.assert_called_once_with(5, 5)
 
 
 @pytest.mark.parametrize("context", ["lab-reserva", "tablet"])

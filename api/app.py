@@ -6753,8 +6753,16 @@ def notifications_qstash_tick():
         return jsonify({'error': 'Assinatura inválida'}), 401
 
     if raw_body == _QSTASH_PERIODIC_BODY:
+        # Recover critical work before any slow external spreadsheet reads.
+        queue_result, queue_code = _run_notification_worker(5, 5)
+        try:
+            workflow_result = _drain_chamado_workflow_outbox(limit=5)
+        except Exception as exc:
+            logger.warning('[notifications] dispatch QStash falhou: %s', type(exc).__name__)
+            workflow_result = {'error': type(exc).__name__}
         # Distinct signed job: event wake-ups never scan external spreadsheets.
-        # The normal 5-minute tick remains available for recovery.
+        # This job replaces the 5-minute schedule body only; fast event wakeups
+        # continue using the original body. No additional schedule is needed.
         results = {}
         for name, check in (
             ('reservalab', lambda: _internal_push_check(strict_scope=True)),
@@ -6770,11 +6778,15 @@ def notifications_qstash_tick():
         delivery, code = ({'status': 'not_needed'}, 200)
         if queued:
             delivery, code = _run_notification_worker(5, 5)
-        failed = code != 200 or any(result.get('error') for result in results.values())
+        failed = (queue_code != 200 or code != 200 or workflow_result.get('error')
+                  or workflow_result.get('reconcile_error')
+                  or any(result.get('error') for result in results.values()))
         return jsonify({
             'status': 'error' if failed else 'ok',
             'periodic': results,
-            'queue': delivery,
+            'queue': queue_result,
+            'chamados': workflow_result,
+            'periodic_delivery': delivery,
         }), (503 if failed else 200)
 
     queue_result, queue_code = _run_notification_worker(5, 5)
