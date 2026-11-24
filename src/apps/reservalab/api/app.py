@@ -2014,9 +2014,10 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
     - user_id/role: filtros operacionais preservados (destinatário direto).
     - notify_settings: mudo global e canal `push` por app são respeitados.
     """
-    # O push de chamados não pode virar broadcast intercampi, inclusive
-    # para super admins que não pertencem ao workspace do chamado.
-    if module == 'chamados' and min_level == 'claim' and not workspace_id:
+    # Alertas operacionais de chamados (abertura, cobrança, assunção e
+    # atribuição) nunca atravessam campi, inclusive para super admins.
+    # Avisos pessoais ao professor continuam fora desta regra.
+    if module == 'chamados' and min_level in ('claim', 'full') and not workspace_id:
         return []
     subs = _get_subs(strict=True) if strict else _get_subs()
     if strict:
@@ -2084,7 +2085,7 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
             if ch is not None and not ch.get('push', True):
                 continue
         if workspace_id:
-            must_be_member = (module == 'chamados' and min_level == 'claim')
+            must_be_member = (module == 'chamados' and min_level in ('claim', 'full'))
             if (must_be_member or not u.get('is_super_admin')) and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
                 continue
         out.append(s)
