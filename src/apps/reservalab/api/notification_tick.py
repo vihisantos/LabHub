@@ -14,13 +14,28 @@ TICK_URL = f"https://lab-hub-pi.vercel.app{TICK_PATH}"
 TICK_BODY = b'{"job":"labhub-notifications","version":1}'
 
 
+def tick_destination():
+    env = os.environ.get("VERCEL_ENV")
+    if env == "production":
+        return TICK_URL
+    if env != "preview" or os.environ.get("LABHUB_PREVIEW_NOTIFICATION_TICK") != "1":
+        return None
+    host = os.environ.get("VERCEL_URL", "").strip()
+    if not re.fullmatch(r"lab-[a-z0-9-]+-deltaf59592-3090\.vercel\.app", host):
+        return None
+    if os.environ.get("SUPABASE_URL", "").rstrip("/") != "https://pgmetdqsdjotdcifjivu.supabase.co":
+        return None
+    return f"https://{host}{TICK_PATH}"
+
+
 def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) -> bool:
     """Valida a assinatura QStash, payload fixo e URL oficial (fail-closed).
 
     A verificação inclui o destino HTTPS oficial no JWT do QStash, nunca o
     Host controlado pelo chamador. Nenhuma credencial é retornada/logada.
     """
-    if os.environ.get("VERCEL_ENV") != "production":
+    destination = tick_destination()
+    if not destination:
         return False
     if body != TICK_BODY or not isinstance(signature, str) or not signature:
         return False
@@ -42,7 +57,7 @@ def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) ->
         verifier.verify(
             body=body.decode("utf-8"),
             signature=signature,
-            url=TICK_URL,
+            url=destination,
         )
     except Exception:
         return False
@@ -61,6 +76,10 @@ def _publish_fixed_tick(deduplication_id: str, *, publish=None) -> bool:
     if not token:
         return False
 
+    preview = os.environ.get("VERCEL_ENV") == "preview"
+    bypass = os.environ.get("VERCEL_AUTOMATION_BYPASS_SECRET", "").strip() if preview else ""
+    if preview and not bypass:
+        return False
     http_client = None
     try:
         if publish is None:
@@ -83,6 +102,7 @@ def _publish_fixed_tick(deduplication_id: str, *, publish=None) -> bool:
             deduplication_id=deduplication_id,
             retries=1,
             timeout="20s",
+            **({"headers": {"x-vercel-protection-bypass": bypass}} if preview else {}),
         )
         return True
     except Exception:
