@@ -220,6 +220,47 @@ def main() -> int:
             return _fail("queue revision health: RLS, grants, policy or trigger invalid")
         print("[staging-check] PASS queue revision trigger/RLS/grants")
 
+    if args.phase in ("health", "all"):
+        try:
+            rows = api.query("""
+                SELECT
+                  EXISTS (
+                    SELECT 1 FROM pg_trigger
+                    WHERE tgrelid = to_regclass('public.app_notifications')
+                      AND tgname = 'app_notifications_invalidation_trigger'
+                      AND tgenabled IN ('O', 'A')
+                      AND tgfoid = to_regprocedure('public.app_notifications_invalidation_notify()')
+                  ) AS trigger_enabled,
+                  EXISTS (
+                    SELECT 1 FROM pg_policies
+                    WHERE schemaname = 'realtime' AND tablename = 'messages'
+                      AND policyname = 'labhub_notifications_invalidation_receive'
+                      AND cmd = 'SELECT'
+                  ) AS receive_policy,
+                  NOT has_function_privilege(
+                    'authenticated', 'public.app_notifications_invalidation_notify()', 'EXECUTE'
+                  ) AS auth_exec_denied,
+                  NOT has_function_privilege(
+                    'anon', 'public.app_notifications_invalidation_notify()', 'EXECUTE'
+                  ) AS anon_exec_denied,
+                  (
+                    SELECT c.relrowsecurity AND NOT EXISTS (
+                      SELECT 1 FROM pg_policies
+                      WHERE schemaname='public' AND tablename='app_notifications'
+                        AND cmd IN ('SELECT', 'ALL')
+                        AND (roles && ARRAY['authenticated','anon','public']::name[])
+                    )
+                    FROM pg_class c WHERE c.oid=to_regclass('public.app_notifications')
+                  ) AS content_private
+            """)
+        except Exception as exc:
+            return _fail(f"notification invalidation health: {type(exc).__name__}: {exc}")
+        required = ("trigger_enabled", "receive_policy", "auth_exec_denied",
+                    "anon_exec_denied", "content_private")
+        if not rows or any(rows[0].get(key) is not True for key in required):
+            return _fail("notification invalidation health: trigger, RLS or grants invalid")
+        print("[staging-check] PASS notification private invalidation trigger/RLS/grants")
+
     print(f"[staging-check] PASS phase={args.phase} concluída (somente leitura)")
     return 0
 
