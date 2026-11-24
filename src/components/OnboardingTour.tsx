@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLocation } from 'react-router-dom'
+import { useOnboardingPending, setOnboardingPending } from '../platform/Onboarding/onboardingState'
 import './OnboardingTour.css'
 import { buildTourSteps } from './onboardingSteps'
 import { useAuth } from '../core/auth/AuthContext'
@@ -113,10 +114,6 @@ function TourArrow({ rect, tipRef }: { rect: DOMRect; tipRef: React.RefObject<HT
 // ─── Main component ─────────────────────────────────────────────────────────────
 const ALL_MODULE_IDS = ['chamados', 'pc-care', 'stock', 'reservalab', 'patrimonio', 'admin'] as const
 
-function storageKey(userId?: string) {
-  return `onboardingCompleted_${userId ?? 'guest'}`
-}
-
 export default function OnboardingTour() {
   const { user, loading } = useAuth()
   const { pathname } = useLocation()
@@ -144,7 +141,7 @@ function ActiveOnboardingTour() {
   }, [accessibleModuleIds, user?.is_super_admin])
 
   const [current, setCurrent] = useState(0)
-  const [show, setShow] = useState(false)
+  const show = useOnboardingPending(user?.id)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [viewport, setViewport] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 1024,
@@ -170,14 +167,6 @@ function ActiveOnboardingTour() {
     blue:    '#3b82f6',
     purple:  '#a855f7',
   }
-
-  // Show tour on first visit per user
-  useEffect(() => {
-    if (!user) return
-    if (!localStorage.getItem(storageKey(user.id))) {
-      setShow(true)
-    }
-  }, [user])
 
   // Compute highlighted element rect
   useEffect(() => {
@@ -233,17 +222,15 @@ function ActiveOnboardingTour() {
   const goPrev = useCallback(() => setCurrent(c => (c > 0 ? c - 1 : c)), [])
 
   const finish = useCallback(() => {
-    if (user) localStorage.setItem(storageKey(user.id), 'true')
-    setShow(false)
+    if (user) setOnboardingPending(user.id, false)
   }, [user])
 
   /** Called from Profile – resets tour */
   // Exposed globally so ProfileSheet can trigger it
   useEffect(() => {
     const restart = () => {
-      if (user) localStorage.removeItem(storageKey(user.id))
       setCurrent(0)
-      setShow(true)
+      if (user) setOnboardingPending(user.id, true)
     }
     const host = window as Window & { __restartOnboardingTour?: () => void }
     host.__restartOnboardingTour = restart
