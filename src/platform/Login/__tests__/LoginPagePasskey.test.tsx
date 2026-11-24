@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '../../../test/helpers'
+import { isReloadBlocked } from '../../../lib/useServiceWorker'
 
 const mockSecurity = vi.hoisted(() => ({
   signInWithPasskey: vi.fn(),
@@ -63,6 +64,8 @@ function clickSubmit() {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useRealTimers()
+  sessionStorage.clear()
+  mockAuth.signUp.mockReset().mockResolvedValue(undefined)
   mockAuth.signIn.mockResolvedValue(undefined)
   mockAuth.refreshProfile.mockResolvedValue(null)
 })
@@ -132,5 +135,48 @@ describe('LoginPage — cadastro sem sessão', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Voltar para Login' }))
     expect(document.querySelector('form button[type="submit"]')).toHaveTextContent('Entrar')
     expect(screen.getByPlaceholderText('••••••••')).toHaveValue('')
+  })
+})
+
+describe('LoginPage — proteção contra reload no cadastro', () => {
+  function submitSignup() {
+    fireEvent.click(screen.getByRole('button', { name: 'Criar Conta' }))
+    fireEvent.change(screen.getByPlaceholderText('nome.escolhido'), { target: { value: 'qa.reload' } })
+    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'senha123' } })
+    clickSubmit()
+  }
+
+  it('bloqueia reload enquanto cadastra e restaura espera após remontagem sem guardar credenciais', async () => {
+    mockSecurity.browserSupportsPasskey.mockReturnValue(false)
+    let finish!: () => void
+    mockAuth.signUp.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const { unmount } = renderWithProviders(<LoginPage />)
+    submitSignup()
+    expect(isReloadBlocked()).toBe(true)
+    expect(sessionStorage.getItem('labhub.signup.waiting.v1')).toBeNull()
+    finish()
+    await waitFor(() => expect(screen.getByText('Aprovação Pendente')).toBeInTheDocument())
+    expect(isReloadBlocked()).toBe(false)
+    expect(sessionStorage.getItem('labhub.signup.waiting.v1')).toBe('1')
+
+    unmount()
+    const restored = renderWithProviders(<LoginPage />)
+    expect(screen.getByText('Aprovação Pendente')).toBeInTheDocument()
+    expect(screen.queryByText('@labhub.com', { exact: true })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Voltar para Login' }))
+    expect(sessionStorage.getItem('labhub.signup.waiting.v1')).toBeNull()
+    restored.unmount()
+    renderWithProviders(<LoginPage />)
+    expect(document.querySelector('form button[type="submit"]')).toHaveTextContent('Entrar')
+  })
+
+  it('libera reload e não salva recibo se o cadastro falhar', async () => {
+    mockSecurity.browserSupportsPasskey.mockReturnValue(false)
+    mockAuth.signUp.mockRejectedValueOnce(new Error('Falha de cadastro'))
+    renderWithProviders(<LoginPage />)
+    submitSignup()
+    await waitFor(() => expect(isReloadBlocked()).toBe(false))
+    expect(sessionStorage.getItem('labhub.signup.waiting.v1')).toBeNull()
+    expect(screen.queryByText('Aprovação Pendente')).not.toBeInTheDocument()
   })
 })
