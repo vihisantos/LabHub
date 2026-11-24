@@ -224,4 +224,28 @@ describe('ApprovalRoute — roteamento da página de aprovação', () => {
       { enabled: false },
     )
   })
+
+  it.each(['rejected', 'blocked'] as const)('pending → %s nunca celebra nem navega', (status) => {
+    mockUseAuth.mockReturnValue({ user: makeUser(), loading: false })
+    const { rerender } = render(routeTree())
+    mockUseAuth.mockReturnValue({ user: makeUser({ status }), loading: false })
+    rerender(routeTree())
+    expect(screen.getByText(status === 'blocked' ? 'Conta Bloqueada' : 'Conta Negada')).toBeInTheDocument()
+    expect(screen.queryByText('Conta Aprovada!')).not.toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(3_000))
+    expect(screen.queryByText('LabHub Inicial')).not.toBeInTheDocument()
+  })
+
+  it('cancela celebração se a conta for bloqueada antes de entrar', () => {
+    mockUseAuth.mockReturnValue({ user: makeUser(), loading: false })
+    const { rerender } = render(routeTree())
+    mockUseAuth.mockReturnValue({ user: makeUser({ status: 'active' }), loading: false })
+    rerender(routeTree())
+    expect(screen.getByText('Conta Aprovada!')).toBeInTheDocument()
+    mockUseAuth.mockReturnValue({ user: makeUser({ status: 'blocked' }), loading: false })
+    rerender(routeTree())
+    act(() => vi.advanceTimersByTime(3_000))
+    expect(screen.getByText('Conta Bloqueada')).toBeInTheDocument()
+    expect(screen.queryByText('LabHub Inicial')).not.toBeInTheDocument()
+  })
 })
