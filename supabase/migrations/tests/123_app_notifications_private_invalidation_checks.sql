@@ -28,11 +28,11 @@ BEGIN
   END IF;
   target_topic := 'labhub:notifications:user:' || target::text;
   SELECT count(*) INTO before_count FROM realtime.messages
-    WHERE topic=target_topic AND event='changed' AND payload='{"v":1}'::jsonb AND private IS TRUE;
+    WHERE topic=target_topic AND event='changed' AND (payload - 'id')='{"v":1}'::jsonb AND private IS TRUE;
   INSERT INTO public.app_notifications(id,title,body,target_user_id,audience)
     VALUES(test_id,'QA rollback only','QA rollback only',target,'user');
   SELECT count(*) INTO after_count FROM realtime.messages
-    WHERE topic=target_topic AND event='changed' AND payload='{"v":1}'::jsonb AND private IS TRUE;
+    WHERE topic=target_topic AND event='changed' AND (payload - 'id')='{"v":1}'::jsonb AND private IS TRUE;
   IF after_count <> before_count+1 THEN
     RAISE EXCEPTION 'private invalidation missing or duplicated';
   END IF;
