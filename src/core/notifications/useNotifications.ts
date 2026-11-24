@@ -105,21 +105,27 @@ async function pollRemoteOnce(reason: 'poll' | 'event' = 'poll'): Promise<void> 
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
 
   const generation = authGeneration
+  const accountId = currentUser.id
+  const ownsCache = () => !cancelledGlobal && generation === authGeneration
+    && currentUser?.id === accountId && authService.getCurrentUser()?.id === accountId
   const run = (async () => {
     try {
       if (!defaultDb) return
-      const { data } = await defaultDb.auth.getSession()
+      const { data, error } = await defaultDb.auth.getSession()
       const token = data.session?.access_token
-      if (!token || cancelledGlobal || generation !== authGeneration || !currentUser) return
+      if (error || !token || data.session?.user?.id !== accountId || !ownsCache()) {
+        if (ownsCache()) lastSuccessAt = 0
+        return
+      }
       lastAttemptAt = Date.now()
       recordNotificationSync(reason)
       const res = await fetch('/api/app-notifications', {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (cancelledGlobal || generation !== authGeneration || !currentUser) return
+      if (!ownsCache()) return
       if (!res.ok) { lastSuccessAt = 0; recordNotificationSync('failure'); return }
       const payload = await res.json()
-      if (cancelledGlobal || generation !== authGeneration || !currentUser) return
+      if (!ownsCache()) return
       if (!Array.isArray(payload?.notifications)) { lastSuccessAt = 0; recordNotificationSync('failure'); return }
       const rows = payload.notifications as Record<string, unknown>[]
       // Only reconcile on a valid server response; failures preserve offline cache.
@@ -133,7 +139,7 @@ async function pollRemoteOnce(reason: 'poll' | 'event' = 'poll'): Promise<void> 
         : false
       for (const row of rows) {
         // Sessão pode mudar enquanto a resposta está sendo processada.
-        if (cancelledGlobal || generation !== authGeneration || !currentUser) return
+        if (!ownsCache()) return
         if (notificationService.ingestRemote(appNotificationFromRow(row))) changed = true
       }
       lastSuccessAt = Date.now()
