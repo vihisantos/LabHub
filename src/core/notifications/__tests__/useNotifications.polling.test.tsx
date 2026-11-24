@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     error: null,
   })),
   fetchMock: vi.fn(),
+  realtimeSubscribe: vi.fn((_id: string, _changed: () => void, _connected: (value: boolean) => void) => () => {}),
   subscribe: vi.fn(() => () => {}),
   useModuleVisibilities: vi.fn(() => ({ isVisible: () => true })),
 }))
@@ -75,6 +76,8 @@ vi.mock('../../permissions/useModuleVisibility', () => ({
 }))
 
 vi.mock('../../../appRegistry', () => ({ appRegistry: [] }))
+
+vi.mock('../notificationRealtime', () => ({ subscribeNotificationInvalidation: mocks.realtimeSubscribe }))
 
 vi.mock('../visibility', () => ({ notificationAppliesTo: () => true }))
 
@@ -374,6 +377,46 @@ describe('useNotifications — polling remoto compartilhado', () => {
     unmount()
     await advance(250)
     expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('canal conectado reduz polling a reconciliação de 5 minutos e reage a evento', async () => {
+    mocks.getCurrentUser.mockReturnValue({ id: 'user-1', status: 'active' } as any)
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    const [, changed, connected] = mocks.realtimeSubscribe.mock.calls[0]
+    expect(mocks.realtimeSubscribe).toHaveBeenCalledTimes(1)
+    act(() => connected(true))
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    await advance(60_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    act(() => changed())
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(3)
+    await advance(310_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(4)
+    act(() => connected(false))
+    await advance(250)
+    const calls = mocks.fetchMock.mock.calls.length
+    await advance(10_000)
+    expect(mocks.fetchMock.mock.calls.length).toBeGreaterThan(calls)
+    unmount()
+  })
+
+  it('logout ignora sinal de canal anterior', async () => {
+    mocks.getCurrentUser.mockReturnValue({ id: 'user-1', status: 'active' } as any)
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    const [, changed, connected] = mocks.realtimeSubscribe.mock.calls[0]
+    act(() => {
+      mocks.getCurrentUser.mockReturnValue(null)
+      mocks.authListeners.forEach(listener => listener(null))
+      connected(true)
+      changed()
+    })
+    await advance(10_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+    unmount()
   })
 
   it('resposta não-ok não ingere nada e não derruba o polling', async () => {

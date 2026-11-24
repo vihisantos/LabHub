@@ -1,8 +1,8 @@
-type NotificationSyncMetric = 'poll' | 'event' | 'coalesced' | 'success' | 'failure'
+type NotificationSyncMetric = 'poll' | 'event' | 'coalesced' | 'success' | 'failure' | 'avoidedPoll'
 
 const startedAt = Date.now()
 const counts: Record<NotificationSyncMetric, number> = {
-  poll: 0, event: 0, coalesced: 0, success: 0, failure: 0,
+  poll: 0, event: 0, coalesced: 0, success: 0, failure: 0, avoidedPoll: 0,
 }
 
 /** Per-tab aggregate counters only. No payloads, identities, tokens or network. */
