@@ -7063,7 +7063,7 @@ def app_notifications_list():
                 out.append(r)
             elif w is None or (w and str(w) in ws_ids):
                 out.append(r)
-        return jsonify({'notifications': out})
+        return jsonify({'notifications': out, 'periodic_window': True})
     except Exception as e:
         logger.error("app notifications error: %s", e)
         return jsonify({'error': 'Falha ao consultar notificações'}), 503

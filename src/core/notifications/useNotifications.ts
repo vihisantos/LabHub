@@ -122,7 +122,15 @@ async function pollRemoteOnce(reason: 'poll' | 'event' = 'poll'): Promise<void> 
       if (cancelledGlobal || generation !== authGeneration || !currentUser) return
       if (!Array.isArray(payload?.notifications)) { lastSuccessAt = 0; recordNotificationSync('failure'); return }
       const rows = payload.notifications as Record<string, unknown>[]
-      let changed = false
+      // Only reconcile on a valid server response; failures preserve offline cache.
+      if (rows.some(row => !row || typeof row.id !== 'string' || !row.id)) {
+        lastSuccessAt = 0
+        recordNotificationSync('failure')
+        return
+      }
+      let changed = payload.periodic_window === true
+        ? notificationService.reconcilePeriodic(new Set(rows.map(row => String(row.id))))
+        : false
       for (const row of rows) {
         // Sessão pode mudar enquanto a resposta está sendo processada.
         if (cancelledGlobal || generation !== authGeneration || !currentUser) return

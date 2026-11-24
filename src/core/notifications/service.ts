@@ -85,6 +85,19 @@ export const notificationService = {
     return true
   },
 
+  /** The latest authorized server window replaces operational bell rows.
+   * Keep local alerts and legacy records; do not create dismissal tombstones
+   * when a permission change or bounded server window removes an item. */
+  reconcilePeriodic: (authorizedIds: Set<string>): boolean => {
+    const key = cacheKey()
+    if (!key) return false
+    const items = getCol<AppNotification>(key)
+    const next = items.filter(n => !n.id.startsWith('periodic:') || authorizedIds.has(n.id))
+    if (next.length === items.length) return false
+    setCol(key, next)
+    return true
+  },
+
   markAsRead: (id: string) => {
     return service.update(id, { read: true })
   },

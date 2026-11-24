@@ -24,6 +24,20 @@ describe('personal notification cache', () => {
     expect(notificationService.getAll().map(n => n.id)).toEqual(['private-a'])
     expect(getCol('notifications')).toEqual([row])
   })
+  it('reconciles only periodic rows after a successful authorized server window', () => {
+    setTestUser({ id: 'account-a' })
+    notificationService.ingestRemote(row)
+    const keep = { ...row, id: 'periodic:stock:stock-expiry:keep' }
+    const revoked = { ...row, id: 'periodic:stock:stock-expiry:revoked' }
+    notificationService.ingestRemote(keep)
+    notificationService.ingestRemote(revoked)
+    notificationService.markAsRead(keep.id)
+    expect(notificationService.reconcilePeriodic(new Set([keep.id]))).toBe(true)
+    expect(notificationService.getById(revoked.id)).toBeUndefined()
+    expect(notificationService.getById(keep.id)?.read).toBe(true)
+    expect(notificationService.getById(row.id)).toBeDefined()
+    expect(notificationService.ingestRemote(revoked)).toBe(true)
+  })
   it('dismissal survives repeated server fetches without affecting another account', () => {
     setTestUser({ id: 'account-a' })
     notificationService.ingestRemote(row)

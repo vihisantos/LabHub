@@ -667,3 +667,70 @@ def test_tablet_revalidation_failure_retries_without_sending(api_module, monkeyp
             "reservation_id": "b394e6e1-b6e8-442c-aa99-c76c37ec3303",
         })
     target.assert_not_called()
+
+
+def test_periodic_bell_is_persisted_without_push_subscription(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[]))
+    post = Mock(return_value=Mock(ok=True))
+    monkeypatch.setattr(api_module.requests, "post", post)
+    send = Mock()
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    payload = {"module": "stock", "context": "stock-expiry", "workspace_id": "ws-a",
+               "persist_inapp": True, "title": "Validade", "body": "Item"}
+    assert api_module._deliver_outbox_notification("event-1", payload)
+    assert api_module._deliver_outbox_notification("event-1", payload)
+    first, second = post.call_args_list
+    assert first.kwargs["json"] == second.kwargs["json"]
+    assert first.kwargs["json"]["id"] == "periodic:stock:stock-expiry:event-1"
+    assert first.kwargs["json"]["workspace_id"] == "ws-a"
+    assert "ignore-duplicates" in first.kwargs["headers"]["Prefer"]
+    send.assert_not_called()
+
+
+def test_periodic_bell_rejects_unscoped_or_unknown_events(api_module, monkeypatch):
+    post = Mock()
+    monkeypatch.setattr(api_module.requests, "post", post)
+    for payload in (
+        {"module": "stock", "context": "stock-expiry"},
+        {"module": "stock", "context": "unknown", "workspace_id": "ws-a"},
+    ):
+        with pytest.raises(ValueError, match="invalid periodic bell scope"):
+            api_module._persist_periodic_bell("event", payload, "title", "body", "/")
+    post.assert_not_called()
+
+
+def test_periodic_bell_authorization_is_batched_and_deny_wins(api_module, monkeypatch):
+    membership = Mock(ok=True)
+    membership.json.return_value = [
+        {"id": "m1", "workspace_id": "ws-a", "role_id": "r1", "status": "active"},
+    ]
+    roles = Mock(ok=True)
+    roles.json.return_value = [
+        {"role_id": "r1", "action": "stock.item.edit", "scope": "workspace"},
+        {"role_id": "r1", "action": "reservelab.tablet.reserve", "scope": "workspace"},
+    ]
+    overrides = Mock(ok=True)
+    overrides.json.return_value = [
+        {"membership_id": "m1", "action": "stock.item.edit", "effect": "deny"},
+    ]
+    get = Mock(side_effect=[membership, roles, overrides])
+    monkeypatch.setattr(api_module.requests, "get", get)
+    allowed = api_module._periodic_bell_authorizer("u1")
+    assert not allowed({"id": "periodic:stock:stock-expiry:x", "module": "stock", "workspace_id": "ws-a"})
+    assert allowed({"id": "periodic:reservalab:tablet:y", "module": "reservalab", "workspace_id": "ws-a"})
+    assert not allowed({"id": "periodic:reservalab:tablet:y", "module": "reservalab", "workspace_id": "ws-b"})
+    assert not allowed({"id": "periodic:reservalab:unknown:y", "module": "reservalab", "workspace_id": "ws-a"})
+    assert get.call_count == 3
+
+
+def test_periodic_bell_authorization_failure_does_not_ignore_denies(api_module, monkeypatch):
+    membership = Mock(ok=True)
+    membership.json.return_value = [
+        {"id": "m1", "workspace_id": "ws-a", "role_id": "r1", "status": "active"},
+    ]
+    roles = Mock(ok=True)
+    roles.json.return_value = [{"role_id": "r1", "action": "stock.item.edit", "scope": "workspace"}]
+    monkeypatch.setattr(api_module.requests, "get", Mock(side_effect=[membership, roles, Mock(ok=False)]))
+    with pytest.raises(RuntimeError, match="bell authorization unavailable"):
+        api_module._periodic_bell_authorizer("u1")
