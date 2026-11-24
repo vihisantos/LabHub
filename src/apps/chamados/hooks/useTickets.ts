@@ -6,6 +6,7 @@ import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { useTicketInvalidationBroadcast } from './useTicketInvalidationBroadcast'
 import { readTicketQueueRevision } from '../services/ticketQueueRevision'
+import { recordTicketSync } from '../services/ticketSyncMetrics'
 
 /**
  * Corrige tickets antigos no IndexedDB que estejam sem createdAt ou ticketNumber.
@@ -76,7 +77,9 @@ export function useTickets() {
           await ticketService.pullRemote()
           success = true
           lastFullSuccess.current = Date.now()
+          recordTicketSync('fullSuccess', Date.now() - lastSyncAttempt.current)
         } catch {
+          recordTicketSync('fullFailure', Date.now() - lastSyncAttempt.current)
           success = false
           // Sem conexão: mantém o cache local.
         } finally {
@@ -133,10 +136,12 @@ export function useTickets() {
         if (!active) return
         const fullDue = Date.now() - lastFullSuccess.current >= 600000
         if (revision !== null && revision === knownRevision && !fullDue) {
+          recordTicketSync('revisionUnchanged')
           // Keep time-dependent alerts running even when data is unchanged.
           syncSlaAlerts()
           return
         }
+        recordTicketSync(revision === null ? 'revisionUnavailable' : revision !== knownRevision ? 'revisionChanged' : 'periodicFull')
         // Read the marker BEFORE the full pull. A mutation during the pull
         // changes the next marker, ensuring a conservative retry.
         const success = await syncRemote()
