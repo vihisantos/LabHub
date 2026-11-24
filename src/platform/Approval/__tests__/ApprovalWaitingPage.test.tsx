@@ -81,6 +81,20 @@ describe('ApprovalWaitingPage — página de aprovação', () => {
     expect(document.querySelector('[data-mascot-state]')).toHaveAttribute('data-mascot-state', 'waiting')
   })
 
+  it('usa o SVG original e mostra as três etapas de aprovação', () => {
+    render(<ApprovalWaitingPage status="waiting" />)
+    expect(document.querySelector('[data-mascot-state]')).toHaveAttribute('src', '/approval/labhub-character.svg')
+    expect(screen.getByRole('list', { name: 'Etapas de aprovação' })).toBeInTheDocument()
+    expect(screen.getByText('Conta criada')).toBeInTheDocument()
+    expect(screen.getByText('Análise de acesso')).toBeInTheDocument()
+  })
+
+  it('não promete login automático quando o cadastro não criou sessão', () => {
+    render(<ApprovalWaitingPage status="waiting" requiresLogin onRetry={() => {}} />)
+    expect(screen.getByText(/volte ao login para entrar com sua senha/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Voltar para Login' })).toBeInTheDocument()
+  })
+
   it('no modo controlado mostra "Voltar para Login" apenas quando onRetry existe', () => {
     const { rerender } = render(
       <ApprovalWaitingPage status="waiting" onRetry={() => { }} />,
@@ -209,5 +223,29 @@ describe('ApprovalRoute — roteamento da página de aprovação', () => {
       expect.any(Function),
       { enabled: false },
     )
+  })
+
+  it.each(['rejected', 'blocked'] as const)('pending → %s nunca celebra nem navega', (status) => {
+    mockUseAuth.mockReturnValue({ user: makeUser(), loading: false })
+    const { rerender } = render(routeTree())
+    mockUseAuth.mockReturnValue({ user: makeUser({ status }), loading: false })
+    rerender(routeTree())
+    expect(screen.getByText(status === 'blocked' ? 'Conta Bloqueada' : 'Conta Negada')).toBeInTheDocument()
+    expect(screen.queryByText('Conta Aprovada!')).not.toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(3_000) })
+    expect(screen.queryByText('LabHub Inicial')).not.toBeInTheDocument()
+  })
+
+  it('cancela celebração se a conta for bloqueada antes de entrar', () => {
+    mockUseAuth.mockReturnValue({ user: makeUser(), loading: false })
+    const { rerender } = render(routeTree())
+    mockUseAuth.mockReturnValue({ user: makeUser({ status: 'active' }), loading: false })
+    rerender(routeTree())
+    expect(screen.getByText('Conta Aprovada!')).toBeInTheDocument()
+    mockUseAuth.mockReturnValue({ user: makeUser({ status: 'blocked' }), loading: false })
+    rerender(routeTree())
+    act(() => { vi.advanceTimersByTime(3_000) })
+    expect(screen.getByText('Conta Bloqueada')).toBeInTheDocument()
+    expect(screen.queryByText('LabHub Inicial')).not.toBeInTheDocument()
   })
 })

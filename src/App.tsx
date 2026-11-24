@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/react'
 import { GlobalPresenceIndicator } from './apps/pcare/components/GlobalPresenceIndicator'
 import { CommandPalette } from './platform/CommandPalette/CommandPalette'
 import OnboardingTour from './components/OnboardingTour'
+import { OnboardingPromptProvider } from './platform/Onboarding/onboardingState'
 import { MarkNotificationsReadOnVisit } from './core/notifications/MarkNotificationsReadOnVisit'
 import { TechnicianPushReminder } from './core/notifications/TechnicianPushReminder'
 import { WorkspaceProvider } from './core/workspaces/WorkspaceContext'
@@ -146,7 +147,8 @@ export default function App() {
       <AuthProvider>
         <ThemeProvider>
           <WorkspaceProvider>
-            <Suspense fallback={<RouteFallback />}>
+            <OnboardingPromptProvider>
+              <Suspense fallback={<RouteFallback />}>
               <AppRoutes />
             </Suspense>
             <CommandPalette />
@@ -154,6 +156,7 @@ export default function App() {
             <GlobalPresenceIndicator />
             <MarkNotificationsReadOnVisit />
             <TechnicianPushReminder />
+            </OnboardingPromptProvider>
           </WorkspaceProvider>
         </ThemeProvider>
       </AuthProvider>

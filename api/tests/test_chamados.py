@@ -602,6 +602,30 @@ def test_list_sem_limit_offset_preserva_contrato(client, fake_requests, monkeypa
     assert "Prefer" not in call["kwargs"].get("headers", {})
 
 
+@pytest.mark.parametrize("total,complete", [(1, True), (2, False), (None, False)])
+def test_operational_snapshot_attests_only_complete_queue(client, fake_requests, monkeypatch, total, complete):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    headers["X-LabHub-Queue-Snapshot"] = "1"
+    upstream_headers = {} if total is None else {"Content-Range": f"0-0/{total}"}
+    fake_requests.route("GET", "/rest/v1/chamados_tickets",
+                        FakeResponse([_make_ticket()], headers=upstream_headers))
+    response = client.get("/api/chamados", headers=headers)
+    assert response.status_code == 200
+    assert response.get_json()["snapshotComplete"] is complete
+    call = fake_requests.calls_for("GET", "chamados_tickets")[0]
+    assert call["kwargs"]["headers"]["Prefer"] == "count=exact"
+
+
+def test_snapshot_flag_never_attests_filtered_queue(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    headers["X-LabHub-Queue-Snapshot"] = "1"
+    _route_list_tickets(fake_requests, [_make_ticket()])
+    response = client.get("/api/chamados?workspace_id=ws-a", headers=headers)
+    assert response.status_code == 200
+    assert "snapshotComplete" not in response.get_json()
+    assert "Prefer" not in fake_requests.calls_for("GET", "chamados_tickets")[0]["kwargs"]["headers"]
+
+
 def test_list_paginado_janela_20_com_metadados(client, fake_requests, monkeypatch):
     """`limit=20` → URL com `limit=.20`, sem `offset`, payload com pageSize/
     offset/hasMore/total (Content-Range)."""

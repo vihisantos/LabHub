@@ -202,4 +202,10 @@ describe('AuthGuard — waiting area / approval gate', () => {
     expect(screen.getByText('conteúdo protegido')).toBeInTheDocument()
     expect(screen.queryByText('Aprovação Pendente')).not.toBeInTheDocument()
   })
+
+  it.each(['rejected', 'blocked'] as const)('impede acesso protegido para usuário %s', status => {
+    setAuth({ user: { ...activeUser, status } })
+    renderGuard(<AuthGuard><div>conteúdo protegido</div></AuthGuard>)
+    expect(screen.queryByText('conteúdo protegido')).not.toBeInTheDocument()
+  })
 })

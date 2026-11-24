@@ -18,6 +18,10 @@ vi.mock('../../../../lib/supabase', () => ({
 const mockGetAll = vi.hoisted(() => vi.fn())
 const mockCachedTickets = vi.hoisted(() => vi.fn(() => [] as Ticket[]))
 const mockPullRemote = vi.hoisted(() => vi.fn())
+const mockRevision = vi.hoisted(() => vi.fn())
+const mockBroadcast = vi.hoisted(() => vi.fn())
+vi.mock('../useTicketInvalidationBroadcast', () => ({ useTicketInvalidationBroadcast: mockBroadcast }))
+vi.mock('../../services/ticketQueueRevision', () => ({ readTicketQueueRevision: mockRevision }))
 const mockAutoArchiveResolved = vi.hoisted(() => vi.fn())
 const mockCreate = vi.hoisted(() => vi.fn())
 const mockUpdate = vi.hoisted(() => vi.fn())
@@ -75,6 +79,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockSyncAlerts.mockReturnValue([])
   mockPullRemote.mockResolvedValue(undefined)
+  mockRevision.mockReset().mockResolvedValue(null)
   mockAutoArchiveResolved.mockResolvedValue(0)
 })
 
@@ -228,5 +233,109 @@ describe('useTickets — CRUD base', () => {
 
     expect(mockPullRemote).toHaveBeenCalled()
     expect(result.current.tickets).toHaveLength(0)
+  })
+})
+
+describe('useTickets — watchdog de versão', () => {
+  async function tick() {
+    await act(async () => { await vi.advanceTimersByTimeAsync(45000) })
+  }
+
+  it('sincroniza a primeira versão, ignora versão igual e busca versão alterada', async () => {
+    mockGetAll.mockReturnValue([])
+    mockRevision.mockResolvedValue('v1')
+    const { unmount } = renderHook(() => useTickets())
+    await act(async () => {})
+    mockPullRemote.mockClear()
+    await tick()
+    expect(mockPullRemote).toHaveBeenCalledTimes(1)
+    await tick()
+    expect(mockPullRemote).toHaveBeenCalledTimes(1)
+    mockRevision.mockResolvedValue('v2')
+    await tick()
+    expect(mockPullRemote).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+
+  it('consulta a fila em aba oculta quando a versão é indisponível', async () => {
+    mockGetAll.mockReturnValue([])
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    const { unmount } = renderHook(() => useTickets())
+    try {
+      await act(async () => {})
+      mockPullRemote.mockClear()
+      await tick()
+      expect(mockPullRemote).toHaveBeenCalledTimes(1)
+      expect(mockAutoArchiveResolved).toHaveBeenCalledTimes(1)
+    } finally {
+      unmount()
+      visibility.mockRestore()
+    }
+    mockPullRemote.mockClear()
+    await tick()
+    expect(mockPullRemote).not.toHaveBeenCalled()
+  })
+
+  it('não confirma a versão de uma sincronização que falhou', async () => {
+    mockGetAll.mockReturnValue([])
+    mockRevision.mockResolvedValue('v1')
+    const { unmount } = renderHook(() => useTickets())
+    await act(async () => {})
+    mockPullRemote.mockClear().mockRejectedValueOnce(new Error('offline'))
+    await tick()
+    await tick()
+    expect(mockPullRemote).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+})
+
+describe('useTickets — background events and Worker failure', () => {
+  it('processa invalidação Broadcast com a aba oculta', async () => {
+    mockGetAll.mockReturnValue([])
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    const { unmount } = renderHook(() => useTickets())
+    try {
+      await act(async () => {})
+      mockPullRemote.mockClear()
+      const calls = mockBroadcast.mock.calls
+      const invalidate = calls[calls.length - 1][1] as () => void
+      await act(async () => {
+        invalidate()
+        await vi.advanceTimersByTimeAsync(250)
+      })
+      expect(mockPullRemote).toHaveBeenCalledTimes(1)
+    } finally {
+      unmount()
+      visibility.mockRestore()
+    }
+  })
+
+  it('substitui Worker com erro por timer e limpa o timer ao desmontar', async () => {
+    mockGetAll.mockReturnValue([])
+    const terminate = vi.fn()
+    let worker: FakeWorker | undefined
+    class FakeWorker {
+      onmessage: (() => void) | null = null
+      onerror: (() => void) | null = null
+      terminate = terminate
+      constructor() { worker = this }
+    }
+    vi.stubGlobal('Worker', FakeWorker)
+    const { unmount } = renderHook(() => useTickets())
+    try {
+      await act(async () => {})
+      mockPullRemote.mockClear()
+      expect(worker?.onerror).toBeTypeOf('function')
+      act(() => { worker?.onerror?.() })
+      expect(terminate).toHaveBeenCalledTimes(1)
+      await act(async () => { await vi.advanceTimersByTimeAsync(45000) })
+      expect(mockPullRemote).toHaveBeenCalledTimes(1)
+    } finally {
+      unmount()
+      vi.unstubAllGlobals()
+    }
+    mockPullRemote.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(90000) })
+    expect(mockPullRemote).not.toHaveBeenCalled()
   })
 })

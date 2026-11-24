@@ -1,3 +1,4 @@
+import { useSuppressStartupPrompts } from '../../../platform/Onboarding/onboardingState'
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { usePushNotifications } from '../../../lib/usePushNotifications'
@@ -25,6 +26,7 @@ const BENEFITS = [
 ]
 
 export function PushNotificationButton() {
+  const suppressStartupPrompts = useSuppressStartupPrompts()
   const { user } = useAuth()
   const { isTechnician, loading: roleLoading } = useActiveWorkspaceRole()
   const [dismissed, setDismissed] = useState(() => {
@@ -54,7 +56,7 @@ export function PushNotificationButton() {
   const settingsUrl = browserSettingsUrl()
 
   // Técnicos recebem o aviso global de reativação (sem o dismiss permanente legado).
-  if (roleLoading || isTechnician || dismissed || !supported || permission === 'granted' || subscribed) return null
+  if (suppressStartupPrompts || roleLoading || isTechnician || dismissed || !supported || permission === 'granted' || subscribed) return null
 
   return (
     <motion.div

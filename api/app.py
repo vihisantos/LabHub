@@ -3486,6 +3486,7 @@ def chamados_list():
         user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
         is_super_admin = bool(user.get('is_super_admin'))
         mine = _is_true(request.args.get('mine'))
+        snapshot_requested = request.headers.get('X-LabHub-Queue-Snapshot') == '1'
         # Identidade autenticada. `g.user_id` é o `sub` do JWT validado acima —
         # a fonte que o cliente não tem como influenciar.
         user_id = g.user_id or user.get('id')
@@ -3506,6 +3507,10 @@ def chamados_list():
                 return jsonify({'error': 'offset não pode ser negativo'}), 400
 
         workspace_id = request.args.get('workspace_id')
+        # Completeness applies only to the unfiltered operational queue.
+        snapshot = (snapshot_requested and not mine and not workspace_id
+                    and page_size is None and page_offset == 0
+                    and not request.args.get('status') and not request.args.get('reportedBy'))
         if workspace_id:
             if not is_super_admin and workspace_id not in user_ws_ids:
                 return jsonify({'error': 'Acesso negado a este workspace'}), 403
@@ -3546,7 +3551,7 @@ def chamados_list():
             url += f'&workspace_id=eq.{quote(workspace_id)}'
         elif not is_super_admin:
             if not user_ws_ids:
-                return jsonify({'tickets': []})
+                return jsonify({'tickets': [], 'snapshotComplete': True} if snapshot else {'tickets': []})
             # Sem filtro: só entram os workspaces onde o usuário tem `ticket.view`.
             # Membership sozinho não autoriza leitura de chamados.
             viewable = [w for w in user_ws_ids
@@ -3570,7 +3575,7 @@ def chamados_list():
             if page_offset:
                 url += f'&offset=.{page_offset}'
         headers = _supabase_headers()
-        if page_size is not None:
+        if page_size is not None or snapshot:
             # `count=exact` devolve o total de registros da consulta (filtrada)
             # no header `Content-Range` — a base da paginação com page numbers.
             headers = {**headers, 'Prefer': 'count=exact'}
@@ -3582,7 +3587,11 @@ def chamados_list():
         # É a mesma defesa do fluxo público (`_project_public_ticket`).
         tickets = [_project_internal_ticket(t) for t in (resp.json() or [])]
         if page_size is None:
-            return jsonify({'tickets': tickets})
+            payload = {'tickets': tickets}
+            if snapshot:
+                total = _parse_content_range_total(resp.headers.get('Content-Range'))
+                payload['snapshotComplete'] = total is not None and total == len(tickets)
+            return jsonify(payload)
         # Paginado: anexa metadados. `total` é opcional (Content-Range) —
         # se o serviço não devolver, o cliente navega por `hasMore`.
         payload = {

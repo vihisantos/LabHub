@@ -2,11 +2,15 @@ name: Migrations
 
 # Pipeline automático de migrations (Issue #285 + consolidação #476/#477/#478/#483).
 #
-# PR ──> validate (PostgreSQL 17 efêmero; NUNCA toca staging/produção)
-# main ─> validate ─> stage-migrations ─> release-gate ─> production
+# PR ──> scope ─> validate (efêmero) ─> stage-migrations ─> premerge-gate
+# main ─> scope ─> validate ─> stage-migrations ─> release-gate ─> production
+# PRs internas confiáveis: staging compartilhado, sem credenciais de produção.
+# PRs sem mudança de migrations/runner: gate leve, sem consumir o banco.
 #
 # Não existe workflow_dispatch, aprovação manual, input de confirmação nem
-# environment com revisores. O merge na main inicia a entrega sozinho.
+# environment obrigatório. O merge na main inicia a entrega sozinho.
+# No plano gratuito, branches internas e seus workflows precisam ser confiáveis:
+# secrets de repositório não têm isolamento por branch.
 # Produção só roda depois que release-gate prova que o artifact de staging
 # pertence ao MESMO commit e ao MESMO run_id, com todas as etapas obrigatórias
 # verde, e que não existe run mais novo na branch. Imediatamente antes do apply
@@ -31,12 +35,12 @@ name: Migrations
 # Se secret e allowlist forem alterados juntos para outro projeto, o
 # target_guard aborta antes de qualquer requisição. Nenhum valor é impresso.
 #
-# Credenciais isoladas (GitHub Secrets/Variables do repositório):
+# Credenciais isoladas (GitHub Secrets/Variables):
 #   staging:
 #     secrets.SUPABASE_STAGING_PROJECT_REF
 #     secrets.SUPABASE_STAGING_ACCESS_TOKEN
 #     vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS
-#   production:
+#   production (secrets existentes do repositório, usados apenas no job de main):
 #     secrets.SUPABASE_PROJECT_REF
 #     secrets.SUPABASE_ACCESS_TOKEN
 #     secrets.BASELINE_VERSION
@@ -52,25 +56,47 @@ on:
     # satisfazer a checagem HEAD == commit atestado e retomar pendências.
   pull_request:
     branches: [main]
-    paths:
-      - "supabase/migrations/**"
-      - "scripts/migrate.py"
-      - "scripts/migrate/**"
-      - "scripts/ci/**"
-      - "scripts/tests/**"
-      - ".github/workflows/migrations.yml"
+    # Gate obrigatório precisa aparecer inclusive em PR sem mudanças de banco.
 
 permissions:
   contents: read
   actions: read
 
 jobs:
+  scope:
+    name: Determine migration validation scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.detect.outputs.required }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect database pipeline changes
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only "$BASE_SHA" "$GITHUB_SHA" -- supabase/migrations scripts/migrate.py scripts/migrate scripts/ci scripts/tests .github/workflows/migrations.yml > "$RUNNER_TEMP/migration-changes.txt"
+            if [ -s "$RUNNER_TEMP/migration-changes.txt" ]; then
+              echo "required=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "required=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
   # ─────────────────────────────────────────────────────────────────────────
   # 1) validate — PR e main. Banco PostgreSQL 17 descartável, zero compartilhado.
   # ─────────────────────────────────────────────────────────────────────────
   validate:
     name: Validate on disposable PostgreSQL 17
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: scope
+    if: needs.scope.outputs.required == 'true' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
@@ -114,7 +140,8 @@ jobs:
           python -m pytest
           tests/test_ci_cd_pipeline.py
           tests/test_workflow_security.py
-          tests/test_release_gate_concurrency.py -q
+          tests/test_release_gate_concurrency.py
+          tests/test_staging_candidate_guard.py -q
 
       - name: Migration validation (runner unit tests)
         working-directory: scripts
@@ -143,12 +170,12 @@ jobs:
         run: echo "failing_stage=validate target=disposable commit=$GITHUB_SHA"
 
   # ─────────────────────────────────────────────────────────────────────────
-  # 2) stage-migrations — somente push na main, após validate.
+  # 2) stage-migrations — PR interna ou push na main, após validate.
   # ─────────────────────────────────────────────────────────────────────────
   stage-migrations:
     name: Stage migrations (dry-run, apply, integration, health)
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -156,6 +183,9 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-python@v7
         with:
@@ -230,6 +260,15 @@ jobs:
           )
           PY
 
+      - name: Guard shared staging candidate identity
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python scripts/ci/staging_candidate_guard.py --base-sha "$BASE_SHA" --event "$GITHUB_EVENT_NAME"
+
       - name: Mark stage apply
         run: echo "CURRENT_STAGE=staging-apply" >> "$GITHUB_ENV"
 
@@ -286,9 +325,45 @@ jobs:
           path: staging-release.json
           retention-days: 7
 
+      - name: Record successful PR staging verification
+        if: github.event_name == 'pull_request'
+        env:
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+          SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
+          SUPABASE_STAGING_ALLOWED_PROJECT_REFS: ${{ vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/ci/staging_candidate_guard.py --base-sha "$BASE_SHA" --event "$GITHUB_EVENT_NAME" --mark-verified "$GITHUB_SHA"
+
       - name: Report failing staging stage
         if: failure()
         run: echo "failing_stage=${CURRENT_STAGE:-unknown} target=staging commit=$GITHUB_SHA"
+
+  premerge-gate:
+    name: Staging pre-merge gate
+    needs: [scope, validate, stage-migrations]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require real staging success when applicable
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          REQUIRED: ${{ needs.scope.outputs.required }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          STAGING_RESULT: ${{ needs.stage-migrations.result }}
+          INTERNAL_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -eu
+          test "$SCOPE_RESULT" = success
+          if [ "$REQUIRED" = false ]; then
+            echo "PASS: nenhuma mudança de migration ou pipeline; staging não necessário."
+            exit 0
+          fi
+          test "$REQUIRED" = true
+          test "$INTERNAL_PR" = true
+          test "$VALIDATE_RESULT" = success
+          test "$STAGING_RESULT" = success
+          echo "PASS: staging validado antes do merge deste commit."
 
   # ─────────────────────────────────────────────────────────────────────────
   # 3) release-gate — aprovação AUTOMÁTICA, vinculada ao commit e ao run.

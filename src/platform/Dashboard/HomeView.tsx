@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { useAuth } from '../../core/auth/AuthContext'
@@ -7,7 +7,6 @@ import { useOnlineSync } from '../../lib/useOnlineSync'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
 import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
 import { ProfileSheet } from '../Profile/ProfileSheet'
-import { OnboardingOverlay, completeOnboarding, hasCompletedOnboarding } from '../Onboarding/OnboardingOverlay'
 import { UserAvatar } from '../Profile/UserAvatar'
 import { QuickActions } from './QuickActions'
 import { ModuleStats } from './ModuleStats'
@@ -48,19 +47,12 @@ export function HomeView() {
   const { user } = useAuth()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [onboardingOpen, setOnboardingOpen] = useState(false)
   const [greeting] = useState(getGreeting)
 
   useOnlineSync()
   useFastSync(['notifications'], 10000)
 
   const userName = user?.name || ''
-
-  useEffect(() => {
-    if (user && !hasCompletedOnboarding(user.id)) {
-      setOnboardingOpen(true)
-    }
-  }, [user])
 
   return (
     <div className="min-h-dvh bg-surface text-fg">
@@ -150,14 +142,6 @@ export function HomeView() {
       <PushNotificationButton />
       <NotificationsSheet open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
       <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
-      <OnboardingOverlay
-        open={onboardingOpen}
-        userName={user?.name || ''}
-        onFinish={() => {
-          if (user) completeOnboarding(user.id)
-          setOnboardingOpen(false)
-        }}
-      />
     </div>
   )
 }

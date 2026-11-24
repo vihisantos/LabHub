@@ -332,6 +332,48 @@ describe('ticketService — API', () => {
     expect(ticketService.getById('b')).toBeDefined()
   })
 
+  it('pullRemote: remove excluídos somente com snapshot completo confirmado', async () => {
+    seedChamados([makeTicket({ id: 'removed' }), makeTicket({ id: 'kept' })])
+    mockFetchOk({ tickets: [makeTicket({ id: 'kept' })], snapshotComplete: true })
+    await ticketService.pullRemote()
+    expect(ticketService.getAll().map(t => t.id)).toEqual(['kept'])
+    expect(fetch).toHaveBeenCalledWith('/api/chamados', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-LabHub-Queue-Snapshot': '1' }),
+    }))
+  })
+
+  it.each([false, undefined])('pullRemote: não exclui dados em resposta parcial/legada (%s)', async snapshotComplete => {
+    seedChamados([makeTicket({ id: 'old' })])
+    mockFetchOk({ tickets: [], snapshotComplete })
+    await ticketService.pullRemote()
+    expect(ticketService.getById('old')).toBeDefined()
+  })
+
+  it('pullRemote: resposta inválida não apaga cache nem é sucesso', async () => {
+    seedChamados([makeTicket({ id: 'old' })])
+    mockFetchOk({ snapshotComplete: true })
+    await expect(ticketService.pullRemote()).rejects.toThrow('Resposta inválida')
+    expect(ticketService.getById('old')).toBeDefined()
+  })
+
+  it('pullRemote: preserva alteração feita durante GET mesmo quando ausente no snapshot', async () => {
+    seedChamados([makeTicket({ id: 'edited' })])
+    let resolveGet!: (value: Response) => void
+    const get = new Promise<Response>(resolve => { resolveGet = resolve })
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      if (url === '/api/chamados') return get
+      return Promise.resolve({
+        ok: true, status: 200, json: async () => ({ ticket: makeTicket({ id: 'edited', status: 'em_atendimento' }) }),
+      } as Response)
+    })
+    const pull = ticketService.pullRemote()
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+    ticketService.update('edited', { status: 'em_atendimento' })
+    resolveGet({ ok: true, status: 200, json: async () => ({ tickets: [], snapshotComplete: true }) } as Response)
+    await pull
+    expect(ticketService.getById('edited')?.status).toBe('em_atendimento')
+  })
+
   it('erro de API lança a mensagem do servidor', async () => {
     mockFetchOk({ error: 'Sala inexistente' }, false, 400)
     await expect(ticketService.getByReporter('X')).rejects.toThrow('Sala inexistente')

@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useLocation } from 'react-router-dom'
+import { useOnboardingPending, setOnboardingPending } from '../platform/Onboarding/onboardingState'
 import './OnboardingTour.css'
 import { buildTourSteps } from './onboardingSteps'
 import { useAuth } from '../core/auth/AuthContext'
@@ -112,11 +114,20 @@ function TourArrow({ rect, tipRef }: { rect: DOMRect; tipRef: React.RefObject<HT
 // ─── Main component ─────────────────────────────────────────────────────────────
 const ALL_MODULE_IDS = ['chamados', 'pc-care', 'stock', 'reservalab', 'patrimonio', 'admin'] as const
 
-function storageKey(userId?: string) {
-  return `onboardingCompleted_${userId ?? 'guest'}`
+export default function OnboardingTour() {
+  const { user, loading } = useAuth()
+  const { pathname } = useLocation()
+  const path = pathname.toLowerCase().replace(/\/+$/, '') || '/'
+  // Authentication alone is not approval. Keep the tour unmounted until
+  // the active user has left the approval celebration and entered the app.
+  if (loading || user?.status !== 'active' || path === '/login' ||
+      path === '/approval-pending' || path === '/chamados-publico' ||
+      path.startsWith('/chamados-publico/')) return null
+
+  return <ActiveOnboardingTour key={user.id} />
 }
 
-export default function OnboardingTour() {
+function ActiveOnboardingTour() {
   const { user } = useAuth()
   const { accent } = useTheme()
   const { isVisible } = useModuleVisibilities(ALL_MODULE_IDS)
@@ -130,7 +141,7 @@ export default function OnboardingTour() {
   }, [accessibleModuleIds, user?.is_super_admin])
 
   const [current, setCurrent] = useState(0)
-  const [show, setShow] = useState(false)
+  const show = useOnboardingPending(user?.id)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [viewport, setViewport] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 1024,
@@ -156,14 +167,6 @@ export default function OnboardingTour() {
     blue:    '#3b82f6',
     purple:  '#a855f7',
   }
-
-  // Show tour on first visit per user
-  useEffect(() => {
-    if (!user) return
-    if (!localStorage.getItem(storageKey(user.id))) {
-      setShow(true)
-    }
-  }, [user])
 
   // Compute highlighted element rect
   useEffect(() => {
@@ -219,18 +222,20 @@ export default function OnboardingTour() {
   const goPrev = useCallback(() => setCurrent(c => (c > 0 ? c - 1 : c)), [])
 
   const finish = useCallback(() => {
-    if (user) localStorage.setItem(storageKey(user.id), 'true')
-    setShow(false)
+    if (user) setOnboardingPending(user.id, false)
   }, [user])
 
   /** Called from Profile – resets tour */
   // Exposed globally so ProfileSheet can trigger it
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__restartOnboardingTour = () => {
-      if (user) localStorage.removeItem(storageKey(user.id))
+    const restart = () => {
       setCurrent(0)
-      setShow(true)
+      if (user) setOnboardingPending(user.id, true)
+    }
+    const host = window as Window & { __restartOnboardingTour?: () => void }
+    host.__restartOnboardingTour = restart
+    return () => {
+      if (host.__restartOnboardingTour === restart) delete host.__restartOnboardingTour
     }
   }, [user])
 

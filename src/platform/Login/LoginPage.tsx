@@ -3,12 +3,28 @@ import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Fingerprint } from 'lucide-react'
 import { useAuth } from '../../core/auth/AuthContext'
 import { authService } from '../../core/auth/service'
-import { defaultDb } from '../../lib/supabase'
 import { browserSupportsPasskey, securityService } from '../../core/auth/securityService'
 import { SignupStatusScreen } from './SignupStatusScreen'
+import { blockReload, unblockReload } from '../../lib/useServiceWorker'
 
 export function buildUserEmail(username: string): string {
   return `${username.toLowerCase().replace(/[^a-z0-9.-]/g, '')}@labhub.com`
+}
+
+// UI-only marker, scoped to this browser tab. It is not a session or permission,
+// and contains no username, password or token. Refreshes must not lose the
+// signup receipt while the user is waiting for an administrator.
+const SIGNUP_WAITING_KEY = 'labhub.signup.waiting.v1'
+
+function readSignupWaiting(): boolean {
+  try { return sessionStorage.getItem(SIGNUP_WAITING_KEY) === '1' } catch { return false }
+}
+
+function persistSignupWaiting(waiting: boolean): void {
+  try {
+    if (waiting) sessionStorage.setItem(SIGNUP_WAITING_KEY, '1')
+    else sessionStorage.removeItem(SIGNUP_WAITING_KEY)
+  } catch { /* storage unavailable: keep the in-memory waiting screen */ }
 }
 
 export function LoginPage() {
@@ -18,82 +34,32 @@ export function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [signupSuccess, setSignupSuccess] = useState(false)
-  const [pendingUserId, setPendingUserId] = useState<string | null>(null)
-  const [pendingStatus, setPendingStatus] = useState<'waiting' | 'approved' | 'rejected'>('waiting')
-  const [secondsLeft, setSecondsLeft] = useState(60)
+  const [signupSuccess, setSignupSuccess] = useState(readSignupWaiting)
   const [passkeyBusy, setPasskeyBusy] = useState(false)
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
 
-  const isPendingUser = signupSuccess || (!!user && user.status === 'pending')
   const canPasskey = browserSupportsPasskey()
 
+  // Authenticated pending users use the dedicated route and its existing
+  // reconciliation. A signup without a session cannot receive private events.
   useEffect(() => {
-    if (isAuthenticated && user?.status === 'active') {
-      navigate('/', { replace: true })
-    }
+    if (!isAuthenticated || !user) return
+    persistSignupWaiting(false)
+    navigate(user.status === 'active' ? '/' : '/approval-pending', { replace: true })
   }, [isAuthenticated, user, navigate])
 
-  useEffect(() => {
-    if (isPendingUser && user?.id) {
-      setPendingUserId((cur) => cur ?? user.id)
-    }
-  }, [isPendingUser, user])
-
-  useEffect(() => {
-    if (!isPendingUser || !pendingUserId) return
-    let cancelled = false
-
-    const check = async () => {
-      if (!defaultDb) return
-      const { data, error } = await defaultDb
-        .from('profiles')
-        .select('id, status')
-        .eq('id', pendingUserId)
-        .maybeSingle()
-      if (cancelled || error) return
-      if (!data) {
-        setPendingStatus('rejected')
-      } else if (data.status === 'active') {
-        setPendingStatus('approved')
-      }
-    }
-
-    check()
-    const timer = setInterval(check, 5000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [isPendingUser, pendingUserId])
-
-  useEffect(() => {
-    if (pendingStatus !== 'approved') return
-    const timer = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000)
-    return () => clearInterval(timer)
-  }, [pendingStatus])
-
-  function handleEnterApp() {
-    authService.refreshProfile().finally(() => navigate('/', { replace: true }))
-  }
-
-  useEffect(() => {
-    if (pendingStatus === 'approved' && secondsLeft === 0) {
-      handleEnterApp()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingStatus, secondsLeft])
-
   function handleRetry() {
+    persistSignupWaiting(false)
     setSignupSuccess(false)
-    setPendingStatus('waiting')
-    setPendingUserId(null)
-    setSecondsLeft(60)
-    setMode('signup')
+    setPassword('')
+    setMode('signin')
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // A PWA update must not interrupt a successful signup before the receipt
+    // is stored. Deferred updates may reload safely after the finally block.
+    const reloadBlock = blockReload()
     try {
       const userEmail = buildUserEmail(username)
       if (mode === 'signin') {
@@ -101,10 +67,14 @@ export function LoginPage() {
         navigate('/', { replace: true })
       } else {
         await signUp({ email: userEmail, password, name: username })
+        persistSignupWaiting(true)
+        setPassword('')
         setSignupSuccess(true)
       }
     } catch {
       // error is handled by useAuth
+    } finally {
+      unblockReload(reloadBlock)
     }
   }
 
@@ -125,13 +95,13 @@ export function LoginPage() {
     }
   }
 
-  if (isPendingUser) {
+  if (signupSuccess || user?.status === 'pending') {
     return (
       <SignupStatusScreen
-        status={pendingStatus}
-        secondsLeft={secondsLeft}
-        totalSeconds={60}
-        onEnter={handleEnterApp}
+        status="waiting"
+        email={user?.email ?? (username ? buildUserEmail(username) : undefined)}
+        requiresLogin={!isAuthenticated}
+        onEnter={() => navigate('/', { replace: true })}
         onRetry={handleRetry}
       />
     )

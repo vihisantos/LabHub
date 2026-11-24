@@ -71,10 +71,10 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
  */
 export type TicketRequestError = Error & { status?: number }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+async function request<T>(url: string, init?: RequestInit, extraHeaders?: Record<string, string>): Promise<T> {
   const authHeaders = await getAuthHeaders()
   const res = await fetch(url, {
-    headers: authHeaders,
+    headers: { ...authHeaders, ...extraHeaders },
     ...init,
   })
   const body = await res.json().catch(() => ({}))
@@ -148,21 +148,55 @@ function persistLocal(ticket: Ticket) {
   setCol(key, items)
 }
 
+// Track local writes per authenticated collection, including multiple writes to
+// one ticket. A full GET must not undo a mutation that is still in flight.
+const pendingWrites = new Map<string, Map<string, number>>()
+
+function beginTicketWrite(key: string | null, id: string): () => void {
+  if (!key) return () => {}
+  const writes = pendingWrites.get(key) ?? new Map<string, number>()
+  pendingWrites.set(key, writes)
+  writes.set(id, (writes.get(id) ?? 0) + 1)
+  return () => {
+    const remaining = (writes.get(id) ?? 1) - 1
+    if (remaining > 0) writes.set(id, remaining)
+    else writes.delete(id)
+    if (!writes.size) pendingWrites.delete(key)
+  }
+}
+
 /**
- * Mescla a fila remota no cache do usuário da sessão.
- *
- * Só grava quando o `pullRemote` foi autorizado — isto é, quando o backend
- * respondeu 200. É a mesma condição de antes da #344; o que muda é a chave.
+ * Reconcile only the user's authorized operational queue. Missing IDs imply
+ * removal/revoked visibility ONLY when the backend attests a complete snapshot.
+ * Keep local changes made during the read and writes still in flight.
+ * Never infer completeness from a partial/legacy response or HTTP failure.
  */
-function mergeRemote(remote: Ticket[]) {
-  const key = chamadosCacheKey()
-  if (!key) return
+function mergeRemote(
+  key: string,
+  remote: Ticket[],
+  complete: boolean,
+  before: Map<string, string>,
+  protectedAtStart: Set<string>,
+) {
   const items = getCol<Ticket>(key)
-  const map = new Map(items.map((t) => [t.id, t]))
-  for (const t of remote) {
-    const existing = map.get(t.id)
-    if (!existing || (t.updatedAt || '') > (existing.updatedAt || '')) {
-      map.set(t.id, t)
+  const map = new Map(items.map(t => [t.id, t]))
+  const remoteIds = new Set(remote.map(t => t.id))
+  const protectedId = (id: string) =>
+    protectedAtStart.has(id) || !!pendingWrites.get(key)?.has(id)
+  const changedLocally = (id: string) => {
+    const current = map.get(id)
+    return before.get(id) !== (current ? JSON.stringify(current) : undefined)
+  }
+  if (complete) {
+    for (const id of map.keys()) {
+      if (!remoteIds.has(id) && !protectedId(id) && !changedLocally(id)) map.delete(id)
+    }
+  }
+  for (const ticket of remote) {
+    if (protectedId(ticket.id) || changedLocally(ticket.id)) continue
+    const existing = map.get(ticket.id)
+    if (!existing || (ticket.updatedAt || '') > (existing.updatedAt || '')) {
+      map.set(ticket.id, normalizeTicket(ticket))
     }
   }
   setCol(key, [...map.values()])
@@ -230,8 +264,10 @@ export const ticketService = {
   },
 
   update: (id: string, data: Partial<Ticket>) => {
+    const key = chamadosCacheKey()
     const ticket = local.update(id, data)
     if (ticket) {
+      const finish = beginTicketWrite(key, id)
       logService.log({
         userId: 'system',
         userName: 'Sistema',
@@ -245,18 +281,21 @@ export const ticketService = {
         method: 'PATCH',
         body: JSON.stringify(data),
       })
-        .then((res) => persistLocal(res.ticket))
+        .then((res) => { if (key === chamadosCacheKey()) persistLocal(res.ticket) })
         .catch(() => {
           // Falha de rede: mantém local; próximo pullRemote reconcilia.
         })
+        .finally(finish)
     }
     return ticket
   },
 
   remove: (id: string) => {
+    const key = chamadosCacheKey()
     const ok = local.remove(id)
     if (ok) {
-      request(`${API_BASE}/${id}`, { method: 'DELETE' }).catch(() => {})
+      const finish = beginTicketWrite(key, id)
+      request(`${API_BASE}/${id}`, { method: 'DELETE' }).catch(() => {}).finally(finish)
     }
     return ok
   },
@@ -451,10 +490,19 @@ export const ticketService = {
     return archivedCount || 0
   },
 
-  /** Puxa os chamados do servidor e mescla no cache local (mais recente por updatedAt). */
+  /** Puxa a fila operacional; exclusões exigem snapshot completo confirmado. */
   pullRemote: async (): Promise<void> => {
-    const { tickets } = await request<{ tickets: Ticket[] }>(API_BASE)
-    mergeRemote(tickets || [])
+    const key = chamadosCacheKey()
+    const before = new Map((key ? getCol<Ticket>(key) : []).map(t => [t.id, JSON.stringify(t)]))
+    const protectedAtStart = new Set(key ? pendingWrites.get(key)?.keys() : undefined)
+    const { tickets, snapshotComplete } = await request<{ tickets: Ticket[]; snapshotComplete?: boolean }>(
+      API_BASE, undefined, { 'X-LabHub-Queue-Snapshot': '1' },
+    )
+    if (key !== chamadosCacheKey()) throw new Error('Sessão alterada durante sincronização')
+    if (!Array.isArray(tickets) || tickets.some(t => !t || typeof t.id !== 'string')) {
+      throw new Error('Resposta inválida da fila de chamados')
+    }
+    if (key) mergeRemote(key, tickets, snapshotComplete === true, before, protectedAtStart)
   },
 
   /**

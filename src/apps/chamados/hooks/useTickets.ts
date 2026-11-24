@@ -5,6 +5,8 @@ import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket, syncSlaAlerts
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { useTicketInvalidationBroadcast } from './useTicketInvalidationBroadcast'
+import { readTicketQueueRevision } from '../services/ticketQueueRevision'
+import { recordTicketSync } from '../services/ticketSyncMetrics'
 
 /**
  * Corrige tickets antigos no IndexedDB que estejam sem createdAt ou ticketNumber.
@@ -36,13 +38,17 @@ export function useTickets() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [realtimeConnected, setRealtimeConnected] = useState(false)
-  const [broadcastConnected, setBroadcastConnected] = useState(false)
+  const [, setBroadcastConnected] = useState(false)
   const { workspace } = useWorkspace()
   const workspaceId = workspace?.id ?? null
   const invalidationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeConnectedRef = useRef(false)
   const realtimeStatusSeenRef = useRef(false)
   const sanitizedRef = useRef(false)
+  const pendingSync = useRef<Promise<boolean> | null>(null)
+  const lastFullSuccess = useRef(0)
+  const lastSyncAttempt = useRef(0)
+  const syncAgain = useRef(false)
 
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true)
@@ -58,23 +64,45 @@ export function useTickets() {
 
   const syncRemote = useCallback(async (silent = true) => {
     if (!silent) setSyncing(true)
+    if (pendingSync.current) {
+      syncAgain.current = true
+      return pendingSync.current
+    }
+    const run = async (): Promise<boolean> => {
+      let success = false
+      do {
+        syncAgain.current = false
+        lastSyncAttempt.current = Date.now()
+        try {
+          await ticketService.pullRemote()
+          success = true
+          lastFullSuccess.current = Date.now()
+          recordTicketSync('fullSuccess', Date.now() - lastSyncAttempt.current)
+        } catch {
+          recordTicketSync('fullFailure', Date.now() - lastSyncAttempt.current)
+          success = false
+          // Sem conexão: mantém o cache local.
+        } finally {
+          load(silent)
+          const created = syncNewTicketAlerts()
+          if (created.length > 0) alertForNewTickets(created)
+          syncSlaAlerts()
+        }
+      } while (syncAgain.current)
+      return success
+    }
+    const task = run()
+    pendingSync.current = task
     try {
-      await ticketService.pullRemote()
-    } catch {
-      // Sem conexão: mantém o cache local.
+      return await task
     } finally {
-      load(silent)
+      pendingSync.current = null
       setSyncing(false)
-      // Alerta o TI sobre chamados novos vindos do formulário público.
-      const created = syncNewTicketAlerts()
-      if (created.length > 0) alertForNewTickets(created)
-      // Fase 2.2.2: alertas de SLA no mesmo ciclo (mesma fonte e dedupe).
-      syncSlaAlerts()
     }
   }, [load])
 
   // Checagem pontual de arquivamento: nunca é acoplada ao syncRemote,
-  // pois syncRemote também roda no fallback periódico de 30s.
+  // pois syncRemote também roda no fallback periódico de 45s.
   const checkAutoArchive = useCallback(async (): Promise<number> => {
     try {
       return await ticketService.autoArchiveResolved()
@@ -93,25 +121,66 @@ export function useTickets() {
     })
   }, [load, checkAutoArchive, syncRemote])
 
-  // Um postgres_changes SUBSCRIBED não garante eventos para tabelas com RLS
-  // fechado. Broadcast privado por campus é o gatilho, mas a reconciliação
-  // visível continua: 2min conectado, 30s sem canal, e sempre no retorno ao PWA.
+  // Broadcast is primary. Every 45s compare a tiny transactional marker.
+  // A periodic full read is retained for defense in depth and RBAC changes.
   useEffect(() => {
-    const syncWhenVisible = () => {
-      if (document.visibilityState === 'visible') void syncRemote()
+    let active = true
+    let checking = false
+    let knownRevision: string | null = null
+    const tick = async () => {
+      if (!active || checking || pendingSync.current) return
+      checking = true
+      lastSyncAttempt.current = Date.now()
+      try {
+        const revision = await readTicketQueueRevision(workspaceId)
+        if (!active) return
+        const fullDue = Date.now() - lastFullSuccess.current >= 600000
+        if (revision !== null && revision === knownRevision && !fullDue) {
+          recordTicketSync('revisionUnchanged')
+          // Keep time-dependent alerts running even when data is unchanged.
+          syncSlaAlerts()
+          return
+        }
+        recordTicketSync(revision === null ? 'revisionUnavailable' : revision !== knownRevision ? 'revisionChanged' : 'periodicFull')
+        // Read the marker BEFORE the full pull. A mutation during the pull
+        // changes the next marker, ensuring a conservative retry.
+        const success = await syncRemote()
+        if (active) knownRevision = success ? revision : null
+      } finally {
+        checking = false
+      }
     }
-    const timer = window.setInterval(syncWhenVisible, broadcastConnected ? 120000 : 30000)
-    document.addEventListener('visibilitychange', syncWhenVisible)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' &&
+          Date.now() - lastSyncAttempt.current >= 45000) void tick()
+    }
+    let worker: Worker | undefined
+    let timer: number | undefined
+    const fallback = () => {
+      if (!active) return
+      worker?.terminate()
+      worker = undefined
+      if (timer === undefined) timer = window.setInterval(() => void tick(), 45000)
+    }
+    try {
+      worker = new Worker(new URL('./ticketWatchdog.worker.ts', import.meta.url), { type: 'module' })
+      worker.onmessage = () => void tick()
+      worker.onerror = fallback
+    } catch {
+      fallback()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', syncWhenVisible)
+      active = false
+      worker?.terminate()
+      if (timer !== undefined) window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [broadcastConnected, syncRemote])
+  }, [syncRemote, workspaceId])
 
   // Cada INSERT/UPDATE/DELETE em um chamado emite somente um sinal de invalidação;
   // a API autenticada continua responsável por fornecer os dados e aplicar RBAC.
   const onTicketInvalidated = useCallback(() => {
-    if (document.visibilityState === 'hidden') return
     if (invalidationTimer.current !== null) clearTimeout(invalidationTimer.current)
     invalidationTimer.current = setTimeout(() => {
       invalidationTimer.current = null
@@ -149,7 +218,7 @@ export function useTickets() {
     setRealtimeConnected(connected)
 
     // Se a primeira resposta do canal já indicar falha, não esperamos o
-    // intervalo de 30s: buscamos o remoto imediatamente. Falhas posteriores
+    // intervalo de 45s: buscamos o remoto imediatamente. Falhas posteriores
     // só disparam novo pull quando representam uma transição de estado.
     if (connected !== wasConnected || (isFirstStatus && !connected)) {
       void syncRemote()
