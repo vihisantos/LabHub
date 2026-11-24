@@ -7,8 +7,9 @@ name: Migrations
 # PRs internas confiáveis: staging compartilhado, sem credenciais de produção.
 # PRs sem mudança de migrations/runner: gate leve, sem consumir o banco.
 #
-# Não existe workflow_dispatch, aprovação manual, input de confirmação nem
-# environment com revisores. O merge na main inicia a entrega sozinho.
+# Não existe workflow_dispatch, aprovação manual nem input de confirmação.
+# O environment production-migrations deve permitir exclusivamente a branch main,
+# sem revisores manuais. O merge na main inicia a entrega sozinho.
 # Produção só roda depois que release-gate prova que o artifact de staging
 # pertence ao MESMO commit e ao MESMO run_id, com todas as etapas obrigatórias
 # verde, e que não existe run mais novo na branch. Imediatamente antes do apply
@@ -33,12 +34,13 @@ name: Migrations
 # Se secret e allowlist forem alterados juntos para outro projeto, o
 # target_guard aborta antes de qualquer requisição. Nenhum valor é impresso.
 #
-# Credenciais isoladas (GitHub Secrets/Variables do repositório):
+# Credenciais isoladas (GitHub Secrets/Variables):
 #   staging:
 #     secrets.SUPABASE_STAGING_PROJECT_REF
 #     secrets.SUPABASE_STAGING_ACCESS_TOKEN
 #     vars.SUPABASE_STAGING_ALLOWED_PROJECT_REFS
-#   production:
+#   production (somente environment production-migrations; nunca no repositório):
+#     secrets.SUPABASE_PRODUCTION_ENV_READY (valor 1)
 #     secrets.SUPABASE_PROJECT_REF
 #     secrets.SUPABASE_ACCESS_TOKEN
 #     secrets.BASELINE_VERSION
@@ -413,6 +415,7 @@ jobs:
     name: Apply pending migrations to Production
     needs: release-gate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production-migrations
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -440,6 +443,15 @@ jobs:
         run: |
           echo "CURRENT_STAGE=confirm-production-target" >> "$GITHUB_ENV"
           echo "PROD_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Require configured production-only environment
+        env:
+          PRODUCTION_ENV_READY: ${{ secrets.SUPABASE_PRODUCTION_ENV_READY }}
+        run: |
+          if [ "$PRODUCTION_ENV_READY" != 1 ]; then
+            echo "BLOCK: configure production-migrations environment restricted to main"
+            exit 1
+          fi
 
       - name: Confirm production target
         env:
