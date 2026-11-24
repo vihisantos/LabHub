@@ -1,4 +1,5 @@
 import time
+from functools import wraps
 import json
 import hmac
 from flask import Flask, jsonify, request, g
@@ -26,6 +27,7 @@ from pywebpush import webpush, WebPushException
 sys.path.insert(0, os.path.dirname(__file__))
 from auth import (
     require_auth,
+    require_workspace,
     require_module as require_module_auth,
     require_cron,
     require_admin,
@@ -1627,7 +1629,7 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
-    context=None, actions=None,
+    context=None, actions=None, exclude_user_id=None,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1639,6 +1641,7 @@ def _queue_push_event(
         'workspace_id': workspace_id,
         'target_user_id': user_id,
         'target_role': role,
+        'exclude_user_id': exclude_user_id,
         'target_super_admin': target_super_admin,
         'min_level': min_level,
         'action_url': url or '/',
@@ -1823,7 +1826,7 @@ _MODULE_PUSH_ACTIONS = {
 }
 
 
-def _resolve_batch_rbac(subs):
+def _resolve_batch_rbac(subs, *, strict=False):
     """Memberships ativas com papel por usuário: {uid: {ws: {'membership_id', 'role_id'}}}.
 
     Mesma guarda de UUID do batch de workspaces (`_resolve_batch_memberships`):
@@ -1858,9 +1861,14 @@ def _resolve_batch_rbac(subs):
             timeout=10,
         )
         if not resp.ok:
+            if strict:
+                raise RuntimeError('push RBAC lookup failed')
             return {}
+        rows = resp.json()
+        if not isinstance(rows, list) or (strict and len(rows) >= 1000):
+            raise RuntimeError('push RBAC response invalid or incomplete')
         out = {}
-        for r in (resp.json() or []):
+        for r in rows:
             uid, ws = r.get('profile_id'), r.get('workspace_id')
             if uid and ws:
                 entry = out.setdefault(str(uid), {}).setdefault(str(ws), {})
@@ -1868,10 +1876,12 @@ def _resolve_batch_rbac(subs):
                 entry['role_id'] = r.get('role_id')
         return out
     except Exception:
+        if strict:
+            raise
         return {}
 
 
-def _resolve_batch_role_permissions(role_ids):
+def _resolve_batch_role_permissions(role_ids, *, strict=False):
     """Actions por role (escopo 'workspace' apenas): {role_id: {action}}.
 
     Falha/impossível ⇒ {} (fail-closed). Ações de outro escopo (global/self)
@@ -1892,9 +1902,14 @@ def _resolve_batch_role_permissions(role_ids):
             timeout=10,
         )
         if not resp.ok:
+            if strict:
+                raise RuntimeError('push RBAC lookup failed')
             return {}
+        rows = resp.json()
+        if not isinstance(rows, list) or (strict and len(rows) >= 1000):
+            raise RuntimeError('push RBAC response invalid or incomplete')
         out = {}
-        for r in (resp.json() or []):
+        for r in rows:
             if str(r.get('scope') or 'workspace') != 'workspace':
                 continue
             action = str(r.get('action') or '').strip()
@@ -1902,13 +1917,15 @@ def _resolve_batch_role_permissions(role_ids):
                 out.setdefault(str(r.get('role_id')), set()).add(action)
         return out
     except Exception:
+        if strict:
+            raise
         return {}
 
 
-def _resolve_batch_overrides(membership_ids):
+def _resolve_batch_overrides(membership_ids, *, strict=False):
     """Overrides por membership: {membership_id: {action: 'allow'|'deny'}}.
 
-    Falha ⇒ {} (fail-closed) — na ausência de override o papel base decide.
+    Falha ⇒ None (não confundir falha com ausência de override).
     """
     membership_ids = sorted({str(m) for m in (membership_ids or []) if m})
     if not membership_ids or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
@@ -1925,14 +1942,21 @@ def _resolve_batch_overrides(membership_ids):
             timeout=10,
         )
         if not resp.ok:
-            return {}
+            if strict:
+                raise RuntimeError('push RBAC lookup failed')
+            return None
+        rows = resp.json()
+        if not isinstance(rows, list) or (strict and len(rows) >= 1000):
+            raise RuntimeError('push RBAC response invalid or incomplete')
         out = {}
-        for r in (resp.json() or []):
+        for r in rows:
             if r.get('effect') in ('allow', 'deny') and r.get('action'):
                 out.setdefault(str(r.get('membership_id')), {})[str(r['action'])] = r['effect']
         return out
     except Exception:
-        return {}
+        if strict:
+            raise
+        return None
 
 
 def _module_action_ok(u, module, min_level, rbac_members, role_actions, overrides, workspace_id=None):
@@ -1977,7 +2001,7 @@ def _module_action_ok(u, module, min_level, rbac_members, role_actions, override
     return False
 
 
-def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None):
+def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None, strict=False):
     """Filtra os subscribers pela segmentação de notificações (RBAC2).
 
     - módulo: destinatário precisa de membership ATIVA + Action do módulo
@@ -1990,27 +2014,56 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
     - user_id/role: filtros operacionais preservados (destinatário direto).
     - notify_settings: mudo global e canal `push` por app são respeitados.
     """
-    # O push de chamados não pode virar broadcast intercampi, inclusive
-    # para super admins que não pertencem ao workspace do chamado.
-    if module == 'chamados' and min_level == 'claim' and not workspace_id:
+    # Alertas operacionais de chamados (abertura, cobrança, assunção e
+    # atribuição) nunca atravessam campi, inclusive para super admins.
+    # Avisos pessoais ao professor continuam fora desta regra.
+    if module == 'chamados' and min_level in ('claim', 'full') and not workspace_id:
         return []
-    subs = _get_subs()
+    subs = _get_subs(strict=True) if strict else _get_subs()
+    if strict:
+        if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+            raise RuntimeError('push profile store unavailable')
+        # Subscription snapshots are not authoritative for status, admin or preferences.
+        ids = sorted({str((sub.get('user') or {}).get('id') or '') for sub in subs})
+        ids = [uid for uid in ids if _is_valid_uuid(uid)]
+        profiles = {}
+        for offset in range(0, len(ids), 100):
+            batch = ids[offset:offset + 100]
+            response = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/profiles',
+                params={'id': 'in.(' + ','.join(batch) + ')', 'status': 'eq.active',
+                        'select': 'id,status,is_super_admin,notify_settings'},
+                headers=_supabase_headers(), timeout=6,
+            )
+            if not response.ok:
+                raise RuntimeError('push profile lookup failed')
+            rows = response.json()
+            if not isinstance(rows, list):
+                raise RuntimeError('invalid push profiles')
+            profiles.update({str(row['id']): row for row in rows if row.get('status') == 'active'})
+        subs = [{**sub, 'user': {**(sub.get('user') or {}), **profiles[str(sub['user']['id'])]}}
+                for sub in subs if str((sub.get('user') or {}).get('id') or '') in profiles]
     needs_rbac = bool(module)
     if needs_rbac:
-        rbac_members = _resolve_batch_rbac(subs)
+        rbac_members = _resolve_batch_rbac(subs, strict=True) if strict else _resolve_batch_rbac(subs)
         role_ids = {
             m.get('role_id') for ws in rbac_members.values()
             for m in ws.values() if m.get('role_id')
         }
-        role_actions = _resolve_batch_role_permissions(role_ids)
+        role_actions = _resolve_batch_role_permissions(role_ids, strict=True) if strict else _resolve_batch_role_permissions(role_ids)
         membership_ids = {
             m.get('membership_id') for ws in rbac_members.values()
             for m in ws.values() if m.get('membership_id')
         }
-        overrides = _resolve_batch_overrides(membership_ids)
+        overrides = _resolve_batch_overrides(membership_ids, strict=True) if strict else _resolve_batch_overrides(membership_ids)
+        if overrides is None:
+            raise RuntimeError('push membership overrides unavailable')
         member_ws = {uid: set(ws_map.keys()) for uid, ws_map in rbac_members.items()}
     elif workspace_id:
-        member_ws = _resolve_batch_memberships(subs)
+        if strict:
+            member_ws = {uid: set(ws_map) for uid, ws_map in _resolve_batch_rbac(subs, strict=True).items()}
+        else:
+            member_ws = _resolve_batch_memberships(subs)
         rbac_members, role_actions, overrides = {}, {}, {}
     else:
         rbac_members, role_actions, overrides = {}, {}, {}
@@ -2032,7 +2085,7 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
             if ch is not None and not ch.get('push', True):
                 continue
         if workspace_id:
-            must_be_member = (module == 'chamados' and min_level == 'claim')
+            must_be_member = (module == 'chamados' and min_level in ('claim', 'full'))
             if (must_be_member or not u.get('is_super_admin')) and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
                 continue
         out.append(s)
@@ -2535,12 +2588,14 @@ def _internal_push_check():
 
 # ─── Notificações de Empréstimos (Stock) ─────────────────────────
 
-def _get_subs():
+def _get_subs(*, strict=False):
     """Lista as inscrições ativas. Falha de leitura não derruba o chamador."""
     try:
         raw = _active_push_store().push_subs_list()
     except Exception as e:
         logger.warning("[push] falha ao listar inscrições do store: %s", e)
+        if strict:
+            raise RuntimeError("push subscriptions unavailable") from e
         return []
     subs = []
     for item in raw:
@@ -2618,75 +2673,106 @@ def _get_key(obj, *keys):
     return None
 
 
+def _notify_stock_movement(event_type):
+    """Cria Push somente a partir de movimento de Estoque persistido e autorizado.
+
+    Nunca confia no título, no módulo ou no campus enviados pelo navegador.
+    O outbox é idempotente por movimento e não há fallback de envio direto.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'JSON inválido'}), 400
+    if body.get('module') not in (None, 'stock'):
+        return jsonify({'error': 'Módulo incompatível'}), 400
+    movement_id = str(body.get('movement_id') or body.get('movementId') or '').strip()
+    if not _is_valid_uuid(movement_id):
+        return jsonify({'error': 'movement_id obrigatório e válido'}), 400
+    # UUID canônico impede que caixa/forma textual crie outro ID de dedup.
+    movement_id = str(uuid.UUID(movement_id))
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return jsonify({'error': 'Banco indisponível'}), 503
+
+    try:
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/stock_movements',
+            params={
+                'select': '*',
+                'id': f'eq.{movement_id}',
+                'workspace_id': f'eq.{g.workspace_id}',
+                'limit': 1,
+            },
+            headers={**_supabase_headers(), 'Accept-Profile': 'stock'},
+            timeout=8,
+        )
+        if not response.ok:
+            logger.warning('[push-stock] falha na consulta de movimento: %s', response.status_code)
+            return jsonify({'error': 'Falha ao validar movimento'}), 503
+        rows = response.json()
+        if not isinstance(rows, list):
+            return jsonify({'error': 'Resposta inválida do banco'}), 503
+        if not rows:
+            return jsonify({'error': 'Movimento não encontrado neste campus'}), 404
+        movement = rows[0]
+        expected_type = 'emprestimo' if event_type == 'loan' else 'devolucao'
+        if (not isinstance(movement, dict)
+                or str(movement.get('workspace_id') or '') != str(g.workspace_id)
+                or movement.get('type') != expected_type
+                or movement.get('deletedAt')):
+            return jsonify({'error': 'Movimento incompatível ou removido'}), 409
+
+        item = str(movement.get('itemName') or 'Item')[:100]
+        if event_type == 'loan':
+            title = f'📦 Empréstimo: {item}'
+            msg = f"Emprestado para {str(movement.get('borrowedBy') or 'Alguém')[:100]}"
+            expected = str(movement.get('expectedReturnAt') or '')
+            if expected:
+                msg += f' — Devolução até {expected[:10]}'
+        else:
+            title = f'✅ Devolução: {item}'
+            msg = f"Devolvido por {str(movement.get('performedBy') or 'Alguém')[:100]}"
+
+        event_id = f'stock:{event_type}:{movement_id}'
+        status = _queue_push_event(
+            event_id, title, msg, module='stock', workspace_id=str(g.workspace_id),
+            url='/stock/loans', context=f'stock-{event_type}', ttl=86400,
+        )
+        if status not in ('queued', 'duplicate'):
+            return jsonify({'error': 'Falha ao registrar notificação'}), 503
+        return jsonify({'event_id': event_id, 'status': status}), 202
+    except Exception as exc:
+        logger.warning('[push-stock] falha ao validar/enfileirar movimento: %s', exc)
+        return jsonify({'error': 'Falha ao registrar notificação'}), 503
+
+
+def _require_active_stock_request(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        if (getattr(g, 'user', None) or {}).get('status') != 'active':
+            return jsonify({'error': 'Conta inativa'}), 403
+        if not isinstance(request.get_json(silent=True), dict):
+            return jsonify({'error': 'JSON inválido'}), 400
+        return fn(*args, **kwargs)
+    return wrapped
+
+
 @app.route('/api/push/notify-loan', methods=['POST'])
 @require_auth
+@_require_active_stock_request
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_loan():
-    """Notify stock subscribers about a loan. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        borrowed_by = body.get('borrowedBy', 'Alguém')
-        expected_return = body.get('expectedReturnAt', '')
-
-        title = f"📦 Empréstimo: {item_name}"
-        msg = f"Emprestado para {borrowed_by}"
-        if expected_return:
-            msg += f" — Devolução até {expected_return[:10]}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Loan notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-loan error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de empréstimo'}), 500
+    return _notify_stock_movement('loan')
 
 
 @app.route('/api/push/notify-return', methods=['POST'])
 @require_auth
+@_require_active_stock_request
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_return():
-    """Notify stock subscribers about a return. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        returned_by = body.get('returnedBy', 'Alguém')
-
-        title = f"✅ Devolução: {item_name}"
-        msg = f"Devolvido por {returned_by}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Return notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-return error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de devolução'}), 500
+    return _notify_stock_movement('return')
 
 
 def _ensure_stock_schema(supabase_url, supabase_key):

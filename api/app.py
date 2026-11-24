@@ -59,6 +59,7 @@ from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
 from notification_tick import (
     TICK_PATH as _QSTASH_TICK_PATH,
+    tick_destination as _qstash_tick_destination,
     verify_signed_tick as _verify_qstash_tick,
     request_tick_for_created_ticket as _request_tick_for_created_ticket,
     request_tick_for_chamados_event as _request_tick_for_chamados_event,
@@ -90,6 +91,7 @@ def _enqueue_push_event(event_id, payload):
             ttl=payload.get('ttl', 86400),
             context=payload.get('context'),
             actions=payload.get('actions'),
+            exclude_user_id=payload.get('exclude_user_id'),
         )
         if (status == 'queued'
                 and payload.get('module') == 'chamados'
@@ -6584,12 +6586,21 @@ def _deliver_outbox_notification(event_id, payload):
             targeting_module = None
         else:
             raise ValueError('módulo sem política RBAC de Push')
+    strict_stock_movement = module == 'stock' and context in ('stock-loan', 'stock-return')
+    if strict_stock_movement and not workspace_id:
+        raise ValueError('movimento de estoque sem campus')
+    scoped_chamados = module == 'chamados' and (min_level in ('claim', 'full')
+        or context in ('chamados-created', 'chamados-claimed', 'chamados-assigned'))
+    if scoped_chamados and not workspace_id:
+        raise ValueError('aviso operacional de chamados sem campus')
+    target_options = {'strict': True} if strict_stock_movement or scoped_chamados else {}
     subs = _target_subs(
         module=targeting_module,
         workspace_id=workspace_id,
         user_id=user_id,
         role=role,
         min_level=min_level,
+        **target_options,
     )
     if target_super_admin is True:
         subs = [
@@ -6639,7 +6650,12 @@ def _run_notification_worker(publish_limit: int, consume_limit: int) -> tuple[di
         return {'error': 'PostgreSQL não configurado'}, 503
     try:
         worker_id = f"{os.environ.get('VERCEL_REGION', 'worker')}:{uuid.uuid4().hex}"
-        queue = NotificationQueue(redis)
+        if os.environ.get("VERCEL_ENV") == "preview":
+            if not _qstash_tick_destination():
+                return {"error": "Preview de notificações não habilitada"}, 503
+            queue = NotificationQueue(redis, stream="labhub:staging:notifications:stream:v1", group="labhub-staging-notification-workers")
+        else:
+            queue = NotificationQueue(redis)
         published = publish_pending(
             pg_store.store, queue, worker_id, limit=publish_limit,
         )
@@ -6680,7 +6696,7 @@ def notifications_qstash_tick():
     As cobranças em si são por chamado e revalidam status/responsável
     antes de cada envio; concorrência com o cron legado usa locks e dedup.
     """
-    if os.environ.get('VERCEL_ENV') != 'production':
+    if not _qstash_tick_destination():
         return jsonify({'error': 'Não encontrado'}), 404
 
     # Body e destino têm contrato fixo: sem URL arbitrária, JWT exposto ou
