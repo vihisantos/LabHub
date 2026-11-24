@@ -17,6 +17,7 @@ CURRENT = {"121": ("121_base.sql", "b" * 64), "122": (NAME, DIGEST)}
 APPLIED_BASE = [{"version": "121", "filename": "121_base.sql"}]
 APPLIED = APPLIED_BASE + [{"version": "122", "filename": NAME}]
 RESERVED = [{"version": "122", "filename": NAME, "sha256": DIGEST}]
+VERIFIED = [dict(RESERVED[0], verified_commit="c" * 40)]
 
 
 def test_pr_reserves_new_candidate_and_accepts_same_retry():
@@ -43,11 +44,13 @@ def test_applied_other_pr_is_blocked():
 
 
 def test_main_requires_reserved_and_applied_candidate():
-    assert plan(CANDIDATES, CURRENT, APPLIED, RESERVED, "push") == []
+    assert plan(CANDIDATES, CURRENT, APPLIED, VERIFIED, "push") == []
+    with pytest.raises(ValueError, match="not prevalidated"):
+        plan(CANDIDATES, CURRENT, APPLIED, RESERVED, "push")
     with pytest.raises(ValueError, match="not prevalidated"):
         plan(CANDIDATES, CURRENT, APPLIED, [], "push")
     with pytest.raises(ValueError, match="not prevalidated"):
-        plan(CANDIDATES, CURRENT, APPLIED_BASE, RESERVED, "push")
+        plan(CANDIDATES, CURRENT, APPLIED_BASE, VERIFIED, "push")
 
 
 def test_reservation_from_other_pr_blocks_even_before_apply():
