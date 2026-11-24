@@ -1627,7 +1627,7 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
-    context=None, actions=None,
+    context=None, actions=None, expires_at=None,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1646,6 +1646,8 @@ def _queue_push_event(
         'context': context or module or 'app-notification',
         'actions': actions if isinstance(actions, list) else None,
     }
+    if expires_at is not None:
+        payload['expires_at'] = expires_at
     try:
         inserted = pg_store.store.notification_outbox_enqueue(
             str(event_id), None, payload,
@@ -2357,7 +2359,7 @@ def _workspaces_with_spreadsheet():
     return []
 
 
-def _internal_push_check():
+def _internal_push_check(*, strict_scope=False):
     """Core logic for push check — reservas + tablets. Returns dict."""
     if not _push_store_ready():
         return {'error': 'Push store not configured'}
@@ -2370,6 +2372,7 @@ def _internal_push_check():
         # Sem nenhum workspace
         # configurado, mantém o fallback legado da planilha global.
         reservas_hoje = []
+        errors = 0
         _lab_workspaces = _workspaces_with_spreadsheet()
         if _lab_workspaces:
             for _ws in _lab_workspaces:
@@ -2380,12 +2383,16 @@ def _internal_push_check():
                     )
                 except Exception as e:
                     logger.error("Push check: falha ao ler planilha do campus %s: %s", _ws.get('slug'), e)
+                    errors += 1
                     continue
                 for _r in _reservas_ws:
                     _r['_scope'] = _ws['id']
                 reservas_hoje.extend(_reservas_ws)
-        else:
+        elif not strict_scope:
             reservas_hoje, _ = get_reservas()
+        else:
+            # A global fallback could disclose campus-specific reservation data.
+            errors += 1
 
         agora = get_now_sp()
         agora_min = agora.hour * 60 + agora.minute
@@ -2409,6 +2416,11 @@ def _internal_push_check():
                 continue
             
             if agora_min <= inicio <= limite_min:
+                if strict_scope and not r.get('_scope'):
+                    errors += 1
+                    continue
+                expires_at = (datetime.combine(today, datetime.min.time(), tzinfo=ZoneInfo('America/Sao_Paulo'))
+                              + timedelta(minutes=inicio)).isoformat()
                 reserva_data_key = (
                     data_reserva.isoformat() if hasattr(data_reserva, 'isoformat')
                     else str(data_reserva)
@@ -2431,9 +2443,12 @@ def _internal_push_check():
                     notify_id, title, body, module='reservalab',
                     workspace_id=r.get('_scope') or None, min_level='full',
                     ttl=_push_dedup_seconds(), context='lab-reserva',
+                    **({'expires_at': expires_at} if strict_scope else {}),
                 )
                 if queue_status == 'queued':
                     queued += 1
+                elif queue_status is None and strict_scope:
+                    errors += 1
                 elif queue_status is None:
                     accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
                         _target_subs(
@@ -2457,12 +2472,18 @@ def _internal_push_check():
             try:
                 today_str = today.strftime('%Y-%m-%d')
                 tomorrow_str = (today + timedelta(days=1)).strftime('%Y-%m-%d')
+                if strict_scope:
+                    local_midnight = datetime.combine(today, datetime.min.time(), tzinfo=ZoneInfo('America/Sao_Paulo'))
+                    from_ts = local_midnight.isoformat()
+                    to_ts = (local_midnight + timedelta(days=1)).isoformat()
+                else:
+                    from_ts, to_ts = today_str + 'T00:00:00Z', tomorrow_str + 'T00:00:00Z'
                 tablet_url = (
                     f"{supabase_url}/rest/v1/tablet_reservations"
                     f"?select=*&order=horario_inicio.asc"
                     f"&status=eq.{quote('ativa')}"
-                    f"&horario_inicio=gte.{quote(today_str + 'T00:00:00Z')}"
-                    f"&horario_inicio=lt.{quote(tomorrow_str + 'T00:00:00Z')}"
+                    f"&horario_inicio=gte.{quote(from_ts)}"
+                    f"&horario_inicio=lt.{quote(to_ts)}"
                 )
                 tablet_resp = requests.get(
                     tablet_url,
@@ -2489,7 +2510,7 @@ def _internal_push_check():
                         except:
                             continue
                         
-                        if agora_min <= inicio_min <= limite_min:
+                        if dt_sp.date() == today and agora_min <= inicio_min <= limite_min:
                             notify_id = hashlib.md5(f"tablet|{t['id']}".encode()).hexdigest()
 
                             title = f"Tablets — {t.get('sala', 'Sala')}"
@@ -2503,13 +2524,19 @@ def _internal_push_check():
                             # (super admin vê todos; reserva sem workspace vai para todos).
                             # Só nível 'full' do reservalab recebe push de reserva.
                             ws_id = t.get('workspace_id')
+                            if strict_scope and not ws_id:
+                                errors += 1
+                                continue
                             queue_status = _queue_push_event(
                                 notify_id, title, body, module='reservalab',
                                 workspace_id=ws_id, min_level='full', ttl=_push_dedup_seconds(),
                                 context='tablet',
+                                **({'expires_at': dt_sp.isoformat()} if strict_scope else {}),
                             )
                             if queue_status == 'queued':
                                 queued += 1
+                            elif queue_status is None and strict_scope:
+                                errors += 1
                             elif queue_status is None:
                                 target = _target_subs(
                                     module='reservalab', workspace_id=ws_id, min_level='full',
@@ -2525,10 +2552,18 @@ def _internal_push_check():
                                         "skipped=%s dedup_failed=%s",
                                         rejected, unknown, skipped, dedup_failed,
                                     )
+                elif strict_scope:
+                    errors += 1
             except Exception as e:
+                errors += 1
                 logger.error(f"Tablet push check error: {e}")
+        elif strict_scope:
+            errors += 1
         
-        return {'checked': True, 'queued': queued, 'sent': sent}
+        result = {'checked': True, 'queued': queued, 'sent': sent}
+        if strict_scope and errors:
+            result.update(error='reservation checks incomplete', failures=errors)
+        return result
     except Exception as e:
         logger.error("Push check error: %s", e)
         return {'error': 'Erro ao verificar push'}
@@ -2913,7 +2948,7 @@ def _internal_push_check_pcare():
         return {'error': 'Erro ao verificar manutenções do PC Care'}
 
 
-def _check_pending_users():
+def _check_pending_users(*, require_outbox=False):
     """Push para admins quando existem usuários aguardando aprovação."""
     if not _push_store_ready():
         return {'error': 'Push store not configured'}
@@ -2936,6 +2971,7 @@ def _check_pending_users():
         # admin é destinatário (sem dependência do snapshot `profile.role`).
         sent = 0
         queued = 0
+        errors = 0
         for u in pending:
             pending_week = get_today_sp().toordinal() // 7
             nid = hashlib.md5(
@@ -2956,6 +2992,8 @@ def _check_pending_users():
             )
             if queue_status == 'queued':
                 queued += 1
+            elif queue_status is None and require_outbox:
+                errors += 1
             elif queue_status is None:
                 subs = _target_subs(module='auth')
                 accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
@@ -2969,7 +3007,10 @@ def _check_pending_users():
                         "skipped=%s dedup_failed=%s",
                         (u.get('id') or '')[:8], rejected, unknown, skipped, dedup_failed,
                     )
-        return {'checked': True, 'found': len(pending), 'queued': queued, 'sent': sent}
+        result = {'checked': True, 'found': len(pending), 'queued': queued, 'sent': sent}
+        if errors:
+            result.update(error='approval enqueue failed', failures=errors)
+        return result
     except Exception as e:
         logger.error("check-pending error: %s", e)
         return {'error': 'Erro ao verificar usuários pendentes'}

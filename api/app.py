@@ -6578,9 +6578,53 @@ def _deliver_outbox_notification(event_id, payload):
             logger.info('[notifications] aviso de abertura obsoleto descartado: %s', event_id)
             return True
 
+    if payload.get('expires_at'):
+        try:
+            expires_at = datetime.fromisoformat(str(payload['expires_at']).replace('Z', '+00:00'))
+            if expires_at.tzinfo is None:
+                raise ValueError('timezone required')
+        except (ValueError, TypeError) as exc:
+            raise ValueError('invalid notification expiration') from exc
+        if datetime.now(timezone.utc) >= expires_at:
+            return True  # obsolete reservation: do not deliver after its start
+
     # Preserve the operational recipient restriction of the legacy reminder.
     if module == 'reservalab' and context in ('lab-reserva', 'tablet'):
         min_level = 'full'
+
+    if module == 'auth' and context == 'pending-user':
+        # Recheck the applicant and current active super-admin privileges.
+        # A subscription snapshot may be stale after account approval/demotion.
+        pending_id = parse_qs(urlparse(action_url).query).get('pending', [''])[0]
+        try:
+            pending_id = str(uuid.UUID(pending_id))
+        except (TypeError, ValueError):
+            return True
+        if not _require_supabase():
+            raise RuntimeError('approval revalidation unavailable')
+        pending = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles',
+            params={'id': f'eq.{pending_id}', 'status': 'eq.pending', 'select': 'id'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not pending.ok:
+            raise RuntimeError('approval revalidation failed')
+        if not pending.json():
+            return True
+        admins = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles',
+            params={'status': 'eq.active', 'is_super_admin': 'eq.true', 'select': 'id,notify_settings'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not admins.ok:
+            raise RuntimeError('approval recipient revalidation failed')
+        eligible_admins = {}
+        for row in admins.json():
+            settings = row.get('notify_settings') or {}
+            if not settings.get('muted') and (settings.get('apps') or {}).get('auth', {}).get('push', True):
+                eligible_admins[str(row['id'])] = row
+    else:
+        eligible_admins = None
 
     targeting_module = module
     if module and module not in _MODULE_PUSH_ACTIONS:
@@ -6598,7 +6642,9 @@ def _deliver_outbox_notification(event_id, payload):
         role=role,
         min_level=min_level,
     )
-    if target_super_admin is True:
+    if eligible_admins is not None:
+        subs = [sub for sub in subs if str((sub.get('user') or {}).get('id') or '') in eligible_admins]
+    elif target_super_admin is True:
         subs = [
             sub for sub in subs
             if bool((sub.get('user') or {}).get('is_super_admin'))
@@ -6711,8 +6757,8 @@ def notifications_qstash_tick():
         # The normal 5-minute tick remains available for recovery.
         results = {}
         for name, check in (
-            ('reservalab', _internal_push_check),
-            ('approval', _check_pending_users),
+            ('reservalab', lambda: _internal_push_check(strict_scope=True)),
+            ('approval', lambda: _check_pending_users(require_outbox=True)),
         ):
             try:
                 outcome = check()

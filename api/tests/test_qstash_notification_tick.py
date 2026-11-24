@@ -523,6 +523,9 @@ def test_periodic_checks_are_separate_and_fail_closed(api_module, monkeypatch, s
     assert response.status_code == (200 if signed else 401)
     assert reservations.call_count == int(signed)
     assert approvals.call_count == int(signed)
+    if signed:
+        reservations.assert_called_once_with(strict_scope=True)
+        approvals.assert_called_once_with(require_outbox=True)
     assert worker.call_count == int(signed)
     dispatch.assert_not_called()
 
@@ -564,3 +567,37 @@ def test_reservation_outbox_preserves_full_module_access(api_module, monkeypatch
     })
     assert target.call_args.kwargs["min_level"] == "full"
     assert target.call_args.kwargs["workspace_id"] == "ws-a"
+
+
+def test_expired_reservation_does_not_alert(api_module, monkeypatch):
+    target = Mock(side_effect=AssertionError("expired notification must not resolve recipients"))
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    assert api_module._deliver_outbox_notification("old-reservation", {
+        "module": "reservalab", "context": "tablet", "workspace_id": "ws-a",
+        "expires_at": "2020-01-01T00:00:00+00:00",
+    })
+    target.assert_not_called()
+
+
+def test_approval_rechecks_pending_status_and_current_admins(api_module, monkeypatch):
+    user_id = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    pending = Mock(ok=True)
+    pending.json.return_value = [{"id": user_id}]
+    admins = Mock(ok=True)
+    admins.json.return_value = [{"id": "active-admin", "notify_settings": {}}]
+    monkeypatch.setattr(api_module.requests, "get", Mock(side_effect=[pending, admins]))
+    good = {"user": {"id": "active-admin", "is_super_admin": False}}
+    revoked = {"user": {"id": "revoked-admin", "is_super_admin": True}}
+    monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[good, revoked]))
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    payload = {"module": "auth", "context": "pending-user", "target_super_admin": True,
+               "action_url": f"/admin/users?pending={user_id}"}
+    assert api_module._deliver_outbox_notification("pending-event", payload)
+    assert send.call_args.args[0] == [good]
+    pending.json.return_value = []
+    monkeypatch.setattr(api_module.requests, "get", Mock(return_value=pending))
+    send.reset_mock()
+    assert api_module._deliver_outbox_notification("resolved-event", payload)
+    send.assert_not_called()
