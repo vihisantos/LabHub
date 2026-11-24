@@ -6589,6 +6589,36 @@ def _deliver_outbox_notification(event_id, payload):
         if datetime.now(timezone.utc) >= expires_at:
             return True  # obsolete reservation: do not deliver after its start
 
+    if module == 'reservalab' and context == 'tablet' and payload.get('reservation_id'):
+        # A queued tablet reminder must not outlive a cancellation, reschedule
+        # or campus transfer. A failed read leaves the event available for retry.
+        try:
+            reservation_id = str(uuid.UUID(str(payload['reservation_id'])))
+        except (ValueError, TypeError):
+            raise ValueError('invalid tablet reservation identity')
+        if not workspace_id or not payload.get('expires_at'):
+            raise ValueError('tablet reminder missing scope or start time')
+        if not _require_supabase():
+            raise RuntimeError('tablet revalidation unavailable')
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tablet_reservations',
+            params={'id': f'eq.{reservation_id}', 'workspace_id': f'eq.{workspace_id}',
+                    'status': 'eq.ativa', 'select': 'horario_inicio'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not response.ok:
+            raise RuntimeError('tablet revalidation failed')
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise RuntimeError('invalid tablet revalidation response')
+        if not rows:
+            return True
+        current_start = datetime.fromisoformat(str(rows[0]['horario_inicio']).replace('Z', '+00:00'))
+        if current_start.tzinfo is None:
+            raise ValueError('invalid tablet start time')
+        if current_start != expires_at:
+            return True
+
     # Preserve the operational recipient restriction of the legacy reminder.
     if module == 'reservalab' and context in ('lab-reserva', 'tablet'):
         min_level = 'full'

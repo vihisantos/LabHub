@@ -1627,7 +1627,7 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
-    context=None, actions=None, expires_at=None,
+    context=None, actions=None, expires_at=None, reservation_id=None,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1648,6 +1648,8 @@ def _queue_push_event(
     }
     if expires_at is not None:
         payload['expires_at'] = expires_at
+    if reservation_id is not None:
+        payload['reservation_id'] = str(reservation_id)
     try:
         inserted = pg_store.store.notification_outbox_enqueue(
             str(event_id), None, payload,
@@ -2511,7 +2513,11 @@ def _internal_push_check(*, strict_scope=False):
                             continue
                         
                         if dt_sp.date() == today and agora_min <= inicio_min <= limite_min:
-                            notify_id = hashlib.md5(f"tablet|{t['id']}".encode()).hexdigest()
+                            key = f"tablet|{t['id']}"
+                            if strict_scope:
+                                # A genuinely rescheduled reservation is a new reminder.
+                                key += f"|{dt_sp.isoformat()}"
+                            notify_id = hashlib.md5(key.encode()).hexdigest()
 
                             title = f"Tablets — {t.get('sala', 'Sala')}"
                             evento = t.get('finalidade', '').strip()
@@ -2531,7 +2537,7 @@ def _internal_push_check(*, strict_scope=False):
                                 notify_id, title, body, module='reservalab',
                                 workspace_id=ws_id, min_level='full', ttl=_push_dedup_seconds(),
                                 context='tablet',
-                                **({'expires_at': dt_sp.isoformat()} if strict_scope else {}),
+                                **({'expires_at': dt_sp.isoformat(), 'reservation_id': t['id']} if strict_scope else {}),
                             )
                             if queue_status == 'queued':
                                 queued += 1

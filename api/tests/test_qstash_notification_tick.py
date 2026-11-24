@@ -628,3 +628,42 @@ def test_periodic_inventory_runs_only_in_periodic_job(api_module, monkeypatch):
     inventory.assert_called_once()
     assert inventory.call_args.args[0] == "stock-expiry"
     assert worker.call_count == 3
+
+
+@pytest.mark.parametrize("current,should_send", [
+    ([], False),
+    ([{"horario_inicio": "2099-01-01T14:00:00Z"}], False),
+    ([{"horario_inicio": "2099-01-01T13:00:00Z"}], True),
+])
+def test_tablet_reminder_rechecks_start_status_and_campus(api_module, monkeypatch, current, should_send):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = current
+    get = Mock(return_value=response)
+    monkeypatch.setattr(api_module.requests, "get", get)
+    target = Mock(return_value=[{"user": {"id": "tech"}}])
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    payload = {"module": "reservalab", "context": "tablet",
+               "workspace_id": "ws-a", "expires_at": "2099-01-01T10:00:00-03:00",
+               "reservation_id": "b394e6e1-b6e8-442c-aa99-c76c37ec3303"}
+    assert api_module._deliver_outbox_notification("tablet-event", payload)
+    params = get.call_args.kwargs["params"]
+    assert params["status"] == "eq.ativa"
+    assert params["workspace_id"] == "eq.ws-a"
+    assert send.call_count == int(should_send)
+
+
+def test_tablet_revalidation_failure_retries_without_sending(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    monkeypatch.setattr(api_module.requests, "get", Mock(return_value=Mock(ok=False)))
+    target = Mock()
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    with pytest.raises(RuntimeError, match="tablet revalidation failed"):
+        api_module._deliver_outbox_notification("tablet-event", {
+            "module": "reservalab", "context": "tablet", "workspace_id": "ws-a",
+            "expires_at": "2099-01-01T10:00:00-03:00",
+            "reservation_id": "b394e6e1-b6e8-442c-aa99-c76c37ec3303",
+        })
+    target.assert_not_called()
