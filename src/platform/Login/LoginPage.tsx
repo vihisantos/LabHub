@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Fingerprint } from 'lucide-react'
 import { useAuth } from '../../core/auth/AuthContext'
 import { authService } from '../../core/auth/service'
-import { defaultDb } from '../../lib/supabase'
 import { browserSupportsPasskey, securityService } from '../../core/auth/securityService'
 import { SignupStatusScreen } from './SignupStatusScreen'
 
@@ -19,77 +18,23 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [signupSuccess, setSignupSuccess] = useState(false)
-  const [pendingUserId, setPendingUserId] = useState<string | null>(null)
-  const [pendingStatus, setPendingStatus] = useState<'waiting' | 'approved' | 'rejected'>('waiting')
-  const [secondsLeft, setSecondsLeft] = useState(60)
   const [passkeyBusy, setPasskeyBusy] = useState(false)
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
 
-  const isPendingUser = signupSuccess || (!!user && user.status === 'pending')
   const canPasskey = browserSupportsPasskey()
 
+  // Authenticated pending users use the dedicated route and its existing
+  // reconciliation. A signup without a session cannot receive private events.
   useEffect(() => {
-    if (isAuthenticated && user?.status === 'active') {
-      navigate('/', { replace: true })
-    }
+    if (!isAuthenticated || !user) return
+    if (user.status === 'active') navigate('/', { replace: true })
+    else if (user.status === 'pending') navigate('/approval-pending', { replace: true })
   }, [isAuthenticated, user, navigate])
-
-  useEffect(() => {
-    if (isPendingUser && user?.id) {
-      setPendingUserId((cur) => cur ?? user.id)
-    }
-  }, [isPendingUser, user])
-
-  useEffect(() => {
-    if (!isPendingUser || !pendingUserId) return
-    let cancelled = false
-
-    const check = async () => {
-      if (!defaultDb) return
-      const { data, error } = await defaultDb
-        .from('profiles')
-        .select('id, status')
-        .eq('id', pendingUserId)
-        .maybeSingle()
-      if (cancelled || error) return
-      if (!data) {
-        setPendingStatus('rejected')
-      } else if (data.status === 'active') {
-        setPendingStatus('approved')
-      }
-    }
-
-    check()
-    const timer = setInterval(check, 5000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [isPendingUser, pendingUserId])
-
-  useEffect(() => {
-    if (pendingStatus !== 'approved') return
-    const timer = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000)
-    return () => clearInterval(timer)
-  }, [pendingStatus])
-
-  function handleEnterApp() {
-    authService.refreshProfile().finally(() => navigate('/', { replace: true }))
-  }
-
-  useEffect(() => {
-    if (pendingStatus === 'approved' && secondsLeft === 0) {
-      handleEnterApp()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingStatus, secondsLeft])
 
   function handleRetry() {
     setSignupSuccess(false)
-    setPendingStatus('waiting')
-    setPendingUserId(null)
-    setSecondsLeft(60)
-    setMode('signup')
+    setPassword('')
+    setMode('signin')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -125,13 +70,13 @@ export function LoginPage() {
     }
   }
 
-  if (isPendingUser) {
+  if (signupSuccess || user?.status === 'pending') {
     return (
       <SignupStatusScreen
-        status={pendingStatus}
-        secondsLeft={secondsLeft}
-        totalSeconds={60}
-        onEnter={handleEnterApp}
+        status="waiting"
+        email={user?.email ?? buildUserEmail(username)}
+        requiresLogin={!isAuthenticated}
+        onEnter={() => navigate('/', { replace: true })}
         onRetry={handleRetry}
       />
     )
