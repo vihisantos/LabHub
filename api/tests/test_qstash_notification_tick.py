@@ -491,3 +491,79 @@ def test_chamados_producers_wake_each_distinct_claim_event(api_module, monkeypat
     assert len(wake) == 2
     assert set(wake) == {item[0] for item in queued}
     assert all(item[1]["module"] == "chamados" for item in queued)
+
+
+def test_operational_push_isolation_across_two_campuses(api_module, monkeypatch):
+    """Real targeting and delivery code; synthetic subscriptions, no external pushes."""
+    from unittest.mock import Mock
+    legacy = sys.modules[api_module._target_subs.__module__]
+    a, b = "ws-a", "ws-b"
+    uids = [f"10000000-0000-4000-8000-{i:012d}" for i in range(1, 8)]
+    tech_a, tech_b, admin_global, admin_b, both, denied, inactive = uids
+    subscribers = [{"endpoint": f"https://push.invalid/{uid}", "user": {
+        "id": uid, "is_super_admin": uid in (admin_global, admin_b),
+        "notify_settings": {},
+    }} for uid in uids]
+    profiles = [{"id": uid, "status": "active", "is_super_admin":
+        uid in (admin_global, admin_b), "notify_settings": {}}
+        for uid in uids if uid != inactive]
+    def membership(uid, ws):
+        return {"role_id": "tech-role", "membership_id": uid + ws}
+    members = {
+        tech_a: {a: membership(tech_a, a)},
+        tech_b: {b: membership(tech_b, b)},
+        admin_global: {},
+        admin_b: {b: membership(admin_b, b)},
+        both: {a: membership(both, a), b: membership(both, b)},
+        denied: {a: membership(denied, a)},
+        inactive: {},
+    }
+    monkeypatch.setattr(legacy, "_SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setattr(legacy, "_SUPABASE_SERVICE_KEY", "test")
+    monkeypatch.setattr(legacy, "_get_subs", lambda **kw: subscribers)
+    monkeypatch.setattr(legacy, "_resolve_batch_rbac", lambda *args, **kw: members)
+    monkeypatch.setattr(legacy, "_resolve_batch_role_permissions",
+                        lambda *args, **kw: {"tech-role": {"ticket.claim", "ticket.edit"}})
+    monkeypatch.setattr(legacy, "_resolve_batch_overrides", lambda *args, **kw: {
+        denied + a: {"ticket.claim": "deny", "ticket.edit": "deny"},
+    })
+    response = Mock(ok=True)
+    response.json.return_value = profiles
+    monkeypatch.setattr(legacy.requests, "get", lambda *args, **kw: response)
+    monkeypatch.setattr(api_module, "_created_push_still_actionable", lambda *args: True)
+    # Avoid a redundant external recheck in this test: the global admin has
+    # already been excluded by membership; real DB fetches are mocked.
+    monkeypatch.setattr(api_module, "_revalidate_super_admin_subs", lambda subs: subs)
+    def ids(subs):
+        return {s["user"]["id"] for s in subs}
+    assert ids(api_module._eligible_reminder_subs(a)) == {tech_a, both}
+    assert ids(api_module._eligible_reminder_subs(b)) == {tech_b, admin_b, both}
+    for level in ("claim", "full"):
+        assert legacy._target_subs(module="chamados", min_level=level) == []
+        assert ids(legacy._target_subs(module="chamados", workspace_id=a,
+                                      min_level=level, strict=True)) == {tech_a, both}
+        assert ids(legacy._target_subs(module="chamados", workspace_id=b,
+                                      min_level=level, strict=True)) == {tech_b, admin_b, both}
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    for campus, eligible, claimer in ((a, {tech_a, both}, tech_a),
+                                     (b, {tech_b, admin_b, both}, tech_b)):
+        for context, level, target, exclude, expected in (
+            ("chamados-created", "claim", None, None, eligible),
+            ("chamados-claimed", "full", claimer, None, {claimer}),
+            ("chamados-claimed", "full", None, claimer, eligible - {claimer}),
+            ("chamados-assigned", "full", claimer, None, {claimer}),
+        ):
+            send.reset_mock()
+            assert api_module._deliver_outbox_notification("event-" + context, {
+                "module": "chamados", "context": context, "workspace_id": campus,
+                "min_level": level, "target_user_id": target, "exclude_user_id": exclude,
+            })
+            assert ids(send.call_args.args[0]) == expected
+            assert send.call_args.kwargs["workspace_id"] == campus
+    send.reset_mock()
+    with pytest.raises(ValueError, match="sem campus"):
+        api_module._deliver_outbox_notification("invalid-claim", {
+            "module": "chamados", "context": "chamados-claimed", "min_level": "full",
+        })
+    send.assert_not_called()
