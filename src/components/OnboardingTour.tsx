@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useLocation } from 'react-router-dom'
 import './OnboardingTour.css'
 import { buildTourSteps } from './onboardingSteps'
 import { useAuth } from '../core/auth/AuthContext'
@@ -117,6 +118,19 @@ function storageKey(userId?: string) {
 }
 
 export default function OnboardingTour() {
+  const { user, loading } = useAuth()
+  const { pathname } = useLocation()
+  const path = pathname.toLowerCase().replace(/\/+$/, '') || '/'
+  // Authentication alone is not approval. Keep the tour unmounted until
+  // the active user has left the approval celebration and entered the app.
+  if (loading || user?.status !== 'active' || path === '/login' ||
+      path === '/approval-pending' || path === '/chamados-publico' ||
+      path.startsWith('/chamados-publico/')) return null
+
+  return <ActiveOnboardingTour key={user.id} />
+}
+
+function ActiveOnboardingTour() {
   const { user } = useAuth()
   const { accent } = useTheme()
   const { isVisible } = useModuleVisibilities(ALL_MODULE_IDS)
@@ -226,11 +240,15 @@ export default function OnboardingTour() {
   /** Called from Profile – resets tour */
   // Exposed globally so ProfileSheet can trigger it
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__restartOnboardingTour = () => {
+    const restart = () => {
       if (user) localStorage.removeItem(storageKey(user.id))
       setCurrent(0)
       setShow(true)
+    }
+    const host = window as Window & { __restartOnboardingTour?: () => void }
+    host.__restartOnboardingTour = restart
+    return () => {
+      if (host.__restartOnboardingTour === restart) delete host.__restartOnboardingTour
     }
   }, [user])
 
