@@ -55,7 +55,7 @@ def candidate_files(base_sha: str) -> tuple[dict[str, tuple[str, str, str]], dic
                 raise ValueError("already merged migration modified: " + migration.filename)
             base.remove(path)
         else:
-            blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+            blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data, usedforsecurity=False).hexdigest()
             candidates[migration.version] = (migration.filename, digest, blob)
     if base:
         raise ValueError("already merged migration removed or renamed")
@@ -67,12 +67,15 @@ def plan(candidates, current, applied, fingerprints, event):
     if event not in ('pull_request', 'push'):
         raise ValueError('invalid event')
     reserved = {}
+    verified = set()
     for row in fingerprints:
         version = row["version"]
         identity = (row["filename"], row["sha256"])
         if current.get(version) != identity:
             raise ValueError("staging reserved for incompatible candidate version " + version)
         reserved[version] = identity
+        if re.fullmatch(r"[0-9a-f]{40}", row.get("verified_commit") or ""):
+            verified.add(version)
 
     applied_map = {row["version"]: row["filename"] for row in applied if row["filename"] != "__baseline__"}
     for version, filename in applied_map.items():
@@ -82,7 +85,8 @@ def plan(candidates, current, applied, fingerprints, event):
     additions = []
     for version, (filename, digest, blob) in candidates.items():
         if event == "push":
-            if reserved.get(version) != (filename, digest) or applied_map.get(version) != filename:
+            if (reserved.get(version) != (filename, digest) or applied_map.get(version) != filename
+                    or version not in verified):
                 raise ValueError("new main migration was not prevalidated in staging: " + filename)
         elif version not in reserved:
             if version in applied_map and PREVERIFIED.get(filename) != blob:
@@ -95,8 +99,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--event", choices=("pull_request", "push"), required=True)
+    parser.add_argument("--mark-verified", metavar="COMMIT_SHA")
     args = parser.parse_args()
     try:
+        if args.mark_verified and (args.event != "pull_request" or not re.fullmatch(r"[0-9a-f]{40}", args.mark_verified)):
+            raise ValueError("invalid PR verification commit")
         candidates, current = candidate_files(args.base_sha)
         policy = resolve_policy(target=STAGING)
         ref_var, token_var = policy.credential_vars()
@@ -112,10 +119,26 @@ def main():
         exists = api.query("SELECT to_regclass('labhub_migration_ci.staging_fingerprints') IS NOT NULL AS present")
         if not isinstance(applied, list) or not exists or not isinstance(exists[0].get("present"), bool):
             raise ValueError("invalid staging migration history response")
-        fingerprints = api.query("SELECT version, filename, sha256 FROM " + TABLE) if exists[0]["present"] else []
+        if exists[0]["present"]:
+            columns = api.query("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='labhub_migration_ci' AND table_name='staging_fingerprints' AND column_name='verified_commit') AS present")
+            if not columns or not isinstance(columns[0].get("present"), bool):
+                raise ValueError("invalid staging fingerprint schema")
+            if not columns[0]["present"]:
+                # Upgrade only the staging-local CI metadata, never product schema.
+                api.query("ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS verified_commit text")
+        fingerprints = api.query("SELECT version, filename, sha256, verified_commit FROM " + TABLE) if exists[0]["present"] else []
         if not isinstance(fingerprints, list):
             raise ValueError("invalid staging fingerprint response")
         additions = plan(candidates, current, applied, fingerprints, args.event)
+        if args.mark_verified:
+            applied_map = {row["version"]: row["filename"] for row in applied}
+            if additions or any(applied_map.get(version) != filename for version, (filename, _, _) in candidates.items()):
+                raise ValueError("cannot mark unapplied or unreserved candidate as verified")
+            if candidates:
+                versions = ", ".join(sql_string_literal(version) for version in candidates)
+                api.query("UPDATE " + TABLE + " SET verified_commit = " + sql_string_literal(args.mark_verified) + " WHERE version IN (" + versions + ")")
+            print(f"[staging-candidate] PASS verified={len(candidates)}")
+            return 0
         if additions:
             # Staging job is serialized with delivery. The transaction prevents
             # partial reservations. No browser role can read or alter this ledger.
@@ -124,7 +147,7 @@ def main():
                 "BEGIN; SELECT pg_advisory_xact_lock(958823001); "
                 "CREATE SCHEMA IF NOT EXISTS labhub_migration_ci; "
                 "REVOKE ALL ON SCHEMA labhub_migration_ci FROM PUBLIC, anon, authenticated; "
-                "CREATE TABLE IF NOT EXISTS " + TABLE + " (version text PRIMARY KEY, filename text NOT NULL, sha256 text NOT NULL); "
+                "CREATE TABLE IF NOT EXISTS " + TABLE + " (version text PRIMARY KEY, filename text NOT NULL, sha256 text NOT NULL, verified_commit text); "
                 "ALTER TABLE " + TABLE + " ENABLE ROW LEVEL SECURITY; "
                 "REVOKE ALL ON TABLE " + TABLE + " FROM PUBLIC, anon, authenticated; "
                 "INSERT INTO " + TABLE + " (version,filename,sha256) VALUES " + values + "; COMMIT;"
