@@ -26,6 +26,9 @@ from migrate.environment import (  # noqa: E402
 )
 
 PREFIX = "supabase/migrations/"
+# Versions at or above the rollout boundary must never bypass the PR gate
+# on a subsequent main push after an earlier failed promotion.
+FIRST_GATED_VERSION = 122
 TABLE = "labhub_migration_ci.staging_fingerprints"
 # The exact 122 file was manually applied and transaction/RLS tested in staging
 # before this gate existed. No general adoption of unknown applied SQL.
@@ -81,6 +84,13 @@ def plan(candidates, current, applied, fingerprints, event):
     for version, filename in applied_map.items():
         if version not in current or current[version][0] != filename:
             raise ValueError("staging contains migration outside this commit: " + filename)
+
+    if event == "push":
+        for version, (filename, digest) in current.items():
+            if int(version) >= FIRST_GATED_VERSION:
+                if (reserved.get(version) != (filename, digest) or applied_map.get(version) != filename
+                        or version not in verified):
+                    raise ValueError("new main migration was not prevalidated in staging: " + filename)
 
     additions = []
     for version, (filename, digest, blob) in candidates.items():
