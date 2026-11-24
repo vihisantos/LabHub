@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Clock3, Layers3, LockKeyhole, LogOut, ShieldCheck, Sparkles, XCircle } from 'lucide-react'
 
 export interface ApprovalWaitingPageProps {
-  status?: 'loading' | 'waiting' | 'approved' | 'rejected'
+  status?: 'loading' | 'waiting' | 'approved' | 'rejected' | 'blocked'
   secondsLeft?: number
   totalSeconds?: number
   onEnter?: () => void
@@ -24,7 +24,8 @@ export function ApprovalScreen({
   onEnter, onRetry, onSignOut, email, requiresLogin = false,
 }: ApprovalWaitingPageProps) {
   const approved = status === 'approved'
-  const rejected = status === 'rejected'
+  const blocked = status === 'blocked'
+  const rejected = status === 'rejected' || blocked
   const loading = status === 'loading'
   const waiting = status === 'waiting'
   const mascotState = approved ? 'celebration' : rejected ? 'error' : loading ? 'loading' : 'waiting'
@@ -68,10 +69,10 @@ export function ApprovalScreen({
 
         <div aria-live="polite" aria-atomic="true" className="mx-auto mt-3 max-w-[560px]">
           <h1 id="approval-title" className="text-[clamp(1.65rem,5vw,2.65rem)] font-extrabold leading-tight tracking-tight text-fg">
-            {waiting ? 'Aprovação Pendente' : approved ? 'Conta Aprovada!' : rejected ? 'Conta Negada' : 'Verificando acesso'}
+            {waiting ? 'Aprovação Pendente' : approved ? 'Conta Aprovada!' : blocked ? 'Conta Bloqueada' : rejected ? 'Conta Negada' : 'Verificando acesso'}
           </h1>
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-fg-muted sm:text-base">
-            {waiting ? (requiresLogin ? 'Sua conta foi criada com sucesso. Após a liberação de um administrador, volte ao login para entrar com sua senha.' : 'Sua conta foi criada com sucesso e aguarda a liberação de um administrador. Assim que for aprovada, você poderá entrar no LabHub.') : approved ? 'Bem-vindo ao LabHub! Estamos preparando seu ambiente.' : rejected ? 'A solicitação de acesso não foi aprovada. Entre em contato com o administrador para saber mais.' : 'Só um instante, estamos preparando sua página de acesso.'}
+            {waiting ? (requiresLogin ? 'Sua conta foi criada com sucesso. Após a liberação de um administrador, volte ao login para entrar com sua senha.' : 'Sua conta foi criada com sucesso e aguarda a liberação de um administrador. Assim que for aprovada, você poderá entrar no LabHub.') : approved ? 'Bem-vindo ao LabHub! Estamos preparando seu ambiente.' : blocked ? 'Seu acesso está bloqueado. Entre em contato com o administrador.' : rejected ? 'A solicitação de acesso não foi aprovada. Entre em contato com o administrador para saber mais.' : 'Só um instante, estamos preparando sua página de acesso.'}
           </p>
           {waiting && email && <p className="mt-2 break-all text-xs text-fg-muted">Email: <span className="font-medium text-fg">{email}</span></p>}
 
@@ -108,10 +109,10 @@ export function ApprovalScreen({
           </div>
         )}
 
-        {((waiting && (onRetry || onSignOut)) || (approved && onEnter) || (rejected && onRetry)) && (
+        {((waiting && (onRetry || onSignOut)) || (approved && onEnter) || (rejected && (onRetry || onSignOut))) && (
           <div className={`mx-auto mt-6 grid max-w-[560px] grid-cols-1 gap-3 ${waiting && onRetry && onSignOut ? 'sm:grid-cols-2' : ''}`}>
             {waiting && onRetry && <button type="button" className={primary} onClick={onRetry}><ArrowLeft size={18} />Voltar para Login</button>}
-            {waiting && onSignOut && <button type="button" className={secondary} onClick={onSignOut}><LogOut size={18} />Sair da conta</button>}
+            {(waiting || rejected) && onSignOut && <button type="button" className={secondary} onClick={onSignOut}><LogOut size={18} />Sair da conta</button>}
             {approved && onEnter && <button type="button" className={primary} onClick={onEnter}>Entrar no LabHub<ArrowRight size={18} /></button>}
             {rejected && onRetry && <button type="button" className={secondary} onClick={onRetry}><ArrowLeft size={18} />Tentar novamente</button>}
           </div>
