@@ -2,7 +2,6 @@ import type { AppNotification } from '../../../core/notifications/types'
 import { notificationService } from '../../../core/notifications/service'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { ticketService, cachedTickets } from './ticketService'
-import { getCol } from '../../../lib/db'
 import { slaConfigService } from './slaConfigService'
 import { getSlaState } from './sla'
 
@@ -188,7 +187,7 @@ function slaActionUrl(ticketId: string, state: 'near' | 'overdue'): string {
  */
 function chamadoActionUrls(): Set<string> {
   const urls = new Set<string>()
-  for (const n of getCol<AppNotification>('notifications')) {
+  for (const n of notificationService.getAllAcrossWorkspaces()) {
     if (n.module !== 'chamados') continue
     if (!n.actionUrl?.startsWith('/chamados/tickets/')) continue
     urls.add(n.actionUrl)

@@ -5,10 +5,22 @@ import type {
   NotificationSeverity,
   NotificationAudience,
 } from './types'
-import { createSyncService, markDirty } from '../../lib/sync'
+import { createLocalService } from '../../lib/storage'
+import { currentUserCollectionKey } from '../../lib/cacheNamespace'
 import { getCol, setCol } from '../../lib/db'
 
-const service = createSyncService<AppNotification>('notifications')
+const cacheKey = () => currentUserCollectionKey('notifications')
+const dismissedKey = () => currentUserCollectionKey('notification-dismissed')
+const service = createLocalService<AppNotification>('notifications', true, cacheKey)
+
+function rememberDismissed(ids: string[]) {
+  const key = dismissedKey()
+  if (!key) return
+  const dismissed = new Set(getCol<string>(key))
+  for (const id of ids) dismissed.add(id)
+  setCol(key, [...dismissed])
+}
+
 
 function serialize(data: NotificationFormData): AppNotification {
   return {
@@ -40,7 +52,8 @@ export function appNotificationFromRow(row: Record<string, unknown>): AppNotific
 }
 
 export const notificationService = {
-  getAll: () => service.getAll().sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+  getAll: () => [...service.getAll()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+  getAllAcrossWorkspaces: () => [...service.getAll(true)],
 
   getById: (id: string) => service.getById(id),
 
@@ -53,10 +66,8 @@ export const notificationService = {
     // Sem workspace_id explícito = notificação global (todos os workspaces).
     // Inserção direta para evitar o stamping automático do workspace ativo.
     if (!data.workspace_id) {
-      const items = getCol<AppNotification>('notifications')
-      items.push(item)
-      setCol('notifications', items)
-      markDirty('notifications')
+      const key = cacheKey()
+      if (key) setCol(key, [...getCol<AppNotification>(key), item])
       return item
     }
     return service.create(item)
@@ -65,10 +76,12 @@ export const notificationService = {
   /** Insere uma notificação vinda do servidor sem marcar como nova criação local.
    *  Retorna true se foi inserida (dedupe por id). */
   ingestRemote: (item: AppNotification): boolean => {
-    const items = getCol<AppNotification>('notifications')
+    const key = cacheKey()
+    const dismissed = dismissedKey()
+    if (!key || !dismissed || !item.id || getCol<string>(dismissed).includes(item.id)) return false
+    const items = getCol<AppNotification>(key)
     if (items.some((n) => n.id === item.id)) return false
-    items.push(item)
-    setCol('notifications', items)
+    setCol(key, [...items, item])
     return true
   },
 
@@ -83,7 +96,11 @@ export const notificationService = {
     }
   },
 
-  remove: (id: string) => service.remove(id),
+  remove: (id: string) => {
+    const removed = service.remove(id)
+    if (removed) rememberDismissed([id])
+    return removed
+  },
 
   snooze: (id: string, hours: number) => {
     const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
@@ -92,6 +109,7 @@ export const notificationService = {
 
   clearAll: () => {
     const all = service.getAll()
+    rememberDismissed(all.map(n => n.id))
     for (const n of all) {
       service.remove(n.id)
     }

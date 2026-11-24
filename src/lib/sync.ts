@@ -201,6 +201,7 @@ const LOCAL_ONLY_COLLECTIONS = [
   'audit_logs',
   'user_profiles',
   'roles',
+  'notifications', // legacy shared cache is inert; never sync to stock.notifications
 ]
 
 // Coleções com tabela remota → schema no Supabase.
@@ -221,7 +222,6 @@ const REMOTE_DB: Record<string, 'pcare' | 'stock' | 'public'> = {
   stock_maintenance: 'stock',
   inventory_cycles: 'stock',
   inventory_counts: 'stock',
-  notifications: 'stock',
   // schema public
   workspaces: 'public',
   // NOTA: `public.assets` (Patrimônio) NÃO é uma coleção do motor local-first.

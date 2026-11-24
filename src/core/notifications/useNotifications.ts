@@ -298,7 +298,6 @@ export function __resetNotificationsPollingForTests() {
 }
 
 export function useNotifications() {
-  const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [user, setUser] = useState<User | null>(() => currentUser ?? authService.getCurrentUser())
   const [storeVersion, setStoreVersion] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -306,7 +305,7 @@ export function useNotifications() {
 
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true)
-    setNotifications(notificationService.getAll())
+    setStoreVersion(v => v + 1)
     if (!silent) setLoading(false)
   }, [])
 
@@ -356,38 +355,43 @@ export function useNotifications() {
     appRegistry.map((app) => app.id),
     { ignoreDisabledApps: true },
   )
-  const visibleNotifications = notifications.filter((n) => notificationAppliesTo(n, user, isVisible))
+  // Read the current identity's cache on every render, never retain another
+  // account's notification array in component state during auth transitions.
+  const sessionUser = authService.getCurrentUser()
+  const visibleNotifications = sessionUser && user?.id === sessionUser.id
+    ? notificationService.getAll().filter(n => notificationAppliesTo(n, sessionUser, isVisible))
+    : []
   const unreadCount = visibleNotifications.filter((n) => !n.read).length
 
   const create = useCallback((data: NotificationFormData) => {
     const notification = notificationService.create(data)
-    setNotifications((prev) => [notification, ...prev])
+    notifyListeners()
     return notification
   }, [])
 
   const markAsRead = useCallback((id: string) => {
     notificationService.markAsRead(id)
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+    notifyListeners()
   }, [])
 
   const markAllAsRead = useCallback(() => {
     notificationService.markAllAsRead()
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+    notifyListeners()
   }, [])
 
   const remove = useCallback((id: string) => {
     notificationService.remove(id)
-    setNotifications((prev) => prev.filter((n) => n.id !== id))
+    notifyListeners()
   }, [])
 
   const clearAll = useCallback(() => {
     notificationService.clearAll()
-    setNotifications([])
+    notifyListeners()
   }, [])
 
   const snooze = useCallback((id: string, hours: number) => {
     notificationService.snooze(id, hours)
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, snoozedUntil: new Date(Date.now() + hours * 60 * 60 * 1000).toISOString() } : n)))
+    notifyListeners()
   }, [])
 
   return {

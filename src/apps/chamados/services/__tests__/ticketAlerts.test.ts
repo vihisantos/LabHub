@@ -308,11 +308,11 @@ describe('syncSlaAlerts — dedupe multinidade (Fase 2.2.3 / correção R1)', ()
   })
 
   const seedNotifications = (...items: AppNotification[]) => {
-    setCol('notifications', items)
+    setCol('notifications:test-admin', items)
   }
 
   const slaUrls = () =>
-    getCol<AppNotification>('notifications')
+    getCol<AppNotification>('notifications:test-admin')
       .map((n) => n.actionUrl)
       .filter((url) => url?.includes('sla='))
 
@@ -402,7 +402,7 @@ describe('syncSlaAlerts — dedupe multinidade (Fase 2.2.3 / correção R1)', ()
     seed(slaTicket({ id: 'f', workspace_id: undefined }))
 
     expect(syncSlaAlerts()).toHaveLength(0)
-    expect(getCol<AppNotification>('notifications')).toHaveLength(0)
+    expect(getCol<AppNotification>('notifications:test-admin')).toHaveLength(0)
   })
 
   it('Caso G — dedupe por actionUrl completo: URL de novo chamado não inibe alerta de SLA', () => {
