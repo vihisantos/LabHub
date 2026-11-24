@@ -141,6 +141,16 @@ def test_stock_uses_persisted_workspace_and_content(stock_client):
     assert queries[0][1]["params"]["id"] == f"eq.{MOVEMENT_ID}"
 
 
+
+def test_stock_canonicalizes_uuid_to_prevent_duplicate_event_ids(stock_client):
+    client, _, _, enqueued, queries = stock_client
+    response = post(client, data={
+        "workspace_id": "ws-test", "movement_id": MOVEMENT_ID.upper(),
+    })
+    assert response.status_code == 202
+    assert enqueued[0][0][0] == f"stock:loan:{MOVEMENT_ID}"
+    assert queries[0][1]["params"]["id"] == f"eq.{MOVEMENT_ID}"
+
 def test_stock_rejects_wrong_type_removed_or_wrong_campus(stock_client):
     client, movement, reply, enqueued, _ = stock_client
     movement["type"] = "devolucao"
