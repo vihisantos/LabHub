@@ -1,3 +1,4 @@
+import { useSuppressStartupPrompts } from '../../../platform/Onboarding/onboardingState'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -16,6 +17,7 @@ import { pickUpcomingReservation } from '../utils/upcomingReservation'
  *  - uma vez dispensado, o mesmo aviso não reaparece (chave por reserva).
  */
 export function UpcomingReservationPopup() {
+  const suppressStartupPrompts = useSuppressStartupPrompts()
   const navigate = useNavigate()
   const { workspace } = useWorkspace()
   // RBAC 2.0 (F2-D-L): `full` continua sendo o requisito — `read`/`dash` não
@@ -30,7 +32,7 @@ export function UpcomingReservationPopup() {
 
   const [dismissedKeys, setDismissedKeys] = useState<string[]>([])
   const next = canSee ? pickUpcomingReservation(labReservas, tabletReservas, 30) : null
-  const open = !!next && !dismissedKeys.includes(next!.key)
+  const open = !suppressStartupPrompts && !!next && !dismissedKeys.includes(next!.key)
 
   const dismiss = () => {
     if (next) setDismissedKeys((prev) => (prev.includes(next.key) ? prev : [...prev, next.key]))
