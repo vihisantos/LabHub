@@ -26,6 +26,7 @@ from pywebpush import webpush, WebPushException
 sys.path.insert(0, os.path.dirname(__file__))
 from auth import (
     require_auth,
+    require_workspace,
     require_module as require_module_auth,
     require_cron,
     require_admin,
@@ -2083,7 +2084,10 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
             raise RuntimeError('push membership overrides unavailable')
         member_ws = {uid: set(ws_map.keys()) for uid, ws_map in rbac_members.items()}
     elif workspace_id:
-        member_ws = _resolve_batch_memberships(subs)
+        if strict:
+            member_ws = {uid: set(ws_map) for uid, ws_map in _resolve_batch_rbac(subs, strict=True).items()}
+        else:
+            member_ws = _resolve_batch_memberships(subs)
         rbac_members, role_actions, overrides = {}, {}, {}
     else:
         rbac_members, role_actions, overrides = {}, {}, {}
@@ -2759,89 +2763,72 @@ def _get_key(obj, *keys):
     return None
 
 
+def _enqueue_stock_movement_notice(expected_type):
+    """Use the committed stock movement, never client-provided names or module."""
+    body = request.get_json(silent=True) or {}
+    if body.get('module') not in (None, 'stock'):
+        return jsonify({'error': 'Invalid module'}), 400
+    try:
+        movement_id = str(uuid.UUID(str(body.get('movement_id') or '')))
+        workspace_id = str(uuid.UUID(str(g.workspace_id)))
+    except (ValueError, TypeError, AttributeError):
+        return jsonify({'error': 'Movement ID required'}), 400
+    try:
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/stock_movements',
+            params={'id': f'eq.{movement_id}', 'workspace_id': f'eq.{workspace_id}',
+                    'type': f'eq.{expected_type}', 'deletedAt': 'is.null',
+                    'select': 'id,itemName,borrowedBy,expectedReturnAt,performedBy,workspace_id,type'},
+            headers={**_supabase_headers(), 'Accept-Profile': 'stock'}, timeout=8,
+        )
+        if not response.ok:
+            return jsonify({'error': 'Stock movement lookup failed'}), 503
+        rows = response.json()
+        if not isinstance(rows, list):
+            return jsonify({'error': 'Invalid stock movement response'}), 503
+        if not rows:
+            return jsonify({'error': 'Movement not found in workspace'}), 404
+        row = rows[0]
+        if str(row.get('workspace_id')) != workspace_id or row.get('type') != expected_type:
+            return jsonify({'error': 'Movement not found in workspace'}), 404
+        item = row.get('itemName') or 'Item'
+        if expected_type == 'emprestimo':
+            title = f'Empréstimo: {item}'
+            message = f"Emprestado para {row.get('borrowedBy') or 'Responsável'}"
+            if row.get('expectedReturnAt'):
+                message += f" — Devolução até {str(row['expectedReturnAt'])[:10]}"
+        else:
+            title = f'Devolução: {item}'
+            message = f"Devolvido por {row.get('performedBy') or 'Responsável'}"
+        event_id = f'stock:movement:{movement_id}:{expected_type}'
+        status = _queue_push_event(event_id, title, message, module='stock',
+                                   workspace_id=workspace_id, context='stock-movement',
+                                   url='/stock/loans')
+        if status not in ('queued', 'duplicate'):
+            return jsonify({'error': 'Could not persist stock notification'}), 503
+        return jsonify({'status': status, 'event_id': event_id}), 202
+    except Exception as exc:
+        logger.warning('[notifications] stock movement notice failed: %s', type(exc).__name__)
+        return jsonify({'error': 'Could not process stock notification'}), 503
+
+
 @app.route('/api/push/notify-loan', methods=['POST'])
 @require_auth
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_loan():
-    """Notify stock subscribers about a loan. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        borrowed_by = body.get('borrowedBy', 'Alguém')
-        expected_return = body.get('expectedReturnAt', '')
-
-        title = f"📦 Empréstimo: {item_name}"
-        msg = f"Emprestado para {borrowed_by}"
-        if expected_return:
-            msg += f" — Devolução até {expected_return[:10]}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Loan notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-loan error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de empréstimo'}), 500
+    return _enqueue_stock_movement_notice('emprestimo')
 
 
 @app.route('/api/push/notify-return', methods=['POST'])
 @require_auth
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_return():
-    """Notify stock subscribers about a return. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        returned_by = body.get('returnedBy', 'Alguém')
+    return _enqueue_stock_movement_notice('devolucao')
 
-        title = f"✅ Devolução: {item_name}"
-        msg = f"Devolvido por {returned_by}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Return notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-return error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de devolução'}), 500
-
-
-def _ensure_stock_schema(supabase_url, supabase_key):
-    """Não executa DDL em runtime.
-
-    A criação e a evolução do schema são responsabilidade das migrations
-    versionadas do Supabase (000_bootstrap_baseline.sql linhas 41-42,
-    009_workspace_isolation.sql linhas 38-39 e
-    016_notifications_stock_expiry.sql linha 12). Esta função é mantida como
-    no-op por compatibilidade com chamadores existentes.
-    """
-    if not supabase_url or not supabase_key:
-        return
-    logger.info("pg_sql stock/pcare: pulado (DDL coberto pelas migrations 000/009/016)")
 
 @app.route('/api/push/check-overdue', methods=['GET'])
 @require_cron

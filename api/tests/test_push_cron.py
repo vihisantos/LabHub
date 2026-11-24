@@ -774,3 +774,36 @@ def test_strict_push_revalidates_demoted_and_inactive_profiles(push_module, monk
     monkeypatch.setattr(push_module, "_resolve_batch_overrides", lambda *a, **k: {})
     selected = push_module._target_subs(module="stock", workspace_id="ws-a", strict=True)
     assert [sub["user"]["id"] for sub in selected] == [active_admin]
+
+
+def test_stock_notification_derives_content_and_scope_from_committed_movement(push_module, monkeypatch):
+    from flask import g
+    from unittest.mock import Mock
+    ws = "22222222-2222-4222-8222-222222222222"
+    movement = "33333333-3333-4333-8333-333333333333"
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": movement, "workspace_id": ws, "type": "emprestimo",
+                                   "itemName": "Real", "borrowedBy": "QA"}]
+    get = Mock(return_value=response)
+    enqueue = Mock(return_value="queued")
+    monkeypatch.setattr(push_module.requests, "get", get)
+    monkeypatch.setattr(push_module, "_queue_push_event", enqueue)
+    with push_module.app.test_request_context(json={"movement_id": movement, "itemName": "Fake"}):
+        g.workspace_id = ws
+        result, code = push_module._enqueue_stock_movement_notice("emprestimo")
+        assert code == 202
+    assert get.call_args.kwargs["params"]["workspace_id"] == f"eq.{ws}"
+    assert enqueue.call_args.args[1] == "Empréstimo: Real"
+    assert enqueue.call_args.kwargs["workspace_id"] == ws
+    assert enqueue.call_args.kwargs["module"] == "stock"
+
+    response.json.return_value[0]["workspace_id"] = movement
+    enqueue.reset_mock()
+    with push_module.app.test_request_context(json={"movement_id": movement}):
+        g.workspace_id = ws
+        assert push_module._enqueue_stock_movement_notice("emprestimo")[1] == 404
+    enqueue.assert_not_called()
+    with push_module.app.test_request_context(json={"movement_id": movement, "module": "chamados"}):
+        g.workspace_id = ws
+        assert push_module._enqueue_stock_movement_notice("emprestimo")[1] == 400
+    enqueue.assert_not_called()
