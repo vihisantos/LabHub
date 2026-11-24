@@ -27,6 +27,11 @@ def api_module():
     return module
 
 
+@pytest.fixture(autouse=True)
+def disable_inventory_slot_by_default(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "due_inventory_check", lambda _: None)
+
+
 def test_signed_tick_verifies_body_signature_and_fixed_destination(api_module, monkeypatch):
     import notification_tick as tick
 
@@ -603,3 +608,23 @@ def test_approval_rechecks_pending_status_and_current_admins(api_module, monkeyp
     send.reset_mock()
     assert api_module._deliver_outbox_notification("resolved-event", payload)
     send.assert_not_called()
+
+
+def test_periodic_inventory_runs_only_in_periodic_job(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    monkeypatch.setattr(api_module, "due_inventory_check", lambda _: "stock-expiry")
+    monkeypatch.setattr(api_module, "_internal_push_check", Mock(return_value={"queued": 0}))
+    monkeypatch.setattr(api_module, "_check_pending_users", Mock(return_value={"queued": 0}))
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", Mock(return_value={"enabled": True}))
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    inventory = Mock(return_value={"checked": True, "queued": 1})
+    monkeypatch.setattr(api_module, "_periodic_inventory_check", inventory)
+    assert api_module.app.test_client().post(TICK_PATH, data=TICK_BODY).status_code == 200
+    inventory.assert_not_called()
+    assert api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY).status_code == 200
+    inventory.assert_called_once()
+    assert inventory.call_args.args[0] == "stock-expiry"
+    assert worker.call_count == 3

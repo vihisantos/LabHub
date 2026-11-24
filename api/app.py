@@ -57,6 +57,7 @@ from rbac import (
     record_rbac_audit as rbac_record_audit,
 )
 import pg_store
+from notification_periodic import due_inventory_check, run_inventory_check
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
 from notification_tick import (
@@ -6725,6 +6726,20 @@ def notifications_worker():
     return jsonify(result), code
 
 
+def _periodic_inventory_check(kind, now):
+    def read(schema, table, params):
+        if not _require_supabase():
+            raise RuntimeError('inventory database unavailable')
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+            headers={**_supabase_headers(), 'Accept-Profile': schema}, timeout=6,
+        )
+        if not resp.ok:
+            raise RuntimeError('inventory read failed')
+        return resp.json()
+    return run_inventory_check(kind, now, read=read, enqueue=_queue_push_event)
+
+
 @_route_once(_QSTASH_TICK_PATH, methods=['POST'])
 def notifications_qstash_tick():
     """Tick QStash assinado: outbox de push e dispatcher dos workflows.
@@ -6774,6 +6789,14 @@ def notifications_qstash_tick():
             except Exception as exc:
                 logger.warning('[notifications] periodic %s failed: %s', name, type(exc).__name__)
                 results[name] = {'error': 'check failed'}
+        now = datetime.now(timezone(timedelta(hours=-3)))
+        inventory_kind = due_inventory_check(now)
+        if inventory_kind:
+            try:
+                results[inventory_kind] = _periodic_inventory_check(inventory_kind, now)
+            except Exception as exc:
+                logger.warning('[notifications] inventory periodic failed: %s', type(exc).__name__)
+                results[inventory_kind] = {'error': 'check failed'}
         queued = sum(int(result.get('queued') or 0) for result in results.values())
         delivery, code = ({'status': 'not_needed'}, 200)
         if queued:
