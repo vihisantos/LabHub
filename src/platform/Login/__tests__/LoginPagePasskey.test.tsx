@@ -116,3 +116,21 @@ describe('LoginPage — biometria e MFA', () => {
     })
   })
 })
+
+describe('LoginPage — cadastro sem sessão', () => {
+  it('mostra o personagem original e retorna ao modo entrar', async () => {
+    mockSecurity.browserSupportsPasskey.mockReturnValue(false)
+    mockAuth.signUp.mockResolvedValue(undefined)
+    renderWithProviders(<LoginPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Criar Conta' }))
+    fireEvent.change(screen.getByPlaceholderText('nome.escolhido'), { target: { value: 'qa.teste' } })
+    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'senha123' } })
+    clickSubmit()
+    await waitFor(() => expect(screen.getByText('Aprovação Pendente')).toBeInTheDocument())
+    expect(document.querySelector('[data-mascot-state]')).toHaveAttribute('src', '/approval/labhub-character.svg')
+    expect(screen.getByText(/volte ao login para entrar com sua senha/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Voltar para Login' }))
+    expect(document.querySelector('form button[type="submit"]')).toHaveTextContent('Entrar')
+    expect(screen.getByPlaceholderText('••••••••')).toHaveValue('')
+  })
+})
