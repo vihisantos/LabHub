@@ -1648,6 +1648,7 @@ def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
     context=None, actions=None, expires_at=None, reservation_id=None, persist_inapp=False,
+    exclude_user_id=None,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1666,6 +1667,8 @@ def _queue_push_event(
         'context': context or module or 'app-notification',
         'actions': actions if isinstance(actions, list) else None,
     }
+    if exclude_user_id:
+        payload['exclude_user_id'] = str(exclude_user_id)
     if expires_at is not None:
         payload['expires_at'] = expires_at
     if reservation_id is not None:

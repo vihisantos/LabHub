@@ -776,3 +776,32 @@ def test_lab_source_failure_retries_without_notification(api_module, monkeypatch
             "persist_inapp": True,
         })
     persist.assert_not_called()
+
+
+def test_claim_exclusion_survives_actual_outbox_serialization(api_module, monkeypatch):
+    legacy = sys.modules[api_module._queue_push_event.__module__]
+    monkeypatch.setattr(legacy.pg_store, "is_configured", lambda: True)
+    enqueue = Mock(return_value=True)
+    monkeypatch.setattr(legacy.pg_store.store, "notification_outbox_enqueue", enqueue)
+    monkeypatch.setattr(api_module, "_request_tick_for_chamados_event", lambda *_: True)
+    ticket = {"id": "ticket-1", "ticketNumber": 333, "workspace_id": "ws-a",
+              "assignedToUserId": "tech-1", "updatedAt": "2026-11-24T12:00:00Z"}
+    api_module._notify_ticket_claimed(ticket, "Técnico")
+    assert enqueue.call_count == 2
+    own, others = [call.args[2] for call in enqueue.call_args_list]
+    assert own["target_user_id"] == "tech-1"
+    assert own.get("exclude_user_id") is None
+    assert others["target_user_id"] is None
+    assert others["exclude_user_id"] == "tech-1"
+    assert own["workspace_id"] == others["workspace_id"] == "ws-a"
+
+    subs = [{"user": {"id": "tech-1"}}, {"user": {"id": "tech-2"}}]
+    def target(**kwargs):
+        return [sub for sub in subs if not kwargs.get("user_id") or sub["user"]["id"] == kwargs["user_id"]]
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    for call in enqueue.call_args_list:
+        event_id, _, payload = call.args
+        assert api_module._deliver_outbox_notification(event_id, payload)
+    assert [[sub["user"]["id"] for sub in call.args[0]] for call in send.call_args_list] == [["tech-1"], ["tech-2"]]

@@ -95,6 +95,7 @@ def _enqueue_push_event(event_id, payload):
             ttl=payload.get('ttl', 86400),
             context=payload.get('context'),
             actions=payload.get('actions'),
+            exclude_user_id=payload.get('exclude_user_id'),
         )
         if (status == 'queued'
                 and payload.get('module') == 'chamados'
