@@ -51,3 +51,32 @@ def test_no_low_stock_no_notification():
         {"id": "one", "workspace_id": "ws-a", "quantity": 5, "minQuantity": 5},
     ]), enqueue=enqueue)
     enqueue.assert_not_called()
+
+
+def test_keyset_continuation_advances_beyond_first_page(monkeypatch):
+    import notification_periodic as periodic
+    monkeypatch.setattr(periodic, "PAGE_LIMIT", 2)
+    rows = [{"id": f"part-{i}", "workspace_id": "ws-a", "quantity": 0, "minQuantity": 1}
+            for i in range(5)]
+    def read(schema, table, params):
+        lower = params.get("id", "gt.")[3:]
+        return [r for r in rows if r["id"] > lower][:params["limit"]]
+    enqueue = Mock(return_value="queued")
+    first = run_inventory_check("pcare-parts", NOW, read=read, enqueue=enqueue)
+    second = run_inventory_check("pcare-parts", NOW, read=read, enqueue=enqueue, cursor=first["next_cursor"])
+    third = run_inventory_check("pcare-parts", NOW, read=read, enqueue=enqueue, cursor=second["next_cursor"])
+    assert first["next_cursor"] == "part-1"
+    assert second["next_cursor"] == "part-3"
+    assert third["complete"] is True and third["next_cursor"] is None
+    assert enqueue.call_count == 5
+    assert len({call.args[0] for call in enqueue.call_args_list}) == 5
+
+
+def test_failed_enqueue_preserves_inventory_cursor(monkeypatch):
+    import notification_periodic as periodic
+    monkeypatch.setattr(periodic, "PAGE_LIMIT", 1)
+    result = run_inventory_check("pcare-parts", NOW, cursor="part-0", read=Mock(return_value=[
+        {"id": "part-1", "workspace_id": "ws-a", "quantity": 0, "minQuantity": 1},
+    ]), enqueue=Mock(return_value=None))
+    assert result["next_cursor"] == "part-0"
+    assert result["complete"] is False and result["failures"] == 1

@@ -4,12 +4,12 @@ import hashlib
 
 # Spread expensive checks over the hour, without increasing QStash frequency.
 SLOTS = {0: "stock-loans", 15: "pcare-parts", 30: "stock-expiry", 45: "pcare-maint"}
-PAGE_LIMIT = 500
+PAGE_LIMIT = 100
 
 def due_inventory_check(now):
     return SLOTS.get((now.minute // 5) * 5)
 
-def run_inventory_check(kind, now, *, read, enqueue):
+def run_inventory_check(kind, now, *, read, enqueue, cursor=None):
     today = now.date()
     day = today.isoformat()
     tomorrow = (today + timedelta(days=1)).isoformat()
@@ -34,13 +34,16 @@ def run_inventory_check(kind, now, *, read, enqueue):
         }),
     }
     schema, table, params = specifications[kind]
-    rows = read(schema, table, {**params, "order": "id.asc", "limit": PAGE_LIMIT})
+    query = {**params, "order": "id.asc", "limit": PAGE_LIMIT}
+    if cursor:
+        query["id"] = "gt." + str(cursor)
+    rows = read(schema, table, query)
     if not isinstance(rows, list):
         raise ValueError("invalid inventory response")
     queued = failures = eligible = 0
-    # Fail visibly if capped. Never claim an exhaustive scan.
-    if len(rows) >= PAGE_LIMIT:
-        failures += 1
+    # The caller persists the keyset cursor for the next scheduled slot.
+    # A failed enqueue must not advance past an undelivered event.
+    enqueue_failed = False
     for row in rows:
         identifier, workspace = row.get("id"), row.get("workspace_id")
         if not identifier or not workspace:
@@ -102,7 +105,14 @@ def run_inventory_check(kind, now, *, read, enqueue):
             queued += 1
         elif result != "duplicate":
             failures += 1
+            enqueue_failed = True
     result = {"checked": True, "found": eligible, "queued": queued}
+    if len(rows) >= PAGE_LIMIT or cursor:
+        result["next_cursor"] = (str(rows[-1]["id"]) if len(rows) >= PAGE_LIMIT and rows[-1].get("id") else None)
+        result["complete"] = result["next_cursor"] is None
+    if enqueue_failed:
+        result["next_cursor"] = cursor
+        result["complete"] = False
     if failures:
         result.update(error="inventory check incomplete", failures=failures)
     return result

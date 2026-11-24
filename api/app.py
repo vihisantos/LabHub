@@ -6918,7 +6918,22 @@ def _periodic_inventory_check(kind, now):
         return resp.json()
     def enqueue(*args, **kwargs):
         return _queue_push_event(*args, **kwargs, persist_inapp=True)
-    return run_inventory_check(kind, now, read=read, enqueue=enqueue)
+    if redis is None:
+        raise RuntimeError('inventory continuation store unavailable')
+    key = 'labhub:notifications:inventory-cursor:v1:' + kind
+    cursor = redis.get(key)
+    if cursor:
+        cursor = str(uuid.UUID(str(cursor)))
+    result = run_inventory_check(kind, now, read=read, enqueue=enqueue, cursor=cursor)
+    if 'next_cursor' in result:
+        next_cursor = result.pop('next_cursor')
+        if next_cursor:
+            next_cursor = str(uuid.UUID(next_cursor))
+            if redis.set(key, next_cursor, ex=604800) != 'OK':
+                raise RuntimeError('inventory continuation write failed')
+        elif cursor:
+            redis.delete(key)
+    return result
 
 
 @_route_once(_QSTASH_TICK_PATH, methods=['POST'])
@@ -6950,26 +6965,22 @@ def notifications_qstash_tick():
 
     if raw_body == _QSTASH_PERIODIC_BODY:
         # Recover critical work before any slow external spreadsheet reads.
-        queue_result, queue_code = _run_notification_worker(5, 5)
         try:
             workflow_result = _drain_chamado_workflow_outbox(limit=5)
         except Exception as exc:
             logger.warning('[notifications] dispatch QStash falhou: %s', type(exc).__name__)
             workflow_result = {'error': type(exc).__name__}
+        queue_result, queue_code = _run_notification_worker(5, 5)
         # Distinct signed job: event wake-ups never scan external spreadsheets.
         # This job replaces the 5-minute schedule body only; fast event wakeups
         # continue using the original body. No additional schedule is needed.
         results = {}
-        for name, check in (
-            ('reservalab', lambda: _internal_push_check(strict_scope=True)),
-            ('approval', lambda: _check_pending_users(require_outbox=True)),
-        ):
-            try:
-                outcome = check()
-                results[name] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
-            except Exception as exc:
-                logger.warning('[notifications] periodic %s failed: %s', name, type(exc).__name__)
-                results[name] = {'error': 'check failed'}
+        try:
+            outcome = _check_pending_users(require_outbox=True)
+            results['approval'] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
+        except Exception as exc:
+            logger.warning('[notifications] approval periodic failed: %s', type(exc).__name__)
+            results['approval'] = {'error': 'check failed'}
         now = datetime.now(timezone(timedelta(hours=-3)))
         inventory_kind = due_inventory_check(now)
         if inventory_kind:
@@ -6978,6 +6989,12 @@ def notifications_qstash_tick():
             except Exception as exc:
                 logger.warning('[notifications] inventory periodic failed: %s', type(exc).__name__)
                 results[inventory_kind] = {'error': 'check failed'}
+        try:
+            outcome = _internal_push_check(strict_scope=True)
+            results['reservalab'] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
+        except Exception as exc:
+            logger.warning('[notifications] reservation periodic failed: %s', type(exc).__name__)
+            results['reservalab'] = {'error': 'check failed'}
         queued = sum(int(result.get('queued') or 0) for result in results.values())
         delivery, code = ({'status': 'not_needed'}, 200)
         if queued:

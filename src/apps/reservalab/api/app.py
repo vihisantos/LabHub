@@ -779,7 +779,7 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2, *, strict=False):
     content, fetch_error = _ext_fetch_source_bytes(
         spreadsheet_url,
         max_bytes=SPREADSHEET_MAX_BYTES,
-        timeout=SPREADSHEET_TIMEOUT,
+        timeout=(4, 6) if strict else SPREADSHEET_TIMEOUT,
         max_redirects=SPREADSHEET_MAX_REDIRECTS,
     )
     if fetch_error:
@@ -2445,24 +2445,35 @@ def _internal_push_check(*, strict_scope=False):
         errors = 0
         _lab_workspaces = _workspaces_with_spreadsheet()
         if _lab_workspaces:
-            for _ws in _lab_workspaces:
-                try:
-                    _lab_count = _get_workspace_lab_count(_ws['slug'])
-                    if strict_scope:
-                        _reservas_ws, _upcoming = _parse_spreadsheet(_ws['spreadsheet_url'], lab_count=_lab_count, strict=True)
-                        if window_end.date() != today:
-                            _reservas_ws = [*_reservas_ws, *_upcoming]
-                    else:
-                        _reservas_ws, _ = get_reservas(
-                            _ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count,
-                        )
-                except Exception as e:
-                    logger.error("Push check: falha ao ler planilha do campus %s: %s", _ws.get('slug'), e)
-                    errors += 1
-                    continue
-                for _r in _reservas_ws:
-                    _r['_scope'] = _ws['id']
-                reservas_hoje.extend(_reservas_ws)
+            def read_campus(_ws):
+                _lab_count = _get_workspace_lab_count(_ws['slug'])
+                if strict_scope:
+                    current, upcoming = _parse_spreadsheet(_ws['spreadsheet_url'], lab_count=_lab_count, strict=True)
+                    if window_end.date() != today:
+                        current = [*current, *upcoming]
+                else:
+                    current, _ = get_reservas(_ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count)
+                return [{**r, '_scope': _ws['id']} for r in current]
+
+            if strict_scope:
+                # Independent source reads, bounded concurrency; do not let a
+                # single slow campus serialize all other campus downloads.
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = {pool.submit(read_campus, ws): ws for ws in _lab_workspaces}
+                    for future in as_completed(futures):
+                        try:
+                            reservas_hoje.extend(future.result())
+                        except Exception as exc:
+                            errors += 1
+                            logger.warning("Push check: campus source failed: %s", type(exc).__name__)
+            else:
+                for ws in _lab_workspaces:
+                    try:
+                        reservas_hoje.extend(read_campus(ws))
+                    except Exception as exc:
+                        errors += 1
+                        logger.warning("Push check: campus source failed: %s", type(exc).__name__)
         elif not strict_scope:
             reservas_hoje, _ = get_reservas()
         else:
