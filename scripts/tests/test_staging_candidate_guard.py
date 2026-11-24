@@ -61,3 +61,48 @@ def test_later_main_push_cannot_bypass_failed_premerge():
     with pytest.raises(ValueError, match="not prevalidated"):
         plan({}, CURRENT, APPLIED, RESERVED, "push")
     assert plan({}, CURRENT, APPLIED, VERIFIED, "push") == []
+
+
+def test_cannot_append_to_unmerged_candidate():
+    extra = ("123_extra.sql", "b" * 64, "d" * 40)
+    with pytest.raises(ValueError, match="unmerged candidate"):
+        plan({**CANDIDATES, "123": extra}, {**CURRENT, "123": extra[:2]},
+             APPLIED, VERIFIED, "pull_request")
+
+
+@pytest.mark.parametrize("state,conclusion,job_result,should_pass", [
+    ("completed", "success", "success", True),
+    ("in_progress", None, "success", False),
+    ("completed", "failure", "failure", False),
+    ("completed", "success", "skipped", False),
+])
+def test_main_delivery_guard(monkeypatch, state, conclusion, job_result, should_pass):
+    from ci import staging_candidate_guard as guard
+
+    sha = "c" * 40
+    monkeypatch.setattr(guard, "_main_head_sha", lambda *_args: sha)
+    monkeypatch.setattr(guard, "_migrations_workflow_id", lambda *_args: 42)
+
+    def fake_get(url, token, params):
+        if url.endswith("/workflows/42/runs"):
+            assert params["head_sha"] == sha
+            return {"workflow_runs": [{"id": 123, "head_sha": sha,
+                                       "head_branch": "main", "event": "push",
+                                       "status": state, "conclusion": conclusion}]}
+        assert url.endswith("/runs/123/jobs")
+        return {"jobs": [{"name": "Apply pending migrations to Production",
+                          "status": "completed", "conclusion": job_result}]}
+
+    monkeypatch.setattr(guard, "_get_json", fake_get)
+    if should_pass:
+        guard.require_main_settled(sha, api_url="https://api.github.com", repo="owner/repo", token="fake")
+    else:
+        with pytest.raises(ValueError):
+            guard.require_main_settled(sha, api_url="https://api.github.com", repo="owner/repo", token="fake")
+
+
+def test_main_delivery_guard_rejects_outdated_base(monkeypatch):
+    from ci import staging_candidate_guard as guard
+    monkeypatch.setattr(guard, "_main_head_sha", lambda *_args: "d" * 40)
+    with pytest.raises(ValueError, match="no longer main"):
+        guard.require_main_settled("c" * 40, api_url="https://api.github.com", repo="owner/repo", token="fake")
