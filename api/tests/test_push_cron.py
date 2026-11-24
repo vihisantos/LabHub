@@ -596,3 +596,70 @@ def test_target_subs_modulo_sem_criterio_somente_super_admin(push_module, monkey
     ids = sorted(s['user']['id'] for s in out)
 
     assert ids == ['u-admin']
+
+
+def test_periodic_reservations_require_campus_and_durable_queue(push_module, monkeypatch):
+    from datetime import date, datetime
+    from unittest.mock import Mock
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setattr(push_module, "_workspaces_with_spreadsheet", lambda: [
+        {"id": "ws-a", "slug": "campus-a", "spreadsheet_url": "https://example.com/a.xlsx"},
+    ])
+    monkeypatch.setattr(push_module, "_get_workspace_lab_count", lambda _: 2)
+    monkeypatch.setattr(push_module, "get_today_sp", lambda: date(2026, 11, 24))
+    monkeypatch.setattr(push_module, "get_now_sp", lambda: datetime(2026, 11, 24, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo")))
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only")
+    monkeypatch.setattr(push_module, "get_reservas", lambda *a, **k: ([{
+        "data": "24/11/2026", "lab": "LAB01", "horario": "10h30 às 12h00",
+        "responsavel": "Professor", "observacao": "",
+    }], []))
+    response = Mock(ok=True)
+    response.json.return_value = [
+        {"id": "tablet-1", "workspace_id": "ws-a", "horario_inicio": "2026-11-24T13:30:00Z", "finalidade": ""},
+        {"id": "tablet-unscoped", "workspace_id": None, "horario_inicio": "2026-11-24T13:30:00Z", "finalidade": ""},
+    ]
+    get = Mock(return_value=response)
+    monkeypatch.setattr(push_module.requests, "get", get)
+    queue = Mock(return_value="queued")
+    monkeypatch.setattr(push_module, "_queue_push_event", queue)
+    legacy = Mock(side_effect=AssertionError("periodic path cannot send legacy Push"))
+    monkeypatch.setattr(push_module, "_push_notify_subs_dedup", legacy)
+
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result["queued"] == 2
+    assert result["failures"] == 1
+    assert result["error"]
+    for call in queue.call_args_list:
+        assert call.kwargs["workspace_id"] == "ws-a"
+        assert call.kwargs["min_level"] == "full"
+        assert call.kwargs["expires_at"] == "2026-11-24T10:30:00-03:00"
+    ids = [call.args[0] for call in queue.call_args_list]
+    assert "%2B" not in get.call_args.args[0]  # local timestamps have negative UTC offset
+
+    queue.reset_mock()
+    queue.return_value = "duplicate"
+    assert push_module._internal_push_check(strict_scope=True)["queued"] == 0
+    assert [call.args[0] for call in queue.call_args_list] == ids
+
+    queue.reset_mock()
+    queue.return_value = None
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result["queued"] == 0
+    assert result["failures"] == 3
+    legacy.assert_not_called()
+
+
+def test_periodic_never_uses_global_spreadsheet_fallback(push_module, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setattr(push_module, "_workspaces_with_spreadsheet", lambda: [])
+    global_sheet = Mock(side_effect=AssertionError("unscoped fallback forbidden"))
+    monkeypatch.setattr(push_module, "get_reservas", global_sheet)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result["error"]
+    global_sheet.assert_not_called()
