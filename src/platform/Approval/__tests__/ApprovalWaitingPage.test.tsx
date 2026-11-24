@@ -232,7 +232,7 @@ describe('ApprovalRoute — roteamento da página de aprovação', () => {
     rerender(routeTree())
     expect(screen.getByText(status === 'blocked' ? 'Conta Bloqueada' : 'Conta Negada')).toBeInTheDocument()
     expect(screen.queryByText('Conta Aprovada!')).not.toBeInTheDocument()
-    act(() => vi.advanceTimersByTime(3_000))
+    act(() => { vi.advanceTimersByTime(3_000) })
     expect(screen.queryByText('LabHub Inicial')).not.toBeInTheDocument()
   })
 
@@ -244,7 +244,7 @@ describe('ApprovalRoute — roteamento da página de aprovação', () => {
     expect(screen.getByText('Conta Aprovada!')).toBeInTheDocument()
     mockUseAuth.mockReturnValue({ user: makeUser({ status: 'blocked' }), loading: false })
     rerender(routeTree())
-    act(() => vi.advanceTimersByTime(3_000))
+    act(() => { vi.advanceTimersByTime(3_000) })
     expect(screen.getByText('Conta Bloqueada')).toBeInTheDocument()
     expect(screen.queryByText('LabHub Inicial')).not.toBeInTheDocument()
   })
