@@ -63,9 +63,9 @@ export function ApprovalRoute() {
   const navigate = useNavigate()
   const { user, loading } = useAuth()
 
-  const [phase, setPhase] = useState<'checking' | 'waiting' | 'celebrating' | 'no-session'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'waiting' | 'celebrating' | 'denied' | 'no-session'>('checking')
   const [countdown, setCountdown] = useState(3)
-  const wasPendingRef = useRef<boolean | null>(null)
+  const pendingUserRef = useRef<string | null>(null)
 
   // Realtime primário: a RLS de `profiles_select` (id = auth.uid()) entrega ao
   // pendente os UPDATEs da própria linha; ao aprovar, o refresh publica o novo
@@ -86,43 +86,34 @@ export function ApprovalRoute() {
   useEffect(() => {
     if (loading) return
     if (!user) {
+      pendingUserRef.current = null
       setPhase('no-session')
-      return
-    }
-
-    if (wasPendingRef.current === null) {
-      wasPendingRef.current = user.status === 'pending'
+    } else if (user.status === 'pending') {
+      pendingUserRef.current = user.id
+      setCountdown(3)
       setPhase('waiting')
+    } else if (user.status !== 'active') {
+      pendingUserRef.current = null
+      setPhase('denied')
+    } else if (pendingUserRef.current === user.id) {
+      setPhase('celebrating')
+    } else {
+      navigate('/', { replace: true })
     }
-  }, [loading, user])
+  }, [loading, user?.id, user?.status, navigate])
 
   useEffect(() => {
-    if (user?.status === 'pending') {
-      setPhase('waiting')
-    } else if (user) {
-      // Usuário ativo: se veio de uma conta pendente celebra antes de liberar;
-      // quem abriu a URL diretamente já está ativo e vai direto ao início.
-      if (wasPendingRef.current) {
-        setPhase('celebrating')
-      } else {
-        navigate('/', { replace: true })
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.status])
-
-  useEffect(() => {
-    if (!user) return
+    if (!user || user.status === 'active') return
     // Defesa em profundidade: o ThemeProvider já sincroniza o perfil; este poll
     // garante a detecção da aprovação independente de realtime/re-sync da UI.
     const t = setInterval(() => {
       authService.refreshProfile().catch(() => { /* sessão inválida é tratada pelo AuthContext */ })
     }, 15_000)
     return () => clearInterval(t)
-  }, [!!user])
+  }, [user?.id, user?.status])
 
   useEffect(() => {
-    if (phase !== 'celebrating') return
+    if (phase !== 'celebrating' || loading || user?.status !== 'active' || pendingUserRef.current !== user.id) return
     playApprovalSound()
     const t = setTimeout(() => navigate('/', { replace: true }), 3_000)
     const iv = setInterval(() => setCountdown((s) => Math.max(0, s - 1)), 1_000)
@@ -130,7 +121,7 @@ export function ApprovalRoute() {
       clearTimeout(t)
       clearInterval(iv)
     }
-  }, [phase, navigate])
+  }, [phase, navigate, loading, user?.id, user?.status])
 
   if (loading || phase === 'checking') {
     return <ApprovalWaitingPage status="loading" />
@@ -140,7 +131,13 @@ export function ApprovalRoute() {
     return <Navigate to="/login" replace />
   }
 
-  if (phase === 'celebrating') {
+  if (user.status === 'blocked' || user.status === 'rejected') {
+    return <ApprovalWaitingPage status={user.status} onSignOut={() => {
+      void authService.signOut().finally(() => navigate('/login', { replace: true }))
+    }} />
+  }
+
+  if (phase === 'celebrating' && user.status === 'active' && pendingUserRef.current === user.id) {
     return (
       <ApprovalWaitingPage
         status="approved"
