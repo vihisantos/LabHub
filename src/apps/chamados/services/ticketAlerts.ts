@@ -42,8 +42,8 @@ function isRecent(iso: string, maxMinutes = 5): boolean {
   return diff >= 0 && diff <= maxMinutes * 60 * 1000
 }
 
-/** Guard em memória: evita reprocessar o mesmo lote em instâncias simultâneas. */
-const seenInSession = new Set<string>()
+/** Identidade lógica por conta, persistida independentemente do histórico visível. */
+const localEvent = (url: string) => `chamados:${url}`
 
 /**
  * Cria notificações in-app para chamados novos/abertos ainda não notificados.
@@ -67,7 +67,7 @@ export function syncNewTicketAlerts(): AppNotification[] {
 
   for (const t of tickets) {
     const url = ticketUrl(t.id)
-    if (existing.has(url) || seenInSession.has(url)) continue
+    if (existing.has(url) || notificationService.hasLocalEvent(localEvent(url))) continue
     if (isLocallyCreated(t.id)) continue
 
     const notification = notificationService.create({
@@ -82,7 +82,7 @@ export function syncNewTicketAlerts(): AppNotification[] {
     })
 
     existing.add(url)
-    seenInSession.add(url)
+    notificationService.rememberLocalEvent(localEvent(url))
     created.push(notification)
   }
 
@@ -225,7 +225,7 @@ export function syncSlaAlerts(): AppNotification[] {
     const state = getSlaState(t.createdAt, t.priority, t.status, configs[t.workspace_id])
     if (state !== 'near' && state !== 'overdue') continue
     const url = slaActionUrl(t.id, state)
-    if (existing.has(url)) continue
+    if (existing.has(url) || notificationService.hasLocalEvent(localEvent(url))) continue
     const notification = notificationService.create({
       title: state === 'overdue' ? 'SLA vencido' : 'SLA próximo do vencimento',
       body:
@@ -240,6 +240,7 @@ export function syncSlaAlerts(): AppNotification[] {
       workspace_id: t.workspace_id,
     })
     existing.add(url)
+    notificationService.rememberLocalEvent(localEvent(url))
     created.push(notification)
   }
 

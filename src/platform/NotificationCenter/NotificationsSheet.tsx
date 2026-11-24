@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { useNotifications } from '../../core/notifications/useNotifications'
 import { adminService } from '../../core/auth/adminService'
+import { authService } from '../../core/auth/service'
 import { icons } from '../../lib/icons'
 import { BottomSheet, SheetHeader } from '../ui/BottomSheet'
 import { NotificationItem } from './NotificationItem'
@@ -183,16 +184,21 @@ export function NotificationsSheet({ open, onClose }: NotificationsSheetProps) {
     prevUnreadRef.current = unreadCount
   }, [unreadCount, notifications])
 
-  // Auto mark-as-read after 5s when sheet is open
+  // A new array on each render used to restart this timer indefinitely.
+  // Only actual changes to the unread, visible IDs reset it. Never mark a
+  // snoozed notification or one belonging to a subsequently logged-in user.
+  const readerId = authService.getCurrentUser()?.id
+  const unreadIds = JSON.stringify(notifications
+    .filter(n => !n.read && (!n.snoozedUntil || new Date(n.snoozedUntil) <= new Date()))
+    .map(n => n.id).sort())
   useEffect(() => {
-    if (!open) return
+    if (!open || !readerId || unreadIds === '[]') return
     const t = setTimeout(() => {
-      for (const n of notifications) {
-        if (!n.read) markAsRead(n.id)
-      }
-    }, 5000)
+      if (authService.getCurrentUser()?.id !== readerId) return
+      for (const id of JSON.parse(unreadIds) as string[]) markAsRead(id)
+    }, 1000)
     return () => clearTimeout(t)
-  }, [open, notifications, markAsRead])
+  }, [open, readerId, unreadIds, markAsRead])
 
   // Filter out snoozed notifications
   const visible = useMemo(

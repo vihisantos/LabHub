@@ -7030,9 +7030,29 @@ def app_notifications_list():
         is_super = bool(user.get('is_super_admin'))
         ws_ids = set(_get_user_workspace_ids(g.user_id)) if not is_super else None
 
+        # Apply coarse audience constraints before LIMIT, so a different
+        # campus's recent events cannot consume the entire query window.
+        def safe_id(value):
+            value = str(value)
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', value):
+                raise ValueError('invalid notification audience identifier')
+            return value
+
+        filters = [f'or(target_user_id.is.null,target_user_id.eq.{safe_id(g.user_id)})']
+        if not is_super:
+            filters.append('or(target_super_admin.is.null,target_super_admin.eq.false)')
+            scopes = ','.join(safe_id(w) for w in sorted(ws_ids))
+            filters.append(f'or(workspace_id.is.null,workspace_id.in.({scopes}))'
+                           if scopes else 'workspace_id.is.null')
+        params = {
+            'select': '*',
+            'order': 'created_at.desc,id.desc',
+            'limit': 50,
+            'and': '(' + ','.join(filters) + ')',
+        }
         resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/app_notifications'
-            f'?select=*&order=created_at.desc&limit=200',
+            f'{_SUPABASE_URL}/rest/v1/app_notifications',
+            params=params,
             headers=_supabase_headers(),
             timeout=10,
         )
@@ -7063,7 +7083,7 @@ def app_notifications_list():
                 out.append(r)
             elif w is None or (w and str(w) in ws_ids):
                 out.append(r)
-        return jsonify({'notifications': out, 'periodic_window': True})
+        return jsonify({'notifications': out[:50], 'periodic_window': True})
     except Exception as e:
         logger.error("app notifications error: %s", e)
         return jsonify({'error': 'Falha ao consultar notificações'}), 503

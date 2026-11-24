@@ -11,7 +11,28 @@ import { getCol, setCol } from '../../lib/db'
 
 const cacheKey = () => currentUserCollectionKey('notifications')
 const dismissedKey = () => currentUserCollectionKey('notification-dismissed')
+const readKey = () => currentUserCollectionKey('notification-read')
+const localEventKey = () => currentUserCollectionKey('notification-local-events')
 const service = createLocalService<AppNotification>('notifications', true, cacheKey)
+
+// Read identity is independent of the bounded cache window. Never clear it
+// when a server row temporarily disappears, is reconciled, or the user logs out.
+function rememberIds(key: string | null, ids: string[]) {
+  if (!key || ids.length === 0) return
+  const values = new Set(getCol<string>(key))
+  const before = values.size
+  for (const id of ids) if (id) values.add(id)
+  if (values.size !== before) setCol(key, [...values])
+}
+
+function rememberRead(ids: string[]) {
+  rememberIds(readKey(), ids)
+}
+
+function isRead(id: string): boolean {
+  const key = readKey()
+  return !!key && getCol<string>(key).includes(id)
+}
 
 function rememberDismissed(ids: string[]) {
   const key = dismissedKey()
@@ -81,7 +102,8 @@ export const notificationService = {
     if (!key || !dismissed || !item.id || getCol<string>(dismissed).includes(item.id)) return false
     const items = getCol<AppNotification>(key)
     if (items.some((n) => n.id === item.id)) return false
-    setCol(key, [...items, item])
+    setCol(key, [...items, { ...item, read: item.read || isRead(item.id) }])
+    if (item.read) rememberRead([item.id])
     return true
   },
 
@@ -94,22 +116,35 @@ export const notificationService = {
     const items = getCol<AppNotification>(key)
     const next = items.filter(n => !n.id.startsWith('periodic:') || authorizedIds.has(n.id))
     if (next.length === items.length) return false
+    rememberRead(items.filter(n => n.read).map(n => n.id))
     setCol(key, next)
     return true
   },
 
   markAsRead: (id: string) => {
-    return service.update(id, { read: true })
+    const item = service.getById(id)
+    if (!item) return undefined
+    rememberRead([id])
+    return item.read ? item : service.update(id, { read: true })
   },
 
   markAllAsRead: () => {
     const unread = service.query((n) => !n.read)
+    rememberRead(unread.map(n => n.id))
     for (const n of unread) {
       service.update(n.id, { read: true })
     }
   },
 
+  hasLocalEvent: (event: string): boolean => {
+    const key = localEventKey()
+    return !!key && getCol<string>(key).includes(event)
+  },
+
+  rememberLocalEvent: (event: string) => rememberIds(localEventKey(), [event]),
+
   remove: (id: string) => {
+    if (service.getById(id)?.read) rememberRead([id])
     const removed = service.remove(id)
     if (removed) rememberDismissed([id])
     return removed
@@ -122,6 +157,7 @@ export const notificationService = {
 
   clearAll: () => {
     const all = service.getAll()
+    rememberRead(all.filter(n => n.read).map(n => n.id))
     rememberDismissed(all.map(n => n.id))
     for (const n of all) {
       service.remove(n.id)

@@ -59,6 +59,15 @@ describe('syncNewTicketAlerts', () => {
     expect(syncNewTicketAlerts()).toHaveLength(0)
   })
 
+  it('não recria alerta de abertura dispensado enquanto o chamado continua aberto', () => {
+    const t = makeTicket()
+    seed(t)
+    const [alert] = syncNewTicketAlerts()
+    notificationService.markAsRead(alert.id)
+    notificationService.remove(alert.id)
+    expect(syncNewTicketAlerts()).toHaveLength(0)
+  })
+
   it('não notifica chamado resolvido ou fechado', () => {
     seed(
       makeTicket({ id: 'a', status: 'resolvido' }),
@@ -143,6 +152,17 @@ describe('syncSlaAlerts — alertas de SLA (Fase 2.2.2)', () => {
     seed(slaTicket())
     expect(syncSlaAlerts()).toHaveLength(1)
     expect(syncSlaAlerts()).toHaveLength(0)
+  })
+
+  it('não recria o mesmo SLA dispensado, mas permite a mudança de estado', () => {
+    const t = slaTicket()
+    seed(t)
+    const [near] = syncSlaAlerts()
+    notificationService.markAsRead(near.id)
+    notificationService.remove(near.id)
+    expect(syncSlaAlerts()).toHaveLength(0)
+    seed({ ...t, createdAt: new Date(NOW.getTime() - 30 * HOUR).toISOString() })
+    expect(syncSlaAlerts()).toHaveLength(1)
   })
 
   it('Caso 3 — near → overdue: exatamente uma segunda notificação', () => {

@@ -38,6 +38,32 @@ describe('personal notification cache', () => {
     expect(notificationService.getById(row.id)).toBeDefined()
     expect(notificationService.ingestRemote(revoked)).toBe(true)
   })
+  it('read remains read after eviction, re-entry and account switch', () => {
+    setTestUser({ id: 'account-a' })
+    const item = { ...row, id: 'periodic:stock:stock-expiry:old' }
+    notificationService.ingestRemote(item)
+    notificationService.markAsRead(item.id)
+    notificationService.reconcilePeriodic(new Set())
+    expect(notificationService.getById(item.id)).toBeUndefined()
+    expect(notificationService.ingestRemote(item)).toBe(true)
+    expect(notificationService.getById(item.id)?.read).toBe(true)
+    setTestUser({ id: 'account-b' })
+    notificationService.ingestRemote(item)
+    expect(notificationService.getById(item.id)?.read).toBe(false)
+    setTestUser({ id: 'account-a' })
+    expect(notificationService.getById(item.id)?.read).toBe(true)
+    notificationService.ingestRemote({ ...item, id: 'periodic:stock:stock-expiry:new' })
+    expect(notificationService.getById('periodic:stock:stock-expiry:new')?.read).toBe(false)
+  })
+  it('mark all persists read markers independently of the latest window', () => {
+    setTestUser({ id: 'account-a' })
+    const item = { ...row, id: 'periodic:stock:stock-expiry:bulk' }
+    notificationService.ingestRemote(item)
+    notificationService.markAllAsRead()
+    notificationService.reconcilePeriodic(new Set())
+    notificationService.ingestRemote(item)
+    expect(notificationService.getById(item.id)?.read).toBe(true)
+  })
   it('dismissal survives repeated server fetches without affecting another account', () => {
     setTestUser({ id: 'account-a' })
     notificationService.ingestRemote(row)
