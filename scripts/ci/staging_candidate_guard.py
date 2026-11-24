@@ -36,7 +36,7 @@ def git(*args: str) -> bytes:
     return subprocess.check_output(["git", *args], cwd=ROOT)
 
 
-def candidate_files(base_sha: str) -> dict[str, tuple[str, str, str]]:
+def candidate_files(base_sha: str) -> tuple[dict[str, tuple[str, str, str]], dict[str, tuple[str, str]]]:
     if not re.fullmatch(r"[0-9a-f]{40}", base_sha) or base_sha == "0" * 40:
         raise ValueError("base SHA invalid")
     base = {
@@ -64,6 +64,8 @@ def candidate_files(base_sha: str) -> dict[str, tuple[str, str, str]]:
 
 def plan(candidates, current, applied, fingerprints, event):
     """Pure guard: no writes before all identities have been checked."""
+    if event not in ('pull_request', 'push'):
+        raise ValueError('invalid event')
     reserved = {}
     for row in fingerprints:
         version = row["version"]
