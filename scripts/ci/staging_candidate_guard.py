@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from migrate.api import ManagementAPI  # noqa: E402
+from ci.release_gate import _get_json, _main_head_sha, _migrations_workflow_id  # noqa: E402
 from migrate.core import discover_migrations, sql_string_literal  # noqa: E402
 from migrate.environment import (  # noqa: E402
     STAGING, resolve_policy, validate_expected_destination, validate_project_ref,
@@ -102,7 +103,47 @@ def plan(candidates, current, applied, fingerprints, event):
             if version in applied_map and PREVERIFIED.get(filename) != blob:
                 raise ValueError("already applied candidate has no verified fingerprint: " + filename)
             additions.append((version, filename, digest))
+    # A shared staging instance can hold exactly one unmerged SQL candidate
+    # (possibly multiple files reserved atomically). Do not allow another PR
+    # to append migrations to that candidate, even with identical earlier SQL.
+    if additions and any(version in reserved for version in candidates):
+        raise ValueError("staging has an unmerged candidate; promote it before adding migrations")
     return additions
+
+
+def require_main_settled(base_sha: str, *, api_url: str, repo: str, token: str) -> None:
+    """New staging reservations must not race a previous main deployment."""
+    if not token or not repo:
+        raise ValueError("missing GitHub API context")
+    if _main_head_sha(api_url, repo, token, "main").lower() != base_sha.lower():
+        raise ValueError("PR base is no longer main HEAD; update the branch")
+    workflow_id = _migrations_workflow_id(api_url, repo, token)
+    payload = _get_json(
+        f"{api_url}/repos/{repo}/actions/workflows/{workflow_id}/runs",
+        token, {"branch": "main", "event": "push", "head_sha": base_sha, "per_page": 100},
+    )
+    runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
+    if not isinstance(runs, list):
+        raise ValueError("invalid main migration runs response")
+    matching = [run for run in runs if run.get("head_sha") == base_sha
+                and run.get("head_branch") == "main" and run.get("event") == "push"]
+    if not matching:
+        raise ValueError("main has no verified delivery run")
+    latest = max(matching, key=lambda run: (run["id"], run.get("run_attempt", 1)))
+    if latest.get("status") != "completed" or latest.get("conclusion") != "success":
+        raise ValueError("main migration delivery is not successful yet; retry after promotion")
+    jobs = _get_json(f"{api_url}/repos/{repo}/actions/runs/{latest['id']}/jobs", token,
+                     {"filter": "latest", "per_page": 100})
+    rows = jobs.get("jobs") if isinstance(jobs, dict) else None
+    if not isinstance(rows, list) or not any(
+        job.get("name") == "Apply pending migrations to Production"
+        and job.get("status") == "completed" and job.get("conclusion") == "success"
+        for job in rows
+    ):
+        raise ValueError("main production migration job has not passed")
+    # Re-read immediately before allowing the reservation.
+    if _main_head_sha(api_url, repo, token, "main").lower() != base_sha.lower():
+        raise ValueError("main changed during staging reservation check")
 
 
 def main():
@@ -150,6 +191,10 @@ def main():
             print(f"[staging-candidate] PASS verified={len(candidates)}")
             return 0
         if additions:
+            require_main_settled(
+                args.base_sha, api_url=os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+                repo=os.environ.get("GITHUB_REPOSITORY", ""), token=os.environ.get("GITHUB_TOKEN", ""),
+            )
             # Staging job is serialized with delivery. The transaction prevents
             # partial reservations. No browser role can read or alter this ledger.
             values = ", ".join("(" + ", ".join(sql_string_literal(v) for v in row) + ")" for row in additions)
