@@ -55,7 +55,8 @@ BEGIN
   FROM public.workspaces w
   WHERE w.id IN (v_old, v_new)
   ORDER BY w.id
-  ON CONFLICT (workspace_id) DO UPDATE SET revision = EXCLUDED.revision;
+  ON CONFLICT (workspace_id) DO UPDATE SET revision = EXCLUDED.revision
+  WHERE chamados_queue_revisions.workspace_id = EXCLUDED.workspace_id;
   RETURN NULL;
 END;
 $body$;
