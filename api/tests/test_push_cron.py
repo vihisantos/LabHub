@@ -697,3 +697,48 @@ def test_periodic_approval_persists_bell_and_push_atomically(push_module, monkey
     atomic.side_effect = RuntimeError("database unavailable")
     assert push_module._check_pending_users(require_outbox=True)["failures"] == 1
     legacy.assert_not_called()
+
+
+def test_periodic_reservations_cross_midnight_without_scanning_full_tablet_day(push_module, monkeypatch):
+    from datetime import date, datetime
+    from unittest.mock import Mock
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setattr(push_module, "_workspaces_with_spreadsheet", lambda: [
+        {"id": "ws-a", "slug": "campus-a", "spreadsheet_url": "https://example.test/a.xlsx"},
+    ])
+    monkeypatch.setattr(push_module, "_get_workspace_lab_count", lambda _: 2)
+    monkeypatch.setattr(push_module, "_push_advance_minutes", lambda: 30)
+    monkeypatch.setattr(push_module, "get_today_sp", lambda: date(2026, 11, 24))
+    monkeypatch.setattr(push_module, "get_now_sp", lambda: datetime(2026, 11, 24, 23, 50, tzinfo=ZoneInfo("America/Sao_Paulo")))
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only")
+    monkeypatch.setattr(push_module, "_parse_spreadsheet", lambda *a, **k: ([], [
+        {"reservation_id": "next-day", "data": date(2026, 11, 25), "lab": "LAB01",
+         "horario": "00h10 às 01h00", "responsavel": "QA", "observacao": None},
+        {"reservation_id": "too-late", "data": date(2026, 11, 25), "lab": "LAB02",
+         "horario": "01h00 às 02h00", "responsavel": "QA"},
+    ]))
+    response = Mock(ok=True)
+    response.json.return_value = [
+        {"id": "tablet-next-day", "workspace_id": "ws-a", "horario_inicio": "2026-11-25T03:10:00Z"},
+    ]
+    get = Mock(return_value=response)
+    monkeypatch.setattr(push_module.requests, "get", get)
+    queue = Mock(return_value="queued")
+    monkeypatch.setattr(push_module, "_queue_push_event", queue)
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result == {"checked": True, "queued": 2, "sent": 0}
+    assert {call.kwargs["reservation_id"] for call in queue.call_args_list} == {"next-day", "tablet-next-day"}
+    assert all(call.kwargs["expires_at"] == "2026-11-25T00:10:00-03:00" for call in queue.call_args_list)
+    assert "horario_inicio=gte.2026-11-24T23%3A50" in get.call_args.args[0]
+    assert "horario_inicio=lte.2026-11-25T00%3A20" in get.call_args.args[0]
+
+
+def test_strict_spreadsheet_distinguishes_fetch_failure_from_empty(push_module, monkeypatch):
+    monkeypatch.setattr(push_module, "_ext_validate_source_url", lambda *_: True)
+    monkeypatch.setattr(push_module, "_ext_fetch_source_bytes", lambda *a, **k: (None, "timeout"))
+    with pytest.raises(RuntimeError, match="spreadsheet unavailable"):
+        push_module._parse_spreadsheet("https://example.test/a.xlsx", strict=True)
+    assert push_module._parse_spreadsheet("https://example.test/a.xlsx") == ([], [])

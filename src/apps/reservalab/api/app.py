@@ -2389,6 +2389,8 @@ def _internal_push_check(*, strict_scope=False):
         return {'error': 'Push store not configured'}
     try:
         today = get_today_sp()
+        window_start = get_now_sp()
+        window_end = window_start + timedelta(minutes=_push_advance_minutes())
 
         # Reserva de lab: a planilha é POR CAMPUS. Quando há workspaces com
         # planilha própria, agrega as reservas de hoje de cada campus. O
@@ -2403,7 +2405,9 @@ def _internal_push_check(*, strict_scope=False):
                 try:
                     _lab_count = _get_workspace_lab_count(_ws['slug'])
                     if strict_scope:
-                        _reservas_ws, _ = _parse_spreadsheet(_ws['spreadsheet_url'], lab_count=_lab_count, strict=True)
+                        _reservas_ws, _upcoming = _parse_spreadsheet(_ws['spreadsheet_url'], lab_count=_lab_count, strict=True)
+                        if window_end.date() != today:
+                            _reservas_ws = [*_reservas_ws, *_upcoming]
                     else:
                         _reservas_ws, _ = get_reservas(
                             _ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count,
@@ -2435,19 +2439,24 @@ def _internal_push_check(*, strict_scope=False):
                     data_reserva = datetime.strptime(data_reserva, '%d/%m/%Y').date()
                 except:
                     continue
-            if data_reserva != today:
+            if isinstance(data_reserva, datetime):
+                data_reserva = data_reserva.date()
+            if not isinstance(data_reserva, date):
+                continue
+            if not strict_scope and data_reserva != today:
                 continue
             
             inicio = parse_horario_inicio(r.get('horario', ''))
             if inicio is None:
                 continue
             
-            if agora_min <= inicio <= limite_min:
+            reservation_start = datetime.combine(data_reserva, datetime.min.time(), tzinfo=ZoneInfo('America/Sao_Paulo')) + timedelta(minutes=inicio)
+            eligible = (window_start < reservation_start <= window_end) if strict_scope else (agora_min <= inicio <= limite_min)
+            if eligible:
                 if strict_scope and not r.get('_scope'):
                     errors += 1
                     continue
-                expires_at = (datetime.combine(today, datetime.min.time(), tzinfo=ZoneInfo('America/Sao_Paulo'))
-                              + timedelta(minutes=inicio)).isoformat()
+                expires_at = reservation_start.isoformat()
                 reserva_data_key = (
                     data_reserva.isoformat() if hasattr(data_reserva, 'isoformat')
                     else str(data_reserva)
@@ -2506,9 +2515,8 @@ def _internal_push_check(*, strict_scope=False):
                 today_str = today.strftime('%Y-%m-%d')
                 tomorrow_str = (today + timedelta(days=1)).strftime('%Y-%m-%d')
                 if strict_scope:
-                    local_midnight = datetime.combine(today, datetime.min.time(), tzinfo=ZoneInfo('America/Sao_Paulo'))
-                    from_ts = local_midnight.isoformat()
-                    to_ts = (local_midnight + timedelta(days=1)).isoformat()
+                    from_ts = window_start.isoformat()
+                    to_ts = window_end.isoformat()
                 else:
                     from_ts, to_ts = today_str + 'T00:00:00Z', tomorrow_str + 'T00:00:00Z'
                 tablet_url = (
@@ -2516,7 +2524,7 @@ def _internal_push_check(*, strict_scope=False):
                     f"?select=*&order=horario_inicio.asc"
                     f"&status=eq.{quote('ativa')}"
                     f"&horario_inicio=gte.{quote(from_ts)}"
-                    f"&horario_inicio=lt.{quote(to_ts)}"
+                    f"&horario_inicio={'lte' if strict_scope else 'lt'}.{quote(to_ts)}"
                 )
                 tablet_resp = requests.get(
                     tablet_url,
@@ -2543,7 +2551,8 @@ def _internal_push_check(*, strict_scope=False):
                         except:
                             continue
                         
-                        if dt_sp.date() == today and agora_min <= inicio_min <= limite_min:
+                        eligible = (window_start < dt_sp <= window_end) if strict_scope else (dt_sp.date() == today and agora_min <= inicio_min <= limite_min)
+                        if eligible:
                             key = f"tablet|{t['id']}"
                             if strict_scope:
                                 # A genuinely rescheduled reservation is a new reminder.
