@@ -388,7 +388,7 @@ jobs:
         run: pip install requests
 
       - name: Download staging attestation
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: staging-release-${{ github.sha }}
           path: .artifacts
@@ -433,7 +433,7 @@ jobs:
       # O artifact é relido aqui (não confiamos apenas no job de gate): a
       # barreira final roda no mesmo runner que executa o apply em produção.
       - name: Download staging attestation for final guard
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: staging-release-${{ github.sha }}
           path: .artifacts
