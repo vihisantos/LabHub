@@ -663,3 +663,35 @@ def test_periodic_never_uses_global_spreadsheet_fallback(push_module, monkeypatc
     result = push_module._internal_push_check(strict_scope=True)
     assert result["error"]
     global_sheet.assert_not_called()
+
+
+def test_periodic_approval_persists_bell_and_push_atomically(push_module, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only")
+    monkeypatch.setattr(push_module.pg_store, "is_configured", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": "pending-a", "email": "qa@example.test", "name": "QA"}]
+    monkeypatch.setattr(push_module.requests, "get", Mock(return_value=response))
+    atomic = Mock(return_value=True)
+    monkeypatch.setattr(push_module.pg_store.store, "notification_create_with_outbox", atomic)
+    legacy = Mock(side_effect=AssertionError("periodic approval must use atomic persistence"))
+    monkeypatch.setattr(push_module, "_queue_push_event", legacy)
+
+    result = push_module._check_pending_users(require_outbox=True)
+    assert result["queued"] == 1
+    notification, payload = atomic.call_args.args
+    assert notification["target_super_admin"] is True
+    assert notification["audience"] == "role"
+    assert notification["type"] == "approval"
+    assert payload["context"] == "pending-user"
+    assert payload["target_super_admin"] is True
+    assert payload["action_url"] == notification["action_url"]
+
+    atomic.return_value = False
+    assert push_module._check_pending_users(require_outbox=True)["queued"] == 0
+    assert atomic.call_args.args[0]["id"] == notification["id"]
+    atomic.side_effect = RuntimeError("database unavailable")
+    assert push_module._check_pending_users(require_outbox=True)["failures"] == 1
+    legacy.assert_not_called()

@@ -2991,6 +2991,34 @@ def _check_pending_users(*, require_outbox=False):
             # segurança uma ação crítica em segundo plano (o POST ficaria
             # também sem Authorization => 401). O click abre a fila de
             # pendentes: /admin/users?pending=<id> (AdminGuard + RLS).
+            if require_outbox:
+                # Persist both channels atomically. Stable weekly ID prevents
+                # duplicate bell entries and duplicate outbox events on retries.
+                if not pg_store.is_configured():
+                    errors += 1
+                    continue
+                notification = {
+                    'id': 'pending:' + nid,
+                    'title': title, 'body': body,
+                    'type': 'approval', 'severity': 'warning',
+                    'module': 'auth', 'audience': 'role',
+                    'target_super_admin': True,
+                    'action_url': f"/admin/users?pending={u.get('id')}",
+                }
+                payload = {
+                    'title': title, 'body': body,
+                    'module': 'auth', 'target_super_admin': True,
+                    'context': 'pending-user', 'ttl': 604800,
+                    'action_url': notification['action_url'],
+                }
+                try:
+                    if pg_store.store.notification_create_with_outbox(notification, payload):
+                        queued += 1
+                except Exception as exc:
+                    logger.warning('[notifications] approval atomic persistence failed: %s', type(exc).__name__)
+                    errors += 1
+                continue
+
             queue_status = _queue_push_event(
                 nid, title, body, module='auth', target_super_admin=True,
                 ttl=604800, url=f"/admin/users?pending={u.get('id')}",
@@ -2998,8 +3026,6 @@ def _check_pending_users(*, require_outbox=False):
             )
             if queue_status == 'queued':
                 queued += 1
-            elif queue_status is None and require_outbox:
-                errors += 1
             elif queue_status is None:
                 subs = _target_subs(module='auth')
                 accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
