@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
     }
   }),
   getSession: vi.fn(async () => ({
-    data: { session: { access_token: 'test-token' } },
+    data: { session: { access_token: 'test-token', user: { id: 'user-1' } } },
     error: null,
   })),
   fetchMock: vi.fn(),
@@ -108,6 +108,10 @@ beforeEach(() => {
   __resetNotificationsPollingForTests()
   vi.clearAllMocks()
   mocks.getCurrentUser.mockReturnValue({ id: 'user-1', is_super_admin: false } as any)
+  mocks.getSession.mockImplementation(async () => ({
+    data: { session: { access_token: 'test-token', user: { id: mocks.getCurrentUser()?.id ?? '' } } },
+    error: null,
+  }))
   mocks.getAll.mockReturnValue([])
   mocks.ingestRemote.mockReturnValue(false)
   mocks.fetchMock.mockResolvedValue({
@@ -239,6 +243,32 @@ describe('useNotifications — polling remoto compartilhado', () => {
         headers: { Authorization: 'Bearer test-token' },
       }),
     )
+    unmount()
+  })
+
+  it('não consulta nem grava quando JWT pertence a outra conta', async () => {
+    mocks.getSession.mockResolvedValueOnce({
+      data: { session: { access_token: 'foreign-token', user: { id: 'user-2' } } },
+      error: null,
+    })
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    expect(mocks.fetchMock).not.toHaveBeenCalled()
+    expect(mocks.ingestRemote).not.toHaveBeenCalled()
+    await advance(10_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+    unmount()
+  })
+
+  it('descarta resposta se a conta do cache mudar antes do evento de auth', async () => {
+    let finish!: (value: any) => void
+    mocks.fetchMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    mocks.getCurrentUser.mockReturnValue({ id: 'user-2' } as any)
+    finish({ ok: true, json: async () => ({ notifications: [{ id: 'private-user-1' }] }) })
+    await flushFetch()
+    expect(mocks.ingestRemote).not.toHaveBeenCalled()
     unmount()
   })
 
