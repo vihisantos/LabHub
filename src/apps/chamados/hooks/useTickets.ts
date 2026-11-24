@@ -5,6 +5,7 @@ import { syncNewTicketAlerts, alertForNewTickets, markLocalTicket, syncSlaAlerts
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useWorkspace } from '../../../core/workspaces/WorkspaceContext'
 import { useTicketInvalidationBroadcast } from './useTicketInvalidationBroadcast'
+import { readTicketQueueRevision } from '../services/ticketQueueRevision'
 
 /**
  * Corrige tickets antigos no IndexedDB que estejam sem createdAt ou ticketNumber.
@@ -43,7 +44,8 @@ export function useTickets() {
   const realtimeConnectedRef = useRef(false)
   const realtimeStatusSeenRef = useRef(false)
   const sanitizedRef = useRef(false)
-  const pendingSync = useRef<Promise<void> | null>(null)
+  const pendingSync = useRef<Promise<boolean> | null>(null)
+  const lastFullSuccess = useRef(0)
   const lastSyncAttempt = useRef(0)
   const syncAgain = useRef(false)
 
@@ -65,28 +67,35 @@ export function useTickets() {
       syncAgain.current = true
       return pendingSync.current
     }
-    const run = async () => {
-    do {
-    syncAgain.current = false
-    lastSyncAttempt.current = Date.now()
-    try {
-      await ticketService.pullRemote()
-    } catch {
-      // Sem conexão: mantém o cache local.
-    } finally {
-      load(silent)
-      setSyncing(false)
-      // Alerta o TI sobre chamados novos vindos do formulário público.
-      const created = syncNewTicketAlerts()
-      if (created.length > 0) alertForNewTickets(created)
-      // Fase 2.2.2: alertas de SLA no mesmo ciclo (mesma fonte e dedupe).
-      syncSlaAlerts()
-    }
-    } while (syncAgain.current)
+    const run = async (): Promise<boolean> => {
+      let success = false
+      do {
+        syncAgain.current = false
+        lastSyncAttempt.current = Date.now()
+        try {
+          await ticketService.pullRemote()
+          success = true
+          lastFullSuccess.current = Date.now()
+        } catch {
+          success = false
+          // Sem conexão: mantém o cache local.
+        } finally {
+          load(silent)
+          const created = syncNewTicketAlerts()
+          if (created.length > 0) alertForNewTickets(created)
+          syncSlaAlerts()
+        }
+      } while (syncAgain.current)
+      return success
     }
     const task = run()
     pendingSync.current = task
-    try { await task } finally { pendingSync.current = null; setSyncing(false) }
+    try {
+      return await task
+    } finally {
+      pendingSync.current = null
+      setSyncing(false)
+    }
   }, [load])
 
   // Checagem pontual de arquivamento: nunca é acoplada ao syncRemote,
@@ -109,35 +118,60 @@ export function useTickets() {
     })
   }, [load, checkAutoArchive, syncRemote])
 
-  // Broadcast is primary; reconcile periodically even in hidden tabs.
+  // Broadcast is primary. Every 45s compare a tiny transactional marker.
+  // A periodic full read is retained for defense in depth and RBAC changes.
   useEffect(() => {
-    const tick = () => {
-      if (!pendingSync.current && Date.now() - lastSyncAttempt.current >= 45000) void syncRemote()
+    let active = true
+    let checking = false
+    let knownRevision: string | null = null
+    const tick = async () => {
+      if (!active || checking || pendingSync.current) return
+      checking = true
+      lastSyncAttempt.current = Date.now()
+      try {
+        const revision = await readTicketQueueRevision(workspaceId)
+        if (!active) return
+        const fullDue = Date.now() - lastFullSuccess.current >= 600000
+        if (revision !== null && revision === knownRevision && !fullDue) {
+          // Keep time-dependent alerts running even when data is unchanged.
+          syncSlaAlerts()
+          return
+        }
+        // Read the marker BEFORE the full pull. A mutation during the pull
+        // changes the next marker, ensuring a conservative retry.
+        const success = await syncRemote()
+        if (active) knownRevision = success ? revision : null
+      } finally {
+        checking = false
+      }
     }
     const onVisible = () => {
-      if (document.visibilityState === 'visible') tick()
+      if (document.visibilityState === 'visible' &&
+          Date.now() - lastSyncAttempt.current >= 45000) void tick()
     }
     let worker: Worker | undefined
     let timer: number | undefined
     const fallback = () => {
+      if (!active) return
       worker?.terminate()
       worker = undefined
-      if (timer === undefined) timer = window.setInterval(tick, 45000)
+      if (timer === undefined) timer = window.setInterval(() => void tick(), 45000)
     }
     try {
       worker = new Worker(new URL('./ticketWatchdog.worker.ts', import.meta.url), { type: 'module' })
-      worker.onmessage = tick
+      worker.onmessage = () => void tick()
       worker.onerror = fallback
     } catch {
       fallback()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
+      active = false
       worker?.terminate()
       if (timer !== undefined) window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [syncRemote])
+  }, [syncRemote, workspaceId])
 
   // Cada INSERT/UPDATE/DELETE em um chamado emite somente um sinal de invalidação;
   // a API autenticada continua responsável por fornecer os dados e aplicar RBAC.
