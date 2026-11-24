@@ -756,19 +756,24 @@ def _notify_super_admin_spreadsheet_link(workspace_slug, access_error):
         logger.error('Falha ao persistir alerta de link do ReservaLab')
 
 
-def _parse_spreadsheet(spreadsheet_url, lab_count=2):
+def _parse_spreadsheet(spreadsheet_url, lab_count=2, *, strict=False):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
+    wb = None
     reservas_hoje = []
     reservas_semana = []
     status_key = _spreadsheet_status_key(spreadsheet_url)
     _SPREADSHEET_LINK_SUCCESSES.discard(status_key)
     if not spreadsheet_url:
+        if strict:
+            raise RuntimeError('reservation spreadsheet unavailable or invalid')
         return reservas_hoje, reservas_semana
     # Só a representação segura: a URL original pode carregar token de
     # compartilhamento, e este log é sobre a RECUSA, não sobre a credencial.
     origem = _safe_url_for_log(spreadsheet_url)
     if not _ext_validate_source_url(spreadsheet_url, SPREADSHEET_MAX_URL_LEN):
         logger.error("URL da planilha rejeitada (proteção SSRF): %s", origem)
+        if strict:
+            raise RuntimeError('reservation spreadsheet unavailable or invalid')
         return reservas_hoje, reservas_semana
     logger.info("Baixando planilha de %s", origem)
     content, fetch_error = _ext_fetch_source_bytes(
@@ -784,6 +789,8 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
         if _is_spreadsheet_link_access_error(fetch_error):
             status_match = re.search(r'HTTP (401|403|404)\b', str(fetch_error))
             _SPREADSHEET_LINK_ERRORS[status_key] = f'HTTP {status_match.group(1)}'
+        if strict:
+            raise RuntimeError('reservation spreadsheet unavailable or invalid')
         return reservas_hoje, reservas_semana
     # Daqui para baixo é o parser de antes, byte a byte: o `try` externo continua
     # sendo a rede de segurança do laço de linhas.
@@ -801,6 +808,8 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                     )
                 else:
                     _SPREADSHEET_LINK_ERRORS.pop(status_key, None)
+                if strict:
+                    raise RuntimeError('reservation spreadsheet unavailable or invalid')
                 return reservas_hoje, reservas_semana
             wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
             logger.info("Planilha carregada!")
@@ -808,11 +817,15 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
             _SPREADSHEET_LINK_SUCCESSES.add(status_key)
         except Exception as e:
             logger.error(f"Erro ao carregar planilha: {e}")
+            if strict:
+                raise RuntimeError('reservation spreadsheet unavailable or invalid')
             return reservas_hoje, reservas_semana
         try:
             ws = wb['RESERVA LAB. INFORMÁTICA']
         except KeyError:
             logger.error("Aba 'RESERVA LAB. INFORMÁTICA' não encontrada")
+            if strict:
+                raise RuntimeError('reservation spreadsheet unavailable or invalid')
             return reservas_hoje, reservas_semana
         hoje = get_today_sp()
         # Janela do calendário exibido no app: próximos 30 dias (antes eram 7).
@@ -877,9 +890,16 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                     reservas_semana.append(reserva)
             except Exception as e:
                 logger.warning(f"Erro processando linha: {e}")
+                if strict:
+                    raise RuntimeError('reservation spreadsheet row invalid') from e
                 continue
     except Exception as e:
         logger.error(f"Erro ao processar planilha: {e}")
+        if strict:
+            raise RuntimeError('reservation spreadsheet parse failed') from e
+    finally:
+        if wb is not None:
+            wb.close()
     return reservas_hoje, reservas_semana
 
 _UNSET = object()
@@ -2382,9 +2402,12 @@ def _internal_push_check(*, strict_scope=False):
             for _ws in _lab_workspaces:
                 try:
                     _lab_count = _get_workspace_lab_count(_ws['slug'])
-                    _reservas_ws, _ = get_reservas(
-                        _ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count,
-                    )
+                    if strict_scope:
+                        _reservas_ws, _ = _parse_spreadsheet(_ws['spreadsheet_url'], lab_count=_lab_count, strict=True)
+                    else:
+                        _reservas_ws, _ = get_reservas(
+                            _ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count,
+                        )
                 except Exception as e:
                     logger.error("Push check: falha ao ler planilha do campus %s: %s", _ws.get('slug'), e)
                     errors += 1
@@ -2434,9 +2457,15 @@ def _internal_push_check(*, strict_scope=False):
                     f"{r['horario']}|{r.get('responsavel','')}".encode()
                 ).hexdigest()
 
+                if strict_scope:
+                    reservation_id = r.get('reservation_id')
+                    if not reservation_id:
+                        errors += 1
+                        continue
+                    notify_id = hashlib.md5(f"lab-reserva|{r['_scope']}|{reservation_id}".encode()).hexdigest()
                 title = f"{' '.join(r.get('labs', [r.get('lab', 'Lab')]))}"
                 alunos = r.get('alunos', '')
-                evento = r.get('observacao', '').strip()
+                evento = str(r.get('observacao') or '').strip()
                 body = f"{r['horario']} — {r.get('responsavel', 'Professor') or 'Sem professor'}"
                 if evento:
                     body += f" — {evento}"
@@ -2447,7 +2476,7 @@ def _internal_push_check(*, strict_scope=False):
                     notify_id, title, body, module='reservalab',
                     workspace_id=r.get('_scope') or None, min_level='full',
                     ttl=_push_dedup_seconds(), context='lab-reserva',
-                    **({'expires_at': expires_at} if strict_scope else {}),
+                    **({'expires_at': expires_at, 'reservation_id': reservation_id, 'persist_inapp': True} if strict_scope else {}),
                 )
                 if queue_status == 'queued':
                     queued += 1
@@ -2522,7 +2551,7 @@ def _internal_push_check(*, strict_scope=False):
                             notify_id = hashlib.md5(key.encode()).hexdigest()
 
                             title = f"Tablets — {t.get('sala', 'Sala')}"
-                            evento = t.get('finalidade', '').strip()
+                            evento = str(t.get('finalidade') or '').strip()
                             body = f"{t.get('professor', 'Professor')}"
                             if evento:
                                 body += f" — {evento}"

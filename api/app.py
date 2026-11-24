@@ -14,6 +14,7 @@ from app import (
     _MODULE_PUSH_ACTIONS,
     _queue_push_event,
     _internal_push_check,
+    _parse_spreadsheet,
     _check_pending_users,
     push_notify,
     _push_outcome,
@@ -6554,6 +6555,7 @@ def _created_push_still_actionable(action_url, workspace_id):
 # Only these explicitly opted-in operational events can populate the bell.
 _PERIODIC_BELL_LEVELS = {
     ('reservalab', 'tablet'): 'full',
+    ('reservalab', 'lab-reserva'): 'full',
     ('stock', 'overdue'): None,
     ('stock', 'stock-expiry'): None,
     ('pc-care', 'pcare-part'): None,
@@ -6646,7 +6648,43 @@ def _periodic_bell_authorizer(user_id):
     return allowed
 
 
-def _deliver_outbox_notification(event_id, payload):
+def _lab_reminder_current(workspace_id, reservation_id, expires_at, snapshots=None):
+    """Fresh per-campus source read; never substitute the global spreadsheet.
+    Reuse a successful snapshot for at most 30s within this worker batch only.
+    An unavailable/invalid source is a retry, not a confirmed cancellation.
+    """
+    if not workspace_id or not reservation_id:
+        raise ValueError('lab reminder missing identity or scope')
+    cached = snapshots.get(workspace_id) if snapshots is not None else None
+    if cached is not None and time.monotonic() - cached[0] <= 30:
+        rows = cached[1]
+    else:
+        if not _require_supabase():
+            raise RuntimeError('lab revalidation unavailable')
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces',
+            params={'id': f'eq.{workspace_id}', 'select': 'id,spreadsheet_url,lab_count'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not response.ok:
+            raise RuntimeError('lab workspace revalidation failed')
+        workspaces = response.json()
+        if not isinstance(workspaces, list):
+            raise RuntimeError('invalid lab workspace response')
+        if not workspaces or not workspaces[0].get('spreadsheet_url'):
+            return False
+        workspace = workspaces[0]
+        today, upcoming = _parse_spreadsheet(
+            workspace['spreadsheet_url'], lab_count=int(workspace.get('lab_count') or 2), strict=True,
+        )
+        rows = [*today, *upcoming]
+        if snapshots is not None:
+            snapshots[workspace_id] = (time.monotonic(), rows)
+    # reservation_id covers date, time, lab(s), professor and booker.
+    return any(str(row.get('reservation_id') or '') == str(reservation_id) for row in rows)
+
+
+def _deliver_outbox_notification(event_id, payload, *, lab_snapshots=None):
     """Entrega um evento persistido no outbox aos subscribers autorizados."""
     if not isinstance(payload, dict):
         raise ValueError('payload de notificação inválido')
@@ -6712,6 +6750,15 @@ def _deliver_outbox_notification(event_id, payload):
         if current_start.tzinfo is None:
             raise ValueError('invalid tablet start time')
         if current_start != expires_at:
+            return True
+
+    if module == 'reservalab' and context == 'lab-reserva' and payload.get('reservation_id'):
+        if not payload.get('expires_at'):
+            raise ValueError('lab reminder missing start time')
+        if not _lab_reminder_current(workspace_id, payload['reservation_id'], expires_at, lab_snapshots):
+            return True
+        # Source reads can take time; recheck before publishing the reminder.
+        if datetime.now(timezone.utc) >= expires_at:
             return True
 
     # Preserve the operational recipient restriction of the legacy reminder.
@@ -6825,8 +6872,11 @@ def _run_notification_worker(publish_limit: int, consume_limit: int) -> tuple[di
         published = publish_pending(
             pg_store.store, queue, worker_id, limit=publish_limit,
         )
+        lab_snapshots = {}
+        def deliver(event_id, payload):
+            return _deliver_outbox_notification(event_id, payload, lab_snapshots=lab_snapshots)
         processed = process_pending(
-            pg_store.store, queue, worker_id, _deliver_outbox_notification,
+            pg_store.store, queue, worker_id, deliver,
             count=consume_limit,
         )
         return {

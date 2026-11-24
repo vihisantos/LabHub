@@ -612,8 +612,8 @@ def test_periodic_reservations_require_campus_and_durable_queue(push_module, mon
     monkeypatch.setattr(push_module, "get_now_sp", lambda: datetime(2026, 11, 24, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo")))
     monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only")
-    monkeypatch.setattr(push_module, "get_reservas", lambda *a, **k: ([{
-        "data": "24/11/2026", "lab": "LAB01", "horario": "10h30 às 12h00",
+    monkeypatch.setattr(push_module, "_parse_spreadsheet", lambda *a, **k: ([{
+        "reservation_id": "lab-reservation-a", "data": "24/11/2026", "lab": "LAB01", "horario": "10h30 às 12h00",
         "responsavel": "Professor", "observacao": "",
     }], []))
     response = Mock(ok=True)
@@ -636,6 +636,8 @@ def test_periodic_reservations_require_campus_and_durable_queue(push_module, mon
         assert call.kwargs["workspace_id"] == "ws-a"
         assert call.kwargs["min_level"] == "full"
         assert call.kwargs["expires_at"] == "2026-11-24T10:30:00-03:00"
+        assert call.kwargs["persist_inapp"] is True
+        assert call.kwargs["reservation_id"]
     ids = [call.args[0] for call in queue.call_args_list]
     assert "%2B" not in get.call_args.args[0]  # local timestamps have negative UTC offset
 

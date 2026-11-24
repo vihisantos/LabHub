@@ -734,3 +734,45 @@ def test_periodic_bell_authorization_failure_does_not_ignore_denies(api_module, 
     monkeypatch.setattr(api_module.requests, "get", Mock(side_effect=[membership, roles, Mock(ok=False)]))
     with pytest.raises(RuntimeError, match="bell authorization unavailable"):
         api_module._periodic_bell_authorizer("u1")
+
+
+@pytest.mark.parametrize("current,should_persist", [
+    ([], False),
+    ([{"reservation_id": "rescheduled"}], False),
+    ([{"reservation_id": "lab-original"}], True),
+])
+def test_lab_reminder_revalidates_source_before_bell_and_push(api_module, monkeypatch, current, should_persist):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": "ws-a", "spreadsheet_url": "https://example.test/a.xlsx", "lab_count": 3}]
+    get = Mock(return_value=response)
+    monkeypatch.setattr(api_module.requests, "get", get)
+    parse = Mock(return_value=(current, []))
+    monkeypatch.setattr(api_module, "_parse_spreadsheet", parse)
+    monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[]))
+    persist = Mock()
+    monkeypatch.setattr(api_module, "_persist_periodic_bell", persist)
+    payload = {"module": "reservalab", "context": "lab-reserva", "workspace_id": "ws-a",
+               "expires_at": "2099-01-01T10:00:00-03:00", "reservation_id": "lab-original",
+               "persist_inapp": True}
+    assert api_module._deliver_outbox_notification("lab-event", payload)
+    assert get.call_args.kwargs["params"]["id"] == "eq.ws-a"
+    parse.assert_called_once_with("https://example.test/a.xlsx", lab_count=3, strict=True)
+    assert persist.call_count == int(should_persist)
+
+
+def test_lab_source_failure_retries_without_notification(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": "ws-a", "spreadsheet_url": "https://example.test/a.xlsx"}]
+    monkeypatch.setattr(api_module.requests, "get", Mock(return_value=response))
+    monkeypatch.setattr(api_module, "_parse_spreadsheet", Mock(side_effect=RuntimeError("source unavailable")))
+    persist = Mock()
+    monkeypatch.setattr(api_module, "_persist_periodic_bell", persist)
+    with pytest.raises(RuntimeError, match="source unavailable"):
+        api_module._deliver_outbox_notification("lab-event", {
+            "module": "reservalab", "context": "lab-reserva", "workspace_id": "ws-a",
+            "expires_at": "2099-01-01T10:00:00-03:00", "reservation_id": "lab-original",
+            "persist_inapp": True,
+        })
+    persist.assert_not_called()
