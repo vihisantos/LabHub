@@ -176,6 +176,50 @@ def main() -> int:
             return _fail("nenhuma RLS policy em public.profiles")
         print("[staging-check] PASS triggers/RLS presentes")
 
+    # Migration 122: fail the release gate if the watchdog's revision source
+    # is missing, client-writable, or no longer maintained by the trigger.
+    if args.phase in ("health", "all"):
+        try:
+            revision_rows = api.query("""
+                SELECT
+                    c.relrowsecurity AS rls_enabled,
+                    NOT has_table_privilege('anon', c.oid, 'SELECT') AS anon_denied,
+                    has_table_privilege('authenticated', c.oid, 'SELECT') AS auth_read,
+                    NOT (
+                        has_table_privilege('authenticated', c.oid, 'INSERT')
+                        OR has_table_privilege('authenticated', c.oid, 'UPDATE')
+                        OR has_table_privilege('authenticated', c.oid, 'DELETE')
+                        OR has_table_privilege('authenticated', c.oid, 'TRUNCATE')
+                    ) AS auth_read_only,
+                    EXISTS (
+                        SELECT 1 FROM pg_policies
+                        WHERE schemaname = 'public'
+                          AND tablename = 'chamados_queue_revisions'
+                          AND policyname = 'chamados_queue_revision_read'
+                          AND cmd = 'SELECT'
+                    ) AS read_policy,
+                    EXISTS (
+                        SELECT 1 FROM pg_trigger
+                        WHERE tgrelid = to_regclass('public.chamados_tickets')
+                          AND tgname = 'chamados_queue_revision_trigger'
+                          AND tgenabled IN ('O', 'A')
+                          AND NOT tgisinternal
+                          AND tgfoid = to_regprocedure('public.chamados_bump_queue_revision()')
+                    ) AS trigger_enabled,
+                    NOT has_function_privilege(
+                        'authenticated', 'public.chamados_bump_queue_revision()', 'EXECUTE'
+                    ) AS direct_exec_denied
+                FROM pg_class c
+                WHERE c.oid = to_regclass('public.chamados_queue_revisions')
+            """)
+        except Exception as exc:  # noqa: BLE001
+            return _fail(f"queue revision health: {type(exc).__name__}: {exc}")
+        required = ("rls_enabled", "anon_denied", "auth_read", "auth_read_only",
+                    "read_policy", "trigger_enabled", "direct_exec_denied")
+        if not revision_rows or any(revision_rows[0].get(key) is not True for key in required):
+            return _fail("queue revision health: RLS, grants, policy or trigger invalid")
+        print("[staging-check] PASS queue revision trigger/RLS/grants")
+
     print(f"[staging-check] PASS phase={args.phase} concluída (somente leitura)")
     return 0
 
