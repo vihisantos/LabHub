@@ -68,7 +68,7 @@ export function ApprovalScreen({
 
         <div aria-live="polite" aria-atomic="true" className="mx-auto mt-3 max-w-[560px]">
           <h1 id="approval-title" className="text-[clamp(1.65rem,5vw,2.65rem)] font-extrabold leading-tight tracking-tight text-fg">
-            {waiting ? <>Aprovação <span className="text-blue-600 dark:text-blue-400">Pendente</span></> : approved ? 'Conta Aprovada!' : rejected ? 'Conta Negada' : 'Verificando acesso'}
+            {waiting ? 'Aprovação Pendente' : approved ? 'Conta Aprovada!' : rejected ? 'Conta Negada' : 'Verificando acesso'}
           </h1>
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-fg-muted sm:text-base">
             {waiting ? (requiresLogin ? 'Sua conta foi criada com sucesso. Após a liberação de um administrador, volte ao login para entrar com sua senha.' : 'Sua conta foi criada com sucesso e aguarda a liberação de um administrador. Assim que for aprovada, você poderá entrar no LabHub.') : approved ? 'Bem-vindo ao LabHub! Estamos preparando seu ambiente.' : rejected ? 'A solicitação de acesso não foi aprovada. Entre em contato com o administrador para saber mais.' : 'Só um instante, estamos preparando sua página de acesso.'}
@@ -86,7 +86,7 @@ export function ApprovalScreen({
             <ol aria-label="Etapas de aprovação" className="mx-auto mt-5 grid max-w-[470px] grid-cols-3 gap-1 text-[11px] sm:text-xs">
               {steps.map((step, i) => (
                 <li key={step} aria-current={i === 1 ? 'step' : undefined} className="relative flex min-w-0 flex-col items-center gap-2">
-                  {i > 0 && <span aria-hidden="true" className="absolute right-1/2 top-[14px] -z-0 h-px w-full bg-line" />}
+                  {i > 0 && <span aria-hidden="true" className="absolute right-1/2 top-[14px] z-0 h-px w-full bg-line" />}
                   <span className={`relative z-10 grid h-7 w-7 place-items-center rounded-full border ${i === 0 ? 'border-emerald-500/30 bg-emerald-600 text-white' : i === 1 ? 'border-blue-500 bg-blue-600 text-white' : 'border-line bg-card text-fg-muted'}`}>{i === 0 ? <Check size={15} /> : i === 1 ? <Clock3 size={15} /> : <LockKeyhole size={13} />}</span>
                   <span className={i === 1 ? 'font-semibold text-blue-600 dark:text-blue-400' : 'text-fg-muted'}>{step}</span>
                 </li>
