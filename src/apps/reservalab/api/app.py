@@ -2634,6 +2634,8 @@ def _notify_stock_movement(event_type):
     movement_id = str(body.get('movement_id') or body.get('movementId') or '').strip()
     if not _is_valid_uuid(movement_id):
         return jsonify({'error': 'movement_id obrigatório e válido'}), 400
+    # UUID canônico impede que caixa/forma textual crie outro ID de dedup.
+    movement_id = str(uuid.UUID(movement_id))
     if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
         return jsonify({'error': 'Banco indisponível'}), 503
 
