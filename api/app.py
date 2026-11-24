@@ -6814,6 +6814,7 @@ def _deliver_outbox_notification(event_id, payload, *, lab_snapshots=None):
         user_id=user_id,
         role=role,
         min_level=min_level,
+        **({'strict': True} if payload.get('persist_inapp') is True else {}),
     )
     if eligible_admins is not None:
         subs = [sub for sub in subs if str((sub.get('user') or {}).get('id') or '') in eligible_admins]

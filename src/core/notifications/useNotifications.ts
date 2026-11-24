@@ -367,7 +367,7 @@ export function useNotifications() {
   // account's notification array in component state during auth transitions.
   const sessionUser = authService.getCurrentUser()
   const visibleNotifications = sessionUser && user?.id === sessionUser.id
-    ? notificationService.getAll().filter(n => notificationAppliesTo(n, sessionUser, isVisible))
+    ? notificationService.getAll().filter(n => notificationAppliesTo(n, sessionUser, isVisible)).slice(0, 50)
     : []
   const unreadCount = visibleNotifications.filter((n) => !n.read).length
 

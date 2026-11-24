@@ -742,3 +742,35 @@ def test_strict_spreadsheet_distinguishes_fetch_failure_from_empty(push_module, 
     with pytest.raises(RuntimeError, match="spreadsheet unavailable"):
         push_module._parse_spreadsheet("https://example.test/a.xlsx", strict=True)
     assert push_module._parse_spreadsheet("https://example.test/a.xlsx") == ([], [])
+
+
+def test_push_override_failure_never_falls_back_to_role(push_module, monkeypatch):
+    from unittest.mock import Mock
+    user = {"id": "22222222-2222-4222-8222-222222222222", "is_super_admin": False}
+    monkeypatch.setattr(push_module, "_get_subs", lambda: [{"user": user}])
+    monkeypatch.setattr(push_module, "_resolve_batch_rbac", lambda _: {user["id"]: {
+        "ws-a": {"membership_id": "m1", "role_id": "r1"}}})
+    monkeypatch.setattr(push_module, "_resolve_batch_role_permissions", lambda _: {"r1": {"stock.item.edit"}})
+    monkeypatch.setattr(push_module, "_resolve_batch_overrides", lambda _: None)
+    with pytest.raises(RuntimeError, match="overrides unavailable"):
+        push_module._target_subs(module="stock", workspace_id="ws-a")
+
+
+def test_strict_push_revalidates_demoted_and_inactive_profiles(push_module, monkeypatch):
+    from unittest.mock import Mock
+    demoted = "22222222-2222-4222-8222-222222222222"
+    inactive = "33333333-3333-4333-8333-333333333333"
+    active_admin = "44444444-4444-4444-8444-444444444444"
+    subs = [{"user": {"id": uid, "is_super_admin": True}} for uid in (demoted, inactive, active_admin)]
+    monkeypatch.setattr(push_module, "_get_subs", lambda **_: subs)
+    response = Mock(ok=True)
+    response.json.return_value = [
+        {"id": demoted, "status": "active", "is_super_admin": False, "notify_settings": {}},
+        {"id": active_admin, "status": "active", "is_super_admin": True, "notify_settings": {}},
+    ]
+    monkeypatch.setattr(push_module.requests, "get", Mock(return_value=response))
+    monkeypatch.setattr(push_module, "_resolve_batch_rbac", lambda *a, **k: {})
+    monkeypatch.setattr(push_module, "_resolve_batch_role_permissions", lambda *a, **k: {})
+    monkeypatch.setattr(push_module, "_resolve_batch_overrides", lambda *a, **k: {})
+    selected = push_module._target_subs(module="stock", workspace_id="ws-a", strict=True)
+    assert [sub["user"]["id"] for sub in selected] == [active_admin]
