@@ -36,13 +36,16 @@ export function useTickets() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [realtimeConnected, setRealtimeConnected] = useState(false)
-  const [broadcastConnected, setBroadcastConnected] = useState(false)
+  const [, setBroadcastConnected] = useState(false)
   const { workspace } = useWorkspace()
   const workspaceId = workspace?.id ?? null
   const invalidationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeConnectedRef = useRef(false)
   const realtimeStatusSeenRef = useRef(false)
   const sanitizedRef = useRef(false)
+  const pendingSync = useRef<Promise<void> | null>(null)
+  const lastSyncAttempt = useRef(0)
+  const syncAgain = useRef(false)
 
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true)
@@ -58,6 +61,14 @@ export function useTickets() {
 
   const syncRemote = useCallback(async (silent = true) => {
     if (!silent) setSyncing(true)
+    if (pendingSync.current) {
+      syncAgain.current = true
+      return pendingSync.current
+    }
+    const run = async () => {
+    do {
+    syncAgain.current = false
+    lastSyncAttempt.current = Date.now()
     try {
       await ticketService.pullRemote()
     } catch {
@@ -71,10 +82,15 @@ export function useTickets() {
       // Fase 2.2.2: alertas de SLA no mesmo ciclo (mesma fonte e dedupe).
       syncSlaAlerts()
     }
+    } while (syncAgain.current)
+    }
+    const task = run()
+    pendingSync.current = task
+    try { await task } finally { pendingSync.current = null; setSyncing(false) }
   }, [load])
 
   // Checagem pontual de arquivamento: nunca é acoplada ao syncRemote,
-  // pois syncRemote também roda no fallback periódico de 30s.
+  // pois syncRemote também roda no fallback periódico de 45s.
   const checkAutoArchive = useCallback(async (): Promise<number> => {
     try {
       return await ticketService.autoArchiveResolved()
@@ -93,25 +109,39 @@ export function useTickets() {
     })
   }, [load, checkAutoArchive, syncRemote])
 
-  // Um postgres_changes SUBSCRIBED não garante eventos para tabelas com RLS
-  // fechado. Broadcast privado por campus é o gatilho, mas a reconciliação
-  // visível continua: 2min conectado, 30s sem canal, e sempre no retorno ao PWA.
+  // Broadcast is primary; reconcile periodically even in hidden tabs.
   useEffect(() => {
-    const syncWhenVisible = () => {
-      if (document.visibilityState === 'visible') void syncRemote()
+    const tick = () => {
+      if (!pendingSync.current && Date.now() - lastSyncAttempt.current >= 45000) void syncRemote()
     }
-    const timer = window.setInterval(syncWhenVisible, broadcastConnected ? 120000 : 30000)
-    document.addEventListener('visibilitychange', syncWhenVisible)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    let worker: Worker | undefined
+    let timer: number | undefined
+    const fallback = () => {
+      worker?.terminate()
+      worker = undefined
+      if (timer === undefined) timer = window.setInterval(tick, 45000)
+    }
+    try {
+      worker = new Worker(new URL('./ticketWatchdog.worker.ts', import.meta.url), { type: 'module' })
+      worker.onmessage = tick
+      worker.onerror = fallback
+    } catch {
+      fallback()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', syncWhenVisible)
+      worker?.terminate()
+      if (timer !== undefined) window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [broadcastConnected, syncRemote])
+  }, [syncRemote])
 
   // Cada INSERT/UPDATE/DELETE em um chamado emite somente um sinal de invalidação;
   // a API autenticada continua responsável por fornecer os dados e aplicar RBAC.
   const onTicketInvalidated = useCallback(() => {
-    if (document.visibilityState === 'hidden') return
     if (invalidationTimer.current !== null) clearTimeout(invalidationTimer.current)
     invalidationTimer.current = setTimeout(() => {
       invalidationTimer.current = null
@@ -149,7 +179,7 @@ export function useTickets() {
     setRealtimeConnected(connected)
 
     // Se a primeira resposta do canal já indicar falha, não esperamos o
-    // intervalo de 30s: buscamos o remoto imediatamente. Falhas posteriores
+    // intervalo de 45s: buscamos o remoto imediatamente. Falhas posteriores
     // só disparam novo pull quando representam uma transição de estado.
     if (connected !== wasConnected || (isFirstStatus && !connected)) {
       void syncRemote()
