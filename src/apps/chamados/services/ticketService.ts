@@ -453,7 +453,10 @@ export const ticketService = {
 
   /** Puxa os chamados do servidor e mescla no cache local (mais recente por updatedAt). */
   pullRemote: async (): Promise<void> => {
+    const key = chamadosCacheKey()
     const { tickets } = await request<{ tickets: Ticket[] }>(API_BASE)
+    // A response authorized for a previous session must not populate a new user's cache.
+    if (key !== chamadosCacheKey()) throw new Error('Sessão alterada durante sincronização')
     mergeRemote(tickets || [])
   },
 
