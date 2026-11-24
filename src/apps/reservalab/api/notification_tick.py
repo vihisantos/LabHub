@@ -68,9 +68,10 @@ def _publish_fixed_tick(deduplication_id: str, *, publish=None) -> bool:
     """Wake-up best-effort; PostgreSQL outbox + schedule handle recovery.
 
     The message contains only a fixed job type. No ticket, staff or patient
-    details are sent to QStash. Production-only and signed by QStash on delivery.
+    details are sent to QStash. Production or explicitly enabled staging; signed by QStash on delivery.
     """
-    if os.environ.get("VERCEL_ENV") != "production":
+    destination = tick_destination()
+    if not destination:
         return False
     token = os.environ.get("QSTASH_TOKEN", "").strip()
     if not token:
@@ -80,6 +81,8 @@ def _publish_fixed_tick(deduplication_id: str, *, publish=None) -> bool:
     bypass = os.environ.get("VERCEL_AUTOMATION_BYPASS_SECRET", "").strip() if preview else ""
     if preview and not bypass:
         return False
+    if preview:
+        deduplication_id = "staging-" + deduplication_id
     http_client = None
     try:
         if publish is None:
@@ -96,7 +99,7 @@ def _publish_fixed_tick(deduplication_id: str, *, publish=None) -> bool:
             publish = client.message.publish
 
         publish(
-            url=TICK_URL,
+            url=destination,
             body=TICK_BODY.decode("utf-8"),
             content_type="application/json",
             deduplication_id=deduplication_id,
