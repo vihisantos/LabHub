@@ -12,6 +12,7 @@ import uuid
 TICK_PATH = "/api/notifications/qstash/tick"
 TICK_URL = f"https://lab-hub-pi.vercel.app{TICK_PATH}"
 TICK_BODY = b'{"job":"labhub-notifications","version":1}'
+PERIODIC_BODY = b'{"job":"labhub-notifications-periodic","version":1}'
 
 
 def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) -> bool:
@@ -22,7 +23,7 @@ def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) ->
     """
     if os.environ.get("VERCEL_ENV") != "production":
         return False
-    if body != TICK_BODY or not isinstance(signature, str) or not signature:
+    if body not in (TICK_BODY, PERIODIC_BODY) or not isinstance(signature, str) or not signature:
         return False
 
     current = os.environ.get("QSTASH_CURRENT_SIGNING_KEY", "").strip()

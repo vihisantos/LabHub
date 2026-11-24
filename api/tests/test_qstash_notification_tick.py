@@ -491,3 +491,76 @@ def test_chamados_producers_wake_each_distinct_claim_event(api_module, monkeypat
     assert len(wake) == 2
     assert set(wake) == {item[0] for item in queued}
     assert all(item[1]["module"] == "chamados" for item in queued)
+
+
+def test_periodic_body_is_signed_and_bound_to_same_destination(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("QSTASH_CURRENT_SIGNING_KEY", "test-current")
+    monkeypatch.setenv("QSTASH_NEXT_SIGNING_KEY", "test-next")
+    receiver = Mock()
+    assert tick.verify_signed_tick(tick.PERIODIC_BODY, "signed", receiver_factory=Mock(return_value=receiver))
+    receiver.verify.assert_called_once_with(
+        body=tick.PERIODIC_BODY.decode(), signature="signed", url=tick.TICK_URL,
+    )
+    assert not tick.verify_signed_tick(b'{"job":"labhub-notifications-periodic","version":2}', "signed")
+
+
+@pytest.mark.parametrize("signed", [False, True])
+def test_periodic_checks_are_separate_and_fail_closed(api_module, monkeypatch, signed):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", Mock(return_value=signed))
+    reservations = Mock(return_value={"checked": True, "queued": 2})
+    approvals = Mock(return_value={"checked": True, "queued": 1})
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    dispatch = Mock()
+    monkeypatch.setattr(api_module, "_internal_push_check", reservations)
+    monkeypatch.setattr(api_module, "_check_pending_users", approvals)
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", dispatch)
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == (200 if signed else 401)
+    assert reservations.call_count == int(signed)
+    assert approvals.call_count == int(signed)
+    assert worker.call_count == int(signed)
+    dispatch.assert_not_called()
+
+
+def test_periodic_failure_does_not_prevent_other_check_or_delivery(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    monkeypatch.setattr(api_module, "_internal_push_check", Mock(side_effect=TimeoutError))
+    approval = Mock(return_value={"checked": True, "queued": 1})
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    monkeypatch.setattr(api_module, "_check_pending_users", approval)
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == 503
+    approval.assert_called_once()
+    worker.assert_called_once_with(5, 5)
+
+
+def test_no_new_periodic_events_does_not_repeat_worker(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    monkeypatch.setattr(api_module, "_internal_push_check", Mock(return_value={"checked": True, "queued": 0}))
+    monkeypatch.setattr(api_module, "_check_pending_users", Mock(return_value={"checked": True, "queued": 0}))
+    worker = Mock()
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == 200
+    worker.assert_not_called()
+
+
+@pytest.mark.parametrize("context", ["lab-reserva", "tablet"])
+def test_reservation_outbox_preserves_full_module_access(api_module, monkeypatch, context):
+    target = Mock(return_value=[])
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    assert api_module._deliver_outbox_notification("reservation-test", {
+        "module": "reservalab", "context": context, "workspace_id": "ws-a",
+    })
+    assert target.call_args.kwargs["min_level"] == "full"
+    assert target.call_args.kwargs["workspace_id"] == "ws-a"

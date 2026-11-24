@@ -2429,7 +2429,7 @@ def _internal_push_check():
                 
                 queue_status = _queue_push_event(
                     notify_id, title, body, module='reservalab',
-                    workspace_id=r.get('_scope') or None,
+                    workspace_id=r.get('_scope') or None, min_level='full',
                     ttl=_push_dedup_seconds(), context='lab-reserva',
                 )
                 if queue_status == 'queued':
@@ -2505,7 +2505,7 @@ def _internal_push_check():
                             ws_id = t.get('workspace_id')
                             queue_status = _queue_push_event(
                                 notify_id, title, body, module='reservalab',
-                                workspace_id=ws_id, ttl=_push_dedup_seconds(),
+                                workspace_id=ws_id, min_level='full', ttl=_push_dedup_seconds(),
                                 context='tablet',
                             )
                             if queue_status == 'queued':

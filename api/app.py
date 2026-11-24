@@ -13,6 +13,8 @@ from app import (
     _push_notify_subs_dedup,
     _MODULE_PUSH_ACTIONS,
     _queue_push_event,
+    _internal_push_check,
+    _check_pending_users,
     push_notify,
     _push_outcome,
     PUSH_ACCEPTED,
@@ -59,6 +61,7 @@ from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
 from notification_tick import (
     TICK_PATH as _QSTASH_TICK_PATH,
+    PERIODIC_BODY as _QSTASH_PERIODIC_BODY,
     verify_signed_tick as _verify_qstash_tick,
     request_tick_for_created_ticket as _request_tick_for_created_ticket,
     request_tick_for_chamados_event as _request_tick_for_chamados_event,
@@ -6575,6 +6578,10 @@ def _deliver_outbox_notification(event_id, payload):
             logger.info('[notifications] aviso de abertura obsoleto descartado: %s', event_id)
             return True
 
+    # Preserve the operational recipient restriction of the legacy reminder.
+    if module == 'reservalab' and context in ('lab-reserva', 'tablet'):
+        min_level = 'full'
+
     targeting_module = module
     if module and module not in _MODULE_PUSH_ACTIONS:
         # Eventos de autenticação/aprovação são direcionados ao usuário e não
@@ -6687,9 +6694,10 @@ def notifications_qstash_tick():
     # parâmetros que permitam alterar lote, campus, destinatários ou intervalo.
     if request.content_length is not None and request.content_length > 256:
         return jsonify({'error': 'Assinatura inválida'}), 401
+    raw_body = request.get_data(cache=False)
     try:
         verified = _verify_qstash_tick(
-            request.get_data(cache=False),
+            raw_body,
             request.headers.get('Upstash-Signature', ''),
         )
     except (RuntimeError, ImportError):
@@ -6697,6 +6705,31 @@ def notifications_qstash_tick():
         return jsonify({'error': 'Agendador indisponível'}), 503
     if not verified:
         return jsonify({'error': 'Assinatura inválida'}), 401
+
+    if raw_body == _QSTASH_PERIODIC_BODY:
+        # Distinct signed job: event wake-ups never scan external spreadsheets.
+        # The normal 5-minute tick remains available for recovery.
+        results = {}
+        for name, check in (
+            ('reservalab', _internal_push_check),
+            ('approval', _check_pending_users),
+        ):
+            try:
+                outcome = check()
+                results[name] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
+            except Exception as exc:
+                logger.warning('[notifications] periodic %s failed: %s', name, type(exc).__name__)
+                results[name] = {'error': 'check failed'}
+        queued = sum(int(result.get('queued') or 0) for result in results.values())
+        delivery, code = ({'status': 'not_needed'}, 200)
+        if queued:
+            delivery, code = _run_notification_worker(5, 5)
+        failed = code != 200 or any(result.get('error') for result in results.values())
+        return jsonify({
+            'status': 'error' if failed else 'ok',
+            'periodic': results,
+            'queue': delivery,
+        }), (503 if failed else 200)
 
     queue_result, queue_code = _run_notification_worker(5, 5)
     try:
