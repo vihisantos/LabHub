@@ -56,3 +56,8 @@ def test_main_requires_reserved_and_applied_candidate():
 def test_reservation_from_other_pr_blocks_even_before_apply():
     with pytest.raises(ValueError, match="incompatible candidate"):
         plan({}, {"121": CURRENT["121"]}, APPLIED_BASE, RESERVED, "pull_request")
+
+def test_later_main_push_cannot_bypass_failed_premerge():
+    with pytest.raises(ValueError, match="not prevalidated"):
+        plan({}, CURRENT, APPLIED, RESERVED, "push")
+    assert plan({}, CURRENT, APPLIED, VERIFIED, "push") == []
