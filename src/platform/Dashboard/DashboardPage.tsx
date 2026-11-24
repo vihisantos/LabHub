@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useHealth } from '../../core/health/useHealth'
 import { useNotifications } from '../../core/notifications/useNotifications'
@@ -13,7 +13,6 @@ import { ActivityFeed } from './ActivityFeed'
 import { ProfileSheet } from '../Profile/ProfileSheet'
 import { UserAvatar } from '../Profile/UserAvatar'
 import { NotificationsSheet } from '../NotificationCenter/NotificationsSheet'
-import { OnboardingOverlay, completeOnboarding, hasCompletedOnboarding } from '../Onboarding/OnboardingOverlay'
 import { PushNotificationButton } from '../../apps/reservalab/components/PushNotificationButton'
 import { icons } from '../../lib/icons'
 
@@ -28,7 +27,6 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const [profileOpen, setProfileOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [onboardingOpen, setOnboardingOpen] = useState(false)
 
   const { metrics } = useHealth()
   const { unreadCount } = useNotifications()
@@ -44,12 +42,6 @@ export function DashboardPage() {
    */
   const { isCoordinatorMultiUnit } = useCoordinator()
   const showCoordinatorBanner = isCoordinatorMultiUnit
-
-  useEffect(() => {
-    if (user && !hasCompletedOnboarding(user.id)) {
-      setOnboardingOpen(true)
-    }
-  }, [user])
 
   useFastSync(['notifications'], 10000)
 
@@ -164,14 +156,6 @@ export function DashboardPage() {
       <PushNotificationButton />
       <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
       <NotificationsSheet open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
-      <OnboardingOverlay
-        open={onboardingOpen}
-        userName={user?.name || ''}
-        onFinish={() => {
-          if (user) completeOnboarding(user.id)
-          setOnboardingOpen(false)
-        }}
-      />
     </div>
   )
 }
