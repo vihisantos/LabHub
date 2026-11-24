@@ -1,0 +1,55 @@
+"""Pure shared staging collision and promotion tests (no database)."""
+from pathlib import Path
+import sys
+
+import pytest
+
+SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS))
+
+from ci.staging_candidate_guard import plan, PREVERIFIED  # noqa: E402
+
+NAME = "122_chamados_queue_revisions.sql"
+DIGEST = "a" * 64
+BLOB = PREVERIFIED[NAME]
+CANDIDATES = {"122": (NAME, DIGEST, BLOB)}
+CURRENT = {"121": ("121_base.sql", "b" * 64), "122": (NAME, DIGEST)}
+APPLIED_BASE = [{"version": "121", "filename": "121_base.sql"}]
+APPLIED = APPLIED_BASE + [{"version": "122", "filename": NAME}]
+RESERVED = [{"version": "122", "filename": NAME, "sha256": DIGEST}]
+
+
+def test_pr_reserves_new_candidate_and_accepts_same_retry():
+    assert plan(CANDIDATES, CURRENT, APPLIED_BASE, [], "pull_request") == [("122", NAME, DIGEST)]
+    assert plan(CANDIDATES, CURRENT, APPLIED, RESERVED, "pull_request") == []
+
+
+def test_manual_122_exact_preverified_blob_only():
+    assert plan(CANDIDATES, CURRENT, APPLIED, [], "pull_request") == [("122", NAME, DIGEST)]
+    with pytest.raises(ValueError, match="no verified fingerprint"):
+        plan({"122": (NAME, DIGEST, "f" * 40)}, CURRENT, APPLIED, [], "pull_request")
+
+
+@pytest.mark.parametrize("change", ["filename", "sha256"])
+def test_other_candidate_cannot_reuse_version(change):
+    other = dict(RESERVED[0], **{change: "different"})
+    with pytest.raises(ValueError, match="incompatible candidate"):
+        plan(CANDIDATES, CURRENT, APPLIED_BASE, [other], "pull_request")
+
+
+def test_applied_other_pr_is_blocked():
+    with pytest.raises(ValueError, match="outside this commit"):
+        plan({}, {"121": CURRENT["121"]}, APPLIED, [], "pull_request")
+
+
+def test_main_requires_reserved_and_applied_candidate():
+    assert plan(CANDIDATES, CURRENT, APPLIED, RESERVED, "push") == []
+    with pytest.raises(ValueError, match="not prevalidated"):
+        plan(CANDIDATES, CURRENT, APPLIED, [], "push")
+    with pytest.raises(ValueError, match="not prevalidated"):
+        plan(CANDIDATES, CURRENT, APPLIED_BASE, RESERVED, "push")
+
+
+def test_reservation_from_other_pr_blocks_even_before_apply():
+    with pytest.raises(ValueError, match="incompatible candidate"):
+        plan({}, {"121": CURRENT["121"]}, APPLIED_BASE, RESERVED, "pull_request")
