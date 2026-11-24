@@ -51,7 +51,8 @@ def test_migrations_continua_automatico_sem_aprovacao_manual() -> None:
     assert "release-gate:" in MIGRATIONS
     config = [line for line in MIGRATIONS.splitlines() if not line.lstrip().startswith("#")]
     assert not any(line.strip().startswith("workflow_dispatch:") for line in config)
-    assert not any(line.strip().startswith("environment:") for line in config)
+    assert [line.strip() for line in config if line.strip().startswith("environment:")] == ["environment: production-migrations"]
+    assert "SUPABASE_PRODUCTION_ENV_READY" in MIGRATIONS
     for proibido in (
         "MIGRATIONS_RELEASE_APPROVED",
         "MIGRATIONS_BACKUP_CONFIRMED",
