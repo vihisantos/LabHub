@@ -1,8 +1,8 @@
 """Validação estática da separação de credenciais no workflow de migrations.
 
 Adaptado dos testes de segurança da PR #483 para o desenho final: aqui não existe
-``workflow_dispatch`` nem aplicação em Staging dentro de PR. A cadeia é
-``validate -> stage-migrations -> release-gate -> production``.
+``workflow_dispatch``. PR interna valida staging, produção só após merge.
+``scope -> validate -> stage-migrations -> premerge-gate``; main mantém release-gate.
 """
 from __future__ import annotations
 
@@ -100,12 +100,19 @@ def test_no_manual_dispatch_or_environment_approval() -> None:
         assert forbidden not in TEXT
 
 
-def test_pull_requests_cannot_apply_to_shared_targets() -> None:
-    for job_name in ("stage-migrations", "release-gate", "production"):
+def test_pull_requests_cannot_apply_to_production() -> None:
+    for job_name in ("release-gate", "production"):
         block = _job_block(job_name)
         assert "github.event_name == 'push'" in block
         assert "github.ref == 'refs/heads/main'" in block
         assert "pull_request" not in block
+    stage = _job_block("stage-migrations")
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in stage
+    assert "staging_candidate_guard.py" in stage
+    assert "secrets.SUPABASE_ACCESS_TOKEN" not in stage
+    gate = _job_block("premerge-gate")
+    assert "always()" in gate
+    assert 'test "$STAGING_RESULT" = success' in gate
     validate = _job_block("validate")
     assert "github.event_name == 'pull_request'" in validate
     assert "secrets." not in validate
