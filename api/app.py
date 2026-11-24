@@ -6924,7 +6924,7 @@ def app_notifications_list():
         (role/user) é reaplicada no cliente (notificationAppliesTo).
     """
     if not _require_supabase():
-        return jsonify({'notifications': []})
+        return jsonify({'error': 'Serviço de notificações indisponível'}), 503
     try:
         user = g.user or {}
         is_super = bool(user.get('is_super_admin'))
@@ -6936,7 +6936,11 @@ def app_notifications_list():
             headers=_supabase_headers(),
             timeout=10,
         )
-        rows = resp.json() if resp.ok else []
+        if not resp.ok:
+            return jsonify({'error': 'Falha ao consultar notificações'}), 503
+        rows = resp.json()
+        if not isinstance(rows, list):
+            return jsonify({'error': 'Resposta inválida de notificações'}), 503
         out = []
         for r in rows or []:
             # Notificações direcionadas a uma pessoa são privadas no backend;
@@ -6956,7 +6960,7 @@ def app_notifications_list():
         return jsonify({'notifications': out})
     except Exception as e:
         logger.error("app notifications error: %s", e)
-        return jsonify({'notifications': []})
+        return jsonify({'error': 'Falha ao consultar notificações'}), 503
 
 
 # ── Zerar dados (factory reset) ──
