@@ -26,6 +26,7 @@ from pywebpush import webpush, WebPushException
 sys.path.insert(0, os.path.dirname(__file__))
 from auth import (
     require_auth,
+    require_workspace,
     require_module as require_module_auth,
     require_cron,
     require_admin,
@@ -1627,7 +1628,7 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
-    context=None, actions=None,
+    context=None, actions=None, exclude_user_id=None,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1639,6 +1640,7 @@ def _queue_push_event(
         'workspace_id': workspace_id,
         'target_user_id': user_id,
         'target_role': role,
+        'exclude_user_id': exclude_user_id,
         'target_super_admin': target_super_admin,
         'min_level': min_level,
         'action_url': url or '/',
@@ -2618,75 +2620,91 @@ def _get_key(obj, *keys):
     return None
 
 
+def _notify_stock_movement(event_type):
+    """Cria Push somente a partir de movimento de Estoque persistido e autorizado.
+
+    Nunca confia no título, no módulo ou no campus enviados pelo navegador.
+    O outbox é idempotente por movimento e não há fallback de envio direto.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'JSON inválido'}), 400
+    if body.get('module') not in (None, 'stock'):
+        return jsonify({'error': 'Módulo incompatível'}), 400
+    movement_id = str(body.get('movement_id') or body.get('movementId') or '').strip()
+    if not _is_valid_uuid(movement_id):
+        return jsonify({'error': 'movement_id obrigatório e válido'}), 400
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return jsonify({'error': 'Banco indisponível'}), 503
+
+    try:
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/stock_movements',
+            params={
+                'select': '*',
+                'id': f'eq.{movement_id}',
+                'workspace_id': f'eq.{g.workspace_id}',
+                'limit': 1,
+            },
+            headers={**_supabase_headers(), 'Accept-Profile': 'stock'},
+            timeout=8,
+        )
+        if not response.ok:
+            logger.warning('[push-stock] falha na consulta de movimento: %s', response.status_code)
+            return jsonify({'error': 'Falha ao validar movimento'}), 503
+        rows = response.json()
+        if not isinstance(rows, list):
+            return jsonify({'error': 'Resposta inválida do banco'}), 503
+        if not rows:
+            return jsonify({'error': 'Movimento não encontrado neste campus'}), 404
+        movement = rows[0]
+        expected_type = 'emprestimo' if event_type == 'loan' else 'devolucao'
+        if (not isinstance(movement, dict)
+                or str(movement.get('workspace_id') or '') != str(g.workspace_id)
+                or movement.get('type') != expected_type
+                or movement.get('deletedAt')):
+            return jsonify({'error': 'Movimento incompatível ou removido'}), 409
+
+        item = str(movement.get('itemName') or 'Item')[:100]
+        if event_type == 'loan':
+            title = f'📦 Empréstimo: {item}'
+            msg = f"Emprestado para {str(movement.get('borrowedBy') or 'Alguém')[:100]}"
+            expected = str(movement.get('expectedReturnAt') or '')
+            if expected:
+                msg += f' — Devolução até {expected[:10]}'
+        else:
+            title = f'✅ Devolução: {item}'
+            msg = f"Devolvido por {str(movement.get('performedBy') or 'Alguém')[:100]}"
+
+        event_id = f'stock:{event_type}:{movement_id}'
+        status = _queue_push_event(
+            event_id, title, msg, module='stock', workspace_id=str(g.workspace_id),
+            url='/stock/loans', context=f'stock-{event_type}', ttl=86400,
+        )
+        if status not in ('queued', 'duplicate'):
+            return jsonify({'error': 'Falha ao registrar notificação'}), 503
+        return jsonify({'event_id': event_id, 'status': status}), 202
+    except Exception as exc:
+        logger.warning('[push-stock] falha ao validar/enfileirar movimento: %s', exc)
+        return jsonify({'error': 'Falha ao registrar notificação'}), 503
+
+
 @app.route('/api/push/notify-loan', methods=['POST'])
 @require_auth
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_loan():
-    """Notify stock subscribers about a loan. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        borrowed_by = body.get('borrowedBy', 'Alguém')
-        expected_return = body.get('expectedReturnAt', '')
-
-        title = f"📦 Empréstimo: {item_name}"
-        msg = f"Emprestado para {borrowed_by}"
-        if expected_return:
-            msg += f" — Devolução até {expected_return[:10]}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Loan notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-loan error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de empréstimo'}), 500
+    return _notify_stock_movement('loan')
 
 
 @app.route('/api/push/notify-return', methods=['POST'])
 @require_auth
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_return():
-    """Notify stock subscribers about a return. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        returned_by = body.get('returnedBy', 'Alguém')
-
-        title = f"✅ Devolução: {item_name}"
-        msg = f"Devolvido por {returned_by}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Return notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-return error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de devolução'}), 500
+    return _notify_stock_movement('return')
 
 
 def _ensure_stock_schema(supabase_url, supabase_key):
