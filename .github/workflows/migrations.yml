@@ -138,7 +138,8 @@ jobs:
           python -m pytest
           tests/test_ci_cd_pipeline.py
           tests/test_workflow_security.py
-          tests/test_release_gate_concurrency.py -q
+          tests/test_release_gate_concurrency.py
+          tests/test_staging_candidate_guard.py -q
 
       - name: Migration validation (runner unit tests)
         working-directory: scripts
