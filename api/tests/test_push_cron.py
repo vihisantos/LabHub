@@ -790,10 +790,12 @@ def test_stock_notification_derives_content_and_scope_from_committed_movement(pu
     monkeypatch.setattr(push_module, "_queue_push_event", enqueue)
     with push_module.app.test_request_context(json={"movement_id": movement, "itemName": "Fake"}):
         g.workspace_id = ws
-        result, code = push_module._enqueue_stock_movement_notice("emprestimo")
+        result, code = push_module._notify_stock_movement("loan")
         assert code == 202
     assert get.call_args.kwargs["params"]["workspace_id"] == f"eq.{ws}"
-    assert enqueue.call_args.args[1] == "Empréstimo: Real"
+    assert enqueue.call_args.args[1] == "📦 Empréstimo: Real"
+    assert enqueue.call_args.args[0] == f"stock:loan:{movement}"
+    assert "Fake" not in enqueue.call_args.args[1]
     assert enqueue.call_args.kwargs["workspace_id"] == ws
     assert enqueue.call_args.kwargs["module"] == "stock"
 
@@ -801,9 +803,9 @@ def test_stock_notification_derives_content_and_scope_from_committed_movement(pu
     enqueue.reset_mock()
     with push_module.app.test_request_context(json={"movement_id": movement}):
         g.workspace_id = ws
-        assert push_module._enqueue_stock_movement_notice("emprestimo")[1] == 404
+        assert push_module._notify_stock_movement("loan")[1] == 409
     enqueue.assert_not_called()
     with push_module.app.test_request_context(json={"movement_id": movement, "module": "chamados"}):
         g.workspace_id = ws
-        assert push_module._enqueue_stock_movement_notice("emprestimo")[1] == 400
+        assert push_module._notify_stock_movement("loan")[1] == 400
     enqueue.assert_not_called()
