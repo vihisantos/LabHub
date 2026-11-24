@@ -6589,7 +6589,11 @@ def _deliver_outbox_notification(event_id, payload):
     strict_stock_movement = module == 'stock' and context in ('stock-loan', 'stock-return')
     if strict_stock_movement and not workspace_id:
         raise ValueError('movimento de estoque sem campus')
-    target_options = {'strict': True} if strict_stock_movement else {}
+    scoped_chamados = module == 'chamados' and (min_level in ('claim', 'full')
+        or context in ('chamados-created', 'chamados-claimed', 'chamados-assigned'))
+    if scoped_chamados and not workspace_id:
+        raise ValueError('aviso operacional de chamados sem campus')
+    target_options = {'strict': True} if strict_stock_movement or scoped_chamados else {}
     subs = _target_subs(
         module=targeting_module,
         workspace_id=workspace_id,
