@@ -81,6 +81,7 @@ vi.mock('../visibility', () => ({ notificationAppliesTo: () => true }))
 import {
   useNotifications,
   __resetNotificationsPollingForTests,
+  requestNotificationRefresh,
 } from '../useNotifications'
 
 function flushFetch() {
@@ -321,6 +322,58 @@ describe('useNotifications — polling remoto compartilhado', () => {
 
     expect(mocks.ingestRemote).not.toHaveBeenCalled()
     unmount()
+  })
+
+  it('eventos em rajada acionam uma única leitura autenticada sem esperar 10s', async () => {
+    const a = renderHook(() => useNotifications())
+    const b = renderHook(() => useNotifications())
+    await flushFetch()
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+    act(() => {
+      requestNotificationRefresh()
+      requestNotificationRefresh()
+      requestNotificationRefresh()
+    })
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    a.unmount()
+    b.unmount()
+  })
+
+  it('evento durante GET pendente é reconciliado após a resposta', async () => {
+    let finish!: (value: any) => void
+    mocks.fetchMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    act(() => {
+      requestNotificationRefresh()
+      requestNotificationRefresh()
+    })
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+    finish({ ok: true, json: async () => ({ notifications: [] }) })
+    await flushFetch()
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+
+  it('reconexão online atualiza imediatamente sem aguardar polling', async () => {
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    act(() => window.dispatchEvent(new Event('online')))
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+
+  it('encerra evento agendado quando o último consumidor desmonta', async () => {
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    act(() => requestNotificationRefresh())
+    unmount()
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('resposta não-ok não ingere nada e não derruba o polling', async () => {

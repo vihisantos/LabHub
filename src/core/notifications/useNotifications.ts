@@ -8,6 +8,7 @@ import { notificationAppliesTo } from './visibility'
 import { useModuleVisibilities } from '../permissions/useModuleVisibility'
 import { appRegistry } from '../../appRegistry'
 import type { User } from '../auth/types'
+import { recordNotificationSync } from './notificationSyncMetrics'
 
 // ── Date grouping helpers ────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ export function smartGroup(items: AppNotification[]): SmartGroupedNotification[]
 type NotifyListener = () => void
 
 const POLL_INTERVAL_MS = 10000
+const EVENT_COALESCE_MS = 250
 const listeners = new Set<NotifyListener>()
 let refCount = 0
 let intervalId: ReturnType<typeof setInterval> | null = null
@@ -80,6 +82,9 @@ let pollInFlight: Promise<void> | null = null
 let cancelledGlobal = false
 // Invalida respostas assíncronas iniciadas sob outra sessão/identidade.
 let authGeneration = 0
+let eventTimer: ReturnType<typeof setTimeout> | null = null
+let refreshAfterFlight = false
+let lastAttemptAt = 0
 
 let version = 0
 
@@ -88,7 +93,7 @@ function notifyListeners() {
   for (const l of listeners) l()
 }
 
-async function pollRemoteOnce(): Promise<void> {
+async function pollRemoteOnce(reason: 'poll' | 'event' = 'poll'): Promise<void> {
   if (pollInFlight) return pollInFlight
   if (cancelledGlobal) return
   if (!currentUser) return
@@ -101,23 +106,29 @@ async function pollRemoteOnce(): Promise<void> {
       const { data } = await defaultDb.auth.getSession()
       const token = data.session?.access_token
       if (!token || cancelledGlobal || generation !== authGeneration || !currentUser) return
+      lastAttemptAt = Date.now()
+      recordNotificationSync(reason)
       const res = await fetch('/api/app-notifications', {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!res.ok || cancelledGlobal || generation !== authGeneration || !currentUser) return
+      if (cancelledGlobal || generation !== authGeneration || !currentUser) return
+      if (!res.ok) { recordNotificationSync('failure'); return }
       const payload = await res.json()
       if (cancelledGlobal || generation !== authGeneration || !currentUser) return
-      const rows = (payload?.notifications ?? []) as Record<string, unknown>[]
+      if (!Array.isArray(payload?.notifications)) { recordNotificationSync('failure'); return }
+      const rows = payload.notifications as Record<string, unknown>[]
       let changed = false
       for (const row of rows) {
         // Sessão pode mudar enquanto a resposta está sendo processada.
         if (cancelledGlobal || generation !== authGeneration || !currentUser) return
         if (notificationService.ingestRemote(appNotificationFromRow(row))) changed = true
       }
+      recordNotificationSync('success')
       if (changed) {
         notifyListeners()
       }
     } catch {
+      if (!cancelledGlobal && generation === authGeneration) recordNotificationSync('failure')
       // falha de rede não afeta o sino
     }
   })()
@@ -127,12 +138,59 @@ async function pollRemoteOnce(): Promise<void> {
     await run
   } finally {
     // Uma execução antiga não pode limpar a referência de uma nova sessão.
-    if (pollInFlight === run) pollInFlight = null
+    if (pollInFlight === run) {
+      pollInFlight = null
+      if (refreshAfterFlight && generation === authGeneration && !cancelledGlobal) {
+        refreshAfterFlight = false
+        requestNotificationRefresh()
+      }
+    }
   }
 }
 
 function tick() {
   void pollRemoteOnce()
+}
+
+/** Invalidation is a hint only; content always comes from the authenticated API. */
+export function requestNotificationRefresh() {
+  if (cancelledGlobal || refCount === 0 || !currentUser || !navigator.onLine) return
+  if (pollInFlight) {
+    refreshAfterFlight = true
+    recordNotificationSync('coalesced')
+    return
+  }
+  if (eventTimer !== null) {
+    recordNotificationSync('coalesced')
+    return
+  }
+  const generation = authGeneration
+  eventTimer = setTimeout(() => {
+    eventTimer = null
+    if (generation !== authGeneration || cancelledGlobal) return
+    if (pollInFlight) {
+      refreshAfterFlight = true
+      return
+    }
+    void pollRemoteOnce('event')
+  }, EVENT_COALESCE_MS)
+}
+
+function onServiceWorkerMessage(event: MessageEvent) {
+  if (event.data?.type === 'labhub:notifications-changed') requestNotificationRefresh()
+}
+
+function onVisible() {
+  if (document.visibilityState === 'visible' && Date.now() - lastAttemptAt >= POLL_INTERVAL_MS) {
+    requestNotificationRefresh()
+  }
+}
+
+function clearEventState() {
+  if (eventTimer !== null) clearTimeout(eventTimer)
+  eventTimer = null
+  refreshAfterFlight = false
+  lastAttemptAt = 0
 }
 
 function startGlobal() {
@@ -141,10 +199,19 @@ function startGlobal() {
   // Initial poll
   void pollRemoteOnce()
   intervalId = setInterval(tick, POLL_INTERVAL_MS)
+  window.addEventListener('online', requestNotificationRefresh)
+  document.addEventListener('visibilitychange', onVisible)
+  navigator.serviceWorker?.addEventListener('message', onServiceWorkerMessage)
 }
 
 function stopGlobal() {
   cancelledGlobal = true
+  authGeneration++
+  pollInFlight = null
+  clearEventState()
+  window.removeEventListener('online', requestNotificationRefresh)
+  document.removeEventListener('visibilitychange', onVisible)
+  navigator.serviceWorker?.removeEventListener('message', onServiceWorkerMessage)
   if (intervalId !== null) {
     clearInterval(intervalId)
     intervalId = null
@@ -164,6 +231,7 @@ const getSnapshot = () => version
 authService.onAuthChange((u) => {
   currentUser = u
   authGeneration++
+  clearEventState()
   // Libera o single-flight antigo: uma sessão nova não deve esperar a resposta
   // pendente da sessão anterior. A resposta antiga será descartada pela geração.
   pollInFlight = null
