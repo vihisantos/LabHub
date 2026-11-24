@@ -64,6 +64,7 @@ from notification_dispatcher import publish_pending, process_pending
 from notification_tick import (
     TICK_PATH as _QSTASH_TICK_PATH,
     PERIODIC_BODY as _QSTASH_PERIODIC_BODY,
+    tick_destination as _qstash_tick_destination,
     verify_signed_tick as _verify_qstash_tick,
     request_tick_for_created_ticket as _request_tick_for_created_ticket,
     request_tick_for_chamados_event as _request_tick_for_chamados_event,
@@ -6809,6 +6810,13 @@ def _deliver_outbox_notification(event_id, payload, *, lab_snapshots=None):
             targeting_module = None
         else:
             raise ValueError('módulo sem política RBAC de Push')
+    strict_stock_movement = module == 'stock' and context in ('stock-loan', 'stock-return')
+    if strict_stock_movement and not workspace_id:
+        raise ValueError('movimento de estoque sem campus')
+    scoped_chamados = module == 'chamados' and (min_level in ('claim', 'full')
+        or context in ('chamados-created', 'chamados-claimed', 'chamados-assigned'))
+    if scoped_chamados and not workspace_id:
+        raise ValueError('aviso operacional de chamados sem campus')
     subs = _target_subs(
         module=targeting_module,
         workspace_id=workspace_id,
@@ -6870,7 +6878,12 @@ def _run_notification_worker(publish_limit: int, consume_limit: int) -> tuple[di
         return {'error': 'PostgreSQL não configurado'}, 503
     try:
         worker_id = f"{os.environ.get('VERCEL_REGION', 'worker')}:{uuid.uuid4().hex}"
-        queue = NotificationQueue(redis)
+        if os.environ.get("VERCEL_ENV") == "preview":
+            if not _qstash_tick_destination():
+                return {"error": "Preview de notificações não habilitada"}, 503
+            queue = NotificationQueue(redis, stream="labhub:staging:notifications:stream:v1", group="labhub-staging-notification-workers")
+        else:
+            queue = NotificationQueue(redis)
         published = publish_pending(
             pg_store.store, queue, worker_id, limit=publish_limit,
         )
@@ -6921,7 +6934,8 @@ def _periodic_inventory_check(kind, now):
         return _queue_push_event(*args, **kwargs, persist_inapp=True)
     if redis is None:
         raise RuntimeError('inventory continuation store unavailable')
-    key = 'labhub:notifications:inventory-cursor:v1:' + kind
+    prefix = 'labhub:staging:' if os.environ.get('VERCEL_ENV') == 'preview' else 'labhub:'
+    key = prefix + 'notifications:inventory-cursor:v1:' + kind
     cursor = redis.get(key)
     if cursor:
         cursor = str(uuid.UUID(str(cursor)))
@@ -6945,7 +6959,7 @@ def notifications_qstash_tick():
     As cobranças em si são por chamado e revalidam status/responsável
     antes de cada envio; concorrência com o cron legado usa locks e dedup.
     """
-    if os.environ.get('VERCEL_ENV') != 'production':
+    if not _qstash_tick_destination():
         return jsonify({'error': 'Não encontrado'}), 404
 
     # Body e destino têm contrato fixo: sem URL arbitrária, JWT exposto ou

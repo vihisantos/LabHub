@@ -65,7 +65,7 @@ describe('applyMovementEffects', () => {
     expect(updateItem).toHaveBeenCalledWith('i-1', { status: 'descartado' })
   })
 
-  it('emprestimo: marca emprestado, define sala e notifica', () => {
+  it('emprestimo: atualiza item sem disparar push legado', () => {
     const createMovement = vi.fn()
     const updateItem = vi.fn()
     applyMovementEffects(
@@ -74,7 +74,7 @@ describe('applyMovementEffects', () => {
       { createMovement, updateItem },
     )
     expect(updateItem).toHaveBeenCalledWith('i-1', { status: 'emprestado', room: 'Lab 3' })
-    expect(fetch).toHaveBeenCalledWith('/api/push/notify-loan', expect.objectContaining({ method: 'POST' }))
+    expect(fetch).not.toHaveBeenCalled() // sem push antes de persistência autorizada
   })
 
   it('emprestimo: mantém a sala do item quando não há destino', () => {
@@ -84,12 +84,12 @@ describe('applyMovementEffects', () => {
     expect(updateItem).toHaveBeenCalledWith('i-1', { status: 'emprestado', room: 'Lab 1' })
   })
 
-  it('devolucao: marca ativo e notifica a devolução', () => {
+  it('devolucao: atualiza item sem disparar push legado', () => {
     const createMovement = vi.fn()
     const updateItem = vi.fn()
     applyMovementEffects(makeItem({ status: 'emprestado' }), makeMovement('devolucao'), { createMovement, updateItem })
     expect(updateItem).toHaveBeenCalledWith('i-1', { status: 'ativo' })
-    expect(fetch).toHaveBeenCalledWith('/api/push/notify-return', expect.objectContaining({ method: 'POST' }))
+    expect(fetch).not.toHaveBeenCalled() // sem push antes de persistência autorizada
   })
 
   it('entrada: reativa o item e atualiza a sala quando diferente', () => {
