@@ -8453,7 +8453,10 @@ def chamados_photos_purge():
         return jsonify({'error': 'Photo purge is production-only'}), 403
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
-    dry_run = (request.get_json(silent=True) or {}).get('dry_run') is True
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({'error': 'Invalid body'}), 400
+    dry_run = body.get('dry_run') is True
     cutoff = datetime.now(timezone.utc) - timedelta(days=2)
     try:
         tickets = _photo_purge_read('chamados_tickets', {
@@ -8480,8 +8483,10 @@ def chamados_photos_purge():
             try:
                 urls = json.loads(raw or '[]')
             except (TypeError, ValueError):
-                urls = []
-            if not isinstance(urls, list):
+                urls = None
+            if not isinstance(urls, list) or any(not isinstance(u, str) for u in urls):
+                if 'res.cloudinary.com/' in str(raw):
+                    raise RuntimeError('ambiguous photo reference')
                 continue
             for url in urls:
                 add(url, e.get('ticket_id'), 'ticket_events', e, raw)
