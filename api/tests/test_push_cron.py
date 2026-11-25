@@ -809,3 +809,42 @@ def test_stock_notification_derives_content_and_scope_from_committed_movement(pu
         g.workspace_id = ws
         assert push_module._notify_stock_movement("loan")[1] == 400
     enqueue.assert_not_called()
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_legacy_producers_mutually_exclusive_with_qstash(push_module, client, monkeypatch, enabled):
+    from unittest.mock import Mock
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("LABHUB_QSTASH_PERIODIC_ENABLED", "1" if enabled else "0")
+    monkeypatch.setenv("CRON_SECRET", "test-cron")
+    headers = {"Authorization": "Bearer test-cron"}
+    producers = {
+        "reservas": "_internal_push_check",
+        "overdue": "_internal_push_check_overdue",
+        "pcare": "_internal_push_check_pcare",
+        "pendentes": "_check_pending_users",
+        "validade": "_check_stock_expiry",
+    }
+    for fn in producers.values():
+        monkeypatch.setattr(push_module, fn, Mock(return_value={"checked": True}))
+    cleanup = Mock(return_value={"checked": True})
+    monkeypatch.setattr(push_module, "_internal_tablets_cleanup", cleanup)
+    response = client.get("/api/push/check-all", headers=headers)
+    assert response.status_code == 200
+    results = response.get_json()["results"]
+    for name, fn in producers.items():
+        assert getattr(push_module, fn).call_count == (0 if enabled else 1)
+        if enabled:
+            assert results[name]["skipped"] == "qstash_owns_periodic_producers"
+    cleanup.assert_called_once()
+    for endpoint, fn in (
+        ("/api/push/check", "_internal_push_check"),
+        ("/api/push/check-overdue", "_internal_push_check_overdue"),
+        ("/api/push/check-pcare", "_internal_push_check_pcare"),
+    ):
+        before = getattr(push_module, fn).call_count
+        response = client.get(endpoint, headers=headers)
+        assert response.status_code == 200
+        assert getattr(push_module, fn).call_count == before + (0 if enabled else 1)
+        if enabled:
+            assert response.get_json()["skipped"] == "qstash_owns_periodic_producers"
