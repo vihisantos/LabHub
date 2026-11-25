@@ -1734,9 +1734,11 @@ def test_cloudinary_destroy_signed_and_retryable(api_module, fake_requests, monk
     assert data["invalidate"] == "true"
     assert data["api_key"] == "fake-key"
     signed = "&".join(f"{key}={data[key]}" for key in ("invalidate", "public_id", "timestamp"))
-    assert data["signature"] == hashlib.sha1((signed + "fake-secret").encode()).hexdigest()
+    assert data["signature"] == hashlib.sha256((signed + "fake-secret").encode()).hexdigest()
     assert not api_module._cloudinary_destroy("https://res.cloudinary.com/other/image/upload/v1/chamados/horytsxg.jpg")
     assert api_module._cloudinary_public_id("https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/iphone.heic") == "chamados/iphone"
+    assert api_module._cloudinary_public_id("https://evil.example/res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg") is None
+    assert api_module._cloudinary_public_id("https://res.cloudinary.com.evil.example/horytsxg/image/upload/v1/chamados/a.jpg") is None
 
 
 def _push_test_fixture(api_module, monkeypatch):
@@ -2153,3 +2155,24 @@ def test_rate_limit_limpa_entradas_antigas(client, fake_requests, api_module):
     assert api_module._check_rate_limit(ip) is True
     api_module._rate_limit_store.clear()
 
+
+
+@pytest.mark.parametrize("malformed", ['{"unexpected":"value"}', 'broken-json', '["https://example.test/image.jpg", 123]'])
+def test_purge_ambiguous_reference_blocks_all_deletions(client, fake_requests, api_module, monkeypatch, malformed):
+    from unittest.mock import Mock
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    ticket = _make_ticket(status="fechado", closedAt="2026-06-20T12:00:00Z",
+                          photos="https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg")
+    fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([ticket]))
+    fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([{
+        "id": "ev-1", "ticket_id": ticket["id"], "workspace_id": ticket["workspace_id"],
+        "photo_urls": malformed,
+    }]))
+    destroy = Mock(return_value=True)
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", destroy)
+    response = client.post("/api/chamados/photos/purge", headers={"Authorization": "Bearer super-secret"})
+    assert response.status_code == 503
+    destroy.assert_not_called()
+    assert not fake_requests.calls_for("PATCH", "/rest/v1/")

@@ -663,7 +663,7 @@ def _cloudinary_destroy(image_url: str) -> bool:
     # Upload API destroy requires signed parameters, not Admin API Basic auth.
     fields = {'public_id': public_id, 'invalidate': 'true', 'timestamp': str(int(time.time()))}
     signed = '&'.join(f'{key}={fields[key]}' for key in sorted(fields))
-    signature = hashlib.sha1((signed + api_secret).encode(), usedforsecurity=False).hexdigest()
+    signature = hashlib.sha256((signed + api_secret).encode()).hexdigest()
     destroy_url = f'https://api.cloudinary.com/v1_1/{cloud_name}/image/destroy'
     try:
         resp = requests.post(
@@ -8484,10 +8484,13 @@ def chamados_photos_purge():
                 urls = json.loads(raw or '[]')
             except (TypeError, ValueError):
                 urls = None
-            if not isinstance(urls, list) or any(not isinstance(u, str) for u in urls):
-                if 'res.cloudinary.com/' in str(raw):
-                    raise RuntimeError('ambiguous photo reference')
+            # Legacy single data URLs are local-only and cannot refer to a
+            # remote asset. All other malformed records block deletion rather
+            # than guessing whether a substring represents a Cloudinary URL.
+            if isinstance(urls, str) and urls.startswith('data:image/'):
                 continue
+            if not isinstance(urls, list) or any(not isinstance(u, str) for u in urls):
+                raise RuntimeError('ambiguous photo reference')
             for url in urls:
                 add(url, e.get('ticket_id'), 'ticket_events', e, raw)
         candidates = {pid: refs for pid, refs in references.items()
