@@ -58,7 +58,8 @@ from rbac import (
     record_rbac_audit as rbac_record_audit,
 )
 import pg_store
-from notification_periodic import due_inventory_check, run_inventory_check
+from notification_periodic import (due_inventory_check, run_inventory_check,
+                                   revalidate_inventory_event, INVENTORY_CONTEXTS)
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
 from notification_tick import (
@@ -6841,6 +6842,15 @@ def _deliver_outbox_notification(event_id, payload, *, lab_snapshots=None):
         ]
 
     if payload.get('persist_inapp') is True:
+        if (module, context) in INVENTORY_CONTEXTS:
+            current = revalidate_inventory_event(
+                event_id, payload, datetime.now(timezone(timedelta(hours=-3))),
+                read=_inventory_read,
+            )
+            if current is None:
+                return True  # resolved, transferred or obsolete
+            title, message = current
+            title, message = title[:160], message[:2000]
         _persist_periodic_bell(event_id, payload, title, message, action_url)
 
     if not subs:
@@ -6920,17 +6930,19 @@ def notifications_worker():
     return jsonify(result), code
 
 
+def _inventory_read(schema, table, params):
+    if not _require_supabase():
+        raise RuntimeError('inventory database unavailable')
+    resp = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+        headers={**_supabase_headers(), 'Accept-Profile': schema}, timeout=6,
+    )
+    if not resp.ok:
+        raise RuntimeError('inventory read failed')
+    return resp.json()
+
+
 def _periodic_inventory_check(kind, now):
-    def read(schema, table, params):
-        if not _require_supabase():
-            raise RuntimeError('inventory database unavailable')
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
-            headers={**_supabase_headers(), 'Accept-Profile': schema}, timeout=6,
-        )
-        if not resp.ok:
-            raise RuntimeError('inventory read failed')
-        return resp.json()
     def enqueue(*args, **kwargs):
         return _queue_push_event(*args, **kwargs, persist_inapp=True)
     if redis is None:
@@ -6948,7 +6960,7 @@ def _periodic_inventory_check(kind, now):
         cursor = redis.get(key)
         if cursor:
             cursor = str(uuid.UUID(str(cursor)))
-        result = run_inventory_check(kind, now, read=read, enqueue=enqueue, cursor=cursor)
+        result = run_inventory_check(kind, now, read=_inventory_read, enqueue=enqueue, cursor=cursor)
         if 'next_cursor' in result:
             next_cursor = result.pop('next_cursor')
             next_cursor = str(uuid.UUID(next_cursor)) if next_cursor else ''
