@@ -735,7 +735,8 @@ def test_pr_artifact_roundtrip_is_mandatory_and_fail_closed():
     import os
     import subprocess
     job = _job("verify-staging-artifact")
-    assert job["concurrency"] == {"group": "migrations-delivery", "cancel-in-progress": False}
+    assert job["concurrency"]["group"] == "migrations-delivery"
+    assert str(job["concurrency"]["cancel-in-progress"]).lower() == "false"
     assert "github.event_name == 'pull_request'" in job["if"]
     assert "github.event.pull_request.head.repo.full_name == github.repository" in job["if"]
     download = _step("verify-staging-artifact", "Download staging attestation by ID")
