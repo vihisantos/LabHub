@@ -1736,6 +1736,7 @@ def test_cloudinary_destroy_signed_and_retryable(api_module, fake_requests, monk
     signed = "&".join(f"{key}={data[key]}" for key in ("invalidate", "public_id", "timestamp"))
     assert data["signature"] == hashlib.sha1((signed + "fake-secret").encode()).hexdigest()
     assert not api_module._cloudinary_destroy("https://res.cloudinary.com/other/image/upload/v1/chamados/horytsxg.jpg")
+    assert api_module._cloudinary_public_id("https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/iphone.heic") == "chamados/iphone"
 
 
 def _push_test_fixture(api_module, monkeypatch):
