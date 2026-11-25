@@ -39,40 +39,49 @@ def periodic_producers_enabled() -> bool:
     return os.environ.get("LABHUB_QSTASH_PERIODIC_ENABLED") == "1" and bool(tick_destination())
 
 
-def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) -> bool:
-    """Valida a assinatura QStash, payload fixo e URL oficial (fail-closed).
+PHOTO_PURGE_PATH = "/api/chamados/photos/qstash/purge"
+PHOTO_PURGE_URL = f"https://lab-hub-pi.vercel.app{PHOTO_PURGE_PATH}"
+PHOTO_PURGE_BODY = b'{"job":"labhub-chamados-photos-purge","version":1}'
+PHOTO_PURGE_DRY_BODY = b'{"job":"labhub-chamados-photos-dry-run","version":1}'
 
-    A verificação inclui o destino HTTPS oficial no JWT do QStash, nunca o
-    Host controlado pelo chamador. Nenhuma credencial é retornada/logada.
-    """
-    destination = tick_destination()
-    if not destination:
-        return False
-    if body not in (TICK_BODY, PERIODIC_BODY) or not isinstance(signature, str) or not signature:
-        return False
 
+def _verify_fixed_job(body, signature, destination, allowed_bodies, *, receiver_factory=None):
+    if not destination or body not in allowed_bodies or not isinstance(signature, str) or not signature:
+        return False
     current = os.environ.get("QSTASH_CURRENT_SIGNING_KEY", "").strip()
     following = os.environ.get("QSTASH_NEXT_SIGNING_KEY", "").strip()
     if not current or not following:
         raise RuntimeError("QStash signing keys not configured")
-
     if receiver_factory is None:
         from qstash import Receiver
         receiver_factory = Receiver
-
-    verifier = receiver_factory(
-        current_signing_key=current,
-        next_signing_key=following,
-    )
+    verifier = receiver_factory(current_signing_key=current, next_signing_key=following)
     try:
-        verifier.verify(
-            body=body.decode("utf-8"),
-            signature=signature,
-            url=destination,
-        )
+        verifier.verify(body=body.decode("utf-8"), signature=signature, url=destination)
     except Exception:
         return False
     return True
+
+
+def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) -> bool:
+    """Verify exact signed notification job and configured destination."""
+    return _verify_fixed_job(body, signature, tick_destination(), (TICK_BODY, PERIODIC_BODY),
+                             receiver_factory=receiver_factory)
+
+
+def photo_purge_destination():
+    # Cloudinary credentials are shared with preview; never delete from there.
+    if os.environ.get("VERCEL_ENV") != "production":
+        return None
+    if os.environ.get("SUPABASE_URL", "").rstrip("/") != "https://hvqxantwqwarqhymnyqb.supabase.co":
+        return None
+    return PHOTO_PURGE_URL
+
+
+def verify_signed_photo_purge(body: bytes, signature: str, *, receiver_factory=None) -> bool:
+    return _verify_fixed_job(body, signature, photo_purge_destination(),
+                             (PHOTO_PURGE_BODY, PHOTO_PURGE_DRY_BODY),
+                             receiver_factory=receiver_factory)
 
 
 def _publish_fixed_tick(deduplication_id: str, *, publish=None) -> bool:
