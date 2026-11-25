@@ -65,6 +65,7 @@ from notification_tick import (
     TICK_PATH as _QSTASH_TICK_PATH,
     PERIODIC_BODY as _QSTASH_PERIODIC_BODY,
     tick_destination as _qstash_tick_destination,
+    periodic_producers_enabled as _periodic_producers_enabled,
     verify_signed_tick as _verify_qstash_tick,
     request_tick_for_created_ticket as _request_tick_for_created_ticket,
     request_tick_for_chamados_event as _request_tick_for_chamados_event,
@@ -6978,7 +6979,7 @@ def notifications_qstash_tick():
     if not verified:
         return jsonify({'error': 'Assinatura inválida'}), 401
 
-    if raw_body == _QSTASH_PERIODIC_BODY:
+    if raw_body == _QSTASH_PERIODIC_BODY and _periodic_producers_enabled():
         # Recover critical work before any slow external spreadsheet reads.
         try:
             workflow_result = _drain_chamado_workflow_outbox(limit=5)
