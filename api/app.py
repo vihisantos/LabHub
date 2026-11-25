@@ -6937,19 +6937,38 @@ def _periodic_inventory_check(kind, now):
         raise RuntimeError('inventory continuation store unavailable')
     prefix = 'labhub:staging:' if os.environ.get('VERCEL_ENV') == 'preview' else 'labhub:'
     key = prefix + 'notifications:inventory-cursor:v1:' + kind
-    cursor = redis.get(key)
-    if cursor:
-        cursor = str(uuid.UUID(str(cursor)))
-    result = run_inventory_check(kind, now, read=read, enqueue=enqueue, cursor=cursor)
-    if 'next_cursor' in result:
-        next_cursor = result.pop('next_cursor')
-        if next_cursor:
-            next_cursor = str(uuid.UUID(next_cursor))
-            if redis.set(key, next_cursor, ex=604800) != 'OK':
-                raise RuntimeError('inventory continuation write failed')
-        elif cursor:
-            redis.delete(key)
-    return result
+    lock_key = key + ':lease'
+    owner = uuid.uuid4().hex
+    acquired = redis.set(lock_key, owner, ex=300, nx=True)
+    if acquired is None:
+        return {'checked': False, 'skipped': 'inventory_lease_held', 'queued': 0}
+    if acquired != 'OK':
+        raise RuntimeError('inventory lease acquisition failed')
+    try:
+        cursor = redis.get(key)
+        if cursor:
+            cursor = str(uuid.UUID(str(cursor)))
+        result = run_inventory_check(kind, now, read=read, enqueue=enqueue, cursor=cursor)
+        if 'next_cursor' in result:
+            next_cursor = result.pop('next_cursor')
+            next_cursor = str(uuid.UUID(next_cursor)) if next_cursor else ''
+            # A worker whose lease expired cannot overwrite its successor.
+            committed = redis.eval(
+                "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end "
+                "if ARGV[2] == '' then redis.call('DEL', KEYS[2]) "
+                "else redis.call('SET', KEYS[2], ARGV[2], 'EX', 604800) end return 1",
+                [lock_key, key], [owner, next_cursor],
+            )
+            if committed != 1:
+                raise RuntimeError('inventory continuation lease lost')
+        return result
+    finally:
+        # Never delete a lease acquired by another worker after our expiry.
+        redis.eval(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+            "return redis.call('DEL', KEYS[1]) end return 0",
+            [lock_key], [owner],
+        )
 
 
 @_route_once(_QSTASH_TICK_PATH, methods=['POST'])
