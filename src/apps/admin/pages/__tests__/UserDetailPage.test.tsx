@@ -235,6 +235,26 @@ describe('UserDetailPage', () => {
     expect(screen.getByText('Conta aprovada — acesso ainda não configurado')).toBeInTheDocument()
   })
 
+  it('exibe erro e mantém a conta pendente quando a aprovação falha', async () => {
+    mockAdminService.listAllProfiles.mockResolvedValue([{ ...activeUser, status: 'pending', roleId: 'role-viewer' }])
+    mockAdminService.approveUser.mockResolvedValue(false)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Aprovar' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Aprovar' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Erro ao aprovar')).toBeInTheDocument()
+    })
+    expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123')
+    // A conta continua pendente: nada de "aprovada" em cascata.
+    expect(screen.queryByText('Conta aprovada — acesso ainda não configurado')).not.toBeInTheDocument()
+    expect(screen.getByText('Esta conta aguarda aprovação da administração.')).toBeInTheDocument()
+  })
+
   it('conta ativa sem membership mostra "acesso ainda não configurado"', async () => {
     mockAdminService.listAllProfiles.mockResolvedValue([{
       ...activeUser,
