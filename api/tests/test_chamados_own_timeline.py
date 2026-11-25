@@ -814,7 +814,19 @@ def test_timeline_nao_e_persistida_em_cache_local(api_module):
     backend. Se um dia alguém cachear isto por usuário, a separação entre sessão
     do solicitante e coleção operacional precisa ser revista — é o risco da #344,
     que continua fora desta PR."""
+    import ast
+
     src = API_FILE.read_text(encoding="utf-8")
-    trecho = src.split("def chamados_events_list")[1].split("\n@app.route")[0]
+    # Bound the guard to the actual endpoint, including its decorators.
+    # A textual split on @app.route is incorrect for @_route_once and
+    # accidentally includes unrelated Redis operations in later endpoints.
+    functions = [
+        node for node in ast.parse(src).body
+        if isinstance(node, ast.FunctionDef) and node.name == "chamados_events_list"
+    ]
+    assert len(functions) == 1, "endpoint da timeline ausente ou duplicado"
+    endpoint = functions[0]
+    start = min([endpoint.lineno] + [d.lineno for d in endpoint.decorator_list])
+    trecho = "\n".join(src.splitlines()[start - 1:endpoint.end_lineno])
     for nome in ("_chamados_events_cache", "CACHE", "redis.set", "lru_cache"):
         assert nome not in trecho, f"cache inesperado na timeline: {nome}"
