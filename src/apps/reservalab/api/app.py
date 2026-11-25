@@ -42,6 +42,7 @@ from auth import (
 )
 from rbac import require_action as require_action_rbac
 from upstash_redis import create_redis_client
+from notification_tick import periodic_producers_enabled
 
 # Detecta caminho correto quando rodando de exe
 if getattr(sys, 'frozen', False):
@@ -2387,6 +2388,8 @@ def push_action():
 @require_cron
 def push_check():
     """Check de reservas próximas (janela configurável, default 30 min). Protegido por CRON_SECRET."""
+    if periodic_producers_enabled():
+        return jsonify({'checked': False, 'skipped': 'qstash_owns_periodic_producers'})
     result = _internal_push_check()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
@@ -2886,6 +2889,8 @@ def _ensure_stock_schema(supabase_url, supabase_key):
 @require_cron
 def push_check_overdue():
     """Check de empréstimos com prazo próximo (12 h). Protegido por CRON_SECRET."""
+    if periodic_producers_enabled():
+        return jsonify({'checked': False, 'skipped': 'qstash_owns_periodic_producers'})
     result = _internal_push_check_overdue()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
@@ -2985,6 +2990,8 @@ def _internal_push_check_overdue():
 @require_cron
 def push_check_pcare():
     """Check de estoque baixo de peças e manutenções agendadas. Protegido por CRON_SECRET."""
+    if periodic_producers_enabled():
+        return jsonify({'checked': False, 'skipped': 'qstash_owns_periodic_producers'})
     result = _internal_push_check_pcare()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
@@ -3360,14 +3367,19 @@ def push_check_all():
     """
 
     results = {}
-    for name, fn in [
+    checks = [
         ('reservas', _internal_push_check),
         ('overdue', _internal_push_check_overdue),
         ('pcare', _internal_push_check_pcare),
         ('pendentes', _check_pending_users),
         ('validade', _check_stock_expiry),
         ('tablets_cleanup', _internal_tablets_cleanup),
-    ]:
+    ]
+    if periodic_producers_enabled():
+        for name, _ in checks[:-1]:
+            results[name] = {'checked': False, 'skipped': 'qstash_owns_periodic_producers'}
+        checks = checks[-1:]  # Preserve retention until its separate schedule is verified.
+    for name, fn in checks:
         try:
             out = fn()
             results[name] = out
