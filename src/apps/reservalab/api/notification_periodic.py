@@ -1,6 +1,7 @@
 """Periodic inventory producers: bounded, campus-scoped, outbox only."""
 from datetime import timedelta
 import hashlib
+import uuid
 
 # Spread expensive checks over the hour, without increasing QStash frequency.
 SLOTS = {0: "stock-loans", 15: "pcare-parts", 30: "stock-expiry", 45: "pcare-maint"}
@@ -98,7 +99,8 @@ def run_inventory_check(kind, now, *, read, enqueue, cursor=None):
         event_id = hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()
         try:
             result = enqueue(event_id, title, message, module=module,
-                             workspace_id=workspace, context=context, url=url, ttl=ttl)
+                             workspace_id=workspace, context=context, url=url, ttl=ttl,
+                             inventory_id=str(identifier))
         except Exception:
             result = None
         if result == "queued":
@@ -116,3 +118,45 @@ def run_inventory_check(kind, now, *, read, enqueue, cursor=None):
     if failures:
         result.update(error="inventory check incomplete", failures=failures)
     return result
+
+
+# Reuse the same eligibility predicates and event identity for a fresh, single
+# scoped row. An expired bucket or changed campus is not a new delivery.
+INVENTORY_CONTEXTS = {
+    ("stock", "overdue"): "stock-loans",
+    ("stock", "stock-expiry"): "stock-expiry",
+    ("pc-care", "pcare-part"): "pcare-parts",
+    ("pc-care", "pcare-maint"): "pcare-maint",
+}
+
+
+def revalidate_inventory_event(event_id, payload, now, *, read):
+    kind = INVENTORY_CONTEXTS.get((payload.get("module"), payload.get("context")))
+    if kind is None:
+        raise ValueError("unknown inventory event")
+    try:
+        item = str(uuid.UUID(str(payload.get("inventory_id"))))
+        workspace = str(uuid.UUID(str(payload.get("workspace_id"))))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError("inventory event missing canonical scope") from exc
+    current = []
+
+    def scoped_read(schema, table, params):
+        rows = read(schema, table, {**params, "id": "eq." + item,
+                                   "workspace_id": "eq." + workspace, "limit": 1})
+        if not isinstance(rows, list) or len(rows) > 1:
+            raise RuntimeError("invalid inventory revalidation response")
+        for row in rows:
+            if str(row.get("id")) != item or str(row.get("workspace_id")) != workspace:
+                raise RuntimeError("inventory revalidation scope mismatch")
+        return rows
+
+    def capture(candidate, title, message, **kwargs):
+        if candidate == event_id:
+            current.append((title, message))
+        return "duplicate"
+
+    outcome = run_inventory_check(kind, now, read=scoped_read, enqueue=capture)
+    if outcome.get("error"):
+        raise RuntimeError("inventory revalidation incomplete")
+    return current[0] if current else None
