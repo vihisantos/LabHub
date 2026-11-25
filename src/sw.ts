@@ -81,7 +81,14 @@ self.addEventListener('push', (event: PushEvent) => {
       }))
   }
 
-  event.waitUntil(self.registration.showNotification(title, options))
+  // The system notification remains independent of in-app synchronization.
+  // Send only an invalidation hint, never the push content or recipient ID.
+  const hint = self.clients.matchAll({ type: 'window' }).then((clients) => {
+    for (const client of clients) {
+      try { client.postMessage({ type: 'labhub:notifications-changed' }) } catch { /* closed client */ }
+    }
+  }).catch(() => { /* best effort; normal polling remains available */ })
+  event.waitUntil(Promise.all([self.registration.showNotification(title, options), hint]))
 })
 
 /* ------------------------------------------------------------------ */

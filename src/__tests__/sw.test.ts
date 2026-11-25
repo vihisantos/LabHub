@@ -217,6 +217,26 @@ describe('sw.ts — push handler', () => {
     )
   })
 
+  it('envia apenas um sinal de invalidação às janelas, sem conteúdo ou identidade', async () => {
+    const client = { postMessage: vi.fn() }
+    fakeSelf.clients.matchAll.mockResolvedValueOnce([client])
+    const handler = listeners['push']?.[0]
+    const event = makePushEvent({ title: 'Privado', body: 'Conteúdo privado', userId: 'user-abc' })
+    handler(event)
+    await event.waitUntil.mock.calls[0][0]
+    expect(client.postMessage).toHaveBeenCalledWith({ type: 'labhub:notifications-changed' })
+    expect(fakeSelf.registration.showNotification).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('falha no aviso local não impede a notificação do sistema', async () => {
+    fakeSelf.clients.matchAll.mockRejectedValueOnce(new Error('unavailable'))
+    const event = makePushEvent({ title: 'Aviso' })
+    listeners['push']?.[0](event)
+    await expect(event.waitUntil.mock.calls[0][0]).resolves.toBeDefined()
+    expect(fakeSelf.registration.showNotification).toHaveBeenCalledTimes(1)
+  })
+
   it('preserva userId do payload', async () => {
     const handler = listeners['push']?.[0]
 

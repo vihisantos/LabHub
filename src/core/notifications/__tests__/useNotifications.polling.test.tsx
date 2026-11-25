@@ -30,10 +30,11 @@ const mocks = vi.hoisted(() => ({
     }
   }),
   getSession: vi.fn(async () => ({
-    data: { session: { access_token: 'test-token' } },
+    data: { session: { access_token: 'test-token', user: { id: 'user-1' } } },
     error: null,
   })),
   fetchMock: vi.fn(),
+  realtimeSubscribe: vi.fn((_id: string, _changed: () => void, _connected: (value: boolean) => void) => () => {}),
   subscribe: vi.fn(() => () => {}),
   useModuleVisibilities: vi.fn(() => ({ isVisible: () => true })),
 }))
@@ -76,11 +77,14 @@ vi.mock('../../permissions/useModuleVisibility', () => ({
 
 vi.mock('../../../appRegistry', () => ({ appRegistry: [] }))
 
+vi.mock('../notificationRealtime', () => ({ subscribeNotificationInvalidation: mocks.realtimeSubscribe }))
+
 vi.mock('../visibility', () => ({ notificationAppliesTo: () => true }))
 
 import {
   useNotifications,
   __resetNotificationsPollingForTests,
+  requestNotificationRefresh,
 } from '../useNotifications'
 
 function flushFetch() {
@@ -104,6 +108,10 @@ beforeEach(() => {
   __resetNotificationsPollingForTests()
   vi.clearAllMocks()
   mocks.getCurrentUser.mockReturnValue({ id: 'user-1', is_super_admin: false } as any)
+  mocks.getSession.mockImplementation(async () => ({
+    data: { session: { access_token: 'test-token', user: { id: mocks.getCurrentUser()?.id ?? '' } } },
+    error: null,
+  }))
   mocks.getAll.mockReturnValue([])
   mocks.ingestRemote.mockReturnValue(false)
   mocks.fetchMock.mockResolvedValue({
@@ -238,6 +246,32 @@ describe('useNotifications — polling remoto compartilhado', () => {
     unmount()
   })
 
+  it('não consulta nem grava quando JWT pertence a outra conta', async () => {
+    mocks.getSession.mockResolvedValueOnce({
+      data: { session: { access_token: 'foreign-token', user: { id: 'user-2' } } },
+      error: null,
+    })
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    expect(mocks.fetchMock).not.toHaveBeenCalled()
+    expect(mocks.ingestRemote).not.toHaveBeenCalled()
+    await advance(10_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+    unmount()
+  })
+
+  it('descarta resposta se a conta do cache mudar antes do evento de auth', async () => {
+    let finish!: (value: any) => void
+    mocks.fetchMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    mocks.getCurrentUser.mockReturnValue({ id: 'user-2' } as any)
+    finish({ ok: true, json: async () => ({ notifications: [{ id: 'private-user-1' }] }) })
+    await flushFetch()
+    expect(mocks.ingestRemote).not.toHaveBeenCalled()
+    unmount()
+  })
+
   it('ingere cada notificação remota uma única vez e recarrega o estado local', async () => {
     mocks.fetchMock.mockResolvedValue({
       ok: true,
@@ -320,6 +354,98 @@ describe('useNotifications — polling remoto compartilhado', () => {
     await flushFetch()
 
     expect(mocks.ingestRemote).not.toHaveBeenCalled()
+    unmount()
+  })
+
+  it('eventos em rajada acionam uma única leitura autenticada sem esperar 10s', async () => {
+    const a = renderHook(() => useNotifications())
+    const b = renderHook(() => useNotifications())
+    await flushFetch()
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+    act(() => {
+      requestNotificationRefresh()
+      requestNotificationRefresh()
+      requestNotificationRefresh()
+    })
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    a.unmount()
+    b.unmount()
+  })
+
+  it('evento durante GET pendente é reconciliado após a resposta', async () => {
+    let finish!: (value: any) => void
+    mocks.fetchMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    act(() => {
+      requestNotificationRefresh()
+      requestNotificationRefresh()
+    })
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+    finish({ ok: true, json: async () => ({ notifications: [] }) })
+    await flushFetch()
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+
+  it('reconexão online atualiza imediatamente sem aguardar polling', async () => {
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    act(() => window.dispatchEvent(new Event('online')))
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+
+  it('encerra evento agendado quando o último consumidor desmonta', async () => {
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    act(() => requestNotificationRefresh())
+    unmount()
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('canal conectado reduz polling a reconciliação de 5 minutos e reage a evento', async () => {
+    mocks.getCurrentUser.mockReturnValue({ id: 'user-1', status: 'active' } as any)
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    const [, changed, connected] = mocks.realtimeSubscribe.mock.calls[0]
+    expect(mocks.realtimeSubscribe).toHaveBeenCalledTimes(1)
+    act(() => connected(true))
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    await advance(60_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(2)
+    act(() => changed())
+    await advance(250)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(3)
+    await advance(310_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(4)
+    act(() => connected(false))
+    await advance(250)
+    const calls = mocks.fetchMock.mock.calls.length
+    await advance(10_000)
+    expect(mocks.fetchMock.mock.calls.length).toBeGreaterThan(calls)
+    unmount()
+  })
+
+  it('logout ignora sinal de canal anterior', async () => {
+    mocks.getCurrentUser.mockReturnValue({ id: 'user-1', status: 'active' } as any)
+    const { unmount } = renderHook(() => useNotifications())
+    await flushFetch()
+    const [, changed, connected] = mocks.realtimeSubscribe.mock.calls[0]
+    act(() => {
+      mocks.getCurrentUser.mockReturnValue(null)
+      mocks.authListeners.forEach(listener => listener(null))
+      connected(true)
+      changed()
+    })
+    await advance(10_000)
+    expect(mocks.fetchMock).toHaveBeenCalledTimes(1)
     unmount()
   })
 

@@ -12,6 +12,7 @@ import uuid
 TICK_PATH = "/api/notifications/qstash/tick"
 TICK_URL = f"https://lab-hub-pi.vercel.app{TICK_PATH}"
 TICK_BODY = b'{"job":"labhub-notifications","version":1}'
+PERIODIC_BODY = b'{"job":"labhub-notifications-periodic","version":1}'
 
 
 def tick_destination():
@@ -28,6 +29,16 @@ def tick_destination():
     return f"https://{host}{TICK_PATH}"
 
 
+def periodic_producers_enabled() -> bool:
+    """One deployment-wide owner for scheduled notification producers.
+
+    Default is legacy until the QStash schedule is prepared. Preview requires
+    the existing trusted staging destination guard. Never switch on via a
+    caller-supplied parameter.
+    """
+    return os.environ.get("LABHUB_QSTASH_PERIODIC_ENABLED") == "1" and bool(tick_destination())
+
+
 def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) -> bool:
     """Valida a assinatura QStash, payload fixo e URL oficial (fail-closed).
 
@@ -37,7 +48,7 @@ def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) ->
     destination = tick_destination()
     if not destination:
         return False
-    if body != TICK_BODY or not isinstance(signature, str) or not signature:
+    if body not in (TICK_BODY, PERIODIC_BODY) or not isinstance(signature, str) or not signature:
         return False
 
     current = os.environ.get("QSTASH_CURRENT_SIGNING_KEY", "").strip()

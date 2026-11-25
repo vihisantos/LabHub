@@ -27,6 +27,12 @@ def api_module():
     return module
 
 
+@pytest.fixture(autouse=True)
+def disable_inventory_slot_by_default(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "due_inventory_check", lambda _: None)
+    monkeypatch.setenv("LABHUB_QSTASH_PERIODIC_ENABLED", "1")
+
+
 def test_signed_tick_verifies_body_signature_and_fixed_destination(api_module, monkeypatch):
     import notification_tick as tick
 
@@ -493,6 +499,314 @@ def test_chamados_producers_wake_each_distinct_claim_event(api_module, monkeypat
     assert all(item[1]["module"] == "chamados" for item in queued)
 
 
+def test_periodic_body_is_signed_and_bound_to_same_destination(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("QSTASH_CURRENT_SIGNING_KEY", "test-current")
+    monkeypatch.setenv("QSTASH_NEXT_SIGNING_KEY", "test-next")
+    receiver = Mock()
+    assert tick.verify_signed_tick(tick.PERIODIC_BODY, "signed", receiver_factory=Mock(return_value=receiver))
+    receiver.verify.assert_called_once_with(
+        body=tick.PERIODIC_BODY.decode(), signature="signed", url=tick.TICK_URL,
+    )
+    assert not tick.verify_signed_tick(b'{"job":"labhub-notifications-periodic","version":2}', "signed")
+
+
+@pytest.mark.parametrize("signed", [False, True])
+def test_periodic_checks_are_separate_and_fail_closed(api_module, monkeypatch, signed):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", Mock(return_value=signed))
+    reservations = Mock(return_value={"checked": True, "queued": 2})
+    approvals = Mock(return_value={"checked": True, "queued": 1})
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    dispatch = Mock(return_value={"enabled": True, "published": 0})
+    monkeypatch.setattr(api_module, "_internal_push_check", reservations)
+    monkeypatch.setattr(api_module, "_check_pending_users", approvals)
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", dispatch)
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == (200 if signed else 401)
+    assert reservations.call_count == int(signed)
+    assert approvals.call_count == int(signed)
+    if signed:
+        reservations.assert_called_once_with(strict_scope=True)
+        approvals.assert_called_once_with(require_outbox=True)
+    assert worker.call_count == 2 * int(signed)
+    assert dispatch.call_count == int(signed)
+
+
+def test_periodic_failure_does_not_prevent_other_check_or_delivery(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    monkeypatch.setattr(api_module, "_internal_push_check", Mock(side_effect=TimeoutError))
+    approval = Mock(return_value={"checked": True, "queued": 1})
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    monkeypatch.setattr(api_module, "_check_pending_users", approval)
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", Mock(return_value={"enabled": True}))
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == 503
+    approval.assert_called_once()
+    assert worker.call_count == 2
+
+
+def test_no_new_periodic_events_does_not_repeat_worker(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    monkeypatch.setattr(api_module, "_internal_push_check", Mock(return_value={"checked": True, "queued": 0}))
+    monkeypatch.setattr(api_module, "_check_pending_users", Mock(return_value={"checked": True, "queued": 0}))
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", Mock(return_value={"enabled": True}))
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == 200
+    worker.assert_called_once_with(5, 5)
+
+
+@pytest.mark.parametrize("context", ["lab-reserva", "tablet"])
+def test_reservation_outbox_preserves_full_module_access(api_module, monkeypatch, context):
+    target = Mock(return_value=[])
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    assert api_module._deliver_outbox_notification("reservation-test", {
+        "module": "reservalab", "context": context, "workspace_id": "ws-a",
+    })
+    assert target.call_args.kwargs["min_level"] == "full"
+    assert target.call_args.kwargs["workspace_id"] == "ws-a"
+
+
+def test_expired_reservation_does_not_alert(api_module, monkeypatch):
+    target = Mock(side_effect=AssertionError("expired notification must not resolve recipients"))
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    assert api_module._deliver_outbox_notification("old-reservation", {
+        "module": "reservalab", "context": "tablet", "workspace_id": "ws-a",
+        "expires_at": "2020-01-01T00:00:00+00:00",
+    })
+    target.assert_not_called()
+
+
+def test_approval_rechecks_pending_status_and_current_admins(api_module, monkeypatch):
+    user_id = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    pending = Mock(ok=True)
+    pending.json.return_value = [{"id": user_id}]
+    admins = Mock(ok=True)
+    admins.json.return_value = [{"id": "active-admin", "notify_settings": {}}]
+    monkeypatch.setattr(api_module.requests, "get", Mock(side_effect=[pending, admins]))
+    good = {"user": {"id": "active-admin", "is_super_admin": False}}
+    revoked = {"user": {"id": "revoked-admin", "is_super_admin": True}}
+    monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[good, revoked]))
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    payload = {"module": "auth", "context": "pending-user", "target_super_admin": True,
+               "action_url": f"/admin/users?pending={user_id}"}
+    assert api_module._deliver_outbox_notification("pending-event", payload)
+    assert send.call_args.args[0] == [good]
+    pending.json.return_value = []
+    monkeypatch.setattr(api_module.requests, "get", Mock(return_value=pending))
+    send.reset_mock()
+    assert api_module._deliver_outbox_notification("resolved-event", payload)
+    send.assert_not_called()
+
+
+def test_periodic_inventory_runs_only_in_periodic_job(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    monkeypatch.setattr(api_module, "due_inventory_check", lambda _: "stock-expiry")
+    monkeypatch.setattr(api_module, "_internal_push_check", Mock(return_value={"queued": 0}))
+    monkeypatch.setattr(api_module, "_check_pending_users", Mock(return_value={"queued": 0}))
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", Mock(return_value={"enabled": True}))
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    inventory = Mock(return_value={"checked": True, "queued": 1})
+    monkeypatch.setattr(api_module, "_periodic_inventory_check", inventory)
+    assert api_module.app.test_client().post(TICK_PATH, data=TICK_BODY).status_code == 200
+    inventory.assert_not_called()
+    assert api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY).status_code == 200
+    inventory.assert_called_once()
+    assert inventory.call_args.args[0] == "stock-expiry"
+    assert worker.call_count == 3
+
+
+@pytest.mark.parametrize("current,should_send", [
+    ([], False),
+    ([{"horario_inicio": "2099-01-01T14:00:00Z"}], False),
+    ([{"horario_inicio": "2099-01-01T13:00:00Z"}], True),
+])
+def test_tablet_reminder_rechecks_start_status_and_campus(api_module, monkeypatch, current, should_send):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = current
+    get = Mock(return_value=response)
+    monkeypatch.setattr(api_module.requests, "get", get)
+    target = Mock(return_value=[{"user": {"id": "tech"}}])
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    payload = {"module": "reservalab", "context": "tablet",
+               "workspace_id": "ws-a", "expires_at": "2099-01-01T10:00:00-03:00",
+               "reservation_id": "b394e6e1-b6e8-442c-aa99-c76c37ec3303"}
+    assert api_module._deliver_outbox_notification("tablet-event", payload)
+    params = get.call_args.kwargs["params"]
+    assert params["status"] == "eq.ativa"
+    assert params["workspace_id"] == "eq.ws-a"
+    assert send.call_count == int(should_send)
+
+
+def test_tablet_revalidation_failure_retries_without_sending(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    monkeypatch.setattr(api_module.requests, "get", Mock(return_value=Mock(ok=False)))
+    target = Mock()
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    with pytest.raises(RuntimeError, match="tablet revalidation failed"):
+        api_module._deliver_outbox_notification("tablet-event", {
+            "module": "reservalab", "context": "tablet", "workspace_id": "ws-a",
+            "expires_at": "2099-01-01T10:00:00-03:00",
+            "reservation_id": "b394e6e1-b6e8-442c-aa99-c76c37ec3303",
+        })
+    target.assert_not_called()
+
+
+def test_periodic_bell_is_persisted_without_push_subscription(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[]))
+    post = Mock(return_value=Mock(ok=True))
+    monkeypatch.setattr(api_module.requests, "post", post)
+    send = Mock()
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    payload = {"module": "stock", "context": "stock-expiry", "workspace_id": "ws-a",
+               "persist_inapp": True, "title": "Validade", "body": "Item"}
+    assert api_module._deliver_outbox_notification("event-1", payload)
+    assert api_module._deliver_outbox_notification("event-1", payload)
+    first, second = post.call_args_list
+    assert first.kwargs["json"] == second.kwargs["json"]
+    assert first.kwargs["json"]["id"] == "periodic:stock:stock-expiry:event-1"
+    assert first.kwargs["json"]["workspace_id"] == "ws-a"
+    assert "ignore-duplicates" in first.kwargs["headers"]["Prefer"]
+    send.assert_not_called()
+
+
+def test_periodic_bell_rejects_unscoped_or_unknown_events(api_module, monkeypatch):
+    post = Mock()
+    monkeypatch.setattr(api_module.requests, "post", post)
+    for payload in (
+        {"module": "stock", "context": "stock-expiry"},
+        {"module": "stock", "context": "unknown", "workspace_id": "ws-a"},
+    ):
+        with pytest.raises(ValueError, match="invalid periodic bell scope"):
+            api_module._persist_periodic_bell("event", payload, "title", "body", "/")
+    post.assert_not_called()
+
+
+def test_periodic_bell_authorization_is_batched_and_deny_wins(api_module, monkeypatch):
+    membership = Mock(ok=True)
+    membership.json.return_value = [
+        {"id": "m1", "workspace_id": "ws-a", "role_id": "r1", "status": "active"},
+    ]
+    roles = Mock(ok=True)
+    roles.json.return_value = [
+        {"role_id": "r1", "action": "stock.item.edit", "scope": "workspace"},
+        {"role_id": "r1", "action": "reservelab.tablet.reserve", "scope": "workspace"},
+    ]
+    overrides = Mock(ok=True)
+    overrides.json.return_value = [
+        {"membership_id": "m1", "action": "stock.item.edit", "effect": "deny"},
+    ]
+    get = Mock(side_effect=[membership, roles, overrides])
+    monkeypatch.setattr(api_module.requests, "get", get)
+    allowed = api_module._periodic_bell_authorizer("u1")
+    assert not allowed({"id": "periodic:stock:stock-expiry:x", "module": "stock", "workspace_id": "ws-a"})
+    assert allowed({"id": "periodic:reservalab:tablet:y", "module": "reservalab", "workspace_id": "ws-a"})
+    assert not allowed({"id": "periodic:reservalab:tablet:y", "module": "reservalab", "workspace_id": "ws-b"})
+    assert not allowed({"id": "periodic:reservalab:unknown:y", "module": "reservalab", "workspace_id": "ws-a"})
+    assert get.call_count == 3
+
+
+def test_periodic_bell_authorization_failure_does_not_ignore_denies(api_module, monkeypatch):
+    membership = Mock(ok=True)
+    membership.json.return_value = [
+        {"id": "m1", "workspace_id": "ws-a", "role_id": "r1", "status": "active"},
+    ]
+    roles = Mock(ok=True)
+    roles.json.return_value = [{"role_id": "r1", "action": "stock.item.edit", "scope": "workspace"}]
+    monkeypatch.setattr(api_module.requests, "get", Mock(side_effect=[membership, roles, Mock(ok=False)]))
+    with pytest.raises(RuntimeError, match="bell authorization unavailable"):
+        api_module._periodic_bell_authorizer("u1")
+
+
+@pytest.mark.parametrize("current,should_persist", [
+    ([], False),
+    ([{"reservation_id": "rescheduled"}], False),
+    ([{"reservation_id": "lab-original"}], True),
+])
+def test_lab_reminder_revalidates_source_before_bell_and_push(api_module, monkeypatch, current, should_persist):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": "ws-a", "spreadsheet_url": "https://example.test/a.xlsx", "lab_count": 3}]
+    get = Mock(return_value=response)
+    monkeypatch.setattr(api_module.requests, "get", get)
+    parse = Mock(return_value=(current, []))
+    monkeypatch.setattr(api_module, "_parse_spreadsheet", parse)
+    monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[]))
+    persist = Mock()
+    monkeypatch.setattr(api_module, "_persist_periodic_bell", persist)
+    payload = {"module": "reservalab", "context": "lab-reserva", "workspace_id": "ws-a",
+               "expires_at": "2099-01-01T10:00:00-03:00", "reservation_id": "lab-original",
+               "persist_inapp": True}
+    assert api_module._deliver_outbox_notification("lab-event", payload)
+    assert get.call_args.kwargs["params"]["id"] == "eq.ws-a"
+    parse.assert_called_once_with("https://example.test/a.xlsx", lab_count=3, strict=True)
+    assert persist.call_count == int(should_persist)
+
+
+def test_lab_source_failure_retries_without_notification(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": "ws-a", "spreadsheet_url": "https://example.test/a.xlsx"}]
+    monkeypatch.setattr(api_module.requests, "get", Mock(return_value=response))
+    monkeypatch.setattr(api_module, "_parse_spreadsheet", Mock(side_effect=RuntimeError("source unavailable")))
+    persist = Mock()
+    monkeypatch.setattr(api_module, "_persist_periodic_bell", persist)
+    with pytest.raises(RuntimeError, match="source unavailable"):
+        api_module._deliver_outbox_notification("lab-event", {
+            "module": "reservalab", "context": "lab-reserva", "workspace_id": "ws-a",
+            "expires_at": "2099-01-01T10:00:00-03:00", "reservation_id": "lab-original",
+            "persist_inapp": True,
+        })
+    persist.assert_not_called()
+
+
+def test_claim_exclusion_survives_actual_outbox_serialization(api_module, monkeypatch):
+    legacy = sys.modules[api_module._queue_push_event.__module__]
+    monkeypatch.setattr(legacy.pg_store, "is_configured", lambda: True)
+    enqueue = Mock(return_value=True)
+    monkeypatch.setattr(legacy.pg_store.store, "notification_outbox_enqueue", enqueue)
+    monkeypatch.setattr(api_module, "_request_tick_for_chamados_event", lambda *_: True)
+    ticket = {"id": "ticket-1", "ticketNumber": 333, "workspace_id": "ws-a",
+              "assignedToUserId": "tech-1", "updatedAt": "2026-11-24T12:00:00Z"}
+    api_module._notify_ticket_claimed(ticket, "Técnico")
+    assert enqueue.call_count == 2
+    own, others = [call.args[2] for call in enqueue.call_args_list]
+    assert own["target_user_id"] == "tech-1"
+    assert own.get("exclude_user_id") is None
+    assert others["target_user_id"] is None
+    assert others["exclude_user_id"] == "tech-1"
+    assert own["workspace_id"] == others["workspace_id"] == "ws-a"
+
+    subs = [{"user": {"id": "tech-1"}}, {"user": {"id": "tech-2"}}]
+    def target(**kwargs):
+        return [sub for sub in subs if not kwargs.get("user_id") or sub["user"]["id"] == kwargs["user_id"]]
+    monkeypatch.setattr(api_module, "_target_subs", target)
+    send = Mock(return_value=(1, 0, 0, 0, 0))
+    monkeypatch.setattr(api_module, "_push_notify_subs_dedup", send)
+    for call in enqueue.call_args_list:
+        event_id, _, payload = call.args
+        assert api_module._deliver_outbox_notification(event_id, payload)
+    assert [[sub["user"]["id"] for sub in call.args[0]] for call in send.call_args_list] == [["tech-1"], ["tech-2"]]
+
 def test_operational_push_isolation_across_two_campuses(api_module, monkeypatch):
     """Real targeting and delivery code; synthetic subscriptions, no external pushes."""
     from unittest.mock import Mock
@@ -567,3 +881,24 @@ def test_operational_push_isolation_across_two_campuses(api_module, monkeypatch)
             "module": "chamados", "context": "chamados-claimed", "min_level": "full",
         })
     send.assert_not_called()
+
+
+
+def test_disabled_periodic_body_only_recovers_critical_work(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.delenv("LABHUB_QSTASH_PERIODIC_ENABLED", raising=False)
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    dispatch = Mock(return_value={"enabled": True})
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", dispatch)
+    for name in ("_internal_push_check", "_check_pending_users", "_periodic_inventory_check"):
+        monkeypatch.setattr(api_module, name, Mock(side_effect=AssertionError(name)))
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == 200
+    assert "periodic" not in response.get_json()
+    worker.assert_called_once_with(5, 5)
+    dispatch.assert_called_once_with(limit=5)
+    for name in ("_internal_push_check", "_check_pending_users", "_periodic_inventory_check"):
+        getattr(api_module, name).assert_not_called()

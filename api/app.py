@@ -13,6 +13,9 @@ from app import (
     _push_notify_subs_dedup,
     _MODULE_PUSH_ACTIONS,
     _queue_push_event,
+    _internal_push_check,
+    _parse_spreadsheet,
+    _check_pending_users,
     push_notify,
     _push_outcome,
     PUSH_ACCEPTED,
@@ -55,11 +58,14 @@ from rbac import (
     record_rbac_audit as rbac_record_audit,
 )
 import pg_store
+from notification_periodic import due_inventory_check, run_inventory_check
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
 from notification_tick import (
     TICK_PATH as _QSTASH_TICK_PATH,
+    PERIODIC_BODY as _QSTASH_PERIODIC_BODY,
     tick_destination as _qstash_tick_destination,
+    periodic_producers_enabled as _periodic_producers_enabled,
     verify_signed_tick as _verify_qstash_tick,
     request_tick_for_created_ticket as _request_tick_for_created_ticket,
     request_tick_for_chamados_event as _request_tick_for_chamados_event,
@@ -6549,7 +6555,139 @@ def _created_push_still_actionable(action_url, workspace_id):
     )
 
 
-def _deliver_outbox_notification(event_id, payload):
+# Only these explicitly opted-in operational events can populate the bell.
+_PERIODIC_BELL_LEVELS = {
+    ('reservalab', 'tablet'): 'full',
+    ('reservalab', 'lab-reserva'): 'full',
+    ('stock', 'overdue'): None,
+    ('stock', 'stock-expiry'): None,
+    ('pc-care', 'pcare-part'): None,
+    ('pc-care', 'pcare-maint'): None,
+}
+
+
+def _persist_periodic_bell(event_id, payload, title, message, action_url):
+    module, context = payload.get('module'), payload.get('context')
+    workspace = payload.get('workspace_id')
+    if (module, context) not in _PERIODIC_BELL_LEVELS or not workspace:
+        raise ValueError('invalid periodic bell scope')
+    # The existing outbox owns delivery. This INSERT must NOT create a
+    # second outbox event. Stable ID + conflict ignore makes retry idempotent.
+    row = {
+        'id': f'periodic:{module}:{context}:{event_id}',
+        'title': title, 'body': message, 'module': module,
+        'workspace_id': workspace, 'audience': 'workspace',
+        'type': 'maintenance' if module == 'pc-care' else ('asset' if module == 'stock' else 'system'),
+        'severity': 'warning', 'action_url': action_url,
+    }
+    if not _require_supabase():
+        raise RuntimeError('bell database unavailable')
+    response = requests.post(
+        f'{_SUPABASE_URL}/rest/v1/app_notifications',
+        params={'on_conflict': 'id'},
+        headers={**_supabase_headers(), 'Prefer': 'resolution=ignore-duplicates,return=minimal'},
+        json=row, timeout=8,
+    )
+    if not response.ok:
+        raise RuntimeError('periodic bell persistence failed')
+
+
+def _periodic_bell_authorizer(user_id):
+    """Resolve RBAC once per list request. Failed reads never grant access.
+
+    Do not reuse push subscription snapshots or helpers that swallow a failed
+    override lookup as an empty override map.
+    """
+    def read(table, params):
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+            headers=_supabase_headers(), timeout=6,
+        )
+        if not response.ok:
+            raise RuntimeError('bell authorization unavailable')
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise RuntimeError('invalid bell authorization response')
+        return rows
+
+    memberships = read('memberships', {
+        'profile_id': f'eq.{user_id}', 'status': 'eq.active',
+        'select': 'id,workspace_id,role_id,status',
+    })
+    memberships = {str(m['workspace_id']): m for m in memberships
+                   if m.get('status') == 'active' and m.get('id') and m.get('workspace_id')}
+    role_ids = sorted({str(m['role_id']) for m in memberships.values() if m.get('role_id')})
+    member_ids = sorted({str(m['id']) for m in memberships.values()})
+    roles, overrides = {}, {}
+    if role_ids:
+        for row in read('role_permissions', {
+            'role_id': 'in.(' + ','.join(role_ids) + ')',
+            'scope': 'eq.workspace', 'select': 'role_id,action,scope',
+        }):
+            if row.get('scope') == 'workspace':
+                roles.setdefault(str(row['role_id']), set()).add(row['action'])
+    if member_ids:
+        for row in read('membership_overrides', {
+            'membership_id': 'in.(' + ','.join(member_ids) + ')',
+            'select': 'membership_id,action,effect',
+        }):
+            overrides.setdefault(str(row['membership_id']), {})[row['action']] = row['effect']
+
+    def allowed(row):
+        parts = str(row.get('id') or '').split(':', 3)
+        if len(parts) != 4 or parts[1] != row.get('module'):
+            return False
+        pair = (parts[1], parts[2])
+        if pair not in _PERIODIC_BELL_LEVELS:
+            return False
+        member = memberships.get(str(row.get('workspace_id')))
+        if not member:
+            return False
+        actions = _MODULE_PUSH_ACTIONS.get(pair[0], {}).get(_PERIODIC_BELL_LEVELS[pair], ())
+        base = roles.get(str(member.get('role_id')), set())
+        effects = overrides.get(str(member['id']), {})
+        return any(effects.get(action) == 'allow' or
+                   (effects.get(action) is None and action in base) for action in actions)
+    return allowed
+
+
+def _lab_reminder_current(workspace_id, reservation_id, expires_at, snapshots=None):
+    """Fresh per-campus source read; never substitute the global spreadsheet.
+    Reuse a successful snapshot for at most 30s within this worker batch only.
+    An unavailable/invalid source is a retry, not a confirmed cancellation.
+    """
+    if not workspace_id or not reservation_id:
+        raise ValueError('lab reminder missing identity or scope')
+    cached = snapshots.get(workspace_id) if snapshots is not None else None
+    if cached is not None and time.monotonic() - cached[0] <= 30:
+        rows = cached[1]
+    else:
+        if not _require_supabase():
+            raise RuntimeError('lab revalidation unavailable')
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces',
+            params={'id': f'eq.{workspace_id}', 'select': 'id,spreadsheet_url,lab_count'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not response.ok:
+            raise RuntimeError('lab workspace revalidation failed')
+        workspaces = response.json()
+        if not isinstance(workspaces, list):
+            raise RuntimeError('invalid lab workspace response')
+        if not workspaces or not workspaces[0].get('spreadsheet_url'):
+            return False
+        workspace = workspaces[0]
+        today, upcoming = _parse_spreadsheet(
+            workspace['spreadsheet_url'], lab_count=int(workspace.get('lab_count') or 2), strict=True,
+        )
+        rows = [*today, *upcoming]
+        if snapshots is not None:
+            snapshots[workspace_id] = (time.monotonic(), rows)
+    # reservation_id covers date, time, lab(s), professor and booker.
+    return any(str(row.get('reservation_id') or '') == str(reservation_id) for row in rows)
+
+
+def _deliver_outbox_notification(event_id, payload, *, lab_snapshots=None):
     """Entrega um evento persistido no outbox aos subscribers autorizados."""
     if not isinstance(payload, dict):
         raise ValueError('payload de notificação inválido')
@@ -6577,6 +6715,93 @@ def _deliver_outbox_notification(event_id, payload):
             logger.info('[notifications] aviso de abertura obsoleto descartado: %s', event_id)
             return True
 
+    if payload.get('expires_at'):
+        try:
+            expires_at = datetime.fromisoformat(str(payload['expires_at']).replace('Z', '+00:00'))
+            if expires_at.tzinfo is None:
+                raise ValueError('timezone required')
+        except (ValueError, TypeError) as exc:
+            raise ValueError('invalid notification expiration') from exc
+        if datetime.now(timezone.utc) >= expires_at:
+            return True  # obsolete reservation: do not deliver after its start
+
+    if module == 'reservalab' and context == 'tablet' and payload.get('reservation_id'):
+        # A queued tablet reminder must not outlive a cancellation, reschedule
+        # or campus transfer. A failed read leaves the event available for retry.
+        try:
+            reservation_id = str(uuid.UUID(str(payload['reservation_id'])))
+        except (ValueError, TypeError):
+            raise ValueError('invalid tablet reservation identity')
+        if not workspace_id or not payload.get('expires_at'):
+            raise ValueError('tablet reminder missing scope or start time')
+        if not _require_supabase():
+            raise RuntimeError('tablet revalidation unavailable')
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tablet_reservations',
+            params={'id': f'eq.{reservation_id}', 'workspace_id': f'eq.{workspace_id}',
+                    'status': 'eq.ativa', 'select': 'horario_inicio'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not response.ok:
+            raise RuntimeError('tablet revalidation failed')
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise RuntimeError('invalid tablet revalidation response')
+        if not rows:
+            return True
+        current_start = datetime.fromisoformat(str(rows[0]['horario_inicio']).replace('Z', '+00:00'))
+        if current_start.tzinfo is None:
+            raise ValueError('invalid tablet start time')
+        if current_start != expires_at:
+            return True
+
+    if module == 'reservalab' and context == 'lab-reserva' and payload.get('reservation_id'):
+        if not payload.get('expires_at'):
+            raise ValueError('lab reminder missing start time')
+        if not _lab_reminder_current(workspace_id, payload['reservation_id'], expires_at, lab_snapshots):
+            return True
+        # Source reads can take time; recheck before publishing the reminder.
+        if datetime.now(timezone.utc) >= expires_at:
+            return True
+
+    # Preserve the operational recipient restriction of the legacy reminder.
+    if module == 'reservalab' and context in ('lab-reserva', 'tablet'):
+        min_level = 'full'
+
+    if module == 'auth' and context == 'pending-user':
+        # Recheck the applicant and current active super-admin privileges.
+        # A subscription snapshot may be stale after account approval/demotion.
+        pending_id = parse_qs(urlparse(action_url).query).get('pending', [''])[0]
+        try:
+            pending_id = str(uuid.UUID(pending_id))
+        except (TypeError, ValueError):
+            return True
+        if not _require_supabase():
+            raise RuntimeError('approval revalidation unavailable')
+        pending = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles',
+            params={'id': f'eq.{pending_id}', 'status': 'eq.pending', 'select': 'id'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not pending.ok:
+            raise RuntimeError('approval revalidation failed')
+        if not pending.json():
+            return True
+        admins = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles',
+            params={'status': 'eq.active', 'is_super_admin': 'eq.true', 'select': 'id,notify_settings'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not admins.ok:
+            raise RuntimeError('approval recipient revalidation failed')
+        eligible_admins = {}
+        for row in admins.json():
+            settings = row.get('notify_settings') or {}
+            if not settings.get('muted') and (settings.get('apps') or {}).get('auth', {}).get('push', True):
+                eligible_admins[str(row['id'])] = row
+    else:
+        eligible_admins = None
+
     targeting_module = module
     if module and module not in _MODULE_PUSH_ACTIONS:
         # Eventos de autenticação/aprovação são direcionados ao usuário e não
@@ -6593,16 +6818,17 @@ def _deliver_outbox_notification(event_id, payload):
         or context in ('chamados-created', 'chamados-claimed', 'chamados-assigned'))
     if scoped_chamados and not workspace_id:
         raise ValueError('aviso operacional de chamados sem campus')
-    target_options = {'strict': True} if strict_stock_movement or scoped_chamados else {}
     subs = _target_subs(
         module=targeting_module,
         workspace_id=workspace_id,
         user_id=user_id,
         role=role,
         min_level=min_level,
-        **target_options,
+        strict=True,
     )
-    if target_super_admin is True:
+    if eligible_admins is not None:
+        subs = [sub for sub in subs if str((sub.get('user') or {}).get('id') or '') in eligible_admins]
+    elif target_super_admin is True:
         subs = [
             sub for sub in subs
             if bool((sub.get('user') or {}).get('is_super_admin'))
@@ -6613,6 +6839,9 @@ def _deliver_outbox_notification(event_id, payload):
             sub for sub in subs
             if str((sub.get('user') or {}).get('id') or '') != exclude_user_id
         ]
+
+    if payload.get('persist_inapp') is True:
+        _persist_periodic_bell(event_id, payload, title, message, action_url)
 
     if not subs:
         return True
@@ -6659,8 +6888,11 @@ def _run_notification_worker(publish_limit: int, consume_limit: int) -> tuple[di
         published = publish_pending(
             pg_store.store, queue, worker_id, limit=publish_limit,
         )
+        lab_snapshots = {}
+        def deliver(event_id, payload):
+            return _deliver_outbox_notification(event_id, payload, lab_snapshots=lab_snapshots)
         processed = process_pending(
-            pg_store.store, queue, worker_id, _deliver_outbox_notification,
+            pg_store.store, queue, worker_id, deliver,
             count=consume_limit,
         )
         return {
@@ -6688,6 +6920,38 @@ def notifications_worker():
     return jsonify(result), code
 
 
+def _periodic_inventory_check(kind, now):
+    def read(schema, table, params):
+        if not _require_supabase():
+            raise RuntimeError('inventory database unavailable')
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+            headers={**_supabase_headers(), 'Accept-Profile': schema}, timeout=6,
+        )
+        if not resp.ok:
+            raise RuntimeError('inventory read failed')
+        return resp.json()
+    def enqueue(*args, **kwargs):
+        return _queue_push_event(*args, **kwargs, persist_inapp=True)
+    if redis is None:
+        raise RuntimeError('inventory continuation store unavailable')
+    prefix = 'labhub:staging:' if os.environ.get('VERCEL_ENV') == 'preview' else 'labhub:'
+    key = prefix + 'notifications:inventory-cursor:v1:' + kind
+    cursor = redis.get(key)
+    if cursor:
+        cursor = str(uuid.UUID(str(cursor)))
+    result = run_inventory_check(kind, now, read=read, enqueue=enqueue, cursor=cursor)
+    if 'next_cursor' in result:
+        next_cursor = result.pop('next_cursor')
+        if next_cursor:
+            next_cursor = str(uuid.UUID(next_cursor))
+            if redis.set(key, next_cursor, ex=604800) != 'OK':
+                raise RuntimeError('inventory continuation write failed')
+        elif cursor:
+            redis.delete(key)
+    return result
+
+
 @_route_once(_QSTASH_TICK_PATH, methods=['POST'])
 def notifications_qstash_tick():
     """Tick QStash assinado: outbox de push e dispatcher dos workflows.
@@ -6703,9 +6967,10 @@ def notifications_qstash_tick():
     # parâmetros que permitam alterar lote, campus, destinatários ou intervalo.
     if request.content_length is not None and request.content_length > 256:
         return jsonify({'error': 'Assinatura inválida'}), 401
+    raw_body = request.get_data(cache=False)
     try:
         verified = _verify_qstash_tick(
-            request.get_data(cache=False),
+            raw_body,
             request.headers.get('Upstash-Signature', ''),
         )
     except (RuntimeError, ImportError):
@@ -6713,6 +6978,53 @@ def notifications_qstash_tick():
         return jsonify({'error': 'Agendador indisponível'}), 503
     if not verified:
         return jsonify({'error': 'Assinatura inválida'}), 401
+
+    if raw_body == _QSTASH_PERIODIC_BODY and _periodic_producers_enabled():
+        # Recover critical work before any slow external spreadsheet reads.
+        try:
+            workflow_result = _drain_chamado_workflow_outbox(limit=5)
+        except Exception as exc:
+            logger.warning('[notifications] dispatch QStash falhou: %s', type(exc).__name__)
+            workflow_result = {'error': type(exc).__name__}
+        queue_result, queue_code = _run_notification_worker(5, 5)
+        # Distinct signed job: event wake-ups never scan external spreadsheets.
+        # This job replaces the 5-minute schedule body only; fast event wakeups
+        # continue using the original body. No additional schedule is needed.
+        results = {}
+        try:
+            outcome = _check_pending_users(require_outbox=True)
+            results['approval'] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
+        except Exception as exc:
+            logger.warning('[notifications] approval periodic failed: %s', type(exc).__name__)
+            results['approval'] = {'error': 'check failed'}
+        now = datetime.now(timezone(timedelta(hours=-3)))
+        inventory_kind = due_inventory_check(now)
+        if inventory_kind:
+            try:
+                results[inventory_kind] = _periodic_inventory_check(inventory_kind, now)
+            except Exception as exc:
+                logger.warning('[notifications] inventory periodic failed: %s', type(exc).__name__)
+                results[inventory_kind] = {'error': 'check failed'}
+        try:
+            outcome = _internal_push_check(strict_scope=True)
+            results['reservalab'] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
+        except Exception as exc:
+            logger.warning('[notifications] reservation periodic failed: %s', type(exc).__name__)
+            results['reservalab'] = {'error': 'check failed'}
+        queued = sum(int(result.get('queued') or 0) for result in results.values())
+        delivery, code = ({'status': 'not_needed'}, 200)
+        if queued:
+            delivery, code = _run_notification_worker(5, 5)
+        failed = (queue_code != 200 or code != 200 or workflow_result.get('error')
+                  or workflow_result.get('reconcile_error')
+                  or any(result.get('error') for result in results.values()))
+        return jsonify({
+            'status': 'error' if failed else 'ok',
+            'periodic': results,
+            'queue': queue_result,
+            'chamados': workflow_result,
+            'periodic_delivery': delivery,
+        }), (503 if failed else 200)
 
     queue_result, queue_code = _run_notification_worker(5, 5)
     try:
@@ -6796,20 +7108,45 @@ def app_notifications_list():
         (role/user) é reaplicada no cliente (notificationAppliesTo).
     """
     if not _require_supabase():
-        return jsonify({'notifications': []})
+        return jsonify({'error': 'Serviço de notificações indisponível'}), 503
     try:
         user = g.user or {}
         is_super = bool(user.get('is_super_admin'))
         ws_ids = set(_get_user_workspace_ids(g.user_id)) if not is_super else None
 
+        # Apply coarse audience constraints before LIMIT, so a different
+        # campus's recent events cannot consume the entire query window.
+        def safe_id(value):
+            value = str(value)
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', value):
+                raise ValueError('invalid notification audience identifier')
+            return value
+
+        filters = [f'or(target_user_id.is.null,target_user_id.eq.{safe_id(g.user_id)})']
+        if not is_super:
+            filters.append('or(target_super_admin.is.null,target_super_admin.eq.false)')
+            scopes = ','.join(safe_id(w) for w in sorted(ws_ids))
+            filters.append(f'or(workspace_id.is.null,workspace_id.in.({scopes}))'
+                           if scopes else 'workspace_id.is.null')
+        params = {
+            'select': '*',
+            'order': 'created_at.desc,id.desc',
+            'limit': 50,
+            'and': '(' + ','.join(filters) + ')',
+        }
         resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/app_notifications'
-            f'?select=*&order=created_at.desc&limit=200',
+            f'{_SUPABASE_URL}/rest/v1/app_notifications',
+            params=params,
             headers=_supabase_headers(),
             timeout=10,
         )
-        rows = resp.json() if resp.ok else []
+        if not resp.ok:
+            return jsonify({'error': 'Falha ao consultar notificações'}), 503
+        rows = resp.json()
+        if not isinstance(rows, list):
+            return jsonify({'error': 'Resposta inválida de notificações'}), 503
         out = []
+        periodic_allowed = None
         for r in rows or []:
             # Notificações direcionadas a uma pessoa são privadas no backend;
             # não confiar no filtro visual do cliente para proteger o conteúdo.
@@ -6821,14 +7158,19 @@ def app_notifications_list():
             if r.get('target_super_admin') is True and not is_super:
                 continue
             w = r.get('workspace_id')
+            if str(r.get('id') or '').startswith('periodic:') and not is_super:
+                if periodic_allowed is None:
+                    periodic_allowed = _periodic_bell_authorizer(g.user_id)
+                if not periodic_allowed(r):
+                    continue
             if is_super:
                 out.append(r)
             elif w is None or (w and str(w) in ws_ids):
                 out.append(r)
-        return jsonify({'notifications': out})
+        return jsonify({'notifications': out[:50], 'periodic_window': True})
     except Exception as e:
         logger.error("app notifications error: %s", e)
-        return jsonify({'notifications': []})
+        return jsonify({'error': 'Falha ao consultar notificações'}), 503
 
 
 # ── Zerar dados (factory reset) ──

@@ -596,3 +596,255 @@ def test_target_subs_modulo_sem_criterio_somente_super_admin(push_module, monkey
     ids = sorted(s['user']['id'] for s in out)
 
     assert ids == ['u-admin']
+
+
+def test_periodic_reservations_require_campus_and_durable_queue(push_module, monkeypatch):
+    from datetime import date, datetime
+    from unittest.mock import Mock
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setattr(push_module, "_workspaces_with_spreadsheet", lambda: [
+        {"id": "ws-a", "slug": "campus-a", "spreadsheet_url": "https://example.com/a.xlsx"},
+    ])
+    monkeypatch.setattr(push_module, "_get_workspace_lab_count", lambda _: 2)
+    monkeypatch.setattr(push_module, "get_today_sp", lambda: date(2026, 11, 24))
+    monkeypatch.setattr(push_module, "get_now_sp", lambda: datetime(2026, 11, 24, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo")))
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only")
+    monkeypatch.setattr(push_module, "_parse_spreadsheet", lambda *a, **k: ([{
+        "reservation_id": "lab-reservation-a", "data": "24/11/2026", "lab": "LAB01", "horario": "10h30 às 12h00",
+        "responsavel": "Professor", "observacao": "",
+    }], []))
+    response = Mock(ok=True)
+    response.json.return_value = [
+        {"id": "tablet-1", "workspace_id": "ws-a", "horario_inicio": "2026-11-24T13:30:00Z", "finalidade": ""},
+        {"id": "tablet-unscoped", "workspace_id": None, "horario_inicio": "2026-11-24T13:30:00Z", "finalidade": ""},
+    ]
+    get = Mock(return_value=response)
+    monkeypatch.setattr(push_module.requests, "get", get)
+    queue = Mock(return_value="queued")
+    monkeypatch.setattr(push_module, "_queue_push_event", queue)
+    legacy = Mock(side_effect=AssertionError("periodic path cannot send legacy Push"))
+    monkeypatch.setattr(push_module, "_push_notify_subs_dedup", legacy)
+
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result["queued"] == 2
+    assert result["failures"] == 1
+    assert result["error"]
+    for call in queue.call_args_list:
+        assert call.kwargs["workspace_id"] == "ws-a"
+        assert call.kwargs["min_level"] == "full"
+        assert call.kwargs["expires_at"] == "2026-11-24T10:30:00-03:00"
+        assert call.kwargs["persist_inapp"] is True
+        assert call.kwargs["reservation_id"]
+    ids = [call.args[0] for call in queue.call_args_list]
+    assert "%2B" not in get.call_args.args[0]  # local timestamps have negative UTC offset
+
+    queue.reset_mock()
+    queue.return_value = "duplicate"
+    assert push_module._internal_push_check(strict_scope=True)["queued"] == 0
+    assert [call.args[0] for call in queue.call_args_list] == ids
+
+    queue.reset_mock()
+    queue.return_value = None
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result["queued"] == 0
+    assert result["failures"] == 3
+    legacy.assert_not_called()
+
+
+def test_periodic_never_uses_global_spreadsheet_fallback(push_module, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setattr(push_module, "_workspaces_with_spreadsheet", lambda: [])
+    global_sheet = Mock(side_effect=AssertionError("unscoped fallback forbidden"))
+    monkeypatch.setattr(push_module, "get_reservas", global_sheet)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result["error"]
+    global_sheet.assert_not_called()
+
+
+def test_periodic_approval_persists_bell_and_push_atomically(push_module, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only")
+    monkeypatch.setattr(push_module.pg_store, "is_configured", lambda: True)
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": "pending-a", "email": "qa@example.test", "name": "QA"}]
+    monkeypatch.setattr(push_module.requests, "get", Mock(return_value=response))
+    atomic = Mock(return_value=True)
+    monkeypatch.setattr(push_module.pg_store.store, "notification_create_with_outbox", atomic)
+    legacy = Mock(side_effect=AssertionError("periodic approval must use atomic persistence"))
+    monkeypatch.setattr(push_module, "_queue_push_event", legacy)
+
+    result = push_module._check_pending_users(require_outbox=True)
+    assert result["queued"] == 1
+    notification, payload = atomic.call_args.args
+    assert notification["target_super_admin"] is True
+    assert notification["audience"] == "role"
+    assert notification["type"] == "approval"
+    assert payload["context"] == "pending-user"
+    assert payload["target_super_admin"] is True
+    assert payload["action_url"] == notification["action_url"]
+
+    atomic.return_value = False
+    assert push_module._check_pending_users(require_outbox=True)["queued"] == 0
+    assert atomic.call_args.args[0]["id"] == notification["id"]
+    atomic.side_effect = RuntimeError("database unavailable")
+    assert push_module._check_pending_users(require_outbox=True)["failures"] == 1
+    legacy.assert_not_called()
+
+
+def test_periodic_reservations_cross_midnight_without_scanning_full_tablet_day(push_module, monkeypatch):
+    from datetime import date, datetime
+    from unittest.mock import Mock
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(push_module, "_push_store_ready", lambda: True)
+    monkeypatch.setattr(push_module, "_workspaces_with_spreadsheet", lambda: [
+        {"id": "ws-a", "slug": "campus-a", "spreadsheet_url": "https://example.test/a.xlsx"},
+    ])
+    monkeypatch.setattr(push_module, "_get_workspace_lab_count", lambda _: 2)
+    monkeypatch.setattr(push_module, "_push_advance_minutes", lambda: 30)
+    monkeypatch.setattr(push_module, "get_today_sp", lambda: date(2026, 11, 24))
+    monkeypatch.setattr(push_module, "get_now_sp", lambda: datetime(2026, 11, 24, 23, 50, tzinfo=ZoneInfo("America/Sao_Paulo")))
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "test-only")
+    monkeypatch.setattr(push_module, "_parse_spreadsheet", lambda *a, **k: ([], [
+        {"reservation_id": "next-day", "data": date(2026, 11, 25), "lab": "LAB01",
+         "horario": "00h10 às 01h00", "responsavel": "QA", "observacao": None},
+        {"reservation_id": "too-late", "data": date(2026, 11, 25), "lab": "LAB02",
+         "horario": "01h00 às 02h00", "responsavel": "QA"},
+    ]))
+    response = Mock(ok=True)
+    response.json.return_value = [
+        {"id": "tablet-next-day", "workspace_id": "ws-a", "horario_inicio": "2026-11-25T03:10:00Z"},
+    ]
+    get = Mock(return_value=response)
+    monkeypatch.setattr(push_module.requests, "get", get)
+    queue = Mock(return_value="queued")
+    monkeypatch.setattr(push_module, "_queue_push_event", queue)
+    result = push_module._internal_push_check(strict_scope=True)
+    assert result == {"checked": True, "queued": 2, "sent": 0}
+    assert {call.kwargs["reservation_id"] for call in queue.call_args_list} == {"next-day", "tablet-next-day"}
+    assert all(call.kwargs["expires_at"] == "2026-11-25T00:10:00-03:00" for call in queue.call_args_list)
+    assert "horario_inicio=gte.2026-11-24T23%3A50" in get.call_args.args[0]
+    assert "horario_inicio=lte.2026-11-25T00%3A20" in get.call_args.args[0]
+
+
+def test_strict_spreadsheet_distinguishes_fetch_failure_from_empty(push_module, monkeypatch):
+    monkeypatch.setattr(push_module, "_ext_validate_source_url", lambda *_: True)
+    monkeypatch.setattr(push_module, "_ext_fetch_source_bytes", lambda *a, **k: (None, "timeout"))
+    with pytest.raises(RuntimeError, match="spreadsheet unavailable"):
+        push_module._parse_spreadsheet("https://example.test/a.xlsx", strict=True)
+    assert push_module._parse_spreadsheet("https://example.test/a.xlsx") == ([], [])
+
+
+def test_push_override_failure_never_falls_back_to_role(push_module, monkeypatch):
+    from unittest.mock import Mock
+    user = {"id": "22222222-2222-4222-8222-222222222222", "is_super_admin": False}
+    monkeypatch.setattr(push_module, "_get_subs", lambda: [{"user": user}])
+    monkeypatch.setattr(push_module, "_resolve_batch_rbac", lambda _: {user["id"]: {
+        "ws-a": {"membership_id": "m1", "role_id": "r1"}}})
+    monkeypatch.setattr(push_module, "_resolve_batch_role_permissions", lambda _: {"r1": {"stock.item.edit"}})
+    monkeypatch.setattr(push_module, "_resolve_batch_overrides", lambda _: None)
+    with pytest.raises(RuntimeError, match="overrides unavailable"):
+        push_module._target_subs(module="stock", workspace_id="ws-a")
+
+
+def test_strict_push_revalidates_demoted_and_inactive_profiles(push_module, monkeypatch):
+    from unittest.mock import Mock
+    demoted = "22222222-2222-4222-8222-222222222222"
+    inactive = "33333333-3333-4333-8333-333333333333"
+    active_admin = "44444444-4444-4444-8444-444444444444"
+    subs = [{"user": {"id": uid, "is_super_admin": True}} for uid in (demoted, inactive, active_admin)]
+    monkeypatch.setattr(push_module, "_get_subs", lambda **_: subs)
+    response = Mock(ok=True)
+    response.json.return_value = [
+        {"id": demoted, "status": "active", "is_super_admin": False, "notify_settings": {}},
+        {"id": active_admin, "status": "active", "is_super_admin": True, "notify_settings": {}},
+    ]
+    monkeypatch.setattr(push_module.requests, "get", Mock(return_value=response))
+    monkeypatch.setattr(push_module, "_resolve_batch_rbac", lambda *a, **k: {})
+    monkeypatch.setattr(push_module, "_resolve_batch_role_permissions", lambda *a, **k: {})
+    monkeypatch.setattr(push_module, "_resolve_batch_overrides", lambda *a, **k: {})
+    selected = push_module._target_subs(module="stock", workspace_id="ws-a", strict=True)
+    assert [sub["user"]["id"] for sub in selected] == [active_admin]
+
+
+def test_stock_notification_derives_content_and_scope_from_committed_movement(push_module, monkeypatch):
+    from flask import g
+    from unittest.mock import Mock
+    ws = "22222222-2222-4222-8222-222222222222"
+    movement = "33333333-3333-4333-8333-333333333333"
+    response = Mock(ok=True)
+    response.json.return_value = [{"id": movement, "workspace_id": ws, "type": "emprestimo",
+                                   "itemName": "Real", "borrowedBy": "QA"}]
+    get = Mock(return_value=response)
+    enqueue = Mock(return_value="queued")
+    monkeypatch.setattr(push_module.requests, "get", get)
+    monkeypatch.setattr(push_module, "_queue_push_event", enqueue)
+    with push_module.app.test_request_context(json={"movement_id": movement, "itemName": "Fake"}):
+        g.workspace_id = ws
+        result, code = push_module._notify_stock_movement("loan")
+        assert code == 202
+    assert get.call_args.kwargs["params"]["workspace_id"] == f"eq.{ws}"
+    assert enqueue.call_args.args[1] == "📦 Empréstimo: Real"
+    assert enqueue.call_args.args[0] == f"stock:loan:{movement}"
+    assert "Fake" not in enqueue.call_args.args[1]
+    assert enqueue.call_args.kwargs["workspace_id"] == ws
+    assert enqueue.call_args.kwargs["module"] == "stock"
+
+    response.json.return_value[0]["workspace_id"] = movement
+    enqueue.reset_mock()
+    with push_module.app.test_request_context(json={"movement_id": movement}):
+        g.workspace_id = ws
+        assert push_module._notify_stock_movement("loan")[1] == 409
+    enqueue.assert_not_called()
+    with push_module.app.test_request_context(json={"movement_id": movement, "module": "chamados"}):
+        g.workspace_id = ws
+        assert push_module._notify_stock_movement("loan")[1] == 400
+    enqueue.assert_not_called()
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_legacy_producers_mutually_exclusive_with_qstash(push_module, client, monkeypatch, enabled):
+    from unittest.mock import Mock
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("LABHUB_QSTASH_PERIODIC_ENABLED", "1" if enabled else "0")
+    monkeypatch.setenv("CRON_SECRET", "test-cron")
+    headers = {"Authorization": "Bearer test-cron"}
+    producers = {
+        "reservas": "_internal_push_check",
+        "overdue": "_internal_push_check_overdue",
+        "pcare": "_internal_push_check_pcare",
+        "pendentes": "_check_pending_users",
+        "validade": "_check_stock_expiry",
+    }
+    for fn in producers.values():
+        monkeypatch.setattr(push_module, fn, Mock(return_value={"checked": True}))
+    cleanup = Mock(return_value={"checked": True})
+    monkeypatch.setattr(push_module, "_internal_tablets_cleanup", cleanup)
+    response = client.get("/api/push/check-all", headers=headers)
+    assert response.status_code == 200
+    results = response.get_json()["results"]
+    for name, fn in producers.items():
+        assert getattr(push_module, fn).call_count == (0 if enabled else 1)
+        if enabled:
+            assert results[name]["skipped"] == "qstash_owns_periodic_producers"
+    cleanup.assert_called_once()
+    for endpoint, fn in (
+        ("/api/push/check", "_internal_push_check"),
+        ("/api/push/check-overdue", "_internal_push_check_overdue"),
+        ("/api/push/check-pcare", "_internal_push_check_pcare"),
+    ):
+        before = getattr(push_module, fn).call_count
+        response = client.get(endpoint, headers=headers)
+        assert response.status_code == 200
+        assert getattr(push_module, fn).call_count == before + (0 if enabled else 1)
+        if enabled:
+            assert response.get_json()["skipped"] == "qstash_owns_periodic_producers"
