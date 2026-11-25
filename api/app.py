@@ -643,7 +643,7 @@ def _cloudinary_public_id(image_url: str) -> str | None:
     # Remove query string e fragmento
     raw = raw.split('?', 1)[0].split('#', 1)[0]
     # Remove a extensão de imagem
-    for ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf'):
+    for ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf', '.heic', '.heif', '.avif', '.bmp', '.tif', '.tiff', '.ico'):
         if raw.lower().endswith(ext):
             raw = raw[:-len(ext)]
             break
