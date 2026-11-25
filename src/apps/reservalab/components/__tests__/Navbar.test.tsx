@@ -107,9 +107,14 @@ describe('Navbar', () => {
     const reservas = screen.getByText('Reservas').closest('button')!
     const tablets = screen.getByText('Tablets').closest('button')!
 
-    expect(dashboard).toHaveStyle({ color: 'var(--accent)' })
-    expect(reservas).toHaveStyle({ color: 'var(--text-secondary)' })
-    expect(tablets).toHaveStyle({ color: 'var(--text-secondary)' })
+    // Verify the authored inline tokens, not computed CSS colors: jsdom 31
+    // resolves unset theme variables to the inherited/default color.
+    expect(dashboard.style.getPropertyValue('color')).toBe('var(--accent)')
+    expect(reservas.style.getPropertyValue('color')).toBe('var(--text-secondary)')
+    expect(tablets.style.getPropertyValue('color')).toBe('var(--text-secondary)')
+    expect(dashboard.style.fontWeight).toBe('700')
+    expect(reservas.style.fontWeight).toBe('500')
+    expect(tablets.style.fontWeight).toBe('500')
   })
 })
 
