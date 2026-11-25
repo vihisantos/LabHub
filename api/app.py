@@ -632,13 +632,10 @@ def _cloudinary_public_id(image_url: str) -> str | None:
     controladas pelo usuário.
     """
     cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
-    if not cloud_name or cloud_name not in image_url:
+    prefix = f'https://res.cloudinary.com/{cloud_name}/image/upload/'
+    if not cloud_name or not isinstance(image_url, str) or not image_url.startswith(prefix):
         return None
-    marker = '/image/upload/'
-    idx = image_url.find(marker)
-    if idx < 0:
-        return None
-    raw = image_url[idx + len(marker):]
+    raw = image_url[len(prefix):]
     # Remove o prefixo de versão opcional (ex.: v1234567890/)
     slash = raw.find('/')
     if raw[:1] == 'v' and slash > 0 and raw[1:slash].isdigit():
@@ -663,20 +660,24 @@ def _cloudinary_destroy(image_url: str) -> bool:
     api_secret = os.environ.get('CLOUDINARY_API_SECRET', '')
     if not cloud_name or not api_key or not api_secret:
         return False
-    import base64
-    auth = base64.b64encode(f'{api_key}:{api_secret}'.encode()).decode()
+    # Upload API destroy requires signed parameters, not Admin API Basic auth.
+    fields = {'public_id': public_id, 'invalidate': 'true', 'timestamp': str(int(time.time()))}
+    signed = '&'.join(f'{key}={fields[key]}' for key in sorted(fields))
+    signature = hashlib.sha1((signed + api_secret).encode(), usedforsecurity=False).hexdigest()
     destroy_url = f'https://api.cloudinary.com/v1_1/{cloud_name}/image/destroy'
     try:
         resp = requests.post(
             destroy_url,
-            data={'public_id': public_id},
-            headers={'Authorization': f'Basic {auth}'},
+            data={**fields, 'api_key': api_key, 'signature': signature},
             timeout=10,
         )
         if not resp.ok:
+            logger.warning('[cloudinary] destroy HTTP %s', resp.status_code)
             return False
-        return resp.json().get('result') == 'ok'
+        # A successful previous delete followed by a failed DB patch is retryable.
+        return resp.json().get('result') in ('ok', 'not found')
     except Exception:
+        logger.warning('[cloudinary] destroy unavailable')
         return False
 
 
@@ -8413,86 +8414,137 @@ def chamados_reports_weekly_email():
         return jsonify({'error': 'Erro interno'}), 500
 
 
+def _photo_purge_eligible(ticket, cutoff):
+    """Indeferido has no closedAt; updatedAt is a conservative retention bound."""
+    status = ticket.get('status')
+    stamp = ticket.get('closedAt') if status == 'fechado' else ticket.get('updatedAt') if status == 'indeferido' else None
+    try:
+        dt = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+        return dt.tzinfo is not None and dt < cutoff
+    except (TypeError, ValueError):
+        return False
+
+
+def _photo_purge_read(table, params):
+    # No destructive work starts until a complete bounded reference snapshot exists.
+    rows = []
+    for offset in range(0, 10000, 500):
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}',
+            params={**params, 'order': 'id.asc', 'limit': 500, 'offset': offset},
+            headers=_supabase_headers(), timeout=15,
+        )
+        if not response.ok:
+            raise RuntimeError('photo reference read failed')
+        page = response.json()
+        if not isinstance(page, list):
+            raise RuntimeError('invalid photo reference response')
+        rows.extend(page)
+        if len(page) < 500:
+            return rows
+    raise RuntimeError('photo reference scan limit exceeded')
+
+
 @_route_once('/api/chamados/photos/purge', methods=['POST'])
 @require_cron
 def chamados_photos_purge():
-    """Cron diário: apaga do Cloudinary as fotos de chamados fechados há mais de 2 dias.
-
-    Roda via GitHub Actions (photos-cleanup.yml) com Bearer CRON_SECRET.
-    Limpa a coluna photos do ticket e photo_urls dos eventos afetados.
-    """
+    """Daily retention: only scoped terminal ticket assets, no orphan deletion."""
+    if os.environ.get('VERCEL_ENV') == 'preview':
+        return jsonify({'error': 'Photo purge is production-only'}), 403
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
+    dry_run = (request.get_json(silent=True) or {}).get('dry_run') is True
+    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
-            f'?status=eq.fechado&closedAt=lt.{quote(cutoff)}&select=id,workspace_id,photos',
-            headers=_supabase_headers(),
-            timeout=15,
-        )
-        if not resp.ok:
-            return jsonify({'error': 'Erro ao buscar chamados fechados'}), 502
-        tickets = resp.json() or []
-
-        deleted = 0
-        cleared_tickets = []
-        cleared_events = 0
-
-        for t in tickets:
-            ticket_photo = str(t.get('photos') or '').strip()
-            if ticket_photo and ticket_photo.startswith('https://res.cloudinary.com/') and _cloudinary_destroy(ticket_photo):
-                deleted += 1
-                cleared_tickets.append(t.get('id'))
-                requests.patch(
-                    f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(t.get("id"))}',
-                    headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
-                    json={'photos': '', 'updatedAt': datetime.now(timezone.utc).isoformat()},
-                    timeout=10,
-                )
-
-        ticket_ids = [t.get('id') for t in tickets if t.get('id')]
-        if ticket_ids:
-            events_resp = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/ticket_events'
-                f'?ticket_id=in.({",".join(quote(i) for i in ticket_ids)})&select=id,photo_urls',
-                headers=_supabase_headers(),
-                timeout=15,
-            )
-            if events_resp.ok:
-                for ev in (events_resp.json() or []):
-                    try:
-                        urls = json.loads(ev.get('photo_urls') or '[]')
-                    except (TypeError, ValueError):
-                        urls = []
-                    cloud_urls = [u for u in urls if isinstance(u, str) and u.startswith('https://res.cloudinary.com/')]
-                    if not cloud_urls:
-                        continue
-                    removed = 0
-                    for u in cloud_urls:
-                        if _cloudinary_destroy(u):
-                            removed += 1
-                    if removed:
-                        deleted += removed
-                        cleared_events += 1
-                        remaining = [u for u in urls if u not in cloud_urls]
-                        requests.patch(
-                            f'{_SUPABASE_URL}/rest/v1/ticket_events?id=eq.{quote(ev.get("id"))}',
-                            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
-                            json={'photo_urls': json.dumps(remaining, ensure_ascii=False)},
-                            timeout=10,
-                        )
-
-        return jsonify({
-            'tickets_scanned': len(tickets),
-            'tickets_cleared': len(cleared_tickets),
-            'events_cleared': cleared_events,
-            'photos_deleted': deleted,
+        tickets = _photo_purge_read('chamados_tickets', {
+            'select': 'id,workspace_id,status,closedAt,updatedAt,photos',
         })
-
-    except Exception as e:
-        logger.error("Erro interno na API: %s", e)
-        return jsonify({'error': 'Erro interno'}), 500
+        events = _photo_purge_read('ticket_events', {
+            'select': 'id,ticket_id,workspace_id,photo_urls', 'photo_urls': 'neq.',
+        })
+        by_id = {t['id']: t for t in tickets}
+        eligible = {t['id'] for t in tickets if _photo_purge_eligible(t, cutoff)}
+        references = {}
+        failures = 0
+        def add(url, parent, table, row, original):
+            if not isinstance(url, str) or not url.startswith('https://res.cloudinary.com/'):
+                return
+            public_id = _cloudinary_public_id(url)
+            if not public_id or not re.fullmatch(r'chamados/[A-Za-z0-9_-]+', public_id):
+                return  # Never purge avatars, stock, other clouds or ambiguous URLs.
+            references.setdefault(public_id, []).append((url, parent, table, row, original))
+        for t in tickets:
+            add(t.get('photos'), t['id'], 'chamados_tickets', t, t.get('photos'))
+        for e in events:
+            raw = e.get('photo_urls')
+            try:
+                urls = json.loads(raw or '[]')
+            except (TypeError, ValueError):
+                urls = []
+            if not isinstance(urls, list):
+                continue
+            for url in urls:
+                add(url, e.get('ticket_id'), 'ticket_events', e, raw)
+        candidates = {pid: refs for pid, refs in references.items()
+                      if all(parent in eligible and row.get('workspace_id') == by_id[parent].get('workspace_id')
+                             and row.get('workspace_id') for _, parent, _, row, _ in refs)}
+        result = {'tickets_scanned': len(eligible), 'tickets_cleared': 0, 'events_cleared': 0,
+                  'photos_deleted': 0, 'eligible_assets': len(candidates), 'failures': 0,
+                  'dry_run': dry_run}
+        if dry_run:
+            return jsonify(result)
+        removed = set()
+        # Bound destructive work; the daily run retries remaining references.
+        for pid, refs in list(candidates.items())[:20]:
+            # Re-read the current parent status and retention before deleting.
+            parents = sorted({parent for _, parent, _, _, _ in refs})
+            current = _photo_purge_read('chamados_tickets', {
+                'id': 'in.(' + ','.join(parents) + ')',
+                'select': 'id,workspace_id,status,closedAt,updatedAt,photos',
+            })
+            current_by_id = {t['id']: t for t in current}
+            if any(not _photo_purge_eligible(current_by_id.get(parent, {}), cutoff)
+                   or current_by_id[parent] != by_id[parent] for parent in parents):
+                failures += 1
+                continue
+            if _cloudinary_destroy(refs[0][0]):
+                removed.add(pid)
+            else:
+                failures += 1
+        updates = {}
+        for pid in removed:
+            for url, parent, table, row, original in candidates[pid]:
+                entry = updates.setdefault((table, row['id']), (parent, row, original, set()))
+                entry[3].add(url)
+        for (table, row_id), (parent, row, original, urls_removed) in updates.items():
+            field = 'photos' if table == 'chamados_tickets' else 'photo_urls'
+            params = {'id': 'eq.' + row_id, 'workspace_id': 'eq.' + row['workspace_id'],
+                      field: 'eq.' + original}
+            if table == 'chamados_tickets':
+                params['status'] = 'eq.' + row['status']
+                stamp = 'closedAt' if row['status'] == 'fechado' else 'updatedAt'
+                params[stamp] = 'eq.' + row[stamp]
+                value = ''
+            else:
+                params['ticket_id'] = 'eq.' + parent
+                value = json.dumps([u for u in json.loads(original) if u not in urls_removed], ensure_ascii=False)
+            response = requests.patch(
+                f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+                headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+                json={field: value}, timeout=10,
+            )
+            if not response.ok or not response.json():
+                failures += 1
+                continue
+            result['tickets_cleared' if table == 'chamados_tickets' else 'events_cleared'] += 1
+        result['photos_deleted'] = len(removed)
+        result['failures'] = failures
+        result['remaining_candidates'] = len(candidates) - len(removed)
+        # Fail visibly so scheduled runs cannot report false success.
+        return jsonify(result), (503 if failures else 200)
+    except Exception as exc:
+        logger.warning('[photo-purge] failed: %s', type(exc).__name__)
+        return jsonify({'error': 'Photo cleanup incomplete'}), 503
 
 
 # ──────────────────────────────────────────────────────────────────────────────
