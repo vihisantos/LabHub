@@ -319,6 +319,7 @@ jobs:
             --health-passed true
 
       - name: Upload staging release artifact
+        id: staging_artifact
         uses: actions/upload-artifact@v7
         with:
           name: staging-release-${{ github.sha }}
@@ -329,7 +330,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: actions/download-artifact@v8
         with:
-          name: staging-release-${{ github.sha }}
+          artifact-ids: ${{ steps.staging_artifact.outputs.artifact-id }}
           path: .artifacts/roundtrip
           digest-mismatch: error
 
