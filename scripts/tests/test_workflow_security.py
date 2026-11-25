@@ -113,6 +113,11 @@ def test_pull_requests_cannot_apply_to_production() -> None:
     gate = _job_block("premerge-gate")
     assert "always()" in gate
     assert 'test "$STAGING_RESULT" = success' in gate
+    assert 'test "$ARTIFACT_RESULT" = success' in gate
+    artifact = _job_block("verify-staging-artifact")
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in artifact
+    assert "secrets.SUPABASE_ACCESS_TOKEN" not in artifact
+    assert "secrets.SUPABASE_PROJECT_REF" not in artifact
     validate = _job_block("validate")
     assert "github.event_name == 'pull_request'" in validate
     assert "secrets." not in validate

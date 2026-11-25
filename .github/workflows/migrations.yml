@@ -2,7 +2,7 @@ name: Migrations
 
 # Pipeline automático de migrations (Issue #285 + consolidação #476/#477/#478/#483).
 #
-# PR ──> scope ─> validate (efêmero) ─> stage-migrations ─> premerge-gate
+# PR ──> scope ─> validate (efêmero) ─> stage-migrations ─> verify-staging-artifact ─> premerge-gate
 # main ─> scope ─> validate ─> stage-migrations ─> release-gate ─> production
 # PRs internas confiáveis: staging compartilhado, sem credenciais de produção.
 # PRs sem mudança de migrations/runner: gate leve, sem consumir o banco.
@@ -181,6 +181,9 @@ jobs:
     concurrency:
       group: migrations-delivery
       cancel-in-progress: false
+    outputs:
+      artifact_id: ${{ steps.staging_artifact.outputs.artifact-id }}
+      attestation_sha256: ${{ steps.attestation_hash.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -318,6 +321,10 @@ jobs:
             --tests-passed "${{ needs.validate.result == 'success' }}" \
             --health-passed true
 
+      - name: Hash original staging attestation
+        id: attestation_hash
+        run: echo "sha256=$(sha256sum staging-release.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
       - name: Upload staging release artifact
         id: staging_artifact
         uses: actions/upload-artifact@v7
@@ -326,20 +333,56 @@ jobs:
           path: staging-release.json
           retention-days: 7
 
-      - name: Verify staging attestation artifact round-trip in PR
-        if: github.event_name == 'pull_request'
+      - name: Report failing staging stage
+        if: failure()
+        run: echo "failing_stage=${CURRENT_STAGE:-unknown} target=staging commit=$GITHUB_SHA"
+
+  verify-staging-artifact:
+    name: Verify staging attestation artifact round-trip
+    needs: stage-migrations
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: migrations-delivery
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install staging verification dependencies
+        run: pip install requests python-dotenv
+
+      - name: Require uploaded artifact identity
+        env:
+          ARTIFACT_ID: ${{ needs.stage-migrations.outputs.artifact_id }}
+          EXPECTED_SHA256: ${{ needs.stage-migrations.outputs.attestation_sha256 }}
+        run: |
+          set -eu
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[a-f0-9]{64}$ ]]
+
+      - name: Download staging attestation by ID
         uses: actions/download-artifact@v8
         with:
-          artifact-ids: ${{ steps.staging_artifact.outputs.artifact-id }}
+          artifact-ids: ${{ needs.stage-migrations.outputs.artifact_id }}
           path: .artifacts/roundtrip
           digest-mismatch: error
 
-      - name: Compare downloaded attestation with original
-        if: github.event_name == 'pull_request'
-        run: cmp staging-release.json .artifacts/roundtrip/staging-release.json
+      - name: Compare downloaded attestation with original SHA-256
+        env:
+          EXPECTED_SHA256: ${{ needs.stage-migrations.outputs.attestation_sha256 }}
+        run: |
+          set -eu
+          printf '%s  %s\n' "$EXPECTED_SHA256" .artifacts/roundtrip/staging-release.json | sha256sum --check --strict
 
       - name: Record successful PR staging verification
-        if: github.event_name == 'pull_request'
         env:
           SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_STAGING_ACCESS_TOKEN: ${{ secrets.SUPABASE_STAGING_ACCESS_TOKEN }}
@@ -347,13 +390,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python scripts/ci/staging_candidate_guard.py --base-sha "$BASE_SHA" --event "$GITHUB_EVENT_NAME" --mark-verified "$GITHUB_SHA"
 
-      - name: Report failing staging stage
-        if: failure()
-        run: echo "failing_stage=${CURRENT_STAGE:-unknown} target=staging commit=$GITHUB_SHA"
-
   premerge-gate:
     name: Staging pre-merge gate
-    needs: [scope, validate, stage-migrations]
+    needs: [scope, validate, stage-migrations, verify-staging-artifact]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -364,6 +403,7 @@ jobs:
           REQUIRED: ${{ needs.scope.outputs.required }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
           STAGING_RESULT: ${{ needs.stage-migrations.result }}
+          ARTIFACT_RESULT: ${{ needs.verify-staging-artifact.result }}
           INTERNAL_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           set -eu
@@ -376,6 +416,7 @@ jobs:
           test "$INTERNAL_PR" = true
           test "$VALIDATE_RESULT" = success
           test "$STAGING_RESULT" = success
+          test "$ARTIFACT_RESULT" = success
           echo "PASS: staging validado antes do merge deste commit."
 
   # ─────────────────────────────────────────────────────────────────────────

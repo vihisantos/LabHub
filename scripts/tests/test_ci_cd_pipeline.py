@@ -506,9 +506,10 @@ def test_release_gate_rejects_stale_runs(tmp_path, monkeypatch) -> None:
 
 def test_yaml_job_dependency_graph_is_exact() -> None:
     jobs = _workflow()["jobs"]
-    assert set(jobs) == {"scope", "validate", "stage-migrations", "premerge-gate", "release-gate", "production"}
+    assert set(jobs) == {"scope", "validate", "stage-migrations", "verify-staging-artifact", "premerge-gate", "release-gate", "production"}
     assert jobs["validate"]["needs"] == "scope"
-    assert set(jobs["premerge-gate"]["needs"]) == {"scope", "validate", "stage-migrations"}
+    assert set(jobs["premerge-gate"]["needs"]) == {"scope", "validate", "stage-migrations", "verify-staging-artifact"}
+    assert jobs["verify-staging-artifact"]["needs"] == "stage-migrations"
     assert jobs["stage-migrations"]["needs"] == "validate"
     assert set(jobs["release-gate"]["needs"]) == {"validate", "stage-migrations"}
     assert jobs["production"]["needs"] == "release-gate"
@@ -726,5 +727,22 @@ def test_premerge_gate_cannot_pass_when_required_staging_is_skipped_or_failed():
         ("", "skipped", "skipped", "true", "success", 1),
     ):
         env = dict(os.environ, REQUIRED=required, VALIDATE_RESULT=validation,
-                   STAGING_RESULT=staging, INTERNAL_PR=internal, SCOPE_RESULT=scope)
+                   STAGING_RESULT=staging, ARTIFACT_RESULT=staging, INTERNAL_PR=internal, SCOPE_RESULT=scope)
         assert subprocess.run(["bash", "-c", script], env=env, capture_output=True).returncode == expected
+
+
+def test_pr_artifact_roundtrip_is_mandatory_and_fail_closed():
+    import os
+    import subprocess
+    job = _job("verify-staging-artifact")
+    assert job["concurrency"] == {"group": "migrations-delivery", "cancel-in-progress": False}
+    assert "github.event_name == 'pull_request'" in job["if"]
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in job["if"]
+    download = _step("verify-staging-artifact", "Download staging attestation by ID")
+    assert download["with"]["digest-mismatch"] == "error"
+    assert download["with"]["artifact-ids"] == "${{ needs.stage-migrations.outputs.artifact_id }}"
+    assert _step_index("verify-staging-artifact", "Compare downloaded attestation") < _step_index("verify-staging-artifact", "Record successful PR staging verification")
+    script = _step("premerge-gate", "Require real staging success")["run"]
+    for artifact_result in ("failure", "skipped", "cancelled", ""):
+        env = dict(os.environ, REQUIRED="true", VALIDATE_RESULT="success", STAGING_RESULT="success", ARTIFACT_RESULT=artifact_result, INTERNAL_PR="true", SCOPE_RESULT="success")
+        assert subprocess.run(["bash", "-c", script], env=env, capture_output=True).returncode != 0
